@@ -139,6 +139,10 @@ SURFACE_GAP_UNCLASSIFIED = "unclassified_extractor_warning"
 SURFACE_GAP_UNTYPED_PARAMETER = "untyped_parameter"
 SURFACE_GAP_VARIADIC_PARAMETERS = "variadic_parameters"
 SURFACE_GAP_DECORATED_FUNCTION = "decorated_tool_function"
+#: An annotation is present but the emitter cannot represent it, so the schema
+#: it ships is a guess with better manners than an absent annotation's. See
+#: :func:`_annotation_is_faithful`.
+SURFACE_GAP_UNREPRESENTABLE_ANNOTATION = "unrepresentable_annotation"
 #: An Agent Config lists tool *names*; there is no signature to read, so this
 #: path never claims an enumerated surface.
 SURFACE_GAP_TOOL_REFERENCE_ONLY = "tool_reference_only"
@@ -651,11 +655,11 @@ class _PythonAdkExtractor:
             for node in ast.walk(tree)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
-        # Names ``self.functions`` can answer for without being right. The map
-        # above is flat and scope-blind by design — it has to be, to name a
-        # tool at all — but the answer is only a *proof* of the signature when
-        # the name is defined once, at module scope, and never rebound.
-        self.unproven_function_names = _unproven_function_names(tree)
+        # Every binding occurrence of every name in the module. The maps above
+        # are flat and scope-blind by design — they have to be, to name a tool
+        # at all — so this is what says whether their answer is also a *proof*.
+        # Read through ``_name_is_proven``.
+        self.name_bindings = _name_binding_occurrences(tree)
         self.wrappers = self._wrapper_assignments()
         self.toolset_assignments = self._toolset_assignments()
         # One canonical Tool per function definition, keyed by the def name.
@@ -731,7 +735,7 @@ class _PythonAdkExtractor:
                 loaded_sources.extend(
                     self._extract_tool_expr(item, tools, agent_name, binding)
                 )
-        self._resolve_extraction_evidence(warnings_before)
+        self._resolve_extraction_evidence(warnings_before, loaded_sources)
         return [
             LoadedToolSource(
                 source_id=self.source_id,
@@ -782,6 +786,11 @@ class _PythonAdkExtractor:
         claim over tools nobody enumerated. Dotted module paths such as
         ``google.adk.tools.FunctionTool`` are excluded by their imported root —
         those are packages, not agents.
+
+        Reflective access is checked separately because it carries the
+        attribute name as data: ``getattr(root_agent, "tools").append(...)``
+        contains no ``Attribute`` node named ``tools`` at all and walked
+        straight past the first check (PR #400 review).
         """
 
         for node in ast.walk(self.tree):
@@ -789,32 +798,78 @@ class _PythonAdkExtractor:
                 if not self._is_imported_module_path(node.value):
                     self._note_surface_gap(SURFACE_GAP_MUTABLE_TOOL_BINDING)
                     return
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id == "setattr"
-                and len(node.args) >= 2
-                and isinstance(node.args[1], ast.Constant)
-                and node.args[1].value == "tools"
-            ):
+            if _is_reflective_tools_access(node):
                 self._note_surface_gap(SURFACE_GAP_MUTABLE_TOOL_BINDING)
                 return
 
     def _is_imported_module_path(self, node: ast.AST) -> bool:
-        """Whether ``node`` roots in a name this module imported."""
+        """Whether ``node`` roots in a name that is *only* ever an import.
+
+        Membership in ``self.aliases`` is not enough. ``from x import agents``
+        followed by ``agents = LlmAgent(...)`` leaves the name in the alias map
+        while it now refers to an agent, so ``agents.tools.append(...)`` was
+        waved through as a package path (PR #400 review). A root that anything
+        else in the module rebinds is not a package.
+        """
 
         current = node
         while isinstance(current, ast.Attribute):
             current = current.value
-        return isinstance(current, ast.Name) and current.id in self.aliases
+        if not isinstance(current, ast.Name) or current.id not in self.aliases:
+            return False
+        bindings = self.name_bindings.get(current.id, [])
+        return len(bindings) == 1 and isinstance(bindings[0], ast.alias)
 
-    def _resolve_extraction_evidence(self, warnings_before: int) -> None:
+    def _name_is_proven(self, name: str) -> bool:
+        """Whether ``name`` unambiguously refers to what the flat maps say.
+
+        True only when the module binds the name exactly once, at module scope,
+        through a statement that is a direct child of the module body. A second
+        binding of any kind — a parameter, a class, an import, a later
+        assignment, a ``global`` declaration — means the resolution is a guess
+        about which one was in effect, and a guess is not a proof.
+        """
+
+        bindings = self.name_bindings.get(name, [])
+        if len(bindings) != 1:
+            return False
+        binding = bindings[0]
+        if self._scope_of(binding) is not self.tree:
+            return False
+        return isinstance(self._top_level_statement(binding), _TOP_LEVEL_BINDING_STATEMENTS)
+
+    def _top_level_statement(self, node: ast.AST) -> ast.AST | None:
+        """The direct child of the module body that contains ``node``."""
+
+        current: ast.AST | None = node
+        parent = self.parents.get(node)
+        while parent is not None and parent is not self.tree:
+            current = parent
+            parent = self.parents.get(parent)
+        return current if parent is self.tree else None
+
+    def _require_proven_name(self, name: str) -> None:
+        if not self._name_is_proven(name):
+            self._note_surface_gap(SURFACE_GAP_SHADOWED_DEFINITION)
+
+    def _resolve_extraction_evidence(
+        self, warnings_before: int, loaded_sources: list[LoadedToolSource]
+    ) -> None:
         """Settle each tool's extraction confidence on what this module proved.
 
         Runs once, after the whole module is walked, because completeness is a
         property of the file rather than of the agent that happened to be
         visited first: a dynamic tools expression on the last agent invalidates
         the proof for tools bound by the first.
+
+        ``loaded_sources`` carries the tools an OpenAPI or MCP toolset in this
+        module contributed. They are settled here too, because a module whose
+        *only* tools come from a resolved toolset still has a tool set this
+        file could not prove: ``Agent(**config)`` beside a resolved
+        ``McpToolset`` recorded ``dynamic_agent_kwargs`` into a loop over
+        function tools that was empty, and the gap evaporated (PR #400 review).
+        Their own schemas remain trustworthy, so they are only ever lowered,
+        never raised — this loop cannot promote a tool it did not extract.
 
         The unaccounted-warning backstop is the load-bearing part. A future
         ambiguity added with a plain ``artifacts.warnings.append`` would
@@ -838,6 +893,20 @@ class _PythonAdkExtractor:
             tool.extraction["surface_gaps"] = gaps
             tool.extraction["confidence"] = confidence
             tool.extraction_confidence = confidence
+        if not self.surface_gaps:
+            return
+        module_gaps = sorted(self.surface_gaps)
+        for loaded in loaded_sources:
+            for tool in loaded.tools:
+                raw_gaps = tool.extraction.get("surface_gaps")
+                local_gaps = raw_gaps if isinstance(raw_gaps, list) else []
+                tool.extraction["surface"] = SURFACE_PARTIAL
+                tool.extraction["surface_gaps"] = sorted(
+                    {*module_gaps, *local_gaps}
+                )
+                if tool.extraction_confidence == "high":
+                    tool.extraction["confidence"] = "medium"
+                    tool.extraction_confidence = "medium"
 
     def _agent_names_by_variable(self) -> dict[tuple[ast.AST | None, str], str | None]:
         """Map each ``variable = Agent(...)`` to the agent's declared ``name=``.
@@ -983,8 +1052,13 @@ class _PythonAdkExtractor:
     ) -> list[LoadedToolSource]:
         if isinstance(expr, ast.Name):
             if expr.id in self.wrappers:
+                # The variable's own name has to hold up too, not just the
+                # function it wraps: a wrapper reassigned later resolves
+                # through a last-write-wins map.
+                self._require_proven_name(expr.id)
                 self._append_wrapper_tool(expr.id, tools, agent_name, binding)
             elif expr.id in self.toolset_assignments:
+                self._require_proven_name(expr.id)
                 return self._extract_toolset_call(
                     self.toolset_assignments[expr.id], agent_name, binding
                 )
@@ -1009,6 +1083,19 @@ class _PythonAdkExtractor:
                         agent_name,
                         binding,
                         call_name in LONG_RUNNING_TOOL_NAMES,
+                    )
+                else:
+                    # A recognised wrapper whose ``func`` this module does not
+                    # define: an imported function, an attribute, a lambda, or
+                    # no ``func`` at all. The wrapper is a real tool the agent
+                    # can call and nothing else records it, so returning
+                    # silently here reported a strictly smaller tool surface
+                    # than the agent has — and called it proven (PR #400
+                    # review).
+                    self._surface_warning(
+                        f"Google ADK agent {agent_name!r} wraps a tool whose function "
+                        f"{func_name or '<unspecified>'!r} is not defined in this module.",
+                        SURFACE_GAP_UNRESOLVED_WRAPPER,
                     )
                 return []
             if call_name in OPENAPI_TOOLSET_NAMES | MCP_TOOLSET_NAMES:
@@ -1058,8 +1145,7 @@ class _PythonAdkExtractor:
         (and collide on tool observation identity).
         """
 
-        if node.name in self.unproven_function_names:
-            self._note_surface_gap(SURFACE_GAP_SHADOWED_DEFINITION)
+        self._require_proven_name(node.name)
         tool = self.canonical_function_tools.get(node.name)
         if tool is None:
             tool = self._function_to_tool(node, agent_name, long_running)
@@ -1178,7 +1264,7 @@ class _PythonAdkExtractor:
             extraction={
                 "method": "google_adk_python_ast",
                 "confidence": "medium",
-                "surface_gaps": _function_surface_gaps(node, parameters),
+                "surface_gaps": _function_surface_gaps(node),
             },
         )
         payload = self._function_tool_payload(tool, agent_name)
@@ -1616,8 +1702,18 @@ def _short_tool_name(name: str) -> str:
     return name.rsplit(".", 1)[-1]
 
 
-def _parameters(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ToolParameter]:
-    parameters: list[ToolParameter] = []
+def _bound_args(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> list[tuple[ast.arg, bool]]:
+    """The arguments that become tool parameters, with their requiredness.
+
+    One owner for the "which arguments count" question, so the schema
+    (:func:`_parameters`) and the check on whether that schema is faithful
+    (:func:`_function_surface_gaps`) can never disagree about which arguments
+    they are talking about.
+    """
+
+    bound: list[tuple[ast.arg, bool]] = []
     positional_args = [*node.args.posonlyargs, *node.args.args]
     positional_defaults: list[ast.expr | None] = [
         None for _ in range(len(positional_args) - len(node.args.defaults))
@@ -1626,57 +1722,177 @@ def _parameters(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ToolParame
     for arg, default in zip(positional_args, positional_defaults, strict=True):
         if arg.arg in {"self", "ctx", "context", "tool_context"}:
             continue
-        parameters.append(_parameter(arg, required=default is None))
+        bound.append((arg, default is None))
     for arg, default in zip(node.args.kwonlyargs, node.args.kw_defaults, strict=True):
         if arg.arg in {"self", "ctx", "context", "tool_context"}:
             continue
-        parameters.append(_parameter(arg, required=default is None))
-    return parameters
+        bound.append((arg, default is None))
+    return bound
 
 
-def _unproven_function_names(tree: ast.Module) -> set[str]:
-    """Names whose function definition the AST cannot stand behind.
+def _parameters(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ToolParameter]:
+    return [
+        _parameter(arg, required=required) for arg, required in _bound_args(node)
+    ]
 
-    ``tools=[helper]`` is resolved through a flat ``name -> FunctionDef`` map
-    built by walking the whole module, which is what lets the adapter name a
-    tool at all. It is not what lets it *prove* one: the same map answers with
-    a definition nested inside a factory (``helper = build()``), a method
-    lifted out of a class body, whichever of two conditional definitions the
-    walk saw last, or a definition whose name was later rebound to an import.
-    Each of those reports a signature the running agent will not use.
 
-    A name is proven only when exactly one definition of it exists, that
-    definition is a direct child of the module, and nothing else in the file
-    binds the name. Everything else is listed here and costs the module its
-    completeness claim — the tool is still reported, just not as proven.
+#: Annotations :func:`_annotation_json_type` can name a JSON type for. Bare
+#: ``list``/``dict`` are included: ``{"type": "array"}`` omits the element
+#: schema but does not misstate the value, which is a different thing from a
+#: guess.
+_SCALAR_ANNOTATION_TYPES = {
+    "str": "string",
+    "int": "number",
+    "float": "number",
+    "bool": "boolean",
+    "list": "array",
+    "List": "array",
+    "dict": "object",
+    "Dict": "object",
+}
+
+
+def _annotation_json_type(node: ast.AST | None) -> str | None:
+    """The JSON type this annotation really denotes, or None if it denotes none.
+
+    Reads the annotation as a tree rather than as the unparsed string, so
+    ``set[str]``, ``tuple[int, str]``, ``int | None``, ``Optional[int]``,
+    ``Literal[...]``, a string forward reference, and any custom or Pydantic
+    class all answer None instead of silently becoming a scalar.
     """
 
-    definitions: dict[str, int] = {}
+    if isinstance(node, ast.Name):
+        return _SCALAR_ANNOTATION_TYPES.get(node.id)
+    if isinstance(node, ast.Subscript):
+        base = node.value
+        base_name = (
+            base.id
+            if isinstance(base, ast.Name)
+            else base.attr
+            if isinstance(base, ast.Attribute)
+            else None
+        )
+        if base_name in {"list", "List"}:
+            return "array" if _annotation_json_type(node.slice) else None
+        if base_name in {"dict", "Dict"}:
+            if isinstance(node.slice, ast.Tuple) and len(node.slice.elts) == 2:
+                key, value = node.slice.elts
+                keyed_by_string = isinstance(key, ast.Name) and key.id == "str"
+                if keyed_by_string and _annotation_json_type(value):
+                    return "object"
+            return None
+    return None
+
+
+def _annotation_is_faithful(node: ast.AST | None) -> bool:
+    """Whether the schema :func:`_json_schema_type` emits matches the annotation.
+
+    An annotation is not by itself evidence that the emitted schema is right.
+    ``_json_schema_type`` reads the *unparsed string* and falls back to
+    ``"string"`` for everything it does not recognise, so ``set[str]``,
+    ``int | None``, a Pydantic model, and even ``typing.List[str]`` (spelled
+    with the module prefix the string match misses) all ship as
+    ``{"type": "string"}``.
+
+    Rather than keep a second vocabulary in sync with the emitter's, this asks
+    the emitter what it would produce and compares it to what the annotation
+    denotes. Any spelling the emitter mishandles is unfaithful by construction,
+    including one added later.
+    """
+
+    expected = _annotation_json_type(node)
+    if expected is None:
+        return False
+    return _json_schema_type(_annotation_to_string(node)) == expected
+
+
+#: Statements that bind a name at module scope in a way the adapter can point
+#: at. A binding reached through anything else — an ``if``/``try``/``for`` body,
+#: a ``with`` block — is conditional or order-dependent, which is exactly what
+#: this check exists to refuse.
+_TOP_LEVEL_BINDING_STATEMENTS = (
+    ast.Assign,
+    ast.AnnAssign,
+    ast.FunctionDef,
+    ast.AsyncFunctionDef,
+    ast.ClassDef,
+    ast.Import,
+    ast.ImportFrom,
+)
+
+
+#: Builtins that name an attribute with a string instead of a dotted access.
+#: Matched on the trailing name so ``builtins.setattr`` counts too.
+_REFLECTIVE_ATTRIBUTE_BUILTINS = {"getattr", "setattr", "delattr"}
+
+
+def _is_reflective_tools_access(node: ast.AST) -> bool:
+    """Whether ``node`` reaches an object's ``tools`` attribute by name."""
+
+    if not isinstance(node, ast.Call) or len(node.args) < 2:
+        return False
+    func = node.func
+    called = (
+        func.id
+        if isinstance(func, ast.Name)
+        else func.attr
+        if isinstance(func, ast.Attribute)
+        else None
+    )
+    if called not in _REFLECTIVE_ATTRIBUTE_BUILTINS:
+        return False
+    attribute = node.args[1]
+    return isinstance(attribute, ast.Constant) and attribute.value == "tools"
+
+
+def _name_binding_occurrences(tree: ast.Module) -> dict[str, list[ast.AST]]:
+    """Every node in the module that binds a name, keyed by the name.
+
+    Counting binding *occurrences* rather than definitions is the point.
+    ``tools=[helper]`` is resolved through a flat ``name -> FunctionDef`` map
+    built by walking the whole module, which is what lets the adapter name a
+    tool at all — it is not what lets it *prove* one. The same map answers with
+    a definition nested inside a factory, a method lifted out of a class body,
+    whichever of two conditional definitions the walk saw last, or a definition
+    whose name a parameter, class, import, or later assignment shadows.
+
+    Every Python binding form is collected, not just ``def`` and ``=``:
+    parameters are ``ast.arg``, classes bind through ``ClassDef.name``,
+    ``except E as name`` and ``case X() as name`` have their own shapes, and
+    ``global``/``nonlocal`` declare that a name is rebound out of view. Missing
+    one of those was how a parameter named after a module function slipped
+    through as a proven definition (PR #400 review).
+    """
+
+    bindings: dict[str, list[ast.AST]] = {}
+
+    def record(name: str | None, node: ast.AST) -> None:
+        if name:
+            bindings.setdefault(name, []).append(node)
+
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            definitions[node.name] = definitions.get(node.name, 0) + 1
-    module_level = {
-        node.name
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-    }
-    rebound: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store | ast.Del):
-            rebound.add(node.id)
-        elif isinstance(node, ast.Import | ast.ImportFrom):
-            for alias in node.names:
-                rebound.add(alias.asname or alias.name.split(".", 1)[0])
-    return {
-        name
-        for name, count in definitions.items()
-        if count > 1 or name not in module_level or name in rebound
-    }
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            record(node.name, node)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store | ast.Del):
+            record(node.id, node)
+        elif isinstance(node, ast.arg):
+            record(node.arg, node)
+        elif isinstance(node, ast.alias):
+            record(node.asname or node.name.split(".", 1)[0], node)
+        elif isinstance(node, ast.ExceptHandler):
+            record(node.name, node)
+        elif isinstance(node, ast.MatchAs | ast.MatchStar):
+            record(node.name, node)
+        elif isinstance(node, ast.MatchMapping):
+            record(node.rest, node)
+        elif isinstance(node, ast.Global | ast.Nonlocal):
+            for name in node.names:
+                record(name, node)
+    return bindings
 
 
 def _function_surface_gaps(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
-    parameters: list[ToolParameter],
 ) -> list[str]:
     """Reasons this one function's callable interface was not fully read.
 
@@ -1686,11 +1902,16 @@ def _function_surface_gaps(
 
     * A decorator replaces the callable ADK introspects, so the definition's
       parameters are not necessarily the tool's parameters.
-    * ``*args`` / ``**kwargs`` are dropped by :func:`_parameters` — the schema
+    * ``*args`` / ``**kwargs`` are dropped by :func:`_bound_args` — the schema
       would understate an open-ended surface rather than describe it.
     * An unannotated parameter is typed ``string`` by
       :func:`_json_schema_type`'s fallback. That is a guess presented as a
       schema, which is exactly what a high-confidence extraction may not do.
+    * An annotation the emitter cannot represent is the same guess with better
+      manners — ``set[str]`` and ``int | None`` also ship as ``string``. The
+      return annotation is checked too, because ``output_schema`` is built from
+      the same fallback; an *absent* return annotation is an honest omission
+      (``output_schema`` stays ``{}``) and is not a gap.
     """
 
     gaps: list[str] = []
@@ -1698,8 +1919,16 @@ def _function_surface_gaps(
         gaps.append(SURFACE_GAP_DECORATED_FUNCTION)
     if node.args.vararg is not None or node.args.kwarg is not None:
         gaps.append(SURFACE_GAP_VARIADIC_PARAMETERS)
-    if any(parameter.type is None for parameter in parameters):
+    annotations = [arg.annotation for arg, _ in _bound_args(node)]
+    if any(annotation is None for annotation in annotations):
         gaps.append(SURFACE_GAP_UNTYPED_PARAMETER)
+    declared = [
+        annotation for annotation in annotations if annotation is not None
+    ]
+    if node.returns is not None:
+        declared.append(node.returns)
+    if not all(_annotation_is_faithful(annotation) for annotation in declared):
+        gaps.append(SURFACE_GAP_UNREPRESENTABLE_ANNOTATION)
     return sorted(gaps)
 
 

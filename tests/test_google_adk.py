@@ -2228,3 +2228,435 @@ def test_the_conventional_functiontool_wrapper_variable_is_still_proven(tmp_path
     report = _scan_proven(tmp_path, project)
 
     assert {tool["confidence"] for tool in report.tool_catalog} == {"high"}
+
+
+# --- PR #400 review: five fail-open paths in the high-confidence promotion ---
+#
+# Every case below reached `release_decision="passed"` with no evidence gaps
+# while a reachable tool was omitted from the catalog or its interface was
+# represented by a guessed schema. They are grouped by the finding they close.
+
+
+_INVENTORY_JSON = (
+    '{"tools": [{"name": "remote_lookup", "description": "Look up a remote '
+    'record by identifier.", "inputSchema": {"type": "object", "properties": '
+    '{"q": {"type": "string"}}}}]}'
+)
+
+
+def _toolset_project(tmp_path, *, body: str, agent_kwargs: str = "", trailer: str = ""):
+    """A module whose only tools come from a *resolved* MCP toolset."""
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "inventory.json").write_text(_INVENTORY_JSON, encoding="utf-8")
+    (project / "agent.py").write_text(
+        f'''
+from google.adk.agents import LlmAgent
+from google.adk.tools.mcp_tool import McpToolset
+{body}
+
+root_agent = LlmAgent(
+    name="smart_closer",
+    instruction="Close deals.",
+    tools=[
+        McpToolset(
+            tool_filter=["remote_lookup"],
+            inventory_path="inventory.json",
+        ),
+    ],{agent_kwargs}
+)
+{trailer}''',
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        _PROVEN_MANIFEST
+        + """
+action_surface:
+  actions:
+    - tool: remote_lookup
+      effect: read
+      authority:
+        mode: none
+""",
+        encoding="utf-8",
+    )
+    return project
+
+
+@pytest.mark.parametrize(
+    "wrapper",
+    [
+        pytest.param("FunctionTool(func=imported_tool)", id="imported_function"),
+        pytest.param("FunctionTool(func=lambda record_id: {})", id="lambda"),
+        pytest.param("FunctionTool(func=helpers.thing)", id="attribute"),
+        pytest.param("FunctionTool()", id="missing_func"),
+        pytest.param(
+            "LongRunningFunctionTool(func=imported_tool)", id="long_running_imported"
+        ),
+    ],
+)
+def test_an_inline_wrapper_this_module_cannot_resolve_is_recorded(tmp_path, wrapper):
+    """A recognised wrapper naming a function the module does not define.
+
+    `_extract_tool_expr` returned unconditionally from the `FunctionTool`
+    branch, so an unresolvable `func` produced no tool, no warning, and no gap.
+    The agent could call it; the report said the surface was proven and
+    complete without it — a strictly smaller tool surface, labelled `passed`.
+    """
+
+    project = _proven_project(
+        tmp_path,
+        source=_proven_module(
+            preamble=(
+                "from google.adk.tools import LongRunningFunctionTool\n"
+                "from external import imported_tool\n"
+                "import helpers\n"
+            ),
+            extra_tools=f"\n        {wrapper},",
+        ),
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    assert report.release_decision.decision != "passed"
+    assert {tool["confidence"] for tool in report.tool_catalog} == {"medium"}
+    gap = next(
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "low_confidence_tool"
+    )
+    assert "unresolved_tool_wrapper" in gap.why
+
+
+@pytest.mark.parametrize(
+    "shadow",
+    [
+        pytest.param(
+            # Deliberately not `def build(lookup_account): return LlmAgent(...)`,
+            # which is the reported repro: a second module-level agent makes the
+            # root selector ambiguous, which drops the tools out of scope for an
+            # unrelated reason and would let this pass without the guard.
+            "\n\ndef build(lookup_account):\n    return lookup_account\n",
+            id="function_parameter",
+        ),
+        pytest.param(
+            "\n\nclass lookup_account:\n    pass\n",
+            id="class_of_the_same_name",
+        ),
+        pytest.param(
+            "\ntry:\n    pass\nexcept ValueError as lookup_account:\n    pass\n",
+            id="exception_target",
+        ),
+        pytest.param(
+            "\nimport sys\n\nmatch sys.argv:\n"
+            "    case [lookup_account]:\n        pass\n",
+            id="pattern_capture",
+        ),
+        pytest.param(
+            "\n\ndef rebind():\n"
+            "    global lookup_account\n"
+            "    lookup_account = None\n",
+            id="global_declaration",
+        ),
+    ],
+)
+def test_every_python_binding_form_costs_a_name_its_proof(tmp_path, shadow: str):
+    """`def` and `=` are not the only ways a name gets bound.
+
+    Parameters are `ast.arg`, classes bind through `ClassDef.name`, and
+    `except ... as`, `case ... as`, and `global` each have their own shape.
+    Collecting only `Name` stores let a parameter named after a module function
+    resolve as that function, be marked proven, and return `passed`.
+    """
+
+    project = _proven_project(
+        tmp_path, source=_proven_module(trailer=shadow.lstrip("\n"))
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    assert report.release_decision.decision != "passed"
+    gaps = [
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "low_confidence_tool"
+    ]
+    assert gaps and all("shadowed_tool_definition" in gap.why for gap in gaps)
+
+
+def test_a_wrapper_variable_rebound_after_assignment_is_not_proven(tmp_path):
+    """`_wrapper_assignments` is last-write-wins, so the variable needs checking too.
+
+    Checking only the wrapped function's name left `w = FunctionTool(func=known)`
+    followed by `w = imported_tool` resolving through the first assignment.
+    """
+
+    project = _proven_project(
+        tmp_path,
+        source=_proven_module(
+            preamble="from external import imported_tool\n",
+            extra_tools="\n        wrapper,",
+            trailer=(
+                "wrapper = FunctionTool(func=lookup_account)\n"
+                "wrapper = imported_tool\n"
+            ),
+        ),
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    assert report.release_decision.decision != "passed"
+    gaps = [
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "low_confidence_tool"
+    ]
+    assert gaps and all("shadowed_tool_definition" in gap.why for gap in gaps)
+
+
+@pytest.mark.parametrize(
+    "body, agent_kwargs, trailer, reason",
+    [
+        pytest.param(
+            "\noverrides = {}\n", "\n    **overrides,", "", "dynamic_agent_kwargs",
+            id="agent_built_from_kwargs",
+        ),
+        pytest.param(
+            "\nfrom external import imported_tool\n",
+            "",
+            "root_agent.tools.append(imported_tool)\n",
+            "mutable_tool_binding",
+            id="tools_mutated_after_construction",
+        ),
+        pytest.param(
+            "\nfrom external import helper_agent\n",
+            "\n    sub_agents=[helper_agent],",
+            "",
+            "unresolved_sub_agent",
+            id="unresolved_sub_agent",
+        ),
+    ],
+)
+def test_module_gaps_reach_tools_a_resolved_toolset_contributed(
+    tmp_path, body: str, agent_kwargs: str, trailer: str, reason: str
+):
+    """A module can be unproven while owning no function tools at all.
+
+    The finalizer walked only `canonical_function_tools`, so when every tool
+    came from a resolved OpenAPI/MCP toolset the loop was empty and the module's
+    recorded gaps evaporated. The toolset's own schema is still trustworthy —
+    what is not is the claim that these are *the* agent's tools — so the tools
+    are lowered, never raised.
+    """
+
+    project = _toolset_project(
+        tmp_path, body=body, agent_kwargs=agent_kwargs, trailer=trailer
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    assert report.release_decision.decision != "passed"
+    assert {tool["confidence"] for tool in report.tool_catalog} == {"medium"}
+    gap = next(
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "low_confidence_tool"
+    )
+    assert reason in gap.why
+
+
+def test_a_resolved_toolset_in_a_proven_module_keeps_its_high_confidence(tmp_path):
+    """The propagation only ever lowers; it must not disturb the clean case."""
+
+    report = _scan_proven(tmp_path, _toolset_project(tmp_path, body=""))
+
+    assert {tool["confidence"] for tool in report.tool_catalog} == {"high"}
+    assert report.release_decision.decision == "passed"
+
+
+@pytest.mark.parametrize(
+    "trailer",
+    [
+        pytest.param(
+            'getattr(root_agent, "tools").append(imported_tool)\n',
+            id="getattr_then_append",
+        ),
+        pytest.param(
+            "import builtins\n"
+            'builtins.setattr(root_agent, "tools", [imported_tool])\n',
+            id="setattr_through_a_module",
+        ),
+        pytest.param(
+            'delattr(root_agent, "tools")\n',
+            id="delattr",
+        ),
+    ],
+)
+def test_reflective_access_to_tools_is_not_a_way_around_the_mutation_guard(
+    tmp_path, trailer: str
+):
+    """`getattr(agent, "tools")` carries the attribute name as data.
+
+    It contains no `Attribute` node named `tools`, so the structural check
+    walked straight past it and the module kept claiming a proven surface while
+    a tool was appended to the agent at runtime.
+    """
+
+    project = _proven_project(
+        tmp_path,
+        source=_proven_module(
+            preamble="from external import imported_tool\n", trailer=trailer
+        ),
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    assert report.release_decision.decision != "passed"
+    gaps = [
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "low_confidence_tool"
+    ]
+    assert gaps and all("mutable_tool_binding" in gap.why for gap in gaps)
+
+
+def test_an_imported_name_rebound_to_an_agent_is_no_longer_a_package(tmp_path):
+    """The module-path exemption has to be binding-aware.
+
+    `from x import agents` leaves `agents` in the alias map; rebinding it to an
+    `LlmAgent` does not remove it. `agents.tools.append(...)` was therefore
+    exempted as a dotted package path.
+    """
+
+    project = _proven_project(
+        tmp_path,
+        source=_proven_module(
+            preamble="from external import agents, imported_tool\n",
+            trailer="agents = root_agent\nagents.tools.append(imported_tool)\n",
+        ),
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    assert report.release_decision.decision != "passed"
+    gaps = [
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "low_confidence_tool"
+    ]
+    assert gaps and all("mutable_tool_binding" in gap.why for gap in gaps)
+
+
+@pytest.mark.parametrize(
+    "annotation, returns",
+    [
+        pytest.param("set[str]", "dict", id="set"),
+        pytest.param("tuple[int, str]", "dict", id="tuple"),
+        pytest.param("int | None", "dict", id="optional_union"),
+        pytest.param("Optional[int]", "dict", id="typing_optional"),
+        pytest.param("Literal['a', 'b']", "dict", id="literal"),
+        pytest.param("SomeModel", "dict", id="custom_class"),
+        pytest.param("typing.List[str]", "dict", id="module_qualified_generic"),
+        pytest.param("list[SomeModel]", "dict", id="list_of_models"),
+        pytest.param("dict[int, str]", "dict", id="non_string_dict_key"),
+        pytest.param("str", "SomeModel", id="unrepresentable_return"),
+        pytest.param("str", "set[str]", id="unrepresentable_return_generic"),
+    ],
+)
+def test_an_annotation_the_emitter_cannot_represent_is_still_a_guess(
+    tmp_path, annotation: str, returns: str
+):
+    """Annotation presence is not proof the emitted schema is faithful.
+
+    `_json_schema_type` reads the unparsed string and falls back to `"string"`
+    for everything it does not recognise, so each of these shipped as
+    `{"type": "string"}` while the tool was reported high and enumerated.
+    `typing.List[str]` is the sharpest case: the type is representable, but the
+    emitter's string match misses the module prefix and emits a scalar anyway.
+    """
+
+    project = _proven_project(
+        tmp_path,
+        source=_proven_module(
+            preamble=(
+                "import typing\n"
+                "from typing import Literal, Optional\n"
+                "from external import SomeModel\n"
+            ),
+            extra_tools="\n        loose_tool,",
+        )
+        + f'''
+
+def loose_tool(record_id: {annotation}) -> {returns}:
+    """Look up a record by identifier and return the stored fields."""
+    return {{}}
+''',
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    catalog = {tool["name"]: tool for tool in report.tool_catalog}
+    assert catalog["loose_tool"]["confidence"] == "medium"
+    assert catalog["lookup_account"]["confidence"] == "high"
+    gap = next(
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "low_confidence_tool"
+    )
+    assert gap.subject.startswith("loose_tool")
+    assert "unrepresentable_annotation" in gap.why
+
+
+@pytest.mark.parametrize(
+    "annotation, returns",
+    [
+        pytest.param("str", "dict", id="scalars"),
+        pytest.param("int", "list", id="bare_containers"),
+        pytest.param("list[str]", "dict[str, int]", id="parameterised_containers"),
+        pytest.param("bool", "list[dict[str, str]]", id="nested_containers"),
+        pytest.param("float", "dict", id="float"),
+    ],
+)
+def test_annotations_the_emitter_represents_faithfully_stay_proven(
+    tmp_path, annotation: str, returns: str
+):
+    """The faithfulness check must not demote what the emitter gets right.
+
+    Bare `list`/`dict` count: `{"type": "array"}` omits the element schema but
+    does not misstate the value, which is a different thing from a guess.
+    """
+
+    project = _proven_project(
+        tmp_path,
+        source=_proven_module(extra_tools="\n        loose_tool,")
+        + f'''
+
+def loose_tool(record_id: {annotation}) -> {returns}:
+    """Look up a record by identifier and return the stored fields."""
+    return {{}}
+''',
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    assert {tool["confidence"] for tool in report.tool_catalog} == {"high"}
+
+
+def test_an_absent_return_annotation_is_an_omission_not_a_guess(tmp_path):
+    """`output_schema` stays `{}` with no return annotation, which claims nothing."""
+
+    project = _proven_project(
+        tmp_path,
+        source=_proven_module(extra_tools="\n        loose_tool,")
+        + '''
+
+def loose_tool(record_id: str):
+    """Look up a record by identifier and return the stored fields."""
+    return {}
+''',
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    assert {tool["confidence"] for tool in report.tool_catalog} == {"high"}

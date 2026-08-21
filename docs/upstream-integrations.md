@@ -144,16 +144,28 @@ ci:
 
 **Extraction confidence** is measured on the module, not assumed from the
 framework. A Python entrypoint whose tool surface the adapter fully resolved
-reaches `high` on its own, with no tool inventory: every `tools=` element
-resolves to a single module-level definition that nothing later rebinds, no
-toolset is dynamic, no `sub_agents` element is unresolvable, nothing reaches
-`agent.tools` after construction, no agent is built from `**kwargs`, and each
-bound function is undecorated with every parameter annotated and no
-`*args`/`**kwargs`. Anything else holds the
-whole file at `medium` and the `low_confidence_tool` evidence gap names the
-construct responsible (`dynamic_toolset`, `untyped_parameter`,
-`mutable_tool_binding`, …). Agent Config `tools:` entries are name references
-with no signature to read, so that path stays `low`.
+reaches `high` on its own, with no tool inventory. That requires all of:
+
+- every `tools=` element resolves to a definition **in this module**, including
+  the `func=` of every `FunctionTool` / `LongRunningFunctionTool`;
+- every name it resolves through is bound exactly once, at module scope — a
+  parameter, class, import, `except ... as`, `case ... as`, `global`, or later
+  assignment of the same name is enough to make the resolution a guess rather
+  than a proof;
+- no toolset is dynamic and no `sub_agents` element is unresolvable;
+- nothing reaches `agent.tools` after construction — including through an
+  alias, `setattr`, or `getattr(agent, "tools")` — and no agent is built from
+  `**kwargs`;
+- each bound function is undecorated, takes no `*args`/`**kwargs`, and annotates
+  every parameter with a type the schema emitter represents faithfully.
+
+Anything else holds the whole file at `medium`, and the `low_confidence_tool`
+evidence gap names the construct responsible (`dynamic_toolset`,
+`untyped_parameter`, `mutable_tool_binding`, …). Module-scoped reasons reach
+tools contributed by a *resolved* OpenAPI or MCP toolset too, because the
+module could not prove its tool set either way; those tools are only ever
+lowered, never raised. Agent Config `tools:` entries are name references with
+no signature to read, so that path stays `low`.
 
 **Pitfalls**:
 - `OpenAPIToolset(...)` and `McpToolset(...)` need `tool_filter` declared; without it, the toolset counts as "unfiltered" and `SHIP-ADK-MCP-TOOLSET-UNFILTERED` fires high. Add the filter, then point `inventory_path` at a local tool inventory.

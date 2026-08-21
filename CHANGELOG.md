@@ -168,16 +168,33 @@
   `unresolved_tool_expression`, `unresolved_tool_wrapper`, `dynamic_toolset`,
   `conflicting_tool_contract`, `unresolved_sub_agent`, `mutable_tool_binding`
   (anything reaching `agent.tools` after construction, including through an
-  alias or `setattr`), `dynamic_agent_kwargs` (`Agent(**config)`, which hides
-  `tools` entirely), and `shadowed_tool_definition` (the name-to-definition map
-  is flat and scope-blind, so `tools=[helper]` can resolve to a factory's inner
-  function, a method lifted out of a class body, one of two conditional
-  definitions, or a definition the module later rebinds — the tool is still
-  named, its signature is not proven). Per-function reasons are `decorated_tool_function`,
-  `variadic_parameters`, and `untyped_parameter` — the JSON-schema fallback
-  types an unannotated parameter `string`, and a guess may not ship as a
-  schema. The `low_confidence_tool` evidence gap now names the reasons instead
-  of repeating one sentence on every AST tool in every repository.
+  alias, `setattr`, or `getattr(agent, "tools")`), `dynamic_agent_kwargs`
+  (`Agent(**config)`, which hides `tools` entirely), `unresolved_tool_wrapper`
+  (a recognised `FunctionTool`/`LongRunningFunctionTool` whose `func` this
+  module does not define — an import, an attribute, a lambda, or none at all),
+  and `shadowed_tool_definition` (the name-to-definition map is flat and
+  scope-blind, so `tools=[helper]` can resolve to a factory's inner function, a
+  method lifted out of a class body, one of two conditional definitions, or a
+  definition that a parameter, class, import, `except ... as`, `case ... as`,
+  `global`, or later assignment rebinds — the tool is still named, its
+  signature is not proven). Per-function reasons are `decorated_tool_function`,
+  `variadic_parameters`, `untyped_parameter`, and
+  `unrepresentable_annotation`. The last two are the same defect twice: the
+  JSON-schema fallback types an unannotated parameter `string`, and it types
+  `set[str]`, `int | None`, `tuple[...]`, a Pydantic model, and even
+  `typing.List[str]` `string` as well. A guess may not ship as a schema, so
+  faithfulness is now checked by asking the emitter what it would produce and
+  comparing it to what the annotation denotes — including the return
+  annotation, which feeds `output_schema` through the same fallback. The
+  `low_confidence_tool` evidence gap names the reasons instead of repeating one
+  sentence on every AST tool in every repository.
+
+  Module-scoped reasons reach every tool the file contributed, not just its
+  function tools. A module whose only tools come from a *resolved* OpenAPI or
+  MCP toolset still has a tool set the file could not prove — `Agent(**config)`
+  beside a resolved `McpToolset` is the case — so those tools are lowered too.
+  They are only ever lowered, never raised: this step cannot promote a tool the
+  adapter did not extract.
 
   `_surface_is_complete` changed with it: an AST source type used to be
   disqualified outright, which was the same constant one layer down and would

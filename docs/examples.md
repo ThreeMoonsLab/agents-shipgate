@@ -37,9 +37,14 @@ Useful fixtures:
 - [`baseline_workflow`](../samples/baseline_workflow/) — adoption path from existing findings to strict mode.
 - [`_anti_patterns`](../samples/_anti_patterns/) — intentionally invalid or unsafe shapes for testing errors and documentation.
 
-Framework AST extraction remains conservative: these positive fixtures use
-reviewed inventories because an AST-only binding graph does not qualify for an
-evidence-backed `passed` verdict on its own.
+Framework AST extraction remains conservative, and most of these positive
+fixtures use reviewed inventories for that reason. The Google ADK Python
+adapter is the exception: it establishes completeness on the parsed module
+rather than assuming it, so an entrypoint it fully resolved can reach an
+evidence-backed `passed` verdict from source alone once its actions are
+declared. Every other framework adapter still needs the inventory. See
+[Google ADK extraction confidence](upstream-integrations.md#google-adk-python--agent-config-yaml)
+for exactly what "fully resolved" requires.
 
 ## CI recipes
 
