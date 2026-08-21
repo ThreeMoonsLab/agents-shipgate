@@ -1642,10 +1642,17 @@ def test_detect_never_offers_the_workspace_root_as_a_candidate_command(
     )
 
     assert "." in [candidate["path"] for candidate in payload["agent_project_candidates"]]
-    assert all(
-        f"--workspace {monorepo} --write" not in (action["command"] or "")
+    commands = [
+        action["command"]
         for action in payload["next_actions"]
-    )
+        if action["kind"] == "command"
+    ]
+    # Named exactly, so an empty list cannot satisfy the exclusion below.
+    assert commands == [
+        _init_command(monorepo / "python/agents/RAG"),
+        _init_command(monorepo / "python/agents/crypto-payroll-agent"),
+    ]
+    assert all(f"--workspace {monorepo} --write" not in command for command in commands)
 
 
 def test_detect_offers_no_candidate_command_under_a_stop(tmp_path: Path) -> None:

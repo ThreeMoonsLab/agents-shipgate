@@ -4067,15 +4067,21 @@ def _unresolved_scope_route(
         return (
             HumanControlAction(
                 kind="review",
+                # The reason `detect` is not offered here is *not* that it
+                # would read some other tree — both causes are produced only
+                # after the head was confirmed to be this worktree. It is that
+                # the evidence is missing from the tree everything can read, so
+                # discovery reports the surviving project as the single scope
+                # and its `init` adopts an agent this change never touched.
                 why=(
                     "The project this change belongs to could not be "
                     f"established ({resolution.detail}), and no read-only "
-                    "command settles it: the evidence is not in the tree this "
-                    "run can read. Decide from the change itself which project "
-                    "it belongs to and initialize that directory by name. "
-                    "Discovery of the current worktree would answer about a "
-                    "different tree, and initializing the workspace root would "
-                    "adopt a scope nobody chose."
+                    "command settles it: the evidence is missing from the tree "
+                    "this run reads, so discovery would report whatever "
+                    "survived as the workspace's single scope. Decide from the "
+                    "change itself which project it belongs to and initialize "
+                    "that directory by name; initializing the workspace root "
+                    "would adopt a scope nobody chose."
                 ),
             ),
             "Shipgate could not establish which project this change belongs "
