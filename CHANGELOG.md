@@ -81,7 +81,7 @@
   find a file the change removed. An evaluated head that is not this worktree
   is the third such cause: discovery of the current tree answers about a
   different one, so no discovery command is offered there either — that route
-  asks for the checkout instead (below).
+  asks for the checkout instead (first entry above).
 
   Two blind spots in that probe are closed. It now bounds each directory's
   Python evidence to the files a `detect` *of that directory* would reach —

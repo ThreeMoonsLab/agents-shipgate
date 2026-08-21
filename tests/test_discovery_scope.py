@@ -1592,7 +1592,15 @@ def test_detect_and_init_publish_the_same_candidate_commands(monorepo: Path) -> 
             if action["kind"] == "command"
         ]
 
-    assert commands(json.loads(detected.output)) == commands(json.loads(refused.output))
+    published = commands(json.loads(detected.output))
+    # Not `[] == []`: a regression that drops the commands from the shared
+    # builder drops them from both callers at once, and equality alone would
+    # report that green.
+    assert published == [
+        _init_command(monorepo / "python/agents/RAG"),
+        _init_command(monorepo / "python/agents/crypto-payroll-agent"),
+    ]
+    assert published == commands(json.loads(refused.output))
 
 
 def test_following_a_detect_candidate_command_adopts_that_project(
