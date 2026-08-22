@@ -2,6 +2,106 @@
 
 ## Unreleased
 
+- **The first scan of an agent whose tools are imported symbols now scaffolds
+  both layers it needs, instead of emitting nothing.**
+  `suggested-declarations.yaml` was only written once the binding layer was
+  already closed, so during the two scans where an adopter is most stuck it
+  did not exist, and the binding gap that *was* reported carried
+  `declaration_template: null`
+  ([#361](https://github.com/ThreeMoonsLab/agents-shipgate/issues/361)).
+
+  Two templates close that. A repository whose agent lists tool symbols static
+  analysis cannot resolve extracts nothing at all, so it used to produce only
+  source warnings routed to `review_warning` — no path, no command, nothing to
+  open. It now raises one `incomplete_surface` row **per source** carrying the
+  exact `tool_inventories` entry, joined by `source_id` to the source it
+  completes, and the tool-inventory skeleton is written with the symbol names
+  the agent's own `tools=[...]` list publishes. Per source, not per symbol: six
+  unresolved symbols are one mechanism restated six times, and attaching a
+  repair to each row would have put raw loader prose back in the headline that
+  grouping removed.
+
+  Once that inventory is declared, the catalog is populated and nothing binds
+  it to the root agent. That gap now scaffolds the closed-world
+  `agent_bindings.declarations` row with the agent, every catalog tool's exact
+  selector, and the observed handoffs pre-filled — while `complete` and
+  `reason`, the two values that are a human judgement, stay
+  `<REVIEW_REQUIRED>`. Merging the block verbatim after answering those two
+  closes `binding_coverage.gap_count` in one iteration. Past a ceiling of 50
+  tools the template is withheld rather than truncated: `complete: true` claims
+  the listed tools are *all* the agent can reach, so a silently cut list would
+  be false exactly where a reviewer cannot see it.
+
+  Both instructions are also withdrawn once followed, and so is the diagnostic
+  behind them. A reviewed `tool_inventories` entry naming a source in
+  `source_id` is the answer shipgate itself prescribes for that source's
+  unresolved-symbol warnings, but those warnings stayed on the report and
+  `evidence_below_ie_threshold` gates on their raw count — so a repository that
+  did exactly what it was told sat at `insufficient_evidence` forever, with no
+  non-warning gap left to act on. They are now withdrawn when the manifest
+  declares the source, **per source**, keyed on that reviewed completion
+  relationship and never on tool names: a name subtraction cleared an unrelated
+  source's warning by coincidence in one direction, and in the other it never
+  matched an inventory that had correctly split a toolset symbol into the tools
+  it exposes, so that source was prescribed the same inventory forever. Only
+  the warning is withdrawn — the loader's `surface_gaps` entry stays, so
+  extraction confidence is untouched, and an empty inventory still cannot reach
+  a verdict past `SHIP-INVENTORY-NOT-ENUMERABLE`. The inventory skeleton is
+  deleted alongside it, the way the declaration scaffold already was.
+
+  A display name two sources share is withdrawn against only once **every**
+  source publishing it is complete: while any candidate is still owed an
+  inventory the warning could be about that one, and once none is, the
+  ambiguity no longer changes the answer. Both sides of the comparison are
+  stripped, since the manifest permits surrounding whitespace in an id.
+
+  The closed-world `declarations` row is also scaffolded for the other shape
+  that needs it — an agent whose tool list static analysis could only *partly*
+  read — and lists the agent's existing edges as well as the unbound catalog
+  tools, because a row omitting a tool the repository plainly wires to the
+  agent would be false.
+
+- **Every `<REVIEW_REQUIRED>` in `suggested-declarations.yaml` now says what a
+  legal answer is.** The one file an adopter is told to edit was the one file
+  that did not name the vocabulary: `effect:` and `authority.mode:` were bare
+  blanks while `report.json` carried their nine and four accepted values per
+  gap, and completing twelve tools meant roughly forty-eight values looked up
+  in a different file
+  ([#388](https://github.com/ThreeMoonsLab/agents-shipgate/issues/388)).
+
+  Each blank is preceded by a comment carrying either that field's
+  `accepted_values` — rendered from the gap's own list, never a second copy, so
+  the two artifacts cannot disagree — or, where the answer is not drawn from a
+  closed set, the shape it takes and which modes make it required. The
+  `agent_bindings.root` block additionally lists the agent objects the scan
+  observed, with their source, for a human to confirm: `object` matches the
+  agent's *declared* name rather than the Python variable it was assigned to,
+  which is what made guessing it a coin flip. Nothing is filled in — a comment
+  is not a value, and inferring the trust root from AST evidence remains the
+  self-declaration surface [#268](https://github.com/ThreeMoonsLab/agents-shipgate/issues/268)
+  closed.
+
+  Pasting an unfinished scaffold now also reports itself as one whatever field
+  the placeholder lands in. `agent_bindings.declarations[].complete` accepts
+  only `true`, so its own type answered first with "Input should be True",
+  which tells a reader nothing about the scaffold they pasted; the placeholder
+  is rejected before field validation, so one wording covers every field. That
+  check reads raw input, which `yaml.safe_load` can hand back as a *graph*
+  rather than a tree, so its traversal visits each container once. A manifest
+  containing `&loop {x: *loop}` gets the structured config error and its
+  agent-mode recovery payload rather than a `RecursionError`, and an acyclic
+  alias DAG — the expensive case, doubling the walk at every level and
+  materializing `2**n` path strings for one placeholder — is bounded by the
+  size of the document.
+
+- `display_literal` now escapes Unicode noncharacters alongside the invisible
+  code points it already covered. They are the same hazard — nothing reaches
+  the reader, so two repository objects render identically — and two of them
+  are worse: PyYAML rejects U+FFFE and U+FFFF outright, so an agent name
+  carrying one made the generated declaration scaffold unparseable, because
+  the document quoting that name in a comment could not be loaded at all. The
+  encoding stays injective, so `undisplay_literal` still recovers the name.
+
 - **`verify --preview` on a monorepo now names the project the pull request
   actually changed, instead of a repository root that `init` refuses.** The
   change-scope resolver draws a project boundary around a bare

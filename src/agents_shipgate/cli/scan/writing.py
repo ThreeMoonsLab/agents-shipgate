@@ -9,6 +9,8 @@ from agents_shipgate.ci.release_decision import (
     SUGGESTED_DECLARATIONS_FILENAME,
     SUGGESTED_INVENTORY_FILENAME,
     inventory_manifest_key,
+    unresolved_symbol_names,
+    unresolved_symbol_sources,
 )
 from agents_shipgate.cli._artifact_lifecycle import clear_verifier_route_artifacts
 from agents_shipgate.core.current_control import (
@@ -78,6 +80,7 @@ def _write_outputs(
     )
     _write_suggested_inventory(
         sanitized_tools=sanitized.tools,
+        report=public_report,
         generated_paths=plan.generated_paths,
     )
     _write_suggested_declarations(
@@ -174,16 +177,23 @@ def _write_suggested_declarations(
     if scaffold is None:
         # Nothing is owed any more: a leftover scaffold from an earlier run
         # would keep asking for declarations that are already made.
-        if out_path.is_file():
-            try:
-                out_path.unlink()
-            except OSError:
-                pass
+        _remove_if_present(out_path)
         return
     out_path.write_text(scaffold, encoding="utf-8")
 
 
-def _inventory_reference_note(low_confidence: list[Tool]) -> str:
+def _remove_if_present(path: Path) -> None:
+    """Drop a superseded advisory artifact, tolerating a read-only directory."""
+
+    if not path.is_file():
+        return
+    try:
+        path.unlink()
+    except OSError:
+        pass
+
+
+def _inventory_reference_note(bindable: list[tuple[str, str]]) -> str:
     """How to reference this skeleton, for the sources that produced it.
 
     Only the framework blocks in ``_INVENTORY_MANIFEST_KEYS`` have a
@@ -197,16 +207,12 @@ def _inventory_reference_note(low_confidence: list[Tool]) -> str:
     An inventory entry completes ONE source, so a skeleton spanning several
     says to split it rather than letting the reader find that out from an
     ambiguity warning two runs later.
+
+    ``bindable`` is the ``(manifest key, source_id)`` pairs the skeleton's
+    entries came from — the low-confidence tools' own sources, plus any source
+    whose agent named symbols that produced no observation at all (#361).
     """
 
-    bindable = sorted(
-        {
-            (key, tool.source_id)
-            for tool in low_confidence
-            if tool.source_id
-            and (key := inventory_manifest_key(tool.source_type)) is not None
-        }
-    )
     if not bindable:
         return (
             "declare it for this source — as a `tool_sources[]` entry of type "
@@ -237,17 +243,20 @@ def _inventory_reference_note(low_confidence: list[Tool]) -> str:
 def _write_suggested_inventory(
     *,
     sanitized_tools: list[Tool],
+    report: ReadinessReport,
     generated_paths: dict[str, Path],
 ) -> None:
-    """v0.26: advisory tool-inventory skeleton for low-confidence sources.
+    """v0.26: advisory tool-inventory skeleton for under-enumerated sources.
 
-    Written next to report.json whenever low-confidence tools exist, in
+    Written next to report.json whenever low-confidence tools exist — or an
+    agent references tool symbols that produced no observation at all — in
     the MCP-export shape every ``tool_inventories`` manifest key loads
     (``load_mcp_tools`` ignores the top-level ``note``). The
     ``evidence_gaps`` rows in ``release_decision.evidence_coverage``
     reference this file by name. Consumes only sanitized tools so no
-    redacted content can leak into the skeleton. Deterministic: sorted
-    by (name, source_type), stable JSON.
+    redacted content can leak into the skeleton. Deterministic: observed
+    tools by (name, source_type), then unresolved symbols by name, stable
+    JSON.
     """
     anchor = generated_paths.get("json") or next(
         iter(generated_paths.values()), None
@@ -258,7 +267,19 @@ def _write_suggested_inventory(
         (tool for tool in sanitized_tools if tool.extraction_confidence != "high"),
         key=lambda tool: (tool.name, tool.source_type),
     )
-    if not low_confidence:
+    # The repository whose first scan is hardest to move is the one where
+    # *every* tool symbol is imported: extraction yields nothing, so there are
+    # no low-confidence tools, so no skeleton was written and the names the
+    # agent's ``tools=[...]`` list already published were left to be retyped by
+    # hand (#361). A symbol is a *name to review*, never an observation: it may
+    # name one tool or a toolset exposing many, and its schema is unknown
+    # either way — the entry below says so, and nothing here enters the catalog.
+    unresolved = unresolved_symbol_names(report)
+    if not low_confidence and not unresolved:
+        # Nothing is owed any more — the same rule the declaration scaffold
+        # follows. A skeleton left behind from the run before the inventory was
+        # declared reads as a fresh instruction to declare it again.
+        _remove_if_present(anchor.parent / SUGGESTED_INVENTORY_FILENAME)
         return
     entries = []
     for tool in low_confidence:
@@ -270,12 +291,36 @@ def _write_suggested_inventory(
         if tool.input_schema:
             entry["input_schema"] = tool.input_schema
         entries.append(entry)
+    entries.extend(
+        {
+            "name": symbol,
+            "description": (
+                "TODO: static analysis could not resolve this symbol, so this "
+                "name is the one the agent's tools=[...] list uses — confirm "
+                "it is the tool's real name, and split the entry if the "
+                "symbol is a toolset exposing several tools."
+            ),
+        }
+        for symbol in unresolved
+    )
+    bindable = sorted(
+        {
+            (key, tool.source_id)
+            for tool in low_confidence
+            if tool.source_id
+            and (key := inventory_manifest_key(tool.source_type)) is not None
+        }
+        | {
+            (source.manifest_key, source.source_id)
+            for source in unresolved_symbol_sources(report)
+        }
+    )
     payload = {
         "note": (
             "Skeleton tool inventory generated by agents-shipgate scan for "
             "sources static extraction could not fully enumerate. Review and "
             "complete each entry, save the file in your repo, and "
-            f"{_inventory_reference_note(low_confidence)} (see "
+            f"{_inventory_reference_note(bindable)} (see "
             "release_decision.evidence_coverage.evidence_gaps)."
         ),
         "tools": entries,

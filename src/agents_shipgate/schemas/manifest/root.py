@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field, model_validator
 
 from agents_shipgate.schemas.common import Severity
@@ -39,24 +41,67 @@ from agents_shipgate.schemas.manifest.validation import ValidationConfig
 REVIEW_REQUIRED_SENTINEL = "<REVIEW_REQUIRED>"
 
 
-def _sentinel_paths(node: object, path: str = "") -> list[str]:
-    """Dotted paths of every unfilled scaffold placeholder in a manifest."""
+def _sentinel_paths(
+    node: object, path: str = "", _seen: set[int] | None = None
+) -> list[str]:
+    """Dotted paths of every unfilled scaffold placeholder in a manifest.
 
+    Alias-safe, because this now also walks *raw* input. ``yaml.safe_load``
+    preserves aliases, so a syntactically valid manifest hands the
+    before-validator a graph rather than a tree.
+
+    ``_seen`` is **traversal-wide**, not per branch, and both halves of that
+    matter. A per-branch set stops a true cycle (``&loop {x: *loop}``) from
+    recursing forever, but leaves an acyclic *DAG* — repeated
+    ``{left: *prev, right: *prev}`` — visited once per path: 20 levels of it is
+    1.5 KB of YAML and over a second of work, doubling every level, and a
+    placeholder at the shared leaf materializes 2**n path strings before the
+    error is built (PR #401 review). Visiting each container once bounds the
+    walk by the size of the document.
+
+    The cost is that an aliased placeholder is reported at one representative
+    path instead of all of them, which is all rejecting it needs. No
+    placeholder is missed: a container skipped here was already fully walked
+    where it was first reached.
+    """
+
+    if _seen is None:
+        _seen = set()
+    if isinstance(node, (dict, list, tuple)):
+        marker = id(node)
+        if marker in _seen:
+            return []
+        _seen.add(marker)
     if isinstance(node, dict):
         return [
             found
             for key, value in node.items()
-            for found in _sentinel_paths(value, f"{path}.{key}" if path else str(key))
+            for found in _sentinel_paths(
+                value, f"{path}.{key}" if path else str(key), _seen
+            )
         ]
     if isinstance(node, (list, tuple)):
         return [
             found
             for index, value in enumerate(node)
-            for found in _sentinel_paths(value, f"{path}[{index}]")
+            for found in _sentinel_paths(value, f"{path}[{index}]", _seen)
         ]
     if isinstance(node, str) and node.strip() == REVIEW_REQUIRED_SENTINEL:
         return [path or "<root>"]
     return []
+
+
+def _unfilled_sentinel_error(unfilled: list[str]) -> ValueError:
+    """One wording for the placeholder rejection, whenever it is detected."""
+
+    listed = ", ".join(unfilled[:5])
+    more = f" (+{len(unfilled) - 5} more)" if len(unfilled) > 5 else ""
+    return ValueError(
+        f"{REVIEW_REQUIRED_SENTINEL} is an unfilled scaffold placeholder "
+        f"and is not reviewed evidence: {listed}{more}. Replace each one "
+        "with a reviewed value, or delete the field if your answer does "
+        "not take it."
+    )
 
 
 class AgentsShipgateManifest(BaseModel):
@@ -92,6 +137,25 @@ class AgentsShipgateManifest(BaseModel):
     # itself a trust-root change (SHIP-VERIFY-TRUST-ROOT-TOUCHED).
     human_ack: list[HumanAckDeclaration] = Field(default_factory=list)
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_raw_review_sentinels(cls, data: Any) -> Any:
+        """Catch a placeholder before the field it landed in rejects it first.
+
+        The after-validator below can only see values that already parsed, so a
+        sentinel in a *typed* field never reached it: pasting the binding
+        scaffold with ``complete: <REVIEW_REQUIRED>`` — where the schema accepts
+        only ``true`` — failed with "Input should be True", which does not tell
+        the reader they pasted an unfinished scaffold. Reading the raw input
+        first makes one wording cover every field, whatever its type.
+        """
+
+        if isinstance(data, dict):
+            unfilled = sorted(_sentinel_paths(data))
+            if unfilled:
+                raise _unfilled_sentinel_error(unfilled)
+        return data
+
     @model_validator(mode="after")
     def reject_unfilled_review_sentinels(self) -> AgentsShipgateManifest:
         """A scaffold placeholder must never read as reviewed evidence.
@@ -108,14 +172,7 @@ class AgentsShipgateManifest(BaseModel):
 
         unfilled = sorted(_sentinel_paths(self.model_dump(mode="python")))
         if unfilled:
-            listed = ", ".join(unfilled[:5])
-            more = f" (+{len(unfilled) - 5} more)" if len(unfilled) > 5 else ""
-            raise ValueError(
-                f"{REVIEW_REQUIRED_SENTINEL} is an unfilled scaffold placeholder "
-                f"and is not reviewed evidence: {listed}{more}. Replace each one "
-                "with a reviewed value, or delete the field if your answer does "
-                "not take it."
-            )
+            raise _unfilled_sentinel_error(unfilled)
         return self
 
     @model_validator(mode="after")

@@ -3,9 +3,12 @@ from __future__ import annotations
 import logging
 
 from agents_shipgate.core.agent_bindings import resolve_agent_binding_graph
+from agents_shipgate.core.domain import LoadedToolSource
 from agents_shipgate.core.risk_hints import enrich_tools_with_risk_hints
 from agents_shipgate.core.semantic_assessment import attach_semantic_assessments
+from agents_shipgate.core.source_warnings import withdraw_completed_adk_tool_warnings
 from agents_shipgate.core.tool_identity import resolve_selectors_by_tool_id
+from agents_shipgate.inputs.google_adk import GoogleAdkArtifacts
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 
 from .agent_builder import _build_agent
@@ -13,6 +16,48 @@ from .models import _LoadedInputs, _ToolsAndAgent
 from .source_loading import _build_canonical_tools
 
 logger = logging.getLogger(__name__)
+
+
+def _completed_source_ids(loaded_sources: list[LoadedToolSource]) -> set[str]:
+    """Source ids a reviewed inventory declares it completes.
+
+    ``completes_source_id`` is the desugared form of
+    ``<framework>.tool_inventories[].source_id`` — a human declaration in the
+    trust root, not an inference. Entries naming a source that is not
+    configured are reported separately (``unknown_inventory_source_warning``)
+    and cannot appear here, so this cannot be pointed at an arbitrary id.
+    """
+
+    return {
+        completes.strip()
+        for loaded in loaded_sources
+        if (completes := (loaded.completes_source_id or "").strip())
+    }
+
+
+def _adk_agent_source_ids(adk: GoogleAdkArtifacts | None) -> dict[str, set[str]]:
+    """Agent name -> every configured source that published that name.
+
+    The unresolved-symbol warning names the agent; only the artifact bag knows
+    which source that agent was read from. The whole set is kept rather than
+    collapsed to a unique one: two sources publishing ``LlmAgent(name="Closer")``
+    are ambiguous only while *some* of them is still incomplete. Once every
+    candidate has a reviewed inventory, the warning is answered whichever one
+    raised it, and dropping the name kept it standing forever (PR #401 review).
+
+    Ids are stripped, because the completion side is: the manifest permits
+    surrounding whitespace, so ``' adk '`` on one side and ``'adk'`` on the
+    other compared unequal and left an answered warning in place.
+    """
+
+    if adk is None:
+        return {}
+    by_name: dict[str, set[str]] = {}
+    for agent in adk.agents:
+        name, source_id = agent.get("name"), agent.get("source_id")
+        if isinstance(name, str) and isinstance(source_id, str) and source_id.strip():
+            by_name.setdefault(name, set()).add(source_id.strip())
+    return by_name
 
 
 def _build_tools_and_agent(
@@ -43,6 +88,15 @@ def _build_tools_and_agent(
     # Some adapters expose the same warnings through both LoadedToolSource
     # and the artifact bag; keep report warning output stable and unique.
     warnings = list(dict.fromkeys(warnings))
+    # The one place holding both halves of the completion relationship: the
+    # loaded sources know which inventory completes which source, and the ADK
+    # artifacts know which source each agent came from. A warning asking for
+    # evidence the manifest now declares is answered, and must stop gating.
+    warnings = withdraw_completed_adk_tool_warnings(
+        warnings,
+        agent_source_ids=_adk_agent_source_ids(inputs.adk),
+        completed_source_ids=_completed_source_ids(inputs.loaded_sources),
+    )
     tool_catalog = enrich_tools_with_risk_hints(manifest, tools)
     binding_graph, tool_catalog = resolve_agent_binding_graph(
         manifest,

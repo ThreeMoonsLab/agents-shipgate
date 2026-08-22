@@ -81,6 +81,23 @@ def _is_default_ignorable(char: str) -> bool:
     return any(start <= point <= end for start, end in _DEFAULT_IGNORABLE_RANGES)
 
 
+def _is_noncharacter(char: str) -> bool:
+    """True for a Unicode noncharacter — permanently reserved, never rendered.
+
+    Same hazard as a Default_Ignorable code point: nothing reaches the reader,
+    so two different repository objects render identically. Two of them are
+    worse than invisible. PyYAML's reader accepts ``[#xE000-#xFFFD]`` and
+    *rejects* U+FFFE and U+FFFF outright, so an agent name carrying one made
+    the generated declaration scaffold unparseable — the document quoting the
+    name in a comment could not be loaded at all (PR #401 review). Escaping
+    them here fixes every sink at once rather than one file's comment writer,
+    and ``undisplay_literal`` still inverts it.
+    """
+
+    point = ord(char)
+    return 0xFDD0 <= point <= 0xFDEF or (point & 0xFFFE) == 0xFFFE
+
+
 def _escape(char: str) -> str:
     return f"<U+{ord(char):04X}>"
 
@@ -94,7 +111,8 @@ def _needs_escape(char: str, *, injective: bool) -> bool:
 
     Three classes always: characters that could end or reorder a line;
     characters that render as nothing, and so let one value impersonate
-    another; and lone surrogates, which no UTF-8 sink accepts.
+    another — Default_Ignorable code points and Unicode noncharacters alike;
+    and lone surrogates, which no UTF-8 sink accepts.
 
     ``injective`` adds the escape introducer. Identity-bearing values need it —
     without it ``a\nb.yaml`` and the literal filename ``a<U+000A>b.yaml``
@@ -109,6 +127,7 @@ def _needs_escape(char: str, *, injective: bool) -> bool:
         or char in _BIDI_CONTROLS
         or char in {"\u2028", "\u2029"}
         or _is_default_ignorable(char)
+        or _is_noncharacter(char)
     )
 
 
