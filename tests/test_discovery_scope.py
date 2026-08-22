@@ -1779,6 +1779,32 @@ def test_the_printed_refusal_agrees_with_the_routes_beside_it(
     assert "apps/fresh (fresh)\n" in refused.output
     assert "ask doctor --config <that manifest>" in refused.output
 
+    # `detect` prints the same list from the same formatter, so the two
+    # commands cannot drift apart the way one fix reaching only one of them
+    # would let them.
+    classified = runner.invoke(app, ["detect", "--workspace", str(repo)])
+    assert classified.exit_code == 0, classified.output
+    assert "apps/adopted (adopted) — already adopted" in classified.output
+    assert "apps/fresh (fresh)\n" in classified.output
+    assert "ask doctor --config <that manifest>" in classified.output
+
+
+def test_an_unadopted_workspace_says_nothing_about_doctor(tmp_path: Path) -> None:
+    """The adopted-candidate note is conditional, not boilerplate."""
+
+    repo = _init_repo(tmp_path)
+    _write_agent_project(repo, "apps/one", name="one", tool="a")
+    _write_agent_project(repo, "apps/two", name="two", tool="b")
+    _commit_all(repo, "neither adopted")
+
+    for argv in (
+        ["detect", "--workspace", str(repo)],
+        ["init", "--workspace", str(repo), "--write"],
+    ):
+        output = runner.invoke(app, argv).output
+        assert "already adopted" not in output
+        assert "ask doctor" not in output
+
 
 def test_an_instruction_refresh_keeps_init_for_an_adopted_candidate(
     tmp_path: Path,

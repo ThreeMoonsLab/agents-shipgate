@@ -78,6 +78,33 @@ def is_adopted(directory: Path) -> Path | None:
     return candidate
 
 
+def describe_candidate(
+    candidate: AgentProjectCandidate, *, workspace: Path | None = None
+) -> str:
+    """One candidate as a line a human can choose from.
+
+    Not every project names its agent in a string literal — a config-driven
+    ``LlmAgent(name=CONFIG.agent_name)`` has none to parse — so the marker
+    that made the directory a project stands in for it rather than leaving
+    an empty pair of brackets.
+
+    A candidate that already carries a manifest says so, because the routing
+    published beside this list sends those to ``doctor``: the ``init --write``
+    both commands recommend in prose refuses a manifest it will not overwrite.
+    Shared rather than written once per command — ``detect`` and ``init`` each
+    print this list, and a second copy is how one of them kept saying ``init``
+    after the other stopped (#397 review).
+    """
+
+    detail = ", ".join(candidate.agent_names) or (candidate.marker or "project root")
+    adopted = (
+        workspace is not None
+        and candidate.path != "."
+        and is_adopted(workspace / candidate.path) is not None
+    )
+    return f"{candidate.path} ({detail})" + (" — already adopted" if adopted else "")
+
+
 def scope_candidate_actions(
     workspace: Path,
     candidates: Sequence[AgentProjectCandidate],
@@ -192,6 +219,7 @@ def scope_candidate_actions(
 
 __all__ = [
     "MANIFEST_NAME",
+    "describe_candidate",
     "MAX_LISTED_SCOPE_CANDIDATES",
     "is_adopted",
     "rebased_kit_flags",

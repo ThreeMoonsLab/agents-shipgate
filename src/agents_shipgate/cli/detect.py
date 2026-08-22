@@ -25,6 +25,8 @@ from agents_shipgate.cli.discovery import (
 )
 from agents_shipgate.cli.scope_routing import (
     MAX_LISTED_SCOPE_CANDIDATES,
+    describe_candidate,
+    is_adopted,
     scope_candidate_actions,
 )
 from agents_shipgate.cli.setup_control import (
@@ -180,7 +182,7 @@ def detect(
             if len(framework.evidence) > 5:
                 typer.echo(f"    · ... ({len(framework.evidence) - 5} more)")
         typer.echo("")
-    _echo_agent_scope(result)
+    _echo_agent_scope(result, workspace=workspace_resolved)
     if result.agent_name_candidates:
         # The same call `init` makes, not "candidate zero" — printing the
         # top-ranked entry regardless of selectability would tell a human
@@ -394,7 +396,7 @@ def _detect_advance(
     )
 
 
-def _echo_agent_scope(result: DetectResult) -> None:
+def _echo_agent_scope(result: DetectResult, *, workspace: Path) -> None:
     """Say when the workspace holds more than one manifest's worth of agents.
 
     Silent in the ordinary single-project case: the manifest scope is then
@@ -421,10 +423,7 @@ def _echo_agent_scope(result: DetectResult) -> None:
             + (" Projects found before the cap:" if candidates else "")
         )
     for candidate in candidates[:MAX_LISTED_SCOPE_CANDIDATES]:
-        # A config-driven ``LlmAgent(name=CONFIG.agent_name)`` leaves no name
-        # literal to parse; name the marker that made it a project instead.
-        detail = ", ".join(candidate.agent_names) or (candidate.marker or "project root")
-        typer.echo(f"- {candidate.path} ({detail})")
+        typer.echo(f"- {describe_candidate(candidate, workspace=workspace)}")
     remaining = len(candidates) - MAX_LISTED_SCOPE_CANDIDATES
     if remaining > 0:
         typer.echo(f"- ... ({remaining} more; see agent_project_candidates in --json)")
@@ -433,6 +432,16 @@ def _echo_agent_scope(result: DetectResult) -> None:
             "One shipgate.yaml describes one agent surface, so init --write "
             "refuses here until you name the project directory to initialize."
         )
+        if any(
+            candidate.path != "."
+            and is_adopted(workspace / candidate.path) is not None
+            for candidate in candidates
+        ):
+            typer.echo(
+                "A project marked already adopted has a manifest init will "
+                "not overwrite; ask doctor --config <that manifest> what it "
+                "still owes instead."
+            )
     if result.agent_scope_truncated:
         roots = result.workspace_signals.project_root_count
         typer.echo(
