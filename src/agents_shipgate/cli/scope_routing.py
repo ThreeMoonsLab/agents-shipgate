@@ -2,11 +2,20 @@
 
 ``init --write`` refuses when a workspace holds several self-contained projects
 that define agents, and ``detect`` reports the same fact one step earlier. Both
-then owe the caller the same thing: for every candidate, the one command that
-advances *that* project, so the decision "which project is this change about?"
-is the only work left to do. For a project with no manifest that is ``init``;
-for one that already has a manifest it is ``doctor``, because ``init --write``
-there refuses a file it will not overwrite.
+then owe the caller the same thing: for every candidate, the step that advances
+*that* project, so the decision "which project is this change about?" is the
+only work left to do.
+
+Which step that is depends on the candidate, and this module is where that is
+decided once for both commands:
+
+* no manifest — ``init --write``, carrying the setup flags the caller asked for;
+* a manifest already — ``doctor``, because ``init --write`` refuses a file it
+  will not overwrite; or an ``init`` *without* ``--write`` when the caller
+  asked for setup that manifest does not supply;
+* the workspace root — a human route and no command, because ``init`` there is
+  the run that just refused and ``--allow-unresolved-scope`` adopts the whole
+  workspace rather than that one agent.
 
 ``init`` published those commands and ``detect`` published a JSON selector
 inside prose — ``init --workspace <agent_project_candidates[].path> --write`` —
