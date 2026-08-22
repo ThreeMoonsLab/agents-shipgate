@@ -338,3 +338,65 @@ def _rehydrated_tools(report):
         if str(row.get("tool_id")) in reachable
     ]
     return attach_semantic_assessments(tools, {}, copy_tools=False)
+
+
+def test_a_possibly_reachable_tool_is_recorded_as_gated():
+    """One spelling, or the ledger cannot join a tool with itself (review 1).
+
+    `partial_binding_evidence` used to name its subject by the raw canonical
+    tool id while every other emitter rendered `name [provider]`. The ledger
+    looked up one spelling, found the other, and wrote `not_claimed` for a tool
+    the decision had gapped — `binding_coverage.gap_count: 1` beside
+    `surface_exclusions.gated: 0`, which is the reported failure re-expressed
+    one layer up.
+    """
+
+    from agents_shipgate.ci.release_decision import build_release_decision
+    from agents_shipgate.core.surface_exclusions import build_surface_exclusions
+    from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment
+    from agents_shipgate.schemas.report import (
+        ReadinessReport,
+        ReportSummary,
+        ToolSurfaceSummary,
+    )
+
+    report = ReadinessReport(
+        run_id="run-1",
+        project={},
+        agent={},
+        environment={},
+        summary=ReportSummary(status="review_required"),
+        tool_surface=ToolSurfaceSummary(total_tools=1, high_risk_tools=0),
+        binding_surface_facts=AgentBindingGraphAssessment(
+            root_agent_id="agent",
+            status="partial",
+            pass_eligible=False,
+            possible_tool_ids=["tool_v1:abc"],
+        ),
+        tool_catalog=[
+            {
+                "tool_id": "tool_v1:abc",
+                "name": "charge_card",
+                "provider": "billing",
+                "source_type": "mcp",
+                "source_ref": "mcp/tools.json",
+            }
+        ],
+    )
+    report.release_decision = build_release_decision(
+        report=report,
+        tools=[],
+        tool_catalog=[],
+        ci_mode="advisory",
+        fail_on=None,
+        new_findings_only=False,
+    )
+    coverage = report.release_decision.evidence_coverage
+    assert coverage.binding_coverage.gap_count == 1
+    # No gap may name a catalog tool by its raw id — that is the spelling that
+    # broke the join, and `validate_semantic_consistency` now refuses it.
+    assert [gap.subject for gap in coverage.evidence_gaps] == ["charge_card [billing]"]
+
+    ledger = build_surface_exclusions(report)
+    assert [entry.accounting for entry in ledger.entries] == ["evidence_gap"]
+    assert ledger.gated == 1

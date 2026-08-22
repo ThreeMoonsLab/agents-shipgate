@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.domain import Tool, ToolSemanticAssessment
-from agents_shipgate.core.surface_exclusions import catalog_subject
+from agents_shipgate.core.surface_exclusions import (
+    BINDING_GAP_KINDS,
+    LEDGER_JOINED_GAP_KINDS,
+    catalog_subject,
+)
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.semantic import ToolSemanticEvidence
 
@@ -171,7 +175,7 @@ def _validate_exclusion_ledger(report: ReadinessReport) -> None:
     the partition perfectly; what it violated is that a subject the diff
     removed from analysis reached no gap (#403).
 
-    Three claims, each one a way that state could come back:
+    Five claims, each one a way that state could come back:
 
     1. every excluded subject is in the ledger — a stage cannot narrow
        silently;
@@ -180,7 +184,12 @@ def _validate_exclusion_ledger(report: ReadinessReport) -> None:
        have;
     3. a subject *this change* newly excluded is always ``evidence_gap`` — the
        pre-existing/newly-arrived distinction is the whole basis on which a
-       ``not_claimed`` record is allowed at all.
+       ``not_claimed`` record is allowed at all;
+    4. no joinable gap names a catalog tool by its raw canonical id, so the
+       join in (2) is exact rather than approximately right;
+    5. an excluded tool the decision *did* gap is never recorded
+       ``not_claimed`` — (2) with the sign flipped, which is the direction a
+       second spelling breaks.
     """
 
     decision = report.release_decision
@@ -212,7 +221,8 @@ def _validate_exclusion_ledger(report: ReadinessReport) -> None:
             f"{sorted(expected_subjects - binding_subjects)}"
         )
 
-    gap_subjects = {gap.subject for gap in decision.evidence_coverage.evidence_gaps}
+    gaps = decision.evidence_coverage.evidence_gaps
+    gap_subjects = {gap.subject for gap in gaps}
     for entry in ledger.entries:
         if entry.accounting == "evidence_gap" and entry.subject not in gap_subjects:
             raise SemanticConsistencyError(
@@ -222,9 +232,38 @@ def _validate_exclusion_ledger(report: ReadinessReport) -> None:
             raise SemanticConsistencyError(
                 f"exclusion {entry.subject!r} was introduced by this change and is not gated"
             )
-    if ledger.gated and not decision.evidence_coverage.evidence_gaps:
+
+    # The join above only catches the ledger over-claiming. Under-claiming — a
+    # gap exists and the ledger says `not_claimed` — is the same failure with
+    # the sign flipped, and it is what a subject spelled two ways produces: a
+    # `partial_binding_evidence` gap carrying the raw canonical id could not be
+    # matched against a ledger row carrying `name [provider]`, so a gated tool
+    # read as unclaimed and the whole suite stayed green.
+    #
+    # Checked at the source rather than by re-running the same join, which
+    # would just repeat any shared mistake: a gap may never name a catalog tool
+    # by its raw id. With one spelling enforced here, the join above is exact.
+    raw_ids = set(by_id)
+    for gap in gaps:
+        if gap.kind in LEDGER_JOINED_GAP_KINDS and gap.subject in raw_ids:
+            raise SemanticConsistencyError(
+                f"evidence gap names tool {gap.subject!r} by raw id rather than "
+                "its catalog subject; the exclusion ledger cannot join it"
+            )
+    gated_binding_subjects = {
+        entry.subject
+        for entry in ledger.entries
+        if entry.stage == "binding" and entry.accounting == "evidence_gap"
+    }
+    unrecorded = {
+        gap.subject
+        for gap in gaps
+        if gap.kind in BINDING_GAP_KINDS and gap.subject in expected_subjects
+    } - gated_binding_subjects
+    if not ledger.truncated and unrecorded:
         raise SemanticConsistencyError(
-            "exclusion ledger reports gated exclusions with no evidence gaps"
+            "excluded tools carry a binding evidence gap the ledger does not "
+            f"account for: {sorted(unrecorded)}"
         )
 
 

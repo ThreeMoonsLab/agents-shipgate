@@ -38,10 +38,18 @@
 
   A conservation invariant is enforced at emission: `observed == analysed ∪
   excluded`, every excluded subject appears in the ledger, every `evidence_gap`
-  record is backed by a gap row carrying the same subject, and a subject *this
-  change* newly excluded can never be `not_claimed`. The
+  record is backed by a gap row carrying the same subject, an excluded tool the
+  decision *did* gap is never recorded `not_claimed`, and a subject *this
+  change* newly excluded can never be `not_claimed` either. The
   `unbound_tools: 1 / gap_count: 0` state is now unrepresentable rather than
   something each call site has to remember.
+
+  Every evidence gap that names a catalog tool now names it the same way.
+  `partial_binding_evidence` and the binding graph-issue rows used to carry the
+  raw canonical tool id (`tool_v2_2c9ee6…`) while every other emitter rendered
+  `name [provider]`, which both read badly in `Improve evidence:` and made a
+  tool unjoinable with itself — the ledger looked up one spelling and found the
+  other. The invariant rejects a raw id reaching a joinable gap subject.
 
   The gate itself moved only where a diff proves it should. `binding_surface_diff`
   gained `added_unbound_tool_ids` — head exclusions minus base exclusions — and

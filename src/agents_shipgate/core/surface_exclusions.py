@@ -54,11 +54,14 @@ def _catalog_by_id(report: ReadinessReport) -> dict[str, Mapping[str, Any]]:
     }
 
 
-def _gap_subjects(gaps: Sequence[EvidenceGap], kinds: set[str]) -> set[str]:
+def _gap_subjects(gaps: Sequence[EvidenceGap], kinds: frozenset[str]) -> set[str]:
     return {gap.subject for gap in gaps if gap.kind in kinds}
 
 
-_BINDING_GAP_KINDS = {
+#: Gap kinds a binding-stage exclusion can be accounted for by. Public so
+#: ``core.semantic_consistency`` checks the same set the ledger joins on — a
+#: private copy there would drift and quietly stop checking anything.
+BINDING_GAP_KINDS = frozenset({
     "missing_binding_evidence",
     "partial_binding_evidence",
     "unresolved_bound_tool",
@@ -66,7 +69,18 @@ _BINDING_GAP_KINDS = {
     "conflicting_binding_evidence",
     "incomplete_handoff_graph",
     "invalid_tool_binding",
-}
+})
+
+#: Every gap kind the ledger joins a subject against. The spelling rule
+#: ``core.semantic_consistency`` enforces is scoped to exactly these: a gap the
+#: ledger never reads may name its subject however it likes, and widening the
+#: rule past them would force unrelated surfaces to change for a join that does
+#: not exist. (``inferred_policy_applicability`` does name tools by raw
+#: canonical id, which reads badly in ``Improve evidence:`` — a separate
+#: actionability question, not a conservation one.)
+LEDGER_JOINED_GAP_KINDS = BINDING_GAP_KINDS | frozenset(
+    {"incomplete_surface", "source_warning"}
+)
 
 
 def build_surface_exclusions(report: ReadinessReport) -> SurfaceExclusionLedger:
@@ -80,7 +94,7 @@ def build_surface_exclusions(report: ReadinessReport) -> SurfaceExclusionLedger:
     gaps: Sequence[EvidenceGap] = (
         decision.evidence_coverage.evidence_gaps if decision is not None else ()
     )
-    binding_gap_subjects = _gap_subjects(gaps, _BINDING_GAP_KINDS)
+    binding_gap_subjects = _gap_subjects(gaps, BINDING_GAP_KINDS)
 
     entries: list[SurfaceExclusion] = []
     entries.extend(_binding_exclusions(report, binding_gap_subjects))
@@ -298,6 +312,8 @@ def build_detect_exclusions(result: DetectResult) -> SurfaceExclusionLedger:
 
 
 __all__ = [
+    "BINDING_GAP_KINDS",
+    "LEDGER_JOINED_GAP_KINDS",
     "build_detect_exclusions",
     "build_surface_exclusions",
     "catalog_subject",

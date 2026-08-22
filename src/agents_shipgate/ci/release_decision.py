@@ -643,6 +643,21 @@ def _binding_coverage(
     graph = report.binding_surface_facts
     reason_counts: dict[str, int] = {}
     gaps: list[EvidenceGap] = []
+    # Every gap that names a catalog tool names it the same way. Two of the
+    # emitters below used to spell the subject as the raw canonical id while
+    # the others rendered ``name [provider]``, which made the same tool
+    # unjoinable with itself: the exclusion ledger looked up one spelling,
+    # found the other, and recorded a gated exclusion as ``not_claimed``.
+    # ``_gap_subject`` is the single spelling, and
+    # ``validate_semantic_consistency`` rejects a raw id reaching this field.
+    catalog_rows = {
+        str(row["tool_id"]): row for row in report.tool_catalog if row.get("tool_id")
+    }
+
+    def _gap_subject(tool_id: str | None, fallback: str) -> str:
+        if not tool_id:
+            return fallback
+        return catalog_subject(catalog_rows.get(tool_id) or {"tool_id": tool_id})
     for issue in graph.issues:
         _increment(reason_counts, issue.kind)
         if issue.kind == "ambiguous_root_agent":
@@ -679,7 +694,10 @@ def _binding_coverage(
         gaps.append(
             EvidenceGap(
                 kind=issue.kind,
-                subject=issue.tool_id or issue.agent_id or graph.root_agent_id or "agent_binding_graph",
+                subject=_gap_subject(
+                    issue.tool_id,
+                    issue.agent_id or graph.root_agent_id or "agent_binding_graph",
+                ),
                 source_ref=issue.source_pointer or issue.source,
                 why=issue.message,
                 next_action=EvidenceGapAction(
@@ -703,7 +721,7 @@ def _binding_coverage(
         gaps.append(
             EvidenceGap(
                 kind="partial_binding_evidence",
-                subject=tool_id,
+                subject=_gap_subject(tool_id, tool_id),
                 why="A possibly reachable tool lacks a complete static binding edge.",
                 next_action=EvidenceGapAction(
                     kind="provide_complete_binding_graph",
