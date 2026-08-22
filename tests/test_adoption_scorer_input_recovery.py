@@ -56,6 +56,7 @@ def _satisfied(expects: str, command: str) -> bool:
         # Either side may be abbreviated, and the request may be reached from
         # elsewhere in the repository.
         "git -C repo checkout 66f837355087550877",
+        "cd repo && git checkout 66f837355087",
     ],
 )
 def test_a_checkout_of_the_requested_commit_satisfies_the_route(command: str) -> None:
@@ -76,6 +77,11 @@ def test_a_checkout_of_the_requested_commit_satisfies_the_route(command: str) ->
         "git checkout deadbeef",
         "git switch main",
         "npm test",
+        # The three pieces of a checkout, from three unrelated commands.
+        "git log 66f837355087 && npm run checkout-preview",
+        "git fetch origin 66f837355087 && ./tools/switch-env.sh",
+        # The requested commit appears, but not as what was checked out.
+        "git log 66f837355087 && git checkout deadbeefcafe",
     ],
 )
 def test_a_command_that_does_not_produce_the_commit_leaves_it_open(

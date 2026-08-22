@@ -1050,27 +1050,70 @@ _CHECKOUT_REQUEST = re.compile(
 )
 
 
+_ABBREVIATED_COMMIT = re.compile(r"[0-9a-f]{7,40}")
+# Git's own global options, and the ones among them that take a separate value.
+_GIT_GLOBAL_WITH_VALUE = frozenset(
+    {"-c", "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path"}
+)
+_SHELL_SEPARATORS = frozenset({"&&", "||", ";", "|", "&"})
+
+
+def _git_invocations(command: str) -> list[tuple[str, list[str]]]:
+    """Each git subcommand in a possibly compound line, with its own arguments.
+
+    Parsed rather than pattern-matched because the pieces of a checkout are
+    otherwise free to come from three different commands: ``git log <sha> &&
+    npm run checkout-preview`` has a ``git``, the word ``checkout`` and the
+    requested commit in it, and checks nothing out.
+    """
+
+    tokens = command.split()
+    invocations: list[tuple[str, list[str]]] = []
+    index = 0
+    while index < len(tokens):
+        if tokens[index].rsplit("/", 1)[-1] != "git":
+            index += 1
+            continue
+        cursor = index + 1
+        while cursor < len(tokens) and tokens[cursor].startswith("-"):
+            cursor += 2 if tokens[cursor] in _GIT_GLOBAL_WITH_VALUE else 1
+        if cursor >= len(tokens):
+            break
+        name = tokens[cursor]
+        cursor += 1
+        args: list[str] = []
+        while cursor < len(tokens) and tokens[cursor] not in _SHELL_SEPARATORS:
+            args.append(tokens[cursor])
+            cursor += 1
+        invocations.append((name, args))
+        index = cursor
+    return invocations
+
+
 def _moves_head_to(command: str, commit: str) -> bool:
     """Whether ``command`` puts ``commit`` in the worktree.
 
-    Three near misses all read as checkouts and none of them satisfy the
-    request: ``git restore`` and ``git checkout -- <path>`` rewrite files while
-    leaving ``HEAD`` where it was, ``git switch main`` moves ``HEAD`` somewhere
-    else, and ``git checkout <other-sha>`` moves it to the wrong commit.  So the
-    verb has to be one that moves ``HEAD``, the path-restoring form is rejected,
-    and the target has to be the commit that was asked for — compared as a
-    prefix in either direction, since either side may be abbreviated.
+    Several near misses read as checkouts and none of them satisfy the request:
+    ``git restore`` and ``git checkout -- <path>`` rewrite files while leaving
+    ``HEAD`` where it was, ``git switch main`` moves ``HEAD`` somewhere else,
+    and ``git checkout <other-sha>`` moves it to the wrong commit.  So the
+    subcommand has to be one that moves ``HEAD``, the path-restoring form is
+    rejected, and the target has to be the commit that was asked for — read
+    from that invocation's own arguments, and compared as a prefix in either
+    direction, since either side may be abbreviated.
     """
 
-    if not re.search(r"\bgit\b.*\b(?:checkout|switch)\b", command, re.IGNORECASE):
-        return False
-    if re.search(r"\s--(?:\s|$)", command):
-        return False
     commit = commit.casefold()
-    return any(
-        commit.startswith(token) or token.startswith(commit)
-        for token in re.findall(r"\b[0-9a-f]{7,40}\b", command.casefold())
-    )
+    for name, args in _git_invocations(command.casefold()):
+        if name not in {"checkout", "switch"} or "--" in args:
+            continue
+        if any(
+            commit.startswith(argument) or argument.startswith(commit)
+            for argument in args
+            if _ABBREVIATED_COMMIT.fullmatch(argument)
+        ):
+            return True
+    return False
 
 
 def _summary_satisfies_structured_request(summary: str, control: _ControlSnapshot) -> bool:
