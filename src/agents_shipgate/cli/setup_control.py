@@ -316,7 +316,20 @@ def setup_control_envelope(
         # the case: rank 1 is "choose a project", and the per-candidate commands
         # below it are how the chosen one gets initialized. A caller that
         # supplies them has already ranked the decision above them.
-        actions = [selected, *advance_alternatives]
+        #
+        # They ride with *that* decision and no other. When a diagnostic
+        # outranked the advance, rank 1 is a different question, and appending
+        # the advance's commands under it publishes steps that carry out a
+        # decision nobody made: `detect` on a workspace whose only agent
+        # evidence is two nested manifests emitted `stop` — "not a Shipgate
+        # target" — and then an `init --write` for each of the two (#397).
+        #
+        # Asked of the object rather than tracked in a flag beside the two
+        # branches that assign it: `advance` is the only route any branch
+        # selects without building a fresh `NextAction`, so identity answers
+        # this exactly, and a precedence tier added later cannot forget to
+        # keep a mirror in step.
+        actions = [selected, *(advance_alternatives if selected is advance else ())]
         control: AgentControl = _human_route(selected.why, stop=selected.kind == "stop")
     else:
         actions = [selected, *(item for item in alternatives if item is not selected)][:3]

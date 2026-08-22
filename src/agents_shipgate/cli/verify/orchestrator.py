@@ -12,6 +12,7 @@ import stat
 import tempfile
 import unicodedata
 from collections import Counter
+from collections.abc import Callable
 from contextvars import Token
 from datetime import date
 from pathlib import Path, PurePosixPath
@@ -75,6 +76,7 @@ from agents_shipgate.core.verification_identity import (
     build_terminal_receipt,
     build_unit_result,
     build_verification_plan,
+    worktree_overlay,
 )
 from agents_shipgate.invocation import retarget_command
 from agents_shipgate.packet.json_packet import load_packet_json, write_packet_json
@@ -3353,8 +3355,25 @@ def _current_control_workspace_identity(
 
     The verification plan is the authoritative source when the run produced
     one, because that is the same subject the receipt closes over.  Runs that
-    stopped before plan construction fall back to the verifier's coarser view,
-    which is enough for a consumer to notice that HEAD moved.
+    stopped before plan construction fall back to the verifier's coarser view.
+
+    That fallback binds *this worktree's* HEAD, which is deliberately not
+    ``head_ref``: a preview reads project markers from the working tree, so the
+    tree it actually read is the one a later reader has to still be sitting in.
+    Binding nothing left the pointer permanently current, and a preview that
+    asked for a checkout kept answering ``agent_action_required`` with the same
+    ``current_control_id`` after the caller performed it — the refresh entry
+    point reported the request as still outstanding, which is how a
+    refresh-driven controller repeats an action forever (#397 review).
+
+    HEAD is not enough on its own, because the evidence a preview routes on is
+    frequently *uncommitted*: a route selected from an untracked ``agent.py``
+    survived that file being deleted, since neither HEAD nor its tree moved. So
+    the overlay of the paths that differ from HEAD is bound too, and the
+    pointer declares itself a worktree snapshot. The path set is derived from
+    the live worktree on both sides rather than recorded — the reader excludes
+    the same reports directory this run wrote into, because that is the
+    directory it was pointed at to find the pointer at all.
     """
 
     plan_path = out_dir / "verification-plan.json"
@@ -3365,11 +3384,50 @@ def _current_control_workspace_identity(
             plan = None
         if plan is not None:
             return workspace_identity_from_plan(plan)
+    bound, overlay = _safe_worktree_overlay(git_root, exclude=out_dir)
     return CurrentControlWorkspaceIdentity(
         repository=_safe_repository_identity(git_root),
         head_ref=verifier.head_ref,
-        head_tree_sha=verifier.head_tree_sha,
+        head_commit_sha=_safe_worktree_sha(git_root, commit_sha),
+        # An evaluated tree, when the run recorded one, is what this answer
+        # describes; otherwise the worktree's own HEAD tree is.
+        head_tree_sha=verifier.head_tree_sha or _safe_worktree_sha(git_root, tree_sha),
+        snapshot_kind="worktree_overlay" if bound else None,
+        worktree_overlay_sha256=overlay,
     )
+
+
+def _safe_worktree_overlay(git_root: Path, *, exclude: Path) -> tuple[bool, str | None]:
+    """The overlay of everything that differs from HEAD right now.
+
+    Returns ``(bound, digest)``. The pair is needed because ``None`` is a
+    *value* here and not only a failure: a clean worktree has no overlay rows,
+    and the reader spells that as ``None`` too, so the two must agree. Reporting
+    the clean case as unbound instead would leave the pointer with nothing to
+    validate, and a later edit invisible — which is the state this is fixing.
+
+    ``bound=False`` is the genuinely unknown case, and it declares no snapshot
+    kind at all rather than manufacturing currency from an unreadable tree.
+    """
+
+    try:
+        changed, _ = working_tree_context(git_root, exclude=exclude)
+        rows = worktree_overlay(git_root, list(changed))
+    except Exception:  # noqa: BLE001 - pointer identity is best-effort here.
+        return (False, None)
+    # The reader's own rule, so an empty overlay compares equal on both sides.
+    return (True, content_id(rows) if rows else None)
+
+
+def _safe_worktree_sha(
+    git_root: Path, resolve: Callable[[Path, str], str | None]
+) -> str | None:
+    """This worktree's HEAD identity, or ``None`` outside a readable repository."""
+
+    try:
+        return resolve(git_root, "HEAD")
+    except Exception:  # noqa: BLE001 - pointer identity is best-effort here.
+        return None
 
 
 def _safe_repository_identity(workspace: Path) -> str | None:
@@ -3904,8 +3962,31 @@ def _scoped_manifest_path(directory: Path, name: str) -> Path | None:
     return candidate
 
 
-def _head_is_current_worktree(root: Path, head: str | None) -> bool:
-    """Whether the evaluated head is the commit the worktree has checked out.
+@dataclasses.dataclass(frozen=True)
+class _HeadPosition:
+    """Where the evaluated head sits relative to this worktree, and what it is.
+
+    ``commit`` is the immutable id the requested ref resolved to, and it is the
+    whole reason this is a pair rather than a boolean. ``--head`` accepts
+    revision expressions: ``HEAD~1`` names one commit before the recovery's
+    checkout and a different one after it, so a route spelled with the
+    *expression* walks history backwards one commit per iteration instead of
+    terminating — and a ``HEAD``-relative ``--base`` silently re-ranges the
+    same way (#397 review). Only a commit id says the same thing on both sides
+    of the checkout it asks for.
+
+    ``None`` when the ref could not be resolved at all. Preview never reaches
+    the scope routing in that state — an unreadable ref is a diff-input
+    failure, which outranks it — so the routes below fall back to the ref's own
+    spelling rather than inventing an id.
+    """
+
+    matches_worktree: bool
+    commit: str | None = None
+
+
+def _head_position(root: Path, head: str | None) -> _HeadPosition:
+    """Resolve the evaluated head against the commit this worktree holds.
 
     Manifest-scope evidence is read from the working tree, so a preview of
     some *other* ref would authorize a directory the diff never described.
@@ -3913,13 +3994,28 @@ def _head_is_current_worktree(root: Path, head: str | None) -> bool:
     """
 
     if head is None:
-        return True
+        return _HeadPosition(matches_worktree=True)
     try:
         head_sha = commit_sha(root, head)
         worktree_sha = commit_sha(root, "HEAD")
     except Exception:  # noqa: BLE001 - preview must never crash.
-        return False
-    return head_sha is not None and head_sha == worktree_sha
+        return _HeadPosition(matches_worktree=False)
+    return _HeadPosition(
+        matches_worktree=head_sha is not None and head_sha == worktree_sha,
+        commit=head_sha,
+    )
+
+
+def _pinned_ref(root: Path, ref: str | None) -> str | None:
+    """``ref`` as a short commit id, for a command that must survive a checkout."""
+
+    if ref is None:
+        return None
+    try:
+        resolved = commit_sha(root, ref)
+    except Exception:  # noqa: BLE001 - preview must never crash.
+        return None
+    return resolved[:12] if resolved else None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -3930,15 +4026,29 @@ class _PreviewScope:
     ``resolution`` alone: ``not_evaluated`` covers a capped probe, evidence the
     diff deleted, and a head that is not this worktree, and the honest next
     step differs for each (#399 review).
+
+    ``head`` and the two pinned commit ids are carried beside the cause that
+    names them rather than read again at the route: the ``head_mismatch``
+    recovery *is* "check this commit out, then re-run against it", so the refs
+    and the cause have to be produced together or the two can drift (#397).
+    The ids are what make that recovery terminate — see :class:`_HeadPosition`.
     """
 
     resolution: ScopeResolution
     cause: str | None = None
     python_file_total: int = 0
+    head: str | None = None
+    head_commit: str | None = None
+    base_commit: str | None = None
 
 
 def _preview_scope(
-    *, root: Path, changed_files: list[str], limit: Path | None, head: str | None
+    *,
+    root: Path,
+    changed_files: list[str],
+    limit: Path | None,
+    head: str | None,
+    base: str | None = None,
 ) -> _PreviewScope:
     """Which project the changed paths belong to, for the routing below.
 
@@ -3960,17 +4070,24 @@ def _preview_scope(
     (#399 review).
     """
 
-    if not _head_is_current_worktree(root, head):
+    position = _head_position(root, head)
+    if not position.matches_worktree:
+        pinned = position.commit[:12] if position.commit else None
         return _PreviewScope(
             resolution=ScopeResolution(
                 status="not_evaluated",
                 detail=(
-                    f"the evaluated head {head!r} is not the commit this "
-                    "worktree has checked out, and project markers are read "
-                    "from the worktree that init would run against"
+                    f"the evaluated head {head!r}"
+                    + (f" ({pinned})" if pinned else "")
+                    + " is not the commit this worktree has checked out, and "
+                    "project markers are read from the worktree that init "
+                    "would run against"
                 ),
             ),
             cause="head_mismatch",
+            head=head,
+            head_commit=pinned,
+            base_commit=_pinned_ref(root, base),
         )
     evidence = weak_marker_evidence_dirs(root, changed_files)
     if evidence.undetermined:
@@ -4019,22 +4136,88 @@ def _unresolved_scope_route(
     Deleted evidence is a question no read-only command can answer, so it
     gets a human route and no command at all — publishing one here would be
     publishing a step that cannot take.
+
+    A head that is not this worktree is neither. Nothing about the change is
+    in doubt there: the missing input is a *working tree* holding the commit
+    under review, and producing it is one mechanical step the caller owns.
+    Shipgate never writes to a caller's worktree, so it cannot spell that
+    step as a command it runs — which is exactly what ``fetch_base`` is for.
+    Naming the input and letting the caller produce it keeps the loop moving;
+    routing it to a human published ``must_stop`` and ``command: null`` for a
+    state the coding agent clears itself, and the remedy — derivable from the
+    ref preview was handed — went unsaid (#397).
     """
 
     resolution = scope.resolution
-    if scope.cause in ("deleted_evidence", "unreadable_inventory", "head_mismatch"):
+    if scope.cause == "head_mismatch":
+        # ``head_mismatch`` is only produced for a non-None ``--head``: an
+        # absent one is the working tree by definition. The commit id is
+        # preferred over the caller's spelling everywhere below, because the
+        # step being asked for *moves HEAD*: `--head HEAD~1` names one commit
+        # before the checkout and its parent after, so the expression form
+        # walks history backwards forever instead of resolving (#397 review).
+        target = scope.head_commit or scope.head or "the evaluated head"
+        if scope.head_commit is None:
+            # Nothing resolved, so there is no id to pin to and no honest way
+            # to promise the rerun means the same thing afterwards. Say what is
+            # missing and stop there rather than printing an instruction that
+            # contradicts the sentence next to it.
+            rerun = None
+        else:
+            rerun = f"--head {target}"
+            if scope.base_commit is not None:
+                # A `HEAD`-relative base re-ranges across the same checkout,
+                # which is quieter than the loop and worse: the rerun succeeds
+                # while evaluating a diff nobody asked for.
+                rerun = f"--base {scope.base_commit} {rerun}"
+        return (
+            CodingAgentFetchBaseAction(
+                kind="fetch_base",
+                # The whole recovery, in the one field the envelope never
+                # truncates: `truncate_prose` caps `why` at 400 bytes and
+                # leaves `expects` alone, so the immutable ids survive a ref
+                # name long enough to push everything else out. A consumer
+                # that re-derived the rerun from the caller's own
+                # `HEAD`-relative request would rebuild the backward walk
+                # this route exists to end (#397 review).
+                expects=(
+                    f"commit {target} checked out in this worktree"
+                    + (f", then this preview re-run with {rerun}" if rerun else "")
+                ),
+                # The instruction leads for the same reason: what gets cut is
+                # the diagnosis, never the step.
+                why=(
+                    f"Check {target} out in this worktree, then re-run this "
+                    + (f"preview with {rerun}. " if rerun else "preview. ")
+                    + "The project this change belongs to could not be "
+                    f"established ({resolution.detail}); discovery of the "
+                    "worktree as it stands answers about a different tree, and "
+                    "a revision expression re-resolves against the new HEAD."
+                ),
+            ),
+            f"The evaluated head {target} is not checked out here, so no "
+            "project could be named; check it out and re-run this preview "
+            "against that commit.",
+        )
+    if scope.cause in ("deleted_evidence", "unreadable_inventory"):
         return (
             HumanControlAction(
                 kind="review",
+                # The reason `detect` is not offered here is *not* that it
+                # would read some other tree — both causes are produced only
+                # after the head was confirmed to be this worktree. It is that
+                # the evidence is missing from the tree everything can read, so
+                # discovery reports the surviving project as the single scope
+                # and its `init` adopts an agent this change never touched.
                 why=(
                     "The project this change belongs to could not be "
                     f"established ({resolution.detail}), and no read-only "
-                    "command settles it: the evidence is not in the tree this "
-                    "run can read. Decide from the change itself which project "
-                    "it belongs to and initialize that directory by name. "
-                    "Discovery of the current worktree would answer about a "
-                    "different tree, and initializing the workspace root would "
-                    "adopt a scope nobody chose."
+                    "command settles it: the evidence is missing from the tree "
+                    "this run reads, so discovery would report whatever "
+                    "survived as the workspace's single scope. Decide from the "
+                    "change itself which project it belongs to and initialize "
+                    "that directory by name; initializing the workspace root "
+                    "would adopt a scope nobody chose."
                 ),
             ),
             "Shipgate could not establish which project this change belongs "
@@ -4281,7 +4464,11 @@ def run_preview(
     # the two disagree — the same refs would recommend different directories
     # depending on what happens to be checked out — so no scope is claimed.
     preview_scope = _preview_scope(
-        root=root, changed_files=changed_files, limit=requested_root, head=head
+        root=root,
+        changed_files=changed_files,
+        limit=requested_root,
+        head=head,
+        base=base,
     )
     resolution = preview_scope.resolution
     scope = resolution.scope

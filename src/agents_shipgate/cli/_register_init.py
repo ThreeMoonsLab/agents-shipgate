@@ -33,6 +33,12 @@ from agents_shipgate.cli.discovery.gitignore_block import (
 from agents_shipgate.cli.discovery.local_contract import LOCAL_CONTRACT_RELATIVE_PATH
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
 from agents_shipgate.cli.discovery.scope import repository_root
+from agents_shipgate.cli.scope_routing import (
+    MAX_LISTED_SCOPE_CANDIDATES,
+    candidate_caveats,
+    describe_candidate,
+    scope_candidate_actions,
+)
 from agents_shipgate.cli.setup_control import (
     SETUP_COMPLETE,
     SETUP_INCOMPLETE,
@@ -154,24 +160,6 @@ def _detect_json_indent(text: str) -> int:
     return 2
 
 
-# A monorepo can hold hundreds of agent projects. The refusal lists enough
-# of them to route on and points at the JSON payload for the rest.
-_MAX_LISTED_SCOPE_CANDIDATES = 10
-
-
-def _describe_candidate(candidate: AgentProjectCandidate) -> str:
-    """One candidate as a line a human can choose from.
-
-    Not every project names its agent in a string literal — a config-driven
-    ``LlmAgent(name=CONFIG.agent_name)`` has none to parse — so the marker
-    that made the directory a project stands in for it rather than leaving
-    an empty pair of brackets.
-    """
-
-    detail = ", ".join(candidate.agent_names) or (candidate.marker or "project root")
-    return f"{candidate.path} ({detail})"
-
-
 def _scan_command_config(target: Path) -> str:
     """How the follow-up ``scan`` should name the manifest just written.
 
@@ -205,7 +193,7 @@ def _requested_setup_flags(
 
     ``--agent-instructions-kit`` is deliberately not here: it is a path,
     and a path is only meaningful relative to a workspace. See
-    :func:`_rebased_kit_flags`.
+    :func:`agents_shipgate.cli.scope_routing.rebased_kit_flags`.
     """
 
     flags: list[str] = []
@@ -216,28 +204,6 @@ def _requested_setup_flags(
     if agent_instructions is not None:
         flags.append(f"--agent-instructions={agent_instructions}")
     return flags
-
-
-def _rebased_kit_flags(
-    kit: Path | None, *, source: Path, target: Path
-) -> list[str] | None:
-    """``--agent-instructions-kit`` for a command run in ``target``.
-
-    Returns ``None`` when the kit cannot be named from there, which is a
-    refusal rather than a fallback: a kit path is resolved *under the
-    workspace*, so copying a root-relative ``.agents-shipgate/kit.yaml``
-    into a command that runs in ``apps/a`` points at a file that does not
-    exist, and the emitted command exits 2 (#363 review).
-    """
-
-    if kit is None:
-        return []
-    resolved = kit if kit.is_absolute() else (source / kit)
-    try:
-        relative = resolved.resolve().relative_to(target.resolve())
-    except (OSError, ValueError):
-        return None
-    return ["--agent-instructions-kit", relative.as_posix()]
 
 
 def _unresolved_scope_message(
@@ -266,6 +232,7 @@ def _unresolved_scope_message(
                 "the project you are changing.",
             ]
         )
+    listed = candidates[:MAX_LISTED_SCOPE_CANDIDATES]
     if scope == "unknown":
         lines = [
             f"Refusing to write shipgate.yaml: discovery stopped at the "
@@ -275,8 +242,8 @@ def _unresolved_scope_message(
         ]
         if candidates:
             lines.append("Projects found before the cap:")
-            for candidate in candidates[:_MAX_LISTED_SCOPE_CANDIDATES]:
-                lines.append(f"  - {_describe_candidate(candidate)}")
+            for candidate in listed:
+                lines.append(f"  - {describe_candidate(candidate, workspace=workspace)}")
     else:
         lines = [
             f"Refusing to write shipgate.yaml: {workspace} holds "
@@ -284,9 +251,9 @@ def _unresolved_scope_message(
             "and one manifest describes one agent surface.",
             "Candidate project directories:",
         ]
-        for candidate in candidates[:_MAX_LISTED_SCOPE_CANDIDATES]:
-            lines.append(f"  - {_describe_candidate(candidate)}")
-    remaining = len(candidates) - _MAX_LISTED_SCOPE_CANDIDATES
+        for candidate in listed:
+            lines.append(f"  - {describe_candidate(candidate, workspace=workspace)}")
+    remaining = len(candidates) - MAX_LISTED_SCOPE_CANDIDATES
     if remaining > 0:
         lines.append(
             f"  - ... ({remaining} more; see auto_detected.agent_project_candidates "
@@ -314,6 +281,7 @@ def _unresolved_scope_message(
         "or pass --allow-unresolved-scope to write one manifest for this "
         "workspace as a whole."
     )
+    lines.extend(candidate_caveats(workspace, listed))
     if scope == "unknown" or parse_truncated:
         lines.append(
             f"Re-run with --max-python-files {python_file_total}, a bound that "
@@ -334,6 +302,8 @@ def _unresolved_scope_actions(
     parse_truncated: bool = False,
     python_file_total: int = 0,
     setup_command: list[str] | None = None,
+    refreshes_existing: bool = False,
+    adopted_setup_flags: Sequence[str] = (),
 ) -> list[NextAction]:
     """Rank the decision above the commands that carry it out.
 
@@ -417,54 +387,18 @@ def _unresolved_scope_actions(
             "auto_detected.agent_project_candidates."
         ),
     )
-    actions = [retry, decision] if retry is not None else [decision]
-    # The workspace root is never offered as a command: it is the scope this
-    # run just refused, so running it again returns here. `.` stays in the
-    # reported candidate list because agent files that belong to no
-    # sub-project are real evidence of why the answer is unresolved, and
-    # `--allow-unresolved-scope` is the route that accepts them.
-    routable = [candidate for candidate in candidates if candidate.path != "."]
-    for candidate in routable[:_MAX_LISTED_SCOPE_CANDIDATES]:
-        target = workspace / candidate.path
-        defines = ", ".join(candidate.agent_names)
-        kit_flags = _rebased_kit_flags(kit, source=workspace, target=target)
-        if kit_flags is None:
-            actions.append(
-                NextAction(
-                    kind="review",
-                    why=(
-                        f"{candidate.path} is a candidate, but the adoption kit "
-                        f"at {kit} sits outside it and a kit path is resolved "
-                        "under the workspace. Relocate the kit into the project "
-                        "or drop --agent-instructions-kit before initializing "
-                        "there."
-                    ),
-                    expects=f"An adoption kit reachable from {candidate.path}.",
-                )
-            )
-            continue
-        actions.append(
-            NextAction(
-                kind="command",
-                command=render_command(
-                    [
-                        "init",
-                        "--workspace",
-                        str(target),
-                        "--write",
-                        *setup_flags,
-                        *kit_flags,
-                        "--json",
-                    ]
-                ),
-                why=(
-                    f"Initialize only {candidate.path}"
-                    + (f", which defines {defines}." if defines else ".")
-                ),
-                expects=f"shipgate.yaml is created in {candidate.path}.",
-            )
-        )
-    return actions
+    return [
+        *([retry] if retry is not None else []),
+        decision,
+        *scope_candidate_actions(
+            workspace,
+            candidates,
+            setup_flags=setup_flags,
+            adopted_setup_flags=adopted_setup_flags,
+            kit=kit,
+            init_refreshes_existing=refreshes_existing,
+        ),
+    ]
 
 
 def _claude_code_outcome_lines(outcome: dict[str, object]) -> list[str]:
@@ -1210,6 +1144,19 @@ def register(app: typer.Typer) -> None:
                         agent_instructions=agent_instructions,
                     ),
                 ],
+                # With an instruction target selected, `init --write` leaves an
+                # existing manifest alone and still exits 0 — the advertised
+                # refresh command — so an adopted candidate keeps its `init`
+                # route rather than being handed to `doctor` (#397 review).
+                refreshes_existing=bool(requested_targets),
+                # `--ci` is the one requested flag that still does its own work
+                # with `--write` omitted, so it is the one that can be carried
+                # to an adopted candidate without hitting the manifest refusal.
+                # `--claude-code` cannot: it is a dry run without `--write` —
+                # and it never reaches here, because it implies an
+                # `--agent-instructions` selection, which takes the refresh
+                # route above.
+                adopted_setup_flags=["--ci"] if ci else [],
             )
 
         # Routing. Computed from the manifest that is *on disk*, not from the

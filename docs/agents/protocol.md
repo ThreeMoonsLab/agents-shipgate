@@ -108,8 +108,13 @@ at all. The converse does not hold: `must_stop=false` is not a promise that
 publication is authorized — read `control.permissions`. `risk_level` remains explanatory.
 
 With `--format agent-boundary-json`, schema-valid results exit `0`; wrappers
-must switch on `control.state`, not `$?`. A missing ref may return an
-`agent_action_required` `fetch_base` action naming the exact required refs.
+must switch on `control.state`, not `$?`. A missing input may return an
+`agent_action_required` `fetch_base` action, which carries no `command` and
+names the input in `expects` instead: the exact refs to make available, or —
+from `verify --preview`, whose project markers are read from the working tree —
+the commit this worktree must have checked out. `expects` names a commit id
+rather than the ref you passed, because the checkout it asks for moves `HEAD`
+and a revision expression would then mean something else.
 An unreadable diff file, detached stdin/file diff that owes verification, or
 worktree/ref state Shipgate cannot bind returns `human_review_required` and
 authorizes no speculative rerun. Unsupported CLI shape errors such as an

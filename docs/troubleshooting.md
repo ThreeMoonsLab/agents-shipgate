@@ -86,6 +86,22 @@ So Shipgate scopes rather than guesses:
   beside a sibling project does not send the answer back to the root. When the
   changed project already carries its own `shipgate.yaml`, preview routes you
   to `verify` there instead of to setup.
+- Preview reads project markers from the **working tree**, because that is the
+  tree the `init` it recommends would write to. So `verify --preview --head
+  <ref>` claims no scope whenever `<ref>` is not the commit the worktree has
+  checked out — whatever that worktree happens to hold, since the two trees can
+  disagree and only one of them is the tree `init` would run against. (On the
+  reported pull request they disagreed completely: the changed directory
+  existed only on the PR branch.) That is not a verdict about the change: the
+  control route is `agent_action_required` with a `fetch_base` action whose
+  `expects` names what is missing: **a commit id**, not the ref you passed.
+  Check that commit out, then re-run the preview with the pinned
+  `--base`/`--head` the `why` spells out. The pinning is load-bearing —
+  `--head HEAD~1` names one commit before the checkout and its parent after, so
+  a route spelled with the expression would walk history backwards. `agent
+  control` refuses the old pointer once you check out, so a refresh-driven
+  caller re-runs preview rather than repeating the checkout. Plain `verify` is
+  unaffected — it reads `--head` from the object database, not the worktree.
 - `init --write` refuses a workspace whose agents live in more than one
   project: `manifest_status: "refused_unresolved_scope"`, exit `2`, and
   **nothing written** — no manifest, no CI workflow, no agent-instruction
@@ -117,7 +133,22 @@ So Shipgate scopes rather than guesses:
   measured against.
 - `agents-shipgate detect --json` answers the same question without writing
   anything: read `agent_scope`, `agent_scope_truncated`, and
-  `agent_project_candidates[]`.
+  `agent_project_candidates[]`. On `"ambiguous"` with a complete parse its
+  `next_actions[]` carries the same shape `init`'s refusal does — the decision
+  first (`kind: "review"`, no command, because naming one candidate would make
+  the pick Shipgate declines to make), then one exact
+  `init --workspace <candidate> --write --json` per candidate, each with
+  `executable`/`args`. Match on the path of the project you are changing and
+  run that entry; the workspace root is never among the commands, since that is
+  the scope `init` refuses — it gets a `review` entry of its own instead, because
+  `--allow-unresolved-scope` adopts the whole workspace rather than that one
+  agent. Every candidate gets an entry — there is no display cap on the routing
+  — and one that **already carries a manifest** gets
+  `doctor --config <that manifest> --json`, because `init --write` there would
+  refuse a file it will not overwrite. A truncated parse outranks
+  all of it: rank 1 is then the higher-cap `detect` below, and no candidate
+  commands are offered, because the list they would be built from is a lower
+  bound.
 - `python_parse_truncated: true` is the wider version of the same warning: the
   Python parse stopped at its cap, so *any* whole-workspace negative — most of
   all `is_agent_project: false` — describes the files that were read rather

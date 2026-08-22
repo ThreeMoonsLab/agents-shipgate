@@ -252,7 +252,21 @@ agents-shipgate bootstrap --json
   name the project directly. `agent_scope_truncated: true` says the candidate
   list itself is a lower bound — the parse stopped at its cap, so any project
   in the part of the tree that was not read is missing from it. Never read
-  absence from a truncated list as an answer; raise the cap first.
+  absence from a truncated list as an answer; raise the cap first. On
+  `agent_scope: "ambiguous"` with a complete parse, `next_actions[]` ranks the
+  decision first (`kind: "review"`, no command) and then carries one exact
+  `init --workspace <candidate> --write --json` per candidate — the list
+  `init --write` publishes when it refuses the same workspace, minus the setup
+  flags, which `detect` was not asked for and does not invent: if you want
+  `--ci` or `--agent-instructions`, add them, or take the command from `init`'s
+  own refusal, which repeats what you asked for. A candidate that already
+  carries a manifest gets `doctor --config <that manifest> --json` instead —
+  `init --write` there refuses a file it will not overwrite — or, when you asked
+  for setup it still owes, an `init` carrying those flags. Every candidate gets
+  an entry, the workspace root as a `review` rather than a command; the ten-item
+  cap is on the human summary only. Choosing the project is the only work left. A truncated parse outranks that, in `detect` and in `init`
+  alike: rank 1 is then the higher-cap rerun and no candidate commands are
+  offered, because the list they would be built from is a lower bound.
 - **`init`** — auto-detects by default. `--ci` writes
   `.github/workflows/agents-shipgate.yml`; orthogonal to `--write`. Use
   `--minimal` for the pre-v0.6 CHANGE_ME-heavy template.
