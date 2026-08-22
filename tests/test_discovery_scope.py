@@ -1797,6 +1797,17 @@ def test_the_root_candidate_gets_a_route_of_its_own(tmp_path: Path) -> None:
     assert root_route["kind"] == "review"
     assert root_route["command"] is None
     assert "--allow-unresolved-scope" in root_route["why"]
+
+    # And the printed lists say the same thing, in both commands: a caption
+    # reading "re-run init on the one you are changing" over an unmarked `.` is
+    # the human form contradicting the route beside it.
+    for argv in (
+        ["detect", "--workspace", str(repo)],
+        ["init", "--workspace", str(repo), "--write"],
+    ):
+        printed = runner.invoke(app, argv).output
+        assert ". (rooty) — the workspace itself, not a project" in printed
+        assert "re-running init at the root returns this refusal" in printed
     # Still never a command naming the root: that run is this refusal.
     assert all(
         f"--workspace {repo} --write" not in (action["command"] or "")
@@ -1903,6 +1914,7 @@ def test_an_unadopted_workspace_says_nothing_about_doctor(tmp_path: Path) -> Non
         output = runner.invoke(app, argv).output
         assert "already adopted" not in output
         assert "ask doctor" not in output
+        assert "the workspace itself" not in output
 
 
 def test_an_instruction_refresh_keeps_init_for_an_adopted_candidate(

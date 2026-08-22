@@ -35,8 +35,8 @@ from agents_shipgate.cli.discovery.placeholders import collect_placeholders
 from agents_shipgate.cli.discovery.scope import repository_root
 from agents_shipgate.cli.scope_routing import (
     MAX_LISTED_SCOPE_CANDIDATES,
+    candidate_caveats,
     describe_candidate,
-    is_adopted,
     scope_candidate_actions,
 )
 from agents_shipgate.cli.setup_control import (
@@ -280,15 +280,7 @@ def _unresolved_scope_message(
         "or pass --allow-unresolved-scope to write one manifest for this "
         "workspace as a whole."
     )
-    if any(
-        candidate.path != "." and is_adopted(workspace / candidate.path) is not None
-        for candidate in candidates
-    ):
-        lines.append(
-            "A project marked already adopted has a manifest init will not "
-            "overwrite; ask doctor --config <that manifest> what it still "
-            "owes instead."
-        )
+    lines.extend(candidate_caveats(workspace, candidates))
     if scope == "unknown" or parse_truncated:
         lines.append(
             f"Re-run with --max-python-files {python_file_total}, a bound that "

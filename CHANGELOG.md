@@ -101,7 +101,9 @@
   list, but it was the one candidate the routing skipped: `init` there is the
   run that just refused, and `--allow-unresolved-scope` accepts the whole
   workspace as one scope, which is a different decision. It is now an explicit
-  human route saying exactly that.
+  human route saying exactly that, and the printed lists mark it — a caption
+  reading "re-run init on the one you are changing" over an unmarked `.` is the
+  human form of a run contradicting its own routing.
 
   `detect`'s `control.input_id` now covers the route it publishes, not only the
   classification behind it. Every emitted command is spelled for the entry

@@ -25,8 +25,8 @@ from agents_shipgate.cli.discovery import (
 )
 from agents_shipgate.cli.scope_routing import (
     MAX_LISTED_SCOPE_CANDIDATES,
+    candidate_caveats,
     describe_candidate,
-    is_adopted,
     scope_candidate_actions,
 )
 from agents_shipgate.cli.setup_control import (
@@ -432,16 +432,8 @@ def _echo_agent_scope(result: DetectResult, *, workspace: Path) -> None:
             "One shipgate.yaml describes one agent surface, so init --write "
             "refuses here until you name the project directory to initialize."
         )
-        if any(
-            candidate.path != "."
-            and is_adopted(workspace / candidate.path) is not None
-            for candidate in candidates
-        ):
-            typer.echo(
-                "A project marked already adopted has a manifest init will "
-                "not overwrite; ask doctor --config <that manifest> what it "
-                "still owes instead."
-            )
+        for caveat in candidate_caveats(workspace, list(candidates)):
+            typer.echo(caveat)
     if result.agent_scope_truncated:
         roots = result.workspace_signals.project_root_count
         typer.echo(

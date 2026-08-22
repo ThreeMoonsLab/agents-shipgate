@@ -88,24 +88,58 @@ def describe_candidate(candidate: AgentProjectCandidate, *, workspace: Path) -> 
     that made the directory a project stands in for it rather than leaving
     an empty pair of brackets.
 
-    A candidate that already carries a manifest says so, because the routing
-    published beside this list sends those to ``doctor``: the ``init --write``
-    both commands recommend in prose refuses a manifest it will not overwrite.
+    Two candidates say more than their name, because the routing published
+    beside this list sends them somewhere other than the ``init --write`` the
+    surrounding prose recommends: one that already carries a manifest goes to
+    ``doctor``, and the workspace root goes to a human, since ``init`` there is
+    the run that just refused. Both would otherwise read as ordinary entries in
+    a list captioned "re-run init on the one you are changing" (#397 review).
+
     Shared rather than written once per command — ``detect`` and ``init`` each
     print this list, and a second copy is how one of them kept saying ``init``
-    after the other stopped (#397 review).
-
-    ``workspace`` is required rather than defaulted for the same reason: an
-    optional one would let a third surface print this list unmarked, and be
-    right back to a human summary that contradicts the routes beside it.
+    after the other stopped. ``workspace`` is required rather than defaulted
+    for the same reason: an optional one would let a third surface print this
+    list unmarked, and be right back to a human summary that contradicts the
+    routes beside it.
     """
 
     detail = ", ".join(candidate.agent_names) or (candidate.marker or "project root")
-    adopted = (
-        candidate.path != "."
-        and is_adopted(workspace / candidate.path) is not None
-    )
+    if candidate.path == ".":
+        return f"{candidate.path} ({detail}) — the workspace itself, not a project"
+    adopted = is_adopted(workspace / candidate.path) is not None
     return f"{candidate.path} ({detail})" + (" — already adopted" if adopted else "")
+
+
+def candidate_caveats(
+    workspace: Path, candidates: Sequence[AgentProjectCandidate]
+) -> list[str]:
+    """What the "re-run init on one of these" line does not cover.
+
+    Emitted only for the candidates actually present, so neither line becomes
+    boilerplate. `detect` prints the same pair from the same helper — a printed
+    list that reads uniformly while the routing beside it splits three ways is
+    the divergence this is here to prevent (#397 review).
+    """
+
+    lines: list[str] = []
+    if any(
+        candidate.path != "." and is_adopted(workspace / candidate.path) is not None
+        for candidate in candidates
+    ):
+        lines.append(
+            "A project marked already adopted has a manifest init will not "
+            "overwrite; ask doctor --config <that manifest> what it still "
+            "owes instead."
+        )
+    if any(candidate.path == "." for candidate in candidates):
+        lines.append(
+            "The workspace itself is listed because agent files there belong "
+            "to no project — which is why this scope is unresolved. Give them "
+            "a project directory, or accept the whole workspace as one scope "
+            "with --allow-unresolved-scope; re-running init at the root "
+            "returns this refusal."
+        )
+    return lines
 
 
 def scope_candidate_actions(
@@ -290,6 +324,7 @@ def scope_candidate_actions(
 
 __all__ = [
     "MANIFEST_NAME",
+    "candidate_caveats",
     "describe_candidate",
     "MAX_LISTED_SCOPE_CANDIDATES",
     "is_adopted",
