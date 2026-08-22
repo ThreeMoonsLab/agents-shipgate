@@ -99,11 +99,13 @@
           "reason": "unclassified_change",
           "source_ref": "src/example.py",
           "detail": "No catalog rule classified this changed file, so nothing about it routed a surface into a scan.",
-          "accounting": "route_blocked"
+          "accounting": "route_blocked",
+          "accounted_by": null
         }
       ],
       "total": 1,
       "gated": 1,
+      "gap_backed": 0,
       "truncated": false
     },
     "diff_tokens": [],

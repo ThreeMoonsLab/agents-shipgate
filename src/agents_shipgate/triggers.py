@@ -1112,7 +1112,16 @@ def main(argv: list[str] | None = None) -> int:
     if next_action.get("command"):
         print(f"Next: {next_action['command']}")
     if result["stop_conditions_fired"]:
-        print("Stop conditions fired (overriding any matched rules).")
+        # Say which way it went. The stop no longer beats a matched run rule,
+        # so the old unconditional line asserted an override that did not
+        # happen — on the one case where it mattered most (PR #404 review 2).
+        print(
+            "Stop conditions fired (overriding any matched rules)."
+            if result.get("stop_conditions_terminal", True)
+            else "Stop conditions fired but were overridden: a matched "
+            "capability rule is diff evidence the whole-workspace negative "
+            "did not account for."
+        )
     return 0
 
 

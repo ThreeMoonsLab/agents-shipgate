@@ -123,6 +123,7 @@
         {
           "kind": "partial_binding_evidence",
           "subject": "agent_v1:7205d836e4b3fee257d90695",
+          "subject_id": null,
           "source_type": null,
           "source_ref": "framework_extraction",
           "why": "Conductor workflow tool bindings include dynamic or unresolved surfaces.",
@@ -146,6 +147,7 @@
         {
           "kind": "incomplete_surface",
           "subject": "lookup_order [conductor_workflows]",
+          "subject_id": "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
           "source_type": "conductor_mcp_call",
           "source_ref": "/tasks/3",
           "why": "tool surface enumeration is incomplete or not high confidence",
@@ -169,6 +171,7 @@
         {
           "kind": "low_confidence_tool",
           "subject": "lookup_order [conductor_workflows]",
+          "subject_id": null,
           "source_type": "conductor_mcp_call",
           "source_ref": "workflows/order-agent.json",
           "why": "extraction_confidence=medium; static extraction could not prove the full tool surface.",
@@ -188,6 +191,7 @@
         {
           "kind": "source_warning",
           "subject": "Conductor CALL_MCP_TOOL at workflows/order-agent.json#/tasks/4/decisionCases/yes/0 has a dynamic or unresolved capability surface: ['method'].",
+          "subject_id": null,
           "source_type": null,
           "source_ref": null,
           "why": "A source loader degraded while reading declared inputs.",
@@ -207,6 +211,7 @@
         {
           "kind": "source_warning",
           "subject": "Conductor LLM_CHAT_COMPLETE at workflows/order-agent.json#/tasks/1 has a dynamic or unresolved capability surface: ['tools'].",
+          "subject_id": null,
           "source_type": null,
           "source_ref": null,
           "why": "A source loader degraded while reading declared inputs.",
@@ -226,6 +231,7 @@
         {
           "kind": "source_warning",
           "subject": "Conductor capability 'HTTP' at workflows/order-agent.json#/tasks/5 is recognized but not enumerated by the MCP-core v1 adapter.",
+          "subject_id": null,
           "source_type": null,
           "source_ref": null,
           "why": "A source loader degraded while reading declared inputs.",
@@ -245,6 +251,7 @@
         {
           "kind": "source_warning",
           "subject": "Conductor capability 'webSearch' at workflows/order-agent.json#/tasks/1 is recognized but not enumerated by the MCP-core v1 adapter.",
+          "subject_id": null,
           "source_type": null,
           "source_ref": null,
           "why": "A source loader degraded while reading declared inputs.",
@@ -1368,11 +1375,13 @@
         "reason": "surface_not_enumerated",
         "source_ref": "/tasks/3",
         "detail": "The tool's own surface could not be established as complete, so an unknown remainder of it was never analysed.",
-        "accounting": "evidence_gap"
+        "accounting": "evidence_gap",
+        "accounted_by": "lookup_order [conductor_workflows]"
       }
     ],
     "total": 1,
     "gated": 1,
+    "gap_backed": 1,
     "truncated": false
   }
 }

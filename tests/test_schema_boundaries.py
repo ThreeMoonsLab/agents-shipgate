@@ -588,6 +588,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
             "entries": [],
             "total": 0,
             "gated": 0,
+            "gap_backed": 0,
             "truncated": False,
         },
     }

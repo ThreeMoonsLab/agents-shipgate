@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from agents_shipgate.ci.release_decision import unavailable_base_subject
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.domain import Tool, ToolSemanticAssessment
 from agents_shipgate.core.surface_exclusions import (
     BINDING_GAP_KINDS,
     LEDGER_JOINED_GAP_KINDS,
     catalog_subject,
+    unavailable_base_subject,
 )
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.semantic import ToolSemanticEvidence
@@ -193,7 +193,16 @@ def _validate_exclusion_ledger(report: ReadinessReport) -> None:
        second spelling breaks;
     6. an ``unverified`` record is backed by a gap naming the base comparison
        it could not perform, so the word is a pointer and not a softer way of
-       saying nothing.
+       saying nothing — and, conversely, no binding row may be ``not_claimed``
+       while that comparison stands unperformed, or the fail-closed state is
+       erasable by rewriting the rows;
+    7. ``gated`` matches the rows it summarizes. Consumers gate on the count,
+       and a count nothing checked can be forged past both Pydantic and the
+       JSON Schema.
+
+    Claims (2), (3) and (5) join on the canonical tool id rather than the
+    display label, because two catalog ids can render the same
+    ``name [provider]``.
     """
 
     decision = report.release_decision
@@ -228,21 +237,58 @@ def _validate_exclusion_ledger(report: ReadinessReport) -> None:
     gaps = decision.evidence_coverage.evidence_gaps
     gap_subjects = {gap.subject for gap in gaps}
     unavailable_base = unavailable_base_subject(report)
+    # Requested and not performed. In that state the run cannot distinguish a
+    # pre-existing exclusion from one this change introduced, so `not_claimed`
+    # — which asserts exactly that distinction — is unavailable to it.
+    comparison_unusable = (
+        report.binding_surface_diff.base_comparison_requested
+        and not report.binding_surface_diff.enabled
+    )
+    if ledger.gated > ledger.total:
+        raise SemanticConsistencyError("exclusion ledger gated exceeds its total")
+    visible_gated = sum(
+        1 for entry in ledger.entries if entry.accounting != "not_claimed"
+    )
+    if not ledger.truncated and ledger.gated != visible_gated:
+        raise SemanticConsistencyError(
+            "exclusion ledger gated does not match its entries"
+        )
+    if ledger.truncated and ledger.gated < visible_gated:
+        raise SemanticConsistencyError(
+            "exclusion ledger gated is lower than the acted-on rows it shows"
+        )
     for entry in ledger.entries:
-        if entry.accounting == "evidence_gap" and entry.subject not in gap_subjects:
+        # One join, by the pointer the row carries. Every accounting that
+        # claims a gap names it explicitly, so nothing here has to guess which
+        # of three subject shapes applies.
+        if entry.accounted_by is not None and entry.accounted_by not in gap_subjects:
             raise SemanticConsistencyError(
-                f"exclusion {entry.subject!r} claims an evidence gap that does not exist"
+                f"exclusion {entry.subject!r} points at gap "
+                f"{entry.accounted_by!r}, which the decision does not carry"
             )
         if entry.reason == "newly_unbound_tool" and entry.accounting != "evidence_gap":
             raise SemanticConsistencyError(
                 f"exclusion {entry.subject!r} was introduced by this change and is not gated"
             )
-        # `unverified` says a gap stands in for the per-subject one. It has to
-        # actually be there, or the row is `not_claimed` wearing a safer word.
-        if entry.accounting == "unverified" and unavailable_base not in gap_subjects:
+        # `unverified` says a gap stands in for the per-subject one, and that
+        # gap is specifically the unavailable-base one — not any gap the row
+        # happens to point at.
+        if entry.accounting == "unverified" and entry.accounted_by != unavailable_base:
             raise SemanticConsistencyError(
-                f"exclusion {entry.subject!r} is unverified but no gap names "
-                "the unavailable base comparison"
+                f"exclusion {entry.subject!r} is unverified but does not point "
+                "at the unavailable base comparison"
+            )
+        # And the converse. Without it the new fail-closed state was erasable:
+        # rewrite the row to `not_claimed`, drop `gated` to 0, and the check
+        # passed while the base gap still stood (PR #404 review 2).
+        if (
+            comparison_unusable
+            and entry.stage == "binding"
+            and entry.accounting == "not_claimed"
+        ):
+            raise SemanticConsistencyError(
+                f"exclusion {entry.subject!r} is recorded not_claimed while the "
+                "base comparison this run requested could not be performed"
             )
 
     # The join above only catches the ledger over-claiming. Under-claiming — a
@@ -263,15 +309,20 @@ def _validate_exclusion_ledger(report: ReadinessReport) -> None:
                 "its catalog subject; the exclusion ledger cannot join it"
             )
     gated_binding_subjects = {
-        entry.subject
+        entry.accounted_by
         for entry in ledger.entries
         if entry.stage == "binding" and entry.accounting == "evidence_gap"
     }
     unrecorded = {
-        gap.subject
+        gap.subject_id
         for gap in gaps
-        if gap.kind in BINDING_GAP_KINDS and gap.subject in expected_subjects
-    } - gated_binding_subjects
+        if gap.kind in BINDING_GAP_KINDS
+        and gap.subject_id in excluded_tools
+    } - {
+        gap.subject_id
+        for gap in gaps
+        if gap.subject in gated_binding_subjects and gap.subject_id
+    }
     if not ledger.truncated and unrecorded:
         raise SemanticConsistencyError(
             "excluded tools carry a binding evidence gap the ledger does not "

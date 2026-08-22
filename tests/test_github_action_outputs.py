@@ -16,7 +16,32 @@ from scripts.github_action_outputs import (
 @pytest.mark.parametrize(
     ("trigger", "expected"),
     [
-        ({"stop_conditions_fired": True, "force_run": True}, "skip_shipgate"),
+        # A fired stop with no run rule to contradict it: still a skip. The
+        # `stop_conditions_terminal` bit is absent from payloads written
+        # before it existed, and there a fired stop *was* terminal.
+        ({"stop_conditions_fired": True}, "skip_shipgate"),
+        ({"stop_conditions_fired": True, "stop_conditions_terminal": True}, "skip_shipgate"),
+        # A stop the runtime overrode. Publishing `skip_shipgate` here
+        # reinstated in the Action the exact skip the runtime had refused.
+        (
+            {
+                "stop_conditions_fired": True,
+                "stop_conditions_terminal": False,
+                "should_run": True,
+            },
+            "run_shipgate",
+        ),
+        (
+            {
+                "stop_conditions_fired": True,
+                "stop_conditions_terminal": False,
+                "force_run": True,
+            },
+            "force_run",
+        ),
+        # Withheld verdicts are not skips and are not "nothing matched".
+        ({"evaluation_status": "unclassified", "should_run": None}, "withheld"),
+        ({"evaluation_status": "not_evaluated", "should_run": None}, "withheld"),
         ({"force_run": True}, "force_run"),
         ({"should_run": True}, "run_shipgate"),
         ({"run_shipgate": True}, "run_shipgate"),
@@ -400,3 +425,65 @@ def test_merge_verdict_policy_exit_code_is_opt_in() -> None:
 
 def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_action_outputs_expose_the_withheld_state_a_workflow_must_recover(
+    tmp_path: Path,
+) -> None:
+    """`should_run` is empty for both withheld states; they differ in remedy.
+
+    `unclassified` means the diff was read in full and nothing classified it —
+    run the scan. `not_evaluated` means the diff could not be read — repair the
+    input. Collapsing both into `trigger_action: "none"` left a workflow with
+    no way to tell either from "the trigger ran and matched nothing"
+    (PR #404 review 2).
+    """
+
+    from agents_shipgate.triggers import evaluate
+
+    unclassified = evaluate(paths=["src/lib.py"], input_status="complete")
+    outputs = _trigger_outputs(tmp_path / "a", unclassified)
+    assert outputs["trigger_action"] == "withheld"
+    assert outputs["trigger_evaluation_status"] == "unclassified"
+    assert outputs["should_run"] == ""
+
+    unreadable = evaluate(paths=[], input_status="unavailable")
+    outputs = _trigger_outputs(tmp_path / "b", unreadable)
+    assert outputs["trigger_action"] == "withheld"
+    assert outputs["trigger_evaluation_status"] == "not_evaluated"
+
+
+def test_action_outputs_do_not_reinstate_a_stop_the_runtime_overrode(
+    tmp_path: Path,
+) -> None:
+    """The `.snap` case, projected end to end through the Action."""
+
+    from agents_shipgate.triggers import evaluate
+
+    result = evaluate(
+        paths=["pkg/github/__toolsnaps__/delete_repository.snap"],
+        diff_text='+"inputSchema": {}\n+"destructiveHint": true\n',
+        detect_result={
+            "is_agent_project": False,
+            "suggested_sources": [],
+            "codex_plugin_candidates": [],
+            "python_parse_truncated": False,
+        },
+    )
+    assert result["should_run"] is True
+    assert result["stop_conditions_fired"] is True
+    assert result["stop_conditions_terminal"] is False
+
+    outputs = _trigger_outputs(tmp_path, result)
+    assert outputs["trigger_action"] == "run_shipgate"
+    assert outputs["should_run"] == "true"
+
+
+def _trigger_outputs(out_dir: Path, trigger: dict) -> dict[str, object]:
+    """Run the real Action projection over a verifier.json carrying `trigger`."""
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "verifier.json").write_text(
+        json.dumps({"trigger": trigger}), encoding="utf-8"
+    )
+    return extract_outputs(out_dir)

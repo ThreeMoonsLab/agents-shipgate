@@ -602,10 +602,22 @@ operational overlay and cannot change those fields.
   else means the diff was not read, which is never evidence that a PR is
   unrelated to agent capabilities. `null` means a pre-v0.7 artifact — unknown,
   not complete.
-- `trigger` — the run/skip evaluation. Read `evaluation_status` first: when it
-  is `"not_evaluated"`, `should_run` / `run_shipgate` / `skip` / `skip_reason`
-  are `null` and `next_action.kind` is `"input_required"`. `skip_reason` is
-  never `"no_match"` for inputs that were not fully read. `"evaluated"` on an
+- `trigger` — the run/skip evaluation. Read `evaluation_status` first; two of
+  its three values withhold the verdict, and in both `should_run` /
+  `run_shipgate` / `skip` / `skip_reason` are `null`. Never read `null` as
+  `false`.
+  - `"not_evaluated"` — the diff could not be read. `next_action.kind` is
+    `"input_required"`; repair the input. `skip_reason` is never `"no_match"`
+    for inputs that were not fully read.
+  - `"unclassified"` — the diff *was* read in full and no rule classified some
+    or all of the changed files. That is a fact about the catalog, not about
+    the PR, so the skip is withheld and `next_action` routes forward to the
+    scan. `surface_exclusions.entries[]` lists the unclassified files.
+
+  `stop_conditions_fired` is the raw block result; `stop_conditions_terminal`
+  says whether it decided. A matched `run_shipgate`/`force_run` rule overrides
+  a fired stop, because a capability match in the diff is evidence the
+  whole-workspace negative did not account for. `"evaluated"` on an
   incomplete `diff_status` is not a contradiction: only *skip* verdicts are
   withheld, so a `should_run: true` reached from evidence that did not depend
   on the missing bytes is authoritative and must not be overridden. Read

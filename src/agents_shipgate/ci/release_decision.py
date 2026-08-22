@@ -19,7 +19,10 @@ from agents_shipgate.core.evidence_actions import (
     yaml_scalar,
 )
 from agents_shipgate.core.source_warnings import unresolved_adk_tool_symbols
-from agents_shipgate.core.surface_exclusions import catalog_subject
+from agents_shipgate.core.surface_exclusions import (
+    catalog_subject,
+    unavailable_base_subject,
+)
 from agents_shipgate.schemas.bindings import (
     AgentBindingGraphAssessment,
     AgentBindingIssue,
@@ -698,6 +701,7 @@ def _binding_coverage(
                     issue.tool_id,
                     issue.agent_id or graph.root_agent_id or "agent_binding_graph",
                 ),
+                subject_id=issue.tool_id,
                 source_ref=issue.source_pointer or issue.source,
                 why=issue.message,
                 next_action=EvidenceGapAction(
@@ -722,6 +726,7 @@ def _binding_coverage(
             EvidenceGap(
                 kind="partial_binding_evidence",
                 subject=_gap_subject(tool_id, tool_id),
+                subject_id=tool_id,
                 why="A possibly reachable tool lacks a complete static binding edge.",
                 next_action=EvidenceGapAction(
                     kind="provide_complete_binding_graph",
@@ -817,6 +822,7 @@ def _unreached_tool_gaps(report: ReadinessReport) -> list[EvidenceGap]:
             EvidenceGap(
                 kind="missing_binding_evidence",
                 subject=catalog_subject(row or {"tool_id": tool_id}),
+                subject_id=tool_id,
                 source_type=str(row["source_type"]) if row.get("source_type") else None,
                 source_ref=str(row["source_ref"]) if row.get("source_ref") else None,
                 why=(
@@ -907,6 +913,7 @@ def _newly_excluded_tool_gaps(report: ReadinessReport) -> list[EvidenceGap]:
             EvidenceGap(
                 kind="missing_binding_evidence",
                 subject=catalog_subject(row or {"tool_id": tool_id}),
+                subject_id=tool_id,
                 source_type=str(row["source_type"]) if row.get("source_type") else None,
                 source_ref=str(row["source_ref"]) if row.get("source_ref") else None,
                 why=(
@@ -941,23 +948,6 @@ def _newly_excluded_tool_gaps(report: ReadinessReport) -> list[EvidenceGap]:
     return gaps
 
 
-def unavailable_base_subject(report: ReadinessReport) -> str:
-    """The subject naming the base comparison this run could not perform.
-
-    Exported because the exclusion ledger records rows as ``unverified``
-    against exactly this gap, and the conservation check joins the two by
-    value. One spelling, one function — the second spelling is what broke the
-    ledger's binding join in the first review of this PR.
-    """
-
-    version = report.binding_surface_diff.base_report_schema_version
-    return (
-        f"base comparison (report schema {version})"
-        if version
-        else "base comparison"
-    )
-
-
 def _unavailable_base_gap(report: ReadinessReport) -> EvidenceGap:
     excluded = len(report.binding_surface_facts.unbound_tool_ids) + len(
         report.binding_surface_facts.possible_tool_ids
@@ -975,16 +965,26 @@ def _unavailable_base_gap(report: ReadinessReport) -> EvidenceGap:
         ),
         next_action=EvidenceGapAction(
             kind="provide_source",
-            command="agents-shipgate scan -c shipgate.yaml --format json",
+            # Deliberately no command. The repair runs in the *base* workspace,
+            # whose path this scan does not know, and the obvious one-liner —
+            # ``scan -c shipgate.yaml --format json`` — is executable right here
+            # against the head, where it drops ``--diff-from`` and clears this
+            # very gap without repairing anything. A published command reaches
+            # ``fix_task.allowed_repairs``, so that is a machine-readable
+            # instruction to delete the evidence (PR #404 review 2). The two
+            # steps are spelled in ``expects``; ``path`` keeps the row
+            # addressable by naming the input at fault.
             path="--diff-from",
             why=(
                 "A base scan that did not happen is not evidence that the "
                 "excluded tools predate this change."
             ),
             expects=(
-                "Regenerate report.json in the base source workspace with the "
-                "current engine, then rerun the head scan with --diff-from "
-                "pointing at it."
+                "Two steps, in the base source workspace and then here: "
+                "regenerate report.json there with the current engine, then "
+                "rerun this scan with --diff-from pointing at that file. "
+                "Rerunning without --diff-from clears this row without "
+                "answering it."
             ),
         ),
     )
@@ -1297,6 +1297,7 @@ def _semantic_gap(
     return EvidenceGap(
         kind=kind,
         subject=f"{tool.name} [{tool.provider or tool.source_id or tool.source_type}]",
+        subject_id=tool.id or None,
         source_type=tool.source_type,
         source_ref=(
             source_ref
@@ -1575,15 +1576,20 @@ def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceG
         ):
             action = EvidenceGapAction(
                 kind="provide_source",
-                command="agents-shipgate scan -c shipgate.yaml --format json",
+                # No command, for the same reason as the unavailable-base gap
+                # above: the regeneration runs in the base workspace, and the
+                # command spelled for it is executable against the head, where
+                # it silently drops the comparison.
                 path="--diff-from",
                 why=(
                     "The base report must be regenerated by the current "
                     "semantic engine before any capability delta is computed."
                 ),
                 expects=(
-                    "Regenerate report.json in the base source workspace, then "
-                    "rerun the head scan with --diff-from pointing to that report."
+                    "Two steps: regenerate report.json in the base source "
+                    "workspace, then rerun the head scan with --diff-from "
+                    "pointing to that report. Rerunning without --diff-from "
+                    "clears this row without answering it."
                 ),
             )
         else:

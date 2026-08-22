@@ -251,10 +251,11 @@ def test_conservation_rejects_a_gated_exclusion_with_no_gap(tmp_path):
                 reason="unbound_tool",
                 detail="claims a gap that was never emitted",
                 accounting="evidence_gap",
+                accounted_by="delete_repository [server_mcp]",
             )
         ]
     )
-    with pytest.raises(SemanticConsistencyError, match="claims an evidence gap"):
+    with pytest.raises(SemanticConsistencyError, match="which the decision does not carry"):
         validate_semantic_consistency(report, tools)
 
 
@@ -299,6 +300,7 @@ def test_ledger_counts_survive_truncation():
             reason="newly_unbound_tool",
             detail="introduced by this change",
             accounting="evidence_gap",
+            accounted_by="zzz_gated",
         )
     ]
     ledger = SurfaceExclusionLedger.from_entries(entries)
@@ -306,6 +308,7 @@ def test_ledger_counts_survive_truncation():
     assert len(ledger.entries) == MAX_LEDGER_ENTRIES
     assert ledger.truncated is True
     assert ledger.gated == 1
+    assert ledger.gap_backed == 1
     # The gated row sorts last alphabetically and would be the first casualty
     # of a naive prefix cut; it has to survive, or the invariant check loses
     # the very row that proves the subject was accounted for.
@@ -676,6 +679,7 @@ def test_the_cap_never_discards_a_gap_backed_row():
             reason="newly_unbound_tool",
             detail="introduced by this change",
             accounting="evidence_gap",
+            accounted_by=f"gated_{index:04d}",
         )
         for index in range(MAX_LEDGER_ENTRIES + 1)
     ]
@@ -699,7 +703,35 @@ def test_the_cap_never_discards_a_gap_backed_row():
     assert len(capped.entries) == MAX_LEDGER_ENTRIES
     assert capped.truncated is True
     assert capped.total == 503
+    assert capped.gap_backed == 3
     assert [row.accounting for row in capped.entries[:3]] == ["evidence_gap"] * 3
+
+    # `route_blocked` and `unverified` are counted in `gated` and *may* be
+    # capped: their accounting is one whole-run fact, which a single row proves
+    # as well as five hundred. The published guarantee is about `gap_backed`,
+    # and the earlier wording — "the cap never drops a gated row" — was untrue
+    # of these two (PR #404 review 2).
+    for accounting, reason, pointer in (
+        ("route_blocked", "unclassified_change", None),
+        ("unverified", "unverified_unbound_tool", "base comparison"),
+    ):
+        bulk = SurfaceExclusionLedger.from_entries(
+            [
+                SurfaceExclusion(
+                    stage="binding",
+                    subject=f"{accounting}_{index:04d}",
+                    reason=reason,
+                    detail="d",
+                    accounting=accounting,
+                    accounted_by=pointer,
+                )
+                for index in range(MAX_LEDGER_ENTRIES + 1)
+            ]
+        )
+        assert len(bulk.entries) == MAX_LEDGER_ENTRIES
+        assert bulk.gated == MAX_LEDGER_ENTRIES + 1
+        assert bulk.gap_backed == 0
+        assert bulk.truncated is True
 
 
 def test_a_degraded_source_is_not_reported_as_a_catalog_omission(tmp_path):
@@ -752,8 +784,13 @@ def test_the_v035_schema_rejects_an_erased_ledger():
         lambda p: p.__setitem__("surface_exclusions", {}),
         lambda p: p["surface_exclusions"].pop("gated"),
         lambda p: p["surface_exclusions"].pop("total"),
+        lambda p: p["surface_exclusions"].pop("gap_backed"),
+        lambda p: p["surface_exclusions"]["entries"][0].pop("accounted_by"),
         lambda p: p["binding_surface_diff"].pop("added_unbound_tool_ids"),
         lambda p: p["binding_surface_diff"].pop("base_comparison_requested"),
+        # Emitted on every diff block, nullable in value only — so unlike the
+        # other stable fields here it could be deleted outright.
+        lambda p: p["binding_surface_diff"].pop("base_report_schema_version"),
         lambda p: p["surface_exclusions"].__setitem__("total", -1),
     ):
         mutated = json.loads(json.dumps(golden))
@@ -761,3 +798,241 @@ def test_the_v035_schema_rejects_an_erased_ledger():
         assert list(validator.iter_errors(mutated)), (
             "the schema accepted a payload with the ledger evidence removed"
         )
+
+
+def test_the_ledger_counts_cannot_be_forged():
+    """`gated` is what consumers gate on; nothing validated it (review 2).
+
+    Both Pydantic and the generated schema accepted `entries: []` beside
+    `gated: 999`, and full semantic validation accepted it too.
+    """
+
+    with pytest.raises(ValueError, match="gated cannot exceed total"):
+        SurfaceExclusionLedger(entries=[], total=0, gated=999, truncated=False)
+    with pytest.raises(ValueError, match="total disagrees with its entries"):
+        SurfaceExclusionLedger(entries=[], total=5, gated=0, truncated=False)
+    with pytest.raises(ValueError, match="cannot be negative"):
+        SurfaceExclusionLedger(entries=[], total=-1, gated=0, truncated=False)
+    with pytest.raises(ValueError, match="truncation it did not apply"):
+        SurfaceExclusionLedger(entries=[], total=0, gated=0, truncated=True)
+
+
+def test_an_accounting_that_claims_a_gap_must_name_it():
+    """`accounted_by` is the join, so it cannot be absent — or invented."""
+
+    with pytest.raises(ValueError, match="must name the gap"):
+        SurfaceExclusion(
+            stage="binding",
+            subject="t",
+            reason="unbound_tool",
+            detail="d",
+            accounting="evidence_gap",
+        )
+    with pytest.raises(ValueError, match="must name the gap"):
+        SurfaceExclusion(
+            stage="binding",
+            subject="t",
+            reason="unverified_unbound_tool",
+            detail="d",
+            accounting="unverified",
+        )
+    with pytest.raises(ValueError, match="accounted_by must be unset"):
+        SurfaceExclusion(
+            stage="binding",
+            subject="t",
+            reason="unbound_tool",
+            detail="d",
+            accounting="not_claimed",
+            accounted_by="something",
+        )
+
+
+def test_two_tools_sharing_a_display_label_are_accounted_for_separately(tmp_path):
+    """The join key is the canonical id, not `name [provider]` (review 2).
+
+    Two catalog ids can legitimately render the same label. Joining on it
+    marked both rows `evidence_gap` when the decision had gapped one, so the
+    ledger reported twice the gating it actually had — and semantic validation
+    accepted it.
+    """
+
+    from agents_shipgate.ci.release_decision import build_release_decision
+    from agents_shipgate.core.surface_exclusions import build_surface_exclusions
+    from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, BindingSurfaceDiff
+    from agents_shipgate.schemas.report import (
+        ReadinessReport,
+        ReportSummary,
+        ToolSurfaceSummary,
+    )
+
+    duplicated = [
+        {
+            "tool_id": tool_id,
+            "name": "dup",
+            "provider": "api",
+            "source_type": "mcp",
+            "source_ref": "mcp/tools.json",
+        }
+        for tool_id in ("tool_v2:old", "tool_v2:new")
+    ]
+    report = ReadinessReport(
+        run_id="run-1",
+        project={},
+        agent={},
+        environment={},
+        summary=ReportSummary(status="review_required"),
+        tool_surface=ToolSurfaceSummary(total_tools=2, high_risk_tools=0),
+        binding_surface_facts=AgentBindingGraphAssessment(
+            root_agent_id="agent",
+            status="partial",
+            pass_eligible=False,
+            unbound_tool_ids=["tool_v2:old", "tool_v2:new"],
+        ),
+        binding_surface_diff=BindingSurfaceDiff(
+            enabled=True,
+            base_comparison_requested=True,
+            added_unbound_tool_ids=["tool_v2:new"],
+        ),
+        tool_catalog=duplicated,
+    )
+    report.release_decision = build_release_decision(
+        report=report,
+        tools=[],
+        tool_catalog=[],
+        ci_mode="advisory",
+        fail_on=None,
+        new_findings_only=False,
+    )
+    gaps = report.release_decision.evidence_coverage.evidence_gaps
+    assert [gap.subject_id for gap in gaps] == ["tool_v2:new"]
+
+    ledger = build_surface_exclusions(report)
+    by_reason = {entry.reason: entry for entry in ledger.entries}
+    assert by_reason["newly_unbound_tool"].accounting == "evidence_gap"
+    assert by_reason["unbound_tool"].accounting != "evidence_gap"
+    assert ledger.gap_backed == 1
+
+
+def test_first_adoption_is_not_a_failed_base_comparison():
+    """A base with no gate is not a comparison that failed (review 2).
+
+    Marking every resolved base with no report as `base_comparison_unavailable`
+    swept in `missing_manifest` — first adoption — and asked the adopter to
+    regenerate a base report that cannot exist. Over a partially-wired catalog
+    that made adoption unfinishable unless unrelated tools were falsely bound,
+    against the #385 boundary.
+
+    The distinction already existed one function over: `safe_recovery` excludes
+    `missing_manifest` for exactly this reason, and this pins that the two
+    agree.
+    """
+
+    from agents_shipgate.cli.verify.orchestrator import _BASE_COMPARISON_FAILURES
+
+    assert "missing_manifest" not in _BASE_COMPARISON_FAILURES
+    # The states where a base *was* asked for and genuinely could not be read.
+    assert _BASE_COMPARISON_FAILURES == {"ref_missing", "archive_failed", "scan_failed"}
+    # And the states that never asked stay out too.
+    assert not _BASE_COMPARISON_FAILURES & {"not_requested", "skipped"}
+    assert not _BASE_COMPARISON_FAILURES & {
+        "succeeded",
+        "cache_hit",
+        "diff_from_provided",
+    }
+
+
+def test_a_malformed_diff_from_still_counts_as_a_requested_comparison(tmp_path):
+    """Whether the bytes parsed is not whether the caller asked (review 2).
+
+    Reading only the successfully-loaded reference meant a malformed
+    `--diff-from` reported "no comparison requested" and then asserted that an
+    unbound destructive tool predated the change.
+    """
+
+    config = _write_tree(
+        tmp_path / "head",
+        [_tool("safe"), _tool("delete_repository", destructive=True)],
+        ["safe"],
+    )
+    broken = tmp_path / "broken.json"
+    broken.write_text("{broken", encoding="utf-8")
+
+    report, _ = _scan(config, tmp_path / "head" / "reports", diff_from=broken)
+
+    diff = report.binding_surface_diff
+    assert diff.enabled is False
+    assert diff.base_comparison_requested is True
+    assert report.release_decision.evidence_coverage.binding_coverage.gap_count == 1
+    (entry,) = report.surface_exclusions.entries
+    assert entry.accounting == "unverified"
+
+
+def test_an_unavailable_comparison_cannot_be_erased_by_rewriting_the_rows(tmp_path):
+    """The converse invariant (review 2).
+
+    Only `unverified => base gap` was checked, so rewriting the row to
+    `not_claimed` and dropping `gated` to 0 passed while the base gap still
+    stood — making the new fail-closed state erasable.
+    """
+
+    config = _write_tree(
+        tmp_path / "head",
+        [_tool("safe"), _tool("delete_repository", destructive=True)],
+        ["safe"],
+    )
+    broken = tmp_path / "broken.json"
+    broken.write_text("{broken", encoding="utf-8")
+    report, _ = _scan(config, tmp_path / "head" / "reports", diff_from=broken)
+
+    # Rewrite the row the run emitted, keeping its subject, so this isolates
+    # the accounting rather than tripping an earlier claim.
+    (original,) = report.surface_exclusions.entries
+    assert original.accounting == "unverified"
+    report.surface_exclusions = SurfaceExclusionLedger.from_entries(
+        [
+            SurfaceExclusion(
+                stage="binding",
+                subject=original.subject,
+                reason="unbound_tool",
+                detail="rewritten to look pre-existing",
+                accounting="not_claimed",
+            )
+        ]
+    )
+    with pytest.raises(SemanticConsistencyError, match="could not be performed"):
+        validate_semantic_consistency(report, _rehydrated_tools(report))
+
+
+def test_a_proven_adapter_omission_is_recorded(tmp_path):
+    """An entry the adapter dropped must reach the ledger (review 2).
+
+    Removing the fabricated warning-derived rows left the stage with no
+    emitter, so a genuinely omitted entry — one the MCP adapter reads, refuses,
+    and never puts in the catalog — went unaccounted for while the report
+    claimed to enumerate every narrowed subject.
+    """
+
+    workspace = tmp_path / "w"
+    workspace.mkdir()
+    (workspace / "tools.json").write_text(
+        json.dumps({"tools": [_tool("ok"), 7]}), encoding="utf-8"
+    )
+    (workspace / "shipgate.yaml").write_text(
+        _MANIFEST.format(tools="{tool: ok, source_id: server_mcp}"), encoding="utf-8"
+    )
+
+    report, _ = _scan(workspace / "shipgate.yaml", tmp_path / "reports")
+
+    (entry,) = [
+        row for row in report.surface_exclusions.entries if row.stage == "adapter_parse"
+    ]
+    assert entry.reason == "unreadable_entry"
+    assert entry.subject == "/tools/1"
+    assert entry.accounting == "evidence_gap"
+    # Joined to the gap by an explicit pointer, not by hoping two renderings
+    # of the same thing agree.
+    assert entry.accounted_by == "Skipping non-object MCP tool entry"
+    assert entry.accounted_by in {
+        gap.subject
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+    }

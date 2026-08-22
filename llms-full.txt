@@ -505,7 +505,7 @@ agents-shipgate trigger --base origin/main --head HEAD --json
 agents-shipgate trigger --list-rules --json
 ```
 
-The command emits a stable JSON verdict: `should_run` (alias of `run_shipgate`), `force_run`, `dry_run_recommended`, `skip_reason`, `matched_rules`, `changed_files`, `diff_tokens`, plus `input_status` and `evaluation_status` (catalog schema `0.3`). When the diff could not be read in full, a *skip* verdict is withheld: `evaluation_status` is `not_evaluated` and `should_run`/`run_shipgate`/`skip`/`skip_reason` are `null`, so an unread diff is never reported as `no_match`. A *run* verdict is still published, because rule matching is monotone — evidence that already matched cannot be un-matched by the bytes that are missing — and it arrives as `evaluation_status: evaluated` with `should_run: true`. That evidence may be a rule matched on the change set or `force_run` from a manifest that is present regardless of the diff, so read `matched_rules` before attributing it. Branch on `evaluation_status`, not on `should_run` alone. The developer entry point `python -m agents_shipgate.triggers shipgate.yaml prompts/refund.md` is preserved.
+The command emits a stable JSON verdict: `should_run` (alias of `run_shipgate`), `force_run`, `dry_run_recommended`, `skip_reason`, `matched_rules`, `changed_files`, `diff_tokens`, plus `input_status`, `evaluation_status`, and `surface_exclusions` (catalog schema `0.4`). A *skip* verdict is withheld in two states, and `should_run`/`run_shipgate`/`skip`/`skip_reason` are `null` in both — never read `null` as `false`. `evaluation_status: not_evaluated` means the diff could not be read in full, so an unread diff is never reported as `no_match`; `next_action.kind` is `input_required`. `evaluation_status: unclassified` means the diff *was* read in full and no rule classified some or all of the changed files — a fact about the catalog, not about the PR — so the skip is withheld and `next_action` routes forward to the scan; `surface_exclusions.entries[]` names the files nobody classified. A matched `run_shipgate`/`force_run` rule also overrides the stop block, because a capability match in the diff is evidence the whole-workspace negative did not account for; read `stop_conditions_terminal` to see whether a fired stop actually decided. A *run* verdict is still published, because rule matching is monotone — evidence that already matched cannot be un-matched by the bytes that are missing — and it arrives as `evaluation_status: evaluated` with `should_run: true`. That evidence may be a rule matched on the change set or `force_run` from a manifest that is present regardless of the diff, so read `matched_rules` before attributing it. Branch on `evaluation_status`, not on `should_run` alone. The developer entry point `python -m agents_shipgate.triggers shipgate.yaml prompts/refund.md` is preserved.
 
 **Stop conditions.** Stop and do not run `init` only when **all** of these hold:
 
@@ -1958,10 +1958,22 @@ operational overlay and cannot change those fields.
   else means the diff was not read, which is never evidence that a PR is
   unrelated to agent capabilities. `null` means a pre-v0.7 artifact — unknown,
   not complete.
-- `trigger` — the run/skip evaluation. Read `evaluation_status` first: when it
-  is `"not_evaluated"`, `should_run` / `run_shipgate` / `skip` / `skip_reason`
-  are `null` and `next_action.kind` is `"input_required"`. `skip_reason` is
-  never `"no_match"` for inputs that were not fully read. `"evaluated"` on an
+- `trigger` — the run/skip evaluation. Read `evaluation_status` first; two of
+  its three values withhold the verdict, and in both `should_run` /
+  `run_shipgate` / `skip` / `skip_reason` are `null`. Never read `null` as
+  `false`.
+  - `"not_evaluated"` — the diff could not be read. `next_action.kind` is
+    `"input_required"`; repair the input. `skip_reason` is never `"no_match"`
+    for inputs that were not fully read.
+  - `"unclassified"` — the diff *was* read in full and no rule classified some
+    or all of the changed files. That is a fact about the catalog, not about
+    the PR, so the skip is withheld and `next_action` routes forward to the
+    scan. `surface_exclusions.entries[]` lists the unclassified files.
+
+  `stop_conditions_fired` is the raw block result; `stop_conditions_terminal`
+  says whether it decided. A matched `run_shipgate`/`force_run` rule overrides
+  a fired stop, because a capability match in the diff is evidence the
+  whole-workspace negative did not account for. `"evaluated"` on an
   incomplete `diff_status` is not a contradiction: only *skip* verdicts are
   withheld, so a `should_run: true` reached from evidence that did not depend
   on the missing bytes is authoritative and must not be overridden. Read

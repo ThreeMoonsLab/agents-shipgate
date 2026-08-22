@@ -1552,6 +1552,7 @@
         "added_reachable_tool_ids",
         "added_unbound_tool_ids",
         "base_comparison_requested",
+        "base_report_schema_version",
         "enabled",
         "notes",
         "removed_handoffs",
@@ -3213,6 +3214,18 @@
         "subject": {
           "title": "Subject",
           "type": "string"
+        },
+        "subject_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject Id"
         },
         "why": {
           "title": "Why",
@@ -5463,6 +5476,18 @@
       "additionalProperties": false,
       "description": "One subject a stage removed from the analysed surface.",
       "properties": {
+        "accounted_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Accounted By"
+        },
         "accounting": {
           "enum": [
             "evidence_gap",
@@ -5511,6 +5536,7 @@
         }
       },
       "required": [
+        "accounted_by",
         "accounting",
         "detail",
         "reason",
@@ -5532,6 +5558,12 @@
           "title": "Entries",
           "type": "array"
         },
+        "gap_backed": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Gap Backed",
+          "type": "integer"
+        },
         "gated": {
           "default": 0,
           "minimum": 0,
@@ -5552,6 +5584,7 @@
       },
       "required": [
         "entries",
+        "gap_backed",
         "gated",
         "total",
         "truncated"

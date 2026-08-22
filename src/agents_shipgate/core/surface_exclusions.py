@@ -24,6 +24,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any, cast, get_args
 
+from agents_shipgate.core.domain import SourceSurfaceOmission
 from agents_shipgate.schemas.bindings import AgentBindingIssue
 from agents_shipgate.schemas.detect import DetectResult
 from agents_shipgate.schemas.exclusions import (
@@ -47,6 +48,24 @@ def catalog_subject(row: Mapping[str, Any]) -> str:
     return f"{name} [{provider}]" if provider else name
 
 
+def unavailable_base_subject(report: ReadinessReport) -> str:
+    """The subject naming the base comparison this run could not perform.
+
+    Lives here beside :func:`catalog_subject` for the same reason: a subject
+    two modules both construct needs one function, or the join between them
+    works by coincidence. The exclusion ledger points ``unverified`` rows at
+    this gap, ``ci.release_decision`` emits it, and
+    ``core.semantic_consistency`` checks the pair.
+    """
+
+    version = report.binding_surface_diff.base_report_schema_version
+    return (
+        f"base comparison (report schema {version})"
+        if version
+        else "base comparison"
+    )
+
+
 def _catalog_by_id(report: ReadinessReport) -> dict[str, Mapping[str, Any]]:
     return {
         str(row["tool_id"]): row
@@ -57,6 +76,22 @@ def _catalog_by_id(report: ReadinessReport) -> dict[str, Mapping[str, Any]]:
 
 def _gap_subjects(gaps: Sequence[EvidenceGap], kinds: frozenset[str]) -> set[str]:
     return {gap.subject for gap in gaps if gap.kind in kinds}
+
+
+def _gapped_tool_ids(gaps: Sequence[EvidenceGap], kinds: frozenset[str]) -> set[str]:
+    """Canonical ids of the tools these gaps are about.
+
+    Joining on ``subject`` — the ``name [provider]`` display label — is what a
+    review caught: two catalog ids can render the same label, so one gap marked
+    both rows accounted-for and the ledger reported twice the gating it had.
+    Identity joins on the id; the label is for reading.
+    """
+
+    return {
+        gap.subject_id
+        for gap in gaps
+        if gap.kind in kinds and gap.subject_id
+    }
 
 
 #: Gap kinds a binding-stage exclusion can be accounted for by. Public so
@@ -85,7 +120,11 @@ LEDGER_JOINED_GAP_KINDS = BINDING_GAP_KINDS | frozenset(
 )
 
 
-def build_surface_exclusions(report: ReadinessReport) -> SurfaceExclusionLedger:
+def build_surface_exclusions(
+    report: ReadinessReport,
+    *,
+    source_omissions: Sequence[SourceSurfaceOmission] = (),
+) -> SurfaceExclusionLedger:
     """Every subject this run removed from the analysed surface.
 
     Call after ``report.release_decision`` is built: accounting is decided by
@@ -96,17 +135,23 @@ def build_surface_exclusions(report: ReadinessReport) -> SurfaceExclusionLedger:
     gaps: Sequence[EvidenceGap] = (
         decision.evidence_coverage.evidence_gaps if decision is not None else ()
     )
-    binding_gap_subjects = _gap_subjects(gaps, BINDING_GAP_KINDS)
+    binding_gap_subject_by_id = {
+        gap.subject_id: gap.subject
+        for gap in gaps
+        if gap.kind in BINDING_GAP_KINDS and gap.subject_id
+    }
 
     entries: list[SurfaceExclusion] = []
-    entries.extend(_binding_exclusions(report, binding_gap_subjects))
+    entries.extend(_binding_exclusions(report, binding_gap_subject_by_id, gaps))
     entries.extend(_surface_completeness_exclusions(gaps))
+    entries.extend(_adapter_parse_exclusions(source_omissions, gaps))
     return SurfaceExclusionLedger.from_entries(entries)
 
 
 def _binding_exclusions(
     report: ReadinessReport,
-    gap_subjects: set[str],
+    gap_subject_by_tool_id: dict[str, str],
+    gaps: Sequence[EvidenceGap],
 ) -> list[SurfaceExclusion]:
     """Catalog tools the root-reachable graph did not carry into analysis.
 
@@ -125,15 +170,28 @@ def _binding_exclusions(
     # `newly_unbound_tool` is a claim it is entitled to make.
     unverified = diff.base_comparison_requested and not diff.enabled
 
-    def _accounting(subject: str) -> str:
-        if subject in gap_subjects:
-            return "evidence_gap"
-        return "unverified" if unverified else "not_claimed"
+    base_gap_subject = next(
+        (
+            gap.subject
+            for gap in gaps
+            if gap.subject == unavailable_base_subject(report)
+        ),
+        None,
+    )
+
+    def _accounting(tool_id: str) -> tuple[str, str | None]:
+        pointer = gap_subject_by_tool_id.get(tool_id)
+        if pointer is not None:
+            return "evidence_gap", pointer
+        if unverified and base_gap_subject is not None:
+            return "unverified", base_gap_subject
+        return "not_claimed", None
 
     entries: list[SurfaceExclusion] = []
     for tool_id in sorted(graph.possible_tool_ids):
         row = catalog.get(tool_id, {"tool_id": tool_id})
         subject = catalog_subject(row)
+        accounting, accounted_by = _accounting(tool_id)
         entries.append(
             SurfaceExclusion(
                 stage="binding",
@@ -144,12 +202,14 @@ def _binding_exclusions(
                     "A binding edge reaches this tool but does not prove it "
                     "complete, so it is outside the proven capability surface."
                 ),
-                accounting=cast(Any, _accounting(subject)),
+                accounting=cast(Any, accounting),
+                accounted_by=accounted_by,
             )
         )
     for tool_id in sorted(graph.unbound_tool_ids):
         row = catalog.get(tool_id, {"tool_id": tool_id})
         subject = catalog_subject(row)
+        accounting, accounted_by = _accounting(tool_id)
         introduced = tool_id in newly_unbound
         entries.append(
             SurfaceExclusion(
@@ -182,7 +242,8 @@ def _binding_exclusions(
                         "as reachable capability."
                     )
                 ),
-                accounting=cast(Any, _accounting(subject)),
+                accounting=cast(Any, accounting),
+                accounted_by=accounted_by,
             )
         )
     return entries
@@ -210,36 +271,52 @@ def _surface_completeness_exclusions(
                 "so an unknown remainder of it was never analysed."
             ),
             accounting="evidence_gap",
+            accounted_by=gap.subject,
         )
         for gap in gaps
         if gap.kind == "incomplete_surface"
     ]
 
 
-# ``adapter_parse`` is a declared stage with no emitter, deliberately.
-#
-# It had one: every ``source_warning`` gap became a row saying "part of that
-# input never entered the catalog". That is false of most warnings.
-# ``samples/simple_crewai_agent`` proves it — ``FileReadTool`` is recorded as
-# low-confidence metadata, and it is in ``tool_catalog``, in
-# ``tool_inventory``, structurally reachable, and carrying high-confidence
-# identity, binding, and effect evidence. Nothing about it was omitted
-# (PR #404 review).
-#
-# Real adapter omissions exist — a wildcard MCP export, a Conductor task whose
-# capability surface is dynamic — but no adapter records one as a typed fact
-# today: ``LoadedToolSource`` carries ``warnings: list[str]`` and nothing else,
-# so telling the two apart means reading prose. Every such omission that *can*
-# be proven already reaches the ledger through ``surface_completeness``, whose
-# signal is the tool's own ``extraction.surface``, and the warnings themselves
-# remain ``source_warning`` evidence gaps the release decision reads exactly as
-# before. So the decision loses nothing here; the ledger loses a claim it could
-# not support, which in a mechanism whose whole value is honest accounting is
-# the more expensive of the two.
-#
-# Restoring the stage means giving adapters a typed excluded-subject fact
-# first. The stage stays in ``ExclusionStage`` so that change adds an emitter
-# rather than a vocabulary.
+def _adapter_parse_exclusions(
+    omissions: Sequence[SourceSurfaceOmission],
+    gaps: Sequence[EvidenceGap],
+) -> list[SurfaceExclusion]:
+    """Entries an adapter read and refused, as the adapter recorded them.
+
+    Not derived from ``source_warnings``. That mapping turned every warning
+    into "part of that input never entered the catalog", which is false of most
+    of them — ``samples/simple_crewai_agent`` records ``FileReadTool`` as
+    low-confidence metadata and the tool is in the catalog, in the inventory,
+    reachable, and high-confidence (PR #404 review). Prose cannot be told apart
+    from prose, so adapters now record a typed
+    :class:`~agents_shipgate.core.domain.SourceSurfaceOmission` at the sites
+    where an entry is genuinely dropped, and only those become rows.
+
+    Each omission carries the warning it raised, which is the ``source_warning``
+    gap's subject — so the accounting is a join, not an assumption. An adapter
+    that has not been taught to record omissions contributes nothing here, and
+    a report that says the ledger is empty means the run proved nothing was
+    dropped rather than that nobody looked.
+    """
+
+    gap_subjects = {gap.subject for gap in gaps if gap.kind == "source_warning"}
+    return [
+        SurfaceExclusion(
+            stage="adapter_parse",
+            subject=omission.subject,
+            reason=omission.reason,
+            source_ref=omission.warning,
+            detail=omission.detail,
+            accounting=(
+                "evidence_gap" if omission.warning in gap_subjects else "not_claimed"
+            ),
+            accounted_by=(
+                omission.warning if omission.warning in gap_subjects else None
+            ),
+        )
+        for omission in omissions
+    ]
 
 
 def _row_ref(row: Mapping[str, Any]) -> str | None:
@@ -336,6 +413,7 @@ def build_detect_exclusions(result: DetectResult) -> SurfaceExclusionLedger:
 
 __all__ = [
     "BINDING_GAP_KINDS",
+    "unavailable_base_subject",
     "LEDGER_JOINED_GAP_KINDS",
     "build_detect_exclusions",
     "build_surface_exclusions",

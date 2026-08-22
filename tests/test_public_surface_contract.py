@@ -1089,6 +1089,44 @@ def test_every_surface_advertises_the_catalog_version_the_loader_returns():
         f"Current trigger catalog schema: `{published}`"
         in _read("docs/agent-contract-current.md")
     )
+    # Prose surfaces too. The first pass of this test named only the machine
+    # payloads, so `AGENTS.md` and the generated `llms-full.txt` went on
+    # teaching `0.3` — and those are what a prompt-driven consumer reads
+    # (PR #404 review 2).
+    for path in ("AGENTS.md", "llms-full.txt"):
+        text = _read(path)
+        assert f"catalog schema `{published}`" in text, path
+        assert "catalog schema `0.3`" not in text, path
+
+    # The withheld states are a wire contract, not an implementation detail:
+    # a consumer that only knows `not_evaluated` reads `unclassified` as a
+    # skip, which is the failure the state exists to prevent.
+    from agents_shipgate.triggers import (
+        EVALUATION_NOT_EVALUATED,
+        EVALUATION_UNCLASSIFIED,
+    )
+
+    for path in ("AGENTS.md", "docs/agent-contract-current.md", "llms-full.txt"):
+        text = _read(path)
+        for state in (EVALUATION_UNCLASSIFIED, EVALUATION_NOT_EVALUATED):
+            assert state in text, f"{path} does not document {state!r}"
+
+
+def test_the_exclusion_accounting_enum_is_documented_where_agents_read_it():
+    """Every ``accounting`` value must appear in the agent read path.
+
+    A strict consumer switching on the enum rejects a value the docs never
+    named; a prompt-driven one guesses. `unverified` shipped without either
+    (PR #404 review 2).
+    """
+
+    from typing import get_args
+
+    from agents_shipgate.schemas.exclusions import ExclusionAccounting
+
+    text = _read("docs/report-reading-for-agents.md")
+    for value in get_args(ExclusionAccounting):
+        assert f"`{value}`" in text, value
 
 
 def test_triggers_json_loads_via_canonical_loader():

@@ -106,6 +106,32 @@
   `docs/engineering/ai-coding-workflow-verifier.md` §2.3 forbids. Ledger rows
   in that state are `unverified`, never `not_claimed`.
 
+  The tri-state reaches the GitHub Action too. `trigger_action` read the raw
+  `stop_conditions_fired` bit before the winning verdict, so the Action
+  republished a skip the runtime had just refused, and it collapsed both
+  withheld states into `none`. It now projects the verdict, returns `withheld`
+  rather than a value that reads as a decision, and `action.yml` exports
+  `trigger_evaluation_status` so a workflow can tell "run the scan" from
+  "repair the input". First adoption stays out of the failed-comparison route:
+  a base with no manifest was read successfully and simply has no gate, so
+  asking the adopter to regenerate a base report that cannot exist made
+  adoption over a partially-wired catalog unfinishable.
+
+  Three integrity gaps in the new evidence closed. `accounting` joins to its
+  gap through an explicit `accounted_by` pointer instead of a subject string
+  two catalog tools can share; `gated` and the new `gap_backed` are validated
+  against the rows they summarize, in Pydantic and in the invariant, because a
+  count nothing checks can be forged past both; and the cap's guarantee is now
+  the accurate one — every `gap_backed` row survives truncation, while
+  `route_blocked` and `unverified` rows may be capped, since their accounting
+  is one whole-run fact a single row proves as well as five hundred.
+
+  Adapter omissions are recorded again, from a typed fact rather than from
+  prose. `LoadedToolSource.omissions` carries the entries an adapter read and
+  refused — the MCP loader records both of its skip branches — so an entry that
+  genuinely never entered the catalog reaches the ledger, while the warnings
+  about tools that *did* load stay out of it.
+
 - **`verify --preview` of a head that is not checked out now asks for the
   checkout, instead of stopping.** Preview reads project markers from the
   working tree, because that is the tree the `init` it recommends would write

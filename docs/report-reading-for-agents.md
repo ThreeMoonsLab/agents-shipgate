@@ -161,10 +161,13 @@ what left it, so a consumer can tell "the gate looked and found nothing" from
       "reason": "newly_unbound_tool",
       "source_ref": "mcp/tools.json",
       "detail": "This change put the tool in the catalog and left it unbound …",
-      "accounting": "evidence_gap"     // evidence_gap | route_blocked | not_claimed
+      "accounting": "evidence_gap",    // evidence_gap | route_blocked
+                                       // | unverified | not_claimed
+      "accounted_by": "delete_repository [github_mcp]"  // the gap that accounts
+                                       // for this row, or null
     }
   ],
-  "total": 1, "gated": 1, "truncated": false
+  "total": 1, "gated": 1, "gap_backed": 1, "truncated": false
 }
 ```
 
@@ -174,14 +177,24 @@ Read `accounting` first — it says how the exclusion reached the decision:
 | --- | --- | --- |
 | `evidence_gap` | A row in `release_decision.evidence_coverage.evidence_gaps[]` names this exact `subject`. | Work that gap's `next_action`, like any other. |
 | `route_blocked` | The stage declined to publish a verdict over the exclusion. Emitted by stages that run before a release decision exists — `trigger` and `detect`. | Follow that command's own `next_action`; it repairs the exclusion. |
+| `unverified` | The base comparison that would decide between the two rows above could not be performed — a base report predating `v0.31`, a malformed `--diff-from`, or a failed base scan. | Treat as a gap. `accounted_by` names the row describing the unusable base; regenerate it and rerun with `--diff-from`. |
 | `not_claimed` | Nothing in the repository claims the subject as capability of the agent under review, and this change did not introduce it. | Informational. Do not treat it as a gap; a spec declaring 63 operations of which 5 are wired produces 58 of these by design. |
+
+`accounted_by` is the exact `evidence_gaps[].subject` that accounts for the row —
+set for `evidence_gap` and `unverified`, `null` otherwise. Join on it rather than
+matching `subject` yourself: the three accountings key off three different gap
+shapes, and `subject` is a display label two catalog tools can share.
 
 A `reason` of `newly_unbound_tool` is the one worth escalating unprompted: this
 change put a tool in the catalog that no edge binds to the root agent, so no
 check judged it. It is always `evidence_gap`.
 
-`entries` is capped at 200 rows and `truncated` says so; `total` and `gated` are
-always exact, and gated rows sort first so the cap never drops one.
+`entries` is capped at 200 rows and `truncated` says so; `total`, `gated`, and
+`gap_backed` are always exact. **Every `gap_backed` row is present in `entries`**
+whatever `truncated` says — those are the rows carrying a gap of their own, so
+dropping one would lose the proof rather than a copy of it. `route_blocked` and
+`unverified` rows are counted in `gated` and may be capped: their accounting is
+one whole-run fact that a single row proves as well as five hundred.
 
 `trigger --json` and `detect --json` carry the same block for their own stages.
 

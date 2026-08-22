@@ -37,7 +37,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 #: The pipeline stage that removed the subject from the analysed surface. One
 #: value per narrowing site; adding a stage means teaching that site to emit,
@@ -127,6 +127,29 @@ class SurfaceExclusion(BaseModel):
     #: One sentence a reviewer can act on.
     detail: str
     accounting: ExclusionAccounting
+    #: The exact ``EvidenceGap.subject`` that accounts for this row, when one
+    #: does. An explicit pointer rather than a rendering both sides are assumed
+    #: to agree on: the gap for a dropped adapter entry is keyed by the warning
+    #: text, the gap for an excluded tool by its display label, and the gap for
+    #: an unverified row by the base comparison — three shapes that a single
+    #: join-by-subject could only get right by luck (PR #404 review 2).
+    #: ``None`` exactly when the accounting points at nothing to join.
+    accounted_by: str | None = None
+
+    @model_validator(mode="after")
+    def _accounting_carries_its_pointer(self) -> SurfaceExclusion:
+        needs_pointer = self.accounting in {"evidence_gap", "unverified"}
+        if needs_pointer and not self.accounted_by:
+            raise ValueError(
+                f"{self.accounting!r} exclusions must name the gap that accounts "
+                "for them"
+            )
+        if not needs_pointer and self.accounted_by:
+            raise ValueError(
+                f"{self.accounting!r} exclusions point at no gap, so "
+                "accounted_by must be unset"
+            )
+        return self
 
 
 class SurfaceExclusionLedger(BaseModel):
@@ -144,11 +167,66 @@ class SurfaceExclusionLedger(BaseModel):
     entries: list[SurfaceExclusion] = Field(default_factory=list)
     #: Total exclusions observed, including any beyond ``entries``.
     total: int = 0
-    #: Exclusions the run acted on — ``evidence_gap`` or ``route_blocked``.
+    #: Exclusions the run acted on — every accounting except ``not_claimed``.
     #: ``total - gated`` is what was recorded and deliberately not acted on.
     gated: int = 0
+    #: Exclusions backed by a gap row of their own. **Every one of these is
+    #: present in ``entries``**, whatever ``truncated`` says: they are the rows
+    #: the conservation check joins against, so dropping one would lose the
+    #: proof rather than a copy of it.
+    #:
+    #: ``route_blocked`` and ``unverified`` rows are counted in ``gated`` and
+    #: *may* be dropped by the cap, because their accounting is a single
+    #: whole-run fact — the stage withheld its verdict, or the base comparison
+    #: is unavailable — that one row proves as well as five hundred. The
+    #: earlier wording promised the cap never dropped a "gated" row, which was
+    #: untrue of those two (PR #404 review 2).
+    gap_backed: int = 0
     #: True when ``entries`` is a bounded prefix of the observed exclusions.
     truncated: bool = False
+
+    @model_validator(mode="after")
+    def _counts_describe_the_rows(self) -> SurfaceExclusionLedger:
+        """Refuse counts the entries cannot support.
+
+        ``gated`` is what consumers gate on, and nothing checked it: a payload
+        with no entries and ``gated: 999`` was accepted by Pydantic and by the
+        generated JSON Schema alike (PR #404 review 2). Untruncated, the counts
+        are exact; truncated, they are lower-bounded by what is visible.
+        """
+
+        if self.total < 0 or self.gated < 0 or self.gap_backed < 0:
+            raise ValueError("exclusion ledger counts cannot be negative")
+        if self.gated > self.total:
+            raise ValueError("exclusion ledger gated cannot exceed total")
+        if self.gap_backed > self.gated:
+            raise ValueError("exclusion ledger gap_backed cannot exceed gated")
+        visible = len(self.entries)
+        visible_gated = sum(
+            1 for row in self.entries if row.accounting != "not_claimed"
+        )
+        # The one count the cap guarantees exactly, truncated or not.
+        visible_gap_backed = sum(
+            1 for row in self.entries if row.accounting == "evidence_gap"
+        )
+        if self.gap_backed != visible_gap_backed:
+            raise ValueError(
+                "exclusion ledger gap_backed must equal the evidence_gap rows "
+                "it shows; those rows are never dropped by the cap"
+            )
+        if self.truncated:
+            if self.total <= visible:
+                raise ValueError("exclusion ledger claims truncation it did not apply")
+            if self.gated < visible_gated:
+                raise ValueError(
+                    "exclusion ledger gated is lower than the acted-on rows it shows"
+                )
+        else:
+            if self.total != visible:
+                raise ValueError("exclusion ledger total disagrees with its entries")
+            if self.gated != visible_gated:
+                raise ValueError("exclusion ledger gated disagrees with its entries")
+        return self
 
     @property
     def stages(self) -> list[str]:
@@ -185,6 +263,7 @@ class SurfaceExclusionLedger(BaseModel):
             entries=kept,
             total=len(rows),
             gated=sum(1 for row in rows if row.accounting != "not_claimed"),
+            gap_backed=len(gap_backed),
             truncated=len(kept) < len(rows),
         )
 

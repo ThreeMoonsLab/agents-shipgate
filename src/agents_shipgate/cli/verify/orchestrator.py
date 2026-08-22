@@ -194,6 +194,12 @@ MAX_WORKTREE_MANIFEST_BYTES = 4 * 1024 * 1024
 MAX_WORKTREE_CHANGED_FILE_BYTES = 64 * 1024 * 1024
 
 
+#: Base states in which a comparison was asked for and could not be produced.
+#: Deliberately excludes ``missing_manifest`` (first adoption: the base was
+#: read and has no gate) and the two states that never asked at all.
+_BASE_COMPARISON_FAILURES = frozenset({"ref_missing", "archive_failed", "scan_failed"})
+
+
 @owns_current_control("verify")
 def run_verify(
     *,
@@ -968,15 +974,25 @@ def run_verify(
                         trigger_result=trigger,
                         configured_manifest_path=config_relative.as_posix(),
                         manifest_introduced=manifest_introduced,
-                        # A base ref was resolved and produced no report: the
-                        # ref was missing, the archive or the base scan failed,
-                        # or the base carries no manifest. ``diff_from_path`` is
-                        # simply ``None`` in all of those, which the head scan
-                        # cannot tell apart from "nobody asked to compare" —
-                        # and concluding an unbound tool is pre-existing from a
-                        # comparison that never ran is exactly the weakening
-                        # §2.3 forbids.
-                        base_comparison_unavailable=bool(base) and base_report is None,
+                        # A base ref was resolved and the comparison could not
+                        # be performed. ``diff_from_path`` is simply ``None``
+                        # there, which the head scan cannot tell apart from
+                        # "nobody asked to compare" — and concluding an unbound
+                        # tool is pre-existing from a comparison that never ran
+                        # is exactly the weakening §2.3 forbids.
+                        #
+                        # ``missing_manifest`` is deliberately not in the set,
+                        # for the same reason it is excluded from
+                        # ``safe_recovery`` below: the base tree was read
+                        # successfully and simply has no gate yet. That is first
+                        # adoption, which already has its own human-review
+                        # route — and treating it as a failed comparison asked
+                        # the adopter to regenerate a base report that cannot
+                        # exist, making adoption over a partially-wired catalog
+                        # unfinishable without falsely binding unrelated tools
+                        # (PR #404 review 2).
+                        base_comparison_unavailable=base_status
+                        in _BASE_COMPARISON_FAILURES,
                     ),
                     capability_lock_callback=capture_capability_lock,
                     manifest_text=(

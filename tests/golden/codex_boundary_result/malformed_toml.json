@@ -140,6 +140,7 @@
       "entries": [],
       "total": 0,
       "gated": 0,
+      "gap_backed": 0,
       "truncated": false
     },
     "diff_tokens": [],

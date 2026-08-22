@@ -616,17 +616,29 @@ def build_report_schema() -> tuple[Path, str]:
         # below at zero too; nothing here is expressible as "gated <= total" in
         # JSON Schema, which `validate_semantic_consistency` checks instead.
         defs["SurfaceExclusionLedger"]["required"] = sorted(
-            ["entries", "total", "gated", "truncated"]
+            ["entries", "total", "gated", "gap_backed", "truncated"]
         )
-        for count_field in ("total", "gated"):
+        for count_field in ("total", "gated", "gap_backed"):
             defs["SurfaceExclusionLedger"]["properties"][count_field]["minimum"] = 0
         defs["SurfaceExclusion"]["required"] = sorted(
-            ["stage", "subject", "reason", "source_ref", "detail", "accounting"]
+            [
+                "stage",
+                "subject",
+                "reason",
+                "source_ref",
+                "detail",
+                "accounting",
+                "accounted_by",
+            ]
         )
         defs["BindingSurfaceDiff"]["required"] = sorted(
             [
                 "enabled",
                 "base_comparison_requested",
+                # Emitted on every diff block, nullable in value only. Left out
+                # of this list it could be deleted from an otherwise valid
+                # report, unlike every other field here (PR #404 review 2).
+                "base_report_schema_version",
                 "added_reachable_tool_ids",
                 "removed_reachable_tool_ids",
                 "added_unbound_tool_ids",

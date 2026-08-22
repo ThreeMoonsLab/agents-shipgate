@@ -15,7 +15,7 @@ from agents_shipgate.core.baseline import (
     baseline_resolved_fingerprints,
     verify_baseline,
 )
-from agents_shipgate.core.domain import Agent
+from agents_shipgate.core.domain import Agent, SourceSurfaceOmission
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.findings.identity import assign_finding_ids
 from agents_shipgate.core.findings.remediation import annotate_remediation
@@ -146,10 +146,18 @@ def _sanitize_for_output(
     )
     base_binding = diffs.diff_reference.binding_facts if diffs.diff_reference else None
     verification = decision.context.verification
-    # Asked for, by either route: a reference was supplied to this scan, or
-    # verify resolved a base ref and could not produce a report for it.
-    base_comparison_requested = diffs.diff_reference is not None or bool(
-        verification is not None and verification.base_comparison_unavailable
+    # Asked for, by any route: a reference loaded cleanly, a reference was
+    # supplied and failed to parse, or verify resolved a base ref and could not
+    # produce a report for it. The middle case is the one that was missing —
+    # reading only the *successfully loaded* reference meant a malformed
+    # `--diff-from` reported "no comparison requested" and went on to assert
+    # that an unbound destructive tool predated the change (PR #404 review 2).
+    # Whether the bytes parsed is not the same question as whether the caller
+    # asked.
+    base_comparison_requested = (
+        diffs.diff_reference is not None
+        or diffs.diff_reference_error is not None
+        or bool(verification is not None and verification.base_comparison_unavailable)
     )
     if base_binding is None:
         public_binding_diff = BindingSurfaceDiff(
@@ -407,6 +415,16 @@ def _sanitize_for_output(
         privacy_audit=privacy_audit,
         heuristics_filter=decision.heuristics_filter,
         policy_evidence_gaps=public_policy_evidence_gaps,
+        source_omissions=[
+            sanitize_model(
+                omission,
+                SourceSurfaceOmission,
+                stats=privacy_stats,
+                path="source_omissions[]",
+            )
+            for loaded in inputs.loaded_sources
+            for omission in loaded.omissions
+        ],
     )
 
 

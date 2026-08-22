@@ -104,6 +104,7 @@
         {
           "kind": "source_warning",
           "subject": "CrewAI prebuilt tool 'FileReadTool' at crew.py:28 was recorded as low-confidence metadata; provide an explicit inventory for full review.",
+          "subject_id": null,
           "source_type": null,
           "source_ref": null,
           "why": "A source loader degraded while reading declared inputs.",
@@ -2717,6 +2718,7 @@
     "entries": [],
     "total": 0,
     "gated": 0,
+    "gap_backed": 0,
     "truncated": false
   }
 }

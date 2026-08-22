@@ -450,6 +450,12 @@ class EvidenceGap(BaseModel):
         "conflicting_policy_evidence",
     ]
     subject: str
+    # v0.35: the canonical tool id when this gap is about exactly one catalog
+    # tool. ``subject`` is a display label — ``name [provider]`` — and two
+    # catalog ids can legitimately render the same one, so joining on it marked
+    # both rows accounted-for when only one was (PR #404 review 2). Consumers
+    # display ``subject``; anything that needs identity joins on this.
+    subject_id: str | None = None
     source_type: str | None = None
     source_ref: str | None = None
     why: str

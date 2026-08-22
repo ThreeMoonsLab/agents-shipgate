@@ -479,11 +479,44 @@ class AgentBindingObservation(BaseModel):
     issues: list[str] = Field(default_factory=list)
 
 
+class SourceSurfaceOmission(BaseModel):
+    """A subject an adapter read and could not carry into the catalog.
+
+    The typed counterpart to a warning string. Adapters already *say* when
+    they drop an entry — ``Skipping non-object MCP tool entry`` — but only in
+    prose, and prose cannot be told apart from the many warnings that report
+    degraded confidence about a tool that *did* enter the catalog. The
+    exclusion ledger needs the difference: it once mapped every warning to
+    "part of that input never entered the catalog", which was false of most of
+    them (PR #404 review).
+
+    ``warning`` is the exact text the adapter appended alongside, so the row
+    joins to the ``source_warning`` evidence gap that carries it. Populate this
+    only where an entry is genuinely dropped.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: What was omitted, in a form that names it without quoting file content
+    #: (``tools[3]``). The reader locates it through ``source_id`` + this.
+    subject: str
+    #: Stable token for the kind of omission.
+    reason: str
+    #: One sentence a reviewer can act on.
+    detail: str
+    #: The source warning reporting this omission — the gap subject it joins to.
+    warning: str
+
+
 class LoadedToolSource(BaseModel):
     source_id: str
     source_type: str
     tools: list[Tool] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    # Entries this source dropped. Empty for every adapter that has not been
+    # taught to record them, which is why the exclusion ledger reports what it
+    # can prove rather than guessing from `warnings`.
+    omissions: list[SourceSurfaceOmission] = Field(default_factory=list)
     # Statically-parsed least-privilege bounds on dynamically-loaded
     # toolkits found in this source (e.g. ``stripe_agent_toolkit``). Empty
     # for sources that declare no recognized agent-toolkit constructor.
