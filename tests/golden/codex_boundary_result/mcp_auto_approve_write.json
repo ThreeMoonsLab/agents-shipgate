@@ -119,7 +119,7 @@
   ],
   "source_artifacts": {},
   "trigger": {
-    "schema_version": "0.3",
+    "schema_version": "0.4",
     "input_status": "complete",
     "evaluation_status": "evaluated",
     "should_run": true,
@@ -143,6 +143,12 @@
     "changed_files": [
       ".codex/config.toml"
     ],
+    "surface_exclusions": {
+      "entries": [],
+      "total": 0,
+      "gated": 0,
+      "truncated": false
+    },
     "diff_tokens": [],
     "next_action": {
       "kind": "command",

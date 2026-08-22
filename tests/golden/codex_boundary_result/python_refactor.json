@@ -10,7 +10,7 @@
   },
   "decision": "allow",
   "risk_level": "none",
-  "audit_id": "agent_boundary_25edab7bce1026737ccca666",
+  "audit_id": "agent_boundary_4783b50258ee1f9f8a65f729",
   "policy_version": "1",
   "summary": "No recognized coding-agent boundary change requires action.",
   "changed_files": [
@@ -74,27 +74,42 @@
   ],
   "source_artifacts": {},
   "trigger": {
-    "schema_version": "0.3",
+    "schema_version": "0.4",
     "input_status": "complete",
-    "evaluation_status": "evaluated",
-    "should_run": false,
-    "run_shipgate": false,
-    "skip": true,
+    "evaluation_status": "unclassified",
+    "should_run": null,
+    "run_shipgate": null,
+    "skip": null,
     "force_run": false,
     "dry_run_recommended": false,
-    "skip_reason": "no_match",
+    "skip_reason": null,
     "stop_conditions_fired": false,
     "stop_conditions_evaluated": false,
-    "rationale": "No rules matched; nothing in this PR signals a tool-surface change.",
+    "rationale": "1 changed file(s) were read in full and no rule classified any of them. That is not evidence the PR is unrelated to agent capabilities \u2014 run the scan to decide.",
     "matched_rules": [],
     "changed_files": [
       "src/example.py"
     ],
+    "surface_exclusions": {
+      "entries": [
+        {
+          "stage": "trigger",
+          "subject": "src/example.py",
+          "reason": "unclassified_change",
+          "source_ref": "src/example.py",
+          "detail": "No catalog rule classified this changed file, so nothing about it routed a surface into a scan.",
+          "accounting": "route_blocked"
+        }
+      ],
+      "total": 1,
+      "gated": 1,
+      "truncated": false
+    },
     "diff_tokens": [],
     "next_action": {
-      "kind": "none",
-      "command": null,
-      "why": "No rules matched; nothing in this PR signals a tool-surface change."
+      "kind": "command",
+      "command": "agents-shipgate verify --preview --json",
+      "why": "The catalog classified none of the changed files, so it cannot say the change is irrelevant; let the scan decide."
     }
   },
   "finding_fingerprints": [],

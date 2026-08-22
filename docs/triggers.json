@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "schema_version": "0.3",
+  "schema_version": "0.4",
   "name": "agents-shipgate-triggers",
   "description": "Machine-readable trigger catalog for Agents Shipgate. Mirrors the AGENTS.md trigger table — a coding agent can fetch this and apply the rules to a PR diff or repo state to decide whether to run `agents-shipgate verify --preview --json` or the full verifier. Stable for 0.x: rule IDs, predicate vocabulary, and action enum will not change in minor versions.",
   "source_of_truth": "AGENTS.md#should-i-run-shipgate-on-this-pr",
@@ -70,6 +70,28 @@
       },
       "action": "run_shipgate",
       "rationale": "MCP exports declare a tool surface; changes need a tool-use readiness check.",
+      "command": "agents-shipgate verify --preview --json"
+    },
+    {
+      "id": "TRIGGER-MCP-TOOL-SCHEMA-CONTENT",
+      "surface_class": "capability",
+      "agents_md_row": "Adds/changes MCP exports, OpenAPI specs, or `tools/*openai*tools*.json`",
+      "when": {
+        "all_of": [
+          {"any_of": [
+            {"diff_contains": "inputSchema"},
+            {"diff_contains": "input_schema"}
+          ]},
+          {"any_of": [
+            {"diff_contains": "readOnlyHint"},
+            {"diff_contains": "destructiveHint"},
+            {"diff_contains": "idempotentHint"},
+            {"diff_contains": "openWorldHint"}
+          ]}
+        ]
+      },
+      "action": "run_shipgate",
+      "rationale": "A tool definition carrying an MCP input schema and MCP annotation hints is a tool surface whatever the file is named. TRIGGER-MCP-EXPORT-CHANGED recognises MCP exports by filename, which misses `pkg/github/__toolsnaps__/delete_repository.snap` and `mcp-server/tools.json` alike; content recognition does not depend on a naming convention the repository never agreed to.",
       "command": "agents-shipgate verify --preview --json"
     },
     {

@@ -175,6 +175,15 @@ def _sanitize_for_output(
                 set(base_binding.reachable_tool_ids)
                 - set(public_binding_graph.reachable_tool_ids)
             ),
+            # Head-minus-base on the *excluded* partition, so both ways a
+            # subject can newly leave the analysed surface are caught: added
+            # to a source and left unwired, or wired at base and unwired here.
+            # Subtracting the base exclusions is what keeps a long-standing
+            # unwired catalog from re-reporting itself on every PR.
+            added_unbound_tool_ids=sorted(
+                set(public_binding_graph.unbound_tool_ids)
+                - set(base_binding.unbound_tool_ids)
+            ),
             added_handoffs=sorted(current_handoffs - base_handoffs),
             removed_handoffs=sorted(base_handoffs - current_handoffs),
         )

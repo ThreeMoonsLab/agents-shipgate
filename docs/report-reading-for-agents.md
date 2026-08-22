@@ -144,7 +144,48 @@ For every active finding, inspect:
 
 Use these to decide whether to call `apply-patches --confidence high --apply` or surface the finding for manual review. The full mechanical policy lives in [`autofix-policy.md`](autofix-policy.md). The behavioral boundary — what an agent may *write* about a finding even if it cannot mechanically patch it — lives in [`agent-autofix-boundary.md`](agent-autofix-boundary.md).
 
-### Step 6 · Release Evidence Packet (for human-review framing)
+### Step 6 · `surface_exclusions` (v0.35+) — what the gate did *not* look at
+
+A verdict describes the surface that was analysed. `surface_exclusions` describes
+what left it, so a consumer can tell "the gate looked and found nothing" from
+"the gate did not look".
+
+```jsonc
+"surface_exclusions": {
+  "entries": [
+    {
+      "stage": "binding",              // trigger | discovery | scope_resolution
+                                       // | binding | adapter_parse
+                                       // | surface_completeness
+      "subject": "delete_repository [github_mcp]",
+      "reason": "newly_unbound_tool",
+      "source_ref": "mcp/tools.json",
+      "detail": "This change put the tool in the catalog and left it unbound …",
+      "accounting": "evidence_gap"     // evidence_gap | route_blocked | not_claimed
+    }
+  ],
+  "total": 1, "gated": 1, "truncated": false
+}
+```
+
+Read `accounting` first — it says how the exclusion reached the decision:
+
+| Value | Meaning | What to do |
+| --- | --- | --- |
+| `evidence_gap` | A row in `release_decision.evidence_coverage.evidence_gaps[]` names this exact `subject`. | Work that gap's `next_action`, like any other. |
+| `route_blocked` | The stage declined to publish a verdict over the exclusion. Emitted by stages that run before a release decision exists — `trigger` and `detect`. | Follow that command's own `next_action`; it repairs the exclusion. |
+| `not_claimed` | Nothing in the repository claims the subject as capability of the agent under review, and this change did not introduce it. | Informational. Do not treat it as a gap; a spec declaring 63 operations of which 5 are wired produces 58 of these by design. |
+
+A `reason` of `newly_unbound_tool` is the one worth escalating unprompted: this
+change put a tool in the catalog that no edge binds to the root agent, so no
+check judged it. It is always `evidence_gap`.
+
+`entries` is capped at 200 rows and `truncated` says so; `total` and `gated` are
+always exact, and gated rows sort first so the cap never drops one.
+
+`trigger --json` and `detect --json` carry the same block for their own stages.
+
+### Step 7 · Release Evidence Packet (for human-review framing)
 
 Alongside `report.json`, scan emits a reviewer-shaped Release Evidence Packet at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` with the `[pdf]` extras). Read `packet.json` when you need:
 
@@ -234,7 +275,7 @@ Surface the `next_action` to the user rather than scraping prose. The full diagn
 
 | Schema | Current | Frozen references | File |
 |---|---|---|---|
-| Report | `0.34` | `0.33`, `0.32`, `0.31`, `0.30`, `0.29`, `0.28`, `0.27`, `0.26`, `0.25`, `0.24`, `0.23`, `0.22`, `0.21`, `0.20`, `0.19`, `0.18`, `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.34.json`](report-schema.v0.34.json) |
+| Report | `0.35` | `0.34`, `0.33`, `0.32`, `0.31`, `0.30`, `0.29`, `0.28`, `0.27`, `0.26`, `0.25`, `0.24`, `0.23`, `0.22`, `0.21`, `0.20`, `0.19`, `0.18`, `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.35.json`](report-schema.v0.35.json) |
 | Packet | `0.12` | `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`packet-schema.v0.12.json`](packet-schema.v0.12.json) |
 | Manifest | `0.1` | — | [`manifest-v0.1.json`](manifest-v0.1.json) |
 | CLI contract | `19` | — | `agents-shipgate contract --json` |

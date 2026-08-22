@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.34",
+  "report_schema_version": "0.35",
   "run_id": "agents_shipgate_156121deae9690a5",
   "request_id": null,
   "subject_id": null,
@@ -2236,6 +2236,7 @@
     "base_report_schema_version": null,
     "added_reachable_tool_ids": [],
     "removed_reachable_tool_ids": [],
+    "added_unbound_tool_ids": [],
     "added_handoffs": [],
     "removed_handoffs": [],
     "notes": []
@@ -3093,8 +3094,8 @@
     "Declare operation-specific auth scopes for create_refund, or explicitly declare anonymous authority when the operation requires no credentials."
   ],
   "generated_reports": {
-    "markdown": "/private/tmp/shipgate-goldens/openai/report.md",
-    "json": "/private/tmp/shipgate-goldens/openai/report.json"
+    "markdown": "expected/report.md",
+    "json": "expected/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -4176,5 +4177,11 @@
         "count": 2
       }
     ]
+  },
+  "surface_exclusions": {
+    "entries": [],
+    "total": 0,
+    "gated": 0,
+    "truncated": false
   }
 }

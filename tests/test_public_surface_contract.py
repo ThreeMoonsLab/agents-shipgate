@@ -1066,8 +1066,8 @@ def test_triggers_json_loads_via_canonical_loader():
     reaches a different verdict than this loader, that's a drift bug —
     catch it by exercising the loader during CI."""
     triggers = load_triggers()
-    assert triggers["schema_version"] == "0.3", (
-        "docs/triggers.json schema_version moved off 0.3; bump the "
+    assert triggers["schema_version"] == "0.4", (
+        "docs/triggers.json schema_version moved off 0.4; bump the "
         "test constant deliberately so external consumers are notified."
     )
     assert isinstance(triggers.get("rules"), list) and triggers["rules"], (
@@ -1495,10 +1495,18 @@ def test_trigger_catalog_routes_governance_trust_root_paths(pattern: str, path: 
     result = evaluate(paths=[path])
 
     if path in _TRUST_ROOT_TRIGGER_GAPS:
-        assert result["run_shipgate"] is False, (
+        # Read the matched rules, not the verdict. Since #403 an unrouted
+        # change set no longer publishes a confident skip — it withholds one —
+        # so `run_shipgate is False` would have stopped tripping without the
+        # gap being closed, which is the opposite of what a tripwire is for.
+        assert not result["matched_rules"], (
             f"{path!r} (trust root {pattern!r}) is now routed by the trigger "
             f"catalog via {[m['id'] for m in result['matched_rules']]}. That "
             "closes a known gap — remove it from _TRUST_ROOT_TRIGGER_GAPS."
+        )
+        assert result["evaluation_status"] == "unclassified", (
+            f"{path!r} is unrouted, so the catalog must withhold its verdict "
+            f"rather than publish {result['skip_reason']!r}."
         )
         return
 

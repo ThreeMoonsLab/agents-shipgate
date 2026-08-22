@@ -19,6 +19,7 @@ from agents_shipgate.core.evidence_actions import (
     yaml_scalar,
 )
 from agents_shipgate.core.source_warnings import unresolved_adk_tool_symbols
+from agents_shipgate.core.surface_exclusions import catalog_subject
 from agents_shipgate.schemas.bindings import (
     AgentBindingGraphAssessment,
     AgentBindingIssue,
@@ -721,6 +722,13 @@ def _binding_coverage(
     for gap in _unreached_tool_gaps(report):
         _increment(reason_counts, gap.kind)
         gaps.append(gap)
+    already_named = {gap.subject for gap in gaps}
+    for gap in _newly_excluded_tool_gaps(report):
+        if gap.subject in already_named:
+            continue
+        already_named.add(gap.subject)
+        _increment(reason_counts, gap.kind)
+        gaps.append(gap)
     return (
         BindingCoverageDecision(
             total_catalog_tools=(
@@ -787,11 +795,10 @@ def _unreached_tool_gaps(report: ReadinessReport) -> list[EvidenceGap]:
             continue
         row = catalog.get(tool_id, {})
         name = str(row.get("name") or tool_id)
-        provider = row.get("provider")
         gaps.append(
             EvidenceGap(
                 kind="missing_binding_evidence",
-                subject=f"{name} [{provider}]" if provider else name,
+                subject=catalog_subject(row or {"tool_id": tool_id}),
                 source_type=str(row["source_type"]) if row.get("source_type") else None,
                 source_ref=str(row["source_ref"]) if row.get("source_ref") else None,
                 why=(
@@ -811,6 +818,85 @@ def _unreached_tool_gaps(report: ReadinessReport) -> list[EvidenceGap]:
                         "Wire the handoff that reaches this agent in source, or "
                         "declare it under the reaching agent's handoffs, then "
                         "rerun verification."
+                    ),
+                    accepted_values=[
+                        "agent",
+                        "complete:true",
+                        "tools",
+                        "handoffs",
+                        "reason",
+                    ],
+                ),
+            )
+        )
+    return gaps
+
+
+def _newly_excluded_tool_gaps(report: ReadinessReport) -> list[EvidenceGap]:
+    """One row per tool *this change* pushed out of the analysed surface.
+
+    ``_unreached_tool_gaps`` stops at tools carrying a structural edge, and
+    that boundary is right for the question it answers: a catalog entry with
+    no edge is nobody's claim of capability, and gating on those would make
+    declaring an OpenAPI spec or an MCP server self-blocking (#385).
+
+    It is the wrong boundary for a *diff*. ``github/github-mcp-server#3076``
+    adds ``delete_repository`` — ``destructiveHint: true`` — to a published
+    117-tool MCP server whose reviewed declaration still lists 116. The new
+    tool carries no edge, so it drew no gap; it left the surface before
+    ``SHIP-POLICY-APPROVAL-MISSING`` and
+    ``SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING`` could see it, and the run
+    reported ``unbound_tools: 1`` beside ``gap_count: 0``. Nothing about the
+    58 deliberately-unwired operations in
+    ``samples/large_multi_framework_agent`` argues for that outcome: those
+    were unbound before the change and are unbound after it. This one arrived
+    with the diff.
+
+    So the discriminator is the base comparison, not the source type: a
+    subject that was already excluded stays a reviewer-facing fact, and a
+    subject this change newly excluded is an evidence gap. Without a base
+    report ``binding_surface_diff`` is disabled and nothing here fires, which
+    is why a plain ``scan`` is unaffected.
+    """
+
+    diff = report.binding_surface_diff
+    if not diff.enabled or not diff.added_unbound_tool_ids:
+        return []
+    graph = report.binding_surface_facts
+    unbound = set(graph.unbound_tool_ids)
+    catalog = {
+        str(row.get("tool_id")): row
+        for row in report.tool_catalog
+        if row.get("tool_id")
+    }
+    gaps: list[EvidenceGap] = []
+    for tool_id in sorted(set(diff.added_unbound_tool_ids) & unbound):
+        row = catalog.get(tool_id, {})
+        name = str(row.get("name") or tool_id)
+        gaps.append(
+            EvidenceGap(
+                kind="missing_binding_evidence",
+                subject=catalog_subject(row or {"tool_id": tool_id}),
+                source_type=str(row["source_type"]) if row.get("source_type") else None,
+                source_ref=str(row["source_ref"]) if row.get("source_ref") else None,
+                why=(
+                    f"This change put {name} in the tool catalog and no static "
+                    "edge or reviewed declaration binds it to the root agent, "
+                    "so it was excluded from the analyzed surface before any "
+                    "check could judge it."
+                ),
+                next_action=EvidenceGapAction(
+                    kind="declare_agent_bindings",
+                    command=_SEMANTIC_RERUN_COMMAND,
+                    path="shipgate.yaml#agent_bindings.declarations",
+                    why=(
+                        "A capability the diff introduced must be judged or "
+                        "explicitly declared out of reach; it cannot be neither."
+                    ),
+                    expects=(
+                        "Wire the tool to the root agent in source, or add it to "
+                        "the reviewed closed-world declaration, then rerun "
+                        "verification."
                     ),
                     accepted_values=[
                         "agent",
@@ -1667,6 +1753,18 @@ def _to_item(finding: Finding) -> ReleaseDecisionItem:
     )
 
 
+def _join_clauses(parts: list[str]) -> str:
+    """``a``, ``a and b``, ``a, b and c`` — a list that stays a sentence.
+
+    Four evidence dimensions can now appear at once, and ``" and ".join`` on
+    that many reads as one run-on clause with no separators a reader can scan.
+    """
+
+    if len(parts) <= 2:
+        return " and ".join(parts)
+    return f"{', '.join(parts[:-1])} and {parts[-1]}"
+
+
 def _decision_reason(
     decision: ReleaseDecisionStatus,
     blockers: list[ReleaseDecisionItem],
@@ -1680,13 +1778,19 @@ def _decision_reason(
         return f"{n} active {noun} {verb} release."
     if decision == "insufficient_evidence":
         parts: list[str] = []
+        if evidence.binding_coverage.gap_count > 0:
+            # First, because it is the dimension that answers "was anything
+            # left out of the analysis?" — and a run whose only gaps were
+            # binding gaps used to describe itself as "degraded evidence",
+            # which names no dimension at all (#403).
+            parts.append(f"{evidence.binding_coverage.gap_count} binding evidence gap(s)")
         if evidence.semantic_coverage.gap_count > 0:
             parts.append(f"{evidence.semantic_coverage.gap_count} semantic evidence gap(s)")
         if evidence.low_confidence_tool_count > 0:
             parts.append(f"{evidence.low_confidence_tool_count} low-confidence tool(s)")
         if evidence.source_warning_count > 0:
             parts.append(f"{evidence.source_warning_count} source warning(s)")
-        detail = " and ".join(parts) if parts else "degraded evidence"
+        detail = _join_clauses(parts) or "degraded evidence"
         # Counts are the symptom; an addressable gap — one naming a target or
         # carrying a runnable command — is the work. When
         # one exists, lead with it and demote the counts to context — the old

@@ -35,6 +35,10 @@ from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.globbing import glob_match as _glob_match_exact
 from agents_shipgate.core.globbing import glob_match_ci as _glob_match
 from agents_shipgate.invocation import render_command, retarget_command
+from agents_shipgate.schemas.exclusions import (
+    SurfaceExclusion,
+    SurfaceExclusionLedger,
+)
 
 _TRIGGERS_FILENAME = "triggers.json"
 
@@ -75,6 +79,21 @@ VALID_INPUT_STATUSES = frozenset({INPUT_COMPLETE, INPUT_PARTIAL, INPUT_UNAVAILAB
 
 EVALUATION_EVALUATED = "evaluated"
 EVALUATION_NOT_EVALUATED = "not_evaluated"
+# The inputs were read in full and no rule recognised any of them. That is a
+# statement about the catalog, not about the PR, so it is not a skip.
+#
+# The asymmetry above says a skip reached from *unread* evidence is unsound.
+# The same argument applies one level up, to evidence that was read and not
+# understood: "no rules matched" is exactly as compatible with "this diff is
+# irrelevant" as with "this diff carries a surface the catalog has no rule
+# for". ``github/github-mcp-server#3076`` is the second one — a fully readable
+# diff adding a destructive tool as
+# ``pkg/github/__toolsnaps__/delete_repository.snap``, reported as "nothing in
+# this PR signals a tool-surface change" because the MCP rule matches file
+# names and that file is not named like one. A negative rule such as
+# ``TRIGGER-DOCS-ONLY-NEGATIVE`` is a real skip: it classifies every changed
+# file and concludes. ``no_match`` classifies nothing, so it now says so.
+EVALUATION_UNCLASSIFIED = "unclassified"
 
 # Semantic class of the surface a rule describes. Rule IDs are stable audit
 # labels, not a type system: consumers must switch on ``surface_class`` instead
@@ -248,6 +267,7 @@ def _next_action(
     matched: list[dict[str, Any]],
     default_command: str,
     rationale: str,
+    evaluation_status: str = EVALUATION_EVALUATED,
 ) -> dict[str, Any]:
     """Synthesize the single recommended next step from the verdict.
 
@@ -258,6 +278,23 @@ def _next_action(
     coding agent can route setup. ``command`` is ``None`` when no action
     is warranted.
     """
+    if evaluation_status == EVALUATION_UNCLASSIFIED:
+        # Nothing to repair: the diff was read in full. What is missing is a
+        # verdict about content the catalog has no rule for, and the scan is
+        # the thing that can produce one — so this routes forward rather than
+        # back, which is the whole difference from the withheld case below.
+        return {
+            "kind": "command",
+            "command": render_command(
+                ["verify", "--base", "origin/main", "--head", "HEAD", "--json"]
+            )
+            if manifest_present
+            else retarget_command(default_command),
+            "why": (
+                "The catalog classified none of the changed files, so it "
+                "cannot say the change is irrelevant; let the scan decide."
+            ),
+        }
     if run is None:
         # The verdict was withheld because the diff was never read. The only
         # honest next step is to repair the input, and the caller that failed
@@ -445,15 +482,21 @@ def evaluate(
     - ``input_status`` (str) — echoed back: ``complete``, ``partial`` or
       ``unavailable``.
     - ``evaluation_status`` (str) — ``evaluated`` when the verdict is
-      supported by the evidence that was actually read, otherwise
-      ``not_evaluated``. It is ``not_evaluated`` exactly when the inputs
-      were incomplete *and* the rules that did run produced no reason to
-      run: that combination proves nothing, so no verdict is published.
+      supported by the evidence that was actually read; ``not_evaluated``
+      exactly when the inputs were incomplete *and* the rules that did run
+      produced no reason to run (that combination proves nothing, so no
+      verdict is published); ``unclassified`` when the inputs *were* complete
+      and still no rule matched any of the changed files. The last one is not
+      a skip: the catalog recognised nothing, which is a fact about the
+      catalog rather than about the PR. ``should_run`` is ``None`` for both
+      withheld states, and ``surface_exclusions`` lists the change set the
+      trigger could not account for.
     - ``should_run`` (bool|None) — friendly alias of ``run_shipgate`` (same
-      value); kept so consumers reading either field agree. ``None`` when
-      ``evaluation_status`` is ``not_evaluated``.
-    - ``run_shipgate`` (bool|None) — final verdict; ``None`` when not
-      evaluated.
+      value); kept so consumers reading either field agree. ``None`` whenever
+      the verdict is withheld, i.e. ``evaluation_status`` is ``not_evaluated``
+      or ``unclassified``.
+    - ``run_shipgate`` (bool|None) — final verdict; ``None`` whenever the
+      verdict is withheld.
     - ``force_run`` (bool) — a ``force_run`` rule matched and was not
       overridden by the stop block (opted-in repo → run on every PR).
     - ``dry_run_recommended`` (bool) — true when a ``dry_run`` rule
@@ -465,7 +508,9 @@ def evaluate(
     - ``skip_reason`` (str|None) — ``None`` when running *and* when the
       verdict was withheld; otherwise a stable token: ``stop_conditions``,
       ``skip_rule``, ``dry_run_only`` or ``no_match``. ``no_match`` is
-      never emitted for inputs that were not fully read.
+      never emitted for inputs that were not fully read, and never for a
+      non-empty change set no rule classified — that is ``unclassified``,
+      and it withholds the verdict too.
     - ``stop_conditions_fired`` (bool) — whether the explicit stop
       block held; this beats every rule action.
     - ``stop_conditions_evaluated`` (bool) — whether the stop block
@@ -479,6 +524,11 @@ def evaluate(
     - ``rationale`` (str) — single-sentence explanation.
     - ``matched_rules`` (list) — every rule whose ``when`` clause fired.
     - ``changed_files`` (list) — the input paths, echoed back.
+    - ``surface_exclusions`` (dict) — this stage's exclusion ledger
+      (``{entries, total, gated, truncated}``, see
+      ``agents_shipgate.schemas.exclusions``). Its entries are the changed
+      files the trigger removed from analysis without classifying them;
+      non-empty exactly when ``evaluation_status`` is ``unclassified``.
     - ``diff_tokens`` (list) — catalog ``diff_contains`` tokens that
       are present in ``diff_text`` (sorted, de-duplicated).
     - ``next_action`` (dict) — the single recommended next step as
@@ -490,7 +540,8 @@ def evaluate(
     ``force_run`` → run (overrides skip; used by manifest-present);
     ``skip_shipgate`` → skip (beats ``run_shipgate``); ``run_shipgate``
     → run; ``dry_run`` → skip + ``dry_run_recommended``. Incomplete input
-    then withholds any resulting skip.
+    then withholds any resulting skip, and a complete-but-unrecognised
+    change set withholds the ``no_match`` one.
     """
     if triggers is None:
         triggers = load_triggers()
@@ -612,6 +663,7 @@ def evaluate(
 
     verdict: bool | None = run
     evaluation_status = EVALUATION_EVALUATED
+    unclassified: list[str] = []
     if not inputs_complete and not run:
         # Everything below the run verdicts rests on evidence that was never
         # read. "No rules matched" and "only docs changed" are claims about a
@@ -636,6 +688,26 @@ def evaluate(
             "evidence the PR is unrelated to agent capabilities — repair the "
             "diff input and re-evaluate."
         )
+    elif skip_reason == "no_match" and paths:
+        # Read in full, recognised by nothing. No rule matched, so no rule
+        # classified any path — the whole change set is unaccounted for and
+        # every one of these files is a subject the trigger removed from
+        # analysis without evidence. Withhold the skip and let the scan
+        # decide; ``matched_rules`` is empty either way, so nothing is lost
+        # by declining to call that irrelevance.
+        #
+        # An empty ``paths`` list with complete inputs is the other case and
+        # keeps ``no_match``: a change set with no files in it genuinely has
+        # nothing to classify.
+        unclassified = list(paths)
+        verdict = None
+        skip_reason = None
+        evaluation_status = EVALUATION_UNCLASSIFIED
+        rationale = (
+            f"{len(unclassified)} changed file(s) were read in full and "
+            "no rule classified any of them. That is not evidence the PR is "
+            "unrelated to agent capabilities — run the scan to decide."
+        )
 
     # ``should_run`` is a friendlier alias of ``run_shipgate`` (identical
     # value); both are kept so 0.x consumers reading either field agree.
@@ -649,6 +721,7 @@ def evaluate(
             "default_command", "agents-shipgate verify --preview --json"
         ),
         rationale=rationale,
+        evaluation_status=evaluation_status,
     )
     return {
         "schema_version": triggers.get("schema_version"),
@@ -665,16 +738,57 @@ def evaluate(
         "rationale": rationale,
         "matched_rules": matched,
         "changed_files": list(paths),
+        # This stage's exclusion ledger, in the shape every other stage
+        # emits (``schemas.exclusions``). Non-empty exactly when
+        # ``evaluation_status`` is ``unclassified``: those are the changed
+        # files the trigger removed from analysis while classifying none of
+        # them, and recording them is what turns "nothing signals a
+        # tool-surface change" into a claim someone can check.
+        "surface_exclusions": _trigger_exclusion_ledger(unclassified).model_dump(
+            mode="json"
+        ),
         "diff_tokens": _matched_diff_tokens(triggers, diff_text),
         "next_action": next_action,
     }
 
 
+def _trigger_exclusion_ledger(paths: list[str]) -> SurfaceExclusionLedger:
+    """The changed files this stage dropped without classifying them.
+
+    Always ``route_blocked``: the trigger runs before any scan exists, so
+    there is no evidence gap for it to point at, and the only accounting a
+    stage with no decision can offer is to decline to publish one. That is
+    exactly what happens — ``should_run`` is ``None`` and ``next_action``
+    routes to the scan — so the record and the verdict say the same thing.
+    """
+
+    return SurfaceExclusionLedger.from_entries(
+        [
+            SurfaceExclusion(
+                stage="trigger",
+                subject=path,
+                reason="unclassified_change",
+                source_ref=path,
+                detail=(
+                    "No catalog rule classified this changed file, so nothing "
+                    "about it routed a surface into a scan."
+                ),
+                accounting="route_blocked",
+            )
+            for path in paths
+            if path
+        ]
+    )
+
+
 def _verdict_label(result: dict[str, Any]) -> str:
     """Render the run/skip/withheld verdict for human output."""
 
-    if result.get("evaluation_status") == EVALUATION_NOT_EVALUATED:
+    status = result.get("evaluation_status")
+    if status == EVALUATION_NOT_EVALUATED:
         return "NOT EVALUATED"
+    if status == EVALUATION_UNCLASSIFIED:
+        return "UNCLASSIFIED"
     return "RUN" if result.get("run_shipgate") else "SKIP"
 
 

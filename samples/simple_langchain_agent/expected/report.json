@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.34",
+  "report_schema_version": "0.35",
   "run_id": "agents_shipgate_ad594d77df1d5943",
   "request_id": null,
   "subject_id": null,
@@ -175,7 +175,7 @@
           "source_ref": "3613cdb3d448a417",
           "description": "f60def41dd0be85a",
           "input_schema": "1b120897c7f6d6cd",
-          "output_schema": "44136fa355b3678a",
+          "output_schema": "ff419ebbeba438f6",
           "parameters": "1b8bfe67ab58e766",
           "annotations": "5e1f8cd38bd37762"
         }
@@ -198,7 +198,7 @@
           "source_ref": "3613cdb3d448a417",
           "description": "5964fcbc6e4d1fd4",
           "input_schema": "1b120897c7f6d6cd",
-          "output_schema": "44136fa355b3678a",
+          "output_schema": "ff419ebbeba438f6",
           "parameters": "1b8bfe67ab58e766",
           "annotations": "5e1f8cd38bd37762"
         }
@@ -738,6 +738,7 @@
     "base_report_schema_version": null,
     "added_reachable_tool_ids": [],
     "removed_reachable_tool_ids": [],
+    "added_unbound_tool_ids": [],
     "added_handoffs": [],
     "removed_handoffs": [],
     "notes": []
@@ -778,8 +779,8 @@
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
-    "markdown": "/private/tmp/shipgate-goldens/langchain/report.md",
-    "json": "/private/tmp/shipgate-goldens/langchain/report.json"
+    "markdown": "expected/report.md",
+    "json": "expected/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -1698,5 +1699,11 @@
     "human_ack_required": false,
     "human_ack_satisfied": true,
     "top_reason_codes": []
+  },
+  "surface_exclusions": {
+    "entries": [],
+    "total": 0,
+    "gated": 0,
+    "truncated": false
   }
 }

@@ -256,7 +256,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         tool_surface=ToolSurfaceSummary(total_tools=0, high_risk_tools=0),
     )
     report_payload = report_json_payload(report)
-    assert report_payload["report_schema_version"] == "0.34"
+    assert report_payload["report_schema_version"] == "0.35"
     assert list(report_payload) == [
         "schema_version",
         "report_schema_version",
@@ -311,6 +311,8 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         "effective_policy",
         "human_ack",
         "verifier_summary",
+        # v0.35: the exclusion ledger (additive).
+        "surface_exclusions",
     ]
 
     packet = EvidencePacket(
@@ -581,6 +583,12 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
             "has_prompts_dir": False,
             "has_tools_dir": False,
             "conventional_dirs": [],
+        },
+        "surface_exclusions": {
+            "entries": [],
+            "total": 0,
+            "gated": 0,
+            "truncated": False,
         },
     }
 

@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.34",
+  "report_schema_version": "0.35",
   "run_id": "agents_shipgate_68a230995652f841",
   "request_id": null,
   "subject_id": null,
@@ -64,7 +64,7 @@
   },
   "release_decision": {
     "decision": "insufficient_evidence",
-    "reason": "Insufficient evidence: the agent's tool binding graph is incomplete (agent_v1:7205d836e4b3fee257d90695). Fix at shipgate.yaml#agent_bindings. Context: 1 semantic evidence gap(s) and 1 low-confidence tool(s) and 4 source warning(s); scan results are not trustworthy enough to gate release.",
+    "reason": "Insufficient evidence: the agent's tool binding graph is incomplete (agent_v1:7205d836e4b3fee257d90695). Fix at shipgate.yaml#agent_bindings. Context: 1 binding evidence gap(s), 1 semantic evidence gap(s), 1 low-confidence tool(s) and 4 source warning(s); scan results are not trustworthy enough to gate release.",
     "blockers": [],
     "review_items": [
       {
@@ -718,6 +718,7 @@
     "base_report_schema_version": null,
     "added_reachable_tool_ids": [],
     "removed_reachable_tool_ids": [],
+    "added_unbound_tool_ids": [],
     "added_handoffs": [],
     "removed_handoffs": [],
     "notes": []
@@ -874,8 +875,8 @@
     "Use literal MCP server and method bindings, a static LLM tool advertisement, or an exact local sub-workflow target before release review."
   ],
   "generated_reports": {
-    "markdown": "/private/tmp/shipgate-goldens/conductor/report.md",
-    "json": "/private/tmp/shipgate-goldens/conductor/report.json"
+    "markdown": "expected/report.md",
+    "json": "expected/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -1253,7 +1254,7 @@
   "policy_evidence_gaps": [],
   "agent_summary": {
     "verdict": "insufficient_evidence",
-    "headline": "Insufficient evidence: the agent's tool binding graph is incomplete (agent_v1:7205d836e4b3fee257d90695). Fix at shipgate.yaml#agent_bindings. Context: 1 semantic evidence gap(s) and 1 low-confidence tool(s) and 4 source warning(s); scan results are not trustworthy enough to gate release.",
+    "headline": "Insufficient evidence: the agent's tool binding graph is incomplete (agent_v1:7205d836e4b3fee257d90695). Fix at shipgate.yaml#agent_bindings. Context: 1 binding evidence gap(s), 1 semantic evidence gap(s), 1 low-confidence tool(s) and 4 source warning(s); scan results are not trustworthy enough to gate release.",
     "blocker_count": 0,
     "review_item_count": 2,
     "auto_appliable_patches": 0,
@@ -1357,5 +1358,52 @@
         "count": 2
       }
     ]
+  },
+  "surface_exclusions": {
+    "entries": [
+      {
+        "stage": "adapter_parse",
+        "subject": "Conductor CALL_MCP_TOOL at workflows/order-agent.json#/tasks/4/decisionCases/yes/0 has a dynamic or unresolved capability surface: ['method'].",
+        "reason": "source_degraded",
+        "source_ref": null,
+        "detail": "A source loader degraded while reading a declared input, so part of that input never entered the catalog.",
+        "accounting": "evidence_gap"
+      },
+      {
+        "stage": "adapter_parse",
+        "subject": "Conductor LLM_CHAT_COMPLETE at workflows/order-agent.json#/tasks/1 has a dynamic or unresolved capability surface: ['tools'].",
+        "reason": "source_degraded",
+        "source_ref": null,
+        "detail": "A source loader degraded while reading a declared input, so part of that input never entered the catalog.",
+        "accounting": "evidence_gap"
+      },
+      {
+        "stage": "adapter_parse",
+        "subject": "Conductor capability 'HTTP' at workflows/order-agent.json#/tasks/5 is recognized but not enumerated by the MCP-core v1 adapter.",
+        "reason": "source_degraded",
+        "source_ref": null,
+        "detail": "A source loader degraded while reading a declared input, so part of that input never entered the catalog.",
+        "accounting": "evidence_gap"
+      },
+      {
+        "stage": "adapter_parse",
+        "subject": "Conductor capability 'webSearch' at workflows/order-agent.json#/tasks/1 is recognized but not enumerated by the MCP-core v1 adapter.",
+        "reason": "source_degraded",
+        "source_ref": null,
+        "detail": "A source loader degraded while reading a declared input, so part of that input never entered the catalog.",
+        "accounting": "evidence_gap"
+      },
+      {
+        "stage": "surface_completeness",
+        "subject": "lookup_order [conductor_workflows]",
+        "reason": "surface_not_enumerated",
+        "source_ref": "/tasks/3",
+        "detail": "The tool's own surface could not be established as complete, so an unknown remainder of it was never analysed.",
+        "accounting": "evidence_gap"
+      }
+    ],
+    "total": 5,
+    "gated": 5,
+    "truncated": false
   }
 }

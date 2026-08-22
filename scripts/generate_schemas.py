@@ -335,6 +335,12 @@ def build_report_schema() -> tuple[Path, str]:
             "effective_policy",
             "human_ack",
             "verifier_summary",
+            # v0.35: the exclusion ledger. Non-Optional in Python (an absent
+            # ledger and an empty one must not be confusable), and required on
+            # the wire for the same reason — a consumer asking "what did this
+            # run decline to look at?" must never read the answer as "the
+            # field is missing, so probably nothing".
+            "surface_exclusions",
         ]
     )
     # Preserve version constants. Pydantic emits these as plain strings

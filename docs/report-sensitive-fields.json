@@ -66,6 +66,7 @@
     {"surface": "report", "path": "effective_policy", "classification": "public_control_metadata"},
     {"surface": "report", "path": "human_ack", "classification": "free_text"},
     {"surface": "report", "path": "verifier_summary", "classification": "public_control_metadata"},
+    {"surface": "report", "path": "surface_exclusions", "classification": "free_text"},
     {"surface": "report", "path": "findings[].evidence", "classification": "free_text"},
     {"surface": "report", "path": "findings[].title", "classification": "free_text"},
     {"surface": "report", "path": "findings[].source", "classification": "path_metadata"},

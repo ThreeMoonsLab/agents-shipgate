@@ -76,9 +76,10 @@ def test_evaluate_skip_reason_tokens_track_precedence():
     assert skipped["should_run"] is False
     assert skipped["skip_reason"] == "skip_rule"
 
-    no_match = evaluate(paths=["src/internal/util.py"])
-    assert no_match["should_run"] is False
-    assert no_match["skip_reason"] == "no_match"
+    unclassified = evaluate(paths=["src/internal/util.py"])
+    assert unclassified["should_run"] is None
+    assert unclassified["skip_reason"] is None
+    assert unclassified["evaluation_status"] == "unclassified"
 
     dry = evaluate(paths=["requirements.txt"], diff_text="+langchain==0.3.0\n")
     assert dry["should_run"] is False
@@ -119,7 +120,7 @@ def test_trigger_subcommand_json_shape(tmp_path):
     assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
     assert M1_KEYS <= set(payload)
-    assert payload["schema_version"] == "0.3"
+    assert payload["schema_version"] == "0.4"
     assert payload["should_run"] is True
     assert payload["force_run"] is True  # shipgate.yaml present in workspace
     assert payload["skip_reason"] is None
@@ -160,7 +161,7 @@ def test_trigger_subcommand_list_rules_json():
     result = runner.invoke(app, ["trigger", "--list-rules", "--json"])
     assert result.exit_code == 0
     catalog = json.loads(result.stdout)
-    assert catalog["schema_version"] == "0.3"
+    assert catalog["schema_version"] == "0.4"
     rule_ids = {r["id"] for r in catalog["rules"]}
     assert "TRIGGER-N8N-WORKFLOW-CHANGED" in rule_ids
 
@@ -234,7 +235,7 @@ def test_stop_conditions_not_evaluated_without_detect_result():
     res = evaluate(paths=["src/internal/util.py"])
     assert res["stop_conditions_evaluated"] is False
     assert res["stop_conditions_fired"] is False
-    assert res["skip_reason"] == "no_match"
+    assert res["skip_reason"] is None
 
 
 def test_stop_conditions_fire_with_detect_result():
@@ -357,13 +358,17 @@ def test_trigger_subcommand_detect_json_enables_stop(tmp_path):
 
 
 def test_predicate_diff_contains_isolated():
+    # These read `matched_rules`, not `should_run`. A predicate-isolation test
+    # asks whether the predicate fired; the verdict is a separate policy (a
+    # change set no rule classified is now withheld, not skipped — #403) and
+    # conflating the two made these fail for a reason they never tested.
     cat = _catalog({"diff_contains": "SECRET_MARKER"})
     assert evaluate(paths=["a.py"], diff_text="+SECRET_MARKER=1", triggers=cat)[
         "should_run"
     ] is True
-    assert evaluate(paths=["a.py"], diff_text="+nothing", triggers=cat)[
-        "should_run"
-    ] is False
+    assert not evaluate(paths=["a.py"], diff_text="+nothing", triggers=cat)[
+        "matched_rules"
+    ]
 
 
 def test_predicate_file_present_and_absent():
@@ -383,19 +388,19 @@ def test_predicate_file_present_and_absent():
 def test_predicate_none_match_glob_any_of_all_of():
     nmg = _catalog({"none_match_glob": ["**/*.md"]})
     assert evaluate(paths=["a.py"], triggers=nmg)["should_run"] is True
-    assert evaluate(paths=["a.md"], triggers=nmg)["should_run"] is False
+    assert not evaluate(paths=["a.md"], triggers=nmg)["matched_rules"]
 
     any_of = _catalog({"any_of": [{"glob": "*.py"}, {"glob": "*.go"}]})
     assert evaluate(paths=["main.go"], triggers=any_of)["should_run"] is True
-    assert evaluate(paths=["main.rs"], triggers=any_of)["should_run"] is False
+    assert not evaluate(paths=["main.rs"], triggers=any_of)["matched_rules"]
 
     all_of = _catalog({"all_of": [{"glob": "*.py"}, {"diff_contains": "X"}]})
     assert evaluate(paths=["a.py"], diff_text="X", triggers=all_of)[
         "should_run"
     ] is True
-    assert evaluate(paths=["a.py"], diff_text="", triggers=all_of)[
-        "should_run"
-    ] is False
+    assert not evaluate(paths=["a.py"], diff_text="", triggers=all_of)[
+        "matched_rules"
+    ]
 
 
 @pytest.mark.parametrize(
@@ -492,34 +497,110 @@ def test_surface_class_is_a_stable_consumer_discriminator():
 
 def test_catalog_without_rules_key_is_safe():
     res = evaluate(paths=["a.py"], triggers={"schema_version": "x"})
-    assert res["should_run"] is False
     assert res["matched_rules"] == []
+    # A catalog with no rules classifies nothing, which is the unclassified
+    # state rather than a skip — an empty catalog is not evidence about the PR.
+    assert res["evaluation_status"] == "unclassified"
+    assert res["should_run"] is None
 
 
 def test_unknown_predicate_does_not_match():
     cat = _catalog({"unknown_predicate": "x"})
     res = evaluate(paths=["a.py"], triggers=cat)
-    assert res["should_run"] is False
-    assert res["skip_reason"] == "no_match"
+    assert res["matched_rules"] == []
+    assert res["should_run"] is None
+    assert res["skip_reason"] is None
 
 
-def test_unknown_action_falls_through_to_no_match():
+def test_unknown_action_falls_through_without_publishing_a_skip():
+    """A rule the evaluator cannot act on decides nothing.
+
+    The matched rule is still reported — a caller can see the catalog wanted
+    to say something — but an action this build does not recognise is not
+    evidence the change is irrelevant, so the verdict is withheld rather than
+    published as a confident skip.
+    """
+
     cat = _catalog({"glob": "*.py"})
     cat["rules"][0]["action"] = "bogus_action"
     res = evaluate(paths=["a.py"], triggers=cat)
-    assert res["should_run"] is False
     assert {m["id"] for m in res["matched_rules"]} == {"R"}
+    assert res["should_run"] is None
+    assert res["skip_reason"] is None
+    assert res["evaluation_status"] == "unclassified"
 
 
 # --- input completeness: a verdict may not outrun its evidence -------------
 
 
-def test_complete_inputs_keep_the_evaluated_no_match_verdict():
+def test_complete_inputs_over_an_unrecognised_diff_withhold_the_skip():
+    """Read in full, recognised by nothing — that is not a claim about the PR.
+
+    The #308 rule withholds a skip reached from evidence that was never read.
+    #403 applies the same argument one level up: `no_match` classified nothing,
+    so "nothing in this PR signals a tool-surface change" is a statement about
+    the catalog. `github/github-mcp-server#3076` is the case — a fully readable
+    diff adding a destructive MCP tool as a `.snap` file, reported as a
+    confident skip.
+    """
+
     result = evaluate(paths=["src/internal/util.py"], input_status="complete")
     assert result["input_status"] == "complete"
+    assert result["evaluation_status"] == "unclassified"
+    assert result["should_run"] is None
+    assert result["run_shipgate"] is None
+    assert result["skip"] is None
+    assert result["skip_reason"] is None
+    # Forward, not back: the diff needs no repair, so the honest next step is
+    # the scan rather than the `input_required` route a withheld read takes.
+    assert result["next_action"]["kind"] == "command"
+    assert result["next_action"]["command"] == "agents-shipgate verify --preview --json"
+    ledger = result["surface_exclusions"]
+    assert ledger["total"] == 1
+    assert ledger["gated"] == 1
+    assert ledger["entries"][0]["stage"] == "trigger"
+    assert ledger["entries"][0]["subject"] == "src/internal/util.py"
+    assert ledger["entries"][0]["accounting"] == "route_blocked"
+
+
+def test_an_empty_change_set_is_still_an_evaluated_no_match():
+    """Nothing changed is a fact about the PR, not about the catalog.
+
+    The withholding above rests on there being changed files the catalog could
+    not account for. With none, `no_match` classifies nothing because there is
+    nothing to classify, and publishing the skip stays sound.
+    """
+
+    result = evaluate(paths=[], diff_text="", input_status="complete")
     assert result["evaluation_status"] == "evaluated"
     assert result["should_run"] is False
     assert result["skip_reason"] == "no_match"
+    assert result["surface_exclusions"]["total"] == 0
+
+
+def test_an_mcp_tool_schema_is_recognised_by_content_not_filename():
+    """`__toolsnaps__/delete_repository.snap` is an MCP export (#403).
+
+    `TRIGGER-MCP-EXPORT-CHANGED` matches `**/*mcp*.json`, which the file fails
+    on both counts. Its content is unambiguous — an MCP input schema beside MCP
+    annotation hints — and recognising that does not require the repository to
+    have adopted a naming convention.
+    """
+
+    diff = (
+        '+  "name": "delete_repository",\n'
+        '+  "inputSchema": {"type": "object"},\n'
+        '+  "annotations": {"destructiveHint": true, "readOnlyHint": false}\n'
+    )
+    result = evaluate(
+        paths=["pkg/github/__toolsnaps__/delete_repository.snap"],
+        diff_text=diff,
+        input_status="complete",
+    )
+    assert result["should_run"] is True
+    assert {m["id"] for m in result["matched_rules"]} == {
+        "TRIGGER-MCP-TOOL-SCHEMA-CONTENT"
+    }
 
 
 @pytest.mark.parametrize("status", ["partial", "unavailable"])

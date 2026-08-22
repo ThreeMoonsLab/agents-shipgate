@@ -70,6 +70,7 @@ from agents_shipgate.cli.discovery.scope import (
     project_marker,
 )
 from agents_shipgate.core.errors import DiscoveryError, InputParseError
+from agents_shipgate.core.surface_exclusions import build_detect_exclusions
 from agents_shipgate.inputs.codex_plugin import resolve_local_codex_marketplace_roots
 from agents_shipgate.inputs.conductor import conductor_agent_task_types
 from agents_shipgate.invocation import render_command
@@ -416,7 +417,7 @@ def detect_workspace(
         conventional_dirs=present_dirs,
     )
 
-    return DetectResult(
+    result = DetectResult(
         is_agent_project=is_agent_project,
         frameworks=detections,
         agent_name_candidates=agent_name_candidates,
@@ -431,6 +432,8 @@ def detect_workspace(
         next_action=next_action,
         workspace_signals=workspace_signals,
     )
+    result.surface_exclusions = build_detect_exclusions(result)
+    return result
 
 
 # --- Internals --------------------------------------------------------------

@@ -410,7 +410,7 @@ def production_safety_requirements() -> SafetyQualificationRequirementsV1:
         minimum_blocked_exact=30,
         minimum_review_exact=19,
         minimum_insufficient_evidence_exact=19,
-        required_report_schema_version="0.34",
+        required_report_schema_version="0.35",
     )
 
 

@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from agents_shipgate.schemas.exclusions import SurfaceExclusionLedger
+
 
 class FrameworkDetection(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -208,6 +210,16 @@ class DetectResult(BaseModel):
     codex_plugin_candidates: list[CodexPluginCandidate] = Field(default_factory=list)
     next_action: str = ""
     workspace_signals: WorkspaceSignals = Field(default_factory=WorkspaceSignals)
+    # Every subject discovery decided not to look at, in the shape every other
+    # stage of the pipeline emits (#403). `python_parse_truncated`,
+    # `agent_scope`, and `excluded_sources` each already said *something* about
+    # a narrowing; this says the same things in one vocabulary, so a caller can
+    # ask "what was left out, and did it change the routing?" once instead of
+    # three times. Derived from the fields above — never a second source of
+    # truth for them.
+    surface_exclusions: SurfaceExclusionLedger = Field(
+        default_factory=SurfaceExclusionLedger
+    )
 
     @field_validator("agent_name_candidates", mode="before")
     @classmethod

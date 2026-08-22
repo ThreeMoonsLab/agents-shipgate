@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.34",
+  "report_schema_version": "0.35",
   "run_id": "agents_shipgate_e2edfa81ffc0f70d",
   "request_id": null,
   "subject_id": null,
@@ -5501,6 +5501,7 @@
     "base_report_schema_version": null,
     "added_reachable_tool_ids": [],
     "removed_reachable_tool_ids": [],
+    "added_unbound_tool_ids": [],
     "added_handoffs": [],
     "removed_handoffs": [],
     "notes": []
@@ -10907,5 +10908,28 @@
         "count": 2
       }
     ]
+  },
+  "surface_exclusions": {
+    "entries": [
+      {
+        "stage": "adapter_parse",
+        "subject": "MCP source declares wildcard tool exposure",
+        "reason": "source_degraded",
+        "source_ref": null,
+        "detail": "A source loader degraded while reading a declared input, so part of that input never entered the catalog.",
+        "accounting": "evidence_gap"
+      },
+      {
+        "stage": "binding",
+        "subject": "wildcard_mcp_tools.* [wildcard_mcp_tools]",
+        "reason": "unbound_tool",
+        "source_ref": ".agents-shipgate/wildcard-tools.json",
+        "detail": "The tool is in the catalog and no edge binds it to the root agent; nothing in the repository claims it as reachable capability.",
+        "accounting": "not_claimed"
+      }
+    ],
+    "total": 2,
+    "gated": 1,
+    "truncated": false
   }
 }

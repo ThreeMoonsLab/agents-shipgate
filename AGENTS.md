@@ -518,7 +518,7 @@ restate version archaeology here):
 - Audit envelopes: `release_decision.contribution_rules[]`, `policy_audit`,
   `privacy_audit`, `heuristics_filter` — explanatory, never a second gate
 
-The current schema is [`docs/report-schema.v0.34.json`](docs/report-schema.v0.34.json). Emitted reports carry `report_schema_version: "0.34"`; typed predicate support prevents heuristic evidence from being upgraded by policy severity or block metadata, and verify-native reports bind the content-addressed request and decision. A `passed` result requires a complete root-reachable static binding graph plus complete, conflict-free identity, effect, authority, and applicable-policy evidence for every reachable action. Every release decision explicitly carries `static_analysis_only: true`, `runtime_behavior_verified: false`, and `static_verdict_disclaimer`; packet §1 mirrors them. Binding, semantic, and policy-applicability gaps are not Findings and cannot be suppressed or baselined. See [`docs/passed-verdict-contract.md`](docs/passed-verdict-contract.md), [`docs/verification-reproducibility.md`](docs/verification-reproducibility.md), and [`docs/agent-contract-current.md`](docs/agent-contract-current.md). v0.33 remains frozen at [`docs/report-schema.v0.33.json`](docs/report-schema.v0.33.json).
+The current schema is [`docs/report-schema.v0.35.json`](docs/report-schema.v0.35.json). Emitted reports carry `report_schema_version: "0.35"`; `surface_exclusions` records every subject a stage removed from the analysed surface and whether the release decision saw it, typed predicate support prevents heuristic evidence from being upgraded by policy severity or block metadata, and verify-native reports bind the content-addressed request and decision. A `passed` result requires a complete root-reachable static binding graph plus complete, conflict-free identity, effect, authority, and applicable-policy evidence for every reachable action. Every release decision explicitly carries `static_analysis_only: true`, `runtime_behavior_verified: false`, and `static_verdict_disclaimer`; packet §1 mirrors them. Binding, semantic, and policy-applicability gaps are not Findings and cannot be suppressed or baselined. See [`docs/passed-verdict-contract.md`](docs/passed-verdict-contract.md), [`docs/verification-reproducibility.md`](docs/verification-reproducibility.md), and [`docs/agent-contract-current.md`](docs/agent-contract-current.md). v0.34 remains frozen at [`docs/report-schema.v0.34.json`](docs/report-schema.v0.34.json).
 
 **Release gating signal**: prefer `release_decision.decision` (`"blocked" | "review_required" | "insufficient_evidence" | "passed"`) over `summary.status`. The new field is **baseline-aware** — a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not `release_decision.blockers`. `summary.status` stays baseline-blind for v0.7 compatibility, so a baseline-matched-only critical produces both `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"` (intentional divergence — see [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus)). `insufficient_evidence` (added v0.14) signals that the scan saw too many low-confidence tools or source-loader warnings to be trustworthy; consumers that switch on the enum must fall back to `review_required` for unknown future values.
 
@@ -598,7 +598,7 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.34.json`](docs/report-schema.v0.34.json) (current).
+[`docs/report-schema.v0.35.json`](docs/report-schema.v0.35.json) (current).
 Older reports (`report_schema_version: "0.10"`) validate against the
 frozen [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json).
 Do not scrape Markdown when JSON is available.
@@ -636,7 +636,9 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.34.json`](docs/report-schema.v0.34.json) | `0.34` |
+| Report schema (current) | [`docs/report-schema.v0.35.json`](docs/report-schema.v0.35.json) | `0.35` |
+| Report schema (v0.34 frozen reference) | [`docs/report-schema.v0.34.json`](docs/report-schema.v0.34.json) | `0.34` |
+| Report schema (v0.33 frozen reference) | [`docs/report-schema.v0.33.json`](docs/report-schema.v0.33.json) | `0.33` |
 | Report schema (v0.32 frozen reference) | [`docs/report-schema.v0.32.json`](docs/report-schema.v0.32.json) | `0.32` |
 | Report schema (v0.31 frozen reference) | [`docs/report-schema.v0.31.json`](docs/report-schema.v0.31.json) | `0.31` |
 | Report schema (v0.30 frozen reference) | [`docs/report-schema.v0.30.json`](docs/report-schema.v0.30.json) | `0.30` |

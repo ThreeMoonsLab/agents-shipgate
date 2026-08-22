@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.34",
+  "report_schema_version": "0.35",
   "run_id": "agents_shipgate_9702bae6947b59b3",
   "request_id": null,
   "subject_id": null,
@@ -439,7 +439,7 @@
           "source_ref": "3613cdb3d448a417",
           "description": "5964fcbc6e4d1fd4",
           "input_schema": "1b120897c7f6d6cd",
-          "output_schema": "44136fa355b3678a",
+          "output_schema": "ff419ebbeba438f6",
           "parameters": "1b8bfe67ab58e766",
           "annotations": "ca8c9e65158e6268"
         }
@@ -485,7 +485,7 @@
           "source_ref": "3613cdb3d448a417",
           "description": "f60def41dd0be85a",
           "input_schema": "1b120897c7f6d6cd",
-          "output_schema": "44136fa355b3678a",
+          "output_schema": "ff419ebbeba438f6",
           "parameters": "1b8bfe67ab58e766",
           "annotations": "ca8c9e65158e6268"
         }
@@ -1261,6 +1261,7 @@
     "base_report_schema_version": null,
     "added_reachable_tool_ids": [],
     "removed_reachable_tool_ids": [],
+    "added_unbound_tool_ids": [],
     "added_handoffs": [],
     "removed_handoffs": [],
     "notes": []
@@ -1348,8 +1349,8 @@
     "Declare operation-specific auth scopes for FileReadTool, or explicitly declare anonymous authority when the operation requires no credentials."
   ],
   "generated_reports": {
-    "markdown": "/private/tmp/shipgate-goldens/crewai/report.md",
-    "json": "/private/tmp/shipgate-goldens/crewai/report.json"
+    "markdown": "expected/report.md",
+    "json": "expected/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -2710,5 +2711,20 @@
         "count": 1
       }
     ]
+  },
+  "surface_exclusions": {
+    "entries": [
+      {
+        "stage": "adapter_parse",
+        "subject": "CrewAI prebuilt tool 'FileReadTool' at crew.py:28 was recorded as low-confidence metadata; provide an explicit inventory for full review.",
+        "reason": "source_degraded",
+        "source_ref": null,
+        "detail": "A source loader degraded while reading a declared input, so part of that input never entered the catalog.",
+        "accounting": "evidence_gap"
+      }
+    ],
+    "total": 1,
+    "gated": 1,
+    "truncated": false
   }
 }

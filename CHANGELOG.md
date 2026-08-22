@@ -2,6 +2,75 @@
 
 ## Unreleased
 
+- **Every stage that narrows the analysed surface now records what it removed,
+  and the release decision can read it.**
+  Across two first-time adoption walks the same shape produced five separate
+  failures: a stage computed the right signal, stored it, and did not connect
+  it to the decision
+  ([#403](https://github.com/ThreeMoonsLab/agents-shipgate/issues/403)).
+
+  The sharpest instance is a fail-open in exactly the reward-hacking shape this
+  product exists to catch. `github/github-mcp-server#3076` adds
+  `delete_repository` — `destructiveHint: true`, `readOnlyHint: false` — to
+  GitHub's official MCP server. With the reviewed declaration still listing the
+  116-tool surface from the base commit, the run reported `unbound_tools: 1`
+  beside `gap_count: 0` and `pass_eligible: true`, and named the new tool
+  exactly once in the whole report: as a row in `tool_catalog`. The checks that
+  would have blocked it are correct — declaring the tool produces
+  `SHIP-POLICY-APPROVAL-MISSING` and
+  `SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING` — but the tool left the analysed
+  surface before they ran. And it could not be declared without editing
+  `shipgate.yaml`, which is a release trust root a coding agent cannot
+  self-approve, so the honest options were "invisible capability" and "blocked
+  on a trust-root edit".
+
+  Reports now carry `surface_exclusions` (schema `0.35`): one typed
+  `{stage, subject, reason, source_ref, detail, accounting}` record per subject
+  a stage removed, from the binding graph, adapter parsing, and surface
+  completeness. `detect --json` and `trigger --json` emit the same record for
+  the stages they own — a capped discovery walk, an unresolved manifest scope, a
+  glob-matched source the real adapter rejects, an unclassified change set —
+  replacing four ad-hoc spellings of the same event with one. `accounting` is
+  what makes the record checkable rather than decorative: `evidence_gap` (a gap
+  row names this subject), `route_blocked` (the stage withheld its verdict and
+  its `next_action` repairs it), or `not_claimed` (nothing in the repository
+  claims the subject as capability).
+
+  A conservation invariant is enforced at emission: `observed == analysed ∪
+  excluded`, every excluded subject appears in the ledger, every `evidence_gap`
+  record is backed by a gap row carrying the same subject, and a subject *this
+  change* newly excluded can never be `not_claimed`. The
+  `unbound_tools: 1 / gap_count: 0` state is now unrepresentable rather than
+  something each call site has to remember.
+
+  The gate itself moved only where a diff proves it should. `binding_surface_diff`
+  gained `added_unbound_tool_ids` — head exclusions minus base exclusions — and
+  a tool in that set raises a `missing_binding_evidence` gap naming it. A
+  pre-existing unbound catalog entry is unchanged: `samples/large_multi_framework_agent`
+  has 58 by design, and gating on those would make declaring an OpenAPI spec or
+  an MCP server self-blocking. Catalog membership is still not evidence of
+  capability — a capability the diff introduced and nothing judged is a
+  different claim. A plain `scan` has no base, so nothing here fires on one.
+
+  **`skip` now requires positive evidence.** `TRIGGER-DOCS-ONLY-NEGATIVE` is a
+  legitimate skip: it classifies every changed file and concludes. `no_match`
+  classifies nothing, and the same PR is where that mattered — a fully readable
+  diff whose only relevant file is
+  `pkg/github/__toolsnaps__/delete_repository.snap`, reported as *"nothing in
+  this PR signals a tool-surface change"* because `TRIGGER-MCP-EXPORT-CHANGED`
+  matches `**/*mcp*.json` and that file is named neither. A non-empty change set
+  no rule classified now returns `evaluation_status: "unclassified"` with
+  `should_run: null` and a `next_action` routing forward to the scan, rather
+  than a skip nobody can falsify; an empty change set keeps `no_match`, because
+  there it is a fact about the PR. This is the
+  [#308](https://github.com/ThreeMoonsLab/agents-shipgate/issues/308)
+  monotonicity rule — already accepted for diff *readability* — applied to diff
+  *comprehension*. Trigger catalog `0.3 → 0.4` also adds
+  `TRIGGER-MCP-TOOL-SCHEMA-CONTENT`, which recognises an MCP tool definition by
+  its content (an MCP input schema beside MCP annotation hints) instead of by a
+  naming convention the repository never agreed to; the same glob also missed
+  `mcp-server/tools.json`.
+
 - **The first scan of an agent whose tools are imported symbols now scaffolds
   both layers it needs, instead of emitting nothing.**
   `suggested-declarations.yaml` was only written once the binding layer was

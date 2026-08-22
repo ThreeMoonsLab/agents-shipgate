@@ -95,6 +95,19 @@ class BindingSurfaceDiff(BaseModel):
     base_report_schema_version: str | None = None
     added_reachable_tool_ids: list[str] = Field(default_factory=list)
     removed_reachable_tool_ids: list[str] = Field(default_factory=list)
+    # v0.35: tools this change *newly excluded* from the analysed surface —
+    # head ``unbound_tool_ids`` minus base ``unbound_tool_ids``. Both halves
+    # of the narrowing land here: a tool the diff added to a source and left
+    # unwired, and a tool that was reachable at base and is not any more.
+    #
+    # It is a separate list rather than a derivation of the reachable ones
+    # because it answers a different question. ``removed_reachable_tool_ids``
+    # says the agent lost a capability, which is a *narrowing of what the
+    # agent can do*; this says the gate lost a subject, which is a narrowing
+    # of *what the gate looked at*. A pre-existing unbound catalog entry stays
+    # out of both — catalog membership is not evidence of capability (#385) —
+    # so this is exactly the set that arrived without ever being judged.
+    added_unbound_tool_ids: list[str] = Field(default_factory=list)
     added_handoffs: list[str] = Field(default_factory=list)
     removed_handoffs: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
