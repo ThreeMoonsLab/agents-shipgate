@@ -368,23 +368,79 @@ def test_insufficient_evidence_reason_leads_with_the_gap_not_the_tally(
     assert reason.index("shipgate.yaml#agent_bindings") < reason.index("Context:")
 
 
-def test_reason_keeps_the_threshold_wording_when_no_gap_is_addressable(
+def test_imported_symbols_get_one_source_row_naming_the_inventory_repair(
     imported_symbols_report,
 ):
-    """Without a path to name, "below threshold" is still the honest lead.
+    """The first scan of an all-imports agent names a repair (#361).
 
-    This report's only gaps are source warnings, which no file can close;
-    ranking must not invent an action that does not exist.
+    This used to be the shape with nothing to open: six source warnings, each
+    routed to ``review_warning``, no path, no template — so the verdict led
+    with "Evidence coverage below threshold" and the reader had to author the
+    inventory wiring from the docs. The repair exists and is mechanical, so the
+    decision engine states it.
+
+    Exactly ONE row states it. The six warnings are one mechanism restated per
+    symbol (``core.source_warnings``); attaching an action to each would put
+    raw loader prose back into the headline, which is what grouping removed.
     """
 
     decision = imported_symbols_report.release_decision
     assert decision is not None
     assert decision.decision == "insufficient_evidence"
-    assert not any(
-        gap.next_action.path
-        for gap in decision.evidence_coverage.evidence_gaps
+    gaps = decision.evidence_coverage.evidence_gaps
+
+    addressable = [gap for gap in gaps if gap.next_action.path]
+    assert len(addressable) == 1
+    (repair,) = addressable
+    assert repair.kind == "incomplete_surface"
+    assert repair.next_action.kind == "declare_tool_inventory"
+    assert repair.next_action.path == "shipgate.yaml#google_adk.tool_inventories"
+    # The row is about the source, so nothing quotes a warning verbatim.
+    assert repair.subject == "adk_crypto_payroll_agent [google_adk]"
+    assert "references unresolved tool" not in repair.subject
+    # It carries the exact manifest entry, joined to the source it completes.
+    assert repair.next_action.declaration_template == {
+        "google_adk": {
+            "tool_inventories": [
+                {
+                    "path": "<REVIEW_REQUIRED>",
+                    "source_id": "adk_crypto_payroll_agent",
+                }
+            ]
+        }
+    }
+
+    # The restatements stay inert: no path, no command, nothing to open.
+    warnings = [gap for gap in gaps if gap.kind == "source_warning"]
+    assert len(warnings) == 6
+    assert not any(gap.next_action.path or gap.next_action.command for gap in warnings)
+    assert {gap.next_action.kind for gap in warnings} == {"review_warning"}
+
+    assert decision.reason.startswith("Insufficient evidence: ")
+    assert "shipgate.yaml#google_adk.tool_inventories" in decision.reason
+
+
+def test_reason_keeps_the_threshold_wording_when_no_gap_is_addressable():
+    """Without a path to name, "below threshold" is still the honest lead.
+
+    Ranking must not invent an action that does not exist: a warning whose
+    mechanism nothing recognises has no repair to prescribe, and the verdict
+    says so rather than pointing somewhere.
+    """
+
+    evidence = EvidenceCoverageDecision(
+        level="static",
+        human_review_recommended=True,
+        source_warning_count=6,
+        low_confidence_tool_count=0,
+        evidence_gaps=[
+            _gap("source_warning", "loader degraded reading foo", path=None),
+            _gap("source_warning", "loader degraded reading bar", path=None),
+        ],
     )
-    assert decision.reason.startswith("Evidence coverage below threshold")
+    assert primary_evidence_gap(evidence) is not None
+    assert not any(gap.next_action.path for gap in evidence.evidence_gaps)
+    assert evidence_gap_target(primary_evidence_gap(evidence)) == ""
 
 
 # --- repository-derived values cannot forge a line ---------------------------
