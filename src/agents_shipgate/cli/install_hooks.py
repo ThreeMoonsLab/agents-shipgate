@@ -771,7 +771,7 @@ def _trigger(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> i
     )
     if result is None and not protected:
         return 0
-    if not protected and not result.get("should_run"):
+    if not protected and not _trigger_wants_attention(result):
         return 0
 
     path_preview = ", ".join(paths[:3])
@@ -786,7 +786,7 @@ def _trigger(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> i
     return _emit_context(
         "PostToolUse",
         (
-            "Agents Shipgate trigger matched after editing "
+            f"{_trigger_lead(result)} after editing "
             f"{path_preview}: {rationale} Before finishing, run `{command}` "
             "and read `agents-shipgate-reports/report.json.release_decision.decision`. "
             "Do not bypass the verifier by suppressing findings, lowering severity, "
@@ -889,12 +889,12 @@ def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> in
             _protected_surface_for(path, configured_manifest=args.config) is not None
             for path in snapshot["paths"]
         )
-        if protected or (trigger and trigger.get("should_run")):
+        if protected or _trigger_wants_attention(trigger):
             # Advisory: nothing is configured yet, so nobody has decided this
             # repo is gated — advise, never force the turn to continue.
             return _emit_context(
                 "Stop",
-                "Agents Shipgate trigger matched, but the configured manifest "
+                f"{_trigger_lead(trigger)}, and the configured manifest "
                 f"{args.config!r} does not exist. "
                 "Run `agents-shipgate verify --preview --json` and initialize "
                 "the manifest if this workspace contains an agent.",
@@ -921,7 +921,7 @@ def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> in
             "advisory; before finishing an agent-related diff, run "
             f"`{_manual_verify_command(args, root=root, worktree=snapshot['kind'] == 'worktree')}` manually.",
         )
-    if not protected and not trigger.get("should_run"):
+    if not protected and not _trigger_wants_attention(trigger):
         return 0
 
     signature = str(snapshot["signature"])
@@ -2120,6 +2120,45 @@ def _repo_path(value: str, root: Path) -> str:
         return lexical.relative_to(root).as_posix()
     except ValueError:
         return lexical.name
+
+
+#: Evaluation states in which the trigger published no verdict at all.
+_WITHHELD_EVALUATION_STATUSES = frozenset({"unclassified", "not_evaluated"})
+
+
+def _trigger_wants_attention(trigger: dict[str, object] | None) -> bool:
+    """Whether a hook should say something about this trigger result.
+
+    ``should_run`` is tri-state since #403: ``True`` (run), ``False`` (a skip
+    backed by evidence), and ``None`` — the verdict was withheld because the
+    diff could not be read, or because the catalog classified none of the
+    changed files. Reading it as a plain boolean turns both withheld states
+    into a silent skip, which is the fail-open this project exists to stop,
+    reproduced in the surface an agent actually runs (PR #404 review).
+
+    A withheld verdict is not a reason to run the gate — it is a reason to say
+    the gate could not decide, which is what the hook's advisory text is for,
+    so :func:`_trigger_lead` words the two cases differently.
+    """
+
+    if not trigger:
+        return False
+    if trigger.get("should_run"):
+        return True
+    return trigger.get("evaluation_status") in _WITHHELD_EVALUATION_STATUSES
+
+
+def _trigger_lead(trigger: dict[str, object] | None) -> str:
+    """Open the hook's advisory with what actually happened.
+
+    "Trigger matched" is false of a withheld verdict — nothing matched, which
+    is precisely why no verdict exists — and a hook that misdescribes its own
+    evidence teaches the reader to discount it.
+    """
+
+    if trigger and trigger.get("evaluation_status") in _WITHHELD_EVALUATION_STATUSES:
+        return "Agents Shipgate could not decide whether this diff is relevant"
+    return "Agents Shipgate trigger matched"
 
 
 def _emit_context(event: str, message: str) -> int:

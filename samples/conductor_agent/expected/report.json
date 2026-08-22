@@ -715,6 +715,7 @@
   },
   "binding_surface_diff": {
     "enabled": false,
+    "base_comparison_requested": false,
     "base_report_schema_version": null,
     "added_reachable_tool_ids": [],
     "removed_reachable_tool_ids": [],
@@ -1362,38 +1363,6 @@
   "surface_exclusions": {
     "entries": [
       {
-        "stage": "adapter_parse",
-        "subject": "Conductor CALL_MCP_TOOL at workflows/order-agent.json#/tasks/4/decisionCases/yes/0 has a dynamic or unresolved capability surface: ['method'].",
-        "reason": "source_degraded",
-        "source_ref": null,
-        "detail": "A source loader degraded while reading a declared input, so part of that input never entered the catalog.",
-        "accounting": "evidence_gap"
-      },
-      {
-        "stage": "adapter_parse",
-        "subject": "Conductor LLM_CHAT_COMPLETE at workflows/order-agent.json#/tasks/1 has a dynamic or unresolved capability surface: ['tools'].",
-        "reason": "source_degraded",
-        "source_ref": null,
-        "detail": "A source loader degraded while reading a declared input, so part of that input never entered the catalog.",
-        "accounting": "evidence_gap"
-      },
-      {
-        "stage": "adapter_parse",
-        "subject": "Conductor capability 'HTTP' at workflows/order-agent.json#/tasks/5 is recognized but not enumerated by the MCP-core v1 adapter.",
-        "reason": "source_degraded",
-        "source_ref": null,
-        "detail": "A source loader degraded while reading a declared input, so part of that input never entered the catalog.",
-        "accounting": "evidence_gap"
-      },
-      {
-        "stage": "adapter_parse",
-        "subject": "Conductor capability 'webSearch' at workflows/order-agent.json#/tasks/1 is recognized but not enumerated by the MCP-core v1 adapter.",
-        "reason": "source_degraded",
-        "source_ref": null,
-        "detail": "A source loader degraded while reading a declared input, so part of that input never entered the catalog.",
-        "accounting": "evidence_gap"
-      },
-      {
         "stage": "surface_completeness",
         "subject": "lookup_order [conductor_workflows]",
         "reason": "surface_not_enumerated",
@@ -1402,8 +1371,8 @@
         "accounting": "evidence_gap"
       }
     ],
-    "total": 5,
-    "gated": 5,
+    "total": 1,
+    "gated": 1,
     "truncated": false
   }
 }

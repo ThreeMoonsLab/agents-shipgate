@@ -237,7 +237,7 @@ Downstream repos generated with
 - Current registry schema: `0.4` — [`docs/registry-schema.v0.4.json`](registry-schema.v0.4.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v2` — [`docs/org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json)
 - Current host-grants inventory, baseline, and drift schemas: `0.2` — [`inventory`](host-grants-inventory-schema.v0.2.json), [`baseline`](host-grants-baseline-schema.v0.2.json), [`drift`](host-grants-drift-schema.v0.2.json)
-- Current trigger catalog schema: `0.3` — [`docs/triggers.json`](triggers.json)
+- Current trigger catalog schema: `0.4` — [`docs/triggers.json`](triggers.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
 - Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)
 - Frozen-reference report schemas: frozen [`v0.33`](report-schema.v0.33.json), frozen [`v0.32`](report-schema.v0.32.json), frozen [`v0.31`](report-schema.v0.31.json), frozen [`v0.30`](report-schema.v0.30.json), and older versions listed in [`docs/INDEX.md`](INDEX.md#reference)

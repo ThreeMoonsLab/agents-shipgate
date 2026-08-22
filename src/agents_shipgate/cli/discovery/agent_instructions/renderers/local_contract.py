@@ -26,9 +26,12 @@ PRIOR_RENDER_SHA256: tuple[str, ...] = (
     # v8 as shipped by the current-control pointer change; never appended at the
     # time, so a repo on v8 could not be upgraded in place.
     "e4580d8f55c54157745cdf86066190080a11cf0a3c6201608c6342990b4e81ee",
-    # v9 as shipped by the publish-vs-merge permission change, and the outgoing
-    # render this revision replaces.
+    # v9 as shipped by the publish-vs-merge permission change.
     "8aa6004936f19c31607498eb7d603b5f42ee55443e31ccc8b8099b14196eb8ab",
+    # v10 before trigger catalog 0.3 -> 0.4, and the outgoing render this
+    # revision replaces. A repo pinned to it must upgrade in place, or its
+    # agents keep reading "no rule matched means skip" from a stale contract.
+    "c63117b02849e6e7400f366bd32c42c978db1f6c7a1bb3d9f64c125a9a1d4e47",
 )
 
 

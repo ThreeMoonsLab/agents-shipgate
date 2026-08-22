@@ -566,3 +566,198 @@ def _subject_of(report, tool_id: str) -> str:
         if str(row.get("tool_id")) == tool_id:
             return catalog_subject(row)
     return catalog_subject({"tool_id": tool_id})
+
+
+# --- the review's regressions ----------------------------------------------
+
+
+def test_an_unavailable_base_comparison_fails_closed(tmp_path):
+    """A comparison that was asked for and did not happen is not evidence.
+
+    `binding_surface_diff.enabled == False` means two different things, and
+    reading the second as the first let a head scan conclude an unbound
+    destructive tool was pre-existing using a comparison it never performed —
+    `unbound_tools: 1`, `gap_count: 0` — which
+    `docs/engineering/ai-coding-workflow-verifier.md` §2.3 forbids outright
+    (PR #404 review).
+    """
+
+    base_config = _write_tree(tmp_path / "base", [_tool("safe")], ["safe"])
+    head_config = _write_tree(
+        tmp_path / "head",
+        [_tool("safe"), _tool("delete_repository", destructive=True)],
+        ["safe"],
+    )
+    _scan(base_config, tmp_path / "base" / "reports")
+    # A base report the loader accepts and the binding diff cannot use: v0.31
+    # is where `binding_surface_facts` arrived, and v0.30 still passes the
+    # `--diff-from` comparability floor.
+    base_report = tmp_path / "base" / "reports" / "report.json"
+    payload = json.loads(base_report.read_text(encoding="utf-8"))
+    payload["report_schema_version"] = "0.30"
+    payload.pop("binding_surface_facts", None)
+    base_report.write_text(json.dumps(payload), encoding="utf-8")
+
+    report, _ = _scan(
+        head_config, tmp_path / "head" / "reports", diff_from=base_report
+    )
+
+    diff = report.binding_surface_diff
+    assert diff.enabled is False
+    assert diff.base_comparison_requested is True
+    coverage = report.release_decision.evidence_coverage.binding_coverage
+    assert coverage.unbound_tools == 1
+    assert coverage.gap_count == 1
+
+    (gap,) = [
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.subject.startswith("base comparison")
+    ]
+    assert gap.next_action.kind == "provide_source"
+
+    # One row for one mechanism and one repair (#361), not one per tool — and
+    # the excluded tool is `unverified`, never `not_claimed`, because that
+    # word asserts a comparison nobody ran.
+    (entry,) = report.surface_exclusions.entries
+    assert entry.reason == "unverified_unbound_tool"
+    assert entry.accounting == "unverified"
+
+
+def test_a_scan_with_no_base_still_claims_nothing_it_cannot_show(tmp_path):
+    """The paired case: nobody asked, so `not_claimed` stays available."""
+
+    config = _write_tree(
+        tmp_path / "solo",
+        [_tool("safe"), _tool("delete_repository", destructive=True)],
+        ["safe"],
+    )
+    report, _ = _scan(config, tmp_path / "solo" / "reports")
+
+    assert report.binding_surface_diff.base_comparison_requested is False
+    (entry,) = report.surface_exclusions.entries
+    assert entry.accounting == "not_claimed"
+    assert report.release_decision.evidence_coverage.binding_coverage.gap_count == 0
+
+
+def test_binding_gap_kinds_covers_every_kind_the_binding_stage_emits():
+    """`BINDING_GAP_KINDS` must not be a hand-kept copy that drifts.
+
+    It was, and it omitted `invalid_binding_annotation` — a kind the release
+    decision emits and routes — so a tool-scoped row of that kind left its
+    ledger entry `not_claimed` while the decision carried the gap, and the
+    invariant accepted the contradiction (PR #404 review). It is derived from
+    the schema now; this pins that it stays derived.
+    """
+
+    from typing import get_args
+
+    from agents_shipgate.core.surface_exclusions import BINDING_GAP_KINDS
+    from agents_shipgate.schemas.bindings import AgentBindingIssue
+
+    emitted = set(get_args(AgentBindingIssue.model_fields["kind"].annotation))
+    assert emitted, "AgentBindingIssue.kind must stay a closed Literal"
+    assert emitted <= BINDING_GAP_KINDS, sorted(emitted - BINDING_GAP_KINDS)
+    assert "invalid_binding_annotation" in BINDING_GAP_KINDS
+
+
+def test_the_cap_never_discards_a_gap_backed_row():
+    """201 gated rows must all survive a 200-row cap (PR #404 review).
+
+    Sorting them first was not enough: `rows[:limit]` still dropped one while
+    the ledger went on reporting `gated=201`, so the count claimed evidence
+    the entries no longer showed.
+    """
+
+    gap_backed = [
+        SurfaceExclusion(
+            stage="binding",
+            subject=f"gated_{index:04d}",
+            reason="newly_unbound_tool",
+            detail="introduced by this change",
+            accounting="evidence_gap",
+        )
+        for index in range(MAX_LEDGER_ENTRIES + 1)
+    ]
+    ledger = SurfaceExclusionLedger.from_entries(gap_backed)
+    assert len(ledger.entries) == MAX_LEDGER_ENTRIES + 1
+    assert ledger.gated == MAX_LEDGER_ENTRIES + 1
+    assert ledger.truncated is False
+
+    # The rest still gets capped, and gated rows still come first.
+    mixed = gap_backed[:3] + [
+        SurfaceExclusion(
+            stage="binding",
+            subject=f"quiet_{index:04d}",
+            reason="unbound_tool",
+            detail="pre-existing catalog entry",
+            accounting="not_claimed",
+        )
+        for index in range(500)
+    ]
+    capped = SurfaceExclusionLedger.from_entries(mixed)
+    assert len(capped.entries) == MAX_LEDGER_ENTRIES
+    assert capped.truncated is True
+    assert capped.total == 503
+    assert [row.accounting for row in capped.entries[:3]] == ["evidence_gap"] * 3
+
+
+def test_a_degraded_source_is_not_reported_as_a_catalog_omission(tmp_path):
+    """The ledger may not invent provenance it cannot prove (PR #404 review).
+
+    Every `source_warning` used to become "part of that input never entered
+    the catalog". `samples/simple_crewai_agent` disproves it: `FileReadTool`
+    is recorded as low-confidence metadata *and* is in the catalog, in the
+    inventory, structurally reachable, and carrying high-confidence evidence.
+    """
+
+    report, _ = run_scan(
+        config_path=Path("samples/simple_crewai_agent/shipgate.yaml"),
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+
+    assert report.source_warnings, "the sample must still warn, or it proves nothing"
+    assert not [
+        entry
+        for entry in report.surface_exclusions.entries
+        if entry.stage == "adapter_parse"
+    ]
+    # The warning is unchanged where it belongs: the decision still reads it.
+    assert any(
+        gap.kind == "source_warning"
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+    )
+
+
+def test_the_v035_schema_rejects_an_erased_ledger():
+    """A nominally valid report must not be able to delete this PR's evidence."""
+
+    from jsonschema import Draft202012Validator
+
+    schema = json.loads(
+        Path("docs/report-schema.v0.35.json").read_text(encoding="utf-8")
+    )
+    validator = Draft202012Validator(schema)
+    golden = json.loads(
+        Path("samples/support_refund_agent/expected/report.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert not list(validator.iter_errors(golden))
+
+    for mutate in (
+        lambda p: p.__setitem__("surface_exclusions", {}),
+        lambda p: p["surface_exclusions"].pop("gated"),
+        lambda p: p["surface_exclusions"].pop("total"),
+        lambda p: p["binding_surface_diff"].pop("added_unbound_tool_ids"),
+        lambda p: p["binding_surface_diff"].pop("base_comparison_requested"),
+        lambda p: p["surface_exclusions"].__setitem__("total", -1),
+    ):
+        mutated = json.loads(json.dumps(golden))
+        mutate(mutated)
+        assert list(validator.iter_errors(mutated)), (
+            "the schema accepted a payload with the ledger evidence removed"
+        )

@@ -84,6 +84,7 @@
     "dry_run_recommended": false,
     "skip_reason": "skip_rule",
     "stop_conditions_fired": false,
+    "stop_conditions_terminal": false,
     "stop_conditions_evaluated": false,
     "rationale": "skip_shipgate rule(s) matched (beats run_shipgate): TRIGGER-DOCS-ONLY-NEGATIVE.",
     "matched_rules": [

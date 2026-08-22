@@ -1470,3 +1470,79 @@ def test_generated_hook_compiles_without_warnings(tmp_path: Path) -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         compile(_hook_script_text(), "agents-shipgate-hook.py", "exec")
+
+
+def test_post_tool_hook_speaks_when_the_trigger_withholds_its_verdict(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    """`should_run` is tri-state; a hook may not read `null` as "skip".
+
+    The hook is the surface an agent actually runs, so coercing the withheld
+    verdict to a boolean restored the #403 fail-open one layer out from the
+    evaluator that fixed it: the catalog classified none of the changed files,
+    said so, and the hook exited 0 with no guidance (PR #404 review).
+    """
+
+    namespace = _rendered_hook_namespace(tmp_path)
+    edited = tmp_path / "pkg" / "opaque.snap"
+    edited.parent.mkdir(parents=True)
+    edited.write_text("{}\n", encoding="utf-8")
+    namespace["_git_diff_for_paths"] = lambda *_args, **_kwargs: "diff"
+    namespace["_run_trigger_for_paths"] = lambda *_args, **_kwargs: {
+        "should_run": None,
+        "run_shipgate": None,
+        "skip_reason": None,
+        "evaluation_status": "unclassified",
+        "rationale": (
+            "1 of 1 changed file(s) were read in full and no rule classified "
+            "them. That is not evidence the PR is unrelated to agent "
+            "capabilities — run the scan to decide."
+        ),
+    }
+    args = SimpleNamespace(
+        config="shipgate.yaml", base="HEAD", head="HEAD", ci_mode="advisory"
+    )
+
+    result = namespace["_trigger"](
+        {"tool_input": {"file_path": str(edited)}}, tmp_path, args
+    )
+
+    assert result == 0
+    context = json.loads(capsys.readouterr().out)["hookSpecificOutput"][
+        "additionalContext"
+    ]
+    # It speaks, and it says the honest thing: nothing matched, so there is no
+    # verdict — not "trigger matched", which would misdescribe its own evidence.
+    assert "could not decide whether this diff is relevant" in context
+    assert "trigger matched" not in context.lower()
+    assert "no rule classified" in context
+
+
+def test_post_tool_hook_stays_silent_on_an_evidence_backed_skip(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    """The paired case: a real `false` still means nothing to say."""
+
+    namespace = _rendered_hook_namespace(tmp_path)
+    edited = tmp_path / "README.md"
+    edited.write_text("# docs\n", encoding="utf-8")
+    namespace["_git_diff_for_paths"] = lambda *_args, **_kwargs: "diff"
+    namespace["_run_trigger_for_paths"] = lambda *_args, **_kwargs: {
+        "should_run": False,
+        "evaluation_status": "evaluated",
+        "skip_reason": "skip_rule",
+        "rationale": "skip_shipgate rule(s) matched.",
+    }
+    args = SimpleNamespace(
+        config="shipgate.yaml", base="HEAD", head="HEAD", ci_mode="advisory"
+    )
+
+    assert (
+        namespace["_trigger"](
+            {"tool_input": {"file_path": str(edited)}}, tmp_path, args
+        )
+        == 0
+    )
+    assert capsys.readouterr().out == ""

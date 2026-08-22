@@ -22,8 +22,9 @@ conservation invariant it carries.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, cast, get_args
 
+from agents_shipgate.schemas.bindings import AgentBindingIssue
 from agents_shipgate.schemas.detect import DetectResult
 from agents_shipgate.schemas.exclusions import (
     SurfaceExclusion,
@@ -61,15 +62,16 @@ def _gap_subjects(gaps: Sequence[EvidenceGap], kinds: frozenset[str]) -> set[str
 #: Gap kinds a binding-stage exclusion can be accounted for by. Public so
 #: ``core.semantic_consistency`` checks the same set the ledger joins on — a
 #: private copy there would drift and quietly stop checking anything.
-BINDING_GAP_KINDS = frozenset({
-    "missing_binding_evidence",
-    "partial_binding_evidence",
-    "unresolved_bound_tool",
-    "unresolved_agent_binding",
-    "conflicting_binding_evidence",
-    "incomplete_handoff_graph",
+#:
+#: Derived from ``AgentBindingIssue.kind`` rather than restated, because a
+#: hand-kept copy is exactly what drifted: it omitted
+#: ``invalid_binding_annotation``, so a tool-scoped gap of that kind left its
+#: ledger row ``not_claimed`` while the decision carried the gap (PR #404
+#: review). ``invalid_tool_binding`` is added on top — it is an
+#: ``EvidenceGap`` kind with no ``AgentBindingIssue`` counterpart.
+BINDING_GAP_KINDS = frozenset(get_args(AgentBindingIssue.model_fields["kind"].annotation)) | {
     "invalid_tool_binding",
-})
+}
 
 #: Every gap kind the ledger joins a subject against. The spelling rule
 #: ``core.semantic_consistency`` enforces is scoped to exactly these: a gap the
@@ -99,7 +101,6 @@ def build_surface_exclusions(report: ReadinessReport) -> SurfaceExclusionLedger:
     entries: list[SurfaceExclusion] = []
     entries.extend(_binding_exclusions(report, binding_gap_subjects))
     entries.extend(_surface_completeness_exclusions(gaps))
-    entries.extend(_adapter_parse_exclusions(gaps))
     return SurfaceExclusionLedger.from_entries(entries)
 
 
@@ -117,11 +118,18 @@ def _binding_exclusions(
 
     graph = report.binding_surface_facts
     catalog = _catalog_by_id(report)
-    newly_unbound = (
-        set(report.binding_surface_diff.added_unbound_tool_ids)
-        if report.binding_surface_diff.enabled
-        else set()
-    )
+    diff = report.binding_surface_diff
+    newly_unbound = set(diff.added_unbound_tool_ids) if diff.enabled else set()
+    # Asked for and not performed: the run cannot tell a pre-existing exclusion
+    # from one this change introduced, so neither `not_claimed` nor
+    # `newly_unbound_tool` is a claim it is entitled to make.
+    unverified = diff.base_comparison_requested and not diff.enabled
+
+    def _accounting(subject: str) -> str:
+        if subject in gap_subjects:
+            return "evidence_gap"
+        return "unverified" if unverified else "not_claimed"
+
     entries: list[SurfaceExclusion] = []
     for tool_id in sorted(graph.possible_tool_ids):
         row = catalog.get(tool_id, {"tool_id": tool_id})
@@ -136,9 +144,7 @@ def _binding_exclusions(
                     "A binding edge reaches this tool but does not prove it "
                     "complete, so it is outside the proven capability surface."
                 ),
-                accounting=(
-                    "evidence_gap" if subject in gap_subjects else "not_claimed"
-                ),
+                accounting=cast(Any, _accounting(subject)),
             )
         )
     for tool_id in sorted(graph.unbound_tool_ids):
@@ -149,7 +155,13 @@ def _binding_exclusions(
             SurfaceExclusion(
                 stage="binding",
                 subject=subject,
-                reason="newly_unbound_tool" if introduced else "unbound_tool",
+                reason=(
+                    "newly_unbound_tool"
+                    if introduced
+                    else "unverified_unbound_tool"
+                    if unverified
+                    else "unbound_tool"
+                ),
                 source_ref=_row_ref(row),
                 detail=(
                     (
@@ -159,13 +171,18 @@ def _binding_exclusions(
                     if introduced
                     else (
                         "The tool is in the catalog and no edge binds it to "
+                        "the root agent, and the base comparison that would "
+                        "say whether this change introduced it could not be "
+                        "performed."
+                    )
+                    if unverified
+                    else (
+                        "The tool is in the catalog and no edge binds it to "
                         "the root agent; nothing in the repository claims it "
                         "as reachable capability."
                     )
                 ),
-                accounting=(
-                    "evidence_gap" if subject in gap_subjects else "not_claimed"
-                ),
+                accounting=cast(Any, _accounting(subject)),
             )
         )
     return entries
@@ -199,24 +216,30 @@ def _surface_completeness_exclusions(
     ]
 
 
-def _adapter_parse_exclusions(gaps: Sequence[EvidenceGap]) -> list[SurfaceExclusion]:
-    """Declared inputs a loader read only in part."""
-
-    return [
-        SurfaceExclusion(
-            stage="adapter_parse",
-            subject=gap.subject,
-            reason="source_degraded",
-            source_ref=gap.source_ref,
-            detail=(
-                "A source loader degraded while reading a declared input, so "
-                "part of that input never entered the catalog."
-            ),
-            accounting="evidence_gap",
-        )
-        for gap in gaps
-        if gap.kind == "source_warning"
-    ]
+# ``adapter_parse`` is a declared stage with no emitter, deliberately.
+#
+# It had one: every ``source_warning`` gap became a row saying "part of that
+# input never entered the catalog". That is false of most warnings.
+# ``samples/simple_crewai_agent`` proves it — ``FileReadTool`` is recorded as
+# low-confidence metadata, and it is in ``tool_catalog``, in
+# ``tool_inventory``, structurally reachable, and carrying high-confidence
+# identity, binding, and effect evidence. Nothing about it was omitted
+# (PR #404 review).
+#
+# Real adapter omissions exist — a wildcard MCP export, a Conductor task whose
+# capability surface is dynamic — but no adapter records one as a typed fact
+# today: ``LoadedToolSource`` carries ``warnings: list[str]`` and nothing else,
+# so telling the two apart means reading prose. Every such omission that *can*
+# be proven already reaches the ledger through ``surface_completeness``, whose
+# signal is the tool's own ``extraction.surface``, and the warnings themselves
+# remain ``source_warning`` evidence gaps the release decision reads exactly as
+# before. So the decision loses nothing here; the ledger loses a claim it could
+# not support, which in a mechanism whose whole value is honest accounting is
+# the more expensive of the two.
+#
+# Restoring the stage means giving adapters a typed excluded-subject fact
+# first. The stage stays in ``ExclusionStage`` so that change adds an emitter
+# rather than a vocabulary.
 
 
 def _row_ref(row: Mapping[str, Any]) -> str | None:

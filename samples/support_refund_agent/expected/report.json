@@ -5498,6 +5498,7 @@
   },
   "binding_surface_diff": {
     "enabled": false,
+    "base_comparison_requested": false,
     "base_report_schema_version": null,
     "added_reachable_tool_ids": [],
     "removed_reachable_tool_ids": [],
@@ -10912,14 +10913,6 @@
   "surface_exclusions": {
     "entries": [
       {
-        "stage": "adapter_parse",
-        "subject": "MCP source declares wildcard tool exposure",
-        "reason": "source_degraded",
-        "source_ref": null,
-        "detail": "A source loader degraded while reading a declared input, so part of that input never entered the catalog.",
-        "accounting": "evidence_gap"
-      },
-      {
         "stage": "binding",
         "subject": "wildcard_mcp_tools.* [wildcard_mcp_tools]",
         "reason": "unbound_tool",
@@ -10928,8 +10921,8 @@
         "accounting": "not_claimed"
       }
     ],
-    "total": 2,
-    "gated": 1,
+    "total": 1,
+    "gated": 0,
     "truncated": false
   }
 }

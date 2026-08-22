@@ -145,9 +145,16 @@ def _sanitize_for_output(
         path="binding_surface_facts",
     )
     base_binding = diffs.diff_reference.binding_facts if diffs.diff_reference else None
+    verification = decision.context.verification
+    # Asked for, by either route: a reference was supplied to this scan, or
+    # verify resolved a base ref and could not produce a report for it.
+    base_comparison_requested = diffs.diff_reference is not None or bool(
+        verification is not None and verification.base_comparison_unavailable
+    )
     if base_binding is None:
         public_binding_diff = BindingSurfaceDiff(
             enabled=False,
+            base_comparison_requested=base_comparison_requested,
             base_report_schema_version=(
                 diffs.diff_reference.report_schema_version if diffs.diff_reference else None
             ),
@@ -166,6 +173,7 @@ def _sanitize_for_output(
         }
         public_binding_diff = BindingSurfaceDiff(
             enabled=True,
+            base_comparison_requested=True,
             base_report_schema_version=diffs.diff_reference.report_schema_version,
             added_reachable_tool_ids=sorted(
                 set(public_binding_graph.reachable_tool_ids)

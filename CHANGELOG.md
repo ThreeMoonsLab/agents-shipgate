@@ -79,6 +79,33 @@
   naming convention the repository never agreed to; the same glob also missed
   `mcp-server/tools.json`.
 
+  Two more places published a skip nobody could falsify. A matched capability
+  rule now overrides `stop_conditions`: the block's premise is "this workspace
+  is not an agent project", read by `detect` from the working tree, and a
+  matched rule is evidence from the *diff*, which can carry what `detect` never
+  saw — the `.snap` file above is invisible to `suggested_sources`, so the stop
+  held and discarded the very rule that recognised it. And a skip may no longer
+  rest on changed files no rule classified: a dependency bump beside an opaque
+  capability file matched a `dry_run` rule that covered only the manifest, and
+  published an advisory skip over the sibling. Coverage is now per path.
+
+  The tri-state verdict reaches the consumers that act on it. The Claude Code
+  hooks branch on `evaluation_status` instead of coercing `should_run: null` to
+  a skip, and say which of the two withheld states applies rather than claiming
+  a match; `decide-shipgate-relevance.md` teaches the tri-state and the new
+  precedence; and `trigger_catalog_schema_version` moved in step across the
+  contract payload, `.well-known`, the rendered local contract, and the docs —
+  a drift a new cross-surface equality test now catches.
+
+  Finally, a base comparison that was *requested* and could not be performed no
+  longer reads as one nobody asked for. `binding_surface_diff` gains
+  `base_comparison_requested`, `VerificationContext` gains
+  `base_comparison_unavailable`, and that state raises one gap naming the
+  unusable base rather than concluding an unbound tool is pre-existing from a
+  comparison that never ran — the weakening
+  `docs/engineering/ai-coding-workflow-verifier.md` §2.3 forbids. Ledger rows
+  in that state are `unverified`, never `not_claimed`.
+
 - **`verify --preview` of a head that is not checked out now asks for the
   checkout, instead of stopping.** Preview reads project markers from the
   working tree, because that is the tree the `init` it recommends would write

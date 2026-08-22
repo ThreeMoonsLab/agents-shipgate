@@ -297,7 +297,7 @@
   "host_grants_inventory_schema_version": "0.2",
   "host_grants_baseline_schema_version": "0.2",
   "host_grants_drift_schema_version": "0.2",
-  "trigger_catalog_schema_version": "0.3",
+  "trigger_catalog_schema_version": "0.4",
   "capability_standard_version": "0.5",
   "governance_benchmark_catalog_schema_version": "0.2",
   "governance_benchmark_result_schema_version": "0.2",

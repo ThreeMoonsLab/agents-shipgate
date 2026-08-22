@@ -1060,6 +1060,37 @@ def test_errors_json_next_action_kinds_match_diagnostic_contract():
     assert set(catalog["next_action_kinds"]) == set(get_args(NextActionKind))
 
 
+def test_every_surface_advertises_the_catalog_version_the_loader_returns():
+    """The published catalog and every mirror of its version must agree.
+
+    They did not. #403 bumped `docs/triggers.json` to `0.4` while
+    `build_contract_payload()`, `.well-known/agents-shipgate.json`,
+    `docs/agent-contract-current.md`, and the rendered local contract all kept
+    advertising `0.3` — so an agent that trusted the contract applied the old
+    rules to the new catalog, which is the surface external agents actually
+    follow (PR #404 review). Nothing compared the two, so nothing failed.
+    """
+
+    from agents_shipgate.cli.discovery.agent_instructions.renderers import (
+        render_local_contract_file,
+    )
+    from agents_shipgate.schemas.contract import TRIGGER_CATALOG_SCHEMA_VERSION
+    from agents_shipgate.triggers import load_triggers
+
+    published = load_triggers()["schema_version"]
+
+    assert build_contract_payload().trigger_catalog_schema_version == published
+    assert TRIGGER_CATALOG_SCHEMA_VERSION == published
+    well_known = json.loads(_read(".well-known/agents-shipgate.json"))
+    assert well_known["trigger_catalog_schema_version"] == published
+    local_contract = json.loads(render_local_contract_file())
+    assert local_contract["trigger_catalog_schema_version"] == published
+    assert (
+        f"Current trigger catalog schema: `{published}`"
+        in _read("docs/agent-contract-current.md")
+    )
+
+
 def test_triggers_json_loads_via_canonical_loader():
     """The bundled `agents_shipgate.triggers` module is the canonical
     loader. If a coding agent reads docs/triggers.json directly and

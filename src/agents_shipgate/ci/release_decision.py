@@ -878,9 +878,21 @@ def _newly_excluded_tool_gaps(report: ReadinessReport) -> list[EvidenceGap]:
     """
 
     diff = report.binding_surface_diff
-    if not diff.enabled or not diff.added_unbound_tool_ids:
-        return []
     graph = report.binding_surface_facts
+    if not diff.enabled:
+        # A comparison was asked for and could not be performed, so "this tool
+        # was already excluded before the change" is a claim about evidence
+        # nobody produced. One row, not one per tool: the mechanism is single
+        # (the base is unusable) and so is the repair (#361), and inventing a
+        # per-tool provenance the run cannot support is the fabrication this
+        # ledger exists to stop.
+        if diff.base_comparison_requested and (
+            graph.unbound_tool_ids or graph.possible_tool_ids
+        ):
+            return [_unavailable_base_gap(report)]
+        return []
+    if not diff.added_unbound_tool_ids:
+        return []
     unbound = set(graph.unbound_tool_ids)
     catalog = {
         str(row.get("tool_id")): row
@@ -927,6 +939,55 @@ def _newly_excluded_tool_gaps(report: ReadinessReport) -> list[EvidenceGap]:
             )
         )
     return gaps
+
+
+def unavailable_base_subject(report: ReadinessReport) -> str:
+    """The subject naming the base comparison this run could not perform.
+
+    Exported because the exclusion ledger records rows as ``unverified``
+    against exactly this gap, and the conservation check joins the two by
+    value. One spelling, one function — the second spelling is what broke the
+    ledger's binding join in the first review of this PR.
+    """
+
+    version = report.binding_surface_diff.base_report_schema_version
+    return (
+        f"base comparison (report schema {version})"
+        if version
+        else "base comparison"
+    )
+
+
+def _unavailable_base_gap(report: ReadinessReport) -> EvidenceGap:
+    excluded = len(report.binding_surface_facts.unbound_tool_ids) + len(
+        report.binding_surface_facts.possible_tool_ids
+    )
+    noun = "tool" if excluded == 1 else "tools"
+    return EvidenceGap(
+        kind="missing_binding_evidence",
+        subject=unavailable_base_subject(report),
+        source_ref="--diff-from",
+        why=(
+            f"{excluded} catalog {noun} sit outside the analyzed surface and "
+            "the base comparison this run requested could not be performed, "
+            "so whether this change introduced any of them was never "
+            "established."
+        ),
+        next_action=EvidenceGapAction(
+            kind="provide_source",
+            command="agents-shipgate scan -c shipgate.yaml --format json",
+            path="--diff-from",
+            why=(
+                "A base scan that did not happen is not evidence that the "
+                "excluded tools predate this change."
+            ),
+            expects=(
+                "Regenerate report.json in the base source workspace with the "
+                "current engine, then rerun the head scan with --diff-from "
+                "pointing at it."
+            ),
+        ),
+    )
 
 
 def _semantic_coverage(

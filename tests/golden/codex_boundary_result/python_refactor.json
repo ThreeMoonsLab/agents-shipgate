@@ -84,8 +84,9 @@
     "dry_run_recommended": false,
     "skip_reason": null,
     "stop_conditions_fired": false,
+    "stop_conditions_terminal": false,
     "stop_conditions_evaluated": false,
-    "rationale": "1 changed file(s) were read in full and no rule classified any of them. That is not evidence the PR is unrelated to agent capabilities \u2014 run the scan to decide.",
+    "rationale": "1 of 1 changed file(s) were read in full and no rule classified them. That is not evidence the PR is unrelated to agent capabilities \u2014 run the scan to decide.",
     "matched_rules": [],
     "changed_files": [
       "src/example.py"

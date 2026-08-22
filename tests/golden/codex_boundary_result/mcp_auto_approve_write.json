@@ -129,6 +129,7 @@
     "dry_run_recommended": false,
     "skip_reason": null,
     "stop_conditions_fired": false,
+    "stop_conditions_terminal": false,
     "stop_conditions_evaluated": false,
     "rationale": "1 run_shipgate rule(s) matched.",
     "matched_rules": [

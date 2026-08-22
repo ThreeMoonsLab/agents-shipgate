@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from agents_shipgate.ci.release_decision import unavailable_base_subject
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.domain import Tool, ToolSemanticAssessment
 from agents_shipgate.core.surface_exclusions import (
@@ -189,7 +190,10 @@ def _validate_exclusion_ledger(report: ReadinessReport) -> None:
        join in (2) is exact rather than approximately right;
     5. an excluded tool the decision *did* gap is never recorded
        ``not_claimed`` — (2) with the sign flipped, which is the direction a
-       second spelling breaks.
+       second spelling breaks;
+    6. an ``unverified`` record is backed by a gap naming the base comparison
+       it could not perform, so the word is a pointer and not a softer way of
+       saying nothing.
     """
 
     decision = report.release_decision
@@ -223,6 +227,7 @@ def _validate_exclusion_ledger(report: ReadinessReport) -> None:
 
     gaps = decision.evidence_coverage.evidence_gaps
     gap_subjects = {gap.subject for gap in gaps}
+    unavailable_base = unavailable_base_subject(report)
     for entry in ledger.entries:
         if entry.accounting == "evidence_gap" and entry.subject not in gap_subjects:
             raise SemanticConsistencyError(
@@ -231,6 +236,13 @@ def _validate_exclusion_ledger(report: ReadinessReport) -> None:
         if entry.reason == "newly_unbound_tool" and entry.accounting != "evidence_gap":
             raise SemanticConsistencyError(
                 f"exclusion {entry.subject!r} was introduced by this change and is not gated"
+            )
+        # `unverified` says a gap stands in for the per-subject one. It has to
+        # actually be there, or the row is `not_claimed` wearing a safer word.
+        if entry.accounting == "unverified" and unavailable_base not in gap_subjects:
+            raise SemanticConsistencyError(
+                f"exclusion {entry.subject!r} is unverified but no gap names "
+                "the unavailable base comparison"
             )
 
     # The join above only catches the ledger over-claiming. Under-claiming — a

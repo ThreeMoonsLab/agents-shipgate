@@ -92,6 +92,16 @@ class BindingSurfaceDiff(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
+    # v0.35: whether this run *asked* for a base comparison. ``enabled`` alone
+    # conflates two states that must route differently: nobody asked (a plain
+    # ``scan``), and somebody asked and it could not be done — a supplied base
+    # report predating v0.31, a baseline with no binding facts, or a verify
+    # base scan that failed. Reading the second as the first let a head scan
+    # conclude an unbound tool was pre-existing using a comparison it never
+    # performed, which is the fail-open
+    # ``docs/engineering/ai-coding-workflow-verifier.md`` §2.3 forbids: base
+    # failure may disable enrichment, never weaken the head gate.
+    base_comparison_requested: bool = False
     base_report_schema_version: str | None = None
     added_reachable_tool_ids: list[str] = Field(default_factory=list)
     removed_reachable_tool_ids: list[str] = Field(default_factory=list)

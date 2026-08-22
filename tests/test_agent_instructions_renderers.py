@@ -47,7 +47,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": "86a0e4a2b3711d3684305f5d9b2e61a9968e44472dcc67c3e7d3b2a84b965568",
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": "1f6ef3e51a09e824a98d6e5b33f2bf61282c62e2ae859e234da9f56161fa4a87",
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "5c5eba31886aeabc902a97b53d00bfdd6ab15e1423574633060bbdfd8bbd8b25",
-    ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": "341253ed61e5ce9e4f42fc7d1ab0c4c72edd32aacf941cb8d08e49d95493c59d",
+    ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": "4f92d6d0b254e602c993516e1dc5b77c64c87b3e7b5cb4967ddd5a140dd2d510",
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829",
     ".claude/skills/agents-shipgate/prompts/fix-top-finding.md": "3745aebbf34a47c01b06e74e6d387080bbda9272f0aeec6998457cffa758fc54",
     ".claude/skills/agents-shipgate/prompts/recommend-fixes.md": "162aa2fb96066535425d9cf86a247a6782b8ec7cc661a18b42dbedf394779475",
@@ -197,7 +197,7 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     assert payload["host_grants_inventory_schema_version"] == "0.2"
     assert payload["host_grants_baseline_schema_version"] == "0.2"
     assert payload["host_grants_drift_schema_version"] == "0.2"
-    assert payload["trigger_catalog_schema_version"] == "0.3"
+    assert payload["trigger_catalog_schema_version"] == "0.4"
     assert payload["agent_result_control_fields"] == [
         "decision",
         "control",

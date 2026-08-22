@@ -1258,6 +1258,7 @@
   },
   "binding_surface_diff": {
     "enabled": false,
+    "base_comparison_requested": false,
     "base_report_schema_version": null,
     "added_reachable_tool_ids": [],
     "removed_reachable_tool_ids": [],
@@ -2713,18 +2714,9 @@
     ]
   },
   "surface_exclusions": {
-    "entries": [
-      {
-        "stage": "adapter_parse",
-        "subject": "CrewAI prebuilt tool 'FileReadTool' at crew.py:28 was recorded as low-confidence metadata; provide an explicit inventory for full review.",
-        "reason": "source_degraded",
-        "source_ref": null,
-        "detail": "A source loader degraded while reading a declared input, so part of that input never entered the catalog.",
-        "accounting": "evidence_gap"
-      }
-    ],
-    "total": 1,
-    "gated": 1,
+    "entries": [],
+    "total": 0,
+    "gated": 0,
     "truncated": false
   }
 }

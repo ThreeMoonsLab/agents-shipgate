@@ -420,11 +420,11 @@
     "dry_run": "Advisory: `run_shipgate` stays false but `dry_run_recommended` is true in the evaluator output. Callers may propose a non-mutating scan; never propose `init --write` based on `dry_run` alone."
   },
   "action_precedence": [
-    "stop_conditions (block everything)",
+    "stop_conditions (block everything) \u2014 unless a force_run or run_shipgate rule matched, in which case the diff carries capability evidence the whole-workspace negative did not account for",
     "force_run (overrides skip)",
     "skip_shipgate (overrides run)",
     "run_shipgate",
     "dry_run (sets dry_run_recommended; run_shipgate stays false)",
-    "no rules matched (skip)"
+    "no rules matched, or a skip resting on changed files no rule classified (verdict withheld: evaluation_status=unclassified, run_shipgate=null, next_action routes to the scan)"
   ]
 }

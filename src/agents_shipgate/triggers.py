@@ -95,6 +95,10 @@ EVALUATION_NOT_EVALUATED = "not_evaluated"
 # file and concludes. ``no_match`` classifies nothing, so it now says so.
 EVALUATION_UNCLASSIFIED = "unclassified"
 
+#: Skip verdicts that a changed file nobody classified can invalidate.
+#: ``stop_conditions`` is excluded on purpose — see the branch that reads this.
+_UNCLASSIFIABLE_SKIP_REASONS = frozenset({"no_match", "skip_rule", "dry_run_only"})
+
 # Semantic class of the surface a rule describes. Rule IDs are stable audit
 # labels, not a type system: consumers must switch on ``surface_class`` instead
 # of maintaining ID allow-lists that silently miss newly-added adapters.
@@ -619,7 +623,21 @@ def evaluate(
 
     dry_run_recommended = False
     skip_reason: str | None = None
-    if stop_fired:
+    # A stop is terminal only while nothing contradicts it. The block's premise
+    # is "this workspace is not an agent project", read from a `detect` pass
+    # over the *worktree*; a matched run rule is evidence from the *diff*, and
+    # the diff can carry what detect never saw. That is not hypothetical: a
+    # `.snap` file holding an MCP tool schema is invisible to detect's
+    # `suggested_sources` globs, so the whole stop block holds while
+    # TRIGGER-MCP-TOOL-SCHEMA-CONTENT matches the same change — and the stop
+    # discarded it, restoring the exact #403 fail-open in the pre-adoption flow
+    # that supplies a complete negative detect result (PR #404 review).
+    #
+    # Only the run actions override it. `dry_run` is advisory by construction
+    # and `skip_shipgate` agrees with the stop, so neither has anything to
+    # contradict it with.
+    stop_terminal = stop_fired and not (has_force_run or has_run)
+    if stop_terminal:
         run = False
         skip_reason = "stop_conditions"
         rationale = (
@@ -633,6 +651,12 @@ def evaluate(
             "force_run rule(s) overrode any skip: "
             f"{', '.join(forcing)}."
         )
+        if stop_fired:
+            rationale += (
+                " Stop conditions also held and were overridden: a matched "
+                "capability rule is diff evidence that the detector's "
+                "whole-workspace negative did not account for."
+            )
     elif has_skip:
         run = False
         skip_reason = "skip_rule"
@@ -645,6 +669,12 @@ def evaluate(
         run = True
         run_count = sum(1 for a in actions if a == ACTION_RUN)
         rationale = f"{run_count} run_shipgate rule(s) matched."
+        if stop_fired:
+            rationale += (
+                " Stop conditions also held and were overridden: a matched "
+                "capability rule is diff evidence that the detector's "
+                "whole-workspace negative did not account for."
+            )
     elif has_dry_run:
         run = False
         dry_run_recommended = True
@@ -688,24 +718,33 @@ def evaluate(
             "evidence the PR is unrelated to agent capabilities — repair the "
             "diff input and re-evaluate."
         )
-    elif skip_reason == "no_match" and paths:
-        # Read in full, recognised by nothing. No rule matched, so no rule
-        # classified any path — the whole change set is unaccounted for and
-        # every one of these files is a subject the trigger removed from
-        # analysis without evidence. Withhold the skip and let the scan
-        # decide; ``matched_rules`` is empty either way, so nothing is lost
-        # by declining to call that irrelevance.
+    elif skip_reason in _UNCLASSIFIABLE_SKIP_REASONS and (
+        uncovered := _unclassified_paths(triggers, matched, paths)
+    ):
+        # Read in full, and some of it recognised by nothing. Every file here
+        # is a subject the trigger removed from analysis without evidence, so
+        # the skip resting on top of them is unfalsifiable. Withhold it and let
+        # the scan decide.
         #
-        # An empty ``paths`` list with complete inputs is the other case and
-        # keeps ``no_match``: a change set with no files in it genuinely has
-        # nothing to classify.
-        unclassified = list(paths)
+        # Scoped per path rather than per change set, because the dangerous
+        # case is the mixed one: a dependency bump beside an opaque capability
+        # file matched a `dry_run` rule that classified only the manifest, and
+        # published an advisory skip over the sibling nobody read.
+        #
+        # `stop_conditions` is deliberately absent from the set. It is the one
+        # skip backed by positive, falsifiable evidence — a `detect` payload
+        # asserting the workspace is not an agent project — and a matched run
+        # rule already overrides it above. An empty change set is absent too:
+        # `no_match` over no files classifies nothing because there is nothing
+        # to classify, which is a fact about the PR.
+        unclassified = uncovered
         verdict = None
         skip_reason = None
+        dry_run_recommended = False
         evaluation_status = EVALUATION_UNCLASSIFIED
         rationale = (
-            f"{len(unclassified)} changed file(s) were read in full and "
-            "no rule classified any of them. That is not evidence the PR is "
+            f"{len(unclassified)} of {len(paths)} changed file(s) were read in "
+            "full and no rule classified them. That is not evidence the PR is "
             "unrelated to agent capabilities — run the scan to decide."
         )
 
@@ -730,10 +769,14 @@ def evaluate(
         "should_run": verdict,
         "run_shipgate": verdict,
         "skip": None if verdict is None else not verdict,
-        "force_run": has_force_run and not stop_fired,
+        "force_run": has_force_run,
         "dry_run_recommended": dry_run_recommended,
         "skip_reason": skip_reason,
         "stop_conditions_fired": stop_fired,
+        # Whether the stop actually decided the verdict. `stop_conditions_fired`
+        # stays the raw block result so a consumer can still see it held; this
+        # says whether anything contradicted it.
+        "stop_conditions_terminal": stop_terminal,
         "stop_conditions_evaluated": stop_conditions_evaluated,
         "rationale": rationale,
         "matched_rules": matched,
@@ -790,6 +833,85 @@ def _trigger_exclusion_ledger(paths: list[str]) -> SurfaceExclusionLedger:
         ],
         limit=_TRIGGER_LEDGER_ENTRY_LIMIT,
     )
+
+
+def _path_is_covered(pred: Any, path: str) -> bool:
+    """Whether a matched rule's predicate tree classifies this one path.
+
+    Only the *positive, per-file* predicates count. ``diff_contains`` matches a
+    body, not a file; ``file_present``/``detect_returns``/``user_*`` are facts
+    about the workspace; the ``none_match_*`` negatives assert an absence and
+    so classify nothing. A rule that fired on any of those has said something
+    about the change set as a whole and nothing about which files it read.
+
+    ``any_of``/``all_of`` are both walked as OR, and that is the conservative
+    direction rather than a shortcut: a leaf is consulted here only by asking
+    whether it matches *this* path, so a leg that did not contribute to the
+    rule firing cannot match it either.
+    """
+
+    if not isinstance(pred, dict):
+        return False
+    for key in ("any_of", "all_of"):
+        if key in pred:
+            return any(_path_is_covered(nested, path) for nested in pred[key])
+    if "glob" in pred:
+        return _glob_match(pred["glob"], path)
+    if "every_file_matches" in pred:
+        patterns = pred["every_file_matches"]
+        if isinstance(patterns, str):
+            patterns = [patterns]
+        # Case-sensitive, exactly as the predicate itself matches.
+        return any(_glob_match_exact(g, path) for g in patterns)
+    if "boundary_adapter" in pred:
+        return any(
+            adapter.id == pred["boundary_adapter"]
+            for adapter in boundary_adapters_for_path(path)
+        )
+    return False
+
+
+def _unclassified_paths(
+    triggers: dict[str, Any],
+    matched: list[dict[str, Any]],
+    paths: list[str],
+) -> list[str]:
+    """Changed files no matched rule classified.
+
+    The skip that motivated this is not ``no_match``. A PR bumping
+    ``requirements.txt`` beside an opaque ``.snap`` matches
+    TRIGGER-FRAMEWORK-VERSION-BUMP, whose glob leg covers the manifest and says
+    nothing about the sibling — and ``dry_run_only`` then published a confident
+    advisory skip over a capability file nothing had read (PR #404 review).
+    Coverage is therefore per path, not per change set.
+
+    ``TRIGGER-DOCS-ONLY-NEGATIVE`` is unaffected by construction: its
+    ``every_file_matches`` leg only fires when every changed file matches it,
+    so a rule that classified the whole change set leaves nothing here. That is
+    the difference between a negative rule and an absent one.
+    """
+
+    by_id = {
+        rule["id"]: rule
+        for rule in triggers.get("rules", [])
+        if isinstance(rule, dict) and "id" in rule
+    }
+    predicates = [
+        by_id[match["id"]].get("when")
+        for match in matched
+        # A rule carrying an action this build does not recognise contributes
+        # no coverage. Its `when` clause fired, but the evaluator could not
+        # act on it, so it decided nothing about the files it matched — and
+        # counting them as classified would let a malformed catalog buy a
+        # confident skip it never earned.
+        if match.get("id") in by_id and match.get("action") in VALID_ACTIONS
+    ]
+    return [
+        path
+        for path in paths
+        if path
+        and not any(_path_is_covered(pred, path) for pred in predicates)
+    ]
 
 
 def _verdict_label(result: dict[str, Any]) -> str:

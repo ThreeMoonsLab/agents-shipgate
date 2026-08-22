@@ -608,6 +608,33 @@ def build_report_schema() -> tuple[Path, str]:
         )
     if "HumanAck" in defs:
         defs["HumanAck"]["required"] = sorted(["required", "satisfied", "acks", "outstanding"])
+        # v0.35. Required on the wire for the same reason the top-level field
+        # is: an absent count and a zero count must not be confusable. Without
+        # these a payload could ship `surface_exclusions: {}` — schema-valid,
+        # and erasing exactly the evidence this block exists to carry
+        # (PR #404 review). `total`/`gated` are counts, so they are bounded
+        # below at zero too; nothing here is expressible as "gated <= total" in
+        # JSON Schema, which `validate_semantic_consistency` checks instead.
+        defs["SurfaceExclusionLedger"]["required"] = sorted(
+            ["entries", "total", "gated", "truncated"]
+        )
+        for count_field in ("total", "gated"):
+            defs["SurfaceExclusionLedger"]["properties"][count_field]["minimum"] = 0
+        defs["SurfaceExclusion"]["required"] = sorted(
+            ["stage", "subject", "reason", "source_ref", "detail", "accounting"]
+        )
+        defs["BindingSurfaceDiff"]["required"] = sorted(
+            [
+                "enabled",
+                "base_comparison_requested",
+                "added_reachable_tool_ids",
+                "removed_reachable_tool_ids",
+                "added_unbound_tool_ids",
+                "added_handoffs",
+                "removed_handoffs",
+                "notes",
+            ]
+        )
     if "VerifierCapabilityDeltaSummary" in defs:
         defs["VerifierCapabilityDeltaSummary"]["required"] = sorted(
             ["added", "removed", "broadened", "narrowed"]

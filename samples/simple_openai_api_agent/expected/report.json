@@ -2233,6 +2233,7 @@
   },
   "binding_surface_diff": {
     "enabled": false,
+    "base_comparison_requested": false,
     "base_report_schema_version": null,
     "added_reachable_tool_ids": [],
     "removed_reachable_tool_ids": [],

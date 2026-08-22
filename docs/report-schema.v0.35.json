@@ -1503,6 +1503,11 @@
           "title": "Added Unbound Tool Ids",
           "type": "array"
         },
+        "base_comparison_requested": {
+          "default": false,
+          "title": "Base Comparison Requested",
+          "type": "boolean"
+        },
         "base_report_schema_version": {
           "anyOf": [
             {
@@ -1542,6 +1547,16 @@
           "type": "array"
         }
       },
+      "required": [
+        "added_handoffs",
+        "added_reachable_tool_ids",
+        "added_unbound_tool_ids",
+        "base_comparison_requested",
+        "enabled",
+        "notes",
+        "removed_handoffs",
+        "removed_reachable_tool_ids"
+      ],
       "title": "BindingSurfaceDiff",
       "type": "object"
     },
@@ -5452,6 +5467,7 @@
           "enum": [
             "evidence_gap",
             "route_blocked",
+            "unverified",
             "not_claimed"
           ],
           "title": "Accounting",
@@ -5495,11 +5511,12 @@
         }
       },
       "required": [
-        "stage",
-        "subject",
-        "reason",
+        "accounting",
         "detail",
-        "accounting"
+        "reason",
+        "source_ref",
+        "stage",
+        "subject"
       ],
       "title": "SurfaceExclusion",
       "type": "object"
@@ -5517,11 +5534,13 @@
         },
         "gated": {
           "default": 0,
+          "minimum": 0,
           "title": "Gated",
           "type": "integer"
         },
         "total": {
           "default": 0,
+          "minimum": 0,
           "title": "Total",
           "type": "integer"
         },
@@ -5531,6 +5550,12 @@
           "type": "boolean"
         }
       },
+      "required": [
+        "entries",
+        "gated",
+        "total",
+        "truncated"
+      ],
       "title": "SurfaceExclusionLedger",
       "type": "object"
     },

@@ -968,6 +968,15 @@ def run_verify(
                         trigger_result=trigger,
                         configured_manifest_path=config_relative.as_posix(),
                         manifest_introduced=manifest_introduced,
+                        # A base ref was resolved and produced no report: the
+                        # ref was missing, the archive or the base scan failed,
+                        # or the base carries no manifest. ``diff_from_path`` is
+                        # simply ``None`` in all of those, which the head scan
+                        # cannot tell apart from "nobody asked to compare" —
+                        # and concluding an unbound tool is pre-existing from a
+                        # comparison that never ran is exactly the weakening
+                        # §2.3 forbids.
+                        base_comparison_unavailable=bool(base) and base_report is None,
                     ),
                     capability_lock_callback=capture_capability_lock,
                     manifest_text=(
