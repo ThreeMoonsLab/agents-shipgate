@@ -78,9 +78,7 @@ def is_adopted(directory: Path) -> Path | None:
     return candidate
 
 
-def describe_candidate(
-    candidate: AgentProjectCandidate, *, workspace: Path | None = None
-) -> str:
+def describe_candidate(candidate: AgentProjectCandidate, *, workspace: Path) -> str:
     """One candidate as a line a human can choose from.
 
     Not every project names its agent in a string literal — a config-driven
@@ -94,12 +92,15 @@ def describe_candidate(
     Shared rather than written once per command — ``detect`` and ``init`` each
     print this list, and a second copy is how one of them kept saying ``init``
     after the other stopped (#397 review).
+
+    ``workspace`` is required rather than defaulted for the same reason: an
+    optional one would let a third surface print this list unmarked, and be
+    right back to a human summary that contradicts the routes beside it.
     """
 
     detail = ", ".join(candidate.agent_names) or (candidate.marker or "project root")
     adopted = (
-        workspace is not None
-        and candidate.path != "."
+        candidate.path != "."
         and is_adopted(workspace / candidate.path) is not None
     )
     return f"{candidate.path} ({detail})" + (" — already adopted" if adopted else "")
