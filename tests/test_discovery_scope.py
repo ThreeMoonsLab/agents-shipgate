@@ -1756,6 +1756,30 @@ def test_an_adopted_candidate_routes_to_doctor_not_init(tmp_path: Path) -> None:
     assert followed.exit_code == 0, followed.output
 
 
+def test_the_printed_refusal_agrees_with_the_routes_beside_it(
+    tmp_path: Path,
+) -> None:
+    """One command must not answer the same question two ways.
+
+    The refusal listed every candidate identically and told the reader to
+    re-run `init --workspace` on the one they were changing, while the
+    `next_actions[]` in the same payload routed an adopted candidate to
+    `doctor` because that `init` refuses (#397 review)."""
+
+    repo = _init_repo(tmp_path)
+    adopted = _write_agent_project(repo, "apps/adopted", name="adopted", tool="a")
+    _write_agent_project(repo, "apps/fresh", name="fresh", tool="f")
+    _adopt(adopted)
+    _commit_all(repo, "one adopted, one not")
+
+    refused = runner.invoke(app, ["init", "--workspace", str(repo), "--write"])
+
+    assert refused.exit_code == 2, refused.output
+    assert "apps/adopted (adopted) — already adopted" in refused.output
+    assert "apps/fresh (fresh)\n" in refused.output
+    assert "ask doctor --config <that manifest>" in refused.output
+
+
 def test_an_instruction_refresh_keeps_init_for_an_adopted_candidate(
     tmp_path: Path,
 ) -> None:

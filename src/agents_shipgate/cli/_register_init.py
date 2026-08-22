@@ -35,6 +35,7 @@ from agents_shipgate.cli.discovery.placeholders import collect_placeholders
 from agents_shipgate.cli.discovery.scope import repository_root
 from agents_shipgate.cli.scope_routing import (
     MAX_LISTED_SCOPE_CANDIDATES,
+    is_adopted,
     scope_candidate_actions,
 )
 from agents_shipgate.cli.setup_control import (
@@ -158,17 +159,30 @@ def _detect_json_indent(text: str) -> int:
     return 2
 
 
-def _describe_candidate(candidate: AgentProjectCandidate) -> str:
+def _describe_candidate(
+    candidate: AgentProjectCandidate, *, workspace: Path | None = None
+) -> str:
     """One candidate as a line a human can choose from.
 
     Not every project names its agent in a string literal — a config-driven
     ``LlmAgent(name=CONFIG.agent_name)`` has none to parse — so the marker
     that made the directory a project stands in for it rather than leaving
     an empty pair of brackets.
+
+    A candidate that already carries a manifest says so. The routing published
+    beside this list sends those to ``doctor``, because the ``init --write``
+    the next line recommends refuses a manifest it will not overwrite — and a
+    list that reads identically for both leaves the human form of this refusal
+    contradicting the JSON form of the same run (#397 review).
     """
 
     detail = ", ".join(candidate.agent_names) or (candidate.marker or "project root")
-    return f"{candidate.path} ({detail})"
+    adopted = (
+        workspace is not None
+        and candidate.path != "."
+        and is_adopted(workspace / candidate.path) is not None
+    )
+    return f"{candidate.path} ({detail})" + (" — already adopted" if adopted else "")
 
 
 def _scan_command_config(target: Path) -> str:
@@ -253,7 +267,7 @@ def _unresolved_scope_message(
         if candidates:
             lines.append("Projects found before the cap:")
             for candidate in candidates[:MAX_LISTED_SCOPE_CANDIDATES]:
-                lines.append(f"  - {_describe_candidate(candidate)}")
+                lines.append(f"  - {_describe_candidate(candidate, workspace=workspace)}")
     else:
         lines = [
             f"Refusing to write shipgate.yaml: {workspace} holds "
@@ -262,7 +276,7 @@ def _unresolved_scope_message(
             "Candidate project directories:",
         ]
         for candidate in candidates[:MAX_LISTED_SCOPE_CANDIDATES]:
-            lines.append(f"  - {_describe_candidate(candidate)}")
+            lines.append(f"  - {_describe_candidate(candidate, workspace=workspace)}")
     remaining = len(candidates) - MAX_LISTED_SCOPE_CANDIDATES
     if remaining > 0:
         lines.append(
@@ -291,6 +305,15 @@ def _unresolved_scope_message(
         "or pass --allow-unresolved-scope to write one manifest for this "
         "workspace as a whole."
     )
+    if any(
+        candidate.path != "." and is_adopted(workspace / candidate.path) is not None
+        for candidate in candidates
+    ):
+        lines.append(
+            "A project marked already adopted has a manifest init will not "
+            "overwrite; ask doctor --config <that manifest> what it still "
+            "owes instead."
+        )
     if scope == "unknown" or parse_truncated:
         lines.append(
             f"Re-run with --max-python-files {python_file_total}, a bound that "

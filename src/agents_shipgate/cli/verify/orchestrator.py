@@ -4122,12 +4122,19 @@ def _unresolved_scope_route(
         # before the checkout and its parent after, so the expression form
         # walks history backwards forever instead of resolving (#397 review).
         target = scope.head_commit or scope.head or "the evaluated head"
-        rerun = f"--head {target}"
-        if scope.base_commit is not None:
-            # A `HEAD`-relative base re-ranges across the same checkout, which
-            # is quieter than the loop and worse: the rerun succeeds while
-            # evaluating a diff nobody asked for.
-            rerun = f"--base {scope.base_commit} {rerun}"
+        if scope.head_commit is None:
+            # Nothing resolved, so there is no id to pin to and no honest way
+            # to promise the rerun means the same thing afterwards. Say what is
+            # missing and stop there rather than printing an instruction that
+            # contradicts the sentence next to it.
+            rerun = None
+        else:
+            rerun = f"--head {target}"
+            if scope.base_commit is not None:
+                # A `HEAD`-relative base re-ranges across the same checkout,
+                # which is quieter than the loop and worse: the rerun succeeds
+                # while evaluating a diff nobody asked for.
+                rerun = f"--base {scope.base_commit} {rerun}"
         return (
             CodingAgentFetchBaseAction(
                 kind="fetch_base",
@@ -4141,10 +4148,15 @@ def _unresolved_scope_route(
                 why=(
                     "The project this change belongs to could not be "
                     f"established ({resolution.detail}). Check {target} out in "
-                    f"this worktree, then re-run this preview with {rerun}: "
-                    "discovery of the worktree as it stands answers about a "
-                    "different tree, and a revision expression re-resolves "
-                    "against the new HEAD."
+                    "this worktree, then re-run this preview"
+                    + (
+                        f" with {rerun}: a revision expression re-resolves "
+                        "against the new HEAD"
+                        if rerun is not None
+                        else ""
+                    )
+                    + ". Discovery of the worktree as it stands answers about "
+                    "a different tree."
                 ),
             ),
             f"The evaluated head {target} is not checked out here, so no "

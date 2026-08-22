@@ -60,7 +60,7 @@ def rebased_kit_flags(
     return ["--agent-instructions-kit", relative.as_posix()]
 
 
-def _adopted(directory: Path) -> Path | None:
+def is_adopted(directory: Path) -> Path | None:
     """The manifest already in ``directory``, when one is there to route to.
 
     A symlinked manifest is treated as absent: the loader refuses a manifest
@@ -128,7 +128,7 @@ def scope_candidate_actions(
     for candidate in routable:
         target = workspace / candidate.path
         defines = ", ".join(candidate.agent_names)
-        manifest = _adopted(target)
+        manifest = is_adopted(target)
         if manifest is not None and not init_refreshes_existing:
             actions.append(
                 NextAction(
@@ -193,6 +193,7 @@ def scope_candidate_actions(
 __all__ = [
     "MANIFEST_NAME",
     "MAX_LISTED_SCOPE_CANDIDATES",
+    "is_adopted",
     "rebased_kit_flags",
     "scope_candidate_actions",
 ]

@@ -60,10 +60,21 @@ def test_either_family_of_input_recovery_satisfies_a_commandless_route(
     assert rules._action_satisfies_control(item, control)
 
 
-def test_an_unrelated_command_still_leaves_the_obligation_open() -> None:
+@pytest.mark.parametrize(
+    "command",
+    [
+        "npm test",
+        # `restore` rewrites working-tree files and leaves HEAD where it was,
+        # so it cannot produce the commit the route asked for.
+        "git restore --source=66f837355087 python/",
+    ],
+)
+def test_a_command_that_does_not_produce_the_input_leaves_it_open(
+    command: str,
+) -> None:
     """The route stays fail-closed: only input recovery clears it."""
 
     control = _fetch_base("commit 66f837355087 checked out in this worktree")
-    item = rules._TimelineItem(kind="action", command="npm test")
+    item = rules._TimelineItem(kind="action", command=command)
 
     assert not rules._action_satisfies_control(item, control)

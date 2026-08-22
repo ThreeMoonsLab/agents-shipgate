@@ -70,7 +70,9 @@
   command emitted for them exited 2 on a manifest `init` will not overwrite
   while `expects` promised a file that already existed. The exception is
   `--agent-instructions`, which makes `init --write` the advertised refresh and
-  exits 0 — there the `init` route is kept, flags and all.
+  exits 0 — there the `init` route is kept, flags and all. `init`'s *printed*
+  refusal marks those candidates too, and names the `doctor` route: the human
+  and JSON forms of one run had begun answering the same question two ways.
 
   `detect`'s `control.input_id` now covers the route it publishes, not only the
   classification behind it. Every emitted command is spelled for the entry

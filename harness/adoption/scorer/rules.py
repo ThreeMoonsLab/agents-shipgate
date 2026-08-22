@@ -1030,10 +1030,15 @@ def _action_satisfies_control(action: _TimelineItem, control: _ControlSnapshot) 
     # ``verify --preview`` asks for when the head under review is not the
     # commit checked out — project markers are read from the working tree, so
     # a fetch would leave that request unmet (#397 review).
+    #
+    # ``checkout`` and ``switch`` and nothing else: those are the verbs that
+    # move ``HEAD``. ``git restore`` rewrites working-tree files and leaves
+    # ``HEAD`` where it was, so crediting it would pass a cell that never
+    # produced the commit the route asked for.
     if control.next_action.get("kind") == "fetch_base":
         return bool(
             re.search(
-                r"\bgit\s+(?:fetch|remote\s+update|checkout|switch|restore)\b",
+                r"\bgit\s+(?:fetch|remote\s+update|checkout|switch)\b",
                 command,
             )
         )
