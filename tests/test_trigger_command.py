@@ -653,3 +653,25 @@ def test_incomplete_inputs_cannot_fire_stop_conditions():
 def test_unknown_input_status_is_rejected():
     with pytest.raises(ConfigError):
         evaluate(paths=[], input_status="mostly")
+
+
+def test_the_trigger_ledger_is_bounded_but_its_counts_are_exact():
+    """A large unrouted PR must not embed a copy of its own diff.
+
+    When no rule matches, every changed file is unclassified, so the ledger's
+    entries enumerate a list `changed_files` already carries in full — while
+    this result is embedded verbatim in `verifier.json` and in the Codex
+    boundary payload written to stdout. `total` and `gated` stay exact so
+    nothing that gates on the count is affected by the cap.
+    """
+
+    result = evaluate(
+        paths=[f"src/m{index}.py" for index in range(500)], input_status="complete"
+    )
+    ledger = result["surface_exclusions"]
+
+    assert ledger["total"] == 500
+    assert ledger["gated"] == 500
+    assert ledger["truncated"] is True
+    assert len(ledger["entries"]) == 25
+    assert len(result["changed_files"]) == 500

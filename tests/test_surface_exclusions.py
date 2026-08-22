@@ -400,3 +400,99 @@ def test_a_possibly_reachable_tool_is_recorded_as_gated():
     ledger = build_surface_exclusions(report)
     assert [entry.accounting for entry in ledger.entries] == ["evidence_gap"]
     assert ledger.gated == 1
+
+
+# --- the stages that run before a release decision exists -------------------
+#
+# `detect` and `trigger` narrow too, and neither has a gate to point at. Both
+# emit the same record with `accounting: "route_blocked"` — the only accounting
+# a stage with no decision can offer is to decline to publish one — so the
+# ledger and the command's own verdict say the same thing. These paths had no
+# coverage on the first pass of this PR.
+
+_ADK_AGENT = (
+    "from google.adk.agents import LlmAgent\n"
+    "root_agent = LlmAgent(name='root', tools=[])\n"
+)
+
+
+def _detect(workspace: Path, **kwargs):
+    from agents_shipgate.cli.discovery.signals import detect_workspace
+
+    return detect_workspace(workspace, **kwargs)
+
+
+def test_a_capped_discovery_walk_is_recorded_and_blocks_the_route(tmp_path):
+    for index in range(12):
+        (tmp_path / f"m{index}.py").write_text("x = 1\n", encoding="utf-8")
+
+    result = _detect(tmp_path, max_python_files=5)
+
+    assert result.python_parse_truncated is True
+    (entry,) = result.surface_exclusions.entries
+    assert (entry.stage, entry.subject, entry.reason) == (
+        "discovery",
+        ".",
+        "walk_capped",
+    )
+    assert entry.accounting == "route_blocked"
+    # The numbers a retry needs are in the record, not only in `next_action`.
+    assert "5 of 12" in entry.detail
+    assert result.surface_exclusions.gated == 1
+
+
+def test_an_ambiguous_scope_records_every_contested_candidate(tmp_path):
+    for name in ("alpha", "beta"):
+        project = tmp_path / "services" / name
+        project.mkdir(parents=True)
+        (project / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+        (project / "agent.py").write_text(_ADK_AGENT, encoding="utf-8")
+
+    result = _detect(tmp_path)
+
+    assert result.agent_scope == "ambiguous"
+    rows = result.surface_exclusions.entries
+    assert [row.stage for row in rows] == ["scope_resolution"] * 2
+    assert [row.subject for row in rows] == ["services/alpha", "services/beta"]
+    # Every candidate is excluded from being *the* scope until a human picks
+    # one, which is what makes the list routable rather than a tie to break.
+    assert {row.accounting for row in rows} == {"route_blocked"}
+
+
+def test_a_rejected_source_candidate_is_recorded_but_not_routed(tmp_path):
+    """A glob match the real adapter refuses is a narrowing with a reason.
+
+    `host-mcp.json` matches `*mcp*.json` and is an mcpServers host config, not
+    a tools-array export. Nothing claims it as a tool source, so it is
+    reported and deliberately not routed — unlike the two cases above.
+    """
+
+    (tmp_path / "host-mcp.json").write_text(
+        json.dumps({"mcpServers": {"a": {"command": "x"}}}), encoding="utf-8"
+    )
+
+    result = _detect(tmp_path)
+
+    (entry,) = result.surface_exclusions.entries
+    assert (entry.stage, entry.subject, entry.reason) == (
+        "discovery",
+        "host-mcp.json",
+        "source_rejected",
+    )
+    assert entry.accounting == "not_claimed"
+    assert result.surface_exclusions.gated == 0
+    # The adapter's own reason survives into the record rather than being
+    # flattened to the stage's generic prose.
+    assert "mcpServers" in entry.detail
+
+
+def test_a_settled_workspace_records_nothing(tmp_path):
+    """An empty ledger is a claim too — it must not be the default everywhere."""
+
+    (tmp_path / "agent.py").write_text(_ADK_AGENT, encoding="utf-8")
+
+    result = _detect(tmp_path)
+
+    assert result.python_parse_truncated is False
+    assert result.agent_scope == "single"
+    assert result.surface_exclusions.total == 0

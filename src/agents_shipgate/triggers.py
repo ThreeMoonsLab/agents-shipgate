@@ -752,6 +752,16 @@ def evaluate(
     }
 
 
+#: Entries kept on the trigger's own ledger. Far below the shared cap on
+#: purpose: when no rule matches, *every* changed file is unclassified, so
+#: these rows enumerate a list the same payload already carries in full under
+#: ``changed_files``. What the ledger adds is the accounting and the exact
+#: ``total``, both of which survive truncation; a few hundred copies of one
+#: identical sentence do not, and this result is embedded verbatim in
+#: ``verifier.json`` and in the Codex boundary payload written to stdout.
+_TRIGGER_LEDGER_ENTRY_LIMIT = 25
+
+
 def _trigger_exclusion_ledger(paths: list[str]) -> SurfaceExclusionLedger:
     """The changed files this stage dropped without classifying them.
 
@@ -777,7 +787,8 @@ def _trigger_exclusion_ledger(paths: list[str]) -> SurfaceExclusionLedger:
             )
             for path in paths
             if path
-        ]
+        ],
+        limit=_TRIGGER_LEDGER_ENTRY_LIMIT,
     )
 
 
