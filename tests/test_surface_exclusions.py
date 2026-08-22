@@ -496,3 +496,73 @@ def test_a_settled_workspace_records_nothing(tmp_path):
     assert result.python_parse_truncated is False
     assert result.agent_scope == "single"
     assert result.surface_exclusions.total == 0
+
+
+# --- conservation as a property, over every bundled fixture -----------------
+
+_SAMPLE_MANIFESTS = sorted(
+    Path("samples").glob("*/shipgate.yaml"),
+    key=lambda path: path.parent.name,
+)
+
+
+def test_every_sample_ships_a_manifest_to_check():
+    """Guard the parametrization: an empty glob would make the sweep vacuous."""
+
+    assert len(_SAMPLE_MANIFESTS) >= 14
+
+
+@pytest.mark.parametrize(
+    "manifest", _SAMPLE_MANIFESTS, ids=lambda path: path.parent.name
+)
+def test_conservation_holds_for_every_sample(manifest, tmp_path):
+    """`observed == analysed ∪ excluded`, and the excluded side is accounted for.
+
+    Enforced in `validate_semantic_consistency` at emission, so `run_scan`
+    returning at all already proves it — this sweep exists so the proof is
+    *stated* over the whole fixture corpus rather than depending on whichever
+    samples other tests happen to scan. `benchmark/repos/` is materialized from
+    `samples/` (eight of its nine archetypes are copies), so covering samples
+    covers the benchmark corpus by construction.
+    """
+
+    report, _ = run_scan(
+        config_path=manifest,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+    graph = report.binding_surface_facts
+    analysed = set(graph.reachable_tool_ids)
+    excluded = set(graph.possible_tool_ids) | set(graph.unbound_tool_ids)
+    observed = {str(row["tool_id"]) for row in report.tool_catalog}
+
+    assert analysed | excluded == observed
+    assert not (analysed & excluded), "a tool cannot be both analysed and excluded"
+
+    ledger = report.surface_exclusions
+    assert ledger.total == len(ledger.entries)
+    assert ledger.gated == sum(
+        1 for entry in ledger.entries if entry.accounting != "not_claimed"
+    )
+    # Every excluded tool is recorded. A sample with an empty ledger and a
+    # non-empty excluded set is the silent narrowing this whole change is about.
+    recorded = {entry.subject for entry in ledger.entries if entry.stage == "binding"}
+    assert len(recorded) >= len({_subject_of(report, tool_id) for tool_id in excluded})
+
+    decision = report.release_decision
+    assert decision is not None
+    gap_subjects = {gap.subject for gap in decision.evidence_coverage.evidence_gaps}
+    for entry in ledger.entries:
+        if entry.accounting == "evidence_gap":
+            assert entry.subject in gap_subjects
+
+
+def _subject_of(report, tool_id: str) -> str:
+    from agents_shipgate.core.surface_exclusions import catalog_subject
+
+    for row in report.tool_catalog:
+        if str(row.get("tool_id")) == tool_id:
+            return catalog_subject(row)
+    return catalog_subject({"tool_id": tool_id})
