@@ -10,16 +10,12 @@ the commit checked out (#397 review).
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:  # the harness is not an installed package
-    sys.path.insert(0, str(REPO_ROOT))
-
-from harness.adoption.scorer import rules  # noqa: E402
+# The harness is not an installed package; `pythonpath = ["src", "."]` in
+# pyproject puts the repository root on the path for the test session, which is
+# the one mechanism that should decide this.
+from harness.adoption.scorer import rules
 
 
 def _fetch_base(expects: str) -> rules._ControlSnapshot:
