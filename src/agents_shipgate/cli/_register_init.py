@@ -310,6 +310,7 @@ def _unresolved_scope_actions(
     python_file_total: int = 0,
     setup_command: list[str] | None = None,
     refreshes_existing: bool = False,
+    adopted_setup_flags: Sequence[str] = (),
 ) -> list[NextAction]:
     """Rank the decision above the commands that carry it out.
 
@@ -400,6 +401,7 @@ def _unresolved_scope_actions(
             workspace,
             candidates,
             setup_flags=setup_flags,
+            adopted_setup_flags=adopted_setup_flags,
             kit=kit,
             init_refreshes_existing=refreshes_existing,
         ),
@@ -1154,6 +1156,14 @@ def register(app: typer.Typer) -> None:
                 # refresh command — so an adopted candidate keeps its `init`
                 # route rather than being handed to `doctor` (#397 review).
                 refreshes_existing=bool(requested_targets),
+                # `--ci` is the one requested flag that still does its own work
+                # with `--write` omitted, so it is the one that can be carried
+                # to an adopted candidate without hitting the manifest refusal.
+                # `--claude-code` cannot: it is a dry run without `--write` —
+                # and it never reaches here, because it implies an
+                # `--agent-instructions` selection, which takes the refresh
+                # route above.
+                adopted_setup_flags=["--ci"] if ci else [],
             )
 
         # Routing. Computed from the manifest that is *on disk*, not from the

@@ -76,6 +76,7 @@ from agents_shipgate.core.verification_identity import (
     build_terminal_receipt,
     build_unit_result,
     build_verification_plan,
+    worktree_overlay,
 )
 from agents_shipgate.invocation import retarget_command
 from agents_shipgate.packet.json_packet import load_packet_json, write_packet_json
@@ -3364,6 +3365,15 @@ def _current_control_workspace_identity(
     ``current_control_id`` after the caller performed it — the refresh entry
     point reported the request as still outstanding, which is how a
     refresh-driven controller repeats an action forever (#397 review).
+
+    HEAD is not enough on its own, because the evidence a preview routes on is
+    frequently *uncommitted*: a route selected from an untracked ``agent.py``
+    survived that file being deleted, since neither HEAD nor its tree moved. So
+    the overlay of the paths that differ from HEAD is bound too, and the
+    pointer declares itself a worktree snapshot. The path set is derived from
+    the live worktree on both sides rather than recorded — the reader excludes
+    the same reports directory this run wrote into, because that is the
+    directory it was pointed at to find the pointer at all.
     """
 
     plan_path = out_dir / "verification-plan.json"
@@ -3374,6 +3384,7 @@ def _current_control_workspace_identity(
             plan = None
         if plan is not None:
             return workspace_identity_from_plan(plan)
+    bound, overlay = _safe_worktree_overlay(git_root, exclude=out_dir)
     return CurrentControlWorkspaceIdentity(
         repository=_safe_repository_identity(git_root),
         head_ref=verifier.head_ref,
@@ -3381,7 +3392,31 @@ def _current_control_workspace_identity(
         # An evaluated tree, when the run recorded one, is what this answer
         # describes; otherwise the worktree's own HEAD tree is.
         head_tree_sha=verifier.head_tree_sha or _safe_worktree_sha(git_root, tree_sha),
+        snapshot_kind="worktree_overlay" if bound else None,
+        worktree_overlay_sha256=overlay,
     )
+
+
+def _safe_worktree_overlay(git_root: Path, *, exclude: Path) -> tuple[bool, str | None]:
+    """The overlay of everything that differs from HEAD right now.
+
+    Returns ``(bound, digest)``. The pair is needed because ``None`` is a
+    *value* here and not only a failure: a clean worktree has no overlay rows,
+    and the reader spells that as ``None`` too, so the two must agree. Reporting
+    the clean case as unbound instead would leave the pointer with nothing to
+    validate, and a later edit invisible — which is the state this is fixing.
+
+    ``bound=False`` is the genuinely unknown case, and it declares no snapshot
+    kind at all rather than manufacturing currency from an unreadable tree.
+    """
+
+    try:
+        changed, _ = working_tree_context(git_root, exclude=exclude)
+        rows = worktree_overlay(git_root, list(changed))
+    except Exception:  # noqa: BLE001 - pointer identity is best-effort here.
+        return (False, None)
+    # The reader's own rule, so an empty overlay compares equal on both sides.
+    return (True, content_id(rows) if rows else None)
 
 
 def _safe_worktree_sha(
@@ -4138,25 +4173,26 @@ def _unresolved_scope_route(
         return (
             CodingAgentFetchBaseAction(
                 kind="fetch_base",
-                # A crisp noun phrase, because consumers interpolate it:
-                # the Claude Code stop hook renders `fetch_base` as
-                # "Provide <expects>".
-                expects=f"commit {target} checked out in this worktree",
-                # Short enough that an ordinary ref name leaves the whole
-                # route inside the envelope's 400-byte prose cap, and the
-                # instruction leads so a long one still survives truncation.
+                # The whole recovery, in the one field the envelope never
+                # truncates: `truncate_prose` caps `why` at 400 bytes and
+                # leaves `expects` alone, so the immutable ids survive a ref
+                # name long enough to push everything else out. A consumer
+                # that re-derived the rerun from the caller's own
+                # `HEAD`-relative request would rebuild the backward walk
+                # this route exists to end (#397 review).
+                expects=(
+                    f"commit {target} checked out in this worktree"
+                    + (f", then this preview re-run with {rerun}" if rerun else "")
+                ),
+                # The instruction leads for the same reason: what gets cut is
+                # the diagnosis, never the step.
                 why=(
-                    "The project this change belongs to could not be "
-                    f"established ({resolution.detail}). Check {target} out in "
-                    "this worktree, then re-run this preview"
-                    + (
-                        f" with {rerun}: a revision expression re-resolves "
-                        "against the new HEAD"
-                        if rerun is not None
-                        else ""
-                    )
-                    + ". Discovery of the worktree as it stands answers about "
-                    "a different tree."
+                    f"Check {target} out in this worktree, then re-run this "
+                    + (f"preview with {rerun}. " if rerun else "preview. ")
+                    + "The project this change belongs to could not be "
+                    f"established ({resolution.detail}); discovery of the "
+                    "worktree as it stands answers about a different tree, and "
+                    "a revision expression re-resolves against the new HEAD."
                 ),
             ),
             f"The evaluated head {target} is not checked out here, so no "

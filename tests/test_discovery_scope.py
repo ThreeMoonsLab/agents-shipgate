@@ -35,6 +35,7 @@ from agents_shipgate.cli.discovery.scope import (
 from agents_shipgate.cli.discovery.signals import weak_marker_evidence_dirs
 from agents_shipgate.cli.main import app
 from agents_shipgate.invocation import render_command
+from agents_shipgate.schemas.agent_control_envelope import truncate_prose
 
 runner = CliRunner()
 
@@ -497,10 +498,16 @@ def test_preview_claims_no_scope_for_a_head_that_is_not_checked_out(
         text=True,
         check=True,
     ).stdout.strip()
-    assert action["expects"] == f"commit {feature[:12]} checked out in this worktree"
+    assert action["expects"].startswith(
+        f"commit {feature[:12]} checked out in this worktree"
+    )
     assert "not the commit this worktree has checked out" in action["why"]
-    assert f"Check {feature[:12]} out in this worktree" in action["why"]
+    assert action["why"].startswith(f"Check {feature[:12]} out in this worktree")
     assert f"--head {feature[:12]}" in action["why"]
+    # The envelope caps `why` at 400 bytes and never touches `expects`, so the
+    # immutable rerun has to survive both.
+    assert f"--head {feature[:12]}" in action["expects"]
+    assert f"--head {feature[:12]}" in truncate_prose(action["why"])
     # A `fetch_base` route carries no command by contract, and none is smuggled
     # in beside it: the step that changes the answer is the checkout.
     assert control["allowed_next_commands"] == []
@@ -577,10 +584,14 @@ def test_a_head_relative_ref_is_pinned_before_the_checkout_is_asked_for(
     action = preview()
 
     assert action["kind"] == "fetch_base"
-    assert action["expects"] == f"commit {target} checked out in this worktree"
+    assert action["expects"].startswith(
+        f"commit {target} checked out in this worktree"
+    )
     # Both refs pinned, so the instruction means the same thing after the
-    # checkout as before it.
+    # checkout as before it — in `why`, and in the field the envelope never
+    # truncates.
     assert f"--base {base} --head {target}" in action["why"]
+    assert f"--base {base} --head {target}" in action["expects"]
     assert "HEAD~1" not in action["expects"]
 
     # And following it terminates: the pinned rerun resolves the project.
@@ -1754,6 +1765,94 @@ def test_an_adopted_candidate_routes_to_doctor_not_init(tmp_path: Path) -> None:
     # And it runs: a published step that exits 2 is not a step.
     followed = runner.invoke(app, for_adopted["args"])
     assert followed.exit_code == 0, followed.output
+
+
+def test_the_root_candidate_gets_a_route_of_its_own(tmp_path: Path) -> None:
+    """`.` is presented as selectable, so it cannot be the one entry with no
+    answer.
+
+    Agent files that belong to no project are exactly why the scope is
+    unresolved; `init` at the root returns this same refusal, and
+    `--allow-unresolved-scope` accepts the *whole workspace* as one scope,
+    which is a different decision and not a route for that agent (#397
+    review)."""
+
+    repo = _init_repo(tmp_path)
+    (repo / "agent.py").write_text(
+        _ADK_AGENT_MODULE.format(name="rooty", tool="r"), encoding="utf-8"
+    )
+    _write_agent_project(repo, "nested", name="nested_agent", tool="n")
+    _commit_all(repo, "a root agent and a nested project")
+
+    payload = json.loads(
+        runner.invoke(app, ["detect", "--workspace", str(repo), "--json"]).output
+    )
+
+    assert "." in [c["path"] for c in payload["agent_project_candidates"]]
+    root_route = next(
+        action
+        for action in payload["next_actions"][1:]
+        if "workspace root is a candidate" in action["why"]
+    )
+    assert root_route["kind"] == "review"
+    assert root_route["command"] is None
+    assert "--allow-unresolved-scope" in root_route["why"]
+    # Still never a command naming the root: that run is this refusal.
+    assert all(
+        f"--workspace {repo} --write" not in (action["command"] or "")
+        for action in payload["next_actions"]
+    )
+
+
+def test_requested_ci_survives_an_adopted_candidate(tmp_path: Path) -> None:
+    """Setup the caller asked for is not owed less because a manifest exists.
+
+    A refused `init --write --ci` writes no workflow, so handing the adopted
+    candidate a bare `doctor` dropped the request silently (#397 review)."""
+
+    repo = _init_repo(tmp_path)
+    adopted = _write_agent_project(repo, "apps/adopted", name="adopted", tool="a")
+    _write_agent_project(repo, "apps/fresh", name="fresh", tool="f")
+    _adopt(adopted)
+    _commit_all(repo, "one adopted, one not")
+
+    refused = runner.invoke(
+        app, ["init", "--workspace", str(repo), "--write", "--ci", "--json"]
+    )
+    assert refused.exit_code == 2, refused.output
+    assert not (repo / ".github").exists(), "the refusal writes nothing"
+    commands = [
+        a for a in json.loads(refused.output)["next_actions"] if a["kind"] == "command"
+    ]
+
+    for_adopted = next(a for a in commands if str(adopted) in a["args"])
+    assert "--ci" in for_adopted["args"]
+    # Without `--write`, so the manifest it will not overwrite is never touched.
+    assert "--write" not in for_adopted["args"]
+
+    followed = runner.invoke(app, for_adopted["args"])
+    assert followed.exit_code == 0, followed.output
+    assert list((repo / ".github" / "workflows").glob("agents-shipgate*.yml"))
+    assert (adopted / "shipgate.yaml").is_file()
+
+
+def test_an_adopted_candidate_with_no_requested_setup_still_asks_doctor(
+    tmp_path: Path,
+) -> None:
+    """The carry-the-flags route is conditional on flags being asked for."""
+
+    repo = _init_repo(tmp_path)
+    adopted = _write_agent_project(repo, "apps/adopted", name="adopted", tool="a")
+    _write_agent_project(repo, "apps/fresh", name="fresh", tool="f")
+    _adopt(adopted)
+    _commit_all(repo, "one adopted, one not")
+
+    payload = json.loads(
+        runner.invoke(app, ["detect", "--workspace", str(repo), "--json"]).output
+    )
+    commands = [a for a in payload["next_actions"] if a["kind"] == "command"]
+
+    assert [action["args"][0] for action in commands] == ["doctor", "init"]
 
 
 def test_the_printed_refusal_agrees_with_the_routes_beside_it(

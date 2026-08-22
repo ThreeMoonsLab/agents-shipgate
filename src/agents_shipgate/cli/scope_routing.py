@@ -113,6 +113,7 @@ def scope_candidate_actions(
     candidates: Sequence[AgentProjectCandidate],
     *,
     setup_flags: Sequence[str] = (),
+    adopted_setup_flags: Sequence[str] = (),
     kit: Path | None = None,
     init_refreshes_existing: bool = False,
 ) -> list[NextAction]:
@@ -142,6 +143,23 @@ def scope_candidate_actions(
     existing manifest alone and exits 0, which makes it the advertised refresh
     command rather than a refusal.
 
+    ``adopted_setup_flags`` keeps the flag-preservation contract on that route.
+    Setup the caller asked for does not stop being owed because the manifest
+    already exists — a refused ``init --write --ci`` writes no workflow, and
+    handing back a bare ``doctor`` dropped the request silently. These are the
+    requested flags that still do their work with ``--write`` omitted, so the
+    manifest is left alone and the setup is installed in one command that exits
+    0; the caller decides which qualify, because only it knows which of its
+    flags need a write (#397 review).
+
+    ``.`` is a candidate the caller can pick and Shipgate cannot route: agent
+    files that belong to no project are why the scope is unresolved in the
+    first place, and neither ``init`` at the root (which returns this refusal)
+    nor ``--allow-unresolved-scope`` (which accepts the *whole workspace* as one
+    scope, a different decision) is a route for that one project. It gets an
+    explicit human route saying so, rather than being listed as selectable and
+    silently left out.
+
     ``setup_flags`` is repeated into each command because a recovery that
     silently drops ``--ci`` or an agent-instruction selection completes with
     less than the caller asked for. ``detect`` passes none: it asked for no
@@ -149,17 +167,67 @@ def scope_candidate_actions(
     """
 
     actions: list[NextAction] = []
-    # The workspace root is never offered as a command: it is the scope this
-    # run just refused, so running it again returns here. `.` stays in the
-    # reported candidate list because agent files that belong to no
-    # sub-project are real evidence of why the answer is unresolved, and
-    # `--allow-unresolved-scope` is the route that accepts them.
+    root = next((c for c in candidates if c.path == "."), None)
+    if root is not None:
+        defines = ", ".join(root.agent_names)
+        actions.append(
+            NextAction(
+                kind="review",
+                why=(
+                    "The workspace root is a candidate"
+                    + (f" because it defines {defines}" if defines else "")
+                    + ", and it is the one candidate with no command: agent "
+                    "files that belong to no project are why this scope is "
+                    "unresolved. Give them a project directory of their own, "
+                    "or accept the workspace as a single scope with "
+                    "--allow-unresolved-scope — which adopts every project "
+                    "under it, not this agent alone."
+                ),
+                expects=(
+                    "Either the root agent files moved into a project "
+                    "directory, or a deliberate whole-workspace adoption."
+                ),
+            )
+        )
+    # The workspace root is never offered as a *command*: `init` there is the
+    # run that just refused, so it returns straight here.
     routable = [candidate for candidate in candidates if candidate.path != "."]
     for candidate in routable:
         target = workspace / candidate.path
         defines = ", ".join(candidate.agent_names)
         manifest = is_adopted(target)
         if manifest is not None and not init_refreshes_existing:
+            if adopted_setup_flags:
+                # The manifest is not the outstanding work here; the setup the
+                # caller asked for is. Without `--write` these flags do their
+                # own work and the existing manifest is never touched, so this
+                # exits 0 where `init --write` would refuse it.
+                actions.append(
+                    NextAction(
+                        kind="command",
+                        command=render_command(
+                            [
+                                "init",
+                                "--workspace",
+                                str(target),
+                                *adopted_setup_flags,
+                                "--json",
+                            ]
+                        ),
+                        why=(
+                            f"{candidate.path} already carries a manifest"
+                            + (f" and defines {defines}," if defines else ",")
+                            + " so this installs the setup you asked for and "
+                            "leaves the manifest alone. Ask doctor what that "
+                            "manifest still owes afterwards."
+                        ),
+                        expects=(
+                            f"The requested setup present in {candidate.path} "
+                            "with its manifest unchanged."
+                        ),
+                    )
+                )
+                continue
             actions.append(
                 NextAction(
                     kind="command",

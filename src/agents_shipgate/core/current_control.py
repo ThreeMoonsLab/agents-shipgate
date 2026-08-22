@@ -750,6 +750,15 @@ def _validate_worktree_currency(
                 ),
                 path=out_dir,
             )
+        # A route published without a plan — `verify --preview`, which reads
+        # project markers from the working tree and reaches no release
+        # decision — still committed to the worktree it read. Its path set is
+        # not recorded, so it is derived from the live worktree on both sides:
+        # the same `working_tree_context` over the same repository, excluding
+        # the same reports directory, which is the one this reader was pointed
+        # at to find the pointer. Any path entering or leaving that set, and
+        # any content change within it, moves the digest (#397 review).
+        _validate_live_overlay(out_dir, pointer, live)
         return
     try:
         data = read_regular_file_beneath(
@@ -798,6 +807,32 @@ def _validate_worktree_currency(
         raise CurrentControlUnavailable(
             "workspace_changed",
             _unseen_change_detail(unseen, "this decision never saw"),
+            path=out_dir,
+        )
+
+
+def _validate_live_overlay(
+    out_dir: Path, pointer: CurrentControlPointer, live: LiveWorkspace
+) -> None:
+    """Compare a plan-less worktree pointer against the tree as it stands."""
+
+    if live.changed_paths is None:
+        # Unreadable is unknown, not drifted. This pointer authorizes nothing,
+        # so it keeps its route rather than being denied on a failure to look.
+        return
+    try:
+        rows = worktree_overlay(live.root, list(live.changed_paths))
+    except (ValueError, OSError):
+        return
+    observed = content_id(rows) if rows else None
+    if observed != pointer.workspace_identity.worktree_overlay_sha256:
+        raise CurrentControlUnavailable(
+            "workspace_changed",
+            (
+                "The working tree changed since this answer was published: the "
+                "uncommitted paths it was read from no longer have the content "
+                "they had. Re-run it."
+            ),
             path=out_dir,
         )
 

@@ -1025,24 +1025,52 @@ def _action_satisfies_control(action: _TimelineItem, control: _ControlSnapshot) 
     # an exact command.  Everything else fails closed when no command exists.
     #
     # Two families of input satisfy it, because ``expects`` names an input and
-    # not always a ref: making history available (``git fetch``) and putting
-    # the evaluated commit in the worktree (``git checkout``), which is what
-    # ``verify --preview`` asks for when the head under review is not the
-    # commit checked out — project markers are read from the working tree, so
-    # a fetch would leave that request unmet (#397 review).
+    # not always a ref: making history available, and putting the evaluated
+    # commit in the worktree, which is what ``verify --preview`` asks for when
+    # the head under review is not the commit checked out (#397 review).
     #
-    # ``checkout`` and ``switch`` and nothing else: those are the verbs that
-    # move ``HEAD``. ``git restore`` rewrites working-tree files and leaves
-    # ``HEAD`` where it was, so crediting it would pass a cell that never
-    # produced the commit the route asked for.
+    # Which family is required is read from ``expects``, not accepted as a
+    # union.  Taking either satisfied a checkout request with ``git fetch`` and
+    # a fetch request with an unrelated checkout, so the criterion dropped an
+    # obligation the cell never met.
     if control.next_action.get("kind") == "fetch_base":
-        return bool(
-            re.search(
-                r"\bgit\s+(?:fetch|remote\s+update|checkout|switch)\b",
-                command,
-            )
-        )
+        requested = _CHECKOUT_REQUEST.search(control.next_action.get("expects") or "")
+        if requested is not None:
+            return _moves_head_to(command, requested.group("commit"))
+        return bool(re.search(r"\bgit\s+(?:fetch|remote\s+update)\b", command))
     return False
+
+
+# ``verify --preview`` spells a checkout request as "commit <id> checked out in
+# this worktree".  Matched as prose rather than imported, because this scorer
+# deliberately does not depend on the product schemas.
+_CHECKOUT_REQUEST = re.compile(
+    r"\bcommit\s+(?P<commit>[0-9a-f]{7,40})\b[^.]*?\bchecked out\b",
+    re.IGNORECASE,
+)
+
+
+def _moves_head_to(command: str, commit: str) -> bool:
+    """Whether ``command`` puts ``commit`` in the worktree.
+
+    Three near misses all read as checkouts and none of them satisfy the
+    request: ``git restore`` and ``git checkout -- <path>`` rewrite files while
+    leaving ``HEAD`` where it was, ``git switch main`` moves ``HEAD`` somewhere
+    else, and ``git checkout <other-sha>`` moves it to the wrong commit.  So the
+    verb has to be one that moves ``HEAD``, the path-restoring form is rejected,
+    and the target has to be the commit that was asked for — compared as a
+    prefix in either direction, since either side may be abbreviated.
+    """
+
+    if not re.search(r"\bgit\b.*\b(?:checkout|switch)\b", command, re.IGNORECASE):
+        return False
+    if re.search(r"\s--(?:\s|$)", command):
+        return False
+    commit = commit.casefold()
+    return any(
+        commit.startswith(token) or token.startswith(commit)
+        for token in re.findall(r"\b[0-9a-f]{7,40}\b", command.casefold())
+    )
 
 
 def _summary_satisfies_structured_request(summary: str, control: _ControlSnapshot) -> bool:

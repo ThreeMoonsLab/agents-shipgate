@@ -139,11 +139,13 @@ So Shipgate scopes rather than guesses:
   the pick Shipgate declines to make), then one exact
   `init --workspace <candidate> --write --json` per candidate, each with
   `executable`/`args`. Match on the path of the project you are changing and
-  run that entry; the workspace root is never among them, since that is the
-  scope `init` refuses. Every candidate gets one — there is no display cap on
-  the routing — and a candidate that **already carries a manifest** gets
-  `doctor --config <that manifest> --json` instead, because `init --write`
-  there would refuse a file it will not overwrite. A truncated parse outranks
+  run that entry; the workspace root is never among the commands, since that is
+  the scope `init` refuses — it gets a `review` entry of its own instead, because
+  `--allow-unresolved-scope` adopts the whole workspace rather than that one
+  agent. Every candidate gets an entry — there is no display cap on the routing
+  — and one that **already carries a manifest** gets
+  `doctor --config <that manifest> --json`, because `init --write` there would
+  refuse a file it will not overwrite. A truncated parse outranks
   all of it: rank 1 is then the higher-cap `detect` below, and no candidate
   commands are offered, because the list they would be built from is a lower
   bound.

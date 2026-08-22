@@ -40,8 +40,23 @@
   the worktree the preview actually read.
 
   `fetch_base` accordingly means "make this input available" in both of its
-  senses, and the adoption scorer recognizes a `git checkout`/`git switch` as
-  input recovery alongside `git fetch`.
+  senses. Which sense a route asks for is read from `expects`, by every
+  consumer: the adoption scorer recognizes a checkout of *the requested commit*
+  — not a fetch, not a path-restoring `checkout --`, not a checkout of some
+  other commit — and still requires a fetch for a ref request.
+
+  The whole recovery is published in `expects`, which the envelope never
+  truncates, and the instruction leads `why`, which it caps at 400 bytes. A
+  sufficiently long branch name had pushed the checkout instruction and both
+  pinned refs out of the bounded field, leaving a consumer to re-derive the
+  rerun from its own `HEAD`-relative request — rebuilding the walk.
+
+  The pointer binds the *worktree* preview read, not only its HEAD. Preview
+  routinely routes on uncommitted evidence — an untracked `agent.py` beside an
+  untracked `pyproject.toml` is a project — and deleting one of those files
+  moves neither HEAD nor its tree, so the stale route stayed current. The path
+  set is derived from the live worktree on both sides, so any path entering or
+  leaving it, and any content change within it, refuses the pointer.
 
 - **`detect` now publishes the same per-candidate `init` commands `init` does
   when a workspace holds several agent projects.** Its escalation handed the
@@ -70,10 +85,23 @@
   command emitted for them exited 2 on a manifest `init` will not overwrite
   while `expects` promised a file that already existed. The exception is
   `--agent-instructions`, which makes `init --write` the advertised refresh and
-  exits 0 — there the `init` route is kept, flags and all. Both commands' *printed*
-  summaries mark those candidates and name the `doctor` route, from the one
-  formatter they now share: the human and JSON forms of a single run had begun
-  answering the same question two ways.
+  exits 0 — there the `init` route is kept, flags and all. Both commands'
+  *printed* summaries mark those candidates and name the `doctor` route, from
+  the one formatter they now share: the human and JSON forms of a single run had
+  begun answering the same question two ways.
+
+  Setup the caller asked for survives that route. A refused
+  `init --write --ci` writes no workflow, and handing the adopted candidate a
+  bare `doctor` dropped the request silently; it now carries `--ci` on an
+  `init` with `--write` omitted, which installs the workflow, leaves the
+  manifest alone, and exits 0.
+
+  The workspace root gets an answer too. `.` is a real entry in
+  `agent_project_candidates` and rank 1 tells the caller to choose from that
+  list, but it was the one candidate the routing skipped: `init` there is the
+  run that just refused, and `--allow-unresolved-scope` accepts the whole
+  workspace as one scope, which is a different decision. It is now an explicit
+  human route saying exactly that.
 
   `detect`'s `control.input_id` now covers the route it publishes, not only the
   classification behind it. Every emitted command is spelled for the entry
