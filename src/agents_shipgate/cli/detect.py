@@ -422,7 +422,8 @@ def _echo_agent_scope(result: DetectResult, *, workspace: Path) -> None:
             "whether one manifest describes this workspace."
             + (" Projects found before the cap:" if candidates else "")
         )
-    for candidate in candidates[:MAX_LISTED_SCOPE_CANDIDATES]:
+    listed = candidates[:MAX_LISTED_SCOPE_CANDIDATES]
+    for candidate in listed:
         typer.echo(f"- {describe_candidate(candidate, workspace=workspace)}")
     remaining = len(candidates) - MAX_LISTED_SCOPE_CANDIDATES
     if remaining > 0:
@@ -432,7 +433,7 @@ def _echo_agent_scope(result: DetectResult, *, workspace: Path) -> None:
             "One shipgate.yaml describes one agent surface, so init --write "
             "refuses here until you name the project directory to initialize."
         )
-        for caveat in candidate_caveats(workspace, list(candidates)):
+        for caveat in candidate_caveats(workspace, listed):
             typer.echo(caveat)
     if result.agent_scope_truncated:
         roots = result.workspace_signals.project_root_count

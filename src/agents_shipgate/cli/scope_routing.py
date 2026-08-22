@@ -119,6 +119,11 @@ def candidate_caveats(
     boilerplate. `detect` prints the same pair from the same helper — a printed
     list that reads uniformly while the routing beside it splits three ways is
     the divergence this is here to prevent (#397 review).
+
+    Pass the candidates that are *printed*, not every candidate. These lines
+    refer to the marking on the list they sit under ("a project marked already
+    adopted"), so one raised by a candidate the display cap cut leaves a reader
+    hunting a mark that is not on screen.
     """
 
     lines: list[str] = []

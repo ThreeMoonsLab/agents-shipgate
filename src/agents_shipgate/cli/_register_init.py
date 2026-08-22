@@ -232,6 +232,7 @@ def _unresolved_scope_message(
                 "the project you are changing.",
             ]
         )
+    listed = candidates[:MAX_LISTED_SCOPE_CANDIDATES]
     if scope == "unknown":
         lines = [
             f"Refusing to write shipgate.yaml: discovery stopped at the "
@@ -241,7 +242,7 @@ def _unresolved_scope_message(
         ]
         if candidates:
             lines.append("Projects found before the cap:")
-            for candidate in candidates[:MAX_LISTED_SCOPE_CANDIDATES]:
+            for candidate in listed:
                 lines.append(f"  - {describe_candidate(candidate, workspace=workspace)}")
     else:
         lines = [
@@ -250,7 +251,7 @@ def _unresolved_scope_message(
             "and one manifest describes one agent surface.",
             "Candidate project directories:",
         ]
-        for candidate in candidates[:MAX_LISTED_SCOPE_CANDIDATES]:
+        for candidate in listed:
             lines.append(f"  - {describe_candidate(candidate, workspace=workspace)}")
     remaining = len(candidates) - MAX_LISTED_SCOPE_CANDIDATES
     if remaining > 0:
@@ -280,7 +281,7 @@ def _unresolved_scope_message(
         "or pass --allow-unresolved-scope to write one manifest for this "
         "workspace as a whole."
     )
-    lines.extend(candidate_caveats(workspace, candidates))
+    lines.extend(candidate_caveats(workspace, listed))
     if scope == "unknown" or parse_truncated:
         lines.append(
             f"Re-run with --max-python-files {python_file_total}, a bound that "

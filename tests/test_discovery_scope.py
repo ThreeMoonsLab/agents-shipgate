@@ -1866,6 +1866,36 @@ def test_an_adopted_candidate_with_no_requested_setup_still_asks_doctor(
     assert [action["args"][0] for action in commands] == ["doctor", "init"]
 
 
+def test_a_caveat_never_points_at_a_candidate_the_cap_cut(tmp_path: Path) -> None:
+    """These lines describe the marking on the list they sit under.
+
+    Raised by a candidate the ten-item display cap removed, the note sends a
+    reader hunting a mark that is not on screen (#397 review)."""
+
+    repo = _init_repo(tmp_path)
+    for index in range(14):
+        _write_agent_project(
+            repo, f"apps/p{index:02d}", name=f"agent_{index:02d}", tool=f"t{index:02d}"
+        )
+    _adopt(repo / "apps/p12")
+    _commit_all(repo, "fourteen projects, the twelfth adopted")
+
+    for argv in (
+        ["detect", "--workspace", str(repo)],
+        ["init", "--workspace", str(repo), "--write"],
+    ):
+        printed = runner.invoke(app, argv).output
+        assert "apps/p12" not in printed, "the cap cut it"
+        assert "already adopted" not in printed
+
+    # Within the cap it is marked, and the note is kept.
+    _adopt(repo / "apps/p03")
+    _commit_all(repo, "and the fourth")
+    printed = runner.invoke(app, ["detect", "--workspace", str(repo)]).output
+    assert "apps/p03 (agent_03) — already adopted" in printed
+    assert "A project marked already adopted" in printed
+
+
 def test_the_printed_refusal_agrees_with_the_routes_beside_it(
     tmp_path: Path,
 ) -> None:
