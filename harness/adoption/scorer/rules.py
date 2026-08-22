@@ -1023,8 +1023,96 @@ def _action_satisfies_control(action: _TimelineItem, control: _ControlSnapshot) 
 
     # ``fetch_base`` is the sole structured input-recovery route that may omit
     # an exact command.  Everything else fails closed when no command exists.
+    #
+    # Two families of input satisfy it, because ``expects`` names an input and
+    # not always a ref: making history available, and putting the evaluated
+    # commit in the worktree, which is what ``verify --preview`` asks for when
+    # the head under review is not the commit checked out (#397 review).
+    #
+    # Which family is required is read from ``expects``, not accepted as a
+    # union.  Taking either satisfied a checkout request with ``git fetch`` and
+    # a fetch request with an unrelated checkout, so the criterion dropped an
+    # obligation the cell never met.
     if control.next_action.get("kind") == "fetch_base":
+        requested = _CHECKOUT_REQUEST.search(control.next_action.get("expects") or "")
+        if requested is not None:
+            return _moves_head_to(command, requested.group("commit"))
         return bool(re.search(r"\bgit\s+(?:fetch|remote\s+update)\b", command))
+    return False
+
+
+# ``verify --preview`` spells a checkout request as "commit <id> checked out in
+# this worktree".  Matched as prose rather than imported, because this scorer
+# deliberately does not depend on the product schemas.
+_CHECKOUT_REQUEST = re.compile(
+    r"\bcommit\s+(?P<commit>[0-9a-f]{7,40})\b[^.]*?\bchecked out\b",
+    re.IGNORECASE,
+)
+
+
+_ABBREVIATED_COMMIT = re.compile(r"[0-9a-f]{7,40}")
+# Git's own global options, and the ones among them that take a separate value.
+_GIT_GLOBAL_WITH_VALUE = frozenset(
+    {"-c", "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path"}
+)
+_SHELL_SEPARATORS = frozenset({"&&", "||", ";", "|", "&"})
+
+
+def _git_invocations(command: str) -> list[tuple[str, list[str]]]:
+    """Each git subcommand in a possibly compound line, with its own arguments.
+
+    Parsed rather than pattern-matched because the pieces of a checkout are
+    otherwise free to come from three different commands: ``git log <sha> &&
+    npm run checkout-preview`` has a ``git``, the word ``checkout`` and the
+    requested commit in it, and checks nothing out.
+    """
+
+    tokens = command.split()
+    invocations: list[tuple[str, list[str]]] = []
+    index = 0
+    while index < len(tokens):
+        if tokens[index].rsplit("/", 1)[-1] != "git":
+            index += 1
+            continue
+        cursor = index + 1
+        while cursor < len(tokens) and tokens[cursor].startswith("-"):
+            cursor += 2 if tokens[cursor] in _GIT_GLOBAL_WITH_VALUE else 1
+        if cursor >= len(tokens):
+            break
+        name = tokens[cursor]
+        cursor += 1
+        args: list[str] = []
+        while cursor < len(tokens) and tokens[cursor] not in _SHELL_SEPARATORS:
+            args.append(tokens[cursor])
+            cursor += 1
+        invocations.append((name, args))
+        index = cursor
+    return invocations
+
+
+def _moves_head_to(command: str, commit: str) -> bool:
+    """Whether ``command`` puts ``commit`` in the worktree.
+
+    Several near misses read as checkouts and none of them satisfy the request:
+    ``git restore`` and ``git checkout -- <path>`` rewrite files while leaving
+    ``HEAD`` where it was, ``git switch main`` moves ``HEAD`` somewhere else,
+    and ``git checkout <other-sha>`` moves it to the wrong commit.  So the
+    subcommand has to be one that moves ``HEAD``, the path-restoring form is
+    rejected, and the target has to be the commit that was asked for — read
+    from that invocation's own arguments, and compared as a prefix in either
+    direction, since either side may be abbreviated.
+    """
+
+    commit = commit.casefold()
+    for name, args in _git_invocations(command.casefold()):
+        if name not in {"checkout", "switch"} or "--" in args:
+            continue
+        if any(
+            commit.startswith(argument) or argument.startswith(commit)
+            for argument in args
+            if _ABBREVIATED_COMMIT.fullmatch(argument)
+        ):
+            return True
     return False
 
 

@@ -25,7 +25,15 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 ```
 
 For local uncommitted work, omit `--base`/`--head`. For committed PR/CI refs,
-make the base ref available first because `verify` never fetches. Read
+make the base ref available first because `verify` never fetches. `--preview`
+additionally wants `--head` **checked out**: it reads project markers from the
+working tree, because that is the tree the `init` it recommends would write to.
+Previewing some other ref establishes no project and returns
+`agent_action_required` with a `fetch_base` action whose `expects` names the
+missing input as a **commit id**, together with the pinned `--base`/`--head` to
+re-run with — read them from `expects`, which is never truncated, because a
+revision expression re-resolves against the new `HEAD`. Plain `verify` reads
+`--head` from the object database and needs no checkout. Read
 `agents-shipgate-reports/agent-handoff.json` first and lead with
 `control.state`, `gate.merge_verdict`, `gate.can_merge_without_human`,
 `next_action`, `fix_task`, and `capability_review.top_changes[]`. Fall back to
@@ -42,8 +50,9 @@ plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run
 `control.state`. If it is `review_publishable`, a human must approve the merge
 and you may still commit, push, and update the PR; if it is
 `human_review_required`, stop for a human; if it is
-`agent_action_required`, perform only the exact coding-agent action and command
-in `control.next_action`.
+`agent_action_required`, perform only the exact coding-agent action in
+`control.next_action` — its `command` when it names one, and otherwise the
+input its `expects` names, which is the shape a `fetch_base` route carries.
 
 Do not claim completion unless `control.state` is `complete`. Conversation-level
 acknowledgement never changes control state; only a newly generated verifier
@@ -149,6 +158,22 @@ Consume the response to decide whether to proceed. Key fields:
 - `codex_plugin_candidates[]` — Codex plugin package or marketplace
   artifacts matched by convention. These also do NOT bump
   `is_agent_project` on their own.
+- `next_actions[]` — the ranked route. On `agent_scope: "ambiguous"` rank 1 is
+  the decision (`kind: "review"`, `command: null`) and every entry below it is
+  one exact `init --workspace <candidate> --write --json`, with `executable`
+  and `args`, in candidate order — the list `init --write` publishes when it
+  refuses the same workspace, minus the setup flags: `detect` asked for no
+  setup, so it promises none. Add `--ci` or `--agent-instructions` yourself if
+  you want them, or take the command from `init`'s own refusal, which repeats
+  the flags the run asked for. Match on the path rather than the ordering.
+  Every candidate gets an entry; the workspace root is never offered, since it
+  is the scope `init` refuses. A candidate that already carries a manifest gets
+  `doctor --config <that manifest> --json` rather than an `init` that would
+  refuse to overwrite it — unless you asked for setup it still owes: with
+  `--agent-instructions` the full `init --write` is the advertised refresh and
+  exits 0, and with `--ci` the command drops `--write` so the workflow is
+  installed and the manifest is left alone. The workspace root, when listed, is
+  a `review` entry rather than a command.
 
 **Stop condition.** Stop and skip `init` only when ALL of:
 

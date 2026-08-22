@@ -79,6 +79,116 @@
   naming convention the repository never agreed to; the same glob also missed
   `mcp-server/tools.json`.
 
+- **`verify --preview` of a head that is not checked out now asks for the
+  checkout, instead of stopping.** Preview reads project markers from the
+  working tree, because that is the tree the `init` it recommends would write
+  to, so previewing some other ref establishes no project — on the reported
+  pull request the changed directory exists only on the PR branch. That state
+  routed to a human with `must_stop: true`, `command: null`, and
+  `allowed_next_commands: []`, which ended the loop `allowed_next_commands`
+  promises in one move; the remedy, derivable from the very ref preview was
+  handed, was never stated
+  ([#397](https://github.com/ThreeMoonsLab/agents-shipgate/issues/397)).
+
+  Nothing about the change is in doubt there. What is missing is an input — a
+  working tree holding the commit under review — and producing it is one
+  mechanical step the caller owns. The route is now the `fetch_base` action
+  that already exists for exactly this shape: `agent_action_required`, no
+  command (Shipgate never writes to a caller's worktree), and an `expects` that
+  names the input. The two causes that no checkout can repair — evidence the
+  change deleted, an unreadable inventory — keep their human route. Plain
+  `verify` is unaffected: it reads `--head` from the object database, not the
+  worktree.
+
+  **`expects` names a commit id, and the rerun it asks for is pinned.** The
+  step being requested moves `HEAD`, so a route spelled with the caller's own
+  revision expression does not survive it: `--head HEAD~1` names one commit
+  before the checkout and its parent after, and following the route walked
+  history backwards one commit per iteration instead of resolving. A
+  `HEAD`-relative `--base` re-ranges across the same checkout, which is quieter
+  and worse — the rerun succeeds against a diff nobody asked for. Both refs are
+  resolved to immutable ids before either is published.
+
+  The requested checkout also makes the preview's control pointer stale. It
+  bound no HEAD identity, so `agents-shipgate agent control` — the one refresh
+  entry point — kept returning the same `current_control_id` and the same
+  unmet-looking request after the caller performed it, which is how a
+  refresh-driven controller repeats an action forever. The pointer now binds
+  the worktree the preview actually read.
+
+  `fetch_base` accordingly means "make this input available" in both of its
+  senses. Which sense a route asks for is read from `expects`, by every
+  consumer: the adoption scorer recognizes a checkout of *the requested commit*
+  — not a fetch, not a path-restoring `checkout --`, not a checkout of some
+  other commit — and still requires a fetch for a ref request.
+
+  The whole recovery is published in `expects`, which the envelope never
+  truncates, and the instruction leads `why`, which it caps at 400 bytes. A
+  sufficiently long branch name had pushed the checkout instruction and both
+  pinned refs out of the bounded field, leaving a consumer to re-derive the
+  rerun from its own `HEAD`-relative request — rebuilding the walk.
+
+  The pointer binds the *worktree* preview read, not only its HEAD. Preview
+  routinely routes on uncommitted evidence — an untracked `agent.py` beside an
+  untracked `pyproject.toml` is a project — and deleting one of those files
+  moves neither HEAD nor its tree, so the stale route stayed current. The path
+  set is derived from the live worktree on both sides, so any path entering or
+  leaving it, and any content change within it, refuses the pointer.
+
+- **`detect` now publishes the same per-candidate `init` commands `init` does
+  when a workspace holds several agent projects.** Its escalation handed the
+  reader a JSON selector inside a shell command —
+  `init --workspace <agent_project_candidates[].path> --write` — and no
+  runnable command anywhere in `next_actions[]`, so a preview that routed to
+  `detect` reached a second dead end (#397). `detect --json` now ranks the
+  decision first, exactly as before (`kind: "review"`, `command: null`, because
+  naming one candidate would make the arbitrary pick `init --write` refuses to
+  make), and carries one exact `init --workspace <candidate> --write --json`
+  below it per candidate, with the `executable`/`args` pair. Both commands
+  build that list from one helper, so the two an adopter runs in sequence
+  cannot publish different recoveries for one workspace; the workspace root
+  stays out of it, since that is the scope `init` refuses.
+
+  **Every** candidate gets one. The ten-item cap that keeps a human refusal
+  readable had been applied to the routing too, which left candidate 11 onward
+  selectable and unrunnable — `detect --workspace samples --json` finds 22
+  projects and emitted 10 commands, and the reported pull request's repository
+  has 25.
+
+  And a candidate that **already carries a manifest** routes to
+  `doctor --config <that manifest> --json`, not to `init --write`. A nested
+  `shipgate.yaml` is itself evidence of a project, so adopted directories are
+  candidates too: on this repository's own `samples/`, 21 of 22 are, and every
+  command emitted for them exited 2 on a manifest `init` will not overwrite
+  while `expects` promised a file that already existed. The exception is
+  `--agent-instructions`, which makes `init --write` the advertised refresh and
+  exits 0 — there the `init` route is kept, flags and all. Both commands'
+  *printed* summaries mark those candidates and name the `doctor` route, from
+  the one formatter they now share: the human and JSON forms of a single run had
+  begun answering the same question two ways.
+
+  Setup the caller asked for survives that route. A refused
+  `init --write --ci` writes no workflow, and handing the adopted candidate a
+  bare `doctor` dropped the request silently; it now carries `--ci` on an
+  `init` with `--write` omitted, which installs the workflow, leaves the
+  manifest alone, and exits 0.
+
+  The workspace root gets an answer too. `.` is a real entry in
+  `agent_project_candidates` and rank 1 tells the caller to choose from that
+  list, but it was the one candidate the routing skipped: `init` there is the
+  run that just refused, and `--allow-unresolved-scope` accepts the whole
+  workspace as one scope, which is a different decision. It is now an explicit
+  human route saying exactly that, and the printed lists mark it — a caption
+  reading "re-run init on the one you are changing" over an unmarked `.` is the
+  human form of a run contradicting its own routing.
+
+  `detect`'s `control.input_id` now covers the route it publishes, not only the
+  classification behind it. Every emitted command is spelled for the entry
+  point the process came in through, so the same workspace read as
+  `agents-shipgate` and as `/opt/custom/agents-shipgate` published different
+  commands under one identity — and that identity is the documented cache
+  boundary for the answer.
+
 - **The first scan of an agent whose tools are imported symbols now scaffolds
   both layers it needs, instead of emitting nothing.**
   `suggested-declarations.yaml` was only written once the binding layer was
@@ -221,7 +331,8 @@
   another, and deleted evidence outranks a cap, because raising a bound cannot
   find a file the change removed. An evaluated head that is not this worktree
   is the third such cause: discovery of the current tree answers about a
-  different one, so that route carries no command either.
+  different one, so no discovery command is offered there either — that route
+  asks for the checkout instead (first entry above).
 
   Two blind spots in that probe are closed. It now bounds each directory's
   Python evidence to the files a `detect` *of that directory* would reach —
