@@ -171,7 +171,7 @@ one exact post-review coding-agent action. Agents
 switch on `control.state`; `decision` remains diagnostic and
 `release_decision.decision` remains the release gate. Contract v14 requires
 `completion_allowed == (state == "complete")` and
-`must_stop == (state == "human_review_required")`. Report v0.35, packet v0.12,
+`must_stop == (state == "human_review_required")`. Report v0.36, packet v0.12,
 verifier v0.6, verify-run v3, and handoff v6 bind their projections to the
 same request and decision IDs. The terminal receipt hashes the complete
 artifact set; see [Verification Identity and Reproduction](verification-reproducibility.md).
@@ -216,7 +216,7 @@ Downstream repos generated with
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b7` — see [pyproject.toml](../pyproject.toml)
 - Runtime contract: `24` (minimum control contract: `21`)
-- Current report schema: `0.35` — [`docs/report-schema.v0.35.json`](report-schema.v0.35.json)
+- Current report schema: `0.36` — [`docs/report-schema.v0.36.json`](report-schema.v0.36.json)
 - Current packet schema: `0.12` — [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
 - Current verifier schema: `0.9` — [`docs/verifier-schema.v0.9.json`](verifier-schema.v0.9.json) (v0.8 and earlier stay frozen; `0.9` adds `capability_review.policy_weakening_proven`)
@@ -1009,7 +1009,7 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full alpha stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.35.json`](report-schema.v0.35.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.36.json`](report-schema.v0.36.json) — machine-validatable JSON Schema for the current report.
 - [`docs/privacy.md`](privacy.md) and [`docs/report-sensitive-fields.json`](report-sensitive-fields.json) — default redaction behavior and sensitive-field inventory.
 - [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog, including `mvp_tier` for MVP/readiness triage.

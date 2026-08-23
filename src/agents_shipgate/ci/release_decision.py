@@ -11,6 +11,10 @@ from agents_shipgate.ci.exit_policy import (
     exit_code_for_report,
 )
 from agents_shipgate.core.domain import SemanticIssueKind, Tool
+from agents_shipgate.core.effect_override import (
+    assess_effect_override,
+    declared_effect_from_claims,
+)
 from agents_shipgate.core.evidence_actions import (
     evidence_gap_command,
     evidence_gap_headline,
@@ -1245,6 +1249,14 @@ def _semantic_gap(
             **_action_selector(tool),
             "effect": "<REVIEW_REQUIRED>",
         }
+    elif kind == "declaration_below_inferred_evidence":
+        action_kind = "resolve_semantic_conflict"
+        accepted_values = list(_ACTION_EFFECT_VALUES)
+        action_why = (
+            "A declaration weaker than observed evidence is a reviewed override, "
+            "not a correction, and has to say so."
+        )
+        declaration_template, expects = _override_repair(tool)
     elif kind in {
         "missing_authority_evidence",
         "partial_authority_evidence",
@@ -1363,6 +1375,54 @@ def _semantic_gap_path(kind: str, tool: Tool) -> str:
     if kind in _AGENT_BINDING_KINDS:
         return "shipgate.yaml#agent_bindings"
     return action_row
+
+
+def _override_repair(tool: Tool) -> tuple[dict[str, object] | None, str]:
+    """The block and the instruction that close a declaration-override gap.
+
+    Two states reach this gap and they need opposite advice, so both are
+    derived from the same evidence rather than from one fixed sentence.
+
+    When this scan observed evidence above the declared effect, the reviewer
+    picks a route: raise ``effect``, or record the override. The template
+    scaffolds the second because it is the one with a shape to get wrong. The
+    declared effect is echoed back unchanged — it is the reviewer's existing
+    answer, and a ``<REVIEW_REQUIRED>`` there would ask them to re-answer a
+    question they have already answered — and ``evidence`` is filled in
+    completely, because the override is only accepted when it names exactly
+    what this scan observed. Asking a human to transcribe that list is asking
+    them to get it wrong.
+
+    When nothing outranks the declared effect any more, the gap is a *stale*
+    override: the evidence it answers is gone. There is no block to paste,
+    only one to remove, and a template offering a blank to fill would send the
+    reviewer the wrong way. It is built from the attached assessment rather
+    than from the manifest, which the gap projection never sees.
+    """
+
+    assessment = tool.semantic_assessment
+    claims = assessment.effect.claims if assessment is not None else []
+    declared_effect = declared_effect_from_claims(claims)
+    override = assess_effect_override(claims, declared_effect=declared_effect, override=None)
+    if override is None:
+        return None, (
+            "Remove the action_surface.actions[].override, or narrow its evidence to "
+            "what this scan observed above the declared effect, then rerun "
+            "verification."
+        )
+    template: dict[str, object] = {
+        **_action_selector(tool),
+        "effect": override.declared_effect,
+        "override": {
+            "evidence": list(override.challenged_effects),
+            "reason": REVIEW_REQUIRED_SENTINEL,
+        },
+    }
+    return template, (
+        "Raise action_surface.actions[].effect to the observed effect, or keep it "
+        "and add an override naming exactly the evidence it overrides and why, "
+        "then rerun verification."
+    )
 
 
 def _action_selector(tool: Tool) -> dict[str, object]:

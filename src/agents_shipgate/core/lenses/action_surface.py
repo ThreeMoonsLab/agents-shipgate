@@ -9,7 +9,11 @@ from typing import Any
 from urllib.parse import unquote
 
 from agents_shipgate.core.action_semantics import ACTION_EFFECT_RANK
-from agents_shipgate.core.domain import Action, Scope, Tool
+from agents_shipgate.core.domain import Action, Scope, Tool, ToolSemanticAssessment
+from agents_shipgate.core.effect_override import (
+    EFFECT_OVERRIDE_CHECK_ID,
+    assess_effect_override,
+)
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference, _stable_hash
@@ -377,8 +381,19 @@ def evaluate_action_surface_policies(
         )
 
     if policy_evidence_gaps is not None:
+        # A reviewed override answers the exact question this gap asks — is the
+        # higher inferred effect real? — so an acknowledged claim is no longer
+        # indeterminate. Without this, the remedy the #409 evidence gap
+        # publishes could not change the answer: writing the override would
+        # restore pass eligibility and the verdict would sit at
+        # `insufficient_evidence` regardless, which is a published next step
+        # that leads nowhere. An unacknowledged escalation is untouched.
+        acknowledged_effects = _acknowledged_effect_overrides(manifest, facts, tools)
         for action in facts.actions:
-            support = _non_authoritative_effect_escalation_support(action)
+            support = _non_authoritative_effect_escalation_support(
+                action,
+                acknowledged=acknowledged_effects.get(action.tool_id, frozenset()),
+            )
             if support is None:
                 continue
             policy_evidence_gaps.append(
@@ -1021,7 +1036,110 @@ def _declaration_downgrade_findings(
                         blocks_release=True,
                     )
                 )
+            elif action_assessment.effect.status != "conflicting":
+                findings.extend(
+                    _effect_override_findings(
+                        declaration,
+                        action,
+                        action_assessment,
+                        agent_id=agent_id,
+                    )
+                )
     return findings
+
+
+def _effect_override_findings(
+    declaration: ActionDeclarationConfig,
+    action: ActionFact,
+    assessment: ToolSemanticEvidence | ToolSemanticAssessment,
+    *,
+    agent_id: str,
+) -> list[Finding]:
+    """Name a declaration that sits below evidence Shipgate observed (#409).
+
+    The verdict this raises is *not* the heuristic's: the heuristic still does
+    not prove what the tool does, and this finding never blocks. What it
+    reports is a comparison between two things already in the artifact — what
+    a human declared and what a scanner observed — which is a structural fact,
+    and one a reviewer has to see before the declaration is trusted. Severity
+    stays in the review tier so an inferred claim can route attention without
+    ever gating a release on its own (#357).
+
+    The comparison itself is not made here. ``assess_effect_override`` is the
+    one comparator, so this finding and the evidence gap that the resolver
+    raises can never disagree about whether a declaration is below its
+    evidence — the failure mode that would put a ✓ row and a gap row on the
+    same action.
+    """
+
+    override = assess_effect_override(
+        assessment.effect.claims,
+        declared_effect=declaration.effect,
+        override=declaration.override,
+    )
+    if override is None:
+        return []
+    evidence: dict[str, Any] = {
+        "action_id": action.action_id,
+        "declared_effect": override.declared_effect,
+        "inferred_effect": override.strongest_effect,
+        "inferred_evidence": list(override.challenged_effects),
+        "evidence_sources": list(override.evidence_sources),
+        "acknowledged": override.acknowledged,
+    }
+    if override.reason is not None:
+        # In the fingerprint on purpose. The reason IS the assertion, so
+        # rewriting it is a new assertion: a baseline that accepted the old
+        # justification must not go on accepting a different one unread.
+        evidence["override_reason"] = override.reason
+    if override.acknowledged:
+        title = (
+            f"{action.tool_name} overrides inferred {override.strongest_effect} "
+            f"evidence with a reviewed {override.declared_effect} declaration"
+        )
+        recommendation = (
+            f"Confirm the recorded override for {action.tool_name}: {override.reason}"
+        )
+    elif not override.challenging:
+        # Drift the other way: the evidence the override answers is gone, so
+        # the override now asserts something about nothing. Telling this
+        # reviewer to raise their effect would be advice about evidence that
+        # no longer exists.
+        evidence["stale_evidence"] = list(override.stale)
+        title = (
+            f"{action.tool_name} records an override for effect evidence "
+            "Shipgate no longer observes"
+        )
+        recommendation = (
+            "Remove action_surface.actions[].override for "
+            f"{action.tool_name}, or narrow its evidence to what this scan "
+            "observed above the declared effect."
+        )
+    else:
+        evidence["unacknowledged_evidence"] = [item.effect for item in override.unacknowledged]
+        if override.stale:
+            evidence["stale_evidence"] = list(override.stale)
+        title = (
+            f"{action.tool_name} declares {override.declared_effect} below evidence "
+            "Shipgate observed"
+        )
+        recommendation = (
+            f"Raise action_surface.actions[].effect for {action.tool_name} to "
+            f"{override.strongest_effect}, or record an override naming exactly "
+            "the evidence it overrides and why."
+        )
+    return [
+        _finding(
+            check_id=EFFECT_OVERRIDE_CHECK_ID,
+            title=title,
+            severity="medium",
+            action=action,
+            agent_id=agent_id,
+            evidence=evidence,
+            recommendation=recommendation,
+            blocks_release=False,
+        )
+    ]
 
 
 def _control_downgrade_findings(
@@ -1680,8 +1798,55 @@ def _control_effects(action: ActionFact) -> set[str]:
     return effects
 
 
+def _acknowledged_effect_overrides(
+    manifest: AgentsShipgateManifest,
+    facts: ActionSurfaceFacts,
+    tools: list[Tool] | None,
+) -> dict[str, frozenset[str]]:
+    """Per action, the inferred effects a reviewed override has answered (#409).
+
+    Only an override the resolver accepted counts — one that names exactly the
+    evidence this scan observed. A partial or stale override answers nothing,
+    so its action keeps both the semantic gap and this policy gap. Callers
+    without ``tools`` cannot resolve a declaration to a canonical tool at all,
+    and fail closed: no acknowledgement is honoured.
+
+    Read off ``ActionFact.semantic_assessment`` rather than the tool's own,
+    because that is the copy the gap this feeds also reads: one set of claims
+    decides both, so an acknowledgement can never be computed against evidence
+    the consumer never saw.
+    """
+
+    if not tools:
+        return {}
+    # Resolving declarations builds a selector index over the whole surface.
+    # A manifest with no override has nothing to acknowledge, which is every
+    # repository until someone writes one, so the common path pays nothing.
+    if not any(item.override is not None for item in manifest.action_surface.actions):
+        return {}
+    declarations = _resolved_declarations_from_tools(manifest, tools)
+    if not declarations:
+        return {}
+    acknowledged: dict[str, frozenset[str]] = {}
+    for action in facts.actions:
+        declaration = declarations.get(action.tool_id)
+        assessment = action.semantic_assessment
+        if declaration is None or assessment is None:
+            continue
+        override = assess_effect_override(
+            assessment.effect.claims,
+            declared_effect=declaration.effect,
+            override=declaration.override,
+        )
+        if override is not None and override.acknowledged:
+            acknowledged[action.tool_id] = frozenset(override.challenged_effects)
+    return acknowledged
+
+
 def _non_authoritative_effect_escalation_support(
     action: ActionFact,
+    *,
+    acknowledged: frozenset[str] = frozenset(),
 ) -> FindingSupport | None:
     """Return unresolved support when weaker evidence outranks proven semantics.
 
@@ -1689,6 +1854,9 @@ def _non_authoritative_effect_escalation_support(
     discarding a higher-risk non-authoritative claim would turn uncertainty
     into a clean pass, so this support record routes the action to insufficient
     evidence without laundering that claim into a blocker.
+
+    ``acknowledged`` names the inferred effects a reviewed override already
+    answered, which are no longer indeterminate. Everything else is unchanged.
     """
 
     assessment = action.semantic_assessment
@@ -1709,6 +1877,7 @@ def _non_authoritative_effect_escalation_support(
         for claim in assessment.effect.claims
         if not claim.policy_eligible
         and claim.value in ACTION_EFFECT_RANK
+        and claim.value not in acknowledged
         and ACTION_EFFECT_RANK[claim.value] > authoritative_rank
     ]
     if not inferred_escalations:

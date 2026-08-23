@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+- **A declaration weaker than the evidence Shipgate observed is no longer
+  accepted in silence.** Declaring `effect: read` on a tool Shipgate itself
+  tagged `external_write` closed the `inferred_effect_only` gap that the same
+  heuristic had raised, turned the action pass-eligible, and produced no
+  finding naming the disagreement. The path of least resistance for anyone the
+  gate is blocking was to declare everything `read`/`none`, and the gate
+  converted that into pass eligibility without objection (#409).
+
+  The contradiction check existed and was correct for the claims it could see:
+  its filter admitted only `policy_eligible` claims, and #357 deliberately
+  withholds that flag from heuristics so they cannot *drive* policy. But one
+  flag was carrying two different powers. Driving a verdict and challenging a
+  human assertion are not the same thing: a declaration sitting below an
+  inferred claim is not a heuristic gating anything, it is a statement
+  contradicting an observation the report already carries.
+
+  Heuristics still never drive policy. The declaration remains the operative
+  effect, and the new signal never blocks: a review-tier
+  `SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE` finding names the declared value, the
+  inferred value, and the hint source, and a
+  `declaration_below_inferred_evidence` evidence gap (report schema
+  `0.35` → `0.36`) holds the action out of pass eligibility until it is
+  answered. The rule is monotone — a declaration that agrees with or escalates
+  above the evidence stays silent, so a conservative answer still costs
+  nothing.
+
+  Two routes close it: raise `effect`, or record the reviewed exception in the
+  new `action_surface.actions[].override` (`evidence` + `reason`), which
+  restores pass eligibility, resolves the matching
+  `builtin-effect-control-applicability` policy gap, and keeps reporting its
+  finding — an override is never silent. `override.evidence` must name exactly
+  the inferred effects currently observed above the declared effect, so new
+  evidence, or evidence that has since disappeared, re-opens the question
+  instead of passing under a year-old answer.
+
+  One comparator (`core/effect_override.py`) serves the resolver, the gap
+  scaffold, and the finding, so the row a coding agent works and the row a
+  reviewer reads cannot disagree about whether a declaration is below its
+  evidence, or by how much.
+
 - **Every evidence gap now labels a tool the way a reader can use, in every gap
   kind.** `EvidenceGap.subject` is a display label — identity lives in
   `subject_id` — but the policy evidence gaps (every row of

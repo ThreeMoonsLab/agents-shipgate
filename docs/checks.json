@@ -587,6 +587,30 @@
     {
       "autofix_safe": false,
       "category": "action_surface",
+      "default_severity": "medium",
+      "description": "Action declaration overrides inferred effect evidence.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-effect-overrides-evidence",
+      "dynamic_default": false,
+      "evidence_fields": [
+        "action_id",
+        "declared_effect",
+        "inferred_effect",
+        "evidence_sources",
+        "acknowledged"
+      ],
+      "fires_when": "action_surface.actions.effect is weaker than an inferred (non-policy-eligible) effect observation for the same tool.",
+      "floor_severity": "medium",
+      "id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
+      "mvp_tier": "lifecycle",
+      "rationale": "A declaration weaker than an inferred observation is the cheapest way past the gate, so it is recorded rather than accepted in silence. The declaration still stands - heuristics do not drive policy - but the reviewer sees which observation it overrides, and why.",
+      "recommendation": "Raise action_surface.actions[].effect to the observed effect, or keep it and add action_surface.actions[].override naming exactly the evidence it overrides and why.",
+      "requires_human_review": true,
+      "requires_human_review_regardless_of_patch": false,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "action_surface",
       "default_severity": "high",
       "description": "New external communication action lacks audit evidence.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-external-communication-audit-missing",

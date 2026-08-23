@@ -207,6 +207,14 @@
     "scenarios": [
       {
         "finding_ids": [
+          "fp_2c87a1e5fc91f47f",
+          "fp_4252fd1a8b26182f"
+        ],
+        "scenario": "Manual review for SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
+        "why": "Confirm the recorded override for send_email_preview: Renders a draft for the agent to show; gmail.send_customer_email delivers."
+      },
+      {
+        "finding_ids": [
           "fp_1c94d2d2693dccdf",
           "fp_e042ce7813b97a2d"
         ],
@@ -1520,11 +1528,110 @@
           "findings[]"
         ],
         "missing_controls": [
+          "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE on send_email_preview: send_email_preview overrides inferred external_communication evidence with a reviewed read declaration",
+          "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE on support.search_kb: support.search_kb overrides inferred financial_write evidence with a reviewed read declaration",
           "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING on gmail.send_customer_email: gmail.send_customer_email has external communication capability without required controls",
           "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING on stripe.create_refund: stripe.create_refund has external communication capability without required controls",
           "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING on stripe.create_refund: stripe.create_refund has financial write capability without required controls"
         ],
-        "review_items": []
+        "review_items": [
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "capability_refs": [],
+            "capability_trace_refs": [],
+            "check_id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
+            "fingerprint": "fp_4252fd1a8b26182f",
+            "id": "fp_4252fd1a8b26182f",
+            "policy_evidence_source": null,
+            "severity": "medium",
+            "source": {
+              "end_line": null,
+              "location": null,
+              "path": "inventories/sdk-tools.json",
+              "pointer": "/tools/0",
+              "ref": "inventories/sdk-tools.json",
+              "start_column": null,
+              "start_line": null,
+              "type": "mcp"
+            },
+            "support": {
+              "blocking_eligible": true,
+              "claim_ids": [],
+              "confidence": "high",
+              "evidence_bases": [
+                "protocol_structure"
+              ],
+              "policy_eligible": true,
+              "predicates": [
+                {
+                  "claim_ids": [],
+                  "confidence": "high",
+                  "evidence_bases": [
+                    "protocol_structure"
+                  ],
+                  "expected": null,
+                  "observed": "agent:support-refund-agent/refund-assistant:action_v2_b911aaa646a844c9677c20c2d431f761b5614ebda2de458bdb7dc726bbdfd301",
+                  "policy_eligible": true,
+                  "predicate": "deterministic_action_rule",
+                  "status": "matched",
+                  "why": null
+                }
+              ],
+              "status": "matched",
+              "support_hash": "sha256:326891ba14bc671a63c5b4c37adfa36d06e56ef0ee2dde02bdc37b78f4a19e7a"
+            },
+            "title": "send_email_preview overrides inferred external_communication evidence with a reviewed read declaration"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "capability_refs": [],
+            "capability_trace_refs": [],
+            "check_id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
+            "fingerprint": "fp_2c87a1e5fc91f47f",
+            "id": "fp_2c87a1e5fc91f47f",
+            "policy_evidence_source": null,
+            "severity": "medium",
+            "source": {
+              "end_line": null,
+              "location": null,
+              "path": ".agents-shipgate/mcp-tools.json",
+              "pointer": "/tools/0",
+              "ref": ".agents-shipgate/mcp-tools.json",
+              "start_column": null,
+              "start_line": null,
+              "type": "mcp"
+            },
+            "support": {
+              "blocking_eligible": true,
+              "claim_ids": [],
+              "confidence": "high",
+              "evidence_bases": [
+                "protocol_structure"
+              ],
+              "policy_eligible": true,
+              "predicates": [
+                {
+                  "claim_ids": [],
+                  "confidence": "high",
+                  "evidence_bases": [
+                    "protocol_structure"
+                  ],
+                  "expected": null,
+                  "observed": "agent:support-refund-agent/refund-assistant:action_v2_682344eae98583040eeb4097983ca88cb606b70e2e552528ddcfb1a76f18841d",
+                  "policy_eligible": true,
+                  "predicate": "deterministic_action_rule",
+                  "status": "matched",
+                  "why": null
+                }
+              ],
+              "status": "matched",
+              "support_hash": "sha256:4090f53fd91c20dc4bc228b031bca10c0694f2a52448d9077132dccbe0e1dd8c"
+            },
+            "title": "support.search_kb overrides inferred financial_write evidence with a reviewed read declaration"
+          }
+        ]
       }
     ]
   },
@@ -2221,56 +2328,6 @@
           "why": "Closed-world declaration for 'root' does not match the complete structural tool set."
         },
         {
-          "kind": "mixed_policy_evidence",
-          "next_action": {
-            "accepted_values": [
-              "reviewed_declaration",
-              "protocol_structure",
-              "typed_provider_fact",
-              "structural_scope"
-            ],
-            "auto_apply": false,
-            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-            "declaration_template": null,
-            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
-            "kind": "review_policy_evidence",
-            "path": "shipgate.yaml#action_surface.actions[tool='support.search_kb'].effect",
-            "requires_human_review": true,
-            "suggested_patch_kind": "manual",
-            "why": "Heuristic or unknown evidence cannot create a blocking policy finding."
-          },
-          "source_ref": ".agents-shipgate/mcp-tools.json",
-          "source_type": null,
-          "subject": "support.search_kb [support_mcp_tools]",
-          "subject_id": "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a",
-          "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence."
-        },
-        {
-          "kind": "mixed_policy_evidence",
-          "next_action": {
-            "accepted_values": [
-              "reviewed_declaration",
-              "protocol_structure",
-              "typed_provider_fact",
-              "structural_scope"
-            ],
-            "auto_apply": false,
-            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-            "declaration_template": null,
-            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
-            "kind": "review_policy_evidence",
-            "path": "shipgate.yaml#action_surface.actions[tool='send_email_preview'].effect",
-            "requires_human_review": true,
-            "suggested_patch_kind": "manual",
-            "why": "Heuristic or unknown evidence cannot create a blocking policy finding."
-          },
-          "source_ref": "inventories/sdk-tools.json",
-          "source_type": null,
-          "subject": "send_email_preview [openai_sdk_static]",
-          "subject_id": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
-          "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence."
-        },
-        {
           "kind": "inferred_policy_applicability",
           "next_action": {
             "accepted_values": [
@@ -2478,7 +2535,7 @@
       },
       "level": "static",
       "low_confidence_tool_count": 0,
-      "policy_gap_count": 9,
+      "policy_gap_count": 7,
       "semantic_coverage": {
         "gap_count": 7,
         "pass_eligible_actions": 0,
@@ -2751,6 +2808,102 @@
         },
         "support": null,
         "title": "Manifest declares unused permission scope zendesk:tickets:read"
+      },
+      {
+        "baseline_status": null,
+        "blocks_release": false,
+        "capability_refs": [],
+        "capability_trace_refs": [],
+        "check_id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
+        "fingerprint": "fp_4252fd1a8b26182f",
+        "id": "fp_4252fd1a8b26182f",
+        "policy_evidence_source": null,
+        "severity": "medium",
+        "source": {
+          "end_line": null,
+          "location": null,
+          "path": "inventories/sdk-tools.json",
+          "pointer": "/tools/0",
+          "ref": "inventories/sdk-tools.json",
+          "start_column": null,
+          "start_line": null,
+          "type": "mcp"
+        },
+        "support": {
+          "blocking_eligible": true,
+          "claim_ids": [],
+          "confidence": "high",
+          "evidence_bases": [
+            "protocol_structure"
+          ],
+          "policy_eligible": true,
+          "predicates": [
+            {
+              "claim_ids": [],
+              "confidence": "high",
+              "evidence_bases": [
+                "protocol_structure"
+              ],
+              "expected": null,
+              "observed": "agent:support-refund-agent/refund-assistant:action_v2_b911aaa646a844c9677c20c2d431f761b5614ebda2de458bdb7dc726bbdfd301",
+              "policy_eligible": true,
+              "predicate": "deterministic_action_rule",
+              "status": "matched",
+              "why": null
+            }
+          ],
+          "status": "matched",
+          "support_hash": "sha256:326891ba14bc671a63c5b4c37adfa36d06e56ef0ee2dde02bdc37b78f4a19e7a"
+        },
+        "title": "send_email_preview overrides inferred external_communication evidence with a reviewed read declaration"
+      },
+      {
+        "baseline_status": null,
+        "blocks_release": false,
+        "capability_refs": [],
+        "capability_trace_refs": [],
+        "check_id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
+        "fingerprint": "fp_2c87a1e5fc91f47f",
+        "id": "fp_2c87a1e5fc91f47f",
+        "policy_evidence_source": null,
+        "severity": "medium",
+        "source": {
+          "end_line": null,
+          "location": null,
+          "path": ".agents-shipgate/mcp-tools.json",
+          "pointer": "/tools/0",
+          "ref": ".agents-shipgate/mcp-tools.json",
+          "start_column": null,
+          "start_line": null,
+          "type": "mcp"
+        },
+        "support": {
+          "blocking_eligible": true,
+          "claim_ids": [],
+          "confidence": "high",
+          "evidence_bases": [
+            "protocol_structure"
+          ],
+          "policy_eligible": true,
+          "predicates": [
+            {
+              "claim_ids": [],
+              "confidence": "high",
+              "evidence_bases": [
+                "protocol_structure"
+              ],
+              "expected": null,
+              "observed": "agent:support-refund-agent/refund-assistant:action_v2_682344eae98583040eeb4097983ca88cb606b70e2e552528ddcfb1a76f18841d",
+              "policy_eligible": true,
+              "predicate": "deterministic_action_rule",
+              "status": "matched",
+              "why": null
+            }
+          ],
+          "status": "matched",
+          "support_hash": "sha256:4090f53fd91c20dc4bc228b031bca10c0694f2a52448d9077132dccbe0e1dd8c"
+        },
+        "title": "support.search_kb overrides inferred financial_write evidence with a reviewed read declaration"
       }
     ],
     "runtime_behavior_verified": false,
@@ -2759,7 +2912,7 @@
     "verdict": "BLOCKED"
   },
   "request_id": null,
-  "run_id": "agents_shipgate_e2edfa81ffc0f70d",
+  "run_id": "agents_shipgate_c0a16899fce8e58f",
   "scope_coverage": {
     "declared_scopes": [
       "zendesk:tickets:read",

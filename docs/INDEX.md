@@ -38,8 +38,9 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.35.json`](report-schema.v0.35.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.35"` and the `surface_exclusions` ledger recording every narrowing decision the run made)
-- [`report-schema.v0.34.json`](report-schema.v0.34.json) — frozen v0.34 content-addressed verification reference; pre-v0.35 reports validate against this
+- [`report-schema.v0.36.json`](report-schema.v0.36.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.36"`, and `declaration_below_inferred_evidence` joins the evidence-gap vocabulary)
+- [`report-schema.v0.35.json`](report-schema.v0.35.json) — frozen v0.35 surface-exclusion ledger reference; pre-v0.36 reports validate against this
+- [`report-schema.v0.34.json`](report-schema.v0.34.json) — frozen v0.34 content-addressed verification reference
 - [`report-schema.v0.33.json`](report-schema.v0.33.json) — frozen v0.33 typed policy-evidence reference
 - [`report-schema.v0.32.json`](report-schema.v0.32.json) — frozen v0.32 Conductor OSS summary reference; pre-v0.33 reports validate against this
 - [`report-schema.v0.31.json`](report-schema.v0.31.json) — frozen v0.31 root-reachable binding reference; pre-v0.32 reports validate against this

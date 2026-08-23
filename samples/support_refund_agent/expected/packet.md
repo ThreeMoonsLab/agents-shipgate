@@ -3,7 +3,7 @@
 - Project: support-refund-agent
 - Agent: refund-assistant
 - Environment: production\_like
-- Run id: agents\_shipgate\_e2edfa81ffc0f70d
+- Run id: agents\_shipgate\_c0a16899fce8e58f
 - Generated at: 2026-01-01T00:00:00\+00:00
 - Packet schema: 0\.12
 
@@ -14,7 +14,7 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 - Decision: `blocked`
 - Reason: 5 active findings block release.
 - Blockers: 5
-- Review items: 10
+- Review items: 12
 
 ### CI gate behavior (informational)
 
@@ -48,6 +48,8 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 - `SHIP-POLICY-CONFIRMATION-MISSING` (high): gmail.send\_customer\_email lacks a declared confirmation policy — `.agents-shipgate/mcp-tools.json\#/tools/1` — `shipgate.yaml:85`
 - `SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING` (high): shopify.cancel\_order is high-risk but has no owner — `specs/support-tools.openapi.yaml:116`
 - `SHIP-MANIFEST-UNUSED-SCOPE` (medium): Manifest declares unused permission scope zendesk:tickets:read — `shipgate.yaml`
+- `SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE` (medium): send\_email\_preview overrides inferred external\_communication evidence with a reviewed read declaration — `inventories/sdk-tools.json\#/tools/0`
+- `SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE` (medium): support.search\_kb overrides inferred financial\_write evidence with a reviewed read declaration — `.agents-shipgate/mcp-tools.json\#/tools/0`
 
 ## §1A Evidence matrix — compact review summary
 
@@ -67,7 +69,7 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 | Prompt/scope alignment | covered | declared\_intentions; misalignments; \+1 more | medium | — | — | — |
 | Retry/timeout | not\_declared | — | unknown | — | — | — |
 | Baseline debt | informational | — | unknown | — | — | — |
-| Action-surface policy | partial | action\_surface\_facts.actions; findings\[\].blocks\_release; \+1 more | high | SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING on gmail.send\_customer\_email: gmail.send\_customer\_email has external communication capability without required controls; SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING on stripe.create\_refund: stripe.create\_refund has external communication capability without required controls; \+1 more | SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING \(high\); SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING \(high\); \+1 more | — |
+| Action-surface policy | partial | action\_surface\_facts.actions; findings\[\].blocks\_release; \+1 more | high | SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE on send\_email\_preview: send\_email\_preview overrides inferred external\_communication evidence with a reviewed read declaration; SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE on support.search\_kb: support.search\_kb overrides inferred financial\_write evidence with a reviewed read declaration; \+3 more | SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING \(high\); SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING \(high\); \+1 more | SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE \(medium\); SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE \(medium\) |
 
 ## §2 Capability ↔ Intent diff — covered
 
@@ -193,6 +195,8 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 
 ## §9 Required dynamic scenarios — partial
 
+- **Manual review for SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE** — Confirm the recorded override for send\_email\_preview: Renders a draft for the agent to show; gmail.send\_customer\_email delivers.
+  - Related finding(s): fp\_2c87a1e5fc91f47f, fp\_4252fd1a8b26182f
 - **Manual review for SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING** — Declare confirmation policy and safeguards.audit\_log for this external communication action.
   - Related finding(s): fp\_1c94d2d2693dccdf, fp\_e042ce7813b97a2d
 - **Manual review for SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING** — Declare approval.required, safeguards.audit\_log, and safeguards.idempotency for this financial write action.

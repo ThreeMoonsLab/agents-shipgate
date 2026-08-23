@@ -791,7 +791,7 @@ def test_the_v035_schema_rejects_an_erased_ledger():
     from jsonschema import Draft202012Validator
 
     schema = json.loads(
-        Path("docs/report-schema.v0.35.json").read_text(encoding="utf-8")
+        Path("docs/report-schema.v0.36.json").read_text(encoding="utf-8")
     )
     validator = Draft202012Validator(schema)
     golden = json.loads(
@@ -1080,7 +1080,10 @@ def test_a_policy_gap_labels_a_tool_the_way_every_other_gap_does(tmp_path):
     `evidence_gap_headline` prints it verbatim into the CLI's
     `Improve evidence:` line, `_decision_reason`, and the GitHub step summary,
     where it names nothing a reader can open. `support.search_kb` reached one
-    gap list as both `[support_mcp_tools]` and `[tool_v2_445a25…]` at once.
+    gap list as both `[support_mcp_tools]` and `[tool_v2_445a25…]` at once; it
+    carries a reviewed effect override in the fixture now and no longer raises a
+    policy gap, so the cross-stage claim below is asserted on its sibling from
+    the same source.
 
     Identity is not lost by relabelling: every row asserted here carries it in
     `subject_id`, which is the field that now does the joining.
@@ -1105,8 +1108,10 @@ def test_a_policy_gap_labels_a_tool_the_way_every_other_gap_does(tmp_path):
     assert all(gap.subject_id in catalog_ids for gap in policy_gaps)
 
     # One label across stages: the tool the binding stage and the policy stage
-    # both name is one string, not two.
-    label = "support.search_kb [support_mcp_tools]"
+    # both name is one string, not two. Asserted on an MCP tool because the
+    # divergence this pins was between `ActionFact.provider` and the catalog's
+    # own rendering of the same source id.
+    label = "gmail.send_customer_email [support_mcp_tools]"
     assert label in {gap.subject for gap in policy_gaps}
     assert label in {gap.subject for gap in gaps if gap.kind in BINDING_GAP_KINDS}
 

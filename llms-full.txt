@@ -557,7 +557,7 @@ restate version archaeology here):
 - Audit envelopes: `release_decision.contribution_rules[]`, `policy_audit`,
   `privacy_audit`, `heuristics_filter` — explanatory, never a second gate
 
-The current schema is [`docs/report-schema.v0.35.json`](docs/report-schema.v0.35.json). Emitted reports carry `report_schema_version: "0.35"`; `surface_exclusions` records every subject a stage removed from the analysed surface and whether the release decision saw it, typed predicate support prevents heuristic evidence from being upgraded by policy severity or block metadata, and verify-native reports bind the content-addressed request and decision. A `passed` result requires a complete root-reachable static binding graph plus complete, conflict-free identity, effect, authority, and applicable-policy evidence for every reachable action. Every release decision explicitly carries `static_analysis_only: true`, `runtime_behavior_verified: false`, and `static_verdict_disclaimer`; packet §1 mirrors them. Binding, semantic, and policy-applicability gaps are not Findings and cannot be suppressed or baselined. See [`docs/passed-verdict-contract.md`](docs/passed-verdict-contract.md), [`docs/verification-reproducibility.md`](docs/verification-reproducibility.md), and [`docs/agent-contract-current.md`](docs/agent-contract-current.md). v0.34 remains frozen at [`docs/report-schema.v0.34.json`](docs/report-schema.v0.34.json).
+The current schema is [`docs/report-schema.v0.36.json`](docs/report-schema.v0.36.json). Emitted reports carry `report_schema_version: "0.36"`; `declaration_below_inferred_evidence` records a reviewed declaration that sits below the effect evidence the scan observed, `surface_exclusions` records every subject a stage removed from the analysed surface and whether the release decision saw it, typed predicate support prevents heuristic evidence from being upgraded by policy severity or block metadata, and verify-native reports bind the content-addressed request and decision. A `passed` result requires a complete root-reachable static binding graph plus complete, conflict-free identity, effect, authority, and applicable-policy evidence for every reachable action. Every release decision explicitly carries `static_analysis_only: true`, `runtime_behavior_verified: false`, and `static_verdict_disclaimer`; packet §1 mirrors them. Binding, semantic, and policy-applicability gaps are not Findings and cannot be suppressed or baselined. See [`docs/passed-verdict-contract.md`](docs/passed-verdict-contract.md), [`docs/verification-reproducibility.md`](docs/verification-reproducibility.md), and [`docs/agent-contract-current.md`](docs/agent-contract-current.md). v0.35 remains frozen at [`docs/report-schema.v0.35.json`](docs/report-schema.v0.35.json).
 
 **Release gating signal**: prefer `release_decision.decision` (`"blocked" | "review_required" | "insufficient_evidence" | "passed"`) over `summary.status`. The new field is **baseline-aware** — a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not `release_decision.blockers`. `summary.status` stays baseline-blind for v0.7 compatibility, so a baseline-matched-only critical produces both `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"` (intentional divergence — see [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus)). `insufficient_evidence` (added v0.14) signals that the scan saw too many low-confidence tools or source-loader warnings to be trustworthy; consumers that switch on the enum must fall back to `review_required` for unknown future values.
 
@@ -637,7 +637,7 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.35.json`](docs/report-schema.v0.35.json) (current).
+[`docs/report-schema.v0.36.json`](docs/report-schema.v0.36.json) (current).
 Older reports (`report_schema_version: "0.10"`) validate against the
 frozen [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json).
 Do not scrape Markdown when JSON is available.
@@ -675,7 +675,7 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.35.json`](docs/report-schema.v0.35.json) | `0.35` |
+| Report schema (current) | [`docs/report-schema.v0.36.json`](docs/report-schema.v0.36.json) | `0.36` |
 | Report schema (v0.34 frozen reference) | [`docs/report-schema.v0.34.json`](docs/report-schema.v0.34.json) | `0.34` |
 | Report schema (v0.33 frozen reference) | [`docs/report-schema.v0.33.json`](docs/report-schema.v0.33.json) | `0.33` |
 | Report schema (v0.32 frozen reference) | [`docs/report-schema.v0.32.json`](docs/report-schema.v0.32.json) | `0.32` |
@@ -1527,7 +1527,7 @@ one exact post-review coding-agent action. Agents
 switch on `control.state`; `decision` remains diagnostic and
 `release_decision.decision` remains the release gate. Contract v14 requires
 `completion_allowed == (state == "complete")` and
-`must_stop == (state == "human_review_required")`. Report v0.35, packet v0.12,
+`must_stop == (state == "human_review_required")`. Report v0.36, packet v0.12,
 verifier v0.6, verify-run v3, and handoff v6 bind their projections to the
 same request and decision IDs. The terminal receipt hashes the complete
 artifact set; see [Verification Identity and Reproduction](verification-reproducibility.md).
@@ -1572,7 +1572,7 @@ Downstream repos generated with
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b7` — see [pyproject.toml](../pyproject.toml)
 - Runtime contract: `24` (minimum control contract: `21`)
-- Current report schema: `0.35` — [`docs/report-schema.v0.35.json`](report-schema.v0.35.json)
+- Current report schema: `0.36` — [`docs/report-schema.v0.36.json`](report-schema.v0.36.json)
 - Current packet schema: `0.12` — [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
 - Current verifier schema: `0.9` — [`docs/verifier-schema.v0.9.json`](verifier-schema.v0.9.json) (v0.8 and earlier stay frozen; `0.9` adds `capability_review.policy_weakening_proven`)
@@ -2365,7 +2365,7 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full alpha stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.35.json`](report-schema.v0.35.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.36.json`](report-schema.v0.36.json) — machine-validatable JSON Schema for the current report.
 - [`docs/privacy.md`](privacy.md) and [`docs/report-sensitive-fields.json`](report-sensitive-fields.json) — default redaction behavior and sensitive-field inventory.
 - [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog, including `mvp_tier` for MVP/readiness triage.
@@ -2441,6 +2441,7 @@ baseline summary and do not fail CI.
 | `SHIP-ACTION-WILDCARD-SCOPE` | critical | An action declares or expands into a wildcard/admin-like scope. |
 | `SHIP-ACTION-EFFECT-ESCALATED` | critical | An action effect escalated compared with the base surface. |
 | `SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED` | high | An action declaration weakens the effect inferred from the loaded tool surface. |
+| `SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE` | medium | An action declaration is weaker than inferred effect evidence for the same tool. |
 | `SHIP-ACTION-CONTROL-DOWNGRADE` | high | An action declaration weakens an inherited approval or safeguard control. |
 | `SHIP-ACTION-APPROVAL-REMOVED` | critical | An existing action approval policy was removed. |
 | `SHIP-ACTION-SAFEGUARD-REMOVED` | high | An existing action safeguard was removed. |
@@ -2673,6 +2674,42 @@ destructive. Add reviewer approval for the escalation or reduce the effect.
 An `action_surface.actions[]` declaration sets a lower-risk effect than
 Shipgate inferred from the loaded tool metadata. Align the declared effect
 with the inferred operation or remove the weaker declaration.
+
+### SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE
+
+An `action_surface.actions[]` declaration sets a lower-risk effect than an
+*inferred* observation for the same tool — a heuristic risk hint, for example,
+rather than a protocol fact. The declaration still stands as the operative
+effect: a human outranks a heuristic, and heuristics never drive policy. What
+this check does is refuse to let the disagreement go unrecorded, so a reviewer
+sees which observation the declaration overrides before trusting it. It never
+blocks a release.
+
+Close it in one of two ways. Raise `action_surface.actions[].effect` to the
+observed effect, or keep the declared effect and record the override:
+
+```yaml
+action_surface:
+  actions:
+    - tool: send_email
+      effect: read
+      override:
+        evidence: [external_communication]
+        reason: Renders a preview only; delivery happens in send_email_now.
+```
+
+`override.evidence` must name exactly the inferred effects currently observed
+above the declared one — no more, no less. Naming more would let one edit
+pre-acknowledge evidence that has not appeared yet; naming fewer leaves an
+observation unanswered. Either way the question re-opens as an evidence gap,
+which is what keeps the override honest as the code underneath it changes.
+An acknowledged override still reports this finding, so the record survives
+into the reviewer's view; only the evidence gap is closed.
+
+`--no-heuristics` does not clear this finding. What fired is a deterministic
+comparison between two values already in the report, not the heuristic itself,
+and the observation it names is listed in `evidence.evidence_sources` so a
+reader can judge the source for themselves.
 
 ### SHIP-ACTION-CONTROL-DOWNGRADE
 
@@ -3942,7 +3979,7 @@ from the hash so toggling `--suggest-patches` doesn't shift it.
 - [`checks.md`](checks.md) — full check catalog with rationale.
 - [`minimal-real-configs.md`](minimal-real-configs.md) — per-framework
   minimal manifests to build from.
-- [`report-schema.v0.35.json`](report-schema.v0.35.json) — current JSON
+- [`report-schema.v0.36.json`](report-schema.v0.36.json) — current JSON
   Schema for `report.json`.
 - [`AGENTS.md`](../AGENTS.md) — top-level agent instructions, install,
   trigger table.

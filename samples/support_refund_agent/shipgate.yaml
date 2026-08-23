@@ -118,6 +118,12 @@ action_surface:
   actions:
     - tool: support.search_kb
       effect: read
+      # The name heuristic reads "refund" in this tool and infers a financial
+      # write. It searches the knowledge base and writes nothing, so the
+      # reviewed effect stands and the override records that decision.
+      override:
+        evidence: [financial_write]
+        reason: Read-only knowledge-base search; the refund wording is topical.
       scopes: [support:kb:read]
       authority:
         mode: scoped
@@ -165,6 +171,9 @@ action_surface:
         credential_mode: service_account
     - tool: send_email_preview
       effect: read
+      override:
+        evidence: [external_communication]
+        reason: Renders a draft for the agent to show; gmail.send_customer_email delivers.
       authority:
         mode: none
 

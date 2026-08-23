@@ -4,6 +4,7 @@ import json
 import re
 
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
+from agents_shipgate.core.effect_override import EFFECT_OVERRIDE_CHECK_ID
 from agents_shipgate.report.capability_lock_diff_markdown import (
     render_capability_lock_diff_markdown,
 )
@@ -148,6 +149,7 @@ def _human_summary_lines(
             )
     elif review.notes:
         lines.append(f"- Capability delta note: {_escape(review.notes[0])}")
+    lines.extend(_effect_override_lines(report))
     if review.trust_root_touched or review.policy_weakened:
         if review.trust_root_touched:
             lines.append("- Trust root touched: `true`")
@@ -333,6 +335,7 @@ def _render_findings_comment(
         lines.append(f"Reviewer start: `{surface.name}` - {_escape(surface.why)}")
 
     lines.extend(_diff_lines(report))
+    lines.extend(_effect_override_lines(report))
     top = _top_findings(report.findings)
     lines.append("")
     if top:
@@ -343,6 +346,56 @@ def _render_findings_comment(
         lines.append("No critical or high findings.")
     lines.extend(_artifact_lines(verifier, links=False))
     return _truncate("\n".join(lines), 6000)
+
+
+_MAX_OVERRIDE_ROWS = 3
+
+
+def _effect_override_lines(report: ReadinessReport | None) -> list[str]:
+    """One row per declaration that sits below the evidence Shipgate observed.
+
+    A reviewer's whole job on this comment is to decide whether to trust the
+    manifest, and these rows are the places where the manifest and the scanner
+    disagree. They are ``medium`` findings, so ``_top_findings`` — which shows
+    critical and high — would never surface them, and the one surface where the
+    disagreement matters most would be the one that never mentioned it (#409).
+    """
+
+    if report is None:
+        return []
+    rows = [
+        finding
+        for finding in report.findings
+        if finding.check_id == EFFECT_OVERRIDE_CHECK_ID and not finding.suppressed
+    ]
+    if not rows:
+        return []
+    lines = [f"- Declaration overrides ({len(rows)}):"]
+    for finding in rows[:_MAX_OVERRIDE_ROWS]:
+        evidence = finding.evidence
+        declared = str(evidence.get("declared_effect") or "?")
+        inferred = str(evidence.get("inferred_effect") or "?")
+        sources = [
+            str(item) for item in (evidence.get("evidence_sources") or []) if str(item)
+        ]
+        where = f" ({', '.join(sources)})" if sources else ""
+        acknowledged = evidence.get("acknowledged") is True
+        mark = "acknowledged" if acknowledged else "NOT acknowledged"
+        tail = ""
+        if acknowledged and evidence.get("override_reason"):
+            tail = f" — {_escape(str(evidence['override_reason']))}"
+        # ``_code`` inside the spans and ``_escape`` outside them: escaping
+        # inside a code span renders the backslashes literally, and a name
+        # carrying a backtick would otherwise close the span it sits in.
+        lines.append(
+            f"  - {_code(finding.tool_name or finding.check_id)}: declares "
+            f"{_code(declared)}; evidence says {_code(inferred)}{_escape(where)} "
+            f"— {mark}{tail}"
+        )
+    remaining = len(rows) - _MAX_OVERRIDE_ROWS
+    if remaining > 0:
+        lines.append(f"  - (+{remaining} more — see report.json findings)")
+    return lines
 
 
 def _verifier_lead(verifier: VerifierArtifact) -> list[str]:

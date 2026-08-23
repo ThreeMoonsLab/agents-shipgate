@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.35",
-  "run_id": "agents_shipgate_e2edfa81ffc0f70d",
+  "report_schema_version": "0.36",
+  "run_id": "agents_shipgate_c0a16899fce8e58f",
   "request_id": null,
   "subject_id": null,
   "input_set_id": null,
@@ -82,7 +82,7 @@
     "status": "release_blockers_detected",
     "critical_count": 3,
     "high_count": 10,
-    "medium_count": 2,
+    "medium_count": 4,
     "low_count": 0,
     "info_count": 0,
     "suppressed_count": 0,
@@ -638,6 +638,102 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "support": null
+      },
+      {
+        "id": "fp_4252fd1a8b26182f",
+        "fingerprint": "fp_4252fd1a8b26182f",
+        "check_id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
+        "severity": "medium",
+        "title": "send_email_preview overrides inferred external_communication evidence with a reviewed read declaration",
+        "baseline_status": null,
+        "blocks_release": false,
+        "source": {
+          "type": "mcp",
+          "ref": "inventories/sdk-tools.json",
+          "location": null,
+          "path": "inventories/sdk-tools.json",
+          "start_line": null,
+          "end_line": null,
+          "start_column": null,
+          "pointer": "/tools/0"
+        },
+        "policy_evidence_source": null,
+        "capability_refs": [],
+        "capability_trace_refs": [],
+        "support": {
+          "status": "matched",
+          "confidence": "high",
+          "policy_eligible": true,
+          "blocking_eligible": true,
+          "claim_ids": [],
+          "evidence_bases": [
+            "protocol_structure"
+          ],
+          "predicates": [
+            {
+              "predicate": "deterministic_action_rule",
+              "status": "matched",
+              "expected": null,
+              "observed": "agent:support-refund-agent/refund-assistant:action_v2_b911aaa646a844c9677c20c2d431f761b5614ebda2de458bdb7dc726bbdfd301",
+              "confidence": "high",
+              "claim_ids": [],
+              "evidence_bases": [
+                "protocol_structure"
+              ],
+              "policy_eligible": true,
+              "why": null
+            }
+          ],
+          "support_hash": "sha256:326891ba14bc671a63c5b4c37adfa36d06e56ef0ee2dde02bdc37b78f4a19e7a"
+        }
+      },
+      {
+        "id": "fp_2c87a1e5fc91f47f",
+        "fingerprint": "fp_2c87a1e5fc91f47f",
+        "check_id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
+        "severity": "medium",
+        "title": "support.search_kb overrides inferred financial_write evidence with a reviewed read declaration",
+        "baseline_status": null,
+        "blocks_release": false,
+        "source": {
+          "type": "mcp",
+          "ref": ".agents-shipgate/mcp-tools.json",
+          "location": null,
+          "path": ".agents-shipgate/mcp-tools.json",
+          "start_line": null,
+          "end_line": null,
+          "start_column": null,
+          "pointer": "/tools/0"
+        },
+        "policy_evidence_source": null,
+        "capability_refs": [],
+        "capability_trace_refs": [],
+        "support": {
+          "status": "matched",
+          "confidence": "high",
+          "policy_eligible": true,
+          "blocking_eligible": true,
+          "claim_ids": [],
+          "evidence_bases": [
+            "protocol_structure"
+          ],
+          "predicates": [
+            {
+              "predicate": "deterministic_action_rule",
+              "status": "matched",
+              "expected": null,
+              "observed": "agent:support-refund-agent/refund-assistant:action_v2_682344eae98583040eeb4097983ca88cb606b70e2e552528ddcfb1a76f18841d",
+              "confidence": "high",
+              "claim_ids": [],
+              "evidence_bases": [
+                "protocol_structure"
+              ],
+              "policy_eligible": true,
+              "why": null
+            }
+          ],
+          "support_hash": "sha256:4090f53fd91c20dc4bc228b031bca10c0694f2a52448d9077132dccbe0e1dd8c"
+        }
       }
     ],
     "evidence_coverage": {
@@ -823,56 +919,6 @@
             "accepted_values": [
               "match_structural_graph",
               "correct_source_wiring"
-            ],
-            "suggested_patch_kind": "manual",
-            "declaration_template": null,
-            "auto_apply": false,
-            "requires_human_review": true
-          }
-        },
-        {
-          "kind": "mixed_policy_evidence",
-          "subject": "support.search_kb [support_mcp_tools]",
-          "subject_id": "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a",
-          "source_type": null,
-          "source_ref": ".agents-shipgate/mcp-tools.json",
-          "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
-          "next_action": {
-            "kind": "review_policy_evidence",
-            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-            "path": "shipgate.yaml#action_surface.actions[tool='support.search_kb'].effect",
-            "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
-            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
-            "accepted_values": [
-              "reviewed_declaration",
-              "protocol_structure",
-              "typed_provider_fact",
-              "structural_scope"
-            ],
-            "suggested_patch_kind": "manual",
-            "declaration_template": null,
-            "auto_apply": false,
-            "requires_human_review": true
-          }
-        },
-        {
-          "kind": "mixed_policy_evidence",
-          "subject": "send_email_preview [openai_sdk_static]",
-          "subject_id": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
-          "source_type": null,
-          "source_ref": "inventories/sdk-tools.json",
-          "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
-          "next_action": {
-            "kind": "review_policy_evidence",
-            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-            "path": "shipgate.yaml#action_surface.actions[tool='send_email_preview'].effect",
-            "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
-            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
-            "accepted_values": [
-              "reviewed_declaration",
-              "protocol_structure",
-              "typed_provider_fact",
-              "structural_scope"
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
@@ -1106,7 +1152,7 @@
           "conflicting_binding_evidence": 1
         }
       },
-      "policy_gap_count": 9
+      "policy_gap_count": 7
     },
     "baseline_delta": {
       "enabled": false,
@@ -1218,6 +1264,22 @@
         "finding_id": "fp_609d62f4dc434961",
         "fingerprint": "fp_609d62f4dc434961",
         "check_id": "SHIP-MANIFEST-UNUSED-SCOPE",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=medium); routed to review_items."
+      },
+      {
+        "finding_id": "fp_4252fd1a8b26182f",
+        "fingerprint": "fp_4252fd1a8b26182f",
+        "check_id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=medium); routed to review_items."
+      },
+      {
+        "finding_id": "fp_2c87a1e5fc91f47f",
+        "fingerprint": "fp_2c87a1e5fc91f47f",
+        "check_id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
         "category": "review_item",
         "rule": "review_required",
         "rationale": "requires_human_review=true (severity=medium); routed to review_items."
@@ -1944,6 +2006,7 @@
       "included_reason": "referenced_by_medium_finding",
       "control_status": "partial",
       "related_findings": [
+        "fp_4252fd1a8b26182f",
         "fp_70c544942ba7c6ab"
       ]
     },
@@ -2674,7 +2737,8 @@
       "included_reason": "referenced_by_high_finding",
       "control_status": "missing",
       "related_findings": [
-        "fp_24d610b0d4324190"
+        "fp_24d610b0d4324190",
+        "fp_2c87a1e5fc91f47f"
       ]
     }
   ],
@@ -3004,13 +3068,45 @@
       "policy_requirement": "Manifest permissions should only include scopes used by loaded tools.",
       "gap": "Manifest declares unused permission scope zendesk:tickets:read.",
       "release_implication": "Release may include stale or unnecessary permission grants."
+    },
+    {
+      "id": "mis_01d7ba14ab6bd7c8",
+      "kind": "undetected_gap",
+      "severity": "medium",
+      "tool_name": "send_email_preview",
+      "capability_refs": [
+        "cap_26b4e442907a45af"
+      ],
+      "intention_refs": [],
+      "finding_refs": [
+        "fp_4252fd1a8b26182f"
+      ],
+      "policy_requirement": "Static review requires deterministic evidence for release gaps.",
+      "gap": "send_email_preview overrides inferred external_communication evidence with a reviewed read declaration.",
+      "release_implication": "Human review is required to interpret this finding."
+    },
+    {
+      "id": "mis_f22f0c5528859a23",
+      "kind": "undetected_gap",
+      "severity": "medium",
+      "tool_name": "support.search_kb",
+      "capability_refs": [
+        "cap_6b87864148184ced"
+      ],
+      "intention_refs": [],
+      "finding_refs": [
+        "fp_2c87a1e5fc91f47f"
+      ],
+      "policy_requirement": "Static review requires deterministic evidence for release gaps.",
+      "gap": "support.search_kb overrides inferred financial_write evidence with a reviewed read declaration.",
+      "release_implication": "Human review is required to interpret this finding."
     }
   ],
   "release_consequence": {
     "decision": "blocked",
     "summary": "5 release-relevant finding(s) map to active release blockers; resolve required controls or remove the capability.",
     "blocker_misalignment_count": 5,
-    "review_misalignment_count": 10,
+    "review_misalignment_count": 12,
     "fail_policy": {
       "ci_mode": "advisory",
       "fail_on": [],
@@ -6363,6 +6459,154 @@
       "requires_human_review": true,
       "suggested_patch_kind": "manual",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-manifest-unused-scope",
+      "agent_action": "escalate_to_human"
+    },
+    {
+      "id": "fp_4252fd1a8b26182f",
+      "fingerprint": "fp_4252fd1a8b26182f",
+      "check_id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
+      "title": "send_email_preview overrides inferred external_communication evidence with a reviewed read declaration",
+      "severity": "medium",
+      "category": "action_surface",
+      "tool_id": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+      "tool_name": "send_email_preview",
+      "agent_id": "agent:support-refund-agent/refund-assistant",
+      "evidence": {
+        "action_id": "agent:support-refund-agent/refund-assistant:action_v2_b911aaa646a844c9677c20c2d431f761b5614ebda2de458bdb7dc726bbdfd301",
+        "declared_effect": "read",
+        "inferred_effect": "external_communication",
+        "inferred_evidence": [
+          "external_communication"
+        ],
+        "evidence_sources": [
+          "risk_hint:keyword"
+        ],
+        "acknowledged": true,
+        "override_reason": "Renders a draft for the agent to show; gmail.send_customer_email delivers."
+      },
+      "confidence": "high",
+      "provenance_kind": "static_declaration",
+      "source": {
+        "type": "mcp",
+        "ref": "inventories/sdk-tools.json",
+        "location": null,
+        "path": "inventories/sdk-tools.json",
+        "pointer": "/tools/0"
+      },
+      "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "policy_routing": null,
+      "support": {
+        "status": "matched",
+        "confidence": "high",
+        "policy_eligible": true,
+        "blocking_eligible": true,
+        "claim_ids": [],
+        "evidence_bases": [
+          "protocol_structure"
+        ],
+        "predicates": [
+          {
+            "predicate": "deterministic_action_rule",
+            "status": "matched",
+            "expected": null,
+            "observed": "agent:support-refund-agent/refund-assistant:action_v2_b911aaa646a844c9677c20c2d431f761b5614ebda2de458bdb7dc726bbdfd301",
+            "confidence": "high",
+            "claim_ids": [],
+            "evidence_bases": [
+              "protocol_structure"
+            ],
+            "policy_eligible": true,
+            "why": null
+          }
+        ],
+        "support_hash": "sha256:326891ba14bc671a63c5b4c37adfa36d06e56ef0ee2dde02bdc37b78f4a19e7a"
+      },
+      "capability_trace_refs": [],
+      "recommendation": "Confirm the recorded override for send_email_preview: Renders a draft for the agent to show; gmail.send_customer_email delivers.",
+      "blocks_release": false,
+      "suppressed": false,
+      "suppression_reason": null,
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-effect-overrides-evidence",
+      "agent_action": "escalate_to_human"
+    },
+    {
+      "id": "fp_2c87a1e5fc91f47f",
+      "fingerprint": "fp_2c87a1e5fc91f47f",
+      "check_id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
+      "title": "support.search_kb overrides inferred financial_write evidence with a reviewed read declaration",
+      "severity": "medium",
+      "category": "action_surface",
+      "tool_id": "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a",
+      "tool_name": "support.search_kb",
+      "agent_id": "agent:support-refund-agent/refund-assistant",
+      "evidence": {
+        "action_id": "agent:support-refund-agent/refund-assistant:action_v2_682344eae98583040eeb4097983ca88cb606b70e2e552528ddcfb1a76f18841d",
+        "declared_effect": "read",
+        "inferred_effect": "financial_write",
+        "inferred_evidence": [
+          "financial_write"
+        ],
+        "evidence_sources": [
+          "risk_hint:keyword"
+        ],
+        "acknowledged": true,
+        "override_reason": "Read-only knowledge-base search; the refund wording is topical."
+      },
+      "confidence": "high",
+      "provenance_kind": "static_declaration",
+      "source": {
+        "type": "mcp",
+        "ref": ".agents-shipgate/mcp-tools.json",
+        "location": null,
+        "path": ".agents-shipgate/mcp-tools.json",
+        "pointer": "/tools/0"
+      },
+      "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "policy_routing": null,
+      "support": {
+        "status": "matched",
+        "confidence": "high",
+        "policy_eligible": true,
+        "blocking_eligible": true,
+        "claim_ids": [],
+        "evidence_bases": [
+          "protocol_structure"
+        ],
+        "predicates": [
+          {
+            "predicate": "deterministic_action_rule",
+            "status": "matched",
+            "expected": null,
+            "observed": "agent:support-refund-agent/refund-assistant:action_v2_682344eae98583040eeb4097983ca88cb606b70e2e552528ddcfb1a76f18841d",
+            "confidence": "high",
+            "claim_ids": [],
+            "evidence_bases": [
+              "protocol_structure"
+            ],
+            "policy_eligible": true,
+            "why": null
+          }
+        ],
+        "support_hash": "sha256:4090f53fd91c20dc4bc228b031bca10c0694f2a52448d9077132dccbe0e1dd8c"
+      },
+      "capability_trace_refs": [],
+      "recommendation": "Confirm the recorded override for support.search_kb: Read-only knowledge-base search; the refund wording is topical.",
+      "blocks_release": false,
+      "suppressed": false,
+      "suppression_reason": null,
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-effect-overrides-evidence",
       "agent_action": "escalate_to_human"
     },
     {
@@ -10573,56 +10817,6 @@
   ],
   "policy_evidence_gaps": [
     {
-      "kind": "mixed_policy_evidence",
-      "subject": "support.search_kb [support_mcp_tools]",
-      "subject_id": "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a",
-      "source_type": null,
-      "source_ref": ".agents-shipgate/mcp-tools.json",
-      "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
-      "next_action": {
-        "kind": "review_policy_evidence",
-        "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-        "path": "shipgate.yaml#action_surface.actions[tool='support.search_kb'].effect",
-        "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
-        "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
-        "accepted_values": [
-          "reviewed_declaration",
-          "protocol_structure",
-          "typed_provider_fact",
-          "structural_scope"
-        ],
-        "suggested_patch_kind": "manual",
-        "declaration_template": null,
-        "auto_apply": false,
-        "requires_human_review": true
-      }
-    },
-    {
-      "kind": "mixed_policy_evidence",
-      "subject": "send_email_preview [openai_sdk_static]",
-      "subject_id": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
-      "source_type": null,
-      "source_ref": "inventories/sdk-tools.json",
-      "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
-      "next_action": {
-        "kind": "review_policy_evidence",
-        "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-        "path": "shipgate.yaml#action_surface.actions[tool='send_email_preview'].effect",
-        "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
-        "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
-        "accepted_values": [
-          "reviewed_declaration",
-          "protocol_structure",
-          "typed_provider_fact",
-          "structural_scope"
-        ],
-        "suggested_patch_kind": "manual",
-        "declaration_template": null,
-        "auto_apply": false,
-        "requires_human_review": true
-      }
-    },
-    {
       "kind": "inferred_policy_applicability",
       "subject": "send_email_preview [openai_sdk_static]",
       "subject_id": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
@@ -10800,11 +10994,11 @@
   ],
   "agent_summary": {
     "verdict": "blocked",
-    "headline": "5 active finding(s) block release; 10 review item(s) accepted as debt.",
+    "headline": "5 active finding(s) block release; 12 review item(s) accepted as debt.",
     "blocker_count": 5,
-    "review_item_count": 10,
+    "review_item_count": 12,
     "auto_appliable_patches": 0,
-    "needs_human_review": 15,
+    "needs_human_review": 17,
     "first_recommended_action": {
       "kind": "info",
       "command": null,
@@ -10840,9 +11034,9 @@
   },
   "reviewer_summary": {
     "verdict": "blocked",
-    "headline": "Release blocked: 15 lens changes. Start at release_decision.",
+    "headline": "Release blocked: 17 lens changes. Start at release_decision.",
     "tool_surface_changes": 0,
-    "capability_misalignments": 15,
+    "capability_misalignments": 17,
     "action_surface_changes": 0,
     "evidence_matrix_gaps": 0,
     "severity_overrides_applied": 0,
@@ -10889,9 +11083,10 @@
     "by_severity": {
       "critical": 3,
       "high": 10,
-      "medium": 2
+      "medium": 4
     },
     "by_reason_code": {
+      "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE": 2,
       "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING": 2,
       "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING": 1,
       "SHIP-AUTH-MANIFEST-BROAD-SCOPE": 1,

@@ -78,6 +78,7 @@ SemanticIssueKind = Literal[
     "missing_effect_evidence",
     "inferred_effect_only",
     "conflicting_effect_evidence",
+    "declaration_below_inferred_evidence",
     "missing_authority_evidence",
     "partial_authority_evidence",
     "conflicting_authority_evidence",

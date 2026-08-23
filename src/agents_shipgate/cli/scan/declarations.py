@@ -98,6 +98,24 @@ _FIELD_HINTS: dict[str, str] = {
         "every agent this one can hand off to, by name. Covered by "
         "`complete:` above, so an agent missing here is asserted unreachable."
     ),
+    "override": (
+        "this block is the second of two ways out. Either delete it and raise "
+        "`effect` to the observed effect listed below, or keep `effect` as it "
+        "stands and fill in the reason — the declaration wins either way, but "
+        "a declaration below the evidence is recorded rather than assumed."
+    ),
+    "override.evidence": (
+        "filled in from what this scan observed; leave it exactly as written. "
+        "An override is only accepted when it names precisely the inferred "
+        "effects sitting above the declared one, so that new evidence — or "
+        "evidence that has since disappeared — re-opens the question instead "
+        "of passing under an old answer."
+    ),
+    "override.reason": (
+        "why the declared effect is right despite the evidence above, in your "
+        "own words. This is a reviewed exception, not a correction: it is "
+        "always reported for a reviewer to read, and it never blocks."
+    ),
     "tool_inventories.path": (
         "repo-relative path where you saved the reviewed inventory (for "
         "example `inventories/tools.json`). Start from the skeleton written "

@@ -625,6 +625,37 @@ cannot erase the stronger effect. Manual positive risk tags may escalate risk,
 but cannot prove read-only safety or independently close an effect gap. Setting
 inherited approval or safeguards from `true` to `false` emits
 `SHIP-ACTION-CONTROL-DOWNGRADE`.
+
+The same rule holds one tier down, against *inferred* evidence. Where a
+declared effect is weaker than a heuristic observation for the same tool, the
+declaration still stands as the operative effect — a human outranks a
+heuristic, and heuristics never drive policy — but the disagreement is
+recorded rather than assumed. The action raises a
+`declaration_below_inferred_evidence` evidence gap and a review-tier
+`SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE` finding that never blocks. Close it by
+raising `effect`, or by recording the override:
+
+```yaml
+action_surface:
+  actions:
+    - tool: send_email_preview
+      effect: read
+      override:
+        evidence: [external_communication]
+        reason: Renders a draft; gmail.send_customer_email delivers.
+```
+
+`override.evidence` must name exactly the inferred effects currently observed
+above the declared one. Naming more would let one edit pre-acknowledge
+evidence that has not appeared yet; naming fewer leaves an observation
+unanswered. Either way the gap re-opens, so an override stays tied to the
+evidence that justified it as the code underneath changes. An accepted
+override restores pass eligibility and resolves the matching
+`builtin-effect-control-applicability` policy gap, and still reports its
+finding — an override is never silent. `override` requires `effect`, a
+non-empty `evidence` list that does not repeat the declared effect, and a
+non-blank `reason`. Declarations that agree with or escalate above the
+evidence stay silent; only de-escalation is reported.
 Agents Shipgate still creates an action fact for every loaded tool when no
 declaration is present; set
 `require_explicit_actions: true` to emit `SHIP-ACTION-UNDECLARED` for tools
@@ -705,6 +736,8 @@ Known `policies[].require` paths:
 | `evidence.runbook` | string |
 | `evidence.approval_ticket` | string |
 | `effect` | one of `read`, `write`, `destructive`, `external_communication`, `financial_write`, `production_operation`, `privileged_data_access`, `code_execution`, `identity_access` |
+| `override.evidence` | list of effect values, exactly the inferred effects observed above `effect` |
+| `override.reason` | non-blank string |
 | `scopes` / `required_scopes` | list of strings |
 | `risk_tags` | list of strings |
 | `input_fields` | list of strings |
@@ -721,6 +754,8 @@ destructive actions; confirmation and audit logging for external communication;
 and approval for production operations and code execution. They also cover
 wildcard/admin scopes. Diff-only findings add severity for effect escalation,
 declared effect/control downgrades, approval removal, and safeguard removal.
+A declared effect below inferred evidence is reported on the current surface
+by `SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE`, which never blocks.
 
 ## Validation Evidence Artifacts
 

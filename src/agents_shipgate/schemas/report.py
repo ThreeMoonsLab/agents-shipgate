@@ -425,6 +425,7 @@ class EvidenceGap(BaseModel):
         "missing_effect_evidence",
         "inferred_effect_only",
         "conflicting_effect_evidence",
+        "declaration_below_inferred_evidence",
         "missing_authority_evidence",
         "partial_authority_evidence",
         "conflicting_authority_evidence",
@@ -1022,7 +1023,7 @@ class ReadinessReport(BaseModel):
     # release gate remains ``release_decision.decision``, but a subject this
     # change newly excluded now reaches it as an evidence gap instead of
     # disappearing between stages (#403).
-    report_schema_version: str = "0.35"
+    report_schema_version: str = "0.36"
     run_id: str
     request_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
     subject_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)

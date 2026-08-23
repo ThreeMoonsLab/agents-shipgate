@@ -6,10 +6,58 @@ This document is the contract. If the runtime ever diverges from what's document
 
 Shipgate is pre-1.0. The CLI surface, exit codes, and `contract_version`
 described here are stable within the `0.x` line, but the `report.json` schema
-(`report_schema_version`, currently `0.35`) is still additive-versioned and
+(`report_schema_version`, currently `0.36`) is still additive-versioned and
 not yet frozen. A `1.0` line will not begin until the report schema reaches
 `1.0` and holds without a breaking change. Pin a version (or the Action tag)
 for reproducible CI.
+
+---
+
+<a id="migration-note-unreleased-declaration-below-inferred-evidence"></a>
+
+## Migration Note: unreleased — a declaration below the evidence is recorded
+
+`report_schema_version` moves `0.35` → `0.36`; `docs/report-schema.v0.35.json`
+is frozen. `contract_version` and `minimum_control_contract_version` are
+unchanged, and the manifest stays `version: "0.1"`. Both changes are additive:
+one new value in a frozen union, one new optional manifest field.
+
+**New evidence-gap kind: `declaration_below_inferred_evidence.`** It is raised
+on an action whose declared `action_surface.actions[].effect` is weaker than an
+*inferred* effect observation for the same tool — a keyword risk hint, for
+example, rather than a protocol fact. Before, that combination raised nothing
+in the semantic dimension: the declaration closed the `inferred_effect_only`
+gap the heuristic itself had produced, and the action reported
+`pass_eligible: true`.
+
+A consumer that switches exhaustively on `EvidenceGap.kind` or
+`SemanticIssueKind` must accept the new value. Consumers that already treat any
+gap as a gap need no change; the verdict vocabulary is unchanged, and the new
+gap reaches `insufficient_evidence` by the same route every other semantic gap
+does.
+
+**New finding: `SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE`,** default and floor
+severity `medium`, `blocks_release: false`. It reports the same disagreement
+for a human reader and never blocks a release; heuristic evidence still cannot
+drive policy. Repositories that gate on `fail_on: [medium]` will see it in that
+tier like any other medium finding.
+
+**New manifest field: `action_surface.actions[].override`,** an object with a
+non-empty `evidence` list of effect values and a non-blank `reason`. It
+requires `effect` on the same row and may not repeat it. An accepted override
+closes the gap, restores pass eligibility, and resolves the matching
+`builtin-effect-control-applicability` policy gap — and still reports its
+finding. `evidence` must name exactly the inferred effects observed above the
+declared effect, so an override that has drifted from its evidence re-opens the
+question rather than passing under an old answer.
+
+**What may change for an existing repository.** Any manifest that already
+declares an effect below an inferred observation gains one gap, one finding,
+and one non-pass-eligible action, which can move a `passed` or `review_required`
+verdict to `insufficient_evidence`. Two shipped samples were in exactly that
+state and now carry reviewed overrides
+(`samples/support_refund_agent`, `samples/ai_generated_refund_pr`). Nothing
+that previously blocked stops blocking.
 
 ---
 

@@ -143,6 +143,48 @@ class ActionAuthorityConfig(BaseModel):
     reason: str | None = None
 
 
+class ActionOverrideConfig(BaseModel):
+    """A recorded, reviewed de-escalation below the evidence Shipgate observed.
+
+    Declarations may freely agree with or escalate above derived evidence; that
+    stays silent. Declaring an effect *below* an inferred observation is the
+    one direction that needs a record, because it is the path of least
+    resistance for anyone the gate is blocking (#409).
+
+    ``evidence`` lists the inferred effect values this declaration overrides,
+    and it must name exactly the values currently observed above the declared
+    effect — no more, no less. Listing more would let one edit pre-acknowledge
+    evidence that has not appeared yet and go permanently silent; listing fewer
+    leaves the uncovered value unanswered. Both re-open the question, which is
+    what keeps the override honest as the code underneath it changes.
+    """
+
+    model_config = STRICT_MODEL_CONFIG
+
+    evidence: list[ActionEffect] = Field(min_length=1)
+    reason: str
+
+    @field_validator("evidence")
+    @classmethod
+    def validate_unique_evidence(cls, evidence: list[ActionEffect]) -> list[ActionEffect]:
+        if len(set(evidence)) != len(evidence):
+            raise ValueError(
+                "action_surface.actions[].override.evidence must not repeat an effect"
+            )
+        return evidence
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, reason: str) -> str:
+        value = reason.strip()
+        if not value:
+            raise ValueError(
+                "action_surface.actions[].override.reason must state why the declared "
+                "effect is correct despite the observed evidence"
+            )
+        return value
+
+
 class ActionDeclarationConfig(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
@@ -154,6 +196,7 @@ class ActionDeclarationConfig(BaseModel):
     provider: str | None = None
     operation: str | None = None
     effect: ActionEffect | None = None
+    override: ActionOverrideConfig | None = None
     risk_tags: list[ActionRiskTag] = Field(default_factory=list)
     scopes: list[str] = Field(default_factory=list)
     authority: ActionAuthorityConfig | None = None
@@ -173,6 +216,23 @@ class ActionDeclarationConfig(BaseModel):
                 )
             normalized.append(value)
         return normalized
+
+    @model_validator(mode="after")
+    def validate_override(self) -> ActionDeclarationConfig:
+        override = self.override
+        if override is None:
+            return self
+        if self.effect is None:
+            raise ValueError(
+                "action_surface.actions[].override requires effect; an override with "
+                "no declared effect overrides nothing"
+            )
+        if self.effect in override.evidence:
+            raise ValueError(
+                "action_surface.actions[].override.evidence must not repeat the declared "
+                f"effect {self.effect!r}; it lists the evidence being overridden"
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_authority(self) -> ActionDeclarationConfig:

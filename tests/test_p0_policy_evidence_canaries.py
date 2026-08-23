@@ -357,10 +357,25 @@ action_surface:
     assert exit_code == 20
     assert report.release_decision is not None
     assert report.release_decision.decision == "insufficient_evidence"
-    assert report.findings == []
+    # The heuristic still cannot drive policy: nothing it says may block, and
+    # nothing it says may be upgraded into a hard control. What it may now do
+    # is challenge the declaration that sits below it — a review-tier finding
+    # that names both values and never blocks (#409).
+    assert [finding.check_id for finding in report.findings] == [
+        "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE"
+    ]
+    override_finding = report.findings[0]
+    assert override_finding.severity == "medium"
+    assert override_finding.blocks_release is False
+    assert override_finding.evidence["declared_effect"] == "write"
+    assert override_finding.evidence["inferred_effect"] == "financial_write"
+    assert override_finding.evidence["acknowledged"] is False
     action = report.action_surface_facts.actions[0]
     assert action.semantic_assessment is not None
-    assert action.semantic_assessment.pass_eligible is True
+    # Pre-#409 this was pass-eligible: the discarded escalation reached the
+    # verdict only through the policy-applicability gap below, while the
+    # semantic dimension reported the contradicting declaration as settled.
+    assert action.semantic_assessment.pass_eligible is False
     gaps = [
         gap
         for gap in report.policy_evidence_gaps

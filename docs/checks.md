@@ -61,6 +61,7 @@ baseline summary and do not fail CI.
 | `SHIP-ACTION-WILDCARD-SCOPE` | critical | An action declares or expands into a wildcard/admin-like scope. |
 | `SHIP-ACTION-EFFECT-ESCALATED` | critical | An action effect escalated compared with the base surface. |
 | `SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED` | high | An action declaration weakens the effect inferred from the loaded tool surface. |
+| `SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE` | medium | An action declaration is weaker than inferred effect evidence for the same tool. |
 | `SHIP-ACTION-CONTROL-DOWNGRADE` | high | An action declaration weakens an inherited approval or safeguard control. |
 | `SHIP-ACTION-APPROVAL-REMOVED` | critical | An existing action approval policy was removed. |
 | `SHIP-ACTION-SAFEGUARD-REMOVED` | high | An existing action safeguard was removed. |
@@ -293,6 +294,42 @@ destructive. Add reviewer approval for the escalation or reduce the effect.
 An `action_surface.actions[]` declaration sets a lower-risk effect than
 Shipgate inferred from the loaded tool metadata. Align the declared effect
 with the inferred operation or remove the weaker declaration.
+
+### SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE
+
+An `action_surface.actions[]` declaration sets a lower-risk effect than an
+*inferred* observation for the same tool — a heuristic risk hint, for example,
+rather than a protocol fact. The declaration still stands as the operative
+effect: a human outranks a heuristic, and heuristics never drive policy. What
+this check does is refuse to let the disagreement go unrecorded, so a reviewer
+sees which observation the declaration overrides before trusting it. It never
+blocks a release.
+
+Close it in one of two ways. Raise `action_surface.actions[].effect` to the
+observed effect, or keep the declared effect and record the override:
+
+```yaml
+action_surface:
+  actions:
+    - tool: send_email
+      effect: read
+      override:
+        evidence: [external_communication]
+        reason: Renders a preview only; delivery happens in send_email_now.
+```
+
+`override.evidence` must name exactly the inferred effects currently observed
+above the declared one — no more, no less. Naming more would let one edit
+pre-acknowledge evidence that has not appeared yet; naming fewer leaves an
+observation unanswered. Either way the question re-opens as an evidence gap,
+which is what keeps the override honest as the code underneath it changes.
+An acknowledged override still reports this finding, so the record survives
+into the reviewer's view; only the evidence gap is closed.
+
+`--no-heuristics` does not clear this finding. What fired is a deterministic
+comparison between two values already in the report, not the heuristic itself,
+and the observation it names is listed in `evidence.evidence_sources` so a
+reader can judge the source for themselves.
 
 ### SHIP-ACTION-CONTROL-DOWNGRADE
 

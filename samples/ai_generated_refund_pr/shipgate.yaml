@@ -38,6 +38,11 @@ action_surface:
   actions:
     - tool: support.search_kb
       effect: read
+      # "refund" in the tool text trips the financial-write keyword heuristic.
+      # The reviewed effect stands; the override records that decision.
+      override:
+        evidence: [financial_write]
+        reason: Read-only knowledge-base search; the refund wording is topical.
       scopes: [support:kb:read]
       authority:
         mode: scoped

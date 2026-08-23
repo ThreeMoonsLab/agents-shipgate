@@ -18,22 +18,20 @@ from agents_shipgate.core.domain import (
     ToolIdentityAssessment,
     ToolSemanticAssessment,
 )
+from agents_shipgate.core.effect_override import (
+    EFFECT_EVIDENCE_RANK as _EFFECT_RANK,
+)
+from agents_shipgate.core.effect_override import (
+    EFFECT_EVIDENCE_VALUES as _EFFECT_VALUES,
+)
+from agents_shipgate.core.effect_override import (
+    assess_effect_override,
+    render_override_issue,
+)
 from agents_shipgate.schemas.common import Confidence, ProvenanceKind, confidence_rank
 from agents_shipgate.schemas.manifest import ActionDeclarationConfig
 from agents_shipgate.schemas.surfaces import ActionEffect
 
-_EFFECT_RANK: dict[ActionEffect, int] = {
-    "read": 0,
-    "write": 1,
-    "privileged_data_access": 2,
-    "identity_access": 3,
-    "code_execution": 4,
-    "production_operation": 5,
-    "external_communication": 6,
-    "financial_write": 7,
-    "destructive": 8,
-}
-_EFFECT_VALUES = frozenset(_EFFECT_RANK)
 _MCP_SOURCE_TYPES = frozenset(
     {
         "mcp",
@@ -495,8 +493,30 @@ def _assess_effect(
                 )
             )
         else:
+            # The declaration stands as the operative effect: human authority
+            # outranks a heuristic, and #357 keeps heuristics out of the
+            # driver's seat. What #409 restores is the *other* power — an
+            # observation the resolver already recorded may say that the
+            # declaration disagrees with it. Only de-escalation is reported;
+            # a declaration at or above every observation is silent, so the
+            # rule is monotone and conservative answers cost nothing.
             status = "declared"
             confidence = "high"
+            override = assess_effect_override(
+                claims,
+                declared_effect=declared_effect,
+                override=declaration.override,
+            )
+            if override is not None and not override.acknowledged:
+                issues.append(
+                    _issue(
+                        "declaration_below_inferred_evidence",
+                        "effect",
+                        render_override_issue(override),
+                        "action_surface_declaration",
+                        f"action_surface.actions[tool={tool.name!r}].effect",
+                    )
+                )
     elif structural:
         high_structural = [claim for claim in structural if claim.confidence == "high"]
         has_read = any(claim.value == "read" for claim in high_structural)

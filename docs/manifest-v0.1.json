@@ -171,6 +171,17 @@
           "default": null,
           "title": "Operation"
         },
+        "override": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ActionOverrideConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "provider": {
           "anyOf": [
             {
@@ -321,6 +332,41 @@
         }
       },
       "title": "ActionEvidenceConfig",
+      "type": "object"
+    },
+    "ActionOverrideConfig": {
+      "additionalProperties": false,
+      "description": "A recorded, reviewed de-escalation below the evidence Shipgate observed.\n\nDeclarations may freely agree with or escalate above derived evidence; that\nstays silent. Declaring an effect *below* an inferred observation is the\none direction that needs a record, because it is the path of least\nresistance for anyone the gate is blocking (#409).\n\n``evidence`` lists the inferred effect values this declaration overrides,\nand it must name exactly the values currently observed above the declared\neffect \u2014 no more, no less. Listing more would let one edit pre-acknowledge\nevidence that has not appeared yet and go permanently silent; listing fewer\nleaves the uncovered value unanswered. Both re-open the question, which is\nwhat keeps the override honest as the code underneath it changes.",
+      "properties": {
+        "evidence": {
+          "items": {
+            "enum": [
+              "read",
+              "write",
+              "destructive",
+              "external_communication",
+              "financial_write",
+              "production_operation",
+              "privileged_data_access",
+              "code_execution",
+              "identity_access"
+            ],
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence",
+        "reason"
+      ],
+      "title": "ActionOverrideConfig",
       "type": "object"
     },
     "ActionPolicyConfig": {

@@ -1417,17 +1417,27 @@ def test_source_qualified_action_rows_survive_inventory_completion(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     (project / "agent.py").write_text(_ADK_AGENT_SOURCE, encoding="utf-8")
+    # Both names trip the ``external_communication`` keyword heuristic, so both
+    # rows carry the reviewed override that answers it (#409). Nothing here is
+    # about effects — the override is what keeps these two rows fully applied,
+    # which is the property this test measures across the rekeying.
     declarations = """
 action_surface:
   actions:
     - tool: get_manager_email
       source_id: adk_agent
       effect: read
+      override:
+        evidence: [external_communication]
+        reason: reviewed - reads a directory entry and sends nothing
       authority:
         mode: none
     - tool: send_email
       source_id: adk_agent
       effect: write
+      override:
+        evidence: [external_communication]
+        reason: reviewed - queues an internal draft, delivery is out of scope
       authority:
         mode: none
 """
