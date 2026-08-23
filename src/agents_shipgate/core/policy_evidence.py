@@ -136,6 +136,7 @@ def policy_evidence_gap(
     *,
     status: PolicyMatchStatus,
     subject: str,
+    subject_id: str | None = None,
     policy_id: str,
     source_ref: str | None,
     support: FindingSupport,
@@ -170,6 +171,7 @@ def policy_evidence_gap(
     return EvidenceGap(
         kind=cast(Any, kind),
         subject=subject,
+        subject_id=subject_id,
         source_ref=source_ref,
         why=f"{policy_id}: {why}",
         next_action=EvidenceGapAction(

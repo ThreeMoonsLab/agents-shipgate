@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -25,14 +26,36 @@ from agents_shipgate.core.lenses.action_surface import (
 )
 from agents_shipgate.core.policy_evidence import policy_evidence_gap
 from agents_shipgate.core.severity_overrides import resolve_severity_overrides
+from agents_shipgate.core.surface_exclusions import catalog_subject
 from agents_shipgate.inputs.policy_packs import run_policy_pack_rules
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest, CiConfig
+from agents_shipgate.schemas.report import Finding
 from agents_shipgate.schemas.verification import VerificationContext
 
 from .models import _ChecksDecision, _DiffReferences, _LoadedInputs, _ToolsAndAgent
 from .patching import _attach_patches, _check_metadata_lookup
 
 logger = logging.getLogger(__name__)
+
+
+def _gap_subject(finding: Finding, catalog_rows: Mapping[str, Mapping[str, Any]]) -> str:
+    """Name a policy-evidence gap the way every other tool-scoped gap names it.
+
+    ``EvidenceGap.subject`` is a display label — identity travels in
+    ``subject_id``, which the caller sets from the same finding. This subject
+    used to be the canonical tool id verbatim: a 64-hex digest reaching the
+    CLI's ``Improve evidence:`` line, the decision reason, and the GitHub step
+    summary, none of which give a reader anything to act on. Falls back to the
+    raw id only when neither a catalog row nor a name exists to render, which
+    is what ``catalog_subject`` already does.
+    """
+
+    tool_id = finding.tool_id
+    if tool_id:
+        return catalog_subject(
+            catalog_rows.get(tool_id) or {"tool_id": tool_id, "name": finding.tool_name}
+        )
+    return finding.tool_name or finding.agent_id or finding.check_id
 
 
 def _run_checks_and_decide(
@@ -142,6 +165,10 @@ def _run_checks_and_decide(
         )
     )
     findings = dedupe_findings(findings)
+    catalog_rows: dict[str, Mapping[str, Any]] = {
+        tool.id: {"tool_id": tool.id, "name": tool.name, "provider": tool.provider}
+        for tool in tools_and_agent.tool_catalog
+    }
     policy_eligible_findings = []
     for finding in findings:
         support = finding.support
@@ -152,7 +179,8 @@ def _run_checks_and_decide(
         context.policy_evidence_gaps.append(
             policy_evidence_gap(
                 status=support.status,
-                subject=finding.tool_id or finding.tool_name or finding.agent_id or finding.check_id,
+                subject=_gap_subject(finding, catalog_rows),
+                subject_id=finding.tool_id,
                 policy_id=finding.check_id,
                 source_ref=(source.path or source.ref) if source is not None else None,
                 support=support,

@@ -18,15 +18,19 @@ claim (#385). It has to stay visible in the ledger and stay out of the gate.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
 
 from agents_shipgate.cli.scan.orchestrator import run_scan
+from agents_shipgate.core.evidence_actions import evidence_gap_headline
 from agents_shipgate.core.semantic_consistency import (
     SemanticConsistencyError,
+    _validate_exclusion_ledger,
     validate_semantic_consistency,
 )
+from agents_shipgate.core.surface_exclusions import BINDING_GAP_KINDS
 from agents_shipgate.schemas.exclusions import (
     MAX_LEDGER_ENTRIES,
     SurfaceExclusion,
@@ -343,15 +347,11 @@ def _rehydrated_tools(report):
     return attach_semantic_assessments(tools, {}, copy_tools=False)
 
 
-def test_a_possibly_reachable_tool_is_recorded_as_gated():
-    """One spelling, or the ledger cannot join a tool with itself (review 1).
+def _report_with_one_possible_tool():
+    """One catalog tool the graph reaches but cannot prove complete.
 
-    `partial_binding_evidence` used to name its subject by the raw canonical
-    tool id while every other emitter rendered `name [provider]`. The ledger
-    looked up one spelling, found the other, and wrote `not_claimed` for a tool
-    the decision had gapped — `binding_coverage.gap_count: 1` beside
-    `surface_exclusions.gated: 0`, which is the reported failure re-expressed
-    one layer up.
+    The smallest report that exercises the label rule in both directions: a
+    catalog row to render a label from, and a gap that names it.
     """
 
     from agents_shipgate.ci.release_decision import build_release_decision
@@ -394,13 +394,29 @@ def test_a_possibly_reachable_tool_is_recorded_as_gated():
         fail_on=None,
         new_findings_only=False,
     )
+    report.surface_exclusions = build_surface_exclusions(report)
+    return report
+
+
+def test_a_possibly_reachable_tool_is_recorded_as_gated():
+    """One spelling, or the ledger cannot join a tool with itself (review 1).
+
+    `partial_binding_evidence` used to name its subject by the raw canonical
+    tool id while every other emitter rendered `name [provider]`. The ledger
+    looked up one spelling, found the other, and wrote `not_claimed` for a tool
+    the decision had gapped — `binding_coverage.gap_count: 1` beside
+    `surface_exclusions.gated: 0`, which is the reported failure re-expressed
+    one layer up.
+    """
+
+    report = _report_with_one_possible_tool()
     coverage = report.release_decision.evidence_coverage
     assert coverage.binding_coverage.gap_count == 1
-    # No gap may name a catalog tool by its raw id — that is the spelling that
-    # broke the join, and `validate_semantic_consistency` now refuses it.
+    # No gap may label a catalog tool with its raw id — that is the spelling
+    # that broke the join, and `validate_semantic_consistency` refuses it.
     assert [gap.subject for gap in coverage.evidence_gaps] == ["charge_card [billing]"]
 
-    ledger = build_surface_exclusions(report)
+    ledger = report.surface_exclusions
     assert [entry.accounting for entry in ledger.entries] == ["evidence_gap"]
     assert ledger.gated == 1
 
@@ -1036,3 +1052,81 @@ def test_a_proven_adapter_omission_is_recorded(tmp_path):
         gap.subject
         for gap in report.release_decision.evidence_coverage.evidence_gaps
     }
+
+
+# --- `subject` is a label, in every gap kind --------------------------------
+
+#: The kinds `core.policy_evidence` emits. None is a kind the ledger joins,
+#: which is exactly why the scoped rule never reached them.
+_POLICY_GAP_KINDS = frozenset({
+    "inferred_policy_applicability",
+    "mixed_policy_evidence",
+    "conflicting_policy_evidence",
+    "unknown_policy_evidence",
+})
+
+
+def test_a_policy_gap_labels_a_tool_the_way_every_other_gap_does(tmp_path):
+    """Scoping the label rule to the join set left the readable half broken.
+
+    Review 2 moved the ledger's join onto `subject_id` and documented
+    `subject` as a display label. The policy gaps were outside the rule's
+    scope and kept a raw 64-hex canonical id in that label — and
+    `evidence_gap_headline` prints it verbatim into the CLI's
+    `Improve evidence:` line, `_decision_reason`, and the GitHub step summary,
+    where it names nothing a reader can open. `support.search_kb` reached one
+    gap list as both `[support_mcp_tools]` and `[tool_v2_445a25…]` at once.
+
+    Identity is not lost by relabelling: every row asserted here carries it in
+    `subject_id`, which is the field that now does the joining.
+    """
+
+    report, _ = run_scan(
+        config_path=Path("samples/support_refund_agent/shipgate.yaml"),
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+    decision = report.release_decision
+    assert decision is not None
+    gaps = decision.evidence_coverage.evidence_gaps
+    catalog_ids = {str(row["tool_id"]) for row in report.tool_catalog}
+
+    policy_gaps = [gap for gap in gaps if gap.kind in _POLICY_GAP_KINDS]
+    assert policy_gaps, "the fixture must still raise policy evidence gaps"
+    assert not ({gap.subject for gap in policy_gaps} & catalog_ids)
+    # The id moved to the field built for it rather than being dropped.
+    assert all(gap.subject_id in catalog_ids for gap in policy_gaps)
+
+    # One label across stages: the tool the binding stage and the policy stage
+    # both name is one string, not two.
+    label = "support.search_kb [support_mcp_tools]"
+    assert label in {gap.subject for gap in policy_gaps}
+    assert label in {gap.subject for gap in gaps if gap.kind in BINDING_GAP_KINDS}
+
+    # What the reader is actually shown. The headline is the surface the raw id
+    # reached, so state the claim there and not only on the stored field.
+    for gap in gaps:
+        assert not re.search(r"[0-9a-f]{32}", evidence_gap_headline(gap)), gap.subject
+
+
+def test_a_raw_id_is_refused_for_a_gap_kind_the_ledger_never_joins():
+    """The negative control: widening the rule has to be load-bearing.
+
+    A guard scoped to a set of kinds passes vacuously for every kind outside
+    it, and that is how the policy gaps kept their digests through #403. Feed
+    the invariant a gap whose kind no ledger stage reads and whose label is a
+    raw catalog id — the shape the scoped rule tolerated.
+    """
+
+    report = _report_with_one_possible_tool()
+    gaps = report.release_decision.evidence_coverage.evidence_gaps
+    gaps.append(
+        gaps[0].model_copy(
+            update={"kind": "inferred_policy_applicability", "subject": "tool_v1:abc"}
+        )
+    )
+
+    with pytest.raises(SemanticConsistencyError, match="raw id"):
+        _validate_exclusion_ledger(report)

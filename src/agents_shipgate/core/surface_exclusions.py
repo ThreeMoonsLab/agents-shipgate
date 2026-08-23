@@ -108,18 +108,6 @@ BINDING_GAP_KINDS = frozenset(get_args(AgentBindingIssue.model_fields["kind"].an
     "invalid_tool_binding",
 }
 
-#: Every gap kind the ledger joins a subject against. The spelling rule
-#: ``core.semantic_consistency`` enforces is scoped to exactly these: a gap the
-#: ledger never reads may name its subject however it likes, and widening the
-#: rule past them would force unrelated surfaces to change for a join that does
-#: not exist. (``inferred_policy_applicability`` does name tools by raw
-#: canonical id, which reads badly in ``Improve evidence:`` — a separate
-#: actionability question, not a conservation one.)
-LEDGER_JOINED_GAP_KINDS = BINDING_GAP_KINDS | frozenset(
-    {"incomplete_surface", "source_warning"}
-)
-
-
 def build_surface_exclusions(
     report: ReadinessReport,
     *,
@@ -414,7 +402,6 @@ def build_detect_exclusions(result: DetectResult) -> SurfaceExclusionLedger:
 __all__ = [
     "BINDING_GAP_KINDS",
     "unavailable_base_subject",
-    "LEDGER_JOINED_GAP_KINDS",
     "build_detect_exclusions",
     "build_surface_exclusions",
     "catalog_subject",

@@ -540,8 +540,8 @@
       "evidence_gaps": [
         {
           "kind": "inferred_policy_applicability",
-          "subject": "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
-          "subject_id": null,
+          "subject": "send_customer_email [openai_api]",
+          "subject_id": "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
           "source_type": null,
           "source_ref": "tools/openai-tools.json",
           "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Policy applicability is supported only by heuristic evidence.",
@@ -565,8 +565,8 @@
         },
         {
           "kind": "inferred_policy_applicability",
-          "subject": "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
-          "subject_id": null,
+          "subject": "create_refund [openai_api]",
+          "subject_id": "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
           "source_type": null,
           "source_ref": "tools/openai-tools.json",
           "why": "SHIP-SCHEMA-MISSING-BOUNDS: Policy applicability is supported only by heuristic evidence.",
@@ -590,8 +590,8 @@
         },
         {
           "kind": "inferred_policy_applicability",
-          "subject": "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
-          "subject_id": null,
+          "subject": "send_customer_email [openai_api]",
+          "subject_id": "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
           "source_type": null,
           "source_ref": "shipgate.yaml",
           "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
@@ -615,8 +615,8 @@
         },
         {
           "kind": "inferred_policy_applicability",
-          "subject": "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
-          "subject_id": null,
+          "subject": "create_refund [openai_api]",
+          "subject_id": "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
           "source_type": null,
           "source_ref": "shipgate.yaml",
           "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
@@ -3907,8 +3907,8 @@
   "policy_evidence_gaps": [
     {
       "kind": "inferred_policy_applicability",
-      "subject": "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
-      "subject_id": null,
+      "subject": "send_customer_email [openai_api]",
+      "subject_id": "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
       "source_type": null,
       "source_ref": "tools/openai-tools.json",
       "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Policy applicability is supported only by heuristic evidence.",
@@ -3932,8 +3932,8 @@
     },
     {
       "kind": "inferred_policy_applicability",
-      "subject": "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
-      "subject_id": null,
+      "subject": "create_refund [openai_api]",
+      "subject_id": "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
       "source_type": null,
       "source_ref": "tools/openai-tools.json",
       "why": "SHIP-SCHEMA-MISSING-BOUNDS: Policy applicability is supported only by heuristic evidence.",
@@ -3957,8 +3957,8 @@
     },
     {
       "kind": "inferred_policy_applicability",
-      "subject": "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
-      "subject_id": null,
+      "subject": "send_customer_email [openai_api]",
+      "subject_id": "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
       "source_type": null,
       "source_ref": "shipgate.yaml",
       "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
@@ -3982,8 +3982,8 @@
     },
     {
       "kind": "inferred_policy_applicability",
-      "subject": "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
-      "subject_id": null,
+      "subject": "create_refund [openai_api]",
+      "subject_id": "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
       "source_type": null,
       "source_ref": "shipgate.yaml",
       "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",

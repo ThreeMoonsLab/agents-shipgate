@@ -23,6 +23,7 @@ from agents_shipgate.core.risk_hints import (
     risk_tags,
 )
 from agents_shipgate.core.semantic_assessment import assess_tool_semantics
+from agents_shipgate.core.surface_exclusions import catalog_subject
 from agents_shipgate.core.tool_identity import (
     ToolSelectorIndex,
     action_identity_aliases,
@@ -280,6 +281,20 @@ def compute_action_surface_diff(
     )
 
 
+def _gap_subject(action: ActionFact) -> str:
+    """Name a policy-evidence gap the way every other tool-scoped gap names it.
+
+    ``EvidenceGap.subject`` is a display label; identity travels in
+    ``subject_id``, which every caller here also sets. These subjects used to
+    render ``name [tool_id]``, putting a 64-hex digest straight into the CLI's
+    ``Improve evidence:`` line — nothing a reader can act on, and a second
+    spelling of a tool the exclusion ledger already labels ``name [provider]``
+    (#403). ``support.search_kb`` reached one gap list under both at once.
+    """
+
+    return catalog_subject({"name": action.tool_name, "provider": action.provider})
+
+
 def evaluate_action_surface_policies(
     manifest: AgentsShipgateManifest,
     facts: ActionSurfaceFacts,
@@ -351,7 +366,8 @@ def evaluate_action_surface_policies(
             policy_evidence_gaps.append(
                 policy_evidence_gap(
                     status=support.status,
-                    subject=f"{action.tool_name} [{action.tool_id}]",
+                    subject=_gap_subject(action),
+                    subject_id=action.tool_id,
                     policy_id="builtin-effect-control-applicability",
                     source_ref=action.source_ref,
                     support=support,
@@ -381,7 +397,8 @@ def evaluate_action_surface_policies(
                     policy_evidence_gaps.append(
                         policy_evidence_gap(
                             status=match_status,
-                            subject=f"{action.tool_name} [{action.tool_id}]",
+                            subject=_gap_subject(action),
+                            subject_id=action.tool_id,
                             policy_id=policy.id,
                             source_ref=action.source_ref,
                             support=support,
