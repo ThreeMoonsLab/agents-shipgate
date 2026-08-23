@@ -171,6 +171,17 @@
           "default": null,
           "title": "Operation"
         },
+        "override": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ActionEffectOverrideConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "provider": {
           "anyOf": [
             {
@@ -278,6 +289,26 @@
         "tool"
       ],
       "title": "ActionDeclarationConfig",
+      "type": "object"
+    },
+    "ActionEffectOverrideConfig": {
+      "additionalProperties": false,
+      "description": "Reviewed acknowledgement that a declared effect sits below evidence.\n\nA declaration may freely *escalate* past what the scanner inferred \u2014 a\nreviewer calling an action more dangerous than the evidence proves needs no\nceremony. De-escalating past inferred evidence is the asymmetric case: it\nis the one edit that converts a gapped action into a pass-eligible one, so\nit may not be silent. This block is how a reviewer says \"I looked, and the\ninference does not apply here\"; it never removes the review row, it only\nmarks it acknowledged (#409).\n\nIt acknowledges *inferred* evidence only. Where policy-eligible evidence\noutranks the declaration the conflict is blocking and this block changes\nnothing about it.",
+      "properties": {
+        "evidence": {
+          "title": "Evidence",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence",
+        "reason"
+      ],
+      "title": "ActionEffectOverrideConfig",
       "type": "object"
     },
     "ActionEvidenceConfig": {

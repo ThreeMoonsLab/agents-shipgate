@@ -197,7 +197,7 @@ def _render_release_decision(section: ReleaseDecisionSection) -> str:
         f"<li>Pass-eligible actions: {semantic.pass_eligible_actions}/{semantic.total_actions}</li>"
     )
     parts.append(f"<li>Evidence gaps: {semantic.gap_count}</li>")
-    parts.append(f"<li>Known authority review concerns: {semantic.review_concern_count}</li>")
+    parts.append(f"<li>Known review concerns: {semantic.review_concern_count}</li>")
     if semantic.reason_counts:
         reasons = ", ".join(
             f"{escape(key)}={count}" for key, count in sorted(semantic.reason_counts.items())

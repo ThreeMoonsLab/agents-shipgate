@@ -785,13 +785,18 @@ def test_a_degraded_source_is_not_reported_as_a_catalog_omission(tmp_path):
     )
 
 
-def test_the_v035_schema_rejects_an_erased_ledger():
+def test_the_current_schema_rejects_an_erased_ledger():
     """A nominally valid report must not be able to delete this PR's evidence."""
 
     from jsonschema import Draft202012Validator
 
+    from agents_shipgate.schemas.report import ReadinessReport
+
+    # Derived from the runtime model so a schema bump moves this with it —
+    # the invariant is about the CURRENT schema, not about v0.35 forever.
+    version = str(ReadinessReport.model_fields["report_schema_version"].default)
     schema = json.loads(
-        Path("docs/report-schema.v0.35.json").read_text(encoding="utf-8")
+        Path(f"docs/report-schema.v{version}.json").read_text(encoding="utf-8")
     )
     validator = Draft202012Validator(schema)
     golden = json.loads(

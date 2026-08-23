@@ -1417,17 +1417,24 @@ def test_source_qualified_action_rows_survive_inventory_completion(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     (project / "agent.py").write_text(_ADK_AGENT_SOURCE, encoding="utf-8")
+    # Both effects are declared at or above what the scan observes for them.
+    # ``get_manager_email`` reads an address, but the name heuristic reads
+    # "email" as outbound communication, so the row that keeps this fixture
+    # honest is an acknowledged override rather than a stronger effect (#409).
     declarations = """
 action_surface:
   actions:
     - tool: get_manager_email
       source_id: adk_agent
       effect: read
+      override:
+        evidence: agent.py returns a stored address; no client is constructed
+        reason: the name matches the comms heuristic but the body sends nothing
       authority:
         mode: none
     - tool: send_email
       source_id: adk_agent
-      effect: write
+      effect: external_communication
       authority:
         mode: none
 """

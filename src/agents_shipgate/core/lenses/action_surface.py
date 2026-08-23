@@ -9,7 +9,12 @@ from typing import Any
 from urllib.parse import unquote
 
 from agents_shipgate.core.action_semantics import ACTION_EFFECT_RANK
-from agents_shipgate.core.domain import Action, Scope, Tool
+from agents_shipgate.core.domain import (
+    DECLARATION_CLAIM_SOURCES,
+    Action,
+    Scope,
+    Tool,
+)
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference, _stable_hash
@@ -981,12 +986,7 @@ def _declaration_downgrade_findings(
             source_effects = [
                 claim.value
                 for claim in action_assessment.effect.claims
-                if claim.source
-                not in {
-                    "action_surface_declaration",
-                    "action_scope",
-                    "action_risk_tag_declaration",
-                }
+                if claim.source not in DECLARATION_CLAIM_SOURCES
                 and claim.value in ACTION_EFFECT_RANK
             ]
             source_effect = max(

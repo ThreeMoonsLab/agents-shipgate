@@ -25,7 +25,7 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 
 - Pass-eligible actions: 0/7
 - Evidence gaps: 7
-- Known authority review concerns: 1
+- Known review concerns: 1
 - Reasons: conflicting\_binding\_evidence=7, unscoped\_authority=1
 
 ### Blockers

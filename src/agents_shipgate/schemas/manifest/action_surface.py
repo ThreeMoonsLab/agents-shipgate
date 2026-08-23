@@ -143,6 +143,41 @@ class ActionAuthorityConfig(BaseModel):
     reason: str | None = None
 
 
+class ActionEffectOverrideConfig(BaseModel):
+    """Reviewed acknowledgement that a declared effect sits below evidence.
+
+    A declaration may freely *escalate* past what the scanner inferred — a
+    reviewer calling an action more dangerous than the evidence proves needs no
+    ceremony. De-escalating past inferred evidence is the asymmetric case: it
+    is the one edit that converts a gapped action into a pass-eligible one, so
+    it may not be silent. This block is how a reviewer says "I looked, and the
+    inference does not apply here"; it never removes the review row, it only
+    marks it acknowledged (#409).
+
+    It acknowledges *inferred* evidence only. Where policy-eligible evidence
+    outranks the declaration the conflict is blocking and this block changes
+    nothing about it.
+    """
+
+    model_config = STRICT_MODEL_CONFIG
+
+    #: What the reviewer actually checked — the function body, the deployment,
+    #: the upstream contract. Named so the next reviewer can re-check it.
+    evidence: str
+    #: Why the inferred evidence does not establish the stronger effect here.
+    reason: str
+
+    @field_validator("evidence", "reason")
+    @classmethod
+    def require_non_blank(cls, value: str) -> str:
+        text = value.strip()
+        if not text:
+            raise ValueError(
+                "action_surface.actions[].override requires non-blank evidence and reason"
+            )
+        return text
+
+
 class ActionDeclarationConfig(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
@@ -157,6 +192,7 @@ class ActionDeclarationConfig(BaseModel):
     risk_tags: list[ActionRiskTag] = Field(default_factory=list)
     scopes: list[str] = Field(default_factory=list)
     authority: ActionAuthorityConfig | None = None
+    override: ActionEffectOverrideConfig | None = None
     approval: ActionApprovalConfig | None = None
     safeguards: ActionSafeguardsConfig | None = None
     evidence: ActionEvidenceConfig | None = None
@@ -173,6 +209,17 @@ class ActionDeclarationConfig(BaseModel):
                 )
             normalized.append(value)
         return normalized
+
+    @model_validator(mode="after")
+    def validate_override(self) -> ActionDeclarationConfig:
+        # An override acknowledges a *declared* effect that sits below inferred
+        # evidence. With no declared effect there is nothing to de-escalate, so
+        # the block would read as an acknowledgement of a claim never made.
+        if self.override is not None and self.effect is None:
+            raise ValueError(
+                "action_surface.actions[].override requires a declared effect to acknowledge"
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_authority(self) -> ActionDeclarationConfig:

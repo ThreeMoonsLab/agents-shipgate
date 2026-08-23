@@ -621,7 +621,35 @@ Explicit declarations enrich operation, scopes, approval, safeguards, and
 evidence. Effect resolution remains monotonic across source and declaration
 claims: a declared effect may conservatively strengthen structural evidence,
 but a weaker declaration emits `SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED` and
-cannot erase the stronger effect. Manual positive risk tags may escalate risk,
+cannot erase the stronger effect.
+
+Monotonicity also holds against evidence that is *not* policy-eligible, at the
+review tier rather than the blocking one. Escalating past a heuristic
+observation is silent. Declaring an effect **weaker** than one the scan
+inferred raises `declaration_below_inferred_evidence`: the declaration stays
+operative — a heuristic never drives the verdict — but the action is not
+evidence-backed-pass until a reviewer either raises `effect` to the inferred
+value or acknowledges the difference:
+
+```yaml
+action_surface:
+  actions:
+    - tool: send_email_preview
+      effect: read
+      override:
+        evidence: agents/refund_agent.py renders a template; no client is built
+        reason: the name matches the comms heuristic but nothing is sent
+```
+
+Both `evidence` and `reason` are required and non-blank, and `override`
+requires a declared `effect` to acknowledge. An acknowledged override is
+accepted — the action is pass-eligible again — and is always reported as one
+semantic review concern, so a run carrying one never reads `passed`. It cannot
+silence a conflict with *policy-eligible* evidence: that remains
+`conflicting_effect_evidence`. A declaration the source itself corroborates
+(`effect: read` beside `readOnlyHint: true`) is never challenged, and the
+manifest row's own `risk_tags`, `scopes`, and `override` never count as
+corroboration for its own `effect`. Manual positive risk tags may escalate risk,
 but cannot prove read-only safety or independently close an effect gap. Setting
 inherited approval or safeguards from `true` to `false` emits
 `SHIP-ACTION-CONTROL-DOWNGRADE`.

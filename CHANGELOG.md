@@ -2,6 +2,60 @@
 
 ## Unreleased
 
+- **A declaration weaker than the evidence inferred for it is no longer
+  silent.** Declaring `effect: read` on a tool this scanner itself tagged
+  `external_write` was accepted with zero findings: the pre-existing
+  `inferred_effect_only` gap was closed by the very declaration that
+  contradicted the heuristic which raised it, the action went pass-eligible,
+  and the contradicting `risk_tags` stayed in the same report with nothing
+  joining them
+  ([#409](https://github.com/ThreeMoonsLab/agents-shipgate/issues/409),
+  Increment 1 of
+  [#410](https://github.com/ThreeMoonsLab/agents-shipgate/issues/410)).
+
+  The contradiction check already existed and was correct for the claims it
+  could see: `semantic_assessment._assess_effect` admits a claim into
+  `contradictory` only when `policy_eligible`, and `domain.py` grants that only
+  to typed, high-confidence bases. Heuristic risk hints are deliberately
+  excluded — a heuristic must never *drive* policy (#357). But one flag
+  governed two different powers. **Driving a verdict** heuristics rightly
+  cannot. **Challenging a human assertion** they should: a declaration sitting
+  *below* an observation is not the heuristic gating anything, it is a human
+  statement contradicting something the scan saw, which is precisely what a
+  reviewer needs surfaced.
+
+  Effect declarations are now **monotone**. Adding or escalating relative to
+  the evidence stays silent — a reviewer calling an action more dangerous than
+  the evidence proves needs no ceremony. De-escalating past a non-policy-
+  eligible inference raises `declaration_below_inferred_evidence`
+  (report schema `0.35` → `0.36`): a review-level evidence gap naming the
+  declared value, the inferred value, and the hint that produced it. The
+  declaration remains the operative effect — heuristics still do not drive the
+  verdict, and this row never blocks — but the action is not evidence-backed-
+  pass until it is answered.
+
+  Two answers close it, and the reviewer owns the choice: raise `effect` to
+  what was inferred, or acknowledge the difference with the new
+  `action_surface.actions[].override` block, which names the `evidence` you
+  checked and the `reason` it does not apply. An acknowledged override is
+  accepted — the action is pass-eligible again — and is reported as one
+  semantic review concern, so a run carrying one can never read `passed`. It is
+  a human assertion like every other declaration: the gap's template carries
+  `suggested_patch_kind: manual`, `auto_apply: false`,
+  `requires_human_review: true`, and `apply-patches` never writes it.
+
+  Two guards keep the rule from firing where nothing is being asserted. A
+  declaration the **source itself corroborates** is not challenged:
+  `support.search_kb` declares `read` and carries `readOnlyHint: true`, and a
+  keyword reading `financial_write` out of the word "refund" in its description
+  is the weaker signal, already contradicted by the stronger one. Corroboration
+  never counts the manifest row's own restatements of itself — its `effect`,
+  its `risk_tags`, its `scopes`, its `override` — so a declaration cannot close
+  its own gap. And an override may never silence
+  `conflicting_effect_evidence`: where **policy-eligible** evidence outranks
+  the declaration, the existing blocking conflict is unchanged and no
+  acknowledgement attaches.
+
 - **Every evidence gap now labels a tool the way a reader can use, in every gap
   kind.** `EvidenceGap.subject` is a display label — identity lives in
   `subject_id` — but the policy evidence gaps (every row of

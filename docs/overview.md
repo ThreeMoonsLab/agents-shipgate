@@ -45,7 +45,7 @@ surface before production-like permissions are granted.
 - [Concepts](concepts.md)
 - [Manifest v0.1](manifest-v0.1.md)
 - [Check catalog](checks.md)
-- [Report schema v0.35](report-schema.v0.35.json) (current; v0.34 frozen at [report-schema.v0.34.json](report-schema.v0.34.json), with older references in the [index](INDEX.md#reference))
+- [Report schema v0.36](report-schema.v0.36.json) (current; v0.35 frozen at [report-schema.v0.35.json](report-schema.v0.35.json), with older references in the [index](INDEX.md#reference))
 - [Evidence-backed `passed` contract](passed-verdict-contract.md)
 - [Trust model](trust-model.md)
 - [Agent instructions](../AGENTS.md)

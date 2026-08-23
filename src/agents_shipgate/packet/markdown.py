@@ -213,7 +213,7 @@ def _append_release_decision(lines: list[str], section: ReleaseDecisionSection) 
             "",
             (f"- Pass-eligible actions: {semantic.pass_eligible_actions}/{semantic.total_actions}"),
             f"- Evidence gaps: {semantic.gap_count}",
-            f"- Known authority review concerns: {semantic.review_concern_count}",
+            f"- Known review concerns: {semantic.review_concern_count}",
         ]
     )
     if semantic.reason_counts:

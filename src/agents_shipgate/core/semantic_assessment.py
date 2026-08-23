@@ -5,6 +5,8 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 from agents_shipgate.core.domain import (
+    DECLARATION_CLAIM_SOURCES,
+    DECLARATION_OVERRIDE_SOURCE,
     SURFACE_ENUMERATED,
     AuthorityMode,
     AuthoritySemanticAssessment,
@@ -455,6 +457,90 @@ def _assess_effect(
             )
         )
 
+    # #409 — the monotone declaration rule. Evidence that outranks the
+    # declaration but is not policy-eligible. A heuristic must never *drive* a
+    # verdict (#357): it cannot prove a read-only action and it cannot block on
+    # its own. Challenging a human assertion is a different power, and one flag
+    # governed both — so the one asymmetric edit went unremarked. Declaring
+    # ``read`` on a tool this scanner itself tagged ``external_write`` closed
+    # the very gap that evidence raised and made the action pass-eligible with
+    # zero findings. Escalation past the evidence stays silent; only
+    # de-escalation is compared, and the declaration remains operative either
+    # way.
+    #
+    # A declaration the source itself corroborates is not an assertion against
+    # evidence, so it is not challenged. ``support.search_kb`` declares
+    # ``read`` and carries ``readOnlyHint: true``; a keyword hint reading
+    # ``financial_write`` out of the word "refund" in its description is the
+    # weaker signal and is already contradicted by the stronger one. Asking the
+    # reviewer to override there would be asking them to defend the evidence
+    # against a guess. The reverse case — a declaration below *policy-eligible*
+    # evidence — is ``conflicting_effect_evidence`` above and is untouched.
+    below_declared: list[SemanticClaim] = []
+    contradictory: list[SemanticClaim] = []
+    if declaration is not None and declaration.effect is not None:
+        declared_rank = _EFFECT_RANK[declaration.effect]
+        # Unchanged: policy-eligible evidence outranking the declaration is a
+        # blocking conflict, and no override may acknowledge it away.
+        contradictory = [
+            claim
+            for claim in [*structural, *inferred]
+            if claim.policy_eligible
+            and _EFFECT_RANK[_as_effect(claim.value)] > declared_rank
+        ]
+        corroborated = any(
+            claim.policy_eligible
+            and claim.source not in DECLARATION_CLAIM_SOURCES
+            and claim.value == declaration.effect
+            for claim in claims
+        )
+        below_declared = (
+            []
+            if corroborated or contradictory
+            else [
+                claim
+                for claim in [*structural, *inferred]
+                if not claim.policy_eligible
+                and claim.value in _EFFECT_VALUES
+                and _EFFECT_RANK[_as_effect(claim.value)] > declared_rank
+            ]
+        )
+    below_effect = (
+        _strongest_effect([_as_effect(claim.value) for claim in below_declared])
+        if below_declared
+        else None
+    )
+    below_sources = sorted(
+        {claim.source for claim in below_declared if claim.value == below_effect}
+    )
+    # An acknowledged override is itself reviewed evidence: it records that a
+    # human read the inference and rejected it, with a reason the next
+    # reviewer can re-check. It rides in ``claims`` rather than a new
+    # assessment field so only tools that actually carry one change shape.
+    acknowledged_override = (
+        declaration.override
+        if declaration is not None and below_declared
+        else None
+    )
+    if acknowledged_override is not None and declaration is not None:
+        claims.append(
+            _claim(
+                "effect",
+                str(declaration.effect),
+                "high",
+                "static_declaration",
+                "reviewed_declaration",
+                DECLARATION_OVERRIDE_SOURCE,
+                f"action_surface.actions[tool={tool.name!r}].override",
+                {
+                    "overridden_effect": str(below_effect),
+                    "overridden_sources": below_sources,
+                    "evidence": acknowledged_override.evidence,
+                    "reason": acknowledged_override.reason,
+                },
+            )
+        )
+
     claims = _sorted_claims(claims)
     all_effects = [_as_effect(claim.value) for claim in claims if claim.value in _EFFECT_VALUES]
     conservative = _strongest_effect(all_effects) if all_effects else "write"
@@ -464,12 +550,6 @@ def _assess_effect(
         high_structural = [claim for claim in structural if claim.confidence == "high"]
         has_read = any(claim.value == "read" for claim in high_structural)
         has_non_read = any(claim.value != "read" for claim in high_structural)
-        contradictory = [
-            claim
-            for claim in [*structural, *inferred]
-            if claim.policy_eligible
-            and _EFFECT_RANK[_as_effect(claim.value)] > _EFFECT_RANK[declared_effect]
-        ]
         if has_read and has_non_read:
             status = "conflicting"
             confidence = "low"
@@ -490,6 +570,27 @@ def _assess_effect(
                     "conflicting_effect_evidence",
                     "effect",
                     "declared effect is weaker than high-confidence source evidence",
+                    "action_surface_declaration",
+                    f"action_surface.actions[tool={tool.name!r}].effect",
+                )
+            )
+        elif below_declared and acknowledged_override is None:
+            # The declaration still wins — status stays ``declared`` and the
+            # human's value is what policy reads. What changes is that the
+            # de-escalation is now on the record and owed an answer, so the
+            # action is no longer evidence-backed-pass until the reviewer
+            # either raises the effect or acknowledges the override.
+            status = "declared"
+            confidence = "high"
+            issues.append(
+                _issue(
+                    "declaration_below_inferred_evidence",
+                    "effect",
+                    (
+                        f"declared effect {declared_effect!r} is weaker than "
+                        f"inferred {below_effect!r} evidence "
+                        f"({', '.join(below_sources)})"
+                    ),
                     "action_surface_declaration",
                     f"action_surface.actions[tool={tool.name!r}].effect",
                 )

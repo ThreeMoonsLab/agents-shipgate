@@ -76,6 +76,16 @@ _FIELD_HINTS: dict[str, str] = {
         "Required and non-empty for `mode: scoped`; must be empty (delete "
         "this block) for every other mode."
     ),
+    "override.evidence": (
+        "what you checked to conclude the inferred effect does not apply — the "
+        "function body, the deployment, the upstream contract. Named so the "
+        "next reviewer can re-check it, not so this row goes quiet."
+    ),
+    "override.reason": (
+        "why that evidence does not establish the stronger effect for this "
+        "action. Raising `effect:` to the inferred value instead needs no "
+        "override at all."
+    ),
     "root.object": (
         "the agent's declared name — what `Agent(name=…)` was given, not the "
         "Python variable it was assigned to."
