@@ -37,6 +37,11 @@ from agents_shipgate.schemas.exclusions import (
     SurfaceExclusionLedger,
 )
 
+#: A realistically-shaped canonical tool id — ``tool_v2`` plus a sha256, the
+#: only shape ``core.tool_identity._stable_id`` produces. The synthetic short
+#: id this fixture used before did not exercise the real thing.
+TOOL_ID = "tool_v2_f8e7804c48c4ce36de4c20c96f8143721961b2d79a0522532b269fdd6cb527bb"
+
 _MANIFEST = """
 version: "0.1"
 project: {{name: mcp-server}}
@@ -374,11 +379,11 @@ def _report_with_one_possible_tool():
             root_agent_id="agent",
             status="partial",
             pass_eligible=False,
-            possible_tool_ids=["tool_v1:abc"],
+            possible_tool_ids=[TOOL_ID],
         ),
         tool_catalog=[
             {
-                "tool_id": "tool_v1:abc",
+                "tool_id": TOOL_ID,
                 "name": "charge_card",
                 "provider": "billing",
                 "source_type": "mcp",
@@ -1111,6 +1116,37 @@ def test_a_policy_gap_labels_a_tool_the_way_every_other_gap_does(tmp_path):
         assert not re.search(r"[0-9a-f]{32}", evidence_gap_headline(gap)), gap.subject
 
 
+def test_an_unresolvable_tool_id_never_becomes_the_label():
+    """The display fallback must not put the digest back (PR #408 review).
+
+    A check plugin is validated on its declared `check_id`, not on tool
+    membership, so it can raise a finding carrying a stale or invented
+    `tool_v2_<digest>`. The old fallback rendered exactly that id when no
+    catalog row and no tool name could name it — reinstating the digest for the
+    one case nothing proofreads. Identity is not lost: it still travels in
+    `subject_id`.
+    """
+
+    from agents_shipgate.cli.scan.decision import _gap_subject
+    from agents_shipgate.schemas.report import Finding
+
+    finding = Finding(
+        check_id="ORG-PLUGIN-RULE",
+        title="a plugin rule",
+        severity="high",
+        category="org_policy",
+        tool_id="tool_v2_" + "b" * 64,
+        tool_name=None,
+        recommendation="declare the tool",
+    )
+
+    assert _gap_subject(finding, {}) == "ORG-PLUGIN-RULE"
+    # A resolvable id still labels by the catalog, and a name still wins over
+    # the check id — the fallback narrows only the unnameable case.
+    assert _gap_subject(finding, {finding.tool_id: "wipe_db [ops]"}) == "wipe_db [ops]"
+    assert _gap_subject(finding.model_copy(update={"tool_name": "wipe_db"}), {}) == "wipe_db"
+
+
 def test_a_raw_id_is_refused_for_a_gap_kind_the_ledger_never_joins():
     """The negative control: widening the rule has to be load-bearing.
 
@@ -1124,9 +1160,40 @@ def test_a_raw_id_is_refused_for_a_gap_kind_the_ledger_never_joins():
     gaps = report.release_decision.evidence_coverage.evidence_gaps
     gaps.append(
         gaps[0].model_copy(
-            update={"kind": "inferred_policy_applicability", "subject": "tool_v1:abc"}
+            update={"kind": "inferred_policy_applicability", "subject": TOOL_ID}
         )
     )
 
-    with pytest.raises(SemanticConsistencyError, match="raw id"):
+    with pytest.raises(SemanticConsistencyError, match="canonical id"):
+        _validate_exclusion_ledger(report)
+
+
+@pytest.mark.parametrize(
+    "subject",
+    [
+        pytest.param(TOOL_ID, id="bare"),
+        pytest.param(f"charge_card [{TOOL_ID}]", id="wrapped-in-a-label"),
+        pytest.param("tool_v2_" + "a" * 64, id="not-in-this-catalog"),
+    ],
+)
+def test_a_canonical_id_is_refused_wherever_it_sits_in_the_label(subject):
+    """Match the shape, not membership in this run's catalog (PR #408 review).
+
+    A guard comparing the whole subject against `tool_catalog` misses both
+    spellings that actually shipped. `inputs/policy_packs.py` wrapped the id in
+    a label — `create_refund [tool_v2_6dcebe…]` — and a check plugin is
+    validated on its declared `check_id`, not on tool membership, so it can
+    raise a finding carrying a stale or invented id that is in no catalog to
+    compare against. Both read exactly as badly as the bare form.
+    """
+
+    report = _report_with_one_possible_tool()
+    gaps = report.release_decision.evidence_coverage.evidence_gaps
+    gaps.append(
+        gaps[0].model_copy(
+            update={"kind": "inferred_policy_applicability", "subject": subject}
+        )
+    )
+
+    with pytest.raises(SemanticConsistencyError, match="canonical id"):
         _validate_exclusion_ledger(report)

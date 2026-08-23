@@ -11,6 +11,10 @@ from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.policy_evidence import finding_support, policy_evidence_gap
 from agents_shipgate.core.static_inputs import read_static_input_bytes
+from agents_shipgate.core.surface_exclusions import (
+    catalog_label_index,
+    tool_label,
+)
 from agents_shipgate.inputs.common import load_structured_file, resolve_input_path
 from agents_shipgate.schemas.common import SourceReference
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest, PolicyPackConfig
@@ -95,6 +99,11 @@ def run_policy_pack_rules(
     policy_packs: LoadedPolicyPacks,
 ) -> list[Finding]:
     findings: list[Finding] = []
+    # One label index for every gap this run emits — see
+    # ``core.surface_exclusions.catalog_label_index``. This emitter rendered
+    # ``name [tool_id]``, which wrapped a 64-hex digest in the label and so
+    # slipped past a guard that compared the whole subject to a catalog id.
+    labels = catalog_label_index(context.tool_catalog)
     for resolved in policy_packs.rules:
         for subject in context.capability_policy_subjects:
             match = match_policy_pack_subject(
@@ -121,7 +130,11 @@ def run_policy_pack_rules(
                 context.policy_evidence_gaps.append(
                     policy_evidence_gap(
                         status=match.status,
-                        subject=f"{subject.tool.name} [{subject.tool.id}]",
+                        subject=tool_label(
+                            subject.tool.id, labels, name=subject.tool.name
+                        )
+                        or subject.tool.name,
+                        subject_id=subject.tool.id,
                         policy_id=rule.id,
                         source_ref=resolved.pack.path,
                         support=support,

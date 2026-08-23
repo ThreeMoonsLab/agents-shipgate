@@ -5,6 +5,7 @@ from agents_shipgate.core.domain import Tool, ToolSemanticAssessment
 from agents_shipgate.core.surface_exclusions import (
     BINDING_GAP_KINDS,
     catalog_subject,
+    contains_tool_id,
     unavailable_base_subject,
 )
 from agents_shipgate.schemas.report import ReadinessReport
@@ -185,9 +186,9 @@ def _validate_exclusion_ledger(report: ReadinessReport) -> None:
     3. a subject *this change* newly excluded is always ``evidence_gap`` — the
        pre-existing/newly-arrived distinction is the whole basis on which a
        ``not_claimed`` record is allowed at all;
-    4. *no* gap puts a raw canonical id in ``subject``, which is a display
-       label — identity has its own field, and a digest in the label is what a
-       reader is shown;
+    4. *no* gap puts a canonical tool id anywhere in ``subject``, which is a
+       display label — identity has its own field, and a digest in the label is
+       what a reader is shown;
     5. an excluded tool the decision *did* gap is never recorded
        ``not_claimed`` — (2) with the sign flipped, which is the direction a
        second spelling breaks;
@@ -309,12 +310,19 @@ def _validate_exclusion_ledger(report: ReadinessReport) -> None:
     # runs on `subject_id`, so this rule is no longer load-bearing for the join
     # at all: it is what keeps `subject` a *label*, which is the one thing the
     # field is documented to be.
-    raw_ids = set(by_id)
+    #
+    # Matched by *shape*, not by membership in this run's catalog. Comparing
+    # the whole subject against `tool_catalog` missed both spellings that
+    # actually shipped: `inputs/policy_packs.py` wrapped the id in a label
+    # (`create_refund [tool_v2_6dcebe…]`), and a check plugin can raise a
+    # finding carrying a stale or invented id that is in no catalog to compare
+    # against. Both are exactly as unreadable as the bare form (PR #408
+    # review), and neither is recognisable to a membership test.
     for gap in gaps:
-        if gap.subject in raw_ids:
+        if contains_tool_id(gap.subject):
             raise SemanticConsistencyError(
-                f"evidence gap labels tool {gap.subject!r} with its raw id "
-                "rather than its catalog subject; the id belongs in "
+                f"evidence gap labels a tool {gap.subject!r} with a canonical "
+                "id rather than its catalog subject; the id belongs in "
                 "subject_id, and this string is what a reader is shown"
             )
     gated_binding_subjects = {

@@ -15,10 +15,17 @@
   `samples/support_refund_agent` carried `support.search_kb` in one gap list
   under both spellings at once.
 
-  Both emitters now render through the shared `catalog_subject` and set
-  `subject_id` from the same tool, so the label became readable without the
-  identity being dropped — `policy_evidence_gap()` previously had no way to
-  carry it, and left `subject_id: null` on every row.
+  All three emitters — per finding (`cli/scan/decision.py`), per action
+  (`core/lenses/action_surface.py`), and per policy-pack rule
+  (`inputs/policy_packs.py`) — now resolve the label from the tool catalog by
+  `tool_id` and set `subject_id` from the same tool, so the label became
+  readable without the identity being dropped; `policy_evidence_gap()`
+  previously had no way to carry it and left `subject_id: null` on every row.
+  Resolving through the catalog rather than from each emitter's own fields also
+  removes a second divergence: `ActionFact.provider` is
+  `_normalize_token(provider or source_id or source_type)`, so a source id of
+  `my api` used to label one gap `create_refund [my_api]` and another
+  `create_refund [my api]` for the very same tool.
 
   #403 scoped the raw-id rule in `_validate_exclusion_ledger` to
   `LEDGER_JOINED_GAP_KINDS`, on the reasoning that a gap the ledger never joins
@@ -28,6 +35,14 @@
   join onto `subject_id` it is no longer about joinability at all — it is what
   keeps `subject` a label. `LEDGER_JOINED_GAP_KINDS` existed only to carry the
   carve-out and is removed with it.
+
+  The rule matches an id by *shape*, anywhere in the label, rather than by
+  membership in the run's own catalog. A membership test saw neither spelling
+  that actually shipped: the policy-pack emitter wrapped the id in a label, and
+  a check plugin — validated on its declared `check_id`, not on tool
+  membership — can raise a finding carrying a stale or invented id that is in
+  no catalog to compare against. An id that cannot be resolved to a catalog row
+  now falls through to the check id rather than being printed raw.
 
   Field shapes are unchanged and `subject_id` already shipped in `0.35`, so
   `report_schema_version` does not move

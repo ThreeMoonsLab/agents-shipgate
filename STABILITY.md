@@ -32,6 +32,7 @@ id in the label and left `subject_id` null:
 |---|---|---|---|
 | `inferred_policy_applicability` and the other kinds raised per finding | `tool_v2_2c9ee6ae…` | `send_email_preview [openai_sdk_static]` | was `null`, now `tool_v2_2c9ee6ae…` |
 | `mixed_policy_evidence` and the other kinds raised per action | `support.search_kb [tool_v2_445a251a…]` | `support.search_kb [support_mcp_tools]` | was `null`, now `tool_v2_445a251a…` |
+| any kind raised per policy-pack rule | `create_refund [tool_v2_6dcebe42…]` | `create_refund [api]` | was `null`, now `tool_v2_6dcebe42…` |
 
 The label reaches readers: `evidence_gap_headline` prints it in the CLI's
 `Improve evidence:` line, in the decision reason, and in the GitHub step
@@ -44,10 +45,22 @@ both spellings at once.
 documented for identity and is now populated on these rows for the first time.
 Joining on the label was always ambiguous — two catalog ids can render the same
 `name [provider]`. The report's own conservation invariant now refuses a raw
-canonical id in *any* gap's `subject`, so the raw form cannot return for a kind
-that happens to be exempt today. Subjects that never named a catalog tool —
-agent ids, source-loader warning text — are unchanged, and keep
-`subject_id: null`.
+canonical id *anywhere* in any gap's `subject` — matched by shape, so a
+wrapped id (`create_refund [tool_v2_6dcebe42…]`) and an id that resolves to no
+catalog row are refused too. The raw form cannot return for a kind that happens
+to be exempt today.
+
+**Labels are resolved from the tool catalog by `tool_id`.** Two of these
+emitters previously rendered from their own fields, which diverged from the
+catalog for the same tool: `ActionFact.provider` is
+`_normalize_token(provider or source_id or source_type)`, so a source id of
+`my api` produced `create_refund [my_api]` on an action-policy gap and
+`create_refund [my api]` on a catalog-backed one. A tool whose id resolves to
+no catalog row is labelled by its name, or failing that by the check id that
+raised the gap — never by the id itself, which stays in `subject_id`.
+
+Subjects that never named a catalog tool — agent ids, source-loader warning
+text — are unchanged, and keep `subject_id: null`.
 
 ---
 
