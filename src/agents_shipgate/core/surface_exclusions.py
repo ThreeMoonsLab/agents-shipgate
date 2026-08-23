@@ -21,7 +21,8 @@ conservation invariant it carries.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+import re
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, cast, get_args
 
 from agents_shipgate.core.domain import SourceSurfaceOmission
@@ -66,6 +67,72 @@ def unavailable_base_subject(report: ReadinessReport) -> str:
     )
 
 
+#: A canonical tool id anywhere inside a string, not only as the whole of it.
+#: ``_stable_id`` builds every tool id as ``tool_v<n>`` plus a sha256 digest, and
+#: the spellings that reached users wrapped one in a label —
+#: ``create_refund [tool_v2_6dcebe…]`` — so a guard comparing the whole subject
+#: against the catalog never saw it. Matching the *shape* also covers an id that
+#: no longer resolves: a stale or plugin-supplied id is exactly as unreadable as
+#: a current one, and a current-catalog check cannot recognise it at all.
+_TOOL_ID_PATTERN = re.compile(r"tool_v[0-9]+[_:][0-9a-f]{8,}")
+
+
+def contains_tool_id(value: str) -> bool:
+    """True when a display label carries a canonical tool id anywhere in it."""
+
+    return _TOOL_ID_PATTERN.search(value) is not None
+
+
+def catalog_label_index(rows: Iterable[Any]) -> dict[str, str]:
+    """Map canonical tool id to the one display label that names that tool.
+
+    Built from the tool catalog and shared by every emitter that labels a tool,
+    because rendering from anything else produces a second label for the same
+    subject. ``ActionFact.provider`` is the live example: it is
+    ``_normalize_token(provider or source_id or source_type)``, so a source id
+    of ``my api`` labels one gap ``create_refund [my_api]`` while a
+    catalog-backed gap labels the same tool ``create_refund [my api]``.
+
+    Accepts catalog rows as ``Tool`` objects or as mappings; the report carries
+    them both ways depending on the stage.
+    """
+
+    index: dict[str, str] = {}
+    for row in rows:
+        if isinstance(row, Mapping):
+            tool_id = row.get("tool_id") or row.get("id")
+            payload: Mapping[str, Any] = row
+        else:
+            tool_id = getattr(row, "id", None)
+            payload = {
+                "name": getattr(row, "name", None),
+                "provider": getattr(row, "provider", None),
+            }
+        if tool_id:
+            index[str(tool_id)] = catalog_subject(payload)
+    return index
+
+
+def tool_label(
+    tool_id: str | None,
+    index: Mapping[str, str],
+    *,
+    name: str | None = None,
+) -> str | None:
+    """The display label for a tool, or ``None`` when nothing can name it.
+
+    Never returns a canonical id. ``subject`` is a label and ``subject_id``
+    carries identity, so a tool the catalog cannot name is better handed to the
+    caller's next fallback than labelled with a digest a reader cannot act on.
+    """
+
+    if tool_id:
+        label = index.get(tool_id)
+        if label:
+            return label
+    return name or None
+
+
 def _catalog_by_id(report: ReadinessReport) -> dict[str, Mapping[str, Any]]:
     return {
         str(row["tool_id"]): row
@@ -107,18 +174,6 @@ def _gapped_tool_ids(gaps: Sequence[EvidenceGap], kinds: frozenset[str]) -> set[
 BINDING_GAP_KINDS = frozenset(get_args(AgentBindingIssue.model_fields["kind"].annotation)) | {
     "invalid_tool_binding",
 }
-
-#: Every gap kind the ledger joins a subject against. The spelling rule
-#: ``core.semantic_consistency`` enforces is scoped to exactly these: a gap the
-#: ledger never reads may name its subject however it likes, and widening the
-#: rule past them would force unrelated surfaces to change for a join that does
-#: not exist. (``inferred_policy_applicability`` does name tools by raw
-#: canonical id, which reads badly in ``Improve evidence:`` — a separate
-#: actionability question, not a conservation one.)
-LEDGER_JOINED_GAP_KINDS = BINDING_GAP_KINDS | frozenset(
-    {"incomplete_surface", "source_warning"}
-)
-
 
 def build_surface_exclusions(
     report: ReadinessReport,
@@ -413,8 +468,10 @@ def build_detect_exclusions(result: DetectResult) -> SurfaceExclusionLedger:
 
 __all__ = [
     "BINDING_GAP_KINDS",
+    "catalog_label_index",
+    "contains_tool_id",
+    "tool_label",
     "unavailable_base_subject",
-    "LEDGER_JOINED_GAP_KINDS",
     "build_detect_exclusions",
     "build_surface_exclusions",
     "catalog_subject",

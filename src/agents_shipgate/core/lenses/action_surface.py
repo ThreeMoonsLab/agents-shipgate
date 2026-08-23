@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import unquote
@@ -23,6 +24,10 @@ from agents_shipgate.core.risk_hints import (
     risk_tags,
 )
 from agents_shipgate.core.semantic_assessment import assess_tool_semantics
+from agents_shipgate.core.surface_exclusions import (
+    catalog_label_index,
+    tool_label,
+)
 from agents_shipgate.core.tool_identity import (
     ToolSelectorIndex,
     action_identity_aliases,
@@ -280,6 +285,28 @@ def compute_action_surface_diff(
     )
 
 
+def _gap_subject(action: ActionFact, labels: Mapping[str, str]) -> str:
+    """Name a policy-evidence gap the way every other tool-scoped gap names it.
+
+    ``EvidenceGap.subject`` is a display label; identity travels in
+    ``subject_id``, which every caller here also sets. These subjects used to
+    render ``name [tool_id]``, putting a 64-hex digest straight into the CLI's
+    ``Improve evidence:`` line — nothing a reader can act on, and a second
+    spelling of a tool the exclusion ledger already labels ``name [provider]``
+    (#403). ``support.search_kb`` reached one gap list under both at once.
+
+    Resolved through the catalog by ``tool_id`` rather than rendered from this
+    action's own fields, because ``ActionFact.provider`` is
+    ``_normalize_token(provider or source_id or source_type)`` — it collapses
+    whitespace and falls back differently from ``catalog_subject``. A source id
+    of ``my api`` would otherwise label this gap ``create_refund [my_api]``
+    while a catalog-backed gap for the same tool says ``create_refund [my api]``
+    (PR #408 review).
+    """
+
+    return tool_label(action.tool_id, labels, name=action.tool_name) or action.tool_name
+
+
 def evaluate_action_surface_policies(
     manifest: AgentsShipgateManifest,
     facts: ActionSurfaceFacts,
@@ -287,6 +314,7 @@ def evaluate_action_surface_policies(
     *,
     agent_id: str,
     tools: list[Tool] | None = None,
+    tool_catalog: list[Tool] | None = None,
     policy_evidence_gaps: list[EvidenceGap] | None = None,
 ) -> list[Finding]:
     """Evaluate action-surface policies for a current action snapshot.
@@ -296,6 +324,11 @@ def evaluate_action_surface_policies(
     inferred tool metadata are skipped; the scan pipeline always passes tools.
     """
     findings: list[Finding] = []
+    # Labels come from the catalog, never from an action's own normalized
+    # fields. ``tool_catalog`` is the full surface; ``tools`` is the reachable
+    # subset every action is built from, which is enough for callers that have
+    # only that.
+    labels = catalog_label_index(tool_catalog or tools or [])
     by_action = {action.action_id: action for action in facts.actions}
     if manifest.action_surface.require_explicit_actions:
         if tools is not None:
@@ -351,7 +384,8 @@ def evaluate_action_surface_policies(
             policy_evidence_gaps.append(
                 policy_evidence_gap(
                     status=support.status,
-                    subject=f"{action.tool_name} [{action.tool_id}]",
+                    subject=_gap_subject(action, labels),
+                    subject_id=action.tool_id,
                     policy_id="builtin-effect-control-applicability",
                     source_ref=action.source_ref,
                     support=support,
@@ -381,7 +415,8 @@ def evaluate_action_surface_policies(
                     policy_evidence_gaps.append(
                         policy_evidence_gap(
                             status=match_status,
-                            subject=f"{action.tool_name} [{action.tool_id}]",
+                            subject=_gap_subject(action, labels),
+                            subject_id=action.tool_id,
                             policy_id=policy.id,
                             source_ref=action.source_ref,
                             support=support,

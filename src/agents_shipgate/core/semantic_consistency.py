@@ -4,8 +4,8 @@ from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.domain import Tool, ToolSemanticAssessment
 from agents_shipgate.core.surface_exclusions import (
     BINDING_GAP_KINDS,
-    LEDGER_JOINED_GAP_KINDS,
     catalog_subject,
+    contains_tool_id,
     unavailable_base_subject,
 )
 from agents_shipgate.schemas.report import ReadinessReport
@@ -186,8 +186,9 @@ def _validate_exclusion_ledger(report: ReadinessReport) -> None:
     3. a subject *this change* newly excluded is always ``evidence_gap`` — the
        pre-existing/newly-arrived distinction is the whole basis on which a
        ``not_claimed`` record is allowed at all;
-    4. no joinable gap names a catalog tool by its raw canonical id, so the
-       join in (2) is exact rather than approximately right;
+    4. *no* gap puts a canonical tool id anywhere in ``subject``, which is a
+       display label — identity has its own field, and a digest in the label is
+       what a reader is shown;
     5. an excluded tool the decision *did* gap is never recorded
        ``not_claimed`` — (2) with the sign flipped, which is the direction a
        second spelling breaks;
@@ -301,12 +302,28 @@ def _validate_exclusion_ledger(report: ReadinessReport) -> None:
     # Checked at the source rather than by re-running the same join, which
     # would just repeat any shared mistake: a gap may never name a catalog tool
     # by its raw id. With one spelling enforced here, the join above is exact.
-    raw_ids = set(by_id)
+    #
+    # Every kind, not only the kinds the ledger joins. Scoping the rule to the
+    # join set is what let the *policy* gaps keep a 64-hex digest in `subject`,
+    # which `evidence_gap_headline` prints verbatim into `Improve evidence:` —
+    # a reader got a hash where a tool name belongs. Since review 2 the join
+    # runs on `subject_id`, so this rule is no longer load-bearing for the join
+    # at all: it is what keeps `subject` a *label*, which is the one thing the
+    # field is documented to be.
+    #
+    # Matched by *shape*, not by membership in this run's catalog. Comparing
+    # the whole subject against `tool_catalog` missed both spellings that
+    # actually shipped: `inputs/policy_packs.py` wrapped the id in a label
+    # (`create_refund [tool_v2_6dcebe…]`), and a check plugin can raise a
+    # finding carrying a stale or invented id that is in no catalog to compare
+    # against. Both are exactly as unreadable as the bare form (PR #408
+    # review), and neither is recognisable to a membership test.
     for gap in gaps:
-        if gap.kind in LEDGER_JOINED_GAP_KINDS and gap.subject in raw_ids:
+        if contains_tool_id(gap.subject):
             raise SemanticConsistencyError(
-                f"evidence gap names tool {gap.subject!r} by raw id rather than "
-                "its catalog subject; the exclusion ledger cannot join it"
+                f"evidence gap labels a tool {gap.subject!r} with a canonical "
+                "id rather than its catalog subject; the id belongs in "
+                "subject_id, and this string is what a reader is shown"
             )
     gated_binding_subjects = {
         entry.accounted_by

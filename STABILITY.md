@@ -13,6 +13,57 @@ for reproducible CI.
 
 ---
 
+<a id="migration-note-unreleased-gap-subject-labels"></a>
+
+## Migration Note: unreleased — every gap subject is a label, never a raw id
+
+No version moves: `contract_version`, `report_schema_version`,
+`minimum_control_contract_version`, and every published schema document are
+unchanged. No field is added, removed, or retyped — `subject` is still a
+required string and `subject_id` already shipped in report schema `0.35`. What
+changes is which value lands in which field.
+
+**`evidence_gaps[].subject` is a display label everywhere now.** The policy
+evidence gaps — every row of `report.policy_evidence_gaps`, also merged into
+`release_decision.evidence_coverage.evidence_gaps` — put the raw canonical tool
+id in the label and left `subject_id` null:
+
+| Gap kind | `subject` before | `subject` after | `subject_id` |
+|---|---|---|---|
+| `inferred_policy_applicability` and the other kinds raised per finding | `tool_v2_2c9ee6ae…` | `send_email_preview [openai_sdk_static]` | was `null`, now `tool_v2_2c9ee6ae…` |
+| `mixed_policy_evidence` and the other kinds raised per action | `support.search_kb [tool_v2_445a251a…]` | `support.search_kb [support_mcp_tools]` | was `null`, now `tool_v2_445a251a…` |
+| any kind raised per policy-pack rule | `create_refund [tool_v2_6dcebe42…]` | `create_refund [api]` | was `null`, now `tool_v2_6dcebe42…` |
+
+The label reaches readers: `evidence_gap_headline` prints it in the CLI's
+`Improve evidence:` line, in the decision reason, and in the GitHub step
+summary, where a 64-hex digest names nothing anyone can open.
+`samples/support_refund_agent` had `support.search_kb` in one gap list under
+both spellings at once.
+
+**A consumer that joined `evidence_gaps[].subject` against
+`tool_catalog[].tool_id` should join on `subject_id`,** which is the field
+documented for identity and is now populated on these rows for the first time.
+Joining on the label was always ambiguous — two catalog ids can render the same
+`name [provider]`. The report's own conservation invariant now refuses a raw
+canonical id *anywhere* in any gap's `subject` — matched by shape, so a
+wrapped id (`create_refund [tool_v2_6dcebe42…]`) and an id that resolves to no
+catalog row are refused too. The raw form cannot return for a kind that happens
+to be exempt today.
+
+**Labels are resolved from the tool catalog by `tool_id`.** Two of these
+emitters previously rendered from their own fields, which diverged from the
+catalog for the same tool: `ActionFact.provider` is
+`_normalize_token(provider or source_id or source_type)`, so a source id of
+`my api` produced `create_refund [my_api]` on an action-policy gap and
+`create_refund [my api]` on a catalog-backed one. A tool whose id resolves to
+no catalog row is labelled by its name, or failing that by the check id that
+raised the gap — never by the id itself, which stays in `subject_id`.
+
+Subjects that never named a catalog tool — agent ids, source-loader warning
+text — are unchanged, and keep `subject_id: null`.
+
+---
+
 <a id="migration-note-unreleased-absent-input"></a>
 
 ## Migration Note: unreleased — an absent input is refused, not misreported

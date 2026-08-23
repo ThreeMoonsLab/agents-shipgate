@@ -8,6 +8,7 @@ from typer.testing import CliRunner
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.scan import run_scan as _run_scan
 from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.evidence_actions import evidence_gap_headline
 from agents_shipgate.core.findings.identity import legacy_policy_routing_fingerprint
 from agents_shipgate.schemas.baseline import BaselineFile, BaselineFinding
 
@@ -591,6 +592,17 @@ checks:
     )
     assert gap.kind == "inferred_policy_applicability"
     assert gap.next_action.kind == "provide_policy_evidence"
+    # The label is the catalog's, and the canonical id travels in `subject_id`.
+    # This emitter used to render `name [tool_id]`, wrapping a 64-hex digest in
+    # the label — which reads as nonsense in `Improve evidence:` and slipped
+    # past a guard comparing the whole subject to a catalog id (PR #408 review).
+    catalog = {
+        str(row["tool_id"]): f"{row['name']} [{row['provider']}]"
+        for row in report.tool_catalog
+    }
+    assert gap.subject_id in catalog
+    assert gap.subject == catalog[gap.subject_id]
+    assert "tool_v2_" not in evidence_gap_headline(gap)
     assert report.release_decision is not None
     # Other concrete high findings may take the higher-precedence review route,
     # but the heuristic policy rule itself never becomes blocked or passed.

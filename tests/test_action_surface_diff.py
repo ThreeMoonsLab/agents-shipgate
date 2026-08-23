@@ -540,6 +540,75 @@ def test_custom_action_policy_cannot_launder_heuristic_risk_tag() -> None:
     assert gap.kind == "inferred_policy_applicability"
 
 
+def test_a_whitespace_bearing_provider_labels_one_way():
+    """The action path must not invent a second label (PR #408 review).
+
+    `ActionFact.provider` is `_normalize_token(provider or source_id or
+    source_type)` — it folds whitespace to underscores and falls back
+    differently from `catalog_subject`, which uses `provider` alone. Rendering
+    a gap label from it gave a source id of `my api` two spellings for the same
+    `subject_id`: `refund_status [my_api]` from the action-policy gap and
+    `refund_status [my api]` from every catalog-backed one. The widened
+    invariant accepts both, because neither is a canonical id — only resolving
+    the label through the catalog closes it.
+    """
+
+    manifest = _manifest(
+        {
+            "action_surface": {
+                "policies": [
+                    {
+                        "id": "heuristic-financial-block",
+                        "match": {"risk_tags": ["financial_write"]},
+                        "require": {"approval.required": True},
+                        "severity": "critical",
+                        "block": True,
+                    }
+                ]
+            }
+        }
+    )
+    tool = Tool(
+        id="tool:refund_status",
+        name="refund_status",
+        provider="my api",
+        source_type="langchain_inventory",
+        source_id="tools",
+        extraction_confidence="high",
+        risk_hints=[
+            ToolRiskHint(
+                tag="financial_action",
+                source="keyword",
+                confidence="high",
+                basis="inferred_keyword",
+                provenance_kind="keyword_heuristic",
+            )
+        ],
+    )
+    facts = build_action_surface_facts(
+        manifest,
+        agent_id="agent:action-test/agent",
+        tools=[tool],
+    )
+    # The normalized form the label used to be rendered from.
+    assert facts.actions[0].provider == "my_api"
+
+    gaps = []
+    evaluate_action_surface_policies(
+        manifest,
+        facts,
+        ActionSurfaceDiff(),
+        agent_id="agent:action-test/agent",
+        tools=[tool],
+        tool_catalog=[tool],
+        policy_evidence_gaps=gaps,
+    )
+
+    gap = next(item for item in gaps if "heuristic-financial-block" in item.why)
+    assert gap.subject == "refund_status [my api]"
+    assert gap.subject_id == tool.id
+
+
 def test_enrich_action_surface_diff_populates_structured_source_fields():
     """v0.19 reviewer-grade provenance: every change row gains
     structured ``source_path`` / ``source_start_line`` fields when the

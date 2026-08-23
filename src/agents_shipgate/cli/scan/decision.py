@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -25,14 +26,43 @@ from agents_shipgate.core.lenses.action_surface import (
 )
 from agents_shipgate.core.policy_evidence import policy_evidence_gap
 from agents_shipgate.core.severity_overrides import resolve_severity_overrides
+from agents_shipgate.core.surface_exclusions import (
+    catalog_label_index,
+    tool_label,
+)
 from agents_shipgate.inputs.policy_packs import run_policy_pack_rules
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest, CiConfig
+from agents_shipgate.schemas.report import Finding
 from agents_shipgate.schemas.verification import VerificationContext
 
 from .models import _ChecksDecision, _DiffReferences, _LoadedInputs, _ToolsAndAgent
 from .patching import _attach_patches, _check_metadata_lookup
 
 logger = logging.getLogger(__name__)
+
+
+def _gap_subject(finding: Finding, labels: Mapping[str, str]) -> str:
+    """Name a policy-evidence gap the way every other tool-scoped gap names it.
+
+    ``EvidenceGap.subject`` is a display label — identity travels in
+    ``subject_id``, which the caller sets from the same finding. This subject
+    used to be the canonical tool id verbatim: a 64-hex digest reaching the
+    CLI's ``Improve evidence:`` line, the decision reason, and the GitHub step
+    summary, none of which give a reader anything to act on.
+
+    An id the catalog cannot name falls through to the check id rather than
+    being printed raw. A check plugin is validated on its declared ``check_id``
+    and not on tool membership, so it can raise a finding carrying a stale or
+    invented ``tool_v2_<digest>``; rendering that verbatim would put back
+    exactly the digest this removes, for the one case nothing can proofread
+    (PR #408 review). The id is not lost — it still travels in ``subject_id``.
+    """
+
+    return (
+        tool_label(finding.tool_id, labels, name=finding.tool_name)
+        or finding.agent_id
+        or finding.check_id
+    )
 
 
 def _run_checks_and_decide(
@@ -138,10 +168,12 @@ def _run_checks_and_decide(
             action_surface_diff,
             agent_id=tools_and_agent.agent.id,
             tools=tools_and_agent.tools,
+            tool_catalog=tools_and_agent.tool_catalog,
             policy_evidence_gaps=context.policy_evidence_gaps,
         )
     )
     findings = dedupe_findings(findings)
+    labels = catalog_label_index(tools_and_agent.tool_catalog)
     policy_eligible_findings = []
     for finding in findings:
         support = finding.support
@@ -152,7 +184,8 @@ def _run_checks_and_decide(
         context.policy_evidence_gaps.append(
             policy_evidence_gap(
                 status=support.status,
-                subject=finding.tool_id or finding.tool_name or finding.agent_id or finding.check_id,
+                subject=_gap_subject(finding, labels),
+                subject_id=finding.tool_id,
                 policy_id=finding.check_id,
                 source_ref=(source.path or source.ref) if source is not None else None,
                 support=support,

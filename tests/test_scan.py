@@ -1222,13 +1222,19 @@ def test_sdk_preview_tool_is_not_treated_as_external_write(tmp_path):
         if finding.tool_name == "send_email_preview" and finding.severity in {"critical", "high"}
     ]
     assert high_preview_findings == []
+    # `subject` is a display label — `name [provider]` — and identity travels
+    # in `subject_id`. This used to assert the label *was* the canonical id, a
+    # 64-hex digest that reaches the CLI's `Improve evidence:` line and the
+    # GitHub step summary verbatim.
+    action = next(
+        action
+        for action in report.action_surface_facts.actions
+        if action.tool_name == "send_email_preview"
+    )
     assert any(
         gap.kind == "inferred_policy_applicability"
-        and gap.subject == next(
-            action.tool_id
-            for action in report.action_surface_facts.actions
-            if action.tool_name == "send_email_preview"
-        )
+        and gap.subject == f"{action.tool_name} [{action.provider}]"
+        and gap.subject_id == action.tool_id
         for gap in report.policy_evidence_gaps
     )
 
