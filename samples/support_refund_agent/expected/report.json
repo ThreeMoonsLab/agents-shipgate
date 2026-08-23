@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.34",
+  "report_schema_version": "0.35",
   "run_id": "agents_shipgate_e2edfa81ffc0f70d",
   "request_id": null,
   "subject_id": null,
@@ -649,6 +649,7 @@
         {
           "kind": "conflicting_binding_evidence",
           "subject": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "subject_id": null,
           "source_type": null,
           "source_ref": "/agent_bindings/declarations/0",
           "why": "Closed-world declaration for 'root' does not match the complete structural tool set.",
@@ -671,6 +672,7 @@
         {
           "kind": "conflicting_binding_evidence",
           "subject": "gmail.send_customer_email [support_mcp_tools]",
+          "subject_id": "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9",
           "source_type": "mcp",
           "source_ref": "/agent_bindings/declarations/0",
           "why": "Closed-world declaration for 'root' does not match the complete structural tool set.",
@@ -693,6 +695,7 @@
         {
           "kind": "conflicting_binding_evidence",
           "subject": "refund_status_lookup [support_openapi]",
+          "subject_id": "tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be",
           "source_type": "openapi",
           "source_ref": "/agent_bindings/declarations/0",
           "why": "Closed-world declaration for 'root' does not match the complete structural tool set.",
@@ -715,6 +718,7 @@
         {
           "kind": "conflicting_binding_evidence",
           "subject": "send_email_preview [openai_sdk_static]",
+          "subject_id": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
           "source_type": "mcp",
           "source_ref": "/agent_bindings/declarations/0",
           "why": "Closed-world declaration for 'root' does not match the complete structural tool set.",
@@ -737,6 +741,7 @@
         {
           "kind": "conflicting_binding_evidence",
           "subject": "shopify.cancel_order [support_openapi]",
+          "subject_id": "tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e",
           "source_type": "openapi",
           "source_ref": "/agent_bindings/declarations/0",
           "why": "Closed-world declaration for 'root' does not match the complete structural tool set.",
@@ -759,6 +764,7 @@
         {
           "kind": "conflicting_binding_evidence",
           "subject": "stripe.create_refund [support_openapi]",
+          "subject_id": "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
           "source_type": "openapi",
           "source_ref": "/agent_bindings/declarations/0",
           "why": "Closed-world declaration for 'root' does not match the complete structural tool set.",
@@ -781,6 +787,7 @@
         {
           "kind": "conflicting_binding_evidence",
           "subject": "support.search_kb [support_mcp_tools]",
+          "subject_id": "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a",
           "source_type": "mcp",
           "source_ref": "/agent_bindings/declarations/0",
           "why": "Closed-world declaration for 'root' does not match the complete structural tool set.",
@@ -803,6 +810,7 @@
         {
           "kind": "conflicting_binding_evidence",
           "subject": "zendesk.update_ticket [support_openapi]",
+          "subject_id": "tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33",
           "source_type": "openapi",
           "source_ref": "/agent_bindings/declarations/0",
           "why": "Closed-world declaration for 'root' does not match the complete structural tool set.",
@@ -825,6 +833,7 @@
         {
           "kind": "mixed_policy_evidence",
           "subject": "support.search_kb [tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a]",
+          "subject_id": null,
           "source_type": null,
           "source_ref": ".agents-shipgate/mcp-tools.json",
           "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
@@ -849,6 +858,7 @@
         {
           "kind": "mixed_policy_evidence",
           "subject": "send_email_preview [tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e]",
+          "subject_id": null,
           "source_type": null,
           "source_ref": "inventories/sdk-tools.json",
           "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
@@ -873,6 +883,7 @@
         {
           "kind": "inferred_policy_applicability",
           "subject": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+          "subject_id": null,
           "source_type": null,
           "source_ref": "inventories/sdk-tools.json",
           "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Policy applicability is supported only by heuristic evidence.",
@@ -897,6 +908,7 @@
         {
           "kind": "inferred_policy_applicability",
           "subject": "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
+          "subject_id": null,
           "source_type": null,
           "source_ref": "specs/support-tools.openapi.yaml",
           "why": "SHIP-SCHEMA-MISSING-BOUNDS: Policy applicability is supported only by heuristic evidence.",
@@ -921,6 +933,7 @@
         {
           "kind": "inferred_policy_applicability",
           "subject": "tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33",
+          "subject_id": null,
           "source_type": null,
           "source_ref": "specs/support-tools.openapi.yaml",
           "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Policy applicability is supported only by heuristic evidence.",
@@ -945,6 +958,7 @@
         {
           "kind": "inferred_policy_applicability",
           "subject": "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9",
+          "subject_id": null,
           "source_type": null,
           "source_ref": ".agents-shipgate/mcp-tools.json",
           "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Policy applicability is supported only by heuristic evidence.",
@@ -969,6 +983,7 @@
         {
           "kind": "inferred_policy_applicability",
           "subject": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+          "subject_id": null,
           "source_type": null,
           "source_ref": "shipgate.yaml",
           "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
@@ -993,6 +1008,7 @@
         {
           "kind": "inferred_policy_applicability",
           "subject": "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
+          "subject_id": null,
           "source_type": null,
           "source_ref": "shipgate.yaml",
           "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
@@ -1017,6 +1033,7 @@
         {
           "kind": "inferred_policy_applicability",
           "subject": "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9",
+          "subject_id": null,
           "source_type": null,
           "source_ref": "shipgate.yaml",
           "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
@@ -1041,6 +1058,7 @@
         {
           "kind": "source_warning",
           "subject": "MCP source declares wildcard tool exposure",
+          "subject_id": null,
           "source_type": null,
           "source_ref": null,
           "why": "A source loader degraded while reading declared inputs.",
@@ -5498,9 +5516,11 @@
   },
   "binding_surface_diff": {
     "enabled": false,
+    "base_comparison_requested": false,
     "base_report_schema_version": null,
     "added_reachable_tool_ids": [],
     "removed_reachable_tool_ids": [],
+    "added_unbound_tool_ids": [],
     "added_handoffs": [],
     "removed_handoffs": [],
     "notes": []
@@ -10555,6 +10575,7 @@
     {
       "kind": "mixed_policy_evidence",
       "subject": "support.search_kb [tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a]",
+      "subject_id": null,
       "source_type": null,
       "source_ref": ".agents-shipgate/mcp-tools.json",
       "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
@@ -10579,6 +10600,7 @@
     {
       "kind": "mixed_policy_evidence",
       "subject": "send_email_preview [tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e]",
+      "subject_id": null,
       "source_type": null,
       "source_ref": "inventories/sdk-tools.json",
       "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
@@ -10603,6 +10625,7 @@
     {
       "kind": "inferred_policy_applicability",
       "subject": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+      "subject_id": null,
       "source_type": null,
       "source_ref": "inventories/sdk-tools.json",
       "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Policy applicability is supported only by heuristic evidence.",
@@ -10627,6 +10650,7 @@
     {
       "kind": "inferred_policy_applicability",
       "subject": "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
+      "subject_id": null,
       "source_type": null,
       "source_ref": "specs/support-tools.openapi.yaml",
       "why": "SHIP-SCHEMA-MISSING-BOUNDS: Policy applicability is supported only by heuristic evidence.",
@@ -10651,6 +10675,7 @@
     {
       "kind": "inferred_policy_applicability",
       "subject": "tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33",
+      "subject_id": null,
       "source_type": null,
       "source_ref": "specs/support-tools.openapi.yaml",
       "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Policy applicability is supported only by heuristic evidence.",
@@ -10675,6 +10700,7 @@
     {
       "kind": "inferred_policy_applicability",
       "subject": "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9",
+      "subject_id": null,
       "source_type": null,
       "source_ref": ".agents-shipgate/mcp-tools.json",
       "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Policy applicability is supported only by heuristic evidence.",
@@ -10699,6 +10725,7 @@
     {
       "kind": "inferred_policy_applicability",
       "subject": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+      "subject_id": null,
       "source_type": null,
       "source_ref": "shipgate.yaml",
       "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
@@ -10723,6 +10750,7 @@
     {
       "kind": "inferred_policy_applicability",
       "subject": "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
+      "subject_id": null,
       "source_type": null,
       "source_ref": "shipgate.yaml",
       "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
@@ -10747,6 +10775,7 @@
     {
       "kind": "inferred_policy_applicability",
       "subject": "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9",
+      "subject_id": null,
       "source_type": null,
       "source_ref": "shipgate.yaml",
       "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
@@ -10907,5 +10936,22 @@
         "count": 2
       }
     ]
+  },
+  "surface_exclusions": {
+    "entries": [
+      {
+        "stage": "binding",
+        "subject": "wildcard_mcp_tools.* [wildcard_mcp_tools]",
+        "reason": "unbound_tool",
+        "source_ref": ".agents-shipgate/wildcard-tools.json",
+        "detail": "The tool is in the catalog and no edge binds it to the root agent; nothing in the repository claims it as reachable capability.",
+        "accounting": "not_claimed",
+        "accounted_by": null
+      }
+    ],
+    "total": 1,
+    "gated": 0,
+    "gap_backed": 0,
+    "truncated": false
   }
 }

@@ -171,7 +171,7 @@ one exact post-review coding-agent action. Agents
 switch on `control.state`; `decision` remains diagnostic and
 `release_decision.decision` remains the release gate. Contract v14 requires
 `completion_allowed == (state == "complete")` and
-`must_stop == (state == "human_review_required")`. Report v0.34, packet v0.12,
+`must_stop == (state == "human_review_required")`. Report v0.35, packet v0.12,
 verifier v0.6, verify-run v3, and handoff v6 bind their projections to the
 same request and decision IDs. The terminal receipt hashes the complete
 artifact set; see [Verification Identity and Reproduction](verification-reproducibility.md).
@@ -216,7 +216,7 @@ Downstream repos generated with
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b7` — see [pyproject.toml](../pyproject.toml)
 - Runtime contract: `24` (minimum control contract: `21`)
-- Current report schema: `0.34` — [`docs/report-schema.v0.34.json`](report-schema.v0.34.json)
+- Current report schema: `0.35` — [`docs/report-schema.v0.35.json`](report-schema.v0.35.json)
 - Current packet schema: `0.12` — [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
 - Current verifier schema: `0.9` — [`docs/verifier-schema.v0.9.json`](verifier-schema.v0.9.json) (v0.8 and earlier stay frozen; `0.9` adds `capability_review.policy_weakening_proven`)
@@ -237,7 +237,7 @@ Downstream repos generated with
 - Current registry schema: `0.4` — [`docs/registry-schema.v0.4.json`](registry-schema.v0.4.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v2` — [`docs/org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json)
 - Current host-grants inventory, baseline, and drift schemas: `0.2` — [`inventory`](host-grants-inventory-schema.v0.2.json), [`baseline`](host-grants-baseline-schema.v0.2.json), [`drift`](host-grants-drift-schema.v0.2.json)
-- Current trigger catalog schema: `0.3` — [`docs/triggers.json`](triggers.json)
+- Current trigger catalog schema: `0.4` — [`docs/triggers.json`](triggers.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
 - Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)
 - Frozen-reference report schemas: frozen [`v0.33`](report-schema.v0.33.json), frozen [`v0.32`](report-schema.v0.32.json), frozen [`v0.31`](report-schema.v0.31.json), frozen [`v0.30`](report-schema.v0.30.json), and older versions listed in [`docs/INDEX.md`](INDEX.md#reference)
@@ -602,10 +602,22 @@ operational overlay and cannot change those fields.
   else means the diff was not read, which is never evidence that a PR is
   unrelated to agent capabilities. `null` means a pre-v0.7 artifact — unknown,
   not complete.
-- `trigger` — the run/skip evaluation. Read `evaluation_status` first: when it
-  is `"not_evaluated"`, `should_run` / `run_shipgate` / `skip` / `skip_reason`
-  are `null` and `next_action.kind` is `"input_required"`. `skip_reason` is
-  never `"no_match"` for inputs that were not fully read. `"evaluated"` on an
+- `trigger` — the run/skip evaluation. Read `evaluation_status` first; two of
+  its three values withhold the verdict, and in both `should_run` /
+  `run_shipgate` / `skip` / `skip_reason` are `null`. Never read `null` as
+  `false`.
+  - `"not_evaluated"` — the diff could not be read. `next_action.kind` is
+    `"input_required"`; repair the input. `skip_reason` is never `"no_match"`
+    for inputs that were not fully read.
+  - `"unclassified"` — the diff *was* read in full and no rule classified some
+    or all of the changed files. That is a fact about the catalog, not about
+    the PR, so the skip is withheld and `next_action` routes forward to the
+    scan. `surface_exclusions.entries[]` lists the unclassified files.
+
+  `stop_conditions_fired` is the raw block result; `stop_conditions_terminal`
+  says whether it decided. A matched `run_shipgate`/`force_run` rule overrides
+  a fired stop, because a capability match in the diff is evidence the
+  whole-workspace negative did not account for. `"evaluated"` on an
   incomplete `diff_status` is not a contradiction: only *skip* verdicts are
   withheld, so a `should_run: true` reached from evidence that did not depend
   on the missing bytes is authoritative and must not be overridden. Read
@@ -997,7 +1009,7 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full alpha stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.34.json`](report-schema.v0.34.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.35.json`](report-schema.v0.35.json) — machine-validatable JSON Schema for the current report.
 - [`docs/privacy.md`](privacy.md) and [`docs/report-sensitive-fields.json`](report-sensitive-fields.json) — default redaction behavior and sensitive-field inventory.
 - [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog, including `mvp_tier` for MVP/readiness triage.

@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.domain import Tool, ToolSemanticAssessment
+from agents_shipgate.core.surface_exclusions import (
+    BINDING_GAP_KINDS,
+    LEDGER_JOINED_GAP_KINDS,
+    catalog_subject,
+    unavailable_base_subject,
+)
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.semantic import ToolSemanticEvidence
 
@@ -52,6 +58,7 @@ def validate_semantic_consistency(
     )
     if catalog_ids != graph_catalog_ids:
         raise SemanticConsistencyError("tool_catalog does not match binding graph partitions")
+    _validate_exclusion_ledger(report)
 
     actions = {
         (action.tool_id, action.source_id, action.source_ref): action
@@ -156,6 +163,170 @@ def validate_semantic_consistency(
     ):
         raise SemanticConsistencyError(
             "strict insufficient_evidence must produce would_fail_ci=true, exit_code=20"
+        )
+
+
+def _validate_exclusion_ledger(report: ReadinessReport) -> None:
+    """Conservation: nothing leaves the analysed surface unaccounted for.
+
+    The partition check above is the first half — ``observed == analysed ∪
+    excluded`` for the tool catalog. This is the half that was missing: the
+    excluded side must be *recorded*, and each record must be true about the
+    release decision. ``unbound_tools: 1`` next to ``gap_count: 0`` satisfied
+    the partition perfectly; what it violated is that a subject the diff
+    removed from analysis reached no gap (#403).
+
+    Five claims, each one a way that state could come back:
+
+    1. every excluded subject is in the ledger — a stage cannot narrow
+       silently;
+    2. every ``evidence_gap`` record is backed by a gap row carrying the same
+       subject — a ledger cannot claim an accounting the decision does not
+       have;
+    3. a subject *this change* newly excluded is always ``evidence_gap`` — the
+       pre-existing/newly-arrived distinction is the whole basis on which a
+       ``not_claimed`` record is allowed at all;
+    4. no joinable gap names a catalog tool by its raw canonical id, so the
+       join in (2) is exact rather than approximately right;
+    5. an excluded tool the decision *did* gap is never recorded
+       ``not_claimed`` — (2) with the sign flipped, which is the direction a
+       second spelling breaks;
+    6. an ``unverified`` record is backed by a gap naming the base comparison
+       it could not perform, so the word is a pointer and not a softer way of
+       saying nothing — and, conversely, no binding row may be ``not_claimed``
+       while that comparison stands unperformed, or the fail-closed state is
+       erasable by rewriting the rows;
+    7. ``gated`` matches the rows it summarizes. Consumers gate on the count,
+       and a count nothing checked can be forged past both Pydantic and the
+       JSON Schema.
+
+    Claims (2), (3) and (5) join on the canonical tool id rather than the
+    display label, because two catalog ids can render the same
+    ``name [provider]``.
+    """
+
+    decision = report.release_decision
+    assert decision is not None  # caller checked
+    ledger = report.surface_exclusions
+    graph = report.binding_surface_facts
+
+    if ledger.total != len(ledger.entries) and not ledger.truncated:
+        raise SemanticConsistencyError("exclusion ledger total disagrees with its entries")
+    if ledger.truncated and ledger.total <= len(ledger.entries):
+        raise SemanticConsistencyError("exclusion ledger claims truncation it did not apply")
+
+    excluded_tools = set(graph.possible_tool_ids) | set(graph.unbound_tool_ids)
+    binding_subjects = {
+        entry.subject for entry in ledger.entries if entry.stage == "binding"
+    }
+    by_id = {
+        str(row.get("tool_id")): row for row in report.tool_catalog if row.get("tool_id")
+    }
+    expected_subjects = {
+        catalog_subject(by_id.get(tool_id) or {"tool_id": tool_id})
+        for tool_id in excluded_tools
+    }
+    # Compared as sets, not counts: two catalog rows can render the same
+    # subject, so a count comparison would pass while naming the wrong tool.
+    if not ledger.truncated and not expected_subjects <= binding_subjects:
+        raise SemanticConsistencyError(
+            "binding graph excluded tools the exclusion ledger does not record: "
+            f"{sorted(expected_subjects - binding_subjects)}"
+        )
+
+    gaps = decision.evidence_coverage.evidence_gaps
+    gap_subjects = {gap.subject for gap in gaps}
+    unavailable_base = unavailable_base_subject(report)
+    # Requested and not performed. In that state the run cannot distinguish a
+    # pre-existing exclusion from one this change introduced, so `not_claimed`
+    # — which asserts exactly that distinction — is unavailable to it.
+    comparison_unusable = (
+        report.binding_surface_diff.base_comparison_requested
+        and not report.binding_surface_diff.enabled
+    )
+    if ledger.gated > ledger.total:
+        raise SemanticConsistencyError("exclusion ledger gated exceeds its total")
+    visible_gated = sum(
+        1 for entry in ledger.entries if entry.accounting != "not_claimed"
+    )
+    if not ledger.truncated and ledger.gated != visible_gated:
+        raise SemanticConsistencyError(
+            "exclusion ledger gated does not match its entries"
+        )
+    if ledger.truncated and ledger.gated < visible_gated:
+        raise SemanticConsistencyError(
+            "exclusion ledger gated is lower than the acted-on rows it shows"
+        )
+    for entry in ledger.entries:
+        # One join, by the pointer the row carries. Every accounting that
+        # claims a gap names it explicitly, so nothing here has to guess which
+        # of three subject shapes applies.
+        if entry.accounted_by is not None and entry.accounted_by not in gap_subjects:
+            raise SemanticConsistencyError(
+                f"exclusion {entry.subject!r} points at gap "
+                f"{entry.accounted_by!r}, which the decision does not carry"
+            )
+        if entry.reason == "newly_unbound_tool" and entry.accounting != "evidence_gap":
+            raise SemanticConsistencyError(
+                f"exclusion {entry.subject!r} was introduced by this change and is not gated"
+            )
+        # `unverified` says a gap stands in for the per-subject one, and that
+        # gap is specifically the unavailable-base one — not any gap the row
+        # happens to point at.
+        if entry.accounting == "unverified" and entry.accounted_by != unavailable_base:
+            raise SemanticConsistencyError(
+                f"exclusion {entry.subject!r} is unverified but does not point "
+                "at the unavailable base comparison"
+            )
+        # And the converse. Without it the new fail-closed state was erasable:
+        # rewrite the row to `not_claimed`, drop `gated` to 0, and the check
+        # passed while the base gap still stood (PR #404 review 2).
+        if (
+            comparison_unusable
+            and entry.stage == "binding"
+            and entry.accounting == "not_claimed"
+        ):
+            raise SemanticConsistencyError(
+                f"exclusion {entry.subject!r} is recorded not_claimed while the "
+                "base comparison this run requested could not be performed"
+            )
+
+    # The join above only catches the ledger over-claiming. Under-claiming — a
+    # gap exists and the ledger says `not_claimed` — is the same failure with
+    # the sign flipped, and it is what a subject spelled two ways produces: a
+    # `partial_binding_evidence` gap carrying the raw canonical id could not be
+    # matched against a ledger row carrying `name [provider]`, so a gated tool
+    # read as unclaimed and the whole suite stayed green.
+    #
+    # Checked at the source rather than by re-running the same join, which
+    # would just repeat any shared mistake: a gap may never name a catalog tool
+    # by its raw id. With one spelling enforced here, the join above is exact.
+    raw_ids = set(by_id)
+    for gap in gaps:
+        if gap.kind in LEDGER_JOINED_GAP_KINDS and gap.subject in raw_ids:
+            raise SemanticConsistencyError(
+                f"evidence gap names tool {gap.subject!r} by raw id rather than "
+                "its catalog subject; the exclusion ledger cannot join it"
+            )
+    gated_binding_subjects = {
+        entry.accounted_by
+        for entry in ledger.entries
+        if entry.stage == "binding" and entry.accounting == "evidence_gap"
+    }
+    unrecorded = {
+        gap.subject_id
+        for gap in gaps
+        if gap.kind in BINDING_GAP_KINDS
+        and gap.subject_id in excluded_tools
+    } - {
+        gap.subject_id
+        for gap in gaps
+        if gap.subject in gated_binding_subjects and gap.subject_id
+    }
+    if not ledger.truncated and unrecorded:
+        raise SemanticConsistencyError(
+            "excluded tools carry a binding evidence gap the ledger does not "
+            f"account for: {sorted(unrecorded)}"
         )
 
 

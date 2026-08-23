@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "schema_version": "0.3",
+  "schema_version": "0.4",
   "name": "agents-shipgate-triggers",
   "description": "Machine-readable trigger catalog for Agents Shipgate. Mirrors the AGENTS.md trigger table — a coding agent can fetch this and apply the rules to a PR diff or repo state to decide whether to run `agents-shipgate verify --preview --json` or the full verifier. Stable for 0.x: rule IDs, predicate vocabulary, and action enum will not change in minor versions.",
   "source_of_truth": "AGENTS.md#should-i-run-shipgate-on-this-pr",
@@ -70,6 +70,28 @@
       },
       "action": "run_shipgate",
       "rationale": "MCP exports declare a tool surface; changes need a tool-use readiness check.",
+      "command": "agents-shipgate verify --preview --json"
+    },
+    {
+      "id": "TRIGGER-MCP-TOOL-SCHEMA-CONTENT",
+      "surface_class": "capability",
+      "agents_md_row": "Adds/changes MCP exports, OpenAPI specs, or `tools/*openai*tools*.json`",
+      "when": {
+        "all_of": [
+          {"any_of": [
+            {"diff_contains": "inputSchema"},
+            {"diff_contains": "input_schema"}
+          ]},
+          {"any_of": [
+            {"diff_contains": "readOnlyHint"},
+            {"diff_contains": "destructiveHint"},
+            {"diff_contains": "idempotentHint"},
+            {"diff_contains": "openWorldHint"}
+          ]}
+        ]
+      },
+      "action": "run_shipgate",
+      "rationale": "A tool definition carrying an MCP input schema and MCP annotation hints is a tool surface whatever the file is named. TRIGGER-MCP-EXPORT-CHANGED recognises MCP exports by filename, which misses `pkg/github/__toolsnaps__/delete_repository.snap` and `mcp-server/tools.json` alike; content recognition does not depend on a naming convention the repository never agreed to.",
       "command": "agents-shipgate verify --preview --json"
     },
     {
@@ -398,11 +420,11 @@
     "dry_run": "Advisory: `run_shipgate` stays false but `dry_run_recommended` is true in the evaluator output. Callers may propose a non-mutating scan; never propose `init --write` based on `dry_run` alone."
   },
   "action_precedence": [
-    "stop_conditions (block everything)",
+    "stop_conditions (block everything) \u2014 unless a force_run or run_shipgate rule matched, in which case the diff carries capability evidence the whole-workspace negative did not account for",
     "force_run (overrides skip)",
     "skip_shipgate (overrides run)",
     "run_shipgate",
     "dry_run (sets dry_run_recommended; run_shipgate stays false)",
-    "no rules matched (skip)"
+    "no rules matched, or a skip resting on changed files no rule classified (verdict withheld: evaluation_status=unclassified, run_shipgate=null, next_action routes to the scan)"
   ]
 }

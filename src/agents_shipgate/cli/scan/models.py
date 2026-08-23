@@ -190,3 +190,7 @@ class _SanitizedSurfaces:
     privacy_audit: Any
     heuristics_filter: Any
     policy_evidence_gaps: list[Any]
+    # Typed adapter omissions (``LoadedToolSource.omissions``), flattened in
+    # load order. Carried separately from ``source_warnings`` because only
+    # these are proven omissions — see ``core.surface_exclusions``.
+    source_omissions: list[Any]

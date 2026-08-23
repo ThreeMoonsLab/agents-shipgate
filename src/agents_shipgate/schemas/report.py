@@ -26,6 +26,7 @@ from agents_shipgate.schemas.common import (
     SourceReference,
 )
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
+from agents_shipgate.schemas.exclusions import SurfaceExclusionLedger
 from agents_shipgate.schemas.patches import Patch
 from agents_shipgate.schemas.semantic import ToolSemanticEvidence
 from agents_shipgate.schemas.surfaces import (
@@ -449,6 +450,12 @@ class EvidenceGap(BaseModel):
         "conflicting_policy_evidence",
     ]
     subject: str
+    # v0.35: the canonical tool id when this gap is about exactly one catalog
+    # tool. ``subject`` is a display label — ``name [provider]`` — and two
+    # catalog ids can legitimately render the same one, so joining on it marked
+    # both rows accounted-for when only one was (PR #404 review 2). Consumers
+    # display ``subject``; anything that needs identity joins on this.
+    subject_id: str | None = None
     source_type: str | None = None
     source_ref: str | None = None
     why: str
@@ -1010,7 +1017,12 @@ class ReadinessReport(BaseModel):
     # v0.33: typed evidence basis, predicate support, and unsuppressible
     # indeterminate-policy evidence gaps.
     # v0.34: content-addressed verification request and decision bindings.
-    report_schema_version: str = "0.34"
+    # v0.35: the exclusion ledger — one typed record per narrowing decision,
+    # plus ``binding_surface_diff.added_unbound_tool_ids``. Additive; the
+    # release gate remains ``release_decision.decision``, but a subject this
+    # change newly excluded now reaches it as an evidence gap instead of
+    # disappearing between stages (#403).
+    report_schema_version: str = "0.35"
     run_id: str
     request_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
     subject_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
@@ -1147,3 +1159,13 @@ class ReadinessReport(BaseModel):
     # engine). Always present on emitted scans; Optional in Python for
     # older fixtures.
     verifier_summary: VerifierSummary | None = None
+    # v0.35: every narrowing decision this run made, as one typed record per
+    # removed subject. Read it to answer "what did the gate decide not to
+    # look at, and did the verdict know?" — the counts are what
+    # ``build_release_decision`` consumes, the entries are what a reviewer
+    # reads. Always present on emitted scans (empty ledger when nothing was
+    # narrowed); Optional-free because an absent ledger and an empty one
+    # must not be confusable.
+    surface_exclusions: SurfaceExclusionLedger = Field(
+        default_factory=SurfaceExclusionLedger
+    )

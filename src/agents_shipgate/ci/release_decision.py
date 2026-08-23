@@ -19,6 +19,10 @@ from agents_shipgate.core.evidence_actions import (
     yaml_scalar,
 )
 from agents_shipgate.core.source_warnings import unresolved_adk_tool_symbols
+from agents_shipgate.core.surface_exclusions import (
+    catalog_subject,
+    unavailable_base_subject,
+)
 from agents_shipgate.schemas.bindings import (
     AgentBindingGraphAssessment,
     AgentBindingIssue,
@@ -642,6 +646,21 @@ def _binding_coverage(
     graph = report.binding_surface_facts
     reason_counts: dict[str, int] = {}
     gaps: list[EvidenceGap] = []
+    # Every gap that names a catalog tool names it the same way. Two of the
+    # emitters below used to spell the subject as the raw canonical id while
+    # the others rendered ``name [provider]``, which made the same tool
+    # unjoinable with itself: the exclusion ledger looked up one spelling,
+    # found the other, and recorded a gated exclusion as ``not_claimed``.
+    # ``_gap_subject`` is the single spelling, and
+    # ``validate_semantic_consistency`` rejects a raw id reaching this field.
+    catalog_rows = {
+        str(row["tool_id"]): row for row in report.tool_catalog if row.get("tool_id")
+    }
+
+    def _gap_subject(tool_id: str | None, fallback: str) -> str:
+        if not tool_id:
+            return fallback
+        return catalog_subject(catalog_rows.get(tool_id) or {"tool_id": tool_id})
     for issue in graph.issues:
         _increment(reason_counts, issue.kind)
         if issue.kind == "ambiguous_root_agent":
@@ -678,7 +697,11 @@ def _binding_coverage(
         gaps.append(
             EvidenceGap(
                 kind=issue.kind,
-                subject=issue.tool_id or issue.agent_id or graph.root_agent_id or "agent_binding_graph",
+                subject=_gap_subject(
+                    issue.tool_id,
+                    issue.agent_id or graph.root_agent_id or "agent_binding_graph",
+                ),
+                subject_id=issue.tool_id,
                 source_ref=issue.source_pointer or issue.source,
                 why=issue.message,
                 next_action=EvidenceGapAction(
@@ -702,7 +725,8 @@ def _binding_coverage(
         gaps.append(
             EvidenceGap(
                 kind="partial_binding_evidence",
-                subject=tool_id,
+                subject=_gap_subject(tool_id, tool_id),
+                subject_id=tool_id,
                 why="A possibly reachable tool lacks a complete static binding edge.",
                 next_action=EvidenceGapAction(
                     kind="provide_complete_binding_graph",
@@ -719,6 +743,13 @@ def _binding_coverage(
             )
         )
     for gap in _unreached_tool_gaps(report):
+        _increment(reason_counts, gap.kind)
+        gaps.append(gap)
+    already_named = {gap.subject for gap in gaps}
+    for gap in _newly_excluded_tool_gaps(report):
+        if gap.subject in already_named:
+            continue
+        already_named.add(gap.subject)
         _increment(reason_counts, gap.kind)
         gaps.append(gap)
     return (
@@ -787,11 +818,11 @@ def _unreached_tool_gaps(report: ReadinessReport) -> list[EvidenceGap]:
             continue
         row = catalog.get(tool_id, {})
         name = str(row.get("name") or tool_id)
-        provider = row.get("provider")
         gaps.append(
             EvidenceGap(
                 kind="missing_binding_evidence",
-                subject=f"{name} [{provider}]" if provider else name,
+                subject=catalog_subject(row or {"tool_id": tool_id}),
+                subject_id=tool_id,
                 source_type=str(row["source_type"]) if row.get("source_type") else None,
                 source_ref=str(row["source_ref"]) if row.get("source_ref") else None,
                 why=(
@@ -823,6 +854,140 @@ def _unreached_tool_gaps(report: ReadinessReport) -> list[EvidenceGap]:
             )
         )
     return gaps
+
+
+def _newly_excluded_tool_gaps(report: ReadinessReport) -> list[EvidenceGap]:
+    """One row per tool *this change* pushed out of the analysed surface.
+
+    ``_unreached_tool_gaps`` stops at tools carrying a structural edge, and
+    that boundary is right for the question it answers: a catalog entry with
+    no edge is nobody's claim of capability, and gating on those would make
+    declaring an OpenAPI spec or an MCP server self-blocking (#385).
+
+    It is the wrong boundary for a *diff*. ``github/github-mcp-server#3076``
+    adds ``delete_repository`` — ``destructiveHint: true`` — to a published
+    117-tool MCP server whose reviewed declaration still lists 116. The new
+    tool carries no edge, so it drew no gap; it left the surface before
+    ``SHIP-POLICY-APPROVAL-MISSING`` and
+    ``SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING`` could see it, and the run
+    reported ``unbound_tools: 1`` beside ``gap_count: 0``. Nothing about the
+    58 deliberately-unwired operations in
+    ``samples/large_multi_framework_agent`` argues for that outcome: those
+    were unbound before the change and are unbound after it. This one arrived
+    with the diff.
+
+    So the discriminator is the base comparison, not the source type: a
+    subject that was already excluded stays a reviewer-facing fact, and a
+    subject this change newly excluded is an evidence gap. Without a base
+    report ``binding_surface_diff`` is disabled and nothing here fires, which
+    is why a plain ``scan`` is unaffected.
+    """
+
+    diff = report.binding_surface_diff
+    graph = report.binding_surface_facts
+    if not diff.enabled:
+        # A comparison was asked for and could not be performed, so "this tool
+        # was already excluded before the change" is a claim about evidence
+        # nobody produced. One row, not one per tool: the mechanism is single
+        # (the base is unusable) and so is the repair (#361), and inventing a
+        # per-tool provenance the run cannot support is the fabrication this
+        # ledger exists to stop.
+        if diff.base_comparison_requested and (
+            graph.unbound_tool_ids or graph.possible_tool_ids
+        ):
+            return [_unavailable_base_gap(report)]
+        return []
+    if not diff.added_unbound_tool_ids:
+        return []
+    unbound = set(graph.unbound_tool_ids)
+    catalog = {
+        str(row.get("tool_id")): row
+        for row in report.tool_catalog
+        if row.get("tool_id")
+    }
+    gaps: list[EvidenceGap] = []
+    for tool_id in sorted(set(diff.added_unbound_tool_ids) & unbound):
+        row = catalog.get(tool_id, {})
+        name = str(row.get("name") or tool_id)
+        gaps.append(
+            EvidenceGap(
+                kind="missing_binding_evidence",
+                subject=catalog_subject(row or {"tool_id": tool_id}),
+                subject_id=tool_id,
+                source_type=str(row["source_type"]) if row.get("source_type") else None,
+                source_ref=str(row["source_ref"]) if row.get("source_ref") else None,
+                why=(
+                    f"This change put {name} in the tool catalog and no static "
+                    "edge or reviewed declaration binds it to the root agent, "
+                    "so it was excluded from the analyzed surface before any "
+                    "check could judge it."
+                ),
+                next_action=EvidenceGapAction(
+                    kind="declare_agent_bindings",
+                    command=_SEMANTIC_RERUN_COMMAND,
+                    path="shipgate.yaml#agent_bindings.declarations",
+                    why=(
+                        "A capability the diff introduced must be judged or "
+                        "explicitly declared out of reach; it cannot be neither."
+                    ),
+                    expects=(
+                        "Wire the tool to the root agent in source, or add it to "
+                        "the reviewed closed-world declaration, then rerun "
+                        "verification."
+                    ),
+                    accepted_values=[
+                        "agent",
+                        "complete:true",
+                        "tools",
+                        "handoffs",
+                        "reason",
+                    ],
+                ),
+            )
+        )
+    return gaps
+
+
+def _unavailable_base_gap(report: ReadinessReport) -> EvidenceGap:
+    excluded = len(report.binding_surface_facts.unbound_tool_ids) + len(
+        report.binding_surface_facts.possible_tool_ids
+    )
+    noun = "tool" if excluded == 1 else "tools"
+    return EvidenceGap(
+        kind="missing_binding_evidence",
+        subject=unavailable_base_subject(report),
+        source_ref="--diff-from",
+        why=(
+            f"{excluded} catalog {noun} sit outside the analyzed surface and "
+            "the base comparison this run requested could not be performed, "
+            "so whether this change introduced any of them was never "
+            "established."
+        ),
+        next_action=EvidenceGapAction(
+            kind="provide_source",
+            # Deliberately no command. The repair runs in the *base* workspace,
+            # whose path this scan does not know, and the obvious one-liner —
+            # ``scan -c shipgate.yaml --format json`` — is executable right here
+            # against the head, where it drops ``--diff-from`` and clears this
+            # very gap without repairing anything. A published command reaches
+            # ``fix_task.allowed_repairs``, so that is a machine-readable
+            # instruction to delete the evidence (PR #404 review 2). The two
+            # steps are spelled in ``expects``; ``path`` keeps the row
+            # addressable by naming the input at fault.
+            path="--diff-from",
+            why=(
+                "A base scan that did not happen is not evidence that the "
+                "excluded tools predate this change."
+            ),
+            expects=(
+                "Two steps, in the base source workspace and then here: "
+                "regenerate report.json there with the current engine, then "
+                "rerun this scan with --diff-from pointing at that file. "
+                "Rerunning without --diff-from clears this row without "
+                "answering it."
+            ),
+        ),
+    )
 
 
 def _semantic_coverage(
@@ -1132,6 +1297,7 @@ def _semantic_gap(
     return EvidenceGap(
         kind=kind,
         subject=f"{tool.name} [{tool.provider or tool.source_id or tool.source_type}]",
+        subject_id=tool.id or None,
         source_type=tool.source_type,
         source_ref=(
             source_ref
@@ -1410,15 +1576,20 @@ def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceG
         ):
             action = EvidenceGapAction(
                 kind="provide_source",
-                command="agents-shipgate scan -c shipgate.yaml --format json",
+                # No command, for the same reason as the unavailable-base gap
+                # above: the regeneration runs in the base workspace, and the
+                # command spelled for it is executable against the head, where
+                # it silently drops the comparison.
                 path="--diff-from",
                 why=(
                     "The base report must be regenerated by the current "
                     "semantic engine before any capability delta is computed."
                 ),
                 expects=(
-                    "Regenerate report.json in the base source workspace, then "
-                    "rerun the head scan with --diff-from pointing to that report."
+                    "Two steps: regenerate report.json in the base source "
+                    "workspace, then rerun the head scan with --diff-from "
+                    "pointing to that report. Rerunning without --diff-from "
+                    "clears this row without answering it."
                 ),
             )
         else:
@@ -1667,6 +1838,18 @@ def _to_item(finding: Finding) -> ReleaseDecisionItem:
     )
 
 
+def _join_clauses(parts: list[str]) -> str:
+    """``a``, ``a and b``, ``a, b and c`` — a list that stays a sentence.
+
+    Four evidence dimensions can now appear at once, and ``" and ".join`` on
+    that many reads as one run-on clause with no separators a reader can scan.
+    """
+
+    if len(parts) <= 2:
+        return " and ".join(parts)
+    return f"{', '.join(parts[:-1])} and {parts[-1]}"
+
+
 def _decision_reason(
     decision: ReleaseDecisionStatus,
     blockers: list[ReleaseDecisionItem],
@@ -1680,13 +1863,19 @@ def _decision_reason(
         return f"{n} active {noun} {verb} release."
     if decision == "insufficient_evidence":
         parts: list[str] = []
+        if evidence.binding_coverage.gap_count > 0:
+            # First, because it is the dimension that answers "was anything
+            # left out of the analysis?" — and a run whose only gaps were
+            # binding gaps used to describe itself as "degraded evidence",
+            # which names no dimension at all (#403).
+            parts.append(f"{evidence.binding_coverage.gap_count} binding evidence gap(s)")
         if evidence.semantic_coverage.gap_count > 0:
             parts.append(f"{evidence.semantic_coverage.gap_count} semantic evidence gap(s)")
         if evidence.low_confidence_tool_count > 0:
             parts.append(f"{evidence.low_confidence_tool_count} low-confidence tool(s)")
         if evidence.source_warning_count > 0:
             parts.append(f"{evidence.source_warning_count} source warning(s)")
-        detail = " and ".join(parts) if parts else "degraded evidence"
+        detail = _join_clauses(parts) or "degraded evidence"
         # Counts are the symptom; an addressable gap — one naming a target or
         # carrying a runnable command — is the work. When
         # one exists, lead with it and demote the counts to context — the old

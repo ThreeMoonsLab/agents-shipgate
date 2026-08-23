@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from agents_shipgate.ci.release_decision import build_release_decision
-from agents_shipgate.core.domain import Tool
+from agents_shipgate.core.domain import SourceSurfaceOmission, Tool
+from agents_shipgate.core.surface_exclusions import build_surface_exclusions
 from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, BindingSurfaceDiff
 from agents_shipgate.schemas.codex_plugin import CodexPluginSurface
 from agents_shipgate.schemas.common import Severity
@@ -68,6 +69,7 @@ def build_report(
     privacy_audit: PrivacyAudit | None = None,
     heuristics_filter: HeuristicsFilter | None = None,
     policy_evidence_gaps: list[EvidenceGap] | None = None,
+    source_omissions: list[SourceSurfaceOmission] | None = None,
 ) -> ReadinessReport:
     report = ReadinessReport(
         run_id=run_id,
@@ -123,6 +125,13 @@ def build_report(
         ci_mode=ci_mode,
         fail_on=fail_on,
         new_findings_only=new_findings_only,
+    )
+    # v0.35: built from the decision, not beside it. Accounting asks whether
+    # a gap row names the excluded subject, so the gaps have to exist first —
+    # and deriving it here rather than at each narrowing site is what stops
+    # the ledger and the verdict from drifting apart (#403).
+    report.surface_exclusions = build_surface_exclusions(
+        report, source_omissions=source_omissions or []
     )
     # v0.12: agent_summary is the deterministic projection of
     # release_decision + per-finding agent_action. Built last so it

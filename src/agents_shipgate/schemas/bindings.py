@@ -92,9 +92,32 @@ class BindingSurfaceDiff(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
+    # v0.35: whether this run *asked* for a base comparison. ``enabled`` alone
+    # conflates two states that must route differently: nobody asked (a plain
+    # ``scan``), and somebody asked and it could not be done — a supplied base
+    # report predating v0.31, a baseline with no binding facts, or a verify
+    # base scan that failed. Reading the second as the first let a head scan
+    # conclude an unbound tool was pre-existing using a comparison it never
+    # performed, which is the fail-open
+    # ``docs/engineering/ai-coding-workflow-verifier.md`` §2.3 forbids: base
+    # failure may disable enrichment, never weaken the head gate.
+    base_comparison_requested: bool = False
     base_report_schema_version: str | None = None
     added_reachable_tool_ids: list[str] = Field(default_factory=list)
     removed_reachable_tool_ids: list[str] = Field(default_factory=list)
+    # v0.35: tools this change *newly excluded* from the analysed surface —
+    # head ``unbound_tool_ids`` minus base ``unbound_tool_ids``. Both halves
+    # of the narrowing land here: a tool the diff added to a source and left
+    # unwired, and a tool that was reachable at base and is not any more.
+    #
+    # It is a separate list rather than a derivation of the reachable ones
+    # because it answers a different question. ``removed_reachable_tool_ids``
+    # says the agent lost a capability, which is a *narrowing of what the
+    # agent can do*; this says the gate lost a subject, which is a narrowing
+    # of *what the gate looked at*. A pre-existing unbound catalog entry stays
+    # out of both — catalog membership is not evidence of capability (#385) —
+    # so this is exactly the set that arrived without ever being judged.
+    added_unbound_tool_ids: list[str] = Field(default_factory=list)
     added_handoffs: list[str] = Field(default_factory=list)
     removed_handoffs: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)

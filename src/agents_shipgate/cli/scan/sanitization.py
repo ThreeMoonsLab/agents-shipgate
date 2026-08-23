@@ -15,7 +15,7 @@ from agents_shipgate.core.baseline import (
     baseline_resolved_fingerprints,
     verify_baseline,
 )
-from agents_shipgate.core.domain import Agent
+from agents_shipgate.core.domain import Agent, SourceSurfaceOmission
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.findings.identity import assign_finding_ids
 from agents_shipgate.core.findings.remediation import annotate_remediation
@@ -145,9 +145,24 @@ def _sanitize_for_output(
         path="binding_surface_facts",
     )
     base_binding = diffs.diff_reference.binding_facts if diffs.diff_reference else None
+    verification = decision.context.verification
+    # Asked for, by any route: a reference loaded cleanly, a reference was
+    # supplied and failed to parse, or verify resolved a base ref and could not
+    # produce a report for it. The middle case is the one that was missing —
+    # reading only the *successfully loaded* reference meant a malformed
+    # `--diff-from` reported "no comparison requested" and went on to assert
+    # that an unbound destructive tool predated the change (PR #404 review 2).
+    # Whether the bytes parsed is not the same question as whether the caller
+    # asked.
+    base_comparison_requested = (
+        diffs.diff_reference is not None
+        or diffs.diff_reference_error is not None
+        or bool(verification is not None and verification.base_comparison_unavailable)
+    )
     if base_binding is None:
         public_binding_diff = BindingSurfaceDiff(
             enabled=False,
+            base_comparison_requested=base_comparison_requested,
             base_report_schema_version=(
                 diffs.diff_reference.report_schema_version if diffs.diff_reference else None
             ),
@@ -166,6 +181,7 @@ def _sanitize_for_output(
         }
         public_binding_diff = BindingSurfaceDiff(
             enabled=True,
+            base_comparison_requested=True,
             base_report_schema_version=diffs.diff_reference.report_schema_version,
             added_reachable_tool_ids=sorted(
                 set(public_binding_graph.reachable_tool_ids)
@@ -174,6 +190,15 @@ def _sanitize_for_output(
             removed_reachable_tool_ids=sorted(
                 set(base_binding.reachable_tool_ids)
                 - set(public_binding_graph.reachable_tool_ids)
+            ),
+            # Head-minus-base on the *excluded* partition, so both ways a
+            # subject can newly leave the analysed surface are caught: added
+            # to a source and left unwired, or wired at base and unwired here.
+            # Subtracting the base exclusions is what keeps a long-standing
+            # unwired catalog from re-reporting itself on every PR.
+            added_unbound_tool_ids=sorted(
+                set(public_binding_graph.unbound_tool_ids)
+                - set(base_binding.unbound_tool_ids)
             ),
             added_handoffs=sorted(current_handoffs - base_handoffs),
             removed_handoffs=sorted(base_handoffs - current_handoffs),
@@ -390,6 +415,16 @@ def _sanitize_for_output(
         privacy_audit=privacy_audit,
         heuristics_filter=decision.heuristics_filter,
         policy_evidence_gaps=public_policy_evidence_gaps,
+        source_omissions=[
+            sanitize_model(
+                omission,
+                SourceSurfaceOmission,
+                stats=privacy_stats,
+                path="source_omissions[]",
+            )
+            for loaded in inputs.loaded_sources
+            for omission in loaded.omissions
+        ],
     )
 
 

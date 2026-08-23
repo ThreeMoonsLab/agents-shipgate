@@ -43,3 +43,10 @@ class VerificationContext(BaseModel):
     # ``cli/verify/orchestrator._manifest_introduced``), so a renamed manifest
     # cannot pass itself off as a first adoption.
     manifest_introduced: bool = False
+    # True when verify resolved a base ref and could not produce a usable base
+    # report for it (ref missing, archive failed, base scan failed, base
+    # manifest absent). The head scan cannot see that from ``--diff-from``,
+    # which is simply absent — indistinguishable from a run nobody asked to
+    # compare. It never relaxes a verdict; it only stops the head from
+    # claiming a comparison it did not get.
+    base_comparison_unavailable: bool = False

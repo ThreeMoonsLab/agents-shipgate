@@ -159,7 +159,7 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     assert payload["host_grants_inventory_schema_version"] == "0.2"
     assert payload["host_grants_baseline_schema_version"] == "0.2"
     assert payload["host_grants_drift_schema_version"] == "0.2"
-    assert payload["trigger_catalog_schema_version"] == "0.3"
+    assert payload["trigger_catalog_schema_version"] == "0.4"
     assert payload["agent_result_schema_version"] == "agent_result_v3"
     assert payload["agent_result_schema_path"] == "docs/agent-result-schema.v3.json"
     assert payload["agent_result_control_fields"] == [

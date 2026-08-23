@@ -29,6 +29,11 @@ MERGE_VERDICTS = {
 }
 
 
+#: Evaluation states in which the trigger published no verdict at all. A
+#: workflow must not read either as a skip.
+_WITHHELD_STATUSES = frozenset({"unclassified", "not_evaluated"})
+
+
 def clean(value: object) -> str:
     # `value or ""` would emit 0 as "", which breaks workflow checks
     # like `if: outputs.blocker_count == '0'`. Treat None as empty;
@@ -44,12 +49,36 @@ def bool_clean(value: object) -> str:
 
 
 def trigger_action(trigger: dict[str, Any]) -> str:
-    if trigger.get("stop_conditions_fired"):
-        return "skip_shipgate"
+    """Project the trigger's *winning* verdict for workflow consumption.
+
+    Two ways this used to disagree with the runtime it projects:
+
+    - it read the raw ``stop_conditions_fired`` bit first, so the stop+run
+      case — a matched capability rule overriding a whole-workspace negative,
+      which is exactly the ``.snap`` shape the catalog gained content
+      recognition for — was published as ``skip_shipgate`` while the runtime
+      said run. The Action reinstated the skip the runtime had just refused
+      (PR #404 review 2).
+    - both withheld states collapsed into ``none``, indistinguishable from a
+      trigger that ran and matched nothing. ``evaluation_status`` is exported
+      alongside so a workflow can tell them apart, and this now returns
+      ``withheld`` rather than a value that reads as a decision.
+
+    ``stop_conditions_terminal`` is absent from payloads written before that
+    field existed; there, a fired stop *was* terminal, which is the fallback.
+    """
+
+    if trigger and trigger.get("evaluation_status") in _WITHHELD_STATUSES:
+        return "withheld"
+    stop_decided = trigger.get(
+        "stop_conditions_terminal", trigger.get("stop_conditions_fired")
+    )
     if trigger.get("force_run"):
         return "force_run"
     if trigger.get("should_run") or trigger.get("run_shipgate"):
         return "run_shipgate"
+    if stop_decided:
+        return "skip_shipgate"
     if trigger.get("dry_run_recommended"):
         return "dry_run"
     if trigger.get("skip_reason") in {"skip_rule", "stop_conditions"}:
@@ -195,6 +224,11 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
         "actions_removed": action_diff_summary.get("actions_removed", 0),
         "should_run": bool_clean(trigger.get("should_run", trigger.get("run_shipgate", ""))),
         "trigger_action": trigger_action(trigger),
+        # Exported so a workflow can recover *why* `should_run` is empty:
+        # `unclassified` (read in full, classified nothing — run the scan) and
+        # `not_evaluated` (the diff could not be read — repair the input) call
+        # for different handling, and `trigger_action` alone cannot say which.
+        "trigger_evaluation_status": clean(trigger.get("evaluation_status")),
         "trigger_rule_ids": ",".join(
             clean(rule.get("id"))
             for rule in matched_rules

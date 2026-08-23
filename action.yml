@@ -269,8 +269,19 @@ outputs:
     description: Trigger evaluator should_run value from verifier.json (`true`/`false`).
     value: ${{ steps.report_outputs.outputs.should_run }}
   trigger_action:
-    description: Final trigger action (`force_run`, `run_shipgate`, `skip_shipgate`, `dry_run`, or `none`).
+    description: >-
+      Final trigger action (`force_run`, `run_shipgate`, `skip_shipgate`,
+      `dry_run`, `withheld`, or `none`). `withheld` means the evaluator
+      published no verdict — read `trigger_evaluation_status` to tell which
+      of the two withheld states applies. Never treat it as a skip.
     value: ${{ steps.report_outputs.outputs.trigger_action }}
+  trigger_evaluation_status:
+    description: >-
+      Trigger evaluation status (`evaluated`, `unclassified`, or
+      `not_evaluated`). `unclassified` means the diff was read in full and no
+      rule classified it — run the scan. `not_evaluated` means the diff could
+      not be read — repair the input. `should_run` is empty for both.
+    value: ${{ steps.report_outputs.outputs.trigger_evaluation_status }}
   trigger_rule_ids:
     description: Comma-separated trigger rule IDs that matched.
     value: ${{ steps.report_outputs.outputs.trigger_rule_ids }}

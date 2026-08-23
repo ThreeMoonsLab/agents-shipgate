@@ -3,7 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from agents_shipgate.core.domain import AuthInfo, LoadedToolSource, Tool
+from agents_shipgate.core.domain import (
+    AuthInfo,
+    LoadedToolSource,
+    SourceSurfaceOmission,
+    Tool,
+)
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.common import (
     load_structured_file_with_positions,
@@ -81,14 +86,45 @@ def load_mcp_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource
         raise InputParseError(f"MCP tools file must contain a tools array: {path}")
 
     tools: list[Tool] = []
+    omissions: list[SourceSurfaceOmission] = []
     seen_names: set[str] = set()
+
+    def _omit(index: int, reason: str, warning: str, detail: str) -> None:
+        """Record a dropped entry as a fact, not only as prose.
+
+        These two branches are real omissions: the entry is read, refused, and
+        never reaches the catalog. Saying so in a typed record is what lets the
+        exclusion ledger account for it without mapping every warning — most of
+        which are about tools that *did* load — to a missing subject.
+        """
+
+        warnings.append(warning)
+        omissions.append(
+            SourceSurfaceOmission(
+                subject=f"{pointer_prefix or '/tools'}/{index}",
+                reason=reason,
+                detail=detail,
+                warning=warning,
+            )
+        )
+
     for index, raw in enumerate(raw_tools):
         if not isinstance(raw, dict):
-            warnings.append("Skipping non-object MCP tool entry")
+            _omit(
+                index,
+                "unreadable_entry",
+                "Skipping non-object MCP tool entry",
+                "The entry is not an object, so no tool could be read from it.",
+            )
             continue
         name = raw.get("name")
         if not name:
-            warnings.append("Skipping MCP tool without name")
+            _omit(
+                index,
+                "unnamed_entry",
+                "Skipping MCP tool without name",
+                "The entry declares no name, so it cannot enter the catalog.",
+            )
             continue
         name_text = str(name)
         if name_text in seen_names:
@@ -147,6 +183,7 @@ def load_mcp_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource
         source_type="mcp",
         tools=tools,
         warnings=warnings,
+        omissions=omissions,
     )
 
 

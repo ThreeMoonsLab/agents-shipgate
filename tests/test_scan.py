@@ -1079,7 +1079,15 @@ action_surface:
         if item.subject == warning
     )
     assert gap.next_action.kind == "provide_source"
-    assert gap.next_action.command == ("agents-shipgate scan -c shipgate.yaml --format json")
+    # No machine-readable command, deliberately. The warning prose above scopes
+    # the one-liner to "its source workspace"; `next_action.command` carries no
+    # such qualification and reaches `fix_task.allowed_repairs`, where running
+    # it here drops --diff-from and clears the very row it was meant to answer
+    # (PR #404 review 2). The two steps live in `expects`.
+    assert gap.next_action.command is None
+    assert gap.next_action.path == "--diff-from"
+    assert "base source workspace" in gap.next_action.expects
+    assert "without --diff-from" in gap.next_action.expects
 
 
 def test_baseline_scan_fails_only_on_new_findings(tmp_path):

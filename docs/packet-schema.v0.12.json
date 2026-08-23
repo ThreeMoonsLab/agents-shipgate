@@ -615,6 +615,18 @@
           "title": "Subject",
           "type": "string"
         },
+        "subject_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject Id"
+        },
         "why": {
           "title": "Why",
           "type": "string"

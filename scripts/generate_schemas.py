@@ -335,6 +335,12 @@ def build_report_schema() -> tuple[Path, str]:
             "effective_policy",
             "human_ack",
             "verifier_summary",
+            # v0.35: the exclusion ledger. Non-Optional in Python (an absent
+            # ledger and an empty one must not be confusable), and required on
+            # the wire for the same reason — a consumer asking "what did this
+            # run decline to look at?" must never read the answer as "the
+            # field is missing, so probably nothing".
+            "surface_exclusions",
         ]
     )
     # Preserve version constants. Pydantic emits these as plain strings
@@ -602,6 +608,45 @@ def build_report_schema() -> tuple[Path, str]:
         )
     if "HumanAck" in defs:
         defs["HumanAck"]["required"] = sorted(["required", "satisfied", "acks", "outstanding"])
+        # v0.35. Required on the wire for the same reason the top-level field
+        # is: an absent count and a zero count must not be confusable. Without
+        # these a payload could ship `surface_exclusions: {}` — schema-valid,
+        # and erasing exactly the evidence this block exists to carry
+        # (PR #404 review). `total`/`gated` are counts, so they are bounded
+        # below at zero too; nothing here is expressible as "gated <= total" in
+        # JSON Schema, which `validate_semantic_consistency` checks instead.
+        defs["SurfaceExclusionLedger"]["required"] = sorted(
+            ["entries", "total", "gated", "gap_backed", "truncated"]
+        )
+        for count_field in ("total", "gated", "gap_backed"):
+            defs["SurfaceExclusionLedger"]["properties"][count_field]["minimum"] = 0
+        defs["SurfaceExclusion"]["required"] = sorted(
+            [
+                "stage",
+                "subject",
+                "reason",
+                "source_ref",
+                "detail",
+                "accounting",
+                "accounted_by",
+            ]
+        )
+        defs["BindingSurfaceDiff"]["required"] = sorted(
+            [
+                "enabled",
+                "base_comparison_requested",
+                # Emitted on every diff block, nullable in value only. Left out
+                # of this list it could be deleted from an otherwise valid
+                # report, unlike every other field here (PR #404 review 2).
+                "base_report_schema_version",
+                "added_reachable_tool_ids",
+                "removed_reachable_tool_ids",
+                "added_unbound_tool_ids",
+                "added_handoffs",
+                "removed_handoffs",
+                "notes",
+            ]
+        )
     if "VerifierCapabilityDeltaSummary" in defs:
         defs["VerifierCapabilityDeltaSummary"]["required"] = sorted(
             ["added", "removed", "broadened", "narrowed"]

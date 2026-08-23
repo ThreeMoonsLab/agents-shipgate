@@ -1060,14 +1060,83 @@ def test_errors_json_next_action_kinds_match_diagnostic_contract():
     assert set(catalog["next_action_kinds"]) == set(get_args(NextActionKind))
 
 
+def test_every_surface_advertises_the_catalog_version_the_loader_returns():
+    """The published catalog and every mirror of its version must agree.
+
+    They did not. #403 bumped `docs/triggers.json` to `0.4` while
+    `build_contract_payload()`, `.well-known/agents-shipgate.json`,
+    `docs/agent-contract-current.md`, and the rendered local contract all kept
+    advertising `0.3` — so an agent that trusted the contract applied the old
+    rules to the new catalog, which is the surface external agents actually
+    follow (PR #404 review). Nothing compared the two, so nothing failed.
+    """
+
+    from agents_shipgate.cli.discovery.agent_instructions.renderers import (
+        render_local_contract_file,
+    )
+    from agents_shipgate.schemas.contract import TRIGGER_CATALOG_SCHEMA_VERSION
+    from agents_shipgate.triggers import load_triggers
+
+    published = load_triggers()["schema_version"]
+
+    assert build_contract_payload().trigger_catalog_schema_version == published
+    assert TRIGGER_CATALOG_SCHEMA_VERSION == published
+    well_known = json.loads(_read(".well-known/agents-shipgate.json"))
+    assert well_known["trigger_catalog_schema_version"] == published
+    local_contract = json.loads(render_local_contract_file())
+    assert local_contract["trigger_catalog_schema_version"] == published
+    assert (
+        f"Current trigger catalog schema: `{published}`"
+        in _read("docs/agent-contract-current.md")
+    )
+    # Prose surfaces too. The first pass of this test named only the machine
+    # payloads, so `AGENTS.md` and the generated `llms-full.txt` went on
+    # teaching `0.3` — and those are what a prompt-driven consumer reads
+    # (PR #404 review 2).
+    for path in ("AGENTS.md", "llms-full.txt"):
+        text = _read(path)
+        assert f"catalog schema `{published}`" in text, path
+        assert "catalog schema `0.3`" not in text, path
+
+    # The withheld states are a wire contract, not an implementation detail:
+    # a consumer that only knows `not_evaluated` reads `unclassified` as a
+    # skip, which is the failure the state exists to prevent.
+    from agents_shipgate.triggers import (
+        EVALUATION_NOT_EVALUATED,
+        EVALUATION_UNCLASSIFIED,
+    )
+
+    for path in ("AGENTS.md", "docs/agent-contract-current.md", "llms-full.txt"):
+        text = _read(path)
+        for state in (EVALUATION_UNCLASSIFIED, EVALUATION_NOT_EVALUATED):
+            assert state in text, f"{path} does not document {state!r}"
+
+
+def test_the_exclusion_accounting_enum_is_documented_where_agents_read_it():
+    """Every ``accounting`` value must appear in the agent read path.
+
+    A strict consumer switching on the enum rejects a value the docs never
+    named; a prompt-driven one guesses. `unverified` shipped without either
+    (PR #404 review 2).
+    """
+
+    from typing import get_args
+
+    from agents_shipgate.schemas.exclusions import ExclusionAccounting
+
+    text = _read("docs/report-reading-for-agents.md")
+    for value in get_args(ExclusionAccounting):
+        assert f"`{value}`" in text, value
+
+
 def test_triggers_json_loads_via_canonical_loader():
     """The bundled `agents_shipgate.triggers` module is the canonical
     loader. If a coding agent reads docs/triggers.json directly and
     reaches a different verdict than this loader, that's a drift bug —
     catch it by exercising the loader during CI."""
     triggers = load_triggers()
-    assert triggers["schema_version"] == "0.3", (
-        "docs/triggers.json schema_version moved off 0.3; bump the "
+    assert triggers["schema_version"] == "0.4", (
+        "docs/triggers.json schema_version moved off 0.4; bump the "
         "test constant deliberately so external consumers are notified."
     )
     assert isinstance(triggers.get("rules"), list) and triggers["rules"], (
@@ -1495,10 +1564,18 @@ def test_trigger_catalog_routes_governance_trust_root_paths(pattern: str, path: 
     result = evaluate(paths=[path])
 
     if path in _TRUST_ROOT_TRIGGER_GAPS:
-        assert result["run_shipgate"] is False, (
+        # Read the matched rules, not the verdict. Since #403 an unrouted
+        # change set no longer publishes a confident skip — it withholds one —
+        # so `run_shipgate is False` would have stopped tripping without the
+        # gap being closed, which is the opposite of what a tripwire is for.
+        assert not result["matched_rules"], (
             f"{path!r} (trust root {pattern!r}) is now routed by the trigger "
             f"catalog via {[m['id'] for m in result['matched_rules']]}. That "
             "closes a known gap — remove it from _TRUST_ROOT_TRIGGER_GAPS."
+        )
+        assert result["evaluation_status"] == "unclassified", (
+            f"{path!r} is unrouted, so the catalog must withhold its verdict "
+            f"rather than publish {result['skip_reason']!r}."
         )
         return
 

@@ -2,6 +2,136 @@
 
 ## Unreleased
 
+- **Every stage that narrows the analysed surface now records what it removed,
+  and the release decision can read it.**
+  Across two first-time adoption walks the same shape produced five separate
+  failures: a stage computed the right signal, stored it, and did not connect
+  it to the decision
+  ([#403](https://github.com/ThreeMoonsLab/agents-shipgate/issues/403)).
+
+  The sharpest instance is a fail-open in exactly the reward-hacking shape this
+  product exists to catch. `github/github-mcp-server#3076` adds
+  `delete_repository` — `destructiveHint: true`, `readOnlyHint: false` — to
+  GitHub's official MCP server. With the reviewed declaration still listing the
+  116-tool surface from the base commit, the run reported `unbound_tools: 1`
+  beside `gap_count: 0` and `pass_eligible: true`, and named the new tool
+  exactly once in the whole report: as a row in `tool_catalog`. The checks that
+  would have blocked it are correct — declaring the tool produces
+  `SHIP-POLICY-APPROVAL-MISSING` and
+  `SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING` — but the tool left the analysed
+  surface before they ran. And it could not be declared without editing
+  `shipgate.yaml`, which is a release trust root a coding agent cannot
+  self-approve, so the honest options were "invisible capability" and "blocked
+  on a trust-root edit".
+
+  Reports now carry `surface_exclusions` (schema `0.35`): one typed
+  `{stage, subject, reason, source_ref, detail, accounting}` record per subject
+  a stage removed, from the binding graph, adapter parsing, and surface
+  completeness. `detect --json` and `trigger --json` emit the same record for
+  the stages they own — a capped discovery walk, an unresolved manifest scope, a
+  glob-matched source the real adapter rejects, an unclassified change set —
+  replacing four ad-hoc spellings of the same event with one. `accounting` is
+  what makes the record checkable rather than decorative: `evidence_gap` (a gap
+  row names this subject), `route_blocked` (the stage withheld its verdict and
+  its `next_action` repairs it), or `not_claimed` (nothing in the repository
+  claims the subject as capability).
+
+  A conservation invariant is enforced at emission: `observed == analysed ∪
+  excluded`, every excluded subject appears in the ledger, every `evidence_gap`
+  record is backed by a gap row carrying the same subject, an excluded tool the
+  decision *did* gap is never recorded `not_claimed`, and a subject *this
+  change* newly excluded can never be `not_claimed` either. The
+  `unbound_tools: 1 / gap_count: 0` state is now unrepresentable rather than
+  something each call site has to remember.
+
+  Every evidence gap that names a catalog tool now names it the same way.
+  `partial_binding_evidence` and the binding graph-issue rows used to carry the
+  raw canonical tool id (`tool_v2_2c9ee6…`) while every other emitter rendered
+  `name [provider]`, which both read badly in `Improve evidence:` and made a
+  tool unjoinable with itself — the ledger looked up one spelling and found the
+  other. The invariant rejects a raw id reaching a joinable gap subject.
+
+  The gate itself moved only where a diff proves it should. `binding_surface_diff`
+  gained `added_unbound_tool_ids` — head exclusions minus base exclusions — and
+  a tool in that set raises a `missing_binding_evidence` gap naming it. A
+  pre-existing unbound catalog entry is unchanged: `samples/large_multi_framework_agent`
+  has 58 by design, and gating on those would make declaring an OpenAPI spec or
+  an MCP server self-blocking. Catalog membership is still not evidence of
+  capability — a capability the diff introduced and nothing judged is a
+  different claim. A plain `scan` has no base, so nothing here fires on one.
+
+  **`skip` now requires positive evidence.** `TRIGGER-DOCS-ONLY-NEGATIVE` is a
+  legitimate skip: it classifies every changed file and concludes. `no_match`
+  classifies nothing, and the same PR is where that mattered — a fully readable
+  diff whose only relevant file is
+  `pkg/github/__toolsnaps__/delete_repository.snap`, reported as *"nothing in
+  this PR signals a tool-surface change"* because `TRIGGER-MCP-EXPORT-CHANGED`
+  matches `**/*mcp*.json` and that file is named neither. A non-empty change set
+  no rule classified now returns `evaluation_status: "unclassified"` with
+  `should_run: null` and a `next_action` routing forward to the scan, rather
+  than a skip nobody can falsify; an empty change set keeps `no_match`, because
+  there it is a fact about the PR. This is the
+  [#308](https://github.com/ThreeMoonsLab/agents-shipgate/issues/308)
+  monotonicity rule — already accepted for diff *readability* — applied to diff
+  *comprehension*. Trigger catalog `0.3 → 0.4` also adds
+  `TRIGGER-MCP-TOOL-SCHEMA-CONTENT`, which recognises an MCP tool definition by
+  its content (an MCP input schema beside MCP annotation hints) instead of by a
+  naming convention the repository never agreed to; the same glob also missed
+  `mcp-server/tools.json`.
+
+  Two more places published a skip nobody could falsify. A matched capability
+  rule now overrides `stop_conditions`: the block's premise is "this workspace
+  is not an agent project", read by `detect` from the working tree, and a
+  matched rule is evidence from the *diff*, which can carry what `detect` never
+  saw — the `.snap` file above is invisible to `suggested_sources`, so the stop
+  held and discarded the very rule that recognised it. And a skip may no longer
+  rest on changed files no rule classified: a dependency bump beside an opaque
+  capability file matched a `dry_run` rule that covered only the manifest, and
+  published an advisory skip over the sibling. Coverage is now per path.
+
+  The tri-state verdict reaches the consumers that act on it. The Claude Code
+  hooks branch on `evaluation_status` instead of coercing `should_run: null` to
+  a skip, and say which of the two withheld states applies rather than claiming
+  a match; `decide-shipgate-relevance.md` teaches the tri-state and the new
+  precedence; and `trigger_catalog_schema_version` moved in step across the
+  contract payload, `.well-known`, the rendered local contract, and the docs —
+  a drift a new cross-surface equality test now catches.
+
+  Finally, a base comparison that was *requested* and could not be performed no
+  longer reads as one nobody asked for. `binding_surface_diff` gains
+  `base_comparison_requested`, `VerificationContext` gains
+  `base_comparison_unavailable`, and that state raises one gap naming the
+  unusable base rather than concluding an unbound tool is pre-existing from a
+  comparison that never ran — the weakening
+  `docs/engineering/ai-coding-workflow-verifier.md` §2.3 forbids. Ledger rows
+  in that state are `unverified`, never `not_claimed`.
+
+  The tri-state reaches the GitHub Action too. `trigger_action` read the raw
+  `stop_conditions_fired` bit before the winning verdict, so the Action
+  republished a skip the runtime had just refused, and it collapsed both
+  withheld states into `none`. It now projects the verdict, returns `withheld`
+  rather than a value that reads as a decision, and `action.yml` exports
+  `trigger_evaluation_status` so a workflow can tell "run the scan" from
+  "repair the input". First adoption stays out of the failed-comparison route:
+  a base with no manifest was read successfully and simply has no gate, so
+  asking the adopter to regenerate a base report that cannot exist made
+  adoption over a partially-wired catalog unfinishable.
+
+  Three integrity gaps in the new evidence closed. `accounting` joins to its
+  gap through an explicit `accounted_by` pointer instead of a subject string
+  two catalog tools can share; `gated` and the new `gap_backed` are validated
+  against the rows they summarize, in Pydantic and in the invariant, because a
+  count nothing checks can be forged past both; and the cap's guarantee is now
+  the accurate one — every `gap_backed` row survives truncation, while
+  `route_blocked` and `unverified` rows may be capped, since their accounting
+  is one whole-run fact a single row proves as well as five hundred.
+
+  Adapter omissions are recorded again, from a typed fact rather than from
+  prose. `LoadedToolSource.omissions` carries the entries an adapter read and
+  refused — the MCP loader records both of its skip branches — so an entry that
+  genuinely never entered the catalog reaches the ledger, while the warnings
+  about tools that *did* load stay out of it.
+
 - **`verify --preview` of a head that is not checked out now asks for the
   checkout, instead of stopping.** Preview reads project markers from the
   working tree, because that is the tree the `init` it recommends would write
