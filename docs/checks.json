@@ -595,8 +595,12 @@
         "action_id",
         "declared_effect",
         "inferred_effect",
+        "inferred_evidence",
         "evidence_sources",
-        "acknowledged"
+        "acknowledged",
+        "unacknowledged_evidence",
+        "stale_evidence",
+        "override_reason"
       ],
       "fires_when": "action_surface.actions.effect is weaker than an inferred (non-policy-eligible) effect observation for the same tool.",
       "floor_severity": "medium",

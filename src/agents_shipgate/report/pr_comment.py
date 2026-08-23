@@ -349,6 +349,12 @@ def _render_findings_comment(
 
 
 _MAX_OVERRIDE_ROWS = 3
+#: A reason is free-form manifest text with no length bound, and it lands in a
+#: comment whose size budget is enforced by truncating prose from the *end* —
+#: so three long ones would evict the trigger, base-diff, and artifact lines
+#: below them. The full text is in report.json; this surface only has to show
+#: enough to recognise the exception.
+_MAX_OVERRIDE_REASON_CHARS = 160
 
 
 def _effect_override_lines(report: ReadinessReport | None) -> list[str]:
@@ -370,32 +376,57 @@ def _effect_override_lines(report: ReadinessReport | None) -> list[str]:
     ]
     if not rows:
         return []
+    # Unanswered first. Every one of these shares a check id and a severity, so
+    # left in report order they sort by tool name, and a cap of three would show
+    # three acknowledged rows while hiding the one row that needs an answer.
+    rows.sort(
+        key=lambda finding: (
+            finding.evidence.get("acknowledged") is True,
+            finding.tool_name or "",
+        )
+    )
     lines = [f"- Declaration overrides ({len(rows)}):"]
     for finding in rows[:_MAX_OVERRIDE_ROWS]:
-        evidence = finding.evidence
-        declared = str(evidence.get("declared_effect") or "?")
-        inferred = str(evidence.get("inferred_effect") or "?")
-        sources = [
-            str(item) for item in (evidence.get("evidence_sources") or []) if str(item)
-        ]
-        where = f" ({', '.join(sources)})" if sources else ""
-        acknowledged = evidence.get("acknowledged") is True
-        mark = "acknowledged" if acknowledged else "NOT acknowledged"
-        tail = ""
-        if acknowledged and evidence.get("override_reason"):
-            tail = f" — {_escape(str(evidence['override_reason']))}"
-        # ``_code`` inside the spans and ``_escape`` outside them: escaping
-        # inside a code span renders the backslashes literally, and a name
-        # carrying a backtick would otherwise close the span it sits in.
-        lines.append(
-            f"  - {_code(finding.tool_name or finding.check_id)}: declares "
-            f"{_code(declared)}; evidence says {_code(inferred)}{_escape(where)} "
-            f"— {mark}{tail}"
-        )
+        lines.append(f"  - {_effect_override_row(finding)}")
     remaining = len(rows) - _MAX_OVERRIDE_ROWS
     if remaining > 0:
         lines.append(f"  - (+{remaining} more — see report.json findings)")
     return lines
+
+
+def _effect_override_row(finding: Finding) -> str:
+    """One override, in the state it is actually in.
+
+    Three states reach this check and they are not variations of one sentence.
+    A stale override — one naming evidence this scan no longer observes —
+    carries no inferred effect at all, so the "evidence says X" shape rendered
+    a literal ``?`` and told the reviewer nothing about what to do.
+    """
+
+    evidence = finding.evidence
+    # ``_code`` inside the spans and ``_escape`` outside them: escaping inside a
+    # code span renders the backslashes literally, and a name carrying a
+    # backtick would otherwise close the span it sits in.
+    subject = _code(finding.tool_name or finding.check_id)
+    declared = _code(str(evidence.get("declared_effect") or "unknown"))
+    stale = [str(item) for item in (evidence.get("stale_evidence") or []) if str(item)]
+    inferred_effect = evidence.get("inferred_effect")
+    if not inferred_effect and stale:
+        return (
+            f"{subject}: declares {declared}; overrides "
+            f"{_code(', '.join(stale))}, which this scan did not observe "
+            "— NOT acknowledged"
+        )
+    inferred = _code(str(inferred_effect or "unknown"))
+    sources = [str(item) for item in (evidence.get("evidence_sources") or []) if str(item)]
+    where = _escape(f" ({', '.join(sources)})") if sources else ""
+    acknowledged = evidence.get("acknowledged") is True
+    tail = ""
+    if acknowledged and evidence.get("override_reason"):
+        reason = _truncate(str(evidence["override_reason"]), _MAX_OVERRIDE_REASON_CHARS)
+        tail = f" — {_escape(reason)}"
+    mark = "acknowledged" if acknowledged else "NOT acknowledged"
+    return f"{subject}: declares {declared}; evidence says {inferred}{where} — {mark}{tail}"
 
 
 def _verifier_lead(verifier: VerifierArtifact) -> list[str]:

@@ -587,3 +587,152 @@ def _effect_override_findings_for(tool, declaration):
         for finding in findings
         if finding.check_id == "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE"
     ]
+
+
+def test_the_pr_comment_shows_a_stale_override_in_the_state_it_is_in() -> None:
+    """A stale override carries no inferred effect, so "evidence says X" lies.
+
+    Rendered through the shared shape it printed a literal ``?``: a reviewer
+    was told a declaration disagrees with an unnamed observation, and the
+    actual state — an override to delete — appeared nowhere on the comment.
+    """
+
+    from agents_shipgate.report.pr_comment import _effect_override_lines
+
+    declaration = _declaration(
+        override={"evidence": ["external_communication"], "reason": "preview only"}
+    )
+    tool = attach_semantic_assessments([_send_email(risk_hints=[])], {TOOL_ID: declaration})[0]
+    report = _report_carrying(_effect_override_findings_for(tool, declaration))
+    row = _effect_override_lines(report)[1]
+
+    assert "?" not in row
+    assert "which this scan did not observe" in row
+    assert "external_communication" in row
+    assert "NOT acknowledged" in row
+
+
+def test_the_pr_comment_shows_unanswered_overrides_before_answered_ones() -> None:
+    """The row cap must not hide the only row that needs an answer.
+
+    Every one of these shares a check id and a severity, so in report order
+    they sort by tool name — and a repository whose unanswered override is on
+    a late-alphabet tool would see three acknowledged rows and a "+1 more".
+    """
+
+    from agents_shipgate.report.pr_comment import _MAX_OVERRIDE_ROWS, _effect_override_lines
+
+    findings = []
+    for name in ("alpha_send", "beta_send", "gamma_send"):
+        declaration = _declaration(
+            tool=name,
+            override={"evidence": ["external_communication"], "reason": "reviewed"},
+        )
+        tool = attach_semantic_assessments(
+            [_send_email(id=f"tool:{name}", name=name)], {f"tool:{name}": declaration}
+        )[0]
+        findings.extend(_effect_override_findings_for(tool, declaration))
+    unanswered = _declaration(tool="zeta_send")
+    tool = attach_semantic_assessments(
+        [_send_email(id="tool:zeta_send", name="zeta_send")], {"tool:zeta_send": unanswered}
+    )[0]
+    findings.extend(_effect_override_findings_for(tool, unanswered))
+
+    lines = _effect_override_lines(_report_carrying(findings))
+
+    assert lines[0] == "- Declaration overrides (4):"
+    assert "zeta_send" in lines[1]
+    assert "NOT acknowledged" in lines[1]
+    assert lines[-1] == f"  - (+{4 - _MAX_OVERRIDE_ROWS} more — see report.json findings)"
+
+
+def test_the_pr_comment_caps_a_reviewed_reason() -> None:
+    """Reason text is unbounded manifest input on a size-budgeted surface.
+
+    The comment enforces its budget by truncating prose from the end, so an
+    essay here evicts the trigger, base-diff, and artifact lines below it.
+    """
+
+    from agents_shipgate.report.pr_comment import (
+        _MAX_OVERRIDE_REASON_CHARS,
+        _effect_override_lines,
+    )
+
+    declaration = _declaration(
+        override={"evidence": ["external_communication"], "reason": "x" * 4000}
+    )
+    tool = attach_semantic_assessments([_send_email()], {TOOL_ID: declaration})[0]
+    row = _effect_override_lines(_report_carrying(_effect_override_findings_for(tool, declaration)))[1]
+
+    assert len(row) < _MAX_OVERRIDE_REASON_CHARS + 200
+    # Escaped, because the ellipsis lands in prose rather than a code span.
+    assert row.endswith("\\.\\.\\.")
+
+
+def test_an_override_cannot_answer_high_confidence_source_evidence() -> None:
+    """An override answers inferred evidence and nothing else.
+
+    Where the source itself proves the higher effect the declaration is wrong
+    rather than exceptional, so the override is inert — and a written input
+    that changes nothing has to be told it changed nothing.
+    """
+
+    tool = Tool.model_validate(
+        {
+            "id": "mcp:orders:process_order",
+            "name": "process_order",
+            "source_type": "mcp",
+            "source_id": "orders",
+            "source_pointer": "/tools/0",
+            "extraction_confidence": "high",
+            "extraction": {"method": "mcp_json", "confidence": "high"},
+            "auth": AuthInfo(
+                type="oauth2",
+                scopes=["orders:write"],
+                source="mcp",
+                mode="scoped",
+                explicit=True,
+            ),
+        }
+    )
+    payload = {
+        "tool": "process_order",
+        "effect": "read",
+        "scopes": ["orders:write"],
+        "authority": {"mode": "scoped", "auth_type": "oauth2"},
+    }
+    without = assess_tool_semantics(tool, ActionDeclarationConfig.model_validate(payload))
+    with_override = assess_tool_semantics(
+        tool,
+        ActionDeclarationConfig.model_validate(
+            {**payload, "override": {"evidence": ["write"], "reason": "reviewed"}}
+        ),
+    )
+
+    # The verdict is identical either way: an override never opens this door.
+    assert with_override.effect.status == without.effect.status == "conflicting"
+    assert with_override.pass_eligible is False
+    message = next(
+        issue.message
+        for issue in with_override.effect.issues
+        if issue.kind == "conflicting_effect_evidence"
+    )
+    assert "override does not apply" in message
+    assert "override" not in next(
+        issue.message
+        for issue in without.effect.issues
+        if issue.kind == "conflicting_effect_evidence"
+    )
+
+
+def _report_carrying(findings):
+    report = ReadinessReport(
+        run_id="run-1",
+        project={},
+        agent={},
+        environment={},
+        summary=ReportSummary(status="review_required"),
+        tool_surface=ToolSurfaceSummary(total_tools=1, high_risk_tools=0),
+    )
+    report.findings = findings
+    return report

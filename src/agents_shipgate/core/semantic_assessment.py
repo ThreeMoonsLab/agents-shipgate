@@ -459,6 +459,17 @@ def _assess_effect(
 
     if declaration is not None and declaration.effect is not None:
         declared_effect = declaration.effect
+        # An override answers *inferred* evidence and nothing else. Where the
+        # source itself proves the higher effect, the declaration is wrong
+        # rather than exceptional, and the override is inert — so say so on the
+        # row the reviewer is already reading, instead of consuming a written
+        # input and reporting nothing about it.
+        inert_override = (
+            "; action_surface.actions[].override does not apply to high-confidence "
+            "source evidence"
+            if declaration.override is not None
+            else ""
+        )
         high_structural = [claim for claim in structural if claim.confidence == "high"]
         has_read = any(claim.value == "read" for claim in high_structural)
         has_non_read = any(claim.value != "read" for claim in high_structural)
@@ -475,7 +486,8 @@ def _assess_effect(
                 _issue(
                     "conflicting_effect_evidence",
                     "effect",
-                    "high-confidence read and side-effect evidence conflict",
+                    "high-confidence read and side-effect evidence conflict"
+                    + inert_override,
                     "tool_source",
                     pointer,
                 )
@@ -487,7 +499,8 @@ def _assess_effect(
                 _issue(
                     "conflicting_effect_evidence",
                     "effect",
-                    "declared effect is weaker than high-confidence source evidence",
+                    "declared effect is weaker than high-confidence source evidence"
+                    + inert_override,
                     "action_surface_declaration",
                     f"action_surface.actions[tool={tool.name!r}].effect",
                 )

@@ -93,8 +93,12 @@ checks:
   - action_id
   - declared_effect
   - inferred_effect
+  - inferred_evidence
   - evidence_sources
   - acknowledged
+  - unacknowledged_evidence
+  - stale_evidence
+  - override_reason
   recommendation: |-
     Raise action_surface.actions[].effect to the observed effect, or keep it and add action_surface.actions[].override naming exactly the evidence it overrides and why.
 - id: SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING
