@@ -1,7 +1,7 @@
 {
   "capability_lock_schema_version": "0.7",
   "experimental": false,
-  "cli_version": "0.16.0b6",
+  "cli_version": "0.16.0b7",
   "source": {
     "config_path": "shipgate.yaml",
     "manifest_dir": ".",

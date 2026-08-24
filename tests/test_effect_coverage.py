@@ -12,8 +12,8 @@ Follow-ups to #411 (the #409 monotone rule), each a defect that shipped with it:
 
 from __future__ import annotations
 
+import hashlib
 import json
-import subprocess
 from pathlib import Path
 from typing import cast
 
@@ -28,7 +28,7 @@ from agents_shipgate.core.domain import Tool, ToolRiskHint
 from agents_shipgate.core.semantic_assessment import (
     assess_tool_semantics,
     declaration_covers,
-    effect_remedy_instruction,
+    effect_repair,
 )
 from agents_shipgate.schemas.manifest import ActionDeclarationConfig
 from agents_shipgate.schemas.surfaces import ActionEffect
@@ -113,10 +113,13 @@ def test_the_uncovered_row_does_not_call_a_higher_effect_weaker() -> None:
 
     assert "does not carry the controls required by" in issue.message
     assert "weaker than" not in issue.message
-    # And the published remedy names controls rather than a lower effect.
-    instruction = effect_remedy_instruction(assessment.effect)
-    assert "Declare the external_communication controls" in instruction
-    assert "Raise" not in instruction
+    # And the published repair keeps the declared effect, naming the category
+    # as a reviewed risk tag so its controls apply. "Raise the effect" would
+    # ask for a *lower* assessment here.
+    repair = effect_repair(assessment.effect)
+    assert repair.kind == "declare_risk_tags"
+    assert repair.risk_tags == ("external_communication",)
+    assert "Raise" not in repair.instruction
 
 
 def test_a_de_escalating_declaration_still_asks_to_be_raised() -> None:
@@ -131,7 +134,10 @@ def test_a_de_escalating_declaration_still_asks_to_be_raised() -> None:
 
     assert "declaration_below_inferred_evidence" in kinds
     assert "is weaker than inferred" in issue.message
-    assert effect_remedy_instruction(assessment.effect) == (
+    repair = effect_repair(assessment.effect)
+    assert repair.kind == "raise_effect"
+    assert repair.effect == "external_communication"
+    assert repair.instruction == (
         "Raise action_surface.actions[].effect to 'external_communication'"
     )
 
@@ -228,6 +234,104 @@ def test_every_uncovered_observation_is_named() -> None:
     assert "also unaccounted for: 'external_communication' (risk_hint:name)" in message
 
 
+def test_the_published_repair_closes_the_row_it_is_printed_on() -> None:
+    """Exhaustive: apply what the row advertises and the row must be gone.
+
+    A published next step that cannot change the answer is the recurring defect
+    here. Two ways the single-value instruction failed: it named the strongest
+    observation and left a second one uncovered, and it fell through to
+    "declare the ``write`` controls" for an effect that obliges none.
+
+    This walks every declared effect against every one- and two-observation
+    combination, applies the repair the row publishes, and re-resolves.
+    """
+
+    import itertools
+
+    tags = {
+        "external_communication": "external_write",
+        "financial_write": "financial_action",
+        "destructive": "destructive",
+        "production_operation": "production_operation",
+        "code_execution": "code_execution",
+        "privileged_data_access": "privileged_data_access",
+        "identity_access": "identity_access",
+        "write": "writes_data",
+    }
+
+    def observed(effects: tuple[str, ...]) -> Tool:
+        return _tool(
+            risk_hints=[
+                ToolRiskHint(
+                    tag=tags[effect],
+                    source=f"hint{index}",
+                    confidence="medium",
+                    basis="inferred_keyword",
+                )
+                for index, effect in enumerate(effects)
+            ]
+        )
+
+    unclosed: list[str] = []
+    exercised = 0
+    for count in (1, 2):
+        for effects in itertools.combinations(sorted(tags), count):
+            tool = observed(effects)
+            for declared in _EFFECTS:
+                base = {
+                    "tool": "send_email",
+                    "effect": declared,
+                    "authority": {"mode": "none"},
+                }
+                assessment, kinds = _issue_kinds(
+                    tool, ActionDeclarationConfig.model_validate(base)
+                )
+                if "declaration_below_inferred_evidence" not in kinds:
+                    continue
+                exercised += 1
+                repair = effect_repair(assessment.effect)
+                repaired = dict(base)
+                if repair.kind == "raise_effect":
+                    repaired["effect"] = repair.effect
+                else:
+                    repaired["risk_tags"] = list(repair.risk_tags)
+                _, after = _issue_kinds(
+                    tool, ActionDeclarationConfig.model_validate(repaired)
+                )
+                if "declaration_below_inferred_evidence" in after:
+                    unclosed.append(
+                        f"declared={declared} observed={effects} "
+                        f"repair={repair.kind}:{repair.effect or repair.risk_tags}"
+                    )
+
+    assert exercised > 100, "the matrix stopped exercising the rule"
+    assert not unclosed, "\n".join(unclosed)
+
+
+def test_a_repair_never_drops_the_reading_the_reviewer_declared() -> None:
+    """Raising is advertised only when it also covers the declared value.
+
+    Otherwise "raise the effect" quietly asks for a *lower* assessment on the
+    dimension the reviewer had already judged.
+    """
+
+    tool = _tool(
+        risk_hints=[
+            ToolRiskHint(
+                tag="external_write",
+                source="name",
+                confidence="medium",
+                basis="inferred_keyword",
+            )
+        ]
+    )
+    assessment, _ = _issue_kinds(tool, _declaration(effect="financial_write"))
+    repair = effect_repair(assessment.effect)
+
+    assert repair.kind == "declare_risk_tags"
+    assert repair.effect is None
+
+
 # --------------------------------------------------------------------------
 # One comparison, both surfaces
 # --------------------------------------------------------------------------
@@ -316,17 +420,38 @@ def test_the_policy_path_asks_the_same_question_as_the_declaration_rule() -> Non
     assert silent_here == silent_there
 
 
+#: The built-in action-control checks whose ``missing`` list *is* the obligation
+#: set for an effect. Other checks also publish a ``missing`` field (manifest
+#: hygiene, side-effect hygiene); folding those in would compare the table
+#: against controls it never claimed to describe.
+_BUILTIN_CONTROL_CHECKS = frozenset(
+    {
+        "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
+        "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
+        "SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING",
+        "SHIP-ACTION-POLICY-VIOLATION",
+    }
+)
+
+
 def test_the_builtin_obligation_table_matches_the_controls_that_fire(tmp_path) -> None:
     """Pin the table against the branches it mirrors, through a real scan.
 
     The obligations live as inline literals in
-    ``_current_action_policy_findings``. Walking every entry keeps the table the
-    comparator reads from drifting off the controls the gate actually applies.
+    ``_current_action_policy_findings``. This walks **every** effect, not only
+    the ones in the table, and compares the exact set both ways.
+
+    One direction is the unsafe one. ``issubset`` alone still passed when a
+    branch gained a control the table omits, and skipped an effect deleted from
+    the table entirely — and it is precisely those cases where
+    ``declaration_covers`` would then discharge an observation whose new control
+    never gets applied (PR #413 review 4).
     """
 
     from agents_shipgate.cli.scan import run_scan
 
-    for effect, obligations in sorted(BUILTIN_EFFECT_OBLIGATIONS.items()):
+    for effect in sorted(ACTION_EFFECT_RANK):
+        obligations = BUILTIN_EFFECT_OBLIGATIONS.get(effect, frozenset())
         workspace = tmp_path / effect
         workspace.mkdir()
         (workspace / "tools.json").write_text(
@@ -371,6 +496,8 @@ action_surface:
         )
         missing: set[str] = set()
         for finding in report.findings:
+            if finding.check_id not in _BUILTIN_CONTROL_CHECKS:
+                continue
             raw = finding.evidence.get("missing")
             if not isinstance(raw, list):
                 continue
@@ -379,9 +506,11 @@ action_surface:
                     missing.add(item)
                 elif isinstance(item, dict) and isinstance(item.get("path"), str):
                     missing.add(item["path"])
-        assert obligations.issubset(missing), (
-            f"{effect}: table claims {sorted(obligations)} but the scan reported "
-            f"{sorted(missing)} missing on an action declaring none of them"
+        assert missing == set(obligations), (
+            f"{effect}: BUILTIN_EFFECT_OBLIGATIONS says {sorted(obligations)}, but the "
+            f"built-in controls reported {sorted(missing)} missing on an action "
+            "declaring none of them. A control the table omits is one "
+            "declaration_covers can discharge without ever applying it."
         )
 
 
@@ -416,6 +545,39 @@ def test_the_new_gap_kind_reaches_only_the_current_schema(frozen: str, current: 
     assert "declaration_below_inferred_evidence" in current_text
 
 
+#: sha256 of each frozen document as published. Checked in rather than read
+#: from git history: the main CI job checks out with ``fetch-depth: 1``, so a
+#: ``git show <old-rev>`` guard skipped in exactly the runs that must enforce
+#: this — a silent skip on the invariant, which is worse than not having it
+#: (PR #413 review 3). A deliberate re-freeze updates the hash here, in the
+#: same commit, where a reviewer sees it.
+_PUBLISHED_SCHEMA_SHA256 = {
+    "report-schema.v0.35.json": (
+        "cd3a971dd6a02676cfa0db798a443715778b364bd80510b23f3c83ea876003cf"
+    ),
+    "packet-schema.v0.12.json": (
+        "8bef394df037374a14153b743f46a4e279f65b8e1312842efcdec92a07d0bcb5"
+    ),
+    "verifier-schema.v0.9.json": (
+        "d477db7c202ba9c0629fa28ade7a69d37758052de370aa3246135ede9eeefeaf"
+    ),
+    "capability-lock-schema.v0.6.json": (
+        "0e43ccadea3258323cac279a59a431e771c2abbe9f4333c853ec5d1401f5285a"
+    ),
+    "capability-lock-diff-schema.v0.7.json": (
+        "e73210870bb5b1181fcbb90872ced3c71f3ecc1f11124188aa21579694eec93a"
+    ),
+}
+
+
+def test_every_frozen_schema_has_a_pinned_hash() -> None:
+    """No frozen document may sit outside the guard."""
+
+    assert {frozen for frozen, _ in _FROZEN_AND_CURRENT_SCHEMAS} == set(
+        _PUBLISHED_SCHEMA_SHA256
+    )
+
+
 @pytest.mark.parametrize(("frozen", "current"), _FROZEN_AND_CURRENT_SCHEMAS)
 def test_a_frozen_schema_keeps_the_bytes_it_was_published_with(
     frozen: str, current: str
@@ -423,16 +585,12 @@ def test_a_frozen_schema_keeps_the_bytes_it_was_published_with(
     """The freeze is about bytes, not only about the enum that exposed it."""
 
     del current
-    published = subprocess.run(
-        ["git", "show", f"0c5f40fc~1:docs/{frozen}"],
-        capture_output=True,
-        text=True,
-        cwd=_REPO_ROOT,
-        check=False,
+    digest = hashlib.sha256((_DOCS / frozen).read_bytes()).hexdigest()
+
+    assert digest == _PUBLISHED_SCHEMA_SHA256[frozen], (
+        f"docs/{frozen} is published and pinned; consumers validate against "
+        "these exact bytes. Emit new content under a new version instead."
     )
-    if published.returncode != 0:
-        pytest.skip(f"docs/{frozen} has no pre-#411 revision to compare")
-    assert published.stdout == (_DOCS / frozen).read_text(encoding="utf-8")
 
 
 def test_every_emitted_artifact_validates_against_its_own_current_schema(tmp_path) -> None:
@@ -490,3 +648,53 @@ def test_a_lock_written_under_the_prior_schema_still_loads(tmp_path) -> None:
     loaded = load_capability_lock(path)
 
     assert loaded.capability_lock_schema_version == CAPABILITY_LOCK_SCHEMA_VERSION
+
+
+def test_the_published_examples_are_artifacts_this_runtime_could_emit() -> None:
+    """JSON Schema validation is not enough for an example.
+
+    `capability-lock-diff.v0.8.example.json` validated cleanly while embedding
+    lock refs at `0.6` — a tuple the CLI cannot produce, because the loader
+    advances a `0.6` lock and `_lock_ref` stamps the current version. And the
+    lock example attributed v0.7 output to a CLI release that emitted v0.6. An
+    example a reader copies has to be one the tool would actually write
+    (PR #413 review 6).
+    """
+
+    from agents_shipgate import __version__ as cli_version
+    from agents_shipgate.schemas.capabilities import (
+        CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
+        CAPABILITY_LOCK_SCHEMA_VERSION,
+        CAPABILITY_STANDARD_VERSION,
+        CapabilityLockDiffV1,
+        CapabilityLockFileV1,
+    )
+
+    lock = CapabilityLockFileV1.model_validate(
+        json.loads(
+            (_DOCS / "examples" / f"capability-lock.v{CAPABILITY_LOCK_SCHEMA_VERSION}.example.json")
+            .read_text(encoding="utf-8")
+        )
+    )
+    assert lock.capability_lock_schema_version == CAPABILITY_LOCK_SCHEMA_VERSION
+    assert lock.cli_version == cli_version, (
+        "the example attributes this output to a release that emitted a different "
+        "lock schema"
+    )
+
+    diff = CapabilityLockDiffV1.model_validate(
+        json.loads(
+            (
+                _DOCS
+                / "examples"
+                / f"capability-lock-diff.v{CAPABILITY_LOCK_DIFF_SCHEMA_VERSION}.example.json"
+            ).read_text(encoding="utf-8")
+        )
+    )
+    assert diff.capability_lock_diff_schema_version == CAPABILITY_LOCK_DIFF_SCHEMA_VERSION
+    # Both sides are read through the loader before a diff is taken, so a diff
+    # this runtime emits can only ever reference the current lock schema.
+    for side in (diff.base, diff.head):
+        assert side.capability_lock_schema_version == CAPABILITY_LOCK_SCHEMA_VERSION
+
+    assert CAPABILITY_STANDARD_VERSION == "0.5"

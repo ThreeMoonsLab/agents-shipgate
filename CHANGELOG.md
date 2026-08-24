@@ -46,11 +46,25 @@
   than rejected — the normalizer handled only `0.1`–`0.4`, so the bump would
   otherwise have orphaned every committed `capabilities.lock.json`.
 
-  Also: the row now names *every* uncovered observation rather than the
-  strongest one alone, so a reviewer is not asked to acknowledge evidence the
-  row never showed them; and the published remedy is true of its state —
-  "raise the effect" is not printed where the declared effect already outranks
-  the observation.
+  *The published repair now closes the row it is printed on.* The instruction
+  named the strongest uncovered observation, so with both a `financial_write`
+  and an `external_communication` reading a reviewer could apply the exact edit
+  the row asked for and get the same row back — and it fell through to "declare
+  the `write` controls" for an effect that obliges none. A raise is advertised
+  only when one observed effect covers **every** uncovered observation *and* the
+  value already declared; otherwise the row publishes the `risk_tags` route,
+  which both accounts for the observation and makes that category's built-in
+  controls apply. `accepted_values` and the scaffold template follow the route,
+  so the structured action and the prose describe the same repair. An exhaustive
+  test applies the published repair to every gapped declared/observed
+  combination and asserts the row is gone.
+
+  *Every suppressed observation reaches the reviewer.* An override recorded two
+  `overridden_claim_ids` but projected one `inferred_effect`, so the second
+  observation it waived vanished from `acknowledged_overrides`, the PR
+  projection, and the packet the moment it was acknowledged. There is now one
+  reviewer row per suppressed observation, each with its own sources. Un-acknowledged
+  rows already named all of them.
 
 - **A declaration weaker than the evidence inferred for it is no longer
   silent.** Declaring `effect: read` on a tool this scanner itself tagged

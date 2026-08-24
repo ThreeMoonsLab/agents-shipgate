@@ -324,8 +324,13 @@ def test_escalating_across_categories_is_not_a_free_pass(tmp_path: Path) -> None
     )
 
     assert "does not carry the controls required by" in gap.why
-    # "Raise the effect" would ask for a *lower* assessment here.
-    assert "Declare the external_communication controls" in gap.next_action.expects
+    # "Raise the effect" would ask for a *lower* assessment here, so the row
+    # publishes the route that keeps the declared effect and makes the missing
+    # category's controls apply — and the template carries it, filled in.
+    assert "risk_tags: [external_communication]" in gap.next_action.expects
+    assert "Raise action_surface.actions[].effect" not in gap.next_action.expects
+    assert gap.next_action.declaration_template["risk_tags"] == ["external_communication"]
+    assert gap.next_action.accepted_values == ["external_communication"]
     assert coverage.semantic_coverage.pass_eligible_actions == 0
 
 

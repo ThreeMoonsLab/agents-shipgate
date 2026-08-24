@@ -83,8 +83,17 @@ _FIELD_HINTS: dict[str, str] = {
     ),
     "override.reason": (
         "why that evidence does not establish the stronger effect for this "
-        "action. Raising `effect:` to the inferred value instead needs no "
-        "override at all."
+        "action. Accounting for the observation instead — raising `effect:`, "
+        "or keeping it and declaring the category under `risk_tags:` above — "
+        "needs no override at all. The row's own instruction says which of the "
+        "two applies here."
+    ),
+    "risk_tags": (
+        "filled in from what this scan observed above the declared effect. "
+        "Keeping these declares the categories as reviewed, which both accounts "
+        "for the observation and makes each category's built-in controls apply "
+        "to this action — the obligation the row is missing. Delete any you "
+        "reject, and record that judgement in `override:` instead."
     ),
     "root.object": (
         "the agent's declared name — what `Agent(name=…)` was given, not the "

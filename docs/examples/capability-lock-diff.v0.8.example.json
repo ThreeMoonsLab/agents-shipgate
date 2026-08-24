@@ -3,7 +3,7 @@
   "experimental": false,
   "base": {
     "path": ".agents-shipgate/capabilities.lock.json",
-    "capability_lock_schema_version": "0.6",
+    "capability_lock_schema_version": "0.7",
     "semantic_capability_set_hash": "2222222222222222222222222222222222222222222222222222222222222222",
     "evidence_set_hash": "3333333333333333333333333333333333333333333333333333333333333333",
     "source_set_hash": "4444444444444444444444444444444444444444444444444444444444444444",
@@ -11,7 +11,7 @@
   },
   "head": {
     "path": "agents-shipgate-reports/capabilities.lock.json",
-    "capability_lock_schema_version": "0.6",
+    "capability_lock_schema_version": "0.7",
     "semantic_capability_set_hash": "5555555555555555555555555555555555555555555555555555555555555555",
     "evidence_set_hash": "6666666666666666666666666666666666666666666666666666666666666666",
     "source_set_hash": "4444444444444444444444444444444444444444444444444444444444444444",

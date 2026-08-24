@@ -24,7 +24,7 @@ from agents_shipgate.core.evidence_actions import (
     yaml_scalar,
 )
 from agents_shipgate.core.semantic_assessment import (
-    effect_remedy_instruction,
+    effect_repair,
 )
 from agents_shipgate.core.source_warnings import unresolved_adk_tool_symbols
 from agents_shipgate.core.surface_exclusions import (
@@ -1128,22 +1128,62 @@ def _acknowledged_overrides(
         if claim.source != DECLARATION_OVERRIDE_SOURCE:
             continue
         evidence = claim.evidence if isinstance(claim.evidence, dict) else {}
-        rows.append(
-            AcknowledgedEffectOverride(
-                subject=f"{tool.name} [{tool.provider or tool.source_id or tool.source_type}]",
-                subject_id=tool.id or None,
-                declared_effect=str(claim.value),
-                inferred_effect=str(evidence.get("overridden_effect") or ""),
-                inferred_sources=_string_list(evidence.get("overridden_sources")),
-                corroborating_sources=_string_list(evidence.get("corroborating_sources")),
-                evidence=str(evidence.get("evidence") or ""),
-                reason=str(evidence.get("reason") or ""),
-                manifest_path=(
-                    f"shipgate.yaml#action_surface.actions[tool={tool.name!r}].override"
-                ),
+        # One row per suppressed observation. A single row carrying only the
+        # strongest reading meant the second observation an override waived
+        # vanished from every reviewer surface the moment it was acknowledged —
+        # the reviewer is judging exceptions, and one of them was invisible
+        # (PR #413 review 2).
+        for observation in _overridden_observations(evidence):
+            rows.append(
+                AcknowledgedEffectOverride(
+                    subject=(
+                        f"{tool.name} "
+                        f"[{tool.provider or tool.source_id or tool.source_type}]"
+                    ),
+                    subject_id=tool.id or None,
+                    declared_effect=str(claim.value),
+                    inferred_effect=observation["effect"],
+                    inferred_sources=observation["sources"],
+                    corroborating_sources=_string_list(
+                        evidence.get("corroborating_sources")
+                    ),
+                    evidence=str(evidence.get("evidence") or ""),
+                    reason=str(evidence.get("reason") or ""),
+                    manifest_path=(
+                        f"shipgate.yaml#action_surface.actions[tool={tool.name!r}].override"
+                    ),
+                )
             )
-        )
     return rows
+
+
+def _overridden_observations(evidence: dict[str, Any]) -> list[dict[str, Any]]:
+    """The suppressed observations, falling back to the singular pair.
+
+    ``overridden_observations`` is written by the resolver. The singular
+    ``overridden_effect``/``overridden_sources`` pair stays readable so a
+    report produced before this change still projects one row rather than none.
+    """
+
+    rows = evidence.get("overridden_observations")
+    resolved: list[dict[str, Any]] = []
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            effect = str(row.get("effect") or "")
+            if effect:
+                resolved.append(
+                    {"effect": effect, "sources": _string_list(row.get("sources"))}
+                )
+    if resolved:
+        return resolved
+    return [
+        {
+            "effect": str(evidence.get("overridden_effect") or ""),
+            "sources": _string_list(evidence.get("overridden_sources")),
+        }
+    ]
 
 
 def _string_list(value: object) -> list[str]:
@@ -1306,38 +1346,53 @@ def _semantic_gap(
             "effect": "<REVIEW_REQUIRED>",
         }
     elif kind == "declaration_below_inferred_evidence":
-        # Two routes close this row, and the reviewer owns the choice: raise
-        # the declared effect to what was inferred, or state on the record that
-        # the observation does not apply here. The template carries only the
-        # second — the first is an edit to a value that already exists, and a
-        # template re-offering ``effect`` next to the row's own declared value
-        # would read as a request to re-answer a question already answered.
+        # Two routes close this row, and the reviewer owns the choice: account
+        # for every observation, or state on the record that they do not apply
+        # here. The first route's shape depends on the row — see
+        # ``effect_repair`` — so the template and the accepted values are
+        # derived from it rather than fixed, and the override block is always
+        # offered as the second.
         action_kind = "resolve_semantic_conflict"
-        accepted_values = list(_ACTION_EFFECT_VALUES)
         action_why = (
-            "A declaration weaker than inferred evidence is accepted, but not silently."
+            "A declaration that does not account for inferred evidence is accepted, "
+            "but not silently."
         )
-        # The instruction has to name the value. The short headline every
+        # The instruction has to name the values. The short headline every
         # human surface renders is the per-kind phrase, not this row's ``why``,
         # so an instruction that said "raise it to the inferred effect this row
         # names" named it nowhere the user could see.
-        raise_to = (
-            effect_remedy_instruction(tool.semantic_assessment.effect)
+        repair = (
+            effect_repair(tool.semantic_assessment.effect)
             if tool.semantic_assessment is not None
+            else None
+        )
+        override_block = {
+            "evidence": REVIEW_REQUIRED_SENTINEL,
+            "reason": REVIEW_REQUIRED_SENTINEL,
+        }
+        if repair is not None and repair.kind == "declare_risk_tags":
+            accepted_values = list(repair.risk_tags)
+            declaration_template = {
+                **_action_selector(tool),
+                "risk_tags": list(repair.risk_tags),
+                "override": override_block,
+            }
+        else:
+            accepted_values = list(_ACTION_EFFECT_VALUES)
+            declaration_template = {
+                **_action_selector(tool),
+                "override": override_block,
+            }
+        first_route = (
+            repair.instruction
+            if repair is not None
             else "Raise action_surface.actions[].effect to the inferred effect"
         )
         expects = (
-            f"{raise_to}, or acknowledge the difference with an override "
+            f"{first_route}, or acknowledge the difference with an override "
             "naming the evidence you checked and why it does not apply, then "
             "rerun verification."
         )
-        declaration_template = {
-            **_action_selector(tool),
-            "override": {
-                "evidence": REVIEW_REQUIRED_SENTINEL,
-                "reason": REVIEW_REQUIRED_SENTINEL,
-            },
-        }
     elif kind in {
         "missing_authority_evidence",
         "partial_authority_evidence",

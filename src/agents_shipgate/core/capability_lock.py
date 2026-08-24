@@ -272,11 +272,13 @@ _CAPABILITY_STANDARD_BY_LOCK_SCHEMA = {
     "0.3": "0.2",
     "0.4": "0.3",
     "0.5": "0.4",
-    # Lock v0.6 and v0.7 describe the same capability standard: the bump was an
-    # additive enum inside an embedded union, not a change to what a capability
-    # is. Mapped explicitly rather than left to the fallback so a later standard
-    # bump cannot silently claim a v0.6 lock as current.
-    "0.6": CAPABILITY_STANDARD_VERSION,
+    # Pinned to the literal standard v0.6 shipped under, never to the current
+    # constant. Lock v0.6 and v0.7 happen to describe the same standard today,
+    # but binding a *historical* row to a mutable constant means the next
+    # capability-standard bump silently relabels every v0.6 lock as current and
+    # lets it be compared instead of re-exported — the exact opposite of what
+    # this table exists to prevent (PR #413 review 5).
+    "0.6": "0.5",
     CAPABILITY_LOCK_SCHEMA_VERSION: CAPABILITY_STANDARD_VERSION,
 }
 

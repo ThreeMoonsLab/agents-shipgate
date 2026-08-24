@@ -53,6 +53,21 @@ Nothing that gated before stops gating: the policy-applicability predicate now
 asks the same question, and its new form is a strict superset of the rank
 comparison it replaces.
 
+**The row's repair may now be a `risk_tags` edit rather than an `effect` one.**
+Where no single observed effect covers every uncovered observation *and* the
+declared value, `next_action.expects` asks for
+`action_surface.actions[].risk_tags`, `accepted_values` carries risk-tag values
+rather than effect values, and the scaffold template includes the filled
+`risk_tags` list. A consumer that assumed this row's `accepted_values` is always
+the effect vocabulary should read `next_action.declaration_template` for the
+shape.
+
+**`acknowledged_overrides` emits one row per suppressed observation.** An
+override that waives two inferred readings previously produced one row naming
+only the strongest. The field set is unchanged; a consumer counting rows per
+action may now see more than one, keyed by `subject_id` with distinct
+`inferred_effect` values.
+
 ---
 
 <a id="migration-note-unreleased-gap-subject-labels"></a>
@@ -2346,15 +2361,16 @@ those identities should not be recorded.
 envelope to `.agents-shipgate/capabilities.lock.json` and, by default, a
 byte-identical generated mirror at
 `agents-shipgate-reports/capabilities.lock.json`. The current lock schema is
-[`docs/capability-lock-schema.v0.4.json`](docs/capability-lock-schema.v0.4.json)
-and emitted locks carry `capability_lock_schema_version: "0.4"` plus
-`experimental: false`.
+[`docs/capability-lock-schema.v0.7.json`](docs/capability-lock-schema.v0.7.json)
+and emitted locks carry `capability_lock_schema_version: "0.7"` plus
+`experimental: false`. Prior schemas stay frozen; a lock declaring `0.6` is
+advanced to `0.7` on read, so nothing needs regenerating.
 
 `agents-shipgate capability diff` compares two lockfiles and emits added,
 removed, `reidentified`, semantic `changed`, and `evidence_changed` rows. The
 current diff schema is
-[`docs/capability-lock-diff-schema.v0.5.json`](docs/capability-lock-diff-schema.v0.5.json)
-and emitted diffs carry `capability_lock_diff_schema_version: "0.5"` plus
+[`docs/capability-lock-diff-schema.v0.8.json`](docs/capability-lock-diff-schema.v0.8.json)
+and emitted diffs carry `capability_lock_diff_schema_version: "0.8"` plus
 `experimental: false`. `reidentified` is the scope/resource case: scope is part
 of capability identity, so a scope escalation changes the id and is paired by
 agent/provider/operation/tool identity instead of being reported as unrelated add/remove

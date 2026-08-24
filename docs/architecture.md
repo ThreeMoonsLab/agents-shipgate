@@ -327,11 +327,12 @@ bounds parsed from factories are counted in `source.toolkit_bound_count`
 but are not yet emitted as capability facts, so widening a dynamic
 factory's authority bound is a known limitation until a later phase
 adds non-enumerable authority facts. The current schema is
-[`capability-lock-schema.v0.5.json`](capability-lock-schema.v0.5.json);
+[`capability-lock-schema.v0.7.json`](capability-lock-schema.v0.7.json);
 diff artifacts use
-[`capability-lock-diff-schema.v0.6.json`](capability-lock-diff-schema.v0.6.json).
+[`capability-lock-diff-schema.v0.8.json`](capability-lock-diff-schema.v0.8.json).
 Both carry `experimental: false`. Old experimental v0.1 lock inputs
-remain readable by `capability diff`, but new exports use v0.3 and carry the
+remain readable by `capability diff`, and so is a lock declaring any prior
+schema this runtime still normalizes; new exports use v0.7 and carry the
 normalized semantic assessment beside each capability fact.
 Capability locks are not part of `report.json`, do not include runtime
 trace evidence, and do not gate. The committed lock is deterministic for
