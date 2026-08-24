@@ -100,6 +100,19 @@ _HONEST = """    - tool: send_email
 _ESCALATED = """    - tool: send_email
       source_id: adk_agent
       effect: destructive
+      risk_tags: [external_write]
+      authority:
+        mode: none
+"""
+
+#: Escalation *across* categories. `destructive` outranks the inferred
+#: `external_communication` on risk but obliges rollback rather than the audit
+#: log communicating outward requires, so it does not account for it — and the
+#: row says which controls are missing rather than telling the reviewer to
+#: raise an effect that is already higher.
+_ESCALATED_ACROSS_CATEGORIES = """    - tool: send_email
+      source_id: adk_agent
+      effect: destructive
       authority:
         mode: none
 """
@@ -273,7 +286,12 @@ def test_declaration_matching_the_evidence_is_silent(tmp_path: Path) -> None:
 
 
 def test_conservative_escalation_is_silent(tmp_path: Path) -> None:
-    """The rule is monotone: only de-escalation is compared."""
+    """The rule is monotone: only an unaccounted-for observation is compared.
+
+    Escalating past the inference costs nothing as long as the declaration
+    still carries what the observation obliges. Here `risk_tags` keeps the
+    external-communication controls applied, so nothing is left unanswered.
+    """
 
     report = _scan(_project(tmp_path, _ESCALATED), tmp_path / "reports")
     coverage = report.release_decision.evidence_coverage
@@ -284,6 +302,36 @@ def test_conservative_escalation_is_silent(tmp_path: Path) -> None:
         if gap.kind == "declaration_below_inferred_evidence"
     ]
     assert coverage.semantic_coverage.review_concern_count == 0
+
+
+def test_escalating_across_categories_is_not_a_free_pass(tmp_path: Path) -> None:
+    """Rank is a total order; obligations are not.
+
+    `destructive` outranks `external_communication` and requires approval,
+    rollback, and confirmation — but no audit log, which is what communicating
+    outward requires. Comparing rank alone let this action report pass-eligible
+    with no gap while its external-write obligation went unapplied.
+    """
+
+    report = _scan(
+        _project(tmp_path, _ESCALATED_ACROSS_CATEGORIES), tmp_path / "reports"
+    )
+    coverage = report.release_decision.evidence_coverage
+    gap = next(
+        gap
+        for gap in coverage.evidence_gaps
+        if gap.kind == "declaration_below_inferred_evidence"
+    )
+
+    assert "does not carry the controls required by" in gap.why
+    # "Raise the effect" would ask for a *lower* assessment here, so the row
+    # publishes the route that keeps the declared effect and makes the missing
+    # category's controls apply — and the template carries it, filled in.
+    assert "risk_tags: [external_communication]" in gap.next_action.expects
+    assert "Raise action_surface.actions[].effect" not in gap.next_action.expects
+    assert gap.next_action.declaration_template["risk_tags"] == ["external_communication"]
+    assert gap.next_action.accepted_values == ["external_communication"]
+    assert coverage.semantic_coverage.pass_eligible_actions == 0
 
 
 def test_the_scaffold_offers_the_override_block(tmp_path: Path) -> None:

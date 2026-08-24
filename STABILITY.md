@@ -13,6 +13,63 @@ for reproducible CI.
 
 ---
 
+<a id="migration-note-unreleased-effect-coverage"></a>
+
+## Migration Note: unreleased — effect coverage, and the schemas that stayed frozen
+
+Two capability schemas move: `capability_lock_schema_version` `0.6` → `0.7` and
+`capability_lock_diff_schema_version` `0.7` → `0.8`. `report_schema_version`
+(`0.36`), `packet_schema_version` (`0.13`), `verifier_schema_version` (`0.10`),
+`contract_version`, and the manifest `version: "0.1"` are unchanged.
+
+**Four published documents are restored to the bytes they were published with.**
+`declaration_below_inferred_evidence` had been written into
+`docs/packet-schema.v0.12.json`, `docs/verifier-schema.v0.9.json`,
+`docs/capability-lock-schema.v0.6.json`, and
+`docs/capability-lock-diff-schema.v0.7.json` while each kept its version
+identifier. A consumer pinned to any of them was rejecting artifacts that
+document is supposed to describe. The value now reaches only the current
+document of each family, and the two capability schemas — which had no
+successor version at all — gain one.
+
+**A lock written under `0.6` still loads.** It is advanced to `0.7` on read, the
+way a `0.12` packet and a `0.9` verifier artifact already are. Nothing needs
+regenerating.
+
+**A declaration accounts for an inferred observation on two conditions, not
+one.** It must rank at or above the observation under both published effect
+orders, *and* oblige at least that observation's built-in controls. Rank alone
+is not enough: `financial_write` outranks `external_communication` but requires
+no confirmation, which is what communicating outward requires. A repository
+declaring a higher-risk effect across categories — `financial_write` on a tool
+inferred to communicate externally — now raises
+`declaration_below_inferred_evidence` where it was previously silent, and the
+row names the controls rather than telling the reviewer to raise an effect that
+is already higher. Coverage reads every policy-eligible claim on the action, so
+a `risk_tags: [financial_action]` entry accounts for an inferred
+`financial_write` exactly as the built-in control evaluator already treats it.
+
+Nothing that gated before stops gating: the policy-applicability predicate now
+asks the same question, and its new form is a strict superset of the rank
+comparison it replaces.
+
+**The row's repair may now be a `risk_tags` edit rather than an `effect` one.**
+Where no single observed effect covers every uncovered observation *and* the
+declared value, `next_action.expects` asks for
+`action_surface.actions[].risk_tags`, `accepted_values` carries risk-tag values
+rather than effect values, and the scaffold template includes the filled
+`risk_tags` list. A consumer that assumed this row's `accepted_values` is always
+the effect vocabulary should read `next_action.declaration_template` for the
+shape.
+
+**`acknowledged_overrides` emits one row per suppressed observation.** An
+override that waives two inferred readings previously produced one row naming
+only the strongest. The field set is unchanged; a consumer counting rows per
+action may now see more than one, keyed by `subject_id` with distinct
+`inferred_effect` values.
+
+---
+
 <a id="migration-note-unreleased-gap-subject-labels"></a>
 
 ## Migration Note: unreleased — every gap subject is a label, never a raw id
@@ -2304,15 +2361,16 @@ those identities should not be recorded.
 envelope to `.agents-shipgate/capabilities.lock.json` and, by default, a
 byte-identical generated mirror at
 `agents-shipgate-reports/capabilities.lock.json`. The current lock schema is
-[`docs/capability-lock-schema.v0.4.json`](docs/capability-lock-schema.v0.4.json)
-and emitted locks carry `capability_lock_schema_version: "0.4"` plus
-`experimental: false`.
+[`docs/capability-lock-schema.v0.7.json`](docs/capability-lock-schema.v0.7.json)
+and emitted locks carry `capability_lock_schema_version: "0.7"` plus
+`experimental: false`. Prior schemas stay frozen; a lock declaring `0.6` is
+advanced to `0.7` on read, so nothing needs regenerating.
 
 `agents-shipgate capability diff` compares two lockfiles and emits added,
 removed, `reidentified`, semantic `changed`, and `evidence_changed` rows. The
 current diff schema is
-[`docs/capability-lock-diff-schema.v0.5.json`](docs/capability-lock-diff-schema.v0.5.json)
-and emitted diffs carry `capability_lock_diff_schema_version: "0.5"` plus
+[`docs/capability-lock-diff-schema.v0.8.json`](docs/capability-lock-diff-schema.v0.8.json)
+and emitted diffs carry `capability_lock_diff_schema_version: "0.8"` plus
 `experimental: false`. `reidentified` is the scope/resource case: scope is part
 of capability identity, so a scope escalation changes the id and is paired by
 agent/provider/operation/tool identity instead of being reported as unrelated add/remove

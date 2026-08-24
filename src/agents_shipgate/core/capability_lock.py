@@ -228,8 +228,23 @@ def _lock_ref(lock: CapabilityLockFileV1, *, path: Path | None) -> CapabilityLoc
     )
 
 
+#: Prior lock schemas whose payload shape is identical to the current one, so a
+#: lock written under them is readable as-is once its version identifier is
+#: advanced. A version lands here when the only delta was additive inside an
+#: embedded union — v0.6 → v0.7 widened the evidence-gap enum and changed no
+#: field. Without it, bumping the lock schema makes every committed
+#: ``capabilities.lock.json`` unloadable, which is a far larger break than the
+#: bump itself repairs.
+_STRUCTURALLY_CURRENT_LOCK_SCHEMAS = frozenset({"0.6"})
+
+
 def _normalize_capability_lock_payload(payload: dict[str, Any]) -> dict[str, Any]:
     version = payload.get("capability_lock_schema_version")
+    if version in _STRUCTURALLY_CURRENT_LOCK_SCHEMAS:
+        return {
+            **payload,
+            "capability_lock_schema_version": CAPABILITY_LOCK_SCHEMA_VERSION,
+        }
     if version in {"0.1", "0.2", "0.3", "0.4"}:
         normalized = dict(payload)
         normalized["capability_lock_schema_version"] = CAPABILITY_LOCK_SCHEMA_VERSION
@@ -257,6 +272,13 @@ _CAPABILITY_STANDARD_BY_LOCK_SCHEMA = {
     "0.3": "0.2",
     "0.4": "0.3",
     "0.5": "0.4",
+    # Pinned to the literal standard v0.6 shipped under, never to the current
+    # constant. Lock v0.6 and v0.7 happen to describe the same standard today,
+    # but binding a *historical* row to a mutable constant means the next
+    # capability-standard bump silently relabels every v0.6 lock as current and
+    # lets it be compared instead of re-exported — the exact opposite of what
+    # this table exists to prevent (PR #413 review 5).
+    "0.6": "0.5",
     CAPABILITY_LOCK_SCHEMA_VERSION: CAPABILITY_STANDARD_VERSION,
 }
 

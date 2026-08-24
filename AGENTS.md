@@ -697,8 +697,8 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Host-grants baseline schema | [`docs/host-grants-baseline-schema.v0.2.json`](docs/host-grants-baseline-schema.v0.2.json) | `0.2` |
 | Host-grants drift schema | [`docs/host-grants-drift-schema.v0.2.json`](docs/host-grants-drift-schema.v0.2.json) | `0.2` |
 | Capability standard | [`docs/capability-standard.md`](docs/capability-standard.md) | `0.5` |
-| Capability lock schema | [`docs/capability-lock-schema.v0.6.json`](docs/capability-lock-schema.v0.6.json) | `0.6` |
-| Capability lock diff schema | [`docs/capability-lock-diff-schema.v0.7.json`](docs/capability-lock-diff-schema.v0.7.json) | `0.7` |
+| Capability lock schema | [`docs/capability-lock-schema.v0.7.json`](docs/capability-lock-schema.v0.7.json) | `0.7` |
+| Capability lock diff schema | [`docs/capability-lock-diff-schema.v0.8.json`](docs/capability-lock-diff-schema.v0.8.json) | `0.8` |
 | Governance benchmark catalog schema | [`docs/governance-benchmark-catalog-schema.v0.2.json`](docs/governance-benchmark-catalog-schema.v0.2.json) | `0.2` |
 | Governance benchmark result schema | [`docs/governance-benchmark-result-schema.v0.2.json`](docs/governance-benchmark-result-schema.v0.2.json) | `0.2` |
 | Check catalog | [`docs/checks.json`](docs/checks.json) | regenerated each release |

@@ -715,8 +715,8 @@
           "type": "array"
         },
         "capability_lock_schema_version": {
-          "const": "0.6",
-          "default": "0.6",
+          "const": "0.7",
+          "default": "0.7",
           "title": "Capability Lock Schema Version",
           "type": "string"
         },
@@ -1066,6 +1066,7 @@
             "missing_effect_evidence",
             "inferred_effect_only",
             "conflicting_effect_evidence",
+            "declaration_below_inferred_evidence",
             "missing_authority_evidence",
             "partial_authority_evidence",
             "conflicting_authority_evidence",
@@ -1248,9 +1249,9 @@
       "type": "object"
     }
   },
-  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-schema.v0.6.json",
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-schema.v0.7.json",
   "$ref": "#/$defs/CapabilityLockFileV1",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "Stable JSON Schema for static capability lock artifacts. Generated from agents_shipgate.schemas.capabilities. It is non-gating and is not part of report.json; release_decision.decision remains the only gate.",
-  "title": "Agents Shipgate Capability Lock v0.6"
+  "title": "Agents Shipgate Capability Lock v0.7"
 }

@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "report_schema_version": "0.36",
-  "run_id": "agents_shipgate_4d3d3b5f875ecbf8",
+  "run_id": "agents_shipgate_68e6c601d170ef92",
   "request_id": null,
   "subject_id": null,
   "input_set_id": null,
@@ -1829,7 +1829,7 @@
               "evidence": {}
             },
             {
-              "claim_id": "clm_7437c5b963af0a8a0252",
+              "claim_id": "clm_a6cf2ffe206e648eccc0",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
@@ -1842,6 +1842,14 @@
                 "overridden_effect": "external_communication",
                 "overridden_sources": [
                   "risk_hint:keyword"
+                ],
+                "overridden_observations": [
+                  {
+                    "effect": "external_communication",
+                    "sources": [
+                      "risk_hint:keyword"
+                    ]
+                  }
                 ],
                 "overridden_claim_ids": [
                   "clm_b77048e00c8bab300132",
@@ -2589,7 +2597,7 @@
               "evidence": {}
             },
             {
-              "claim_id": "clm_1c3aa4e77377557b20aa",
+              "claim_id": "clm_bd03d31bb8596ab7df53",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
@@ -2602,6 +2610,14 @@
                 "overridden_effect": "financial_write",
                 "overridden_sources": [
                   "risk_hint:keyword"
+                ],
+                "overridden_observations": [
+                  {
+                    "effect": "financial_write",
+                    "sources": [
+                      "risk_hint:keyword"
+                    ]
+                  }
                 ],
                 "overridden_claim_ids": [
                   "clm_db44eeb09b0fff2d9e05"
@@ -4704,7 +4720,7 @@
                 "evidence": {}
               },
               {
-                "claim_id": "clm_1c3aa4e77377557b20aa",
+                "claim_id": "clm_bd03d31bb8596ab7df53",
                 "dimension": "effect",
                 "value": "read",
                 "confidence": "high",
@@ -4717,6 +4733,14 @@
                   "overridden_effect": "financial_write",
                   "overridden_sources": [
                     "risk_hint:keyword"
+                  ],
+                  "overridden_observations": [
+                    {
+                      "effect": "financial_write",
+                      "sources": [
+                        "risk_hint:keyword"
+                      ]
+                    }
                   ],
                   "overridden_claim_ids": [
                     "clm_db44eeb09b0fff2d9e05"
@@ -5296,7 +5320,7 @@
                 "evidence": {}
               },
               {
-                "claim_id": "clm_7437c5b963af0a8a0252",
+                "claim_id": "clm_a6cf2ffe206e648eccc0",
                 "dimension": "effect",
                 "value": "read",
                 "confidence": "high",
@@ -5309,6 +5333,14 @@
                   "overridden_effect": "external_communication",
                   "overridden_sources": [
                     "risk_hint:keyword"
+                  ],
+                  "overridden_observations": [
+                    {
+                      "effect": "external_communication",
+                      "sources": [
+                        "risk_hint:keyword"
+                      ]
+                    }
                   ],
                   "overridden_claim_ids": [
                     "clm_b77048e00c8bab300132",
@@ -7193,7 +7225,7 @@
               "evidence": {}
             },
             {
-              "claim_id": "clm_7437c5b963af0a8a0252",
+              "claim_id": "clm_a6cf2ffe206e648eccc0",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
@@ -7206,6 +7238,14 @@
                 "overridden_effect": "external_communication",
                 "overridden_sources": [
                   "risk_hint:keyword"
+                ],
+                "overridden_observations": [
+                  {
+                    "effect": "external_communication",
+                    "sources": [
+                      "risk_hint:keyword"
+                    ]
+                  }
                 ],
                 "overridden_claim_ids": [
                   "clm_b77048e00c8bab300132",
@@ -7469,7 +7509,7 @@
               "evidence": {}
             },
             {
-              "claim_id": "clm_1c3aa4e77377557b20aa",
+              "claim_id": "clm_bd03d31bb8596ab7df53",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
@@ -7482,6 +7522,14 @@
                 "overridden_effect": "financial_write",
                 "overridden_sources": [
                   "risk_hint:keyword"
+                ],
+                "overridden_observations": [
+                  {
+                    "effect": "financial_write",
+                    "sources": [
+                      "risk_hint:keyword"
+                    ]
+                  }
                 ],
                 "overridden_claim_ids": [
                   "clm_db44eeb09b0fff2d9e05"
@@ -9177,7 +9225,7 @@
               "evidence": {}
             },
             {
-              "claim_id": "clm_7437c5b963af0a8a0252",
+              "claim_id": "clm_a6cf2ffe206e648eccc0",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
@@ -9190,6 +9238,14 @@
                 "overridden_effect": "external_communication",
                 "overridden_sources": [
                   "risk_hint:keyword"
+                ],
+                "overridden_observations": [
+                  {
+                    "effect": "external_communication",
+                    "sources": [
+                      "risk_hint:keyword"
+                    ]
+                  }
                 ],
                 "overridden_claim_ids": [
                   "clm_b77048e00c8bab300132",
@@ -9453,7 +9509,7 @@
               "evidence": {}
             },
             {
-              "claim_id": "clm_1c3aa4e77377557b20aa",
+              "claim_id": "clm_bd03d31bb8596ab7df53",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
@@ -9466,6 +9522,14 @@
                 "overridden_effect": "financial_write",
                 "overridden_sources": [
                   "risk_hint:keyword"
+                ],
+                "overridden_observations": [
+                  {
+                    "effect": "financial_write",
+                    "sources": [
+                      "risk_hint:keyword"
+                    ]
+                  }
                 ],
                 "overridden_claim_ids": [
                   "clm_db44eeb09b0fff2d9e05"

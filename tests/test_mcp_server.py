@@ -227,7 +227,7 @@ def test_mcp_capabilities_handler_does_not_write_reports(tmp_path: Path) -> None
         no_plugins=True,
     )
 
-    assert payload["capability_lock_schema_version"] == "0.6"
+    assert payload["capability_lock_schema_version"] == "0.7"
     assert _snapshot(workspace) == before
 
 

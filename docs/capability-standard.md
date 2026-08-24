@@ -12,8 +12,8 @@ they do not create a second verdict.
 ## Current Versions
 
 - Capability standard version: `0.5`
-- Capability lock schema: [`capability-lock-schema.v0.6.json`](capability-lock-schema.v0.6.json)
-- Capability lock diff schema: [`capability-lock-diff-schema.v0.7.json`](capability-lock-diff-schema.v0.7.json)
+- Capability lock schema: [`capability-lock-schema.v0.7.json`](capability-lock-schema.v0.7.json)
+- Capability lock diff schema: [`capability-lock-diff-schema.v0.8.json`](capability-lock-diff-schema.v0.8.json)
 - Frozen lock reference: [`capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json)
 - Frozen lock-diff reference: [`capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json)
 - Frozen experimental lock reference: [`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json)
@@ -140,8 +140,8 @@ Changed rows carry `changed_hashes`, `semantic_direction`, and
 `semantic_changes` so tools can explain whether the delta is broadened,
 narrowed, mixed, unknown, or evidence-only.
 
-See [`examples/capability-lock.v0.6.example.json`](examples/capability-lock.v0.6.example.json)
-and [`examples/capability-lock-diff.v0.7.example.json`](examples/capability-lock-diff.v0.7.example.json).
+See [`examples/capability-lock.v0.7.example.json`](examples/capability-lock.v0.7.example.json)
+and [`examples/capability-lock-diff.v0.8.example.json`](examples/capability-lock-diff.v0.8.example.json).
 
 ## Provenance Boundaries
 
@@ -156,13 +156,13 @@ static capability envelope.
 
 ## Compatibility
 
-New exports use `capability_lock_schema_version: "0.6"` and
+New exports use `capability_lock_schema_version: "0.7"` and
 `experimental: false`. `agents-shipgate capability diff` continues to accept
 old experimental `0.1` lock inputs and normalizes them before comparison.
 Diff metadata reports the normalized current lock schema version for such
 legacy inputs.
 
-New diffs use `capability_lock_diff_schema_version: "0.7"` and
+New diffs use `capability_lock_diff_schema_version: "0.8"` and
 `experimental: false`. The v0.5 lock and v0.6 diff schemas remain frozen
 references for archived artifacts; regenerate both sides with 0.16 before a
 current identity-aware semantic comparison. The older combined

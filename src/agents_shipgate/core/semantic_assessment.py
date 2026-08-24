@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Mapping, Sequence
-from typing import Any, cast
+from dataclasses import dataclass
+from typing import Any, Literal, cast, get_args
 
+from agents_shipgate.core.action_semantics import ACTION_EFFECT_RANK, builtin_obligations
 from agents_shipgate.core.domain import (
     DECLARATION_CLAIM_SOURCES,
     DECLARATION_OVERRIDE_SOURCE,
@@ -25,6 +27,7 @@ from agents_shipgate.schemas.common import Confidence, ProvenanceKind, confidenc
 from agents_shipgate.schemas.manifest import (
     ActionDeclarationConfig,
     ActionEffectOverrideConfig,
+    ActionRiskTag,
 )
 from agents_shipgate.schemas.surfaces import ActionEffect
 
@@ -543,6 +546,16 @@ def _assess_effect(
                         {
                             "overridden_effect": below_effect,
                             "overridden_sources": below_sources,
+                            # Every observation this acknowledgement suppresses,
+                            # with the producers that made each one. The
+                            # singular pair above names the strongest reading;
+                            # a tool can carry two, and projecting only the
+                            # strongest let the second disappear from the
+                            # reviewer's row after it had been waived
+                            # (PR #413 review 2).
+                            "overridden_observations": _overridden_observations(
+                                below_declared
+                            ),
                             # Exactly which claims this acknowledgement covers.
                             # Policy applicability has to consume the same set
                             # the reviewer answered, and re-deriving it at each
@@ -619,6 +632,7 @@ def _assess_effect(
                         below_effect,
                         below_sources,
                         corroborating,
+                        below_declared,
                     ),
                     "action_surface_declaration",
                     f"action_surface.actions[tool={tool.name!r}].effect",
@@ -723,11 +737,50 @@ def _assess_effect(
     )
 
 
+def declaration_covers(declared: str, inferred: str) -> bool:
+    """Does asserting ``declared`` account for an observation of ``inferred``?
+
+    Two conditions, both necessary.
+
+    *Risk*: the declaration must not rank below the observation under **either**
+    published rank table. They disagree — :data:`_EFFECT_RANK` orders
+    ``privileged_data_access`` above ``write`` and ``ACTION_EFFECT_RANK`` orders
+    it below — and picking a winner would either loosen an existing gate path or
+    leave this comparison contradicting the one
+    ``_non_authoritative_effect_escalation_support`` makes about the same
+    action. Requiring both makes them agree without weakening either.
+
+    *Obligations*: the declaration must oblige at least the controls the
+    observation would. Rank is a total order; obligations are not.
+    ``financial_write`` outranks ``external_communication`` and requires
+    approval, audit, and idempotency — but not confirmation, which is precisely
+    what communicating outward requires. Testing rank alone let a declaration
+    discharge a category it does not cover: the action went pass-eligible with
+    no gap and no external-communication finding, while the external-write risk
+    tag sat untouched in the same report.
+
+    Nothing here decides *policy*. An uncovered observation becomes a reviewed
+    question, never a control a heuristic imposed on its own (#357).
+    """
+
+    if declared == inferred:
+        return True
+    if declared not in _EFFECT_RANK or inferred not in _EFFECT_RANK:
+        return False
+    if _EFFECT_RANK[_as_effect(declared)] < _EFFECT_RANK[_as_effect(inferred)]:
+        return False
+    if ACTION_EFFECT_RANK[_as_effect(declared)] < ACTION_EFFECT_RANK[_as_effect(inferred)]:
+        return False
+    return builtin_obligations(_as_effect(inferred)).issubset(
+        builtin_obligations(_as_effect(declared))
+    )
+
+
 def claims_above_declared_effect(
     claims: Sequence[SemanticClaim],
     declared_effect: str,
 ) -> list[SemanticClaim]:
-    """Effect claims that outrank the declaration without being able to prove it.
+    """Effect claims the reviewed surface does not account for.
 
     The monotone rule's comparison, in one place. The resolver needs the claims
     (it names their sources in the row); the release-decision projection needs
@@ -735,50 +788,107 @@ def claims_above_declared_effect(
     to instead of an instruction that names nothing. Two derivations of the same
     comparison is the recurring defect class in this codebase, so there is one.
 
-    Policy-eligible claims are excluded because outranking the declaration
-    *with* policy-eligible evidence is ``conflicting_effect_evidence`` — a
-    blocking conflict, decided elsewhere — and because the declaration's own
-    claim is policy-eligible and must never compare against itself.
+    Policy-eligible claims are excluded from the *challengers* because
+    outranking the declaration *with* policy-eligible evidence is
+    ``conflicting_effect_evidence`` — a blocking conflict, decided elsewhere —
+    and because the declaration's own claim is policy-eligible and must never
+    compare against itself. They are included in what *covers*: the reviewed
+    surface is more than the ``effect`` field, and a
+    ``risk_tags: [financial_action]`` entry produces a policy-eligible
+    ``financial_write`` claim that applies the financial-write controls, so a
+    heuristic reading the same effect is already accounted for. This is the set
+    ``_control_effects`` unions, for the same reason.
     """
 
     if declared_effect not in _EFFECT_RANK:
         return []
-    declared_rank = _EFFECT_RANK[_as_effect(declared_effect)]
+    covering = {declared_effect}
+    covering.update(
+        claim.value
+        for claim in claims
+        if claim.policy_eligible and claim.value in _EFFECT_VALUES
+    )
     return [
         claim
         for claim in claims
         if not claim.policy_eligible
         and claim.value in _EFFECT_VALUES
-        and _EFFECT_RANK[_as_effect(claim.value)] > declared_rank
+        and not any(declaration_covers(asserted, claim.value) for asserted in covering)
     ]
 
 
-def strongest_effect_above_declaration(
-    effect: EffectSemanticAssessment,
-) -> str | None:
-    """The effect this row asks a reviewer to raise to, or ``None``.
+def effect_repair(effect: EffectSemanticAssessment) -> EffectRepair:
+    """The non-override route out of this row, derived from every observation.
 
     Reads the assessment the resolver already produced rather than re-deciding:
     the declared claim carries the declared value, and
     :func:`claims_above_declared_effect` is the same comparison the resolver
     ran. An acknowledged override is absent from the claim list of any tool that
     still carries this gap, so it cannot mask the answer.
+
+    A published next step has to be able to close the row it is printed on. Two
+    ways the previous single-value instruction could not:
+
+    * It named the *strongest* uncovered observation. With both a
+      ``financial_write`` and an ``external_communication`` reading, raising to
+      ``financial_write`` left the second one uncovered — the reviewer applied
+      the exact edit the row asked for and got the same row back.
+    * It fell through to "declare the ``write`` controls" for an effect that
+      obliges no built-in control at all, naming nothing to do.
+
+    So a raise is advertised only when one observed effect covers **every**
+    uncovered observation *and* the value already declared — raising must not
+    quietly drop the reading the reviewer chose. The candidate is drawn from
+    the observations themselves: rank alone would nominate an unrelated effect
+    that happens to sit higher, which is not a repair, it is a different claim.
+
+    When no single effect covers the set, the repair is to name the categories
+    as reviewed ``risk_tags``. That is not a formality — a declared tag is
+    policy-eligible evidence, so it both accounts for the observation *and*
+    makes that category's built-in controls apply, which is the outcome the
+    uncovered obligation was asking for.
     """
 
     declared = next(
-        (
-            claim
-            for claim in effect.claims
-            if claim.source == DECLARED_EFFECT_SOURCE
-        ),
+        (claim for claim in effect.claims if claim.source == DECLARED_EFFECT_SOURCE),
         None,
     )
     if declared is None:
-        return None
+        return EffectRepair(kind="raise_effect", instruction=_GENERIC_RAISE)
     above = claims_above_declared_effect(effect.claims, declared.value)
-    if not above:
-        return None
-    return _strongest_effect([_as_effect(claim.value) for claim in above])
+    uncovered = sorted(
+        {_as_effect(claim.value) for claim in above},
+        key=lambda value: (_EFFECT_RANK[value], value),
+    )
+    if not uncovered:
+        return EffectRepair(kind="raise_effect", instruction=_GENERIC_RAISE)
+    covering = [
+        candidate
+        for candidate in uncovered
+        if declaration_covers(candidate, declared.value)
+        and all(declaration_covers(candidate, value) for value in uncovered)
+    ]
+    if covering:
+        # The weakest sufficient answer. Any of these closes the row, and
+        # asking for more than that is asking the reviewer to over-declare.
+        target = covering[0]
+        return EffectRepair(
+            kind="raise_effect",
+            instruction=f"Raise action_surface.actions[].effect to {target!r}",
+            effect=target,
+        )
+    tags = [value for value in uncovered if value in _ACTION_RISK_TAG_VALUES]
+    if not tags:  # pragma: no cover - every non-read effect has a matching tag
+        return EffectRepair(kind="raise_effect", instruction=_GENERIC_RAISE)
+    rendered = ", ".join(tags)
+    return EffectRepair(
+        kind="declare_risk_tags",
+        instruction=(
+            f"Add action_surface.actions[].risk_tags: [{rendered}] so the "
+            f"{rendered} controls apply to this action"
+        ),
+        risk_tags=tuple(tags),
+    )
 
 
 def acknowledged_effect_claim_ids(claims: Iterable[Any]) -> frozenset[str]:
@@ -806,11 +916,96 @@ def acknowledged_effect_claim_ids(claims: Iterable[Any]) -> frozenset[str]:
     return frozenset(acknowledged)
 
 
+#: Effects that have a same-named ``action_surface.actions[].risk_tags`` value.
+#: Every effect except ``read`` does, and ``read`` can never be uncovered — it
+#: ranks at the floor of both tables and obliges nothing, so anything covers it.
+_ACTION_RISK_TAG_VALUES = frozenset(get_args(ActionRiskTag)) & frozenset(_EFFECT_RANK)
+
+_GENERIC_RAISE = "Raise action_surface.actions[].effect to the inferred effect"
+
+
+@dataclass(frozen=True)
+class EffectRepair:
+    """The non-override route out of a ``declaration_below_inferred_evidence`` row.
+
+    Carries the shape as well as the sentence so the structured
+    ``next_action`` — its template and its accepted values — describes the same
+    repair the prose does. Publishing an ``effect``-only vocabulary beside an
+    instruction to add ``risk_tags`` is how a machine consumer and a human
+    consumer of one row end up doing different things.
+    """
+
+    kind: Literal["raise_effect", "declare_risk_tags"]
+    instruction: str
+    effect: ActionEffect | None = None
+    risk_tags: tuple[str, ...] = ()
+
+
+def _overridden_observations(
+    below_declared: Sequence[SemanticClaim],
+) -> list[dict[str, Any]]:
+    """Each suppressed observation with its own producers, strongest last.
+
+    Ordered by rank so a consumer rendering a prefix shows the mildest first
+    and the strongest reading is never the one dropped.
+    """
+
+    by_effect: dict[str, set[str]] = {}
+    for claim in below_declared:
+        by_effect.setdefault(str(claim.value), set()).add(claim.source)
+    return [
+        {"effect": effect, "sources": sorted(by_effect[effect])}
+        for effect in sorted(
+            by_effect, key=lambda value: (_EFFECT_RANK.get(value, 0), value)
+        )
+    ]
+
+
+def _outranks(candidate: str, other: str) -> bool:
+    """True when ``candidate`` is the higher-risk reading of the two.
+
+    Risk order only. Whether the higher reading is *accounted for* is
+    :func:`declaration_covers`, which also weighs obligations; this answers the
+    narrower question the row's wording turns on.
+    """
+
+    if candidate not in _EFFECT_RANK or other not in _EFFECT_RANK:
+        return False
+    return _EFFECT_RANK[_as_effect(candidate)] > _EFFECT_RANK[_as_effect(other)]
+
+
+def _other_uncovered_observations(
+    below_declared: Sequence[SemanticClaim],
+    primary: ActionEffect | None,
+) -> str:
+    """Every uncovered observation this row is *not* already naming.
+
+    The message names the strongest reading, but a tool can carry two inferred
+    effects from two different hints — and with obligations weighed alongside
+    rank, both can be uncovered at once. Naming only one leaves the reviewer
+    acknowledging evidence the row never showed them.
+    """
+
+    by_effect: dict[str, set[str]] = {}
+    for claim in below_declared:
+        if claim.value == primary:
+            continue
+        by_effect.setdefault(str(claim.value), set()).add(claim.source)
+    if not by_effect:
+        return ""
+    rendered = "; ".join(
+        f"{effect!r} ({', '.join(sorted(by_effect[effect]))})"
+        for effect in sorted(by_effect, key=lambda value: (_EFFECT_RANK.get(value, 0), value))
+    )
+    return f"; also unaccounted for: {rendered}"
+
+
 def _below_evidence_message(
     declared_effect: ActionEffect,
     below_effect: ActionEffect | None,
     below_sources: list[str],
     corroborating: list[SemanticClaim],
+    below_declared: Sequence[SemanticClaim] = (),
 ) -> str:
     """State both readings, so the row can be answered without a second lookup.
 
@@ -821,10 +1016,23 @@ def _below_evidence_message(
     line to write instead of an investigation to open.
     """
 
-    message = (
-        f"declared effect {declared_effect!r} is weaker than inferred "
-        f"{below_effect!r} evidence ({', '.join(below_sources)})"
-    )
+    # Two ways a declaration fails to account for an observation, and they want
+    # different words. Telling a reviewer who declared `financial_write` that it
+    # is "weaker than" `external_communication` is false, and sends them to
+    # raise an effect that already outranks it — what is missing is the
+    # confirmation control that communicating outward requires.
+    if below_effect is not None and not _outranks(below_effect, declared_effect):
+        message = (
+            f"declared effect {declared_effect!r} does not carry the controls "
+            f"required by inferred {below_effect!r} evidence "
+            f"({', '.join(below_sources)})"
+        )
+    else:
+        message = (
+            f"declared effect {declared_effect!r} is weaker than inferred "
+            f"{below_effect!r} evidence ({', '.join(below_sources)})"
+        )
+    message += _other_uncovered_observations(below_declared, below_effect)
     if corroborating:
         sources = ", ".join(sorted({claim.source for claim in corroborating}))
         message += f"; source evidence agrees with the declaration ({sources})"
@@ -1269,5 +1477,6 @@ __all__ = [
     "assess_tool_semantics",
     "attach_semantic_assessments",
     "claims_above_declared_effect",
-    "strongest_effect_above_declaration",
+    "EffectRepair",
+    "effect_repair",
 ]

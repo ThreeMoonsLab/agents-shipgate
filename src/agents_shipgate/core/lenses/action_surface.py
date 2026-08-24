@@ -31,6 +31,7 @@ from agents_shipgate.core.risk_hints import (
 from agents_shipgate.core.semantic_assessment import (
     acknowledged_effect_claim_ids,
     assess_tool_semantics,
+    declaration_covers,
 )
 from agents_shipgate.core.surface_exclusions import (
     catalog_label_index,
@@ -1715,12 +1716,21 @@ def _non_authoritative_effect_escalation_support(
     # The run still cannot read `passed` — the acknowledgement is a semantic
     # review concern — and the exception is projected per action for a reviewer.
     acknowledged = acknowledged_effect_claim_ids(assessment.effect.claims)
+    # The same comparison the declaration rule makes, so the two surfaces cannot
+    # disagree about whether an observation is accounted for. Comparing
+    # ``ACTION_EFFECT_RANK`` here while ``claims_above_declared_effect`` compared
+    # ``_EFFECT_RANK`` left the two orders contradicting each other on the pair
+    # they rank oppositely — a declaration read as covered there and raised
+    # ``mixed_policy_evidence`` here, a verdict no override could reach.
+    authoritative_effects = {claim.value for claim in authoritative}
     inferred_escalations = [
         claim
         for claim in assessment.effect.claims
         if not claim.policy_eligible
         and claim.value in ACTION_EFFECT_RANK
-        and ACTION_EFFECT_RANK[claim.value] > authoritative_rank
+        and not any(
+            declaration_covers(effect, claim.value) for effect in authoritative_effects
+        )
         and claim.claim_id not in acknowledged
     ]
     if not inferred_escalations:
