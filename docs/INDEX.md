@@ -97,8 +97,10 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`attestation-schema.v0.2.json`](attestation-schema.v0.2.json) — frozen v0.2 attestation reference
 - [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json) — frozen v0.1 attestation reference
 - [`registry-schema.v0.2.json`](registry-schema.v0.2.json) — frozen v0.2 registry reference
-- [`capability-lock-schema.v0.6.json`](capability-lock-schema.v0.6.json) — current JSON Schema for `capabilities.lock.json`; carries typed semantic evidence and remains non-gating
-- [`capability-lock-diff-schema.v0.7.json`](capability-lock-diff-schema.v0.7.json) — current JSON Schema for semantic capability-lock diff artifacts; remains non-gating
+- [`capability-lock-schema.v0.7.json`](capability-lock-schema.v0.7.json) — current JSON Schema for `capabilities.lock.json`; carries typed semantic evidence and remains non-gating
+- [`capability-lock-schema.v0.6.json`](capability-lock-schema.v0.6.json) — frozen v0.6 reference; a v0.6 lock still loads and is advanced on read
+- [`capability-lock-diff-schema.v0.8.json`](capability-lock-diff-schema.v0.8.json) — current JSON Schema for semantic capability-lock diff artifacts; remains non-gating
+- [`capability-lock-diff-schema.v0.7.json`](capability-lock-diff-schema.v0.7.json) — frozen v0.7 reference
 - [`capability-lock-schema.v0.5.json`](capability-lock-schema.v0.5.json) — frozen v0.5 binding-hash reference
 - [`capability-lock-diff-schema.v0.6.json`](capability-lock-diff-schema.v0.6.json) — frozen v0.6 diff reference
 - [`capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json) — frozen v0.2 capability-lock reference

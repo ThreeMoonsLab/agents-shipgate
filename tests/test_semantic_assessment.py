@@ -799,10 +799,21 @@ def test_acknowledged_override_restores_pass_eligibility_and_records_itself() ->
 
 
 def test_escalation_past_heuristic_evidence_stays_silent() -> None:
-    """Monotone: adding or escalating relative to evidence needs no ceremony."""
+    """Monotone: escalating relative to evidence needs no ceremony.
+
+    "Escalating" means carrying at least what the observation obliges, not
+    merely outranking it. ``risk_tags`` keeps the external-communication
+    controls applied, which is what makes this declaration account for the
+    hint rather than outrank it into silence.
+    """
 
     declaration = ActionDeclarationConfig.model_validate(
-        {"tool": "process_order", "effect": "destructive", "authority": {"mode": "none"}}
+        {
+            "tool": "process_order",
+            "effect": "destructive",
+            "risk_tags": ["external_write"],
+            "authority": {"mode": "none"},
+        }
     )
 
     assessment = assess_tool_semantics(_heuristic_tool(), declaration)

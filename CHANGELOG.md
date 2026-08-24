@@ -2,6 +2,56 @@
 
 ## Unreleased
 
+- **A declaration cannot discharge a category it does not cover, and a
+  published schema keeps its bytes.** Three follow-ups to the monotone
+  declaration rule, each a defect that shipped with it
+  ([#409](https://github.com/ThreeMoonsLab/agents-shipgate/issues/409),
+  [#411](https://github.com/ThreeMoonsLab/agents-shipgate/pull/411)).
+
+  *Effects are risk-ordered; their obligations are not.* The monotone
+  comparison read the effect rank alone, so declaring `financial_write` over an
+  inferred `external_communication` read as escalation and stayed silent —
+  `financial_write` requires approval, audit, and idempotency but **not**
+  confirmation, which is exactly what communicating outward requires. The
+  action reported pass-eligible with no gap and no
+  `SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING` while its external-write
+  risk tag sat untouched in the same report. A declaration now accounts for an
+  observation only when it ranks at or above it *and* obliges at least that
+  observation's built-in controls, from the new `BUILTIN_EFFECT_OBLIGATIONS`
+  table — pinned to the branches it mirrors by a test that walks each entry
+  through a real scan. Coverage also reads every policy-eligible claim rather
+  than the `effect` field alone, so a `risk_tags: [financial_action]` entry
+  accounts for an inferred `financial_write` exactly as the control evaluator
+  already treats it.
+
+  *The two comparators disagreed.* The declaration rule compared `_EFFECT_RANK`
+  while `_non_authoritative_effect_escalation_support` compared
+  `ACTION_EFFECT_RANK`, and the two order `write` and `privileged_data_access`
+  oppositely — so a declaration could read as covered in one place and raise
+  `mixed_policy_evidence` in the other, a verdict no override could reach. Both
+  now call `declaration_covers`, which requires *both* orders to agree; nothing
+  that gated before stops gating.
+
+  *Four published schema documents were mutated in place.* The new
+  `declaration_below_inferred_evidence` value was written into
+  `packet-schema.v0.12.json`, `verifier-schema.v0.9.json`,
+  `capability-lock-schema.v0.6.json`, and `capability-lock-diff-schema.v0.7.json`
+  while they kept their version identifiers — and the two capability-lock
+  documents had no successor version at all, so a consumer pinned to any of the
+  four rejected artifacts that document is supposed to describe.
+  `generate_schemas.py --check` cannot catch this: it proves committed ==
+  generated, never that a content change moved the version. All four are
+  restored byte-for-byte, the capability lock advances `0.6` → `0.7` and its
+  diff `0.7` → `0.8`, and a lock written under `0.6` is advanced on read rather
+  than rejected — the normalizer handled only `0.1`–`0.4`, so the bump would
+  otherwise have orphaned every committed `capabilities.lock.json`.
+
+  Also: the row now names *every* uncovered observation rather than the
+  strongest one alone, so a reviewer is not asked to acknowledge evidence the
+  row never showed them; and the published remedy is true of its state —
+  "raise the effect" is not printed where the declared effect already outranks
+  the observation.
+
 - **A declaration weaker than the evidence inferred for it is no longer
   silent.** Declaring `effect: read` on a tool this scanner itself tagged
   `external_write` was accepted with zero findings: the pre-existing

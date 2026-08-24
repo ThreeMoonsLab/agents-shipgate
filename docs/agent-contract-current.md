@@ -231,8 +231,8 @@ Downstream repos generated with
 - Current preflight schema: `0.4` — [`docs/preflight-schema.v0.4.json`](preflight-schema.v0.4.json)
 - Current downstream local agent contract schema: `10`
 - Current capability standard: `0.5` — [`docs/capability-standard.md`](capability-standard.md)
-- Current capability lock schema: `0.6` — [`docs/capability-lock-schema.v0.6.json`](capability-lock-schema.v0.6.json)
-- Current capability lock diff schema: `0.7` — [`docs/capability-lock-diff-schema.v0.7.json`](capability-lock-diff-schema.v0.7.json)
+- Current capability lock schema: `0.7` — [`docs/capability-lock-schema.v0.7.json`](capability-lock-schema.v0.7.json)
+- Current capability lock diff schema: `0.8` — [`docs/capability-lock-diff-schema.v0.8.json`](capability-lock-diff-schema.v0.8.json)
 - Current attestation schema: `0.5` — [`docs/attestation-schema.v0.5.json`](attestation-schema.v0.5.json)
 - Current registry schema: `0.4` — [`docs/registry-schema.v0.4.json`](registry-schema.v0.4.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v2` — [`docs/org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json)

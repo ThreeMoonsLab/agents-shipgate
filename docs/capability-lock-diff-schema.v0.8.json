@@ -704,25 +704,145 @@
       "title": "CapabilityIdentity",
       "type": "object"
     },
-    "CapabilityLockFileV1": {
+    "CapabilityLockChangedFact": {
       "additionalProperties": false,
       "properties": {
-        "capabilities": {
+        "after": {
+          "$ref": "#/$defs/CapabilityFactV1"
+        },
+        "before": {
+          "$ref": "#/$defs/CapabilityFactV1"
+        },
+        "changed_hashes": {
+          "items": {
+            "enum": [
+              "identity_hash",
+              "binding_hash",
+              "effect_hash",
+              "authority_hash",
+              "control_hash",
+              "schema_hash",
+              "risk_hash",
+              "evidence_hash"
+            ],
+            "type": "string"
+          },
+          "title": "Changed Hashes",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "operation": {
+          "title": "Operation",
+          "type": "string"
+        },
+        "semantic_changes": {
+          "items": {
+            "$ref": "#/$defs/CapabilitySemanticChange"
+          },
+          "title": "Semantic Changes",
+          "type": "array"
+        },
+        "semantic_direction": {
+          "default": "unknown",
+          "enum": [
+            "added",
+            "removed",
+            "broadened",
+            "narrowed",
+            "mixed",
+            "unknown",
+            "evidence_only"
+          ],
+          "title": "Semantic Direction",
+          "type": "string"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "tool_name",
+        "operation",
+        "before",
+        "after"
+      ],
+      "title": "CapabilityLockChangedFact",
+      "type": "object"
+    },
+    "CapabilityLockDiffSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "added": {
+          "default": 0,
+          "title": "Added",
+          "type": "integer"
+        },
+        "changed": {
+          "default": 0,
+          "title": "Changed",
+          "type": "integer"
+        },
+        "evidence_changed": {
+          "default": 0,
+          "title": "Evidence Changed",
+          "type": "integer"
+        },
+        "reidentified": {
+          "default": 0,
+          "title": "Reidentified",
+          "type": "integer"
+        },
+        "removed": {
+          "default": 0,
+          "title": "Removed",
+          "type": "integer"
+        },
+        "unchanged": {
+          "default": 0,
+          "title": "Unchanged",
+          "type": "integer"
+        }
+      },
+      "title": "CapabilityLockDiffSummary",
+      "type": "object"
+    },
+    "CapabilityLockDiffV1": {
+      "additionalProperties": false,
+      "properties": {
+        "added": {
           "items": {
             "$ref": "#/$defs/CapabilityFactV1"
           },
-          "title": "Capabilities",
+          "title": "Added",
           "type": "array"
         },
-        "capability_lock_schema_version": {
-          "const": "0.6",
-          "default": "0.6",
-          "title": "Capability Lock Schema Version",
+        "base": {
+          "$ref": "#/$defs/CapabilityLockRef"
+        },
+        "capability_lock_diff_schema_version": {
+          "const": "0.8",
+          "default": "0.8",
+          "title": "Capability Lock Diff Schema Version",
           "type": "string"
         },
-        "cli_version": {
-          "title": "Cli Version",
-          "type": "string"
+        "changed": {
+          "items": {
+            "$ref": "#/$defs/CapabilityLockChangedFact"
+          },
+          "title": "Changed",
+          "type": "array"
+        },
+        "evidence_changed": {
+          "items": {
+            "$ref": "#/$defs/CapabilityLockChangedFact"
+          },
+          "title": "Evidence Changed",
+          "type": "array"
         },
         "experimental": {
           "const": false,
@@ -730,31 +850,61 @@
           "title": "Experimental",
           "type": "boolean"
         },
-        "hashes": {
-          "$ref": "#/$defs/CapabilityLockHashes"
+        "head": {
+          "$ref": "#/$defs/CapabilityLockRef"
         },
-        "source": {
-          "$ref": "#/$defs/CapabilityLockSource"
+        "reidentified": {
+          "items": {
+            "$ref": "#/$defs/CapabilityLockChangedFact"
+          },
+          "title": "Reidentified",
+          "type": "array"
+        },
+        "removed": {
+          "items": {
+            "$ref": "#/$defs/CapabilityFactV1"
+          },
+          "title": "Removed",
+          "type": "array"
         },
         "summary": {
-          "$ref": "#/$defs/CapabilityLockSummary"
+          "$ref": "#/$defs/CapabilityLockDiffSummary"
         }
       },
       "required": [
-        "cli_version",
-        "source",
-        "summary",
-        "hashes"
+        "base",
+        "head",
+        "summary"
       ],
-      "title": "CapabilityLockFileV1",
+      "title": "CapabilityLockDiffV1",
       "type": "object"
     },
-    "CapabilityLockHashes": {
+    "CapabilityLockRef": {
       "additionalProperties": false,
       "properties": {
+        "capability_count": {
+          "title": "Capability Count",
+          "type": "integer"
+        },
+        "capability_lock_schema_version": {
+          "title": "Capability Lock Schema Version",
+          "type": "string"
+        },
         "evidence_set_hash": {
           "title": "Evidence Set Hash",
           "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
         },
         "semantic_capability_set_hash": {
           "title": "Semantic Capability Set Hash",
@@ -766,131 +916,46 @@
         }
       },
       "required": [
+        "capability_lock_schema_version",
         "semantic_capability_set_hash",
         "evidence_set_hash",
-        "source_set_hash"
+        "source_set_hash",
+        "capability_count"
       ],
-      "title": "CapabilityLockHashes",
+      "title": "CapabilityLockRef",
       "type": "object"
     },
-    "CapabilityLockSource": {
+    "CapabilitySemanticChange": {
       "additionalProperties": false,
+      "description": "One semantic explanation for a capability delta.",
       "properties": {
-        "agent_id": {
-          "title": "Agent Id",
-          "type": "string"
-        },
-        "agent_name": {
-          "title": "Agent Name",
-          "type": "string"
-        },
-        "config_path": {
-          "title": "Config Path",
-          "type": "string"
-        },
-        "environment_target": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
+        "after": {
           "default": null,
-          "title": "Environment Target"
+          "title": "After"
         },
-        "manifest_dir": {
-          "title": "Manifest Dir",
+        "before": {
+          "default": null,
+          "title": "Before"
+        },
+        "field": {
+          "title": "Field",
           "type": "string"
         },
-        "plugins_enabled": {
-          "default": true,
-          "title": "Plugins Enabled",
-          "type": "boolean"
+        "kind": {
+          "title": "Kind",
+          "type": "string"
         },
-        "project_name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Project Name"
-        },
-        "source_count": {
-          "default": 0,
-          "title": "Source Count",
-          "type": "integer"
-        },
-        "source_warning_count": {
-          "default": 0,
-          "title": "Source Warning Count",
-          "type": "integer"
-        },
-        "tool_count": {
-          "default": 0,
-          "title": "Tool Count",
-          "type": "integer"
-        },
-        "toolkit_bound_count": {
-          "default": 0,
-          "title": "Toolkit Bound Count",
-          "type": "integer"
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
         }
       },
       "required": [
-        "config_path",
-        "manifest_dir",
-        "agent_id",
-        "agent_name"
+        "kind",
+        "field",
+        "rationale"
       ],
-      "title": "CapabilityLockSource",
-      "type": "object"
-    },
-    "CapabilityLockSummary": {
-      "additionalProperties": false,
-      "properties": {
-        "broad_scope_count": {
-          "default": 0,
-          "title": "Broad Scope Count",
-          "type": "integer"
-        },
-        "capability_count": {
-          "default": 0,
-          "title": "Capability Count",
-          "type": "integer"
-        },
-        "code_execution_count": {
-          "default": 0,
-          "title": "Code Execution Count",
-          "type": "integer"
-        },
-        "external_communication_count": {
-          "default": 0,
-          "title": "External Communication Count",
-          "type": "integer"
-        },
-        "financial_count": {
-          "default": 0,
-          "title": "Financial Count",
-          "type": "integer"
-        },
-        "high_risk_count": {
-          "default": 0,
-          "title": "High Risk Count",
-          "type": "integer"
-        },
-        "write_count": {
-          "default": 0,
-          "title": "Write Count",
-          "type": "integer"
-        }
-      },
-      "title": "CapabilityLockSummary",
+      "title": "CapabilitySemanticChange",
       "type": "object"
     },
     "EffectSemanticEvidence": {
@@ -1066,6 +1131,7 @@
             "missing_effect_evidence",
             "inferred_effect_only",
             "conflicting_effect_evidence",
+            "declaration_below_inferred_evidence",
             "missing_authority_evidence",
             "partial_authority_evidence",
             "conflicting_authority_evidence",
@@ -1248,9 +1314,9 @@
       "type": "object"
     }
   },
-  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-schema.v0.6.json",
-  "$ref": "#/$defs/CapabilityLockFileV1",
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-diff-schema.v0.8.json",
+  "$ref": "#/$defs/CapabilityLockDiffV1",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Stable JSON Schema for static capability lock artifacts. Generated from agents_shipgate.schemas.capabilities. It is non-gating and is not part of report.json; release_decision.decision remains the only gate.",
-  "title": "Agents Shipgate Capability Lock v0.6"
+  "description": "Stable JSON Schema for semantic capability lock diff artifacts. Generated from agents_shipgate.schemas.capabilities. It is non-gating and is not part of report.json; release_decision.decision remains the only gate.",
+  "title": "Agents Shipgate Capability Lock Diff v0.8"
 }

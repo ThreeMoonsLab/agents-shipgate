@@ -24,7 +24,7 @@ from agents_shipgate.core.evidence_actions import (
     yaml_scalar,
 )
 from agents_shipgate.core.semantic_assessment import (
-    strongest_effect_above_declaration,
+    effect_remedy_instruction,
 )
 from agents_shipgate.core.source_warnings import unresolved_adk_tool_symbols
 from agents_shipgate.core.surface_exclusions import (
@@ -1321,14 +1321,9 @@ def _semantic_gap(
         # human surface renders is the per-kind phrase, not this row's ``why``,
         # so an instruction that said "raise it to the inferred effect this row
         # names" named it nowhere the user could see.
-        inferred_effect = (
-            strongest_effect_above_declaration(tool.semantic_assessment.effect)
-            if tool.semantic_assessment is not None
-            else None
-        )
         raise_to = (
-            f"Raise action_surface.actions[].effect to {inferred_effect!r}"
-            if inferred_effect
+            effect_remedy_instruction(tool.semantic_assessment.effect)
+            if tool.semantic_assessment is not None
             else "Raise action_surface.actions[].effect to the inferred effect"
         )
         expects = (
