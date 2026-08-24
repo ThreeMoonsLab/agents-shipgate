@@ -641,8 +641,11 @@ action_surface:
         reason: the name matches the comms heuristic but nothing is sent
 ```
 
-Both `evidence` and `reason` are required and non-blank, and `override`
-requires a declared `effect` to acknowledge. An acknowledged override is
+Both `evidence` and `reason` are required and must contain visible content — whitespace, controls, bidi marks, and zero-width or other Default_Ignorable
+code points render as nothing to the reviewer the block exists for — and
+`override` requires a declared `effect` to acknowledge. Both rules are
+published in [`docs/manifest-v0.1.json`](manifest-v0.1.json), so an editor
+validating live gives the same answer the CLI does. An acknowledged override is
 accepted — the action is pass-eligible again — and is always reported as one
 semantic review concern, so a run carrying one never reads `passed`.
 

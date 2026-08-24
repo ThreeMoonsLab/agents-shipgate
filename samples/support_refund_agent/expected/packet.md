@@ -3,9 +3,9 @@
 - Project: support-refund-agent
 - Agent: refund-assistant
 - Environment: production\_like
-- Run id: agents\_shipgate\_0975ca70f67ba988
+- Run id: agents\_shipgate\_4d3d3b5f875ecbf8
 - Generated at: 2026-01-01T00:00:00\+00:00
-- Packet schema: 0\.12
+- Packet schema: 0\.13
 
 This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See §10 for what the packet does *not* prove.
 
@@ -26,6 +26,8 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 - Pass-eligible actions: 0/7
 - Evidence gaps: 7
 - Known review concerns: 3
+- Acknowledged override: send\_email\_preview \[openai\_sdk\_static\] declares `read`; risk\_hint:keyword infers `external\_communication`; source evidence agrees \(mcp\_annotation\). Evidence: readOnlyHint: true on the reviewed SDK inventory; the description states the preview is rendered locally — Reason: The name carries 'email', but this action renders a draft and has no send path or credential.
+- Acknowledged override: support.search\_kb \[support\_mcp\_tools\] declares `read`; risk\_hint:keyword infers `financial\_write`; source evidence agrees \(mcp\_annotation\). Evidence: readOnlyHint: true and idempotentHint: true on the MCP export; the only scope is support:kb:read — Reason: The word 'refund' appears in the article text this tool searches, not in anything it changes.
 - Reasons: acknowledged\_effect\_override=2, conflicting\_binding\_evidence=7, unscoped\_authority=1
 
 ### Blockers

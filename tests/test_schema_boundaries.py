@@ -345,7 +345,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         not_proven=NotProvenSection(headline="not proven"),
     )
     packet_payload = serialize_packet_json(packet)
-    assert packet_payload["packet_schema_version"] == "0.12"
+    assert packet_payload["packet_schema_version"] == "0.13"
     assert "generated_at" not in packet_payload
     assert "action_surface_diff" in packet_payload
     assert report_payload["capability_runtime_evidence"]["enabled"] is False

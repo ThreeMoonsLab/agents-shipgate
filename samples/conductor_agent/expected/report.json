@@ -276,7 +276,8 @@
         "review_concern_count": 0,
         "reason_counts": {
           "incomplete_surface": 1
-        }
+        },
+        "acknowledged_overrides": []
       },
       "identity_coverage": {
         "total_observations": 1,

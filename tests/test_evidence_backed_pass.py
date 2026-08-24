@@ -190,6 +190,7 @@ def test_reviewed_read_and_no_authority_can_pass(tmp_path: Path) -> None:
         "gap_count": 0,
         "review_concern_count": 0,
         "reason_counts": {},
+        "acknowledged_overrides": [],
     }
     action = report.action_surface_facts.actions[0]
     assert action.semantic_assessment is not None

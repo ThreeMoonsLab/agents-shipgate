@@ -463,6 +463,36 @@ class EvidenceGap(BaseModel):
     next_action: EvidenceGapAction
 
 
+class AcknowledgedEffectOverride(BaseModel):
+    """v0.36: one reviewed exception, in the shape a reviewer has to judge it.
+
+    A count is not a review surface. #409 asks for the override to appear as an
+    explicit row naming the action, both readings, and the reason a human gave
+    — the reviewer reads exceptions, not every action, and that is what makes
+    attestation real rather than rubber-stamped. Carried on the coverage block
+    that already owns ``review_concern_count``, so the report, the verifier,
+    the packet's §1, and the PR comment all project the same record.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Display label — ``name [provider]``, the same spelling evidence gaps use.
+    subject: str
+    #: Canonical tool id. Anything joining on identity joins on this.
+    subject_id: str | None = None
+    declared_effect: str
+    inferred_effect: str
+    #: Claim sources that read the stronger effect (``risk_hint:keyword``, …).
+    inferred_sources: list[str] = Field(default_factory=list)
+    #: Source evidence that agrees with the declared value, if any. Present so
+    #: a reviewer can see the override was not written against the source.
+    corroborating_sources: list[str] = Field(default_factory=list)
+    #: What the reviewer checked, and why the inference does not apply.
+    evidence: str
+    reason: str
+    manifest_path: str
+
+
 class SemanticCoverageDecision(BaseModel):
     """v0.29 pass eligibility across the normalized action surface.
 
@@ -481,6 +511,10 @@ class SemanticCoverageDecision(BaseModel):
     gap_count: int = 0
     review_concern_count: int = 0
     reason_counts: dict[str, int] = Field(default_factory=dict)
+    # v0.36: one row per acknowledged effect override, in emission order.
+    # ``reason_counts["acknowledged_effect_override"]`` counts them; this is
+    # what a reviewer actually has to read.
+    acknowledged_overrides: list[AcknowledgedEffectOverride] = Field(default_factory=list)
 
 
 class IdentityCoverageDecision(BaseModel):

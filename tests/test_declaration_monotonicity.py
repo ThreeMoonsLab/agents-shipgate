@@ -14,6 +14,7 @@ answer, and an acknowledged override is accepted but reported.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from agents_shipgate.cli.scan import run_scan
@@ -187,6 +188,74 @@ def test_acknowledged_override_is_accepted_and_reported(tmp_path: Path) -> None:
     # An acknowledged override can never reach `passed`: the reviewer has to
     # see the exception, which is the entire point of accepting it.
     assert report.release_decision.decision != "passed"
+
+    # …and it must actually *land* on the review route. Policy applicability
+    # asks the same question the acknowledgement answers, so leaving the
+    # acknowledged claim unresolved there traded one gap for another and kept
+    # the verdict at `insufficient_evidence` — the reviewer followed this row's
+    # own instruction and got a differently-named dead end (review 1).
+    assert report.release_decision.decision == "review_required"
+    assert coverage.policy_gap_count == 0
+    assert report.policy_evidence_gaps == []
+    assert coverage.evidence_gaps == []
+
+
+def test_each_acknowledged_override_is_projected_for_the_reviewer(
+    tmp_path: Path,
+) -> None:
+    """A count is not a review surface (#409, review 2).
+
+    The reviewer reads exceptions, not every action, so each one has to name the
+    action, both readings, the hint source, and the human's evidence and reason.
+    """
+
+    report = _scan(_project(tmp_path, _ACKNOWLEDGED), tmp_path / "reports")
+    rows = report.release_decision.evidence_coverage.semantic_coverage.acknowledged_overrides
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert "send_email" in row.subject
+    assert row.subject_id
+    assert row.declared_effect == "read"
+    assert row.inferred_effect == "external_communication"
+    assert row.inferred_sources
+    assert "no mail client is constructed" in row.evidence
+    assert "the body sends nothing" in row.reason
+    assert row.manifest_path.endswith("].override")
+
+    # …and the PR comment carries the same row.
+    from agents_shipgate.report.pr_projection import select_pr_items
+
+    items = select_pr_items(json.loads(report.model_dump_json()))
+    override_items = [
+        item
+        for item in items
+        if item.check_id == "SHIP-ACTION-EFFECT-OVERRIDE-ACKNOWLEDGED"
+    ]
+    assert len(override_items) == 1
+    item = override_items[0]
+    assert "send_email" in item.title
+    assert "'read'" in item.message
+    assert "'external_communication'" in item.message
+    assert "no mail client is constructed" in item.message
+    assert item.merge_impact == "review_required"
+
+
+def test_the_packet_renders_each_override_not_just_the_count(tmp_path: Path) -> None:
+    from agents_shipgate.packet.builder import build_packet_from_report
+    from agents_shipgate.packet.html import render_packet_html
+    from agents_shipgate.packet.markdown import render_packet_markdown
+
+    report = _scan(_project(tmp_path, _ACKNOWLEDGED), tmp_path / "reports")
+    packet = build_packet_from_report(report)
+
+    for rendered in (render_packet_markdown(packet), render_packet_html(packet)):
+        assert "Acknowledged override:" in rendered
+        # Markdown escapes the underscore in the tool name, so match on the
+        # parts that survive both renderers.
+        assert "send" in rendered and "email" in rendered
+        assert "external_communication" in rendered or "external\\_communication" in rendered
+        assert "no mail client is constructed" in rendered
 
 
 def test_declaration_matching_the_evidence_is_silent(tmp_path: Path) -> None:

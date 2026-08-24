@@ -120,14 +120,14 @@ schema.
 ## What is the Release Evidence Packet?
 
 A reviewer-shaped synthesis of the scan, emitted alongside the report by
-default. The packet is governed by [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json)
+default. The packet is governed by [`docs/packet-schema.v0.13.json`](packet-schema.v0.13.json)
 and has fixed reviewer sections (release decision, evidence matrix, capability/intent,
 high-risk surface, tool-surface diff, action-surface diff, approval coverage,
 idempotency risk, scope coverage, memory isolation, human-in-the-loop,
 dynamic scenarios, and a
 `not_proven` section that always lists prompt robustness, runtime
 behavior, model correctness, and adversarial resistance verbatim). See
-[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v012).
+[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v013).
 Packet schema `0.9` adds semantic coverage and gap remediation, and packet §1
 mirrors the report's `static_analysis_only: true`,
 `runtime_behavior_verified: false`, and canonical

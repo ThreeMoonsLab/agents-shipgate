@@ -129,7 +129,8 @@
         "review_concern_count": 1,
         "reason_counts": {
           "ambient_authority": 1
-        }
+        },
+        "acknowledged_overrides": []
       },
       "identity_coverage": {
         "total_observations": 6,

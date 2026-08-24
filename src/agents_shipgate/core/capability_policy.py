@@ -22,6 +22,7 @@ from agents_shipgate.core.risk_hints import (
     CANONICAL_RISK_TAG_MAP,
     risk_tags,
 )
+from agents_shipgate.core.semantic_assessment import acknowledged_effect_claim_ids
 from agents_shipgate.schemas.capabilities import CapabilityFactV1
 from agents_shipgate.schemas.common import Confidence, SourceReference, confidence_rank
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
@@ -574,6 +575,7 @@ def _effect_predicate(
     assessment = subject.tool.semantic_assessment
     requested_values = set(requested)
     claims = list(assessment.effect.claims) if assessment is not None else []
+    claims = _without_acknowledged(claims)
     eligible = [
         claim for claim in claims if claim.policy_eligible and claim.value in requested_values
     ]
@@ -633,7 +635,9 @@ def _risk_tag_predicate(
     requested_values = set(requested)
     requested_canonical = {_canonical_risk_tag(tag) for tag in requested_values}
     assessment = subject.tool.semantic_assessment
-    claims = list(assessment.effect.claims) if assessment is not None else []
+    claims = _without_acknowledged(
+        list(assessment.effect.claims) if assessment is not None else []
+    )
 
     def claim_tag(claim: Any) -> str:
         raw = claim.evidence.get("tag") if isinstance(claim.evidence, dict) else None
@@ -1079,6 +1083,20 @@ def _idempotency_tools(
     if anthropic_artifacts:
         tools |= anthropic_artifacts.idempotency_tools()
     return tools
+
+
+def _without_acknowledged(claims: list[Any]) -> list[Any]:
+    """Drop effect claims a reviewed ``override`` has already answered.
+
+    Capability policy asks the same question the acknowledgement answers, so
+    leaving an acknowledged claim in the candidate set keeps every capability
+    policy naming that effect permanently indeterminate (PR #411 review 1).
+    """
+
+    acknowledged = acknowledged_effect_claim_ids(claims)
+    if not acknowledged:
+        return claims
+    return [claim for claim in claims if claim.claim_id not in acknowledged]
 
 
 def _canonical_risk_tag(tag: str) -> str:

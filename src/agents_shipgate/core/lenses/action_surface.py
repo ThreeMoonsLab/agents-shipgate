@@ -28,7 +28,10 @@ from agents_shipgate.core.risk_hints import (
     is_effectively_read_only,
     risk_tags,
 )
-from agents_shipgate.core.semantic_assessment import assess_tool_semantics
+from agents_shipgate.core.semantic_assessment import (
+    acknowledged_effect_claim_ids,
+    assess_tool_semantics,
+)
 from agents_shipgate.core.surface_exclusions import (
     catalog_label_index,
     tool_label,
@@ -1704,12 +1707,21 @@ def _non_authoritative_effect_escalation_support(
     authoritative_rank = max(
         ACTION_EFFECT_RANK[claim.value] for claim in authoritative
     )
+    # A reviewed override answers this exact question — "does the higher
+    # heuristic effect apply here?" — so an acknowledged claim is resolved, not
+    # unresolved. Without this the reviewer follows the row's own instruction,
+    # writes the override, and trades `declaration_below_inferred_evidence` for
+    # `mixed_policy_evidence`: the same verdict, a different name (review 1).
+    # The run still cannot read `passed` — the acknowledgement is a semantic
+    # review concern — and the exception is projected per action for a reviewer.
+    acknowledged = acknowledged_effect_claim_ids(assessment.effect.claims)
     inferred_escalations = [
         claim
         for claim in assessment.effect.claims
         if not claim.policy_eligible
         and claim.value in ACTION_EFFECT_RANK
         and ACTION_EFFECT_RANK[claim.value] > authoritative_rank
+        and claim.claim_id not in acknowledged
     ]
     if not inferred_escalations:
         return None
@@ -1897,6 +1909,11 @@ def _assess_action_policy_match(
 
     assessment = action.semantic_assessment
     claims = list(assessment.effect.claims) if assessment is not None else []
+    # An acknowledged claim is a decided question, not an open one. Leaving it
+    # in the `possible` set kept every user policy that names the acknowledged
+    # effect indeterminate forever (review 1).
+    acknowledged = acknowledged_effect_claim_ids(claims)
+    claims = [claim for claim in claims if claim.claim_id not in acknowledged]
     if match.effects:
         eligible = [
             claim

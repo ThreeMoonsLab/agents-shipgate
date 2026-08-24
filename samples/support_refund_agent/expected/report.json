@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "report_schema_version": "0.36",
-  "run_id": "agents_shipgate_0975ca70f67ba988",
+  "run_id": "agents_shipgate_4d3d3b5f875ecbf8",
   "request_id": null,
   "subject_id": null,
   "input_set_id": null,
@@ -831,56 +831,6 @@
           }
         },
         {
-          "kind": "mixed_policy_evidence",
-          "subject": "support.search_kb [support_mcp_tools]",
-          "subject_id": "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a",
-          "source_type": null,
-          "source_ref": ".agents-shipgate/mcp-tools.json",
-          "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
-          "next_action": {
-            "kind": "review_policy_evidence",
-            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-            "path": "shipgate.yaml#action_surface.actions[tool='support.search_kb'].effect",
-            "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
-            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
-            "accepted_values": [
-              "reviewed_declaration",
-              "protocol_structure",
-              "typed_provider_fact",
-              "structural_scope"
-            ],
-            "suggested_patch_kind": "manual",
-            "declaration_template": null,
-            "auto_apply": false,
-            "requires_human_review": true
-          }
-        },
-        {
-          "kind": "mixed_policy_evidence",
-          "subject": "send_email_preview [openai_sdk_static]",
-          "subject_id": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
-          "source_type": null,
-          "source_ref": "inventories/sdk-tools.json",
-          "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
-          "next_action": {
-            "kind": "review_policy_evidence",
-            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-            "path": "shipgate.yaml#action_surface.actions[tool='send_email_preview'].effect",
-            "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
-            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
-            "accepted_values": [
-              "reviewed_declaration",
-              "protocol_structure",
-              "typed_provider_fact",
-              "structural_scope"
-            ],
-            "suggested_patch_kind": "manual",
-            "declaration_template": null,
-            "auto_apply": false,
-            "requires_human_review": true
-          }
-        },
-        {
           "kind": "inferred_policy_applicability",
           "subject": "send_email_preview [openai_sdk_static]",
           "subject_id": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
@@ -1085,7 +1035,39 @@
           "acknowledged_effect_override": 2,
           "conflicting_binding_evidence": 7,
           "unscoped_authority": 1
-        }
+        },
+        "acknowledged_overrides": [
+          {
+            "subject": "send_email_preview [openai_sdk_static]",
+            "subject_id": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+            "declared_effect": "read",
+            "inferred_effect": "external_communication",
+            "inferred_sources": [
+              "risk_hint:keyword"
+            ],
+            "corroborating_sources": [
+              "mcp_annotation"
+            ],
+            "evidence": "readOnlyHint: true on the reviewed SDK inventory; the description states the preview is rendered locally",
+            "reason": "The name carries 'email', but this action renders a draft and has no send path or credential.",
+            "manifest_path": "shipgate.yaml#action_surface.actions[tool='send_email_preview'].override"
+          },
+          {
+            "subject": "support.search_kb [support_mcp_tools]",
+            "subject_id": "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a",
+            "declared_effect": "read",
+            "inferred_effect": "financial_write",
+            "inferred_sources": [
+              "risk_hint:keyword"
+            ],
+            "corroborating_sources": [
+              "mcp_annotation"
+            ],
+            "evidence": "readOnlyHint: true and idempotentHint: true on the MCP export; the only scope is support:kb:read",
+            "reason": "The word 'refund' appears in the article text this tool searches, not in anything it changes.",
+            "manifest_path": "shipgate.yaml#action_surface.actions[tool='support.search_kb'].override"
+          }
+        ]
       },
       "identity_coverage": {
         "total_observations": 8,
@@ -1107,7 +1089,7 @@
           "conflicting_binding_evidence": 1
         }
       },
-      "policy_gap_count": 9
+      "policy_gap_count": 7
     },
     "baseline_delta": {
       "enabled": false,
@@ -1847,7 +1829,7 @@
               "evidence": {}
             },
             {
-              "claim_id": "clm_9f9dbaa1de692583d189",
+              "claim_id": "clm_7437c5b963af0a8a0252",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
@@ -1860,6 +1842,10 @@
                 "overridden_effect": "external_communication",
                 "overridden_sources": [
                   "risk_hint:keyword"
+                ],
+                "overridden_claim_ids": [
+                  "clm_b77048e00c8bab300132",
+                  "clm_cfc3dd4156cdbd1469ed"
                 ],
                 "corroborating_sources": [
                   "mcp_annotation"
@@ -2603,7 +2589,7 @@
               "evidence": {}
             },
             {
-              "claim_id": "clm_0e8246d734d69386b2d3",
+              "claim_id": "clm_1c3aa4e77377557b20aa",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
@@ -2616,6 +2602,9 @@
                 "overridden_effect": "financial_write",
                 "overridden_sources": [
                   "risk_hint:keyword"
+                ],
+                "overridden_claim_ids": [
+                  "clm_db44eeb09b0fff2d9e05"
                 ],
                 "corroborating_sources": [
                   "mcp_annotation"
@@ -4715,7 +4704,7 @@
                 "evidence": {}
               },
               {
-                "claim_id": "clm_0e8246d734d69386b2d3",
+                "claim_id": "clm_1c3aa4e77377557b20aa",
                 "dimension": "effect",
                 "value": "read",
                 "confidence": "high",
@@ -4728,6 +4717,9 @@
                   "overridden_effect": "financial_write",
                   "overridden_sources": [
                     "risk_hint:keyword"
+                  ],
+                  "overridden_claim_ids": [
+                    "clm_db44eeb09b0fff2d9e05"
                   ],
                   "corroborating_sources": [
                     "mcp_annotation"
@@ -5304,7 +5296,7 @@
                 "evidence": {}
               },
               {
-                "claim_id": "clm_9f9dbaa1de692583d189",
+                "claim_id": "clm_7437c5b963af0a8a0252",
                 "dimension": "effect",
                 "value": "read",
                 "confidence": "high",
@@ -5317,6 +5309,10 @@
                   "overridden_effect": "external_communication",
                   "overridden_sources": [
                     "risk_hint:keyword"
+                  ],
+                  "overridden_claim_ids": [
+                    "clm_b77048e00c8bab300132",
+                    "clm_cfc3dd4156cdbd1469ed"
                   ],
                   "corroborating_sources": [
                     "mcp_annotation"
@@ -7197,7 +7193,7 @@
               "evidence": {}
             },
             {
-              "claim_id": "clm_9f9dbaa1de692583d189",
+              "claim_id": "clm_7437c5b963af0a8a0252",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
@@ -7210,6 +7206,10 @@
                 "overridden_effect": "external_communication",
                 "overridden_sources": [
                   "risk_hint:keyword"
+                ],
+                "overridden_claim_ids": [
+                  "clm_b77048e00c8bab300132",
+                  "clm_cfc3dd4156cdbd1469ed"
                 ],
                 "corroborating_sources": [
                   "mcp_annotation"
@@ -7469,7 +7469,7 @@
               "evidence": {}
             },
             {
-              "claim_id": "clm_0e8246d734d69386b2d3",
+              "claim_id": "clm_1c3aa4e77377557b20aa",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
@@ -7482,6 +7482,9 @@
                 "overridden_effect": "financial_write",
                 "overridden_sources": [
                   "risk_hint:keyword"
+                ],
+                "overridden_claim_ids": [
+                  "clm_db44eeb09b0fff2d9e05"
                 ],
                 "corroborating_sources": [
                   "mcp_annotation"
@@ -9174,7 +9177,7 @@
               "evidence": {}
             },
             {
-              "claim_id": "clm_9f9dbaa1de692583d189",
+              "claim_id": "clm_7437c5b963af0a8a0252",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
@@ -9187,6 +9190,10 @@
                 "overridden_effect": "external_communication",
                 "overridden_sources": [
                   "risk_hint:keyword"
+                ],
+                "overridden_claim_ids": [
+                  "clm_b77048e00c8bab300132",
+                  "clm_cfc3dd4156cdbd1469ed"
                 ],
                 "corroborating_sources": [
                   "mcp_annotation"
@@ -9446,7 +9453,7 @@
               "evidence": {}
             },
             {
-              "claim_id": "clm_0e8246d734d69386b2d3",
+              "claim_id": "clm_1c3aa4e77377557b20aa",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
@@ -9459,6 +9466,9 @@
                 "overridden_effect": "financial_write",
                 "overridden_sources": [
                   "risk_hint:keyword"
+                ],
+                "overridden_claim_ids": [
+                  "clm_db44eeb09b0fff2d9e05"
                 ],
                 "corroborating_sources": [
                   "mcp_annotation"
@@ -10749,56 +10759,6 @@
     "MCP source declares wildcard tool exposure"
   ],
   "policy_evidence_gaps": [
-    {
-      "kind": "mixed_policy_evidence",
-      "subject": "support.search_kb [support_mcp_tools]",
-      "subject_id": "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a",
-      "source_type": null,
-      "source_ref": ".agents-shipgate/mcp-tools.json",
-      "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
-      "next_action": {
-        "kind": "review_policy_evidence",
-        "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-        "path": "shipgate.yaml#action_surface.actions[tool='support.search_kb'].effect",
-        "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
-        "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
-        "accepted_values": [
-          "reviewed_declaration",
-          "protocol_structure",
-          "typed_provider_fact",
-          "structural_scope"
-        ],
-        "suggested_patch_kind": "manual",
-        "declaration_template": null,
-        "auto_apply": false,
-        "requires_human_review": true
-      }
-    },
-    {
-      "kind": "mixed_policy_evidence",
-      "subject": "send_email_preview [openai_sdk_static]",
-      "subject_id": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
-      "source_type": null,
-      "source_ref": "inventories/sdk-tools.json",
-      "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
-      "next_action": {
-        "kind": "review_policy_evidence",
-        "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-        "path": "shipgate.yaml#action_surface.actions[tool='send_email_preview'].effect",
-        "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
-        "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
-        "accepted_values": [
-          "reviewed_declaration",
-          "protocol_structure",
-          "typed_provider_fact",
-          "structural_scope"
-        ],
-        "suggested_patch_kind": "manual",
-        "declaration_template": null,
-        "auto_apply": false,
-        "requires_human_review": true
-      }
-    },
     {
       "kind": "inferred_policy_applicability",
       "subject": "send_email_preview [openai_sdk_static]",

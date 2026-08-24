@@ -202,6 +202,7 @@ def test_missing_semantic_assessment_is_zero_tolerance_ie_and_strict_failure():
         "gap_count": 1,
         "review_concern_count": 0,
         "reason_counts": {"incomplete_surface": 1},
+        "acknowledged_overrides": [],
     }
     gap = decision.evidence_coverage.evidence_gaps[0]
     assert gap.kind == "incomplete_surface"

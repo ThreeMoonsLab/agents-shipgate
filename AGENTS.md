@@ -688,7 +688,7 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Report schema (v0.8 frozen reference) | [`docs/report-schema.v0.8.json`](docs/report-schema.v0.8.json) | `0.8` |
 | Report schema (v0.7 frozen reference) | [`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json) | `0.7` |
 | Report schema (v0.6 frozen reference) | [`docs/report-schema.v0.6.json`](docs/report-schema.v0.6.json) | `0.6` |
-| Packet schema (Release Evidence Packet, latest) | [`docs/packet-schema.v0.12.json`](docs/packet-schema.v0.12.json) | `0.12` |
+| Packet schema (Release Evidence Packet, latest) | [`docs/packet-schema.v0.13.json`](docs/packet-schema.v0.13.json) | `0.13` |
 | Agent result schema (current) | [`docs/agent-result-schema.v2.json`](docs/agent-result-schema.v2.json) | `agent_result_v2` |
 | Verifier schema (current) | [`docs/verifier-schema.v0.5.json`](docs/verifier-schema.v0.5.json) | `0.5` |
 | Agent handoff schema (current) | [`docs/agent-handoff-schema.v5.json`](docs/agent-handoff-schema.v5.json) | `shipgate.agent_handoff/v5` |
@@ -746,7 +746,7 @@ Newer commands (stable intent, flags may still evolve):
 | `agents-shipgate registry` | `ingest --attestation <file>` / `query` / `report --bypass` — local capability-release ledger over attestations. |
 | `agents-shipgate install-hooks` | Claude Code hooks: PreToolUse trust-root boundary (`ask`/`deny`), PostToolUse trigger nudge, Stop verify. |
 
-### Release Evidence Packet (v0.9)
+### Release Evidence Packet (v0.13)
 
 `scan` emits a reviewer-shaped Release Evidence Packet alongside
 `report.{md,json}` by default; outputs land at
@@ -758,7 +758,7 @@ NOT prove. Use `--no-packet` / `--packet-format` on `scan`, and
 `agents-shipgate evidence-packet --from <packet.json|report.json>` to
 re-render. The full packet contract (fixed sections, disclaimers,
 `evidence_matrix` rules) lives in
-[STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v012)
+[STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v013)
 and [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-for-release-review).
 
 Exit codes (stable):

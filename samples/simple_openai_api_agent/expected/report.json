@@ -696,7 +696,8 @@
         "review_concern_count": 2,
         "reason_counts": {
           "unscoped_authority": 2
-        }
+        },
+        "acknowledged_overrides": []
       },
       "identity_coverage": {
         "total_observations": 2,

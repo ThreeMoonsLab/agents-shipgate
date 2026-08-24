@@ -1109,11 +1109,17 @@ def test_a_policy_gap_labels_a_tool_the_way_every_other_gap_does(tmp_path):
     # The id moved to the field built for it rather than being dropped.
     assert all(gap.subject_id in catalog_ids for gap in policy_gaps)
 
-    # One label across stages: the tool the binding stage and the policy stage
-    # both name is one string, not two.
-    label = "support.search_kb [support_mcp_tools]"
-    assert label in {gap.subject for gap in policy_gaps}
-    assert label in {gap.subject for gap in gaps if gap.kind in BINDING_GAP_KINDS}
+    # One label across stages: a tool the binding stage and the policy stage
+    # both name is one string, not two. Asserted over the whole overlap rather
+    # than one pinned tool — which tools carry a policy gap is a property of
+    # the fixture's declarations, and a reviewed override legitimately removes
+    # one (`support.search_kb` acknowledges its heuristic, #409), while the
+    # spelling rule this test exists for holds for every shared subject.
+    binding_labels = {gap.subject for gap in gaps if gap.kind in BINDING_GAP_KINDS}
+    policy_labels = {gap.subject for gap in policy_gaps}
+    shared = policy_labels & binding_labels
+    assert shared, "the fixture must name at least one tool in both stages"
+    assert "stripe.create_refund [support_openapi]" in shared
 
     # What the reader is actually shown. The headline is the surface the raw id
     # reached, so state the claim there and not only on the stored field.

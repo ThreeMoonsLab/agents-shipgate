@@ -90,6 +90,34 @@
     },
     "ActionDeclarationConfig": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "override": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            },
+            "required": [
+              "override"
+            ]
+          },
+          "then": {
+            "properties": {
+              "effect": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            },
+            "required": [
+              "effect"
+            ]
+          }
+        }
+      ],
       "properties": {
         "approval": {
           "anyOf": [
@@ -296,10 +324,12 @@
       "description": "Reviewed acknowledgement that a declared effect sits below evidence.\n\nA declaration may freely *escalate* past what the scanner inferred \u2014 a\nreviewer calling an action more dangerous than the evidence proves needs no\nceremony. De-escalating past inferred evidence is the asymmetric case: it\nis the one edit that converts a gapped action into a pass-eligible one, so\nit may not be silent. This block is how a reviewer says \"I looked, and the\ninference does not apply here\"; it never removes the review row, it only\nmarks it acknowledged (#409).\n\nIt acknowledges *inferred* evidence only. Where policy-eligible evidence\noutranks the declaration the conflict is blocking and this block changes\nnothing about it.",
       "properties": {
         "evidence": {
+          "pattern": "[^\\s\\u0000-\\u001f\\u007f-\\u009f\\u00ad\\u034f\\u061c\\u115f-\\u1160\\u17b4-\\u17b5\\u180b-\\u180f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\u3164\\ufe00-\\ufe0f\\ufeff\\uffa0\\ufff0-\\ufff8\ud82f\udca0-\ud82f\udca3\ud834\udd73-\ud834\udd7a\udb40\udc00-\udb43\udfff]",
           "title": "Evidence",
           "type": "string"
         },
         "reason": {
+          "pattern": "[^\\s\\u0000-\\u001f\\u007f-\\u009f\\u00ad\\u034f\\u061c\\u115f-\\u1160\\u17b4-\\u17b5\\u180b-\\u180f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\u3164\\ufe00-\\ufe0f\\ufeff\\uffa0\\ufff0-\\ufff8\ud82f\udca0-\ud82f\udca3\ud834\udd73-\ud834\udd7a\udb40\udc00-\udb43\udfff]",
           "title": "Reason",
           "type": "string"
         }

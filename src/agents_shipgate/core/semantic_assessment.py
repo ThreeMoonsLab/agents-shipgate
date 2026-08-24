@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, cast
 
 from agents_shipgate.core.domain import (
@@ -543,6 +543,17 @@ def _assess_effect(
                         {
                             "overridden_effect": below_effect,
                             "overridden_sources": below_sources,
+                            # Exactly which claims this acknowledgement covers.
+                            # Policy applicability has to consume the same set
+                            # the reviewer answered, and re-deriving it at each
+                            # consumer is how the two drift apart.
+                            "overridden_claim_ids": sorted(
+                                {
+                                    claim.claim_id
+                                    for claim in below_declared
+                                    if claim.claim_id
+                                }
+                            ),
                             "corroborating_sources": sorted(
                                 {claim.source for claim in corroborating}
                             ),
@@ -768,6 +779,31 @@ def strongest_effect_above_declaration(
     if not above:
         return None
     return _strongest_effect([_as_effect(claim.value) for claim in above])
+
+
+def acknowledged_effect_claim_ids(claims: Iterable[Any]) -> frozenset[str]:
+    """Effect-claim ids a reviewed ``override`` has acknowledged.
+
+    Empty unless the manifest carried an acknowledgement, so the default is the
+    conservative one. Consumers ask this instead of re-running the comparison:
+    an acknowledgement that policy applicability does not consume is not an
+    acknowledgement at all — the reviewer follows the row's instruction and
+    trades one gap for another (PR #411 review 1).
+
+    Only non-policy-eligible claims can ever appear here: the resolver refuses
+    to attach an override while policy-eligible evidence outranks the
+    declaration, so a reviewed exception can never reach proven evidence.
+    """
+
+    acknowledged: set[str] = set()
+    for claim in claims:
+        if getattr(claim, "source", None) != DECLARATION_OVERRIDE_SOURCE:
+            continue
+        evidence = getattr(claim, "evidence", None)
+        raw = evidence.get("overridden_claim_ids") if isinstance(evidence, dict) else None
+        if isinstance(raw, list):
+            acknowledged.update(str(value) for value in raw if value)
+    return frozenset(acknowledged)
 
 
 def _below_evidence_message(
@@ -1229,6 +1265,7 @@ def _sorted_issues(issues: list[SemanticIssue]) -> list[SemanticIssue]:
 
 
 __all__ = [
+    "acknowledged_effect_claim_ids",
     "assess_tool_semantics",
     "attach_semantic_assessments",
     "claims_above_declared_effect",

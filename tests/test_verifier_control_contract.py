@@ -439,8 +439,11 @@ def test_review_publishable_verifier_denies_merge_and_authorizes_the_rerun() -> 
     assert verifier.control.allowed_next_commands == [_RERUN]
     assert verifier.control.next_action.actor == "human"
 
+    # Derived from the runtime literal so a schema bump moves this with it:
+    # the invariant is that the artifact validates against the CURRENT schema.
+    current = str(VerifierArtifact.model_fields["verifier_schema_version"].default)
     schema = json.loads(
-        (ROOT / "docs" / "verifier-schema.v0.9.json").read_text(encoding="utf-8")
+        (ROOT / "docs" / f"verifier-schema.v{current}.json").read_text(encoding="utf-8")
     )
     Draft202012Validator(schema).validate(verifier.model_dump(mode="json"))
 

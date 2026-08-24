@@ -71,6 +71,43 @@
   `samples/support_refund_agent` carries the two overrides this rule asks it
   for, so the shipped sample is the worked example.
 
+  **The acknowledgement is consumed everywhere the question is asked.** Policy
+  applicability asks exactly what the override answers — "does the higher
+  heuristic effect apply here?" — so leaving the acknowledged claim unresolved
+  there traded `declaration_below_inferred_evidence` for
+  `mixed_policy_evidence`: the reviewer followed the row's own instruction and
+  landed on a differently-named `insufficient_evidence`. The override claim
+  carries `overridden_claim_ids`, and `_non_authoritative_effect_escalation_support`,
+  the action-policy predicates, and capability-policy matching all read that one
+  authored list rather than re-deriving the comparison. The acknowledged fixture
+  now reaches `review_required` with zero policy gaps.
+
+  **Each exception is a row, not a count.** `semantic_coverage.acknowledged_overrides[]`
+  (report schema `0.36`, packet `0.12` → `0.13`, verifier `0.9` → `0.10`) names
+  the action, both readings, the hint source, any source evidence that agrees,
+  and the human's evidence and reason. The packet's §1 and the PR comment
+  (`SHIP-ACTION-EFFECT-OVERRIDE-ACKNOWLEDGED`) render one row per override, so
+  a reviewer reads the exceptions rather than a number. Frozen `0.12` packets
+  and `0.9` verifier artifacts still read forward; the field is absent there and
+  an empty list is the honest reading.
+
+  **Blank-looking answers are rejected.** `str.strip()` leaves U+200B and U+2060
+  intact, so an override whose `evidence` and `reason` render as nothing to the
+  reviewer they exist for validated, suppressed the mismatch, and restored
+  pass-eligibility. Both fields now require visible content — the repository's
+  own `has_visible_content` semantics, moved to `schemas/text.py` so the schema
+  layer can use it without importing `core`, covering whitespace, controls,
+  bidi marks, and every Default_Ignorable code point.
+
+  **The published manifest schema says what the CLI enforces.**
+  `docs/manifest-v0.1.json` is advertised for live editor validation and
+  accepted both an `override` with no `effect` and blank `evidence`/`reason`,
+  which `model_validate` rejects — telling a user their manifest is valid and
+  then refusing it. The dependency is published as an `if`/`then`, the
+  visible-content rule as a `pattern` generated from the same code-point table
+  the runtime check reads, and `tests/test_manifest_schema_parity.py` runs
+  twelve payloads through both validators and requires them to agree.
+
   Known limitation: an override whose inferred evidence later stops firing
   stays accepted and unreported. Distinguishing a stale exception from one that
   never applied needs the `basis: confirmed:<derivation_id>` pin from increment

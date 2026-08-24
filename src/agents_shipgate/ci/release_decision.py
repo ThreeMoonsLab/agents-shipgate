@@ -14,6 +14,7 @@ from agents_shipgate.core.domain import (
     DECLARATION_OVERRIDE_SOURCE,
     SemanticIssueKind,
     Tool,
+    ToolSemanticAssessment,
 )
 from agents_shipgate.core.evidence_actions import (
     evidence_gap_command,
@@ -37,6 +38,7 @@ from agents_shipgate.schemas.bindings import (
 )
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.report import (
+    AcknowledgedEffectOverride,
     BaselineDelta,
     BindingCoverageDecision,
     ContributionRule,
@@ -1004,6 +1006,7 @@ def _semantic_coverage(
 
     gaps: list[EvidenceGap] = []
     reason_counts: dict[str, int] = {}
+    acknowledged_overrides: list[AcknowledgedEffectOverride] = []
     pass_eligible_actions = 0
     review_concern_count = 0
 
@@ -1066,11 +1069,10 @@ def _semantic_coverage(
         # An acknowledged effect override is accepted — the declaration stands
         # and the action stays pass-eligible — but it is never silent (#409).
         # A review concern is exactly that tier: it cannot reach ``passed`` and
-        # it cannot block, so the reviewer sees the exception and decides.
-        if any(
-            claim.source == DECLARATION_OVERRIDE_SOURCE
-            for claim in assessment.effect.claims
-        ):
+        # it cannot block, so the reviewer sees the exception and decides. The
+        # count says how many; the row says what a reviewer has to judge.
+        for row in _acknowledged_overrides(tool, assessment):
+            acknowledged_overrides.append(row)
             review_concern_count += 1
             _increment(reason_counts, "acknowledged_effect_override")
 
@@ -1105,9 +1107,49 @@ def _semantic_coverage(
             gap_count=len(gaps),
             review_concern_count=review_concern_count,
             reason_counts=dict(sorted(reason_counts.items())),
+            acknowledged_overrides=acknowledged_overrides,
         ),
         gaps,
     )
+
+
+def _acknowledged_overrides(
+    tool: Tool,
+    assessment: ToolSemanticAssessment,
+) -> list[AcknowledgedEffectOverride]:
+    """Project each reviewed exception into the row a reviewer has to judge.
+
+    Read off the override claim the resolver authored rather than re-derived,
+    so the row and the assessment cannot disagree about what was acknowledged.
+    """
+
+    rows: list[AcknowledgedEffectOverride] = []
+    for claim in assessment.effect.claims:
+        if claim.source != DECLARATION_OVERRIDE_SOURCE:
+            continue
+        evidence = claim.evidence if isinstance(claim.evidence, dict) else {}
+        rows.append(
+            AcknowledgedEffectOverride(
+                subject=f"{tool.name} [{tool.provider or tool.source_id or tool.source_type}]",
+                subject_id=tool.id or None,
+                declared_effect=str(claim.value),
+                inferred_effect=str(evidence.get("overridden_effect") or ""),
+                inferred_sources=_string_list(evidence.get("overridden_sources")),
+                corroborating_sources=_string_list(evidence.get("corroborating_sources")),
+                evidence=str(evidence.get("evidence") or ""),
+                reason=str(evidence.get("reason") or ""),
+                manifest_path=(
+                    f"shipgate.yaml#action_surface.actions[tool={tool.name!r}].override"
+                ),
+            )
+        )
+    return rows
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if isinstance(item, str) and item]
 
 
 def _identity_coverage(tools: list[Tool]) -> IdentityCoverageDecision:

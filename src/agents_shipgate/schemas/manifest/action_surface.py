@@ -6,6 +6,10 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.manifest._common import STRICT_MODEL_CONFIG
+from agents_shipgate.schemas.text import (
+    VISIBLE_CONTENT_PATTERN,
+    has_visible_content,
+)
 
 ActionEffect = Literal[
     "read",
@@ -161,25 +165,57 @@ class ActionEffectOverrideConfig(BaseModel):
 
     model_config = STRICT_MODEL_CONFIG
 
+    # ``pattern`` is carried so the *published* JSON Schema rejects what the
+    # runtime rejects: this file is advertised for live editor validation, and
+    # a schema that accepts a manifest the CLI refuses is worse than no schema
+    # (PR #411 review 4). The validator below stays the authority — it also
+    # covers surrogate, private-use, and unassigned code points, which no
+    # portable character class can enumerate.
     #: What the reviewer actually checked — the function body, the deployment,
     #: the upstream contract. Named so the next reviewer can re-check it.
-    evidence: str
+    evidence: str = Field(pattern=VISIBLE_CONTENT_PATTERN)
     #: Why the inferred evidence does not establish the stronger effect here.
-    reason: str
+    reason: str = Field(pattern=VISIBLE_CONTENT_PATTERN)
 
     @field_validator("evidence", "reason")
     @classmethod
-    def require_non_blank(cls, value: str) -> str:
-        text = value.strip()
-        if not text:
+    def require_visible_content(cls, value: str) -> str:
+        # ``strip()`` is not the question. A reason made only of U+200B and
+        # U+2060 survives it, renders as nothing to the reviewer this block
+        # exists for, and would still suppress the mismatch and restore
+        # pass-eligibility (PR #411 review 3). The test is whether a reader
+        # sees anything at all: whitespace, controls, bidi marks, and every
+        # Default_Ignorable code point render as nothing on their own.
+        if not has_visible_content(value):
             raise ValueError(
-                "action_surface.actions[].override requires non-blank evidence and reason"
+                "action_surface.actions[].override requires evidence and reason "
+                "with visible content"
             )
-        return text
+        return value.strip()
 
 
 class ActionDeclarationConfig(BaseModel):
-    model_config = STRICT_MODEL_CONFIG
+    # ``validate_override`` is a cross-field rule, which Pydantic cannot derive
+    # into JSON Schema. Published explicitly so an editor validating live gives
+    # the same answer the CLI does: an ``override`` with no ``effect``
+    # acknowledges a claim that was never made.
+    model_config = {
+        **STRICT_MODEL_CONFIG,
+        "json_schema_extra": {
+            "allOf": [
+                {
+                    "if": {
+                        "required": ["override"],
+                        "properties": {"override": {"not": {"type": "null"}}},
+                    },
+                    "then": {
+                        "required": ["effect"],
+                        "properties": {"effect": {"not": {"type": "null"}}},
+                    },
+                }
+            ]
+        },
+    }
 
     tool: str
     tool_id: str | None = None
