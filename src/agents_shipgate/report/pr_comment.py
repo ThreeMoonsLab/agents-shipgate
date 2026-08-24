@@ -369,10 +369,15 @@ def _effect_override_lines(report: ReadinessReport | None) -> list[str]:
 
     if report is None:
         return []
+    # Suppressed rows are kept. `checks.ignore` is a statement about noise, and
+    # this finding is not noise: it is the record that a human declared less
+    # than the scanner observed. Dropping it here let one manifest line take an
+    # override off the only surface the design relies on a reviewer reading,
+    # which is precisely what the override trades pass eligibility for. The
+    # suppression still decides the verdict; it does not decide what the
+    # reviewer is shown.
     rows = [
-        finding
-        for finding in report.findings
-        if finding.check_id == EFFECT_OVERRIDE_CHECK_ID and not finding.suppressed
+        finding for finding in report.findings if finding.check_id == EFFECT_OVERRIDE_CHECK_ID
     ]
     if not rows:
         return []
@@ -415,7 +420,7 @@ def _effect_override_row(finding: Finding) -> str:
         return (
             f"{subject}: declares {declared}; overrides "
             f"{_code(', '.join(stale))}, which this scan did not observe "
-            "— NOT acknowledged"
+            f"— NOT acknowledged{_suppression_mark(finding)}"
         )
     inferred = _code(str(inferred_effect or "unknown"))
     sources = [str(item) for item in (evidence.get("evidence_sources") or []) if str(item)]
@@ -426,7 +431,18 @@ def _effect_override_row(finding: Finding) -> str:
         reason = _truncate(str(evidence["override_reason"]), _MAX_OVERRIDE_REASON_CHARS)
         tail = f" — {_escape(reason)}"
     mark = "acknowledged" if acknowledged else "NOT acknowledged"
-    return f"{subject}: declares {declared}; evidence says {inferred}{where} — {mark}{tail}"
+    return (
+        f"{subject}: declares {declared}; evidence says {inferred}{where} "
+        f"— {mark}{_suppression_mark(finding)}{tail}"
+    )
+
+
+def _suppression_mark(finding: Finding) -> str:
+    """Say when a row was suppressed, so silence is never mistaken for absence."""
+
+    if not finding.suppressed:
+        return ""
+    return " (suppressed)"
 
 
 def _verifier_lead(verifier: VerifierArtifact) -> list[str]:

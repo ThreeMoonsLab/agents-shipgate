@@ -725,6 +725,32 @@ def test_an_override_cannot_answer_high_confidence_source_evidence() -> None:
     )
 
 
+def test_a_suppressed_override_still_reaches_the_reviewer() -> None:
+    """`checks.ignore` decides the verdict; it does not decide what is shown.
+
+    An override trades pass eligibility for reviewer visibility, so a
+    suppression that took the row off the PR comment removed the half of the
+    bargain the mechanism exists for — with `decision: passed` on the other
+    side of it.
+    """
+
+    from agents_shipgate.report.pr_comment import _effect_override_lines
+
+    declaration = _declaration(
+        override={"evidence": ["external_communication"], "reason": "preview only"}
+    )
+    tool = attach_semantic_assessments([_send_email()], {TOOL_ID: declaration})[0]
+    findings = _effect_override_findings_for(tool, declaration)
+    for finding in findings:
+        finding.suppressed = True
+        finding.suppression_reason = "not interested"
+    rows = _effect_override_lines(_report_carrying(findings))
+
+    assert rows[0] == "- Declaration overrides (1):"
+    assert "(suppressed)" in rows[1]
+    assert "preview only" in rows[1]
+
+
 def _report_carrying(findings):
     report = ReadinessReport(
         run_id="run-1",

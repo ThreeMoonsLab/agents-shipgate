@@ -2683,7 +2683,9 @@ rather than a protocol fact. The declaration still stands as the operative
 effect: a human outranks a heuristic, and heuristics never drive policy. What
 this check does is refuse to let the disagreement go unrecorded, so a reviewer
 sees which observation the declaration overrides before trusting it. It never
-blocks a release.
+sets `blocks_release`, so a heuristic can route attention without ever gating a
+release on its own; a repository that configures `fail_on: [medium]` still
+applies its own policy to this finding like any other medium one.
 
 Close it in one of two ways. Raise `action_surface.actions[].effect` to the
 observed effect, or keep the declared effect and record the override:
