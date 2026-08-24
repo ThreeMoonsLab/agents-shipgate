@@ -44,17 +44,35 @@
   `suggested_patch_kind: manual`, `auto_apply: false`,
   `requires_human_review: true`, and `apply-patches` never writes it.
 
-  Two guards keep the rule from firing where nothing is being asserted. A
-  declaration the **source itself corroborates** is not challenged:
-  `support.search_kb` declares `read` and carries `readOnlyHint: true`, and a
-  keyword reading `financial_write` out of the word "refund" in its description
-  is the weaker signal, already contradicted by the stronger one. Corroboration
-  never counts the manifest row's own restatements of itself — its `effect`,
-  its `risk_tags`, its `scopes`, its `override` — so a declaration cannot close
-  its own gap. And an override may never silence
-  `conflicting_effect_evidence`: where **policy-eligible** evidence outranks
-  the declaration, the existing blocking conflict is unchanged and no
-  acknowledgement attaches.
+  An override never silences `conflicting_effect_evidence`: where
+  **policy-eligible** evidence outranks the declaration, the existing blocking
+  conflict is unchanged, no acknowledgement attaches, and the row now says the
+  override does not reach it — a reviewer blocked there reaches for the field,
+  and silently discarding it left them re-running against an unchanged message.
+
+  Source evidence that **agrees** with the declared value does not exempt the
+  row. A first draft exempted it — `support.search_kb` declares `read` and
+  carries `readOnlyHint: true`, so why make a reviewer defend a protocol
+  annotation against a keyword? Because this resolver already refuses to pass
+  on that annotation alone: with no declaration the same tool is
+  `inferred_effect_only` and not pass-eligible, precisely because a hint
+  outranks it. A declaration that merely restates the annotation must not buy
+  what the annotation could not, or #409's hole moves rather than closes — and
+  the corroboration would be drawn from content the tool source supplies about
+  itself, which is not conditioned on `tool_sources[].trust` (an MCP server can
+  assert `readOnlyHint: true` about a destructive tool). The agreeing source is
+  **named in the row** instead — "source evidence agrees with the declaration
+  (mcp_annotation)" — which is what makes the override one line to write. The
+  manifest row's own `effect`, `risk_tags`, `scopes`, and `override` never
+  count as agreeing evidence for itself.
+
+  `samples/support_refund_agent` carries the two overrides this rule asks it
+  for, so the shipped sample is the worked example.
+
+  Known limitation: an override whose inferred evidence later stops firing
+  stays accepted and unreported. Distinguishing a stale exception from one that
+  never applied needs the `basis: confirmed:<derivation_id>` pin from increment
+  4 of #410, which is where it belongs.
 
 - **Every evidence gap now labels a tool the way a reader can use, in every gap
   kind.** `EvidenceGap.subject` is a display label — identity lives in

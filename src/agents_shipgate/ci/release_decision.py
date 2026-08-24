@@ -1273,9 +1273,10 @@ def _semantic_gap(
             "A declaration weaker than inferred evidence is accepted, but not silently."
         )
         expects = (
-            "Raise the declared effect to the inferred one, or acknowledge the "
-            "difference with an override naming the evidence you checked and "
-            "why it does not apply, then rerun verification."
+            "Raise action_surface.actions[].effect to the inferred effect this "
+            "row names, or acknowledge the difference with an override naming "
+            "the evidence you checked and why it does not apply, then rerun "
+            "verification."
         )
         declaration_template = {
             **_action_selector(tool),
@@ -1995,10 +1996,19 @@ def _decision_reason(
                 phrases.append(
                     f"{overrides} acknowledged {noun} {verb} below inferred effect evidence"
                 )
-            if not phrases:
-                n = evidence.semantic_coverage.review_concern_count
-                noun = "concern" if n == 1 else "concerns"
-                phrases.append(f"{n} semantic review {noun}")
+            # Anything this function does not have a phrase for still has to
+            # appear: the sentence claims to explain why review is required,
+            # so a concern it cannot name must still be counted.
+            remainder = (
+                evidence.semantic_coverage.review_concern_count - authority - overrides
+            )
+            if remainder > 0:
+                noun = "concern" if remainder == 1 else "concerns"
+                phrases.append(
+                    f"{remainder} other semantic review {noun}"
+                    if phrases
+                    else f"{remainder} semantic review {noun}"
+                )
             return f"{'; '.join(phrases)}; human review is required before shipping."
         if evidence.low_confidence_tool_count > 0:
             return "Static-only scan with low-confidence evidence; human review recommended."

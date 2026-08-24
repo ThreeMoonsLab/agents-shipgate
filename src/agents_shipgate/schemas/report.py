@@ -468,10 +468,12 @@ class SemanticCoverageDecision(BaseModel):
 
     Unlike extraction-confidence thresholds, semantic gaps are
     zero-tolerance: any non-pass-eligible unknown/partial/conflicting
-    dimension prevents ``passed``. Known authority review concerns (for
-    example ambient or unscoped credentials) are counted separately so
-    they deterministically route to ``review_required`` rather than
-    ``insufficient_evidence``.
+    dimension prevents ``passed``. Known review concerns are counted
+    separately so they deterministically route to ``review_required``
+    rather than ``insufficient_evidence``: ambient or unscoped
+    credentials, and (v0.36+) a declared effect that a reviewer
+    acknowledged as weaker than the evidence inferred for it.
+    ``reason_counts`` names which.
     """
 
     total_actions: int = 0

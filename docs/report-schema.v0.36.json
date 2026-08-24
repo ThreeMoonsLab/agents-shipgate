@@ -5061,7 +5061,7 @@
       "type": "object"
     },
     "SemanticCoverageDecision": {
-      "description": "v0.29 pass eligibility across the normalized action surface.\n\nUnlike extraction-confidence thresholds, semantic gaps are\nzero-tolerance: any non-pass-eligible unknown/partial/conflicting\ndimension prevents ``passed``. Known authority review concerns (for\nexample ambient or unscoped credentials) are counted separately so\nthey deterministically route to ``review_required`` rather than\n``insufficient_evidence``.",
+      "description": "v0.29 pass eligibility across the normalized action surface.\n\nUnlike extraction-confidence thresholds, semantic gaps are\nzero-tolerance: any non-pass-eligible unknown/partial/conflicting\ndimension prevents ``passed``. Known review concerns are counted\nseparately so they deterministically route to ``review_required``\nrather than ``insufficient_evidence``: ambient or unscoped\ncredentials, and (v0.36+) a declared effect that a reviewer\nacknowledged as weaker than the evidence inferred for it.\n``reason_counts`` names which.",
       "properties": {
         "gap_count": {
           "default": 0,

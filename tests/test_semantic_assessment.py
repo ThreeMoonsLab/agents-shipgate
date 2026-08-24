@@ -825,12 +825,51 @@ def test_declaration_equal_to_heuristic_evidence_stays_silent() -> None:
     assert assessment.pass_eligible is True
 
 
-def test_source_corroborated_declaration_is_not_challenged() -> None:
-    """A declaration the source proves is not an assertion against evidence.
+def test_source_corroborated_declaration_is_still_challenged_and_says_so() -> None:
+    """Corroboration is named in the row, not treated as an exemption.
 
-    ``support.search_kb`` declares ``read`` and carries ``readOnlyHint: true``;
-    a keyword reading ``financial_write`` out of the word "refund" in its
-    description is the weaker signal, already contradicted by the stronger one.
+    ``support.search_kb`` declares ``read`` and carries ``readOnlyHint: true``,
+    and a keyword reading ``financial_write`` out of the word "refund" in its
+    description is the weaker signal. Exempting that pair looks tempting, but
+    this resolver already refuses to pass on the annotation alone: with no
+    declaration the same tool is ``inferred_effect_only`` and not
+    pass-eligible. A declaration that merely restates the annotation must not
+    buy what the annotation could not, or #409's hole simply moves. Naming the
+    corroboration is what makes the row a one-line answer instead.
+    """
+
+    tool = _tool(
+        annotations={"readOnlyHint": True},
+        risk_hints=[_keyword_hint("financial_action")],
+        auth=AuthInfo(source="mcp", mode="none", explicit=True),
+    )
+
+    undeclared = assess_tool_semantics(tool)
+    assert "inferred_effect_only" in {issue.kind for issue in undeclared.effect.issues}
+    assert undeclared.pass_eligible is False
+
+    declaration = ActionDeclarationConfig.model_validate(
+        {"tool": "process_order", "effect": "read", "authority": {"mode": "none"}}
+    )
+    assessment = assess_tool_semantics(tool, declaration)
+
+    issue = next(
+        item
+        for item in assessment.effect.issues
+        if item.kind == "declaration_below_inferred_evidence"
+    )
+    assert "source evidence agrees with the declaration (mcp_annotation)" in issue.message
+    assert assessment.pass_eligible is False
+
+
+def test_source_annotations_do_not_buy_an_exemption_they_did_not_earn() -> None:
+    """#268's boundary: a tool source may not self-certify past a challenge.
+
+    ``readOnlyHint`` is content the tool source supplies about itself and is not
+    conditioned on ``tool_sources[].trust``. If corroboration exempted the row,
+    an MCP server would only have to assert ``readOnlyHint: true`` for a
+    ``read`` declaration to become pass-eligible on a tool the scanner reads as
+    destructive.
     """
 
     declaration = ActionDeclarationConfig.model_validate(
@@ -840,14 +879,17 @@ def test_source_corroborated_declaration_is_not_challenged() -> None:
     assessment = assess_tool_semantics(
         _tool(
             annotations={"readOnlyHint": True},
-            risk_hints=[_keyword_hint("financial_action")],
+            risk_hints=[_keyword_hint("destructive")],
             auth=AuthInfo(source="mcp", mode="none", explicit=True),
         ),
         declaration,
     )
 
-    assert assessment.effect.issues == []
-    assert assessment.pass_eligible is True
+    assert "declaration_below_inferred_evidence" in {
+        issue.kind for issue in assessment.effect.issues
+    }
+    assert assessment.pass_eligible is False
+    assert assessment.conservative_effect == "destructive"
 
 
 def test_declarations_own_risk_tags_cannot_corroborate_its_own_effect() -> None:
@@ -896,11 +938,49 @@ def test_override_cannot_silence_policy_eligible_contradiction() -> None:
         declaration,
     )
 
-    assert "conflicting_effect_evidence" in {
-        issue.kind for issue in assessment.effect.issues
-    }
+    issue = next(
+        item
+        for item in assessment.effect.issues
+        if item.kind == "conflicting_effect_evidence"
+    )
     assert assessment.effect.status == "conflicting"
     assert assessment.pass_eligible is False
+    assert not [
+        claim
+        for claim in assessment.effect.claims
+        if claim.source == "action_surface_declaration_override"
+    ]
+    # …and the reviewer is told the block they wrote does not reach this
+    # conflict, rather than re-running against an unchanged message.
+    assert "the declared override does not apply" in issue.message
+
+
+def test_an_override_with_nothing_to_acknowledge_is_accepted_silently() -> None:
+    """Pinned decision, not an accident.
+
+    An override whose inferred evidence has since stopped firing stays
+    accepted: nothing is asserted against, so nothing is owed. Telling the two
+    apart — a reviewer's exception that went stale versus one that never
+    applied — needs the ``basis: confirmed:<derivation_id>`` pin from increment
+    4 of the RFC, which is where that question belongs.
+    """
+
+    declaration = ActionDeclarationConfig.model_validate(
+        {
+            "tool": "process_order",
+            "effect": "read",
+            "authority": {"mode": "none"},
+            "override": {"evidence": "checked the handler", "reason": "returns a row"},
+        }
+    )
+
+    assessment = assess_tool_semantics(
+        _tool(annotations={"readOnlyHint": True}),
+        declaration,
+    )
+
+    assert assessment.effect.issues == []
+    assert assessment.pass_eligible is True
     assert not [
         claim
         for claim in assessment.effect.claims

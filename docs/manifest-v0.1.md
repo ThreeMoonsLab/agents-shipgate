@@ -644,12 +644,19 @@ action_surface:
 Both `evidence` and `reason` are required and non-blank, and `override`
 requires a declared `effect` to acknowledge. An acknowledged override is
 accepted — the action is pass-eligible again — and is always reported as one
-semantic review concern, so a run carrying one never reads `passed`. It cannot
-silence a conflict with *policy-eligible* evidence: that remains
-`conflicting_effect_evidence`. A declaration the source itself corroborates
-(`effect: read` beside `readOnlyHint: true`) is never challenged, and the
-manifest row's own `risk_tags`, `scopes`, and `override` never count as
-corroboration for its own `effect`. Manual positive risk tags may escalate risk,
+semantic review concern, so a run carrying one never reads `passed`.
+
+`override` acknowledges *inferred* evidence only. Where policy-eligible source
+evidence outranks the declaration the conflict remains
+`conflicting_effect_evidence`, blocking, and the row says the override does not
+reach it. Source evidence that agrees with the declared value does not exempt
+the row either — a tool declaring `read` beside `readOnlyHint: true` is still
+challenged by a heuristic that reads higher, because a scan with no declaration
+already refuses to pass on that annotation alone (`inferred_effect_only`), and
+because annotations are content the tool source supplies about itself. The
+agreeing source is named in the row instead, so the override is one line to
+write. The manifest row's own `effect`, `risk_tags`, `scopes`, and `override`
+never count as agreeing evidence for itself. Manual positive risk tags may escalate risk,
 but cannot prove read-only safety or independently close an effect gap. Setting
 inherited approval or safeguards from `true` to `false` emits
 `SHIP-ACTION-CONTROL-DOWNGRADE`.

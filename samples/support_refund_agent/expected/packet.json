@@ -2483,10 +2483,11 @@
         "gap_count": 7,
         "pass_eligible_actions": 0,
         "reason_counts": {
+          "acknowledged_effect_override": 2,
           "conflicting_binding_evidence": 7,
           "unscoped_authority": 1
         },
-        "review_concern_count": 1,
+        "review_concern_count": 3,
         "total_actions": 7
       },
       "source_warning_count": 1
@@ -2759,7 +2760,7 @@
     "verdict": "BLOCKED"
   },
   "request_id": null,
-  "run_id": "agents_shipgate_e2edfa81ffc0f70d",
+  "run_id": "agents_shipgate_0975ca70f67ba988",
   "scope_coverage": {
     "declared_scopes": [
       "zendesk:tickets:read",

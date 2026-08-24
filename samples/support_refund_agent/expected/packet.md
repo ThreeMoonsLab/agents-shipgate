@@ -3,7 +3,7 @@
 - Project: support-refund-agent
 - Agent: refund-assistant
 - Environment: production\_like
-- Run id: agents\_shipgate\_e2edfa81ffc0f70d
+- Run id: agents\_shipgate\_0975ca70f67ba988
 - Generated at: 2026-01-01T00:00:00\+00:00
 - Packet schema: 0\.12
 
@@ -25,8 +25,8 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 
 - Pass-eligible actions: 0/7
 - Evidence gaps: 7
-- Known review concerns: 1
-- Reasons: conflicting\_binding\_evidence=7, unscoped\_authority=1
+- Known review concerns: 3
+- Reasons: acknowledged\_effect\_override=2, conflicting\_binding\_evidence=7, unscoped\_authority=1
 
 ### Blockers
 

@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "report_schema_version": "0.36",
-  "run_id": "agents_shipgate_e2edfa81ffc0f70d",
+  "run_id": "agents_shipgate_0975ca70f67ba988",
   "request_id": null,
   "subject_id": null,
   "input_set_id": null,
@@ -1080,8 +1080,9 @@
         "total_actions": 7,
         "pass_eligible_actions": 0,
         "gap_count": 7,
-        "review_concern_count": 1,
+        "review_concern_count": 3,
         "reason_counts": {
+          "acknowledged_effect_override": 2,
           "conflicting_binding_evidence": 7,
           "unscoped_authority": 1
         }
@@ -1846,6 +1847,28 @@
               "evidence": {}
             },
             {
+              "claim_id": "clm_9f9dbaa1de692583d189",
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "action_surface_declaration_override",
+              "source_pointer": "action_surface.actions[tool='send_email_preview'].override",
+              "evidence": {
+                "overridden_effect": "external_communication",
+                "overridden_sources": [
+                  "risk_hint:keyword"
+                ],
+                "corroborating_sources": [
+                  "mcp_annotation"
+                ],
+                "evidence": "readOnlyHint: true on the reviewed SDK inventory; the description states the preview is rendered locally",
+                "reason": "The name carries 'email', but this action renders a draft and has no send path or credential."
+              }
+            },
+            {
               "claim_id": "clm_50c4d6abc43dbc7853c5",
               "dimension": "effect",
               "value": "read",
@@ -2578,6 +2601,28 @@
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='support.search_kb'].effect",
               "evidence": {}
+            },
+            {
+              "claim_id": "clm_0e8246d734d69386b2d3",
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "action_surface_declaration_override",
+              "source_pointer": "action_surface.actions[tool='support.search_kb'].override",
+              "evidence": {
+                "overridden_effect": "financial_write",
+                "overridden_sources": [
+                  "risk_hint:keyword"
+                ],
+                "corroborating_sources": [
+                  "mcp_annotation"
+                ],
+                "evidence": "readOnlyHint: true and idempotentHint: true on the MCP export; the only scope is support:kb:read",
+                "reason": "The word 'refund' appears in the article text this tool searches, not in anything it changes."
+              }
             },
             {
               "claim_id": "clm_50c4d6abc43dbc7853c5",
@@ -4670,6 +4715,28 @@
                 "evidence": {}
               },
               {
+                "claim_id": "clm_0e8246d734d69386b2d3",
+                "dimension": "effect",
+                "value": "read",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
+                "source": "action_surface_declaration_override",
+                "source_pointer": "action_surface.actions[tool='support.search_kb'].override",
+                "evidence": {
+                  "overridden_effect": "financial_write",
+                  "overridden_sources": [
+                    "risk_hint:keyword"
+                  ],
+                  "corroborating_sources": [
+                    "mcp_annotation"
+                  ],
+                  "evidence": "readOnlyHint: true and idempotentHint: true on the MCP export; the only scope is support:kb:read",
+                  "reason": "The word 'refund' appears in the article text this tool searches, not in anything it changes."
+                }
+              },
+              {
                 "claim_id": "clm_50c4d6abc43dbc7853c5",
                 "dimension": "effect",
                 "value": "read",
@@ -5235,6 +5302,28 @@
                 "source": "action_surface_declaration",
                 "source_pointer": "action_surface.actions[tool='send_email_preview'].effect",
                 "evidence": {}
+              },
+              {
+                "claim_id": "clm_9f9dbaa1de692583d189",
+                "dimension": "effect",
+                "value": "read",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
+                "source": "action_surface_declaration_override",
+                "source_pointer": "action_surface.actions[tool='send_email_preview'].override",
+                "evidence": {
+                  "overridden_effect": "external_communication",
+                  "overridden_sources": [
+                    "risk_hint:keyword"
+                  ],
+                  "corroborating_sources": [
+                    "mcp_annotation"
+                  ],
+                  "evidence": "readOnlyHint: true on the reviewed SDK inventory; the description states the preview is rendered locally",
+                  "reason": "The name carries 'email', but this action renders a draft and has no send path or credential."
+                }
               },
               {
                 "claim_id": "clm_50c4d6abc43dbc7853c5",
@@ -7108,6 +7197,28 @@
               "evidence": {}
             },
             {
+              "claim_id": "clm_9f9dbaa1de692583d189",
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "action_surface_declaration_override",
+              "source_pointer": "action_surface.actions[tool='send_email_preview'].override",
+              "evidence": {
+                "overridden_effect": "external_communication",
+                "overridden_sources": [
+                  "risk_hint:keyword"
+                ],
+                "corroborating_sources": [
+                  "mcp_annotation"
+                ],
+                "evidence": "readOnlyHint: true on the reviewed SDK inventory; the description states the preview is rendered locally",
+                "reason": "The name carries 'email', but this action renders a draft and has no send path or credential."
+              }
+            },
+            {
               "claim_id": "clm_50c4d6abc43dbc7853c5",
               "dimension": "effect",
               "value": "read",
@@ -7356,6 +7467,28 @@
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='support.search_kb'].effect",
               "evidence": {}
+            },
+            {
+              "claim_id": "clm_0e8246d734d69386b2d3",
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "action_surface_declaration_override",
+              "source_pointer": "action_surface.actions[tool='support.search_kb'].override",
+              "evidence": {
+                "overridden_effect": "financial_write",
+                "overridden_sources": [
+                  "risk_hint:keyword"
+                ],
+                "corroborating_sources": [
+                  "mcp_annotation"
+                ],
+                "evidence": "readOnlyHint: true and idempotentHint: true on the MCP export; the only scope is support:kb:read",
+                "reason": "The word 'refund' appears in the article text this tool searches, not in anything it changes."
+              }
             },
             {
               "claim_id": "clm_50c4d6abc43dbc7853c5",
@@ -9041,6 +9174,28 @@
               "evidence": {}
             },
             {
+              "claim_id": "clm_9f9dbaa1de692583d189",
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "action_surface_declaration_override",
+              "source_pointer": "action_surface.actions[tool='send_email_preview'].override",
+              "evidence": {
+                "overridden_effect": "external_communication",
+                "overridden_sources": [
+                  "risk_hint:keyword"
+                ],
+                "corroborating_sources": [
+                  "mcp_annotation"
+                ],
+                "evidence": "readOnlyHint: true on the reviewed SDK inventory; the description states the preview is rendered locally",
+                "reason": "The name carries 'email', but this action renders a draft and has no send path or credential."
+              }
+            },
+            {
               "claim_id": "clm_50c4d6abc43dbc7853c5",
               "dimension": "effect",
               "value": "read",
@@ -9289,6 +9444,28 @@
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='support.search_kb'].effect",
               "evidence": {}
+            },
+            {
+              "claim_id": "clm_0e8246d734d69386b2d3",
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "action_surface_declaration_override",
+              "source_pointer": "action_surface.actions[tool='support.search_kb'].override",
+              "evidence": {
+                "overridden_effect": "financial_write",
+                "overridden_sources": [
+                  "risk_hint:keyword"
+                ],
+                "corroborating_sources": [
+                  "mcp_annotation"
+                ],
+                "evidence": "readOnlyHint: true and idempotentHint: true on the MCP export; the only scope is support:kb:read",
+                "reason": "The word 'refund' appears in the article text this tool searches, not in anything it changes."
+              }
             },
             {
               "claim_id": "clm_50c4d6abc43dbc7853c5",
