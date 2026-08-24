@@ -12,6 +12,7 @@ from agents_shipgate.ci.exit_policy import (
 )
 from agents_shipgate.core.declaration_questions import (
     ANSWERABLE_ISSUE_KINDS,
+    DIMENSION_BY_GAP_KIND,
     DeclarationQuestion,
     declaration_questions,
     open_counts_by_dimension,
@@ -1176,31 +1177,24 @@ def _in_question_order(
     positions = [
         index
         for index, gap in enumerate(gaps)
-        if (gap.subject_id, _GAP_DIMENSION.get(str(gap.kind))) in rank
+        if (gap.subject_id, DIMENSION_BY_GAP_KIND.get(str(gap.kind))) in rank
     ]
     if len(positions) < 2:
         return gaps
+    # Sorted by (question, original position) rather than by the row itself:
+    # ``EvidenceGap`` compares by value, so two rows that render identically
+    # would both resolve to one index and the permutation would drop one.
     reordered = sorted(
-        (gaps[index] for index in positions),
-        key=lambda gap: (
-            rank[(gap.subject_id, _GAP_DIMENSION[str(gap.kind)])],
-            # A tool with two rows of one dimension keeps its emitted order.
-            gaps.index(gap),
-        ),
+        (
+            rank[(gaps[index].subject_id, DIMENSION_BY_GAP_KIND[str(gaps[index].kind)])],
+            index,
+        )
+        for index in positions
     )
     ordered = list(gaps)
-    for slot, gap in zip(positions, reordered, strict=True):
-        ordered[slot] = gap
+    for slot, (_, source) in zip(positions, reordered, strict=True):
+        ordered[slot] = gaps[source]
     return ordered
-
-
-#: Which declaration dimension each answerable gap kind belongs to, inverted
-#: from the one table that defines them.
-_GAP_DIMENSION: dict[str, str] = {
-    kind: dimension
-    for dimension, kinds in ANSWERABLE_ISSUE_KINDS.items()
-    for kind in kinds
-}
 
 
 def _acknowledged_overrides(
@@ -1318,19 +1312,6 @@ def _increment(counts: dict[str, int], reason: str) -> None:
     counts[reason] = counts.get(reason, 0) + 1
 
 
-#: Gap kinds whose subject is an action's effect. Each one publishes the
-#: readings behind it, so the row can be answered without opening
-#: ``action_surface_facts`` to find out what the scan saw.
-_EFFECT_GAP_KINDS = frozenset(
-    {
-        "missing_effect_evidence",
-        "inferred_effect_only",
-        "conflicting_effect_evidence",
-        "declaration_below_inferred_evidence",
-    }
-)
-
-
 def _semantic_gap(
     tool: Tool,
     *,
@@ -1341,9 +1322,14 @@ def _semantic_gap(
     action_kind: str
     accepted_values: list[str]
     declaration_template: dict[str, object] | None = None
+    # Every effect-dimension gap publishes the readings behind it, so the row
+    # can be answered without opening ``action_surface_facts`` to find out what
+    # the scan saw. Read off the one table that says which kinds those are — a
+    # second list here would silently stop carrying readings for a kind added
+    # to the other.
     observed_readings = (
         effect_readings(tool.semantic_assessment.effect)
-        if kind in _EFFECT_GAP_KINDS and tool.semantic_assessment is not None
+        if kind in ANSWERABLE_ISSUE_KINDS["effect"] and tool.semantic_assessment is not None
         else []
     )
     # Whether ``expects`` should also name the on-disk scaffold. Off for the

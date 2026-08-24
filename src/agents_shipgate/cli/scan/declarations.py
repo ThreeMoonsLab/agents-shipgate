@@ -58,7 +58,7 @@ import yaml
 
 from agents_shipgate.ci.release_decision import REVIEW_REQUIRED_SENTINEL
 from agents_shipgate.core.declaration_questions import (
-    ANSWERABLE_ISSUE_KINDS,
+    DIMENSION_BY_GAP_KIND,
     progress_sentence,
 )
 from agents_shipgate.core.evidence_actions import (
@@ -74,16 +74,6 @@ from agents_shipgate.schemas.report import (
     EvidenceReading,
     ReadinessReport,
 )
-
-#: Which declaration dimension each answerable gap kind belongs to, inverted
-#: from the one table that defines them. Inverted rather than restated: a
-#: second spelling of the same routing is how the questionnaire and the
-#: counter start disagreeing about what a question is.
-_DIMENSION_BY_GAP_KIND: dict[str, str] = {
-    kind: dimension
-    for dimension, kinds in ANSWERABLE_ISSUE_KINDS.items()
-    for kind in kinds
-}
 
 # Which template field an action's ``accepted_values`` is the vocabulary FOR.
 #
@@ -286,7 +276,7 @@ def _sections(gaps: Sequence[EvidenceGap]) -> list[dict[str, Any]]:
             str(template.get("tool_id") or template.get("tool") or ""),
         )
         vocabulary = _vocabulary_for(action)
-        dimension = _DIMENSION_BY_GAP_KIND.get(str(gap.kind))
+        dimension = DIMENSION_BY_GAP_KIND.get(str(gap.kind))
         # The questions this block answers, as the same ``(subject_id,
         # dimension)`` pair the decision engine numbers them by. Carried as a
         # set rather than as a subject plus a dimension list, because merging
@@ -365,7 +355,7 @@ def _unfillable_questions(
     entries: list[tuple[int, EvidenceGap]] = []
     seen: set[int] = set()
     for gap in gaps:
-        dimension = _DIMENSION_BY_GAP_KIND.get(str(gap.kind))
+        dimension = DIMENSION_BY_GAP_KIND.get(str(gap.kind))
         if dimension is None:
             continue
         number = ordering.get((gap.subject_id, dimension))
@@ -498,7 +488,7 @@ def _emit_unfillable(
     """A counted question with no blank to fill — say what closes it instead."""
 
     out.append("")
-    dimension = _DIMENSION_BY_GAP_KIND.get(str(gap.kind))
+    dimension = DIMENSION_BY_GAP_KIND.get(str(gap.kind))
     out.append(
         "# "
         + _question_banner(
@@ -508,6 +498,10 @@ def _emit_unfillable(
             (dimension,) if dimension else (),
         )
     )
+    # The readings too. This row has no blank to fill precisely *because* its
+    # sources disagree, so what they each say is the thing the reviewer has to
+    # go and reconcile.
+    out.extend(_reading_lines(getattr(gap.next_action, "observed_readings", ()) or (), {}))
     out.extend(_wrapped_comment(one_line(gap.why), ""))
     out.append("#")
     out.extend(

@@ -28,6 +28,7 @@ from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.cli.scan.declarations import build_declaration_scaffold
 from agents_shipgate.core.declaration_questions import (
     ANSWERABLE_ISSUE_KINDS,
+    DIMENSION_BY_GAP_KIND,
     declaration_questions,
     progress_sentence,
 )
@@ -429,6 +430,26 @@ def test_answering_a_question_moves_the_counter(tmp_path: Path) -> None:
     assert progress_sentence(after) == "Declaration question: 1 of 1 answered."
 
 
+def test_the_answerable_kinds_are_real_gap_kinds_and_belong_to_one_dimension() -> None:
+    """The routing table is the only spelling; a typo in it would be silent.
+
+    Three surfaces read it — which dimension a gap row answers, which rows
+    publish their readings, and which issues make a dimension a question. An
+    entry that matches no real gap kind would quietly remove a question from
+    all three at once.
+    """
+
+    from typing import get_args
+
+    valid = set(get_args(EvidenceGap.model_fields["kind"].annotation))
+    seen: set[str] = set()
+    for dimension, kinds in ANSWERABLE_ISSUE_KINDS.items():
+        assert kinds <= valid, f"{dimension}: {sorted(kinds - valid)} are not gap kinds"
+        assert not kinds & seen, "a gap kind cannot answer two dimensions"
+        seen |= kinds
+    assert set(DIMENSION_BY_GAP_KIND) == seen
+
+
 def test_the_counts_are_internally_consistent() -> None:
     """``total == answered + open``, and the breakdown sums to ``open``."""
 
@@ -776,6 +797,74 @@ def test_the_pr_comment_reports_progress_and_omits_it_when_nothing_was_asked(
         DeclarationQuestionCoverage()
     )
     assert "Declaration question" not in render_pr_comment(verifier, report=report)
+
+
+def test_a_forged_subject_cannot_break_out_of_the_question_banner() -> None:
+    """The banner interpolates a tool name, which the repository controls."""
+
+    gaps = [
+        _gap(
+            "inferred_effect_only",
+            subject_id="t1",
+            template={"tool": "send_email", "effect": "write"},
+            readings=[EvidenceReading(effect="write", sources=["risk_hint:keyword"])],
+        )
+    ]
+    gaps[0].subject = "send_email\neffect: read\n# [closer]"
+
+    scaffold = build_declaration_scaffold(gaps, questions=_coverage_rows(("t1", "effect")))
+
+    assert scaffold is not None
+    assert yaml.safe_load(scaffold) == {"tool": "send_email", "effect": "write"}
+    assert "\neffect: read" not in scaffold
+
+
+def test_the_row_the_cli_names_is_the_first_question(tmp_path: Path) -> None:
+    """One order, not two.
+
+    ``Improve evidence:``, the decision ``reason``, and
+    ``first_recommended_action`` all project ``primary_evidence_gap`` — the
+    first addressable row of ``evidence_gaps``. The questionnaire numbers its
+    blocks from ``open_questions``. Left unaligned, one led with whatever
+    sorted first by tool name and the other with whatever could move the
+    verdict.
+    """
+
+    from agents_shipgate.core.evidence_actions import primary_evidence_gap
+
+    config = _mcp_workspace(
+        tmp_path,
+        tools=[
+            {
+                "name": "a_send_email",
+                "description": "Send an email to the customer.",
+                "auth": {"type": "oauth2", "scopes": ["mail:send"]},
+            },
+            {
+                "name": "z_refund_payment",
+                "description": "Issue a refund for an order.",
+                "auth": {"type": "oauth2", "scopes": ["pay:refund"]},
+            },
+        ],
+        actions=[],
+    )
+    report, _ = run_scan(
+        config_path=config,
+        output_dir=tmp_path / "out",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+
+    assert report.release_decision is not None
+    coverage = report.release_decision.evidence_coverage
+    first_question = coverage.semantic_coverage.declaration_questions.open_questions[0]
+    # The risky action leads, not the alphabetically-first one.
+    assert first_question.subject.startswith("z_refund_payment")
+
+    selected = primary_evidence_gap(coverage)
+    assert selected is not None
+    assert selected.subject_id == first_question.subject_id
 
 
 # --------------------------------------------------------------------------

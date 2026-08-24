@@ -47,12 +47,8 @@ from agents_shipgate.core.domain import (
     ToolSemanticAssessment,
 )
 from agents_shipgate.core.semantic_assessment import (
-    EffectProposal,
-    EffectReading,
     assess_tool_semantics,
     effect_evidence_rank,
-    effect_readings,
-    propose_effect_declaration,
 )
 from agents_shipgate.schemas.report import DeclarationQuestionCoverage
 
@@ -90,6 +86,16 @@ ANSWERABLE_ISSUE_KINDS: dict[DeclarationDimension, frozenset[str]] = {
     ),
 }
 
+#: The inverse of :data:`ANSWERABLE_ISSUE_KINDS` — which dimension each gap
+#: kind belongs to. Inverted once, here, because both the questionnaire and the
+#: gap ordering need the same routing and a second spelling of it is how they
+#: start disagreeing about what a question is.
+DIMENSION_BY_GAP_KIND: dict[str, DeclarationDimension] = {
+    kind: dimension
+    for dimension, kinds in ANSWERABLE_ISSUE_KINDS.items()
+    for kind in kinds
+}
+
 #: Reading order within one action. Effect first: it is the question that names
 #: the risk, and the authority answer is a fact about a deployment that the
 #: person reading a repository often cannot supply at all.
@@ -100,12 +106,11 @@ _DIMENSION_ORDER: dict[DeclarationDimension, int] = {"effect": 0, "authority": 1
 class DeclarationQuestion:
     """One (action, dimension) a reviewed declaration has to answer.
 
-    ``readings`` and ``proposal`` are populated for open ``effect`` questions
-    only — they are what makes the blank answerable in place, and an answered
-    question has nothing left to propose. Authority carries neither by design:
-    it is a fact about a deployment (credentials, scopes) that lives in
-    Terraform or an OAuth console, not in the repository being scanned, so
-    there is nothing here to observe and proposing one would be a guess.
+    Deliberately carries no readings and no proposed answer. Those belong to
+    the *row* a reviewer answers — ``EvidenceGapAction.observed_readings`` and
+    ``declaration_template`` — and deriving them a second time here would be
+    two sources for one row's contents. This model is the identity of a
+    question and its place in the queue, nothing more.
     """
 
     tool_id: str
@@ -113,8 +118,6 @@ class DeclarationQuestion:
     dimension: DeclarationDimension
     answered: bool
     rank: int
-    readings: tuple[EffectReading, ...] = ()
-    proposal: EffectProposal | None = None
 
 
 def declaration_questions(tools: Iterable[Tool]) -> list[DeclarationQuestion]:
@@ -226,19 +229,12 @@ def _question(
 ) -> DeclarationQuestion | None:
     answerable = ANSWERABLE_ISSUE_KINDS[dimension]
     if _asks(_issues(assessment, dimension), answerable):
-        readings: tuple[EffectReading, ...] = ()
-        proposal: EffectProposal | None = None
-        if dimension == "effect":
-            readings = tuple(effect_readings(assessment.effect))
-            proposal = propose_effect_declaration(readings)
         return DeclarationQuestion(
             tool_id=tool_id,
             subject=subject,
             dimension=dimension,
             answered=False,
             rank=rank,
-            readings=readings,
-            proposal=proposal,
         )
     if _asks(_issues(undeclared, dimension), answerable):
         # The dimension is clean *and* it would not have been without the
@@ -297,6 +293,7 @@ def _ordering(question: DeclarationQuestion) -> tuple[int, str, int, str]:
 __all__ = [
     "ANSWERABLE_ISSUE_KINDS",
     "DECLARATION_DIMENSIONS",
+    "DIMENSION_BY_GAP_KIND",
     "DeclarationDimension",
     "DeclarationQuestion",
     "declaration_questions",
