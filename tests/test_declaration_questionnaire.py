@@ -799,6 +799,74 @@ def test_the_pr_comment_reports_progress_and_omits_it_when_nothing_was_asked(
     assert "Declaration question" not in render_pr_comment(verifier, report=report)
 
 
+def test_blocks_and_unanswerable_notes_are_interleaved_by_number() -> None:
+    """Numbering that does not run in order is worse than no numbering.
+
+    Blocks and comment-only entries are two renderings of one queue. Emitting
+    every block and *then* every note printed a file numbered 2, 3, 1.
+    """
+
+    gaps = [
+        # An action with a conflict (no block) and an open authority question
+        # (a block), plus a second action that leads on risk.
+        _gap("conflicting_effect_evidence", subject_id="t1", template=None, name="quiet"),
+        _gap(
+            "missing_authority_evidence",
+            subject_id="t1",
+            name="quiet",
+            template={"tool": "quiet", "authority": {"mode": REVIEW_REQUIRED_SENTINEL}},
+        ),
+        _gap(
+            "inferred_effect_only",
+            subject_id="t2",
+            name="wire_payment",
+            template={"tool": "wire_payment", "effect": "financial_write"},
+            readings=[EvidenceReading(effect="financial_write", sources=["risk_hint:keyword"])],
+        ),
+    ]
+    coverage = _coverage_rows(("t2", "effect"), ("t1", "effect"), ("t1", "authority"))
+
+    scaffold = build_declaration_scaffold(gaps, questions=coverage)
+
+    assert scaffold is not None
+    banners = [line for line in scaffold.splitlines() if "── Question" in line]
+    numbers = [int(line.split()[3].rstrip("s")) for line in banners]
+    assert numbers == sorted(numbers), banners
+
+
+def test_a_long_subject_cannot_run_the_banner_off_the_line() -> None:
+    """A tool name is repository-controlled and unbounded.
+
+    Eliding it is safe here and nowhere near a machine route: the block
+    directly beneath carries the exact `tool` and `tool_id` to act on.
+    """
+
+    gaps = [
+        _gap(
+            "inferred_effect_only",
+            subject_id="t1",
+            name="x" * 300,
+            template={"tool": "x" * 300, "effect": "write"},
+            readings=[EvidenceReading(effect="write", sources=["risk_hint:keyword"])],
+        )
+    ]
+
+    scaffold = build_declaration_scaffold(gaps, questions=_coverage_rows(("t1", "effect")))
+
+    assert scaffold is not None
+    banners = [line for line in scaffold.splitlines() if "── Question" in line]
+    assert banners
+    for line in banners:
+        assert len(line) <= 78, line
+    # No line the generator composes may end in whitespace: a trailing space is
+    # invisible in review and every diff tool flags it.
+    for line in scaffold.splitlines():
+        assert line == line.rstrip(), f"trailing whitespace: {line!r}"
+    # The full name is still there, in the value a reader has to paste. The
+    # banner elides; the machine route never does.
+    assert yaml.safe_load(scaffold)["tool"] == "x" * 300
+
+
 def test_a_forged_subject_cannot_break_out_of_the_question_banner() -> None:
     """The banner interpolates a tool name, which the repository controls."""
 

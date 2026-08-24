@@ -231,10 +231,18 @@ def build_declaration_scaffold(
 
     total_open = len(ordering) if ordering else len(claimed)
     lines = _header(questions)
-    for entry in numbered:
-        _emit_block(entry, agents=agents, total_open=total_open, out=lines)
-    for number, gap in unfillable:
-        _emit_unfillable(number, gap, total_open=total_open, out=lines)
+    # Blocks and comment-only entries interleaved by question number. Emitting
+    # every block and *then* every unanswerable note printed a file numbered
+    # 2, 3–4, 5–6, 1 — which is worse than not numbering it at all.
+    for numbers, entry, gap in sorted(
+        [(entry["numbers"], entry, None) for entry in numbered]
+        + [((number,), None, gap) for number, gap in unfillable],
+        key=lambda item: item[0],
+    ):
+        if entry is not None:
+            _emit_block(entry, agents=agents, total_open=total_open, out=lines)
+        else:
+            _emit_unfillable(numbers[0], gap, total_open=total_open, out=lines)
     if unnumbered:
         if numbered or unfillable:
             lines.extend(
@@ -415,6 +423,11 @@ def _header(questions: DeclarationQuestionCoverage | None) -> list[str]:
 #: ``_wrapped_comment`` wraps prose at.
 _BANNER_WIDTH = 78
 
+#: Subject text a banner keeps even when the label leaves it no room. A tool
+#: name is repository-controlled and unbounded; without a cap one action ruled
+#: a line off the screen and the rest scanned as a ragged column.
+_MIN_BANNER_SUBJECT = 24
+
 
 def _question_banner(
     numbers: Sequence[int],
@@ -427,6 +440,10 @@ def _question_banner(
     The dimensions are named because one block can answer two questions, and
     the counter beside them counts questions rather than blocks: without them,
     "Questions 2–3" would look like a numbering error.
+
+    The subject is elided to fit. That is safe here and nowhere near a machine
+    route: this is a heading, and the block directly beneath it carries the
+    exact ``tool`` and ``tool_id`` a reader has to act on.
     """
 
     label = (
@@ -437,9 +454,19 @@ def _question_banner(
     parts = [label]
     if dimensions:
         parts.append(", ".join(dimensions))
-    parts.append(display_literal(subject))
-    text = f"── {' · '.join(parts)} "
-    return text.ljust(_BANNER_WIDTH - 2, "─")
+    prefix = f"── {' · '.join(parts)} · "
+    # Two characters held back for the space and at least one rule character,
+    # so the common line never ends in trailing whitespace.
+    room = max(_BANNER_WIDTH - 4 - len(prefix), _MIN_BANNER_SUBJECT)
+    rendered = display_literal(subject)
+    if len(rendered) > room:
+        rendered = f"{rendered[: room - 1].rstrip()}…"
+    text = f"{prefix}{rendered}"
+    if len(text) + 2 > _BANNER_WIDTH - 2:
+        # The label alone fills the line. Rule it off with nothing rather than
+        # with a space that every diff tool flags.
+        return text
+    return f"{text} ".ljust(_BANNER_WIDTH - 2, "─")
 
 
 def _emit_block(
