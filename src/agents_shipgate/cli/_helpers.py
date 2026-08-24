@@ -15,6 +15,7 @@ from agents_shipgate.cli.diagnostics import (
 )
 from agents_shipgate.cli.discovery import discover_manifest_paths
 from agents_shipgate.cli.scan.orchestrator import run_scan
+from agents_shipgate.core.declaration_questions import progress_sentence
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.findings.constants import SEVERITY_ORDER
@@ -448,6 +449,14 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
         typer.echo(f"Review items: {len(decision.review_items)}")
         ev = decision.evidence_coverage
         typer.echo(f"Evidence coverage: {evidence_coverage_text(ev)}")
+        # The finish line, on its own line. A gap count says how much is wrong;
+        # this says how much is left, which is the only one of the two a person
+        # adopting the tool can act on (#410 increment 2). Printed for every
+        # verdict, including `passed`: "N of N answered" is the sentence that
+        # tells a reviewer the declarations behind a green run are complete.
+        declarations = progress_sentence(ev.semantic_coverage.declaration_questions)
+        if declarations:
+            typer.echo(declarations)
         if decision.decision == "insufficient_evidence":
             typer.echo(f"Improve evidence: {primary_evidence_remediation_text(ev)}")
         if report.agent_summary and report.agent_summary.first_recommended_action:

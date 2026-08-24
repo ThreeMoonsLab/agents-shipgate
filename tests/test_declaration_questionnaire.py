@@ -1,0 +1,860 @@
+"""Evidence-first effects, the questionnaire, and the progress counter (#410).
+
+Three properties this increment lives or dies on, and each has a test that
+would fail if it were lost:
+
+1. **A proposal is never weaker than what was observed.** Pre-filling a value
+   is only safe because the worst a reviewer who confirms it without thinking
+   can do is over-declare. Exhaustive over every reading combination.
+2. **A proposal comes from an observation, never from an absence and never from
+   a heuristic reading of ``read``.** Those are the two directions where
+   pre-filling would put shipgate's own guess in the trust root.
+3. **The counter and the questionnaire agree, and neither counts what the scan
+   proved by itself.** A progress bar whose denominator includes questions
+   nobody was asked is worse than no progress bar.
+"""
+
+from __future__ import annotations
+
+import itertools
+import json
+from pathlib import Path
+
+import pytest
+import yaml
+
+from agents_shipgate.ci.release_decision import REVIEW_REQUIRED_SENTINEL
+from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.cli.scan.declarations import build_declaration_scaffold
+from agents_shipgate.core.declaration_questions import (
+    ANSWERABLE_ISSUE_KINDS,
+    declaration_questions,
+    progress_sentence,
+)
+from agents_shipgate.core.domain import Tool, ToolRiskHint
+from agents_shipgate.core.semantic_assessment import (
+    assess_tool_semantics,
+    declaration_covers,
+    effect_readings,
+    propose_effect_declaration,
+)
+from agents_shipgate.schemas.manifest import ActionDeclarationConfig
+from agents_shipgate.schemas.report import (
+    DeclarationQuestionCoverage,
+    DeclarationQuestionRow,
+    EvidenceGap,
+    EvidenceGapAction,
+    EvidenceReading,
+)
+from agents_shipgate.schemas.surfaces import ActionEffect
+
+#: One risk-hint tag per effect, so a synthetic tool can be given exactly the
+#: readings a case needs.
+_TAG_FOR_EFFECT = {
+    "external_communication": "external_write",
+    "financial_write": "financial_action",
+    "destructive": "destructive",
+    "production_operation": "production_operation",
+    "code_execution": "code_execution",
+    "privileged_data_access": "privileged_data_access",
+    "identity_access": "identity_access",
+    "write": "writes_data",
+    "read": "read_only",
+}
+
+
+def _tool(**updates: object) -> Tool:
+    values: dict[str, object] = {
+        "id": "google_adk:closer:send_email",
+        "name": "send_email",
+        "source_type": "google_adk",
+        "source_id": "closer",
+        "provider": "closer",
+        "source_pointer": "agent.py",
+        "extraction_confidence": "high",
+        "extraction": {"surface": "enumerated"},
+    }
+    values.update(updates)
+    return Tool.model_validate(values)
+
+
+def _observing(*effects: str, **updates: object) -> Tool:
+    return _tool(
+        risk_hints=[
+            ToolRiskHint(
+                tag=_TAG_FOR_EFFECT[effect],
+                source=f"hint{index}",
+                confidence="medium",
+                basis="inferred_keyword",
+            )
+            for index, effect in enumerate(effects)
+        ],
+        **updates,
+    )
+
+
+def _readings(tool: Tool) -> list:
+    return effect_readings(assess_tool_semantics(tool, None).effect)
+
+
+# --------------------------------------------------------------------------
+# 1. A proposal is never weaker than what was observed
+# --------------------------------------------------------------------------
+
+
+def test_a_proposal_accounts_for_every_reading_it_is_printed_under() -> None:
+    """Exhaustive: the value offered must cover everything the row shows.
+
+    This is the whole safety argument for pre-filling. If a proposal could sit
+    below one of the readings printed above it, confirming it would be a
+    quieter version of exactly the under-declaration #409 exists to catch.
+    """
+
+    checked = 0
+    for count in (1, 2, 3):
+        for effects in itertools.combinations(sorted(_TAG_FOR_EFFECT), count):
+            readings = _readings(_observing(*effects))
+            proposal = propose_effect_declaration(readings)
+            if proposal is None:
+                continue
+            checked += 1
+            asserted = {proposal.effect, *proposal.risk_tags}
+            for reading in readings:
+                assert any(
+                    declaration_covers(value, reading.effect) for value in asserted
+                ), (
+                    f"{effects}: proposed {sorted(asserted)} does not account for "
+                    f"an observed {reading.effect}"
+                )
+    assert checked > 100, "the sweep stopped exercising the proposal path"
+
+
+#: Structural evidence a real tool carries alongside its heuristics, each of
+#: which produces a **policy-eligible** effect claim. Crossed with the
+#: heuristic combinations below, because those are the claims that can turn a
+#: too-weak declaration into a blocking ``conflicting_effect_evidence`` rather
+#: than a review-level row.
+_STRUCTURAL_VARIANTS: dict[str, dict[str, object]] = {
+    "none": {},
+    "write_scope": {"auth": {"scopes": ["thing:write"]}},
+    "delete_scope": {"auth": {"scopes": ["thing:delete"]}},
+    "http_post": {"annotations": {"httpMethod": "POST"}},
+    "read_only_hint": {"annotations": {"readOnlyHint": True}},
+    "mcp_no_annotations": {"source_type": "mcp", "annotations": {"mcp_server": True}},
+}
+
+#: The two gap kinds whose ``declaration_template`` carries a pre-filled
+#: proposal. Anything else either offers a blank or offers no template at all,
+#: so a proposal is never printed on it.
+_PREFILLED_GAP_KINDS = frozenset({"missing_effect_evidence", "inferred_effect_only"})
+
+
+def test_the_proposal_closes_the_row_it_is_printed_on() -> None:
+    """Exhaustive: paste what the questionnaire offers and the gap must be gone.
+
+    A published repair is verified by applying it (PR #413 review 1). Here the
+    repair is a whole declaration rather than an edit to one, so "gone" means
+    the effect dimension carries no declaration-answerable issue at all — not
+    the row it replaced, and not a *different* one either, which is how the
+    first #409 override shipped a repair that traded one gap for another.
+
+    Structural evidence is crossed in because it is policy-eligible: a
+    declaration ranked below one of those claims is a blocking conflict, not a
+    review row, and that is the failure this sweep exists to rule out.
+    """
+
+    answerable = ANSWERABLE_ISSUE_KINDS["effect"]
+    applied = 0
+    for variant, extra in _STRUCTURAL_VARIANTS.items():
+        for count in (1, 2, 3):
+            for effects in itertools.combinations(sorted(_TAG_FOR_EFFECT), count):
+                tool = _observing(*effects, **extra)
+                undeclared = {
+                    issue.kind for issue in assess_tool_semantics(tool, None).effect.issues
+                }
+                if not undeclared & _PREFILLED_GAP_KINDS:
+                    # No pre-filled template is published for this shape, so
+                    # there is no proposal for a reviewer to confirm.
+                    continue
+                proposal = propose_effect_declaration(_readings(tool))
+                if proposal is None:
+                    continue
+                payload: dict[str, object] = {
+                    "tool": "send_email",
+                    "effect": proposal.effect,
+                    "authority": {"mode": "none"},
+                }
+                if proposal.risk_tags:
+                    payload["risk_tags"] = list(proposal.risk_tags)
+                assessment = assess_tool_semantics(
+                    tool, ActionDeclarationConfig.model_validate(payload)
+                )
+                applied += 1
+                remaining = {
+                    issue.kind for issue in assessment.effect.issues
+                } & answerable
+                assert not remaining, (
+                    f"{variant}/{effects}: confirming the proposed {payload} left "
+                    f"{sorted(remaining)}"
+                )
+    assert applied > 400, "the sweep stopped exercising the proposal path"
+
+
+# --------------------------------------------------------------------------
+# 2. Only an observation may seed a proposal
+# --------------------------------------------------------------------------
+
+
+def test_a_protocol_default_is_not_an_observation() -> None:
+    """An unannotated MCP tool keeps its blank.
+
+    The protocol default fires *because* the server published nothing about
+    this tool. Pre-filling `write` from it would be an assertion drawn from an
+    absence — and it would arrive on every unannotated tool of a 117-tool
+    server at once, which is the blanket-accept the blank protects against.
+    """
+
+    tool = _tool(source_type="mcp", annotations={"mcp_server": True})
+    readings = _readings(tool)
+
+    assert [(reading.effect, reading.observed) for reading in readings] == [
+        ("write", False)
+    ]
+    assert propose_effect_declaration(readings) is None
+
+
+def test_a_heuristic_cannot_propose_that_an_action_is_read_only() -> None:
+    """#357, at the one place pre-filling could quietly reverse it.
+
+    Every other proposal is at or above the evidence, so confirming one
+    over-declares. `read` is the single direction where blanket acceptance
+    loses safety, and a keyword match is not allowed to establish it.
+    """
+
+    readings = _readings(_observing("read"))
+
+    assert [reading.effect for reading in readings] == ["read"]
+    assert propose_effect_declaration(readings) is None
+
+
+def test_a_proposal_is_always_a_value_from_the_closed_vocabulary() -> None:
+    """No repository can put a word of its own choosing in front of a reviewer.
+
+    The proposal is written into a YAML document a human pastes into the trust
+    root, so where its value comes from is a security property, not a detail.
+    """
+
+    vocabulary = set(ActionEffect.__args__)  # type: ignore[attr-defined]
+    for count in (1, 2):
+        for effects in itertools.combinations(sorted(_TAG_FOR_EFFECT), count):
+            proposal = propose_effect_declaration(_readings(_observing(*effects)))
+            if proposal is None:
+                continue
+            assert proposal.effect in vocabulary
+            assert set(proposal.risk_tags) <= vocabulary
+
+
+def test_a_manifest_cannot_be_the_source_that_contradicts_itself() -> None:
+    """Found by the sweep above, and it is not specific to a proposal.
+
+    ``risk_tags`` are the repair the ``declaration_below_inferred_evidence``
+    row publishes. Applying them to a tool whose server said ``readOnlyHint:
+    true`` was reported as "high-confidence read and side-effect evidence
+    conflict" attributed to ``tool_source`` — but the side-effect half was the
+    reviewer's own line. Escalating past an annotation is exactly what the
+    monotone rule allows, and an annotation is untrusted server content that
+    may not block a human from over-declaring.
+    """
+
+    tool = _observing("code_execution", annotations={"readOnlyHint": True})
+
+    conflicted = assess_tool_semantics(
+        tool,
+        ActionDeclarationConfig.model_validate(
+            {
+                "tool": "send_email",
+                "effect": "external_communication",
+                "risk_tags": ["code_execution"],
+                "authority": {"mode": "none"},
+            }
+        ),
+    )
+    assert [issue.kind for issue in conflicted.effect.issues] == []
+    assert conflicted.effect.status == "declared"
+
+    # Two *sources* disagreeing is still a conflict — that is what the branch
+    # is for, and nothing here weakens it.
+    two_sources = assess_tool_semantics(
+        _tool(annotations={"readOnlyHint": True, "destructiveHint": True}),
+        ActionDeclarationConfig.model_validate(
+            {"tool": "send_email", "effect": "destructive", "authority": {"mode": "none"}}
+        ),
+    )
+    assert "conflicting_effect_evidence" in {
+        issue.kind for issue in two_sources.effect.issues
+    }
+
+
+# --------------------------------------------------------------------------
+# 3. The counter counts questions, not declarations
+# --------------------------------------------------------------------------
+
+
+def _mcp_workspace(tmp_path: Path, *, tools: list[dict], actions: list[dict]) -> Path:
+    (tmp_path / "tools.json").write_text(json.dumps({"tools": tools}), encoding="utf-8")
+    manifest = {
+        "version": "0.1",
+        "project": {"name": "questionnaire"},
+        "agent": {"name": "asst", "declared_purpose": ["test the questionnaire"]},
+        "environment": {"target": "local"},
+        "tool_sources": [{"id": "src", "type": "mcp", "path": "tools.json"}],
+        "agent_bindings": {
+            "declarations": [
+                {
+                    "agent": "root",
+                    "complete": True,
+                    "tools": [
+                        {"tool": tool["name"], "source_id": "src"} for tool in tools
+                    ],
+                    "handoffs": [],
+                    "reason": "reviewed fixture binding",
+                }
+            ]
+        },
+    }
+    if actions:
+        manifest["action_surface"] = {"actions": actions}
+    config = tmp_path / "shipgate.yaml"
+    config.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+    return config
+
+
+def _coverage(tmp_path: Path, config: Path) -> DeclarationQuestionCoverage:
+    report, _ = run_scan(
+        config_path=config,
+        output_dir=tmp_path / "out",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+    assert report.release_decision is not None
+    return (
+        report.release_decision.evidence_coverage.semantic_coverage.declaration_questions
+    )
+
+
+def test_what_the_scan_proves_is_never_asked_about(tmp_path: Path) -> None:
+    """The denominator is questions, not declarations.
+
+    A tool whose effect an annotation establishes and whose authority its auth
+    block establishes was never asked anything — so declaring both must not
+    show up as two answers. Counting them would let a repository improve its
+    progress bar by restating facts the scan already had.
+    """
+
+    config = _mcp_workspace(
+        tmp_path,
+        tools=[
+            {
+                "name": "docs.lookup",
+                "description": "Look up an article.",
+                "annotations": {"readOnlyHint": True},
+                "auth": {"type": "oauth2", "scopes": ["docs:read"]},
+            }
+        ],
+        actions=[
+            {
+                "tool": "docs.lookup",
+                "effect": "read",
+                "scopes": ["docs:read"],
+                "authority": {
+                    "mode": "scoped",
+                    "auth_type": "oauth2",
+                    "credential_mode": "delegated",
+                },
+            }
+        ],
+    )
+
+    coverage = _coverage(tmp_path, config)
+
+    assert coverage.model_dump() == {
+        "total": 0,
+        "answered": 0,
+        "open": 0,
+        "open_by_dimension": {},
+        "open_questions": [],
+    }
+    assert progress_sentence(coverage) == ""
+
+
+def test_answering_a_question_moves_the_counter(tmp_path: Path) -> None:
+    """Open, then answered — with the same tool and the same evidence."""
+
+    tools = [
+        {
+            "name": "wire_payment",
+            "description": "Send a payment.",
+            "auth": {"type": "oauth2", "scopes": ["pay:write"]},
+        }
+    ]
+    before = _coverage(tmp_path, _mcp_workspace(tmp_path, tools=tools, actions=[]))
+
+    assert before.total == 1
+    assert before.open == 1
+    assert before.open_by_dimension == {"effect": 1}
+    assert [row.dimension for row in before.open_questions] == ["effect"]
+    assert progress_sentence(before) == (
+        "Declaration question: 0 of 1 answered; 1 open (1 effect)."
+    )
+
+    after_dir = tmp_path / "answered"
+    after_dir.mkdir()
+    after = _coverage(
+        after_dir,
+        _mcp_workspace(
+            after_dir,
+            tools=tools,
+            actions=[{"tool": "wire_payment", "effect": "financial_write"}],
+        ),
+    )
+
+    assert after.model_dump() == {
+        "total": 1,
+        "answered": 1,
+        "open": 0,
+        "open_by_dimension": {},
+        "open_questions": [],
+    }
+    assert progress_sentence(after) == "Declaration question: 1 of 1 answered."
+
+
+def test_the_counts_are_internally_consistent() -> None:
+    """``total == answered + open``, and the breakdown sums to ``open``."""
+
+    tools = [
+        _observing("financial_write"),
+        _observing("external_communication", id="t2", name="send_email2"),
+        _tool(id="t3", name="quiet", annotations={"readOnlyHint": True}),
+    ]
+    for tool in tools:
+        tool.semantic_assessment = assess_tool_semantics(tool, None)
+    questions = declaration_questions(tools)
+    still_open = [question for question in questions if not question.answered]
+    by_dimension: dict[str, int] = {}
+    for question in still_open:
+        by_dimension[question.dimension] = by_dimension.get(question.dimension, 0) + 1
+
+    assert len(questions) == len(still_open) + sum(
+        1 for question in questions if question.answered
+    )
+    assert sum(by_dimension.values()) == len(still_open)
+
+
+def test_questions_lead_with_the_action_that_can_move_the_verdict() -> None:
+    """Money and outward communication first (the walk-4 finding).
+
+    Declaring 2 of 12 tools reached a verdict on ``adk-samples#1745``, and both
+    were of this kind. Alphabetical order would have buried them.
+    """
+
+    quiet = _observing("write", id="t_a", name="a_write_tool")
+    money = _observing("financial_write", id="t_z", name="z_wire_payment")
+    for tool in (quiet, money):
+        tool.semantic_assessment = assess_tool_semantics(tool, None)
+
+    questions = declaration_questions([quiet, money])
+
+    # Both tools owe both dimensions, so the assertion is about which action
+    # leads, and that effect leads authority within it.
+    assert [
+        (question.subject.split(" ")[0], question.dimension) for question in questions
+    ] == [
+        ("z_wire_payment", "effect"),
+        ("z_wire_payment", "authority"),
+        ("a_write_tool", "effect"),
+        ("a_write_tool", "authority"),
+    ]
+
+
+# --------------------------------------------------------------------------
+# The rendered questionnaire
+# --------------------------------------------------------------------------
+
+
+def _gap(
+    kind: str,
+    *,
+    subject_id: str,
+    template: dict | None,
+    readings: list[EvidenceReading] | None = None,
+    name: str = "send_email",
+) -> EvidenceGap:
+    return EvidenceGap(
+        kind=kind,  # type: ignore[arg-type]
+        subject=f"{name} [closer]",
+        subject_id=subject_id,
+        source_type="google_adk",
+        source_ref="agent.py",
+        why="test",
+        next_action=EvidenceGapAction(
+            kind="declare_action_effect",  # type: ignore[arg-type]
+            path=f"shipgate.yaml#action_surface.actions[tool='{name}']",
+            why="test",
+            expects="Correct the source annotations, then rerun verification.",
+            declaration_template=template,
+            observed_readings=readings or [],
+        ),
+    )
+
+
+def _coverage_rows(*rows: tuple[str, str], answered: int = 0) -> DeclarationQuestionCoverage:
+    by_dimension: dict[str, int] = {}
+    for _, dimension in rows:
+        by_dimension[dimension] = by_dimension.get(dimension, 0) + 1
+    return DeclarationQuestionCoverage(
+        total=len(rows) + answered,
+        answered=answered,
+        open=len(rows),
+        open_by_dimension=by_dimension,
+        open_questions=[
+            DeclarationQuestionRow(
+                subject="send_email [closer]", subject_id=subject_id, dimension=dimension
+            )
+            for subject_id, dimension in rows
+        ],
+    )
+
+
+def test_the_questionnaire_numbers_agree_with_the_published_counter() -> None:
+    """Every open question is numbered exactly once, out of the same total."""
+
+    gaps = [
+        _gap(
+            "inferred_effect_only",
+            subject_id="t1",
+            template={"tool": "send_email", "effect": "financial_write"},
+            readings=[EvidenceReading(effect="financial_write", sources=["risk_hint:keyword"])],
+        ),
+        _gap(
+            "missing_authority_evidence",
+            subject_id="t1",
+            template={"tool": "send_email", "authority": {"mode": REVIEW_REQUIRED_SENTINEL}},
+        ),
+    ]
+    coverage = _coverage_rows(("t1", "effect"), ("t1", "authority"), answered=1)
+
+    scaffold = build_declaration_scaffold(gaps, questions=coverage)
+
+    assert scaffold is not None
+    assert "Declaration questions: 1 of 3 answered; 2 open (1 effect, 1 authority)." in scaffold
+    # One manifest row answers both, so the banner names a range rather than
+    # pretending the file has fewer questions than the counter reports.
+    assert "Questions 1–2 of 2 · effect, authority · send_email [closer]" in scaffold
+    assert "Question 1 of" not in scaffold
+    assert scaffold.count("tool: send_email") == 1
+
+
+def test_a_counted_question_with_no_blank_is_still_shown() -> None:
+    """Numbering may not skip.
+
+    A conflict between two sources is a real open question — it is counted and
+    it is the next thing to resolve — but its repair is in the source, so no
+    template is offered. Dropping it would leave the file disagreeing with its
+    own header about how many questions there are.
+    """
+
+    gaps = [
+        _gap("conflicting_effect_evidence", subject_id="t1", template=None),
+        _gap(
+            "missing_authority_evidence",
+            subject_id="t2",
+            name="lookup",
+            template={"tool": "lookup", "authority": {"mode": REVIEW_REQUIRED_SENTINEL}},
+        ),
+    ]
+    coverage = _coverage_rows(("t1", "effect"), ("t2", "authority"))
+
+    scaffold = build_declaration_scaffold(gaps, questions=coverage)
+
+    assert scaffold is not None
+    assert "Question 1 of 2 · effect" in scaffold
+    assert "Question 2 of 2 · authority" in scaffold
+    assert "No block is offered for this one" in scaffold
+    assert "Correct the source annotations" in scaffold
+
+
+def test_a_pre_filled_value_says_it_is_a_proposal_at_the_cursor() -> None:
+    """A reader who scrolls straight to the field must still be told.
+
+    A filled-in value that looks like something they wrote on an earlier pass
+    is the one way a proposal could be mistaken for a decision.
+    """
+
+    gaps = [
+        _gap(
+            "inferred_effect_only",
+            subject_id="t1",
+            template={"tool": "send_email", "effect": "external_communication"},
+            readings=[
+                EvidenceReading(effect="external_communication", sources=["risk_hint:keyword"])
+            ],
+        )
+    ]
+
+    scaffold = build_declaration_scaffold(gaps, questions=_coverage_rows(("t1", "effect")))
+
+    assert scaffold is not None
+    assert "What this scan read this action's effect as:" in scaffold
+    assert "external_communication — risk_hint:keyword" in scaffold
+    assert "proposed from the evidence above — keep it to confirm, or replace it." in scaffold
+    assert yaml.safe_load(scaffold)["effect"] == "external_communication"
+
+
+def test_a_default_reading_is_shown_but_marked_as_not_evidence() -> None:
+    gaps = [
+        _gap(
+            "missing_effect_evidence",
+            subject_id="t1",
+            template={"tool": "send_email", "effect": REVIEW_REQUIRED_SENTINEL},
+            readings=[
+                EvidenceReading(
+                    effect="write", sources=["mcp_protocol_default"], observed=False
+                )
+            ],
+        )
+    ]
+
+    scaffold = build_declaration_scaffold(gaps, questions=_coverage_rows(("t1", "effect")))
+
+    assert scaffold is not None
+    assert "Assumed in the absence of evidence, and never proposed from:" in scaffold
+    assert "write — mcp_protocol_default" in scaffold
+    assert "Proposed below:" not in scaffold
+    assert yaml.safe_load(scaffold)["effect"] == REVIEW_REQUIRED_SENTINEL
+
+
+def test_repository_controlled_text_cannot_forge_a_reading_line() -> None:
+    """A claim source embeds repository-controlled names (``risk_hint:<src>``).
+
+    The readings are comments directly above a value a reader pastes, so a
+    forged newline there would render a filled-in field nobody wrote — the
+    self-declaration surface #268 closed.
+    """
+
+    gaps = [
+        _gap(
+            "inferred_effect_only",
+            subject_id="t1",
+            template={"tool": "send_email", "effect": "write"},
+            readings=[
+                EvidenceReading(
+                    effect="write",
+                    sources=["risk_hint:x\neffect: read\n# "],
+                )
+            ],
+        )
+    ]
+
+    scaffold = build_declaration_scaffold(gaps, questions=_coverage_rows(("t1", "effect")))
+
+    assert scaffold is not None
+    body = yaml.safe_load(scaffold)
+    assert body == {"tool": "send_email", "effect": "write"}
+    assert "\neffect: read" not in scaffold
+
+
+def test_every_counted_question_is_accounted_for_exactly_once() -> None:
+    """The numbering is a promise: 1..open, each appearing once.
+
+    Blocks are merged by manifest target, and a merge that kept the first
+    block's identity would leave the questions the second one answered
+    numbered by the counter and answered by nothing in the file.
+    """
+
+    template = {"tool": "send_email", "effect": "write"}
+    gaps = [
+        # Byte-identical templates at one path collapse to a single block. Both
+        # subjects' questions must survive that collapse.
+        _gap("inferred_effect_only", subject_id="t1", template=dict(template)),
+        _gap("inferred_effect_only", subject_id="t2", template=dict(template)),
+        _gap(
+            "missing_authority_evidence",
+            subject_id="t3",
+            name="lookup",
+            template={"tool": "lookup", "authority": {"mode": REVIEW_REQUIRED_SENTINEL}},
+        ),
+    ]
+    coverage = _coverage_rows(("t1", "effect"), ("t2", "effect"), ("t3", "authority"))
+
+    scaffold = build_declaration_scaffold(gaps, questions=coverage)
+
+    assert scaffold is not None
+    for number in range(1, coverage.open + 1):
+        rendered = [
+            line
+            for line in scaffold.splitlines()
+            if f"Question {number} of {coverage.open}" in line
+            or f"Questions {number}–" in line
+            or f"–{number} of {coverage.open}" in line
+        ]
+        assert len(rendered) == 1, f"question {number} appears {len(rendered)} times"
+
+
+def test_the_pr_comment_reports_progress_and_omits_it_when_nothing_was_asked(
+    tmp_path: Path,
+) -> None:
+    """The reviewer surface for `verify` gets the finish line too.
+
+    A gap tally tells a reviewer what is wrong; the counter tells the author
+    how much is left, and the PR is where they read it.
+    """
+
+    from agents_shipgate.cli.verify.orchestrator import _derive_verifier_control
+    from agents_shipgate.report.pr_comment import render_pr_comment
+    from agents_shipgate.schemas.verifier import (
+        AuthorizationEvaluationV1,
+        VerifierArtifact,
+        VerifierCapabilityReview,
+        VerifierDiffStatus,
+        map_merge_verdict,
+    )
+
+    config = _mcp_workspace(
+        tmp_path,
+        tools=[
+            {
+                "name": "wire_payment",
+                "description": "Send a payment.",
+                "auth": {"type": "oauth2", "scopes": ["pay:write"]},
+            }
+        ],
+        actions=[],
+    )
+    report, _ = run_scan(
+        config_path=config,
+        output_dir=tmp_path / "out",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+    assert report.release_decision is not None
+    review = VerifierCapabilityReview()
+    verdict = map_merge_verdict(report.release_decision.decision)
+    verifier = VerifierArtifact(
+        workspace=str(tmp_path),
+        diff_status=VerifierDiffStatus(),
+        config="shipgate.yaml",
+        authorization=AuthorizationEvaluationV1.not_requested(),
+        trigger={"rationale": "1 run_shipgate rule(s) matched."},
+        execution="succeeded",
+        head_status="succeeded",
+        release_decision=report.release_decision,
+        decision=report.release_decision.decision,
+        merge_verdict=verdict,
+        applicability="verified",
+        control=_derive_verifier_control(
+            execution="succeeded",
+            merge_verdict=verdict,
+            release_decision=report.release_decision,
+            fix_task=None,
+            capability_review=review,
+            headline="test",
+            first_next_action_override=None,
+            base_status="succeeded",
+            base_ref="origin/main",
+            diff_status=VerifierDiffStatus(completeness="complete"),
+        ),
+        headline="test",
+        capability_review=review,
+    )
+
+    comment = render_pr_comment(verifier, report=report)
+    assert "- Declaration question: 0 of 1 answered; 1 open \\(1 effect\\)" in comment
+
+    report.release_decision.evidence_coverage.semantic_coverage.declaration_questions = (
+        DeclarationQuestionCoverage()
+    )
+    assert "Declaration question" not in render_pr_comment(verifier, report=report)
+
+
+# --------------------------------------------------------------------------
+# End to end: the adoption walk this increment exists for
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("workspace_name", ["walk"])
+def test_confirming_one_proposal_reaches_a_verdict(
+    tmp_path: Path, workspace_name: str
+) -> None:
+    """The measured outcome from the fourth ``adk-samples#1745`` walk.
+
+    Baseline: the money tool's effect is inferred, nothing is declared, and the
+    run reports no critical finding. Confirm the one value the questionnaire
+    proposes and the gate names the risk. That is the whole point of the
+    increment — the questions that matter are answerable from the file itself.
+    """
+
+    workspace = tmp_path / workspace_name
+    workspace.mkdir()
+    config = _mcp_workspace(
+        workspace,
+        tools=[
+            {
+                "name": "create_sales_order",
+                "description": "Create a sales order and charge the customer.",
+                "auth": {"type": "oauth2", "scopes": ["sap:orders.write"]},
+            }
+        ],
+        actions=[],
+    )
+    report, _ = run_scan(
+        config_path=config,
+        output_dir=workspace / "out",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+    assert report.release_decision is not None
+    gap = next(
+        item
+        for item in report.release_decision.evidence_coverage.evidence_gaps
+        if item.kind in ANSWERABLE_ISSUE_KINDS["effect"]
+    )
+    template = gap.next_action.declaration_template
+    assert template is not None
+    assert template["effect"] == "financial_write"
+    assert REVIEW_REQUIRED_SENTINEL not in json.dumps(template)
+
+    # Confirm exactly what the row published — nothing else changes.
+    answered_dir = tmp_path / "answered"
+    answered_dir.mkdir()
+    answered = _mcp_workspace(
+        answered_dir,
+        tools=[
+            {
+                "name": "create_sales_order",
+                "description": "Create a sales order and charge the customer.",
+                "auth": {"type": "oauth2", "scopes": ["sap:orders.write"]},
+            }
+        ],
+        actions=[{key: value for key, value in template.items() if key != "tool_id"}],
+    )
+    after, _ = run_scan(
+        config_path=answered,
+        output_dir=answered_dir / "out",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+
+    assert after.release_decision is not None
+    assert after.release_decision.decision == "blocked"
+    assert {item.check_id for item in after.release_decision.blockers} >= {
+        "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING"
+    }
+    questions = (
+        after.release_decision.evidence_coverage.semantic_coverage.declaration_questions
+    )
+    assert questions.answered == 1
+    assert "effect" not in questions.open_by_dimension

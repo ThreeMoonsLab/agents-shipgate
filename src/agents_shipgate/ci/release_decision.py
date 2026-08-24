@@ -10,6 +10,13 @@ from agents_shipgate.ci.exit_policy import (
     effective_fail_on,
     exit_code_for_report,
 )
+from agents_shipgate.core.declaration_questions import (
+    ANSWERABLE_ISSUE_KINDS,
+    DeclarationQuestion,
+    declaration_questions,
+    open_counts_by_dimension,
+    open_questions,
+)
 from agents_shipgate.core.domain import (
     DECLARATION_OVERRIDE_SOURCE,
     SemanticIssueKind,
@@ -24,7 +31,9 @@ from agents_shipgate.core.evidence_actions import (
     yaml_scalar,
 )
 from agents_shipgate.core.semantic_assessment import (
+    effect_readings,
     effect_repair,
+    propose_effect_declaration,
 )
 from agents_shipgate.core.source_warnings import unresolved_adk_tool_symbols
 from agents_shipgate.core.surface_exclusions import (
@@ -43,9 +52,12 @@ from agents_shipgate.schemas.report import (
     BindingCoverageDecision,
     ContributionRule,
     ContributionRuleName,
+    DeclarationQuestionCoverage,
+    DeclarationQuestionRow,
     EvidenceCoverageDecision,
     EvidenceGap,
     EvidenceGapAction,
+    EvidenceReading,
     FailPolicy,
     Finding,
     IdentityCoverageDecision,
@@ -1100,6 +1112,12 @@ def _semantic_coverage(
             gaps.append(gap)
             _increment(reason_counts, gap.kind)
 
+    # The same action surface, counted as a questionnaire. A projection of the
+    # assessments above and nothing else: it names no gap the rows do not
+    # already carry, and no branch of the decision reads it.
+    questions = declaration_questions(tools)
+    still_open = open_questions(questions)
+    gaps = _in_question_order(gaps, still_open)
     return (
         SemanticCoverageDecision(
             total_actions=len(tools),
@@ -1108,9 +1126,81 @@ def _semantic_coverage(
             review_concern_count=review_concern_count,
             reason_counts=dict(sorted(reason_counts.items())),
             acknowledged_overrides=acknowledged_overrides,
+            declaration_questions=DeclarationQuestionCoverage(
+                total=len(questions),
+                answered=len(questions) - len(still_open),
+                open=len(still_open),
+                open_by_dimension=open_counts_by_dimension(questions),
+                open_questions=[
+                    DeclarationQuestionRow(
+                        subject=question.subject,
+                        subject_id=question.tool_id or None,
+                        dimension=question.dimension,
+                    )
+                    for question in still_open
+                ],
+            ),
         ),
         gaps,
     )
+
+
+def _in_question_order(
+    gaps: list[EvidenceGap],
+    still_open: Sequence[DeclarationQuestion],
+) -> list[EvidenceGap]:
+    """Put the declaration-question rows in the order the questionnaire asks them.
+
+    Two surfaces name a first thing to do: the ``Improve evidence:`` line (and
+    the reason, and ``first_recommended_action``) project
+    ``primary_evidence_gap``, which takes the first addressable row in this
+    list; the generated questionnaire numbers its blocks from
+    ``declaration_questions.open_questions``. Left alone, one led with whatever
+    sorted first by tool name and the other with whatever could move the
+    verdict — the same "two answers to one question" defect #362 fixed between
+    the reason and the line beneath it.
+
+    The permutation is restricted to rows that *are* declaration questions, and
+    they only trade places with each other. Everything else — binding rows
+    first, an unenumerated surface, an identity conflict — keeps its position
+    exactly, so no ordering decision made elsewhere is quietly overruled here.
+
+    Ranking only: ``evidence_gaps`` is a projection of counts already decided,
+    so no order of it can change a verdict.
+    """
+
+    rank = {
+        (question.tool_id or None, question.dimension): index
+        for index, question in enumerate(still_open)
+    }
+    positions = [
+        index
+        for index, gap in enumerate(gaps)
+        if (gap.subject_id, _GAP_DIMENSION.get(str(gap.kind))) in rank
+    ]
+    if len(positions) < 2:
+        return gaps
+    reordered = sorted(
+        (gaps[index] for index in positions),
+        key=lambda gap: (
+            rank[(gap.subject_id, _GAP_DIMENSION[str(gap.kind)])],
+            # A tool with two rows of one dimension keeps its emitted order.
+            gaps.index(gap),
+        ),
+    )
+    ordered = list(gaps)
+    for slot, gap in zip(positions, reordered, strict=True):
+        ordered[slot] = gap
+    return ordered
+
+
+#: Which declaration dimension each answerable gap kind belongs to, inverted
+#: from the one table that defines them.
+_GAP_DIMENSION: dict[str, str] = {
+    kind: dimension
+    for dimension, kinds in ANSWERABLE_ISSUE_KINDS.items()
+    for kind in kinds
+}
 
 
 def _acknowledged_overrides(
@@ -1228,6 +1318,19 @@ def _increment(counts: dict[str, int], reason: str) -> None:
     counts[reason] = counts.get(reason, 0) + 1
 
 
+#: Gap kinds whose subject is an action's effect. Each one publishes the
+#: readings behind it, so the row can be answered without opening
+#: ``action_surface_facts`` to find out what the scan saw.
+_EFFECT_GAP_KINDS = frozenset(
+    {
+        "missing_effect_evidence",
+        "inferred_effect_only",
+        "conflicting_effect_evidence",
+        "declaration_below_inferred_evidence",
+    }
+)
+
+
 def _semantic_gap(
     tool: Tool,
     *,
@@ -1238,6 +1341,11 @@ def _semantic_gap(
     action_kind: str
     accepted_values: list[str]
     declaration_template: dict[str, object] | None = None
+    observed_readings = (
+        effect_readings(tool.semantic_assessment.effect)
+        if kind in _EFFECT_GAP_KINDS and tool.semantic_assessment is not None
+        else []
+    )
     # Whether ``expects`` should also name the on-disk scaffold. Off for the
     # inventory repair: that row's own ``path`` is the skeleton to open and its
     # remediation spells the manifest entry inline, so naming a second file for
@@ -1337,14 +1445,51 @@ def _semantic_gap(
         action_kind = "declare_action_effect"
         accepted_values = list(_ACTION_EFFECT_VALUES)
         action_why = "A reviewed or structural effect is required for an evidence-backed pass."
-        expects = (
-            "Declare the conservative effect under action_surface.actions in "
-            "shipgate.yaml, then rerun verification."
+        # #410 increment 2 — evidence-first effects. Where the readings this
+        # row publishes support one conservative answer, the template carries
+        # it instead of a blank: the scan already knows what it saw, and asking
+        # a human to retype it is the cost that stalls adoption.
+        #
+        # A proposal is not an assertion. Nothing reads this template; only a
+        # reviewed edit to the manifest makes any of it operative, and the
+        # proposed value is drawn from the closed ``ActionEffect`` vocabulary,
+        # never from source content. It is also never weaker than any reading
+        # (see ``propose_effect_declaration``), so a reviewer who confirms it
+        # without thinking over-declares — the safe direction — instead of
+        # under-declaring, which the monotone rule (#409) would catch anyway.
+        proposal = (
+            propose_effect_declaration(observed_readings)
+            if tool.semantic_assessment is not None
+            else None
         )
-        declaration_template = {
-            **_action_selector(tool),
-            "effect": "<REVIEW_REQUIRED>",
-        }
+        if proposal is None:
+            expects = (
+                "Declare the conservative effect under action_surface.actions in "
+                "shipgate.yaml, then rerun verification."
+            )
+            declaration_template = {
+                **_action_selector(tool),
+                "effect": REVIEW_REQUIRED_SENTINEL,
+            }
+        else:
+            declaration_template = {
+                **_action_selector(tool),
+                "effect": proposal.effect,
+            }
+            tags = ""
+            if proposal.risk_tags:
+                # No single effect covers every reading, so the categories are
+                # named as reviewed risk tags — which both accounts for them
+                # and makes each category's built-in controls apply. Same route
+                # ``effect_repair`` publishes for the post-declaration case.
+                declaration_template["risk_tags"] = list(proposal.risk_tags)
+                tags = f" with risk_tags: [{', '.join(proposal.risk_tags)}]"
+            expects = (
+                f"Confirm effect: {proposal.effect}{tags} — the conservative "
+                "reading of the evidence this row lists — under "
+                "action_surface.actions in shipgate.yaml, or replace it with an "
+                "effect you can defend, then rerun verification."
+            )
     elif kind == "declaration_below_inferred_evidence":
         # Two routes close this row, and the reviewer owns the choice: account
         # for every observation, or state on the record that they do not apply
@@ -1465,6 +1610,14 @@ def _semantic_gap(
             ),
             accepted_values=accepted_values,
             declaration_template=declaration_template,
+            observed_readings=[
+                EvidenceReading(
+                    effect=reading.effect,
+                    sources=list(reading.sources),
+                    observed=reading.observed,
+                )
+                for reading in observed_readings
+            ],
         ),
     )
 

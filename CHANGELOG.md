@@ -2,6 +2,68 @@
 
 ## Unreleased
 
+- **Ask only what the scanner cannot prove, and say how much is left.**
+  Adoption stalls at a wall of blanks: the fourth `adk-samples#1745` walk faced
+  `0/12` pass-eligible actions and a report that described the work as "24
+  semantic evidence gaps" — a symptom count with no order and no finish line,
+  while the same report already held a derived `financial_write` reading for
+  the tool that mattered. Increment 2 of the evidence-first declaration RFC
+  ([#410](https://github.com/ThreeMoonsLab/agents-shipgate/issues/410)) turns
+  that surface into a questionnaire.
+
+  *Effects the scan observed are pre-filled.* `suggested-declarations.yaml`
+  now prints the readings behind each effect question — the distinct effects
+  the evidence supports, each with the producers that support it — and, where
+  they support one conservative answer, offers that answer in the `effect:`
+  line instead of a `<REVIEW_REQUIRED>` blank. A proposal is not an assertion:
+  nothing consumes the file, the value comes from the closed `ActionEffect`
+  vocabulary rather than from source content, and it is never weaker than any
+  reading, so confirming one without thinking can only over-declare — the safe
+  direction, and one the monotone rule already keeps visible. Nothing is
+  proposed from an *absence*: an unannotated MCP tool's protocol default, and a
+  heuristic reading of `read`, both keep the blank, because pre-filling either
+  would let the scanner establish what only a human may (#357, #268).
+
+  *The file is numbered and counted.* Blocks carry `Question 3 of 5` banners
+  ordered by how much answering them can move the verdict — money, outward
+  communication, and destruction first, which is what reached a verdict in two
+  answers on the walk — and both the file header and the CLI print
+  `Declaration questions: 1 of 2 answered; 1 open (1 authority).` from one
+  rendering, so they cannot describe the same state two ways. An open question
+  with no blank to fill (a conflict whose repair is in the source) is still
+  numbered and still shown, so the numbering never skips.
+
+  *A question is not the same thing as a declaration.* The denominator counts
+  only what both halves can be measured on — the `effect` and `authority` of one
+  `action_surface.actions` row — and `answered` is exact: it counts dimensions
+  that gap when the same action is re-resolved *without* its declaration. An
+  action whose effect an OpenAPI method or an MCP annotation established was
+  never asked and never appears in `total`, so a repository cannot improve its
+  progress by restating what the scan already knew.
+
+  *A manifest cannot be the source that contradicts itself.* Found by applying
+  the proposal exhaustively across structural evidence: declaring
+  `risk_tags: [code_execution]` on a tool whose server published
+  `readOnlyHint: true` was reported as "high-confidence read and side-effect
+  evidence conflict" attributed to `tool_source` — but the side-effect half was
+  the reviewer's own line. The read/side-effect conflict is a disagreement
+  between *sources*, so it now excludes the manifest's own `risk_tags`,
+  `scopes`, and acknowledged `override` (the set `DECLARATION_CLAIM_SOURCES`
+  already names). This also repairs the `risk_tags` repair that
+  `declaration_below_inferred_evidence` publishes, which could not close the
+  row it was printed on whenever the action carried a read-only annotation. Two
+  sources disagreeing is still a conflict, and nothing that gated before stops
+  gating.
+
+  Report schema `0.36 → 0.37` adds
+  `release_decision.evidence_coverage.semantic_coverage.declaration_questions`
+  (`{total, answered, open, open_by_dimension, open_questions[]}`) and
+  `evidence_gaps[].next_action.observed_readings[]`. Both are additive and
+  neither gates. Packet `0.13 → 0.14` and verifier `0.10 → 0.11` follow because
+  they embed the same block; the prior versions keep their published bytes and
+  are read forward, with an absent counter reported as `0 of 0` rather than as
+  a claim that nothing was owed.
+
 - **A declaration cannot discharge a category it does not cover, and a
   published schema keeps its bytes.** Three follow-ups to the monotone
   declaration rule, each a defect that shipped with it

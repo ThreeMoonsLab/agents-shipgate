@@ -191,6 +191,15 @@ def test_reviewed_read_and_no_authority_can_pass(tmp_path: Path) -> None:
         "review_concern_count": 0,
         "reason_counts": {},
         "acknowledged_overrides": [],
+        # Both dimensions were asked and both were answered: without the
+        # declaration this action has neither effect nor authority evidence.
+        "declaration_questions": {
+            "total": 2,
+            "answered": 2,
+            "open": 0,
+            "open_by_dimension": {},
+            "open_questions": [],
+        },
     }
     action = report.action_surface_facts.actions[0]
     assert action.semantic_assessment is not None

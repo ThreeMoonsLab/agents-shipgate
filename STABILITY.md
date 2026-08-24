@@ -6,7 +6,7 @@ This document is the contract. If the runtime ever diverges from what's document
 
 Shipgate is pre-1.0. The CLI surface, exit codes, and `contract_version`
 described here are stable within the `0.x` line, but the `report.json` schema
-(`report_schema_version`, currently `0.36`) is still additive-versioned and
+(`report_schema_version`, currently `0.37`) is still additive-versioned and
 not yet frozen. A `1.0` line will not begin until the report schema reaches
 `1.0` and holds without a breaking change. Pin a version (or the Action tag)
 for reproducible CI.
@@ -19,7 +19,7 @@ for reproducible CI.
 
 Two capability schemas move: `capability_lock_schema_version` `0.6` → `0.7` and
 `capability_lock_diff_schema_version` `0.7` → `0.8`. `report_schema_version`
-(`0.36`), `packet_schema_version` (`0.13`), `verifier_schema_version` (`0.10`),
+(`0.37`), `packet_schema_version` (`0.14`), `verifier_schema_version` (`0.11`),
 `contract_version`, and the manifest `version: "0.1"` are unchanged.
 
 **Four published documents are restored to the bytes they were published with.**
@@ -2022,7 +2022,7 @@ release decision. That action may be `detect`/`initialize` for
 relevant unconfigured repos, or `verify` for configured repos. Use it as the
 first touch on a repo or PR before committing to a full scan.
 
-`verifier.json` is governed by [`docs/verifier-schema.v0.10.json`](docs/verifier-schema.v0.10.json).
+`verifier.json` is governed by [`docs/verifier-schema.v0.11.json`](docs/verifier-schema.v0.11.json).
 Verifier v0.1 through v0.8 remain frozen references — a published schema
 identifier never gains an emitted field, so `0.9` carries
 `capability_review.policy_weakening_proven` and `0.8` keeps the bytes every
@@ -2222,10 +2222,10 @@ infer runtime routing, or execute tools. Action Surface Diff policy findings
 can affect release gating through `findings[].blocks_release`; Tool Surface
 Diff remains explanatory only.
 
-### Release Evidence Packet (v0.13)
+### Release Evidence Packet (v0.14)
 
 `agents-shipgate-reports/packet.json` is a supporting/provisional reviewer
-artifact governed by [`docs/packet-schema.v0.13.json`](docs/packet-schema.v0.13.json).
+artifact governed by [`docs/packet-schema.v0.14.json`](docs/packet-schema.v0.14.json).
 v0.12 adds request, subject, input-set, engine-requirement, and decision IDs
 while preserving the report release decision as the only gate. v0.11 and
 earlier packets validate against their matching frozen schemas. v0.11 added

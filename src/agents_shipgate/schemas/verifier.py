@@ -640,7 +640,7 @@ class VerifierArtifact(BaseModel):
         },
     )
 
-    verifier_schema_version: Literal["0.10"] = "0.10"
+    verifier_schema_version: Literal["0.11"] = "0.11"
     static_analysis_only: Literal[True] = True
     runtime_behavior_verified: Literal[False] = False
     static_verdict_disclaimer: str = STATIC_VERDICT_DISCLAIMER
@@ -717,6 +717,13 @@ class VerifierArtifact(BaseModel):
             # Absent on a v0.9 artifact, and an empty list is the honest
             # reading: that build could not have recorded a reviewed exception.
             "0.9",
+            # v0.10 froze without
+            # ``semantic_coverage.declaration_questions`` and without the
+            # readings an evidence-gap row publishes. Both default empty, and
+            # empty is the honest reading: a v0.10 build never counted
+            # questions, so "0 of 0 answered" is what it knew rather than a
+            # claim that nothing was owed.
+            "0.10",
         }
         if not legacy:
             # Current artifacts must already carry the authoritative control
@@ -724,7 +731,7 @@ class VerifierArtifact(BaseModel):
             # control would turn an internal consistency failure into a trusted
             # handoff.  Only frozen prior readers are normalized.
             return normalized
-        normalized["verifier_schema_version"] = "0.10"
+        normalized["verifier_schema_version"] = "0.11"
         # A pre-v0.7 artifact recorded nothing about whether its diff was
         # readable. Defaulting that to ``complete`` would manufacture the one
         # claim the whole field exists to stop.

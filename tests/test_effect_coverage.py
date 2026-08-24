@@ -518,31 +518,49 @@ action_surface:
 # A published schema identifier never gains a value
 # --------------------------------------------------------------------------
 
-#: Every published document that projects the evidence-gap union, with the
-#: version this change froze and the version that carries the new value.
-#: `generate_schemas.py --check` proves committed == generated; it cannot prove
-#: that a *content* change moved the version, so a new enum can be written into
-#: a frozen document with CI green and every pinned consumer left rejecting the
-#: artifacts that document is supposed to describe.
+#: Every published document a schema bump has rewritten, with the version that
+#: change froze, the version that carries the new content, and the token that
+#: distinguishes them. `generate_schemas.py --check` proves committed ==
+#: generated; it cannot prove that a *content* change moved the version, so new
+#: content can be written into a frozen document with CI green and every pinned
+#: consumer left rejecting the artifacts that document is supposed to describe.
+#:
+#: The marker is per-row because each bump introduced something different: the
+#: #409 rows gained a gap kind, the #410-increment-2 rows gained the
+#: declaration-question projection. A single shared token would silently stop
+#: testing the older rows the moment a newer bump were added.
 _FROZEN_AND_CURRENT_SCHEMAS = [
-    ("report-schema.v0.35.json", "report-schema.v0.36.json"),
-    ("packet-schema.v0.12.json", "packet-schema.v0.13.json"),
-    ("verifier-schema.v0.9.json", "verifier-schema.v0.10.json"),
-    ("capability-lock-schema.v0.6.json", "capability-lock-schema.v0.7.json"),
-    ("capability-lock-diff-schema.v0.7.json", "capability-lock-diff-schema.v0.8.json"),
+    ("report-schema.v0.35.json", "report-schema.v0.36.json", "declaration_below_inferred_evidence"),
+    ("packet-schema.v0.12.json", "packet-schema.v0.13.json", "declaration_below_inferred_evidence"),
+    ("verifier-schema.v0.9.json", "verifier-schema.v0.10.json", "declaration_below_inferred_evidence"),
+    (
+        "capability-lock-schema.v0.6.json",
+        "capability-lock-schema.v0.7.json",
+        "declaration_below_inferred_evidence",
+    ),
+    (
+        "capability-lock-diff-schema.v0.7.json",
+        "capability-lock-diff-schema.v0.8.json",
+        "declaration_below_inferred_evidence",
+    ),
+    ("report-schema.v0.36.json", "report-schema.v0.37.json", "DeclarationQuestionCoverage"),
+    ("packet-schema.v0.13.json", "packet-schema.v0.14.json", "DeclarationQuestionCoverage"),
+    ("verifier-schema.v0.10.json", "verifier-schema.v0.11.json", "DeclarationQuestionCoverage"),
 ]
 
 
-@pytest.mark.parametrize(("frozen", "current"), _FROZEN_AND_CURRENT_SCHEMAS)
-def test_the_new_gap_kind_reaches_only_the_current_schema(frozen: str, current: str) -> None:
+@pytest.mark.parametrize(("frozen", "current", "marker"), _FROZEN_AND_CURRENT_SCHEMAS)
+def test_new_content_reaches_only_the_current_schema(
+    frozen: str, current: str, marker: str
+) -> None:
     frozen_text = (_DOCS / frozen).read_text(encoding="utf-8")
     current_text = (_DOCS / current).read_text(encoding="utf-8")
 
-    assert "declaration_below_inferred_evidence" not in frozen_text, (
+    assert marker not in frozen_text, (
         f"{frozen} is published and pinned; a consumer validating against it would "
         "reject artifacts this version never described"
     )
-    assert "declaration_below_inferred_evidence" in current_text
+    assert marker in current_text
 
 
 #: sha256 of each frozen document as published. Checked in rather than read
@@ -567,24 +585,33 @@ _PUBLISHED_SCHEMA_SHA256 = {
     "capability-lock-diff-schema.v0.7.json": (
         "e73210870bb5b1181fcbb90872ced3c71f3ecc1f11124188aa21579694eec93a"
     ),
+    "report-schema.v0.36.json": (
+        "c9c0d7576b23fbacfff2da390d462b66add673f448c28eb8295938cf2f986308"
+    ),
+    "packet-schema.v0.13.json": (
+        "80e6665a4a4d4778b2259c96f756983b8f6857ebca3cb06ecf724c80cfae06eb"
+    ),
+    "verifier-schema.v0.10.json": (
+        "c582772273cadcb8abd2137b03486528d681093e088a7284e754a8c75f92e727"
+    ),
 }
 
 
 def test_every_frozen_schema_has_a_pinned_hash() -> None:
     """No frozen document may sit outside the guard."""
 
-    assert {frozen for frozen, _ in _FROZEN_AND_CURRENT_SCHEMAS} == set(
+    assert {frozen for frozen, _, _ in _FROZEN_AND_CURRENT_SCHEMAS} == set(
         _PUBLISHED_SCHEMA_SHA256
     )
 
 
-@pytest.mark.parametrize(("frozen", "current"), _FROZEN_AND_CURRENT_SCHEMAS)
+@pytest.mark.parametrize(("frozen", "current", "marker"), _FROZEN_AND_CURRENT_SCHEMAS)
 def test_a_frozen_schema_keeps_the_bytes_it_was_published_with(
-    frozen: str, current: str
+    frozen: str, current: str, marker: str
 ) -> None:
-    """The freeze is about bytes, not only about the enum that exposed it."""
+    """The freeze is about bytes, not only about the token that exposed it."""
 
-    del current
+    del current, marker
     digest = hashlib.sha256((_DOCS / frozen).read_bytes()).hexdigest()
 
     assert digest == _PUBLISHED_SCHEMA_SHA256[frozen], (
@@ -610,8 +637,8 @@ def test_every_emitted_artifact_validates_against_its_own_current_schema(tmp_pat
     )
 
     for artifact, schema_name in (
-        ("report.json", "report-schema.v0.36.json"),
-        ("packet.json", "packet-schema.v0.13.json"),
+        ("report.json", "report-schema.v0.37.json"),
+        ("packet.json", "packet-schema.v0.14.json"),
     ):
         payload = json.loads((tmp_path / artifact).read_text(encoding="utf-8"))
         schema = json.loads((_DOCS / schema_name).read_text(encoding="utf-8"))

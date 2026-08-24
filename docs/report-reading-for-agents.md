@@ -65,6 +65,7 @@ Once you have the decision, read the supporting fields:
 - `release_decision.fail_policy.{ci_mode, fail_on, new_findings_only, exit_code}` — full CI policy.
 - `release_decision.evidence_coverage.{level, human_review_recommended, low_confidence_tool_count, source_warning_count}` — extraction/source coverage.
 - `release_decision.evidence_coverage.semantic_coverage` (v0.29+) — `{total_actions, pass_eligible_actions, gap_count, review_concern_count, reason_counts}` for the normalized action surface.
+- `release_decision.evidence_coverage.semantic_coverage.declaration_questions` (v0.37+) — `{total, answered, open, open_by_dimension, open_questions[]}`. Report progress from this rather than from `gap_count`: it counts only the `effect`/`authority` questions a human still owes, in answer order, and excludes everything the scan established by itself.
 - `release_decision.evidence_coverage.evidence_gaps[]` — ordered, typed human-routed remediation rows; follow their source/manifest pointers and accepted values instead of guessing. Semantic declaration placeholders are explicitly `suggested_patch_kind: "manual"`, `auto_apply: false`, and `requires_human_review: true`.
 - `release_decision.baseline_delta.{matched_count, new_count, resolved_count}` — what changed vs. the loaded baseline.
 
@@ -207,7 +208,7 @@ Alongside `report.json`, scan emits a reviewer-shaped Release Evidence Packet at
 - §1 verdict — derives from `release_decision.decision` only. Never derive a verdict from `summary.status`.
 - §10 ("What this packet did NOT prove") — always lists prompt robustness, runtime behavior, model correctness, adversarial resistance.
 
-The packet schema is `0.12`; full schema at [`docs/packet-schema.v0.13.json`](packet-schema.v0.13.json). It projects current report binding and semantic coverage plus gap remediation; v0.11 and older versions are frozen references.
+The packet schema is `0.14`; full schema at [`docs/packet-schema.v0.14.json`](packet-schema.v0.14.json). It projects current report binding and semantic coverage plus gap remediation; v0.13 and older versions are frozen references.
 
 ---
 
@@ -288,8 +289,8 @@ Surface the `next_action` to the user rather than scraping prose. The full diagn
 
 | Schema | Current | Frozen references | File |
 |---|---|---|---|
-| Report | `0.36` | `0.35`, `0.34`, `0.33`, `0.32`, `0.31`, `0.30`, `0.29`, `0.28`, `0.27`, `0.26`, `0.25`, `0.24`, `0.23`, `0.22`, `0.21`, `0.20`, `0.19`, `0.18`, `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.36.json`](report-schema.v0.36.json) |
-| Packet | `0.12` | `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`packet-schema.v0.13.json`](packet-schema.v0.13.json) |
+| Report | `0.37` | `0.36`, `0.35`, `0.34`, `0.33`, `0.32`, `0.31`, `0.30`, `0.29`, `0.28`, `0.27`, `0.26`, `0.25`, `0.24`, `0.23`, `0.22`, `0.21`, `0.20`, `0.19`, `0.18`, `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.37.json`](report-schema.v0.37.json) |
+| Packet | `0.14` | `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`packet-schema.v0.14.json`](packet-schema.v0.14.json) |
 | Manifest | `0.1` | — | [`manifest-v0.1.json`](manifest-v0.1.json) |
 | CLI contract | `19` | — | `agents-shipgate contract --json` |
 

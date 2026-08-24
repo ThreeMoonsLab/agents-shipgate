@@ -86,6 +86,16 @@ def test_cli_fixture_run(tmp_path: Path):
         "review_concern_count": 0,
         "reason_counts": {},
         "acknowledged_overrides": [],
+        # Nothing was ever asked: ``readOnlyHint`` establishes the effect and
+        # the MCP auth block establishes the authority, so the manifest's
+        # declarations restate what the scan already proved.
+        "declaration_questions": {
+            "total": 0,
+            "answered": 0,
+            "open": 0,
+            "open_by_dimension": {},
+            "open_questions": [],
+        },
     }
 
 

@@ -582,9 +582,7 @@ def _assess_effect(
 
     if declaration is not None and declaration.effect is not None:
         declared_effect = declaration.effect
-        high_structural = [claim for claim in structural if claim.confidence == "high"]
-        has_read = any(claim.value == "read" for claim in high_structural)
-        has_non_read = any(claim.value != "read" for claim in high_structural)
+        has_read, has_non_read = _source_read_conflict(structural)
         if has_read and has_non_read:
             status = "conflicting"
             confidence = "low"
@@ -642,9 +640,7 @@ def _assess_effect(
             status = "declared"
             confidence = "high"
     elif structural:
-        high_structural = [claim for claim in structural if claim.confidence == "high"]
-        has_read = any(claim.value == "read" for claim in high_structural)
-        has_non_read = any(claim.value != "read" for claim in high_structural)
+        has_read, has_non_read = _source_read_conflict(structural)
         inferred_effects = [_as_effect(claim.value) for claim in inferred]
         strongest_structural = _strongest_effect([_as_effect(claim.value) for claim in structural])
         strongest_inferred = _strongest_effect(inferred_effects) if inferred_effects else "read"
@@ -734,6 +730,41 @@ def _assess_effect(
             issues=_sorted_issues(issues),
         ),
         conservative,
+    )
+
+
+def _source_read_conflict(structural: Sequence[SemanticClaim]) -> tuple[bool, bool]:
+    """Does the *source* claim both read-only and a side effect at high confidence?
+
+    ``structural`` holds every authoritative claim that is not the declared
+    ``effect`` field — which includes the manifest's own ``risk_tags``,
+    ``scopes``, and acknowledged ``override``. Those restate the reviewed row;
+    they are not a second opinion about it, and
+    :data:`DECLARATION_CLAIM_SOURCES` exists to name exactly that set.
+
+    Reading them here made a manifest contradict itself. Declaring
+    ``risk_tags: [code_execution]`` on a tool whose server published
+    ``readOnlyHint: true`` was reported as "high-confidence read and
+    side-effect evidence conflict" — attributed to ``tool_source``, which had
+    said only one of the two. That is not a hypothetical: it is exactly the
+    repair the ``declaration_below_inferred_evidence`` row publishes, and the
+    declaration this module proposes for an undeclared action, so the published
+    next step could not close the row it was printed on.
+
+    Escalating past a source annotation is a reviewed human assertion and the
+    monotone rule (#409) already lets it stand silently; a source annotation is
+    tool-published content that is not conditioned on ``tool_sources[].trust``,
+    so it may never be the thing that blocks a human from over-declaring.
+    """
+
+    high = [
+        claim
+        for claim in structural
+        if claim.confidence == "high" and claim.source not in DECLARATION_CLAIM_SOURCES
+    ]
+    return (
+        any(claim.value == "read" for claim in high),
+        any(claim.value != "read" for claim in high),
     )
 
 
@@ -939,6 +970,145 @@ class EffectRepair:
     instruction: str
     effect: ActionEffect | None = None
     risk_tags: tuple[str, ...] = ()
+
+
+#: Evidence bases that state a *default* rather than an observation of the
+#: tool in front of us. ``mcp_protocol_default`` fires precisely *because* the
+#: server published nothing about this tool: it says what the protocol assumes
+#: in the absence of evidence, not what this tool does.
+#:
+#: Load-bearing for :func:`propose_effect_declaration`. A pre-filled answer is
+#: shipgate putting a value in front of a reviewer, and it may only do that
+#: from something it observed. Proposing ``write`` for every unannotated MCP
+#: tool would be an assertion drawn from an absence, and it would arrive on
+#: 117 rows at once — exactly the blanket-accept the blank was protecting.
+NON_OBSERVATIONAL_EFFECT_BASES = frozenset({"protocol_default"})
+
+
+@dataclass(frozen=True)
+class EffectReading:
+    """One effect the evidence can be read as, with the producers that say so.
+
+    ``observed`` separates evidence about *this tool* from a protocol default
+    standing in for the absence of any — see
+    :data:`NON_OBSERVATIONAL_EFFECT_BASES`. Both are shown to a reviewer; only
+    an observation may seed a proposal.
+    """
+
+    effect: ActionEffect
+    sources: tuple[str, ...]
+    observed: bool
+
+
+@dataclass(frozen=True)
+class EffectProposal:
+    """A conservative declaration that accounts for every reading.
+
+    ``risk_tags`` is non-empty exactly when no single effect covers the set —
+    the same two-route model :class:`EffectRepair` publishes, because it is the
+    same question asked before the declaration exists rather than after.
+    """
+
+    effect: ActionEffect
+    risk_tags: tuple[str, ...] = ()
+
+
+def effect_evidence_rank(effect: str) -> int:
+    """Risk order of ``effect`` on the evidence-strength table.
+
+    The one accessor for a table two modules now order by. Unknown values sort
+    at the floor rather than raising: a rank drives display order, and a
+    display order must not be able to fail a scan.
+    """
+
+    return _EFFECT_RANK.get(cast(ActionEffect, effect), 0)
+
+
+def effect_readings(effect: EffectSemanticAssessment) -> list[EffectReading]:
+    """Group this action's non-declaration effect claims into readings.
+
+    Declaration-sourced claims are excluded for the reason
+    :data:`DECLARATION_CLAIM_SOURCES` exists: they restate the manifest row, and
+    a row is not evidence about itself. What is left is what the scan saw,
+    which is what a reviewer needs in front of them to answer the question.
+
+    Ordered weakest reading first so a consumer rendering a prefix never drops
+    the strongest one.
+    """
+
+    sources: dict[ActionEffect, set[str]] = {}
+    observed: dict[ActionEffect, bool] = {}
+    for claim in effect.claims:
+        if claim.source in DECLARATION_CLAIM_SOURCES:
+            continue
+        if claim.value not in _EFFECT_VALUES:
+            continue
+        value = _as_effect(claim.value)
+        sources.setdefault(value, set()).add(claim.source)
+        observed[value] = observed.get(value, False) or (
+            claim.basis not in NON_OBSERVATIONAL_EFFECT_BASES
+        )
+    return [
+        EffectReading(
+            effect=value,
+            sources=tuple(sorted(sources[value])),
+            observed=observed[value],
+        )
+        for value in sorted(sources, key=lambda item: (_EFFECT_RANK[item], item))
+    ]
+
+
+def propose_effect_declaration(
+    readings: Sequence[EffectReading],
+) -> EffectProposal | None:
+    """The weakest declaration that accounts for every reading, or ``None``.
+
+    ``None`` — keep the blank — in exactly two cases, and both are the point of
+    an evidence-first proposal rather than a guess:
+
+    * **Nothing was observed.** Only a protocol default stands here, and a
+      default is an absence of evidence (see
+      :data:`NON_OBSERVATIONAL_EFFECT_BASES`).
+    * **Everything observed reads ``read``.** A heuristic must never establish
+      that an action is read-only (#357); pre-filling ``effect: read`` would do
+      precisely that, and it is the one direction where blanket acceptance
+      loses safety rather than over-declaring. Every other proposal is at or
+      above every reading, so the worst a reviewer who accepts one without
+      thinking can do is over-declare — the safe direction, and one the
+      monotone rule (#409) leaves visible rather than silent.
+
+    The covering computation spans **all** readings, defaults included: the
+    declaration has to close the row it is printed on, and an unaccounted
+    protocol default is as much a challenger to a declaration as a keyword hint
+    is (both are non-policy-eligible; see :func:`claims_above_declared_effect`).
+    The gate above only decides whether to propose at all.
+    """
+
+    if not any(reading.observed and reading.effect != "read" for reading in readings):
+        return None
+    values = sorted(
+        {reading.effect for reading in readings},
+        key=lambda item: (_EFFECT_RANK[item], item),
+    )
+    covering = [
+        candidate
+        for candidate in values
+        if all(declaration_covers(candidate, value) for value in values)
+    ]
+    if covering:
+        # The weakest sufficient answer, for the reason ``effect_repair`` picks
+        # the same one: anything more asks the reviewer to over-declare.
+        return EffectProposal(effect=covering[0])
+    # Rank alone cannot express this set — ``write`` and
+    # ``privileged_data_access`` each outrank the other on one of the two
+    # published tables. Declaring the strongest and naming every category as a
+    # reviewed risk tag accounts for all of them and makes each category's
+    # built-in controls apply, which is what an uncovered obligation is asking
+    # for.
+    tags = tuple(value for value in values if value in _ACTION_RISK_TAG_VALUES)
+    if not tags:  # pragma: no cover - only ``read`` has no matching tag
+        return None
+    return EffectProposal(effect=values[-1], risk_tags=tags)
 
 
 def _overridden_observations(

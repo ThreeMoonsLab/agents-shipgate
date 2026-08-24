@@ -1,4 +1,4 @@
-"""Advisory declaration scaffold for evidence gaps that need a human.
+"""The declaration questionnaire, assembled from what the engine derived.
 
 Several evidence gaps can only be closed by a reviewed human declaration —
 what a tool's effect is, what authority it runs with, which object is the root
@@ -8,11 +8,9 @@ snippets were only reachable inside ``report.json`` at
 ``release_decision.evidence_coverage.evidence_gaps[].next_action.declaration_template``,
 which made a one-time, three-line task look like schema archaeology.
 
-This module assembles them into one reviewable YAML snippet next to
+This module assembles them into one reviewable YAML document next to
 ``report.json``, the same way ``suggested-inventory.json`` is written for
-low-confidence sources. It asserts nothing: every value the human owns stays
-``<REVIEW_REQUIRED>``, and a file full of sentinels satisfies no gap. Deciding
-remains entirely the decision engine's job.
+low-confidence sources. Deciding remains entirely the decision engine's job.
 
 **Self-sufficiency is the point** (#388). The file a user is told to edit was
 the one file that did not say what a legal answer looks like: ``effect:
@@ -20,8 +18,34 @@ the one file that did not say what a legal answer looks like: ``effect:
 and an ``agent_bindings.root`` block with two blanks whose answer the scan had
 already observed. Every sentinel now carries the vocabulary or the shape it
 takes, as a comment, and where the scan observed candidates they are listed for
-a human to confirm. Nothing about the human declaration property changes — a
-comment is not a value.
+a human to confirm.
+
+**A numbered questionnaire, not a blank form** (#410 increment 2). A pile of
+blanks has no finish line and no order: the fourth ``adk-samples#1745`` walk
+reached a verdict after answering 2 of 12 actions — the two that moved money
+and communicated outward — so the blocks are numbered, counted, and ordered by
+how much answering them can move the verdict. Both numbers come from
+``semantic_coverage.declaration_questions``, so the file and the report cannot
+disagree about how much work is left.
+
+**Where evidence supports one conservative answer, it is filled in.** The scan
+already read ``request_refund_approval`` as a financial write; asking a human
+to retype that is the cost that stalls adoption, and the readings behind it are
+printed above the value so the answer can be checked in place rather than
+taken on trust. A pre-filled value is a *proposal*, and the distinction is
+mechanical, not editorial:
+
+* nothing consumes this file — only a reviewed edit to ``shipgate.yaml``, the
+  trust root, makes any of it operative;
+* the proposed value comes from the closed ``ActionEffect`` vocabulary, never
+  from source content, so no repository can put a word of its choosing here;
+* it is never weaker than any reading (see ``propose_effect_declaration``), so
+  confirming one without thinking over-declares rather than under-declares —
+  and it is offered only where something was actually observed, never from a
+  protocol default standing in for the absence of evidence.
+
+Everything a human owns and the scan did not observe still reads
+``<REVIEW_REQUIRED>``, and a block still carrying one closes nothing.
 """
 
 from __future__ import annotations
@@ -33,9 +57,33 @@ from typing import Any
 import yaml
 
 from agents_shipgate.ci.release_decision import REVIEW_REQUIRED_SENTINEL
-from agents_shipgate.core.evidence_actions import display_literal, yaml_scalar
+from agents_shipgate.core.declaration_questions import (
+    ANSWERABLE_ISSUE_KINDS,
+    progress_sentence,
+)
+from agents_shipgate.core.evidence_actions import (
+    display_literal,
+    evidence_gap_action_text,
+    one_line,
+    yaml_scalar,
+)
 from agents_shipgate.schemas.bindings import AgentBindingNode
-from agents_shipgate.schemas.report import EvidenceGap, ReadinessReport
+from agents_shipgate.schemas.report import (
+    DeclarationQuestionCoverage,
+    EvidenceGap,
+    EvidenceReading,
+    ReadinessReport,
+)
+
+#: Which declaration dimension each answerable gap kind belongs to, inverted
+#: from the one table that defines them. Inverted rather than restated: a
+#: second spelling of the same routing is how the questionnaire and the
+#: counter start disagreeing about what a question is.
+_DIMENSION_BY_GAP_KIND: dict[str, str] = {
+    kind: dimension
+    for dimension, kinds in ANSWERABLE_ISSUE_KINDS.items()
+    for kind in kinds
+}
 
 # Which template field an action's ``accepted_values`` is the vocabulary FOR.
 #
@@ -129,7 +177,7 @@ _MAX_RENDERED_CANDIDATES = 10
 
 
 def scaffold_for_report(report: ReadinessReport) -> str | None:
-    """Render the scaffold for a report, or ``None`` when nothing is owed."""
+    """Render the questionnaire for a report, or ``None`` when nothing is owed."""
 
     decision = report.release_decision
     if decision is None or decision.evidence_coverage is None:
@@ -137,6 +185,7 @@ def scaffold_for_report(report: ReadinessReport) -> str | None:
     return build_declaration_scaffold(
         decision.evidence_coverage.evidence_gaps,
         agents=report.binding_surface_facts.agents,
+        questions=decision.evidence_coverage.semantic_coverage.declaration_questions,
     )
 
 
@@ -144,21 +193,82 @@ def build_declaration_scaffold(
     gaps: Sequence[EvidenceGap],
     *,
     agents: Sequence[AgentBindingNode] = (),
+    questions: DeclarationQuestionCoverage | None = None,
 ) -> str | None:
-    """Render the paste-ready scaffold, or ``None`` when nothing is owed.
+    """Render the paste-ready questionnaire, or ``None`` when nothing is owed.
 
-    Deterministic: gaps are consumed in the order the decision engine emitted
-    them, and templates aimed at the same manifest target are merged once.
+    Deterministic. Templates aimed at the same manifest target are merged once,
+    and the merged blocks are ordered by the question order the decision engine
+    published — highest-risk action first — falling back to gap emission order
+    when no question coverage is supplied.
 
     ``agents`` is the binding graph's observed agent nodes. They are rendered
     as commented candidates under an ``agent_bindings.root`` block — the value
     the scan computed, offered for confirmation rather than asserted (#388).
+
+    ``questions`` is ``semantic_coverage.declaration_questions``. It supplies
+    the numbering, the progress counter, and the order; the blocks themselves
+    are built from the gaps either way, so a report that carries no coverage
+    (one written before v0.37) still renders every block it owes.
     """
 
-    # Group by the manifest path plus the subject the template is about, then
-    # merge. Two gaps on one tool (an undeclared effect and an undeclared
-    # authority) want ONE ``action_surface.actions`` row, so emitting them as
-    # two blocks would hand the human something invalid to paste.
+    sections = _sections(gaps)
+    ordering = _question_numbers(questions)
+    for entry in sections:
+        numbered_keys = sorted(
+            (number, key)
+            for key in entry["question_keys"]
+            if (number := ordering.get(key)) is not None
+        )
+        entry["numbers"] = tuple(number for number, _ in numbered_keys)
+        # In question order, not template order: the banner is read alongside
+        # the numbers, so "Questions 2-3 · authority, effect" would name the
+        # dimensions in the opposite order from the numbers beside them.
+        entry["dimensions"] = tuple(dimension for _, (_, dimension) in numbered_keys)
+    # Numbered blocks lead, in question order. A block nothing asked about —
+    # a tool inventory, an ``agent_bindings`` root — is a declaration too, but
+    # not a per-action question, so it keeps its emission order below them
+    # rather than being given a number the counter does not know about.
+    numbered = sorted(
+        (entry for entry in sections if entry["numbers"]),
+        key=lambda entry: entry["numbers"],
+    )
+    unnumbered = [entry for entry in sections if not entry["numbers"]]
+    claimed = {number for entry in numbered for number in entry["numbers"]}
+    unfillable = _unfillable_questions(gaps, ordering, claimed)
+    if not sections and not unfillable:
+        return None
+
+    total_open = len(ordering) if ordering else len(claimed)
+    lines = _header(questions)
+    for entry in numbered:
+        _emit_block(entry, agents=agents, total_open=total_open, out=lines)
+    for number, gap in unfillable:
+        _emit_unfillable(number, gap, total_open=total_open, out=lines)
+    if unnumbered:
+        if numbered or unfillable:
+            lines.extend(
+                [
+                    "",
+                    "# " + "─" * 68,
+                    "# Also required, and not a per-action question: these are",
+                    "# declarations about a source or an agent rather than about one",
+                    "# action, so they are not counted above.",
+                ]
+            )
+        for entry in unnumbered:
+            _emit_block(entry, agents=agents, total_open=total_open, out=lines)
+    return "\n".join(lines) + "\n"
+
+
+def _sections(gaps: Sequence[EvidenceGap]) -> list[dict[str, Any]]:
+    """Merge the gaps' templates into one block per manifest target.
+
+    Two gaps on one tool (an undeclared effect and an undeclared authority)
+    want ONE ``action_surface.actions`` row, so emitting them as two blocks
+    would hand the human something invalid to paste.
+    """
+
     sections: list[dict[str, Any]] = []
     by_target: dict[tuple[str, str, str], dict[str, Any]] = {}
     for gap in gaps:
@@ -176,6 +286,13 @@ def build_declaration_scaffold(
             str(template.get("tool_id") or template.get("tool") or ""),
         )
         vocabulary = _vocabulary_for(action)
+        dimension = _DIMENSION_BY_GAP_KIND.get(str(gap.kind))
+        # The questions this block answers, as the same ``(subject_id,
+        # dimension)`` pair the decision engine numbers them by. Carried as a
+        # set rather than as a subject plus a dimension list, because merging
+        # two blocks can bring questions about two different subjects together
+        # and a single ``subject_id`` on the entry would silently drop one.
+        question_key = (gap.subject_id, dimension) if dimension else None
         existing = by_target.get(target)
         if existing is None:
             entry: dict[str, Any] = {
@@ -183,55 +300,300 @@ def build_declaration_scaffold(
                 "kinds": [str(gap.kind)],
                 "template": dict(template),
                 "vocabulary": dict(vocabulary),
+                "subject": str(gap.subject or ""),
+                "question_keys": [question_key] if question_key else [],
+                "dimensions": (),
+                "readings": list(getattr(action, "observed_readings", ()) or ()),
+                "numbers": (),
             }
             by_target[target] = entry
             sections.append(entry)
             continue
-        if str(gap.kind) not in existing["kinds"]:
-            existing["kinds"].append(str(gap.kind))
-        for key, value in template.items():
-            existing["template"].setdefault(key, value)
-        for field, values in vocabulary.items():
-            existing["vocabulary"].setdefault(field, values)
+        _absorb(existing, gap, template, vocabulary, question_key, action)
+    return _drop_duplicate_blocks(sections)
 
-    sections = _drop_duplicate_blocks(sections)
-    if not sections:
-        return None
 
+def _absorb(
+    entry: dict[str, Any],
+    gap: EvidenceGap,
+    template: dict[str, Any],
+    vocabulary: dict[str, list[str]],
+    question_key: tuple[str | None, str] | None,
+    action: Any,
+) -> None:
+    """Fold one more gap into the block already claiming this manifest target."""
+
+    if str(gap.kind) not in entry["kinds"]:
+        entry["kinds"].append(str(gap.kind))
+    if question_key and question_key not in entry["question_keys"]:
+        entry["question_keys"].append(question_key)
+    if not entry["readings"]:
+        entry["readings"] = list(getattr(action, "observed_readings", ()) or ())
+    for key, value in template.items():
+        entry["template"].setdefault(key, value)
+    for field, values in vocabulary.items():
+        entry["vocabulary"].setdefault(field, values)
+
+
+def _question_numbers(
+    questions: DeclarationQuestionCoverage | None,
+) -> dict[tuple[str | None, str], int]:
+    """``(subject_id, dimension) -> 1-based question number``, in answer order."""
+
+    if questions is None:
+        return {}
+    return {
+        (row.subject_id, row.dimension): index
+        for index, row in enumerate(questions.open_questions, start=1)
+    }
+
+
+def _unfillable_questions(
+    gaps: Sequence[EvidenceGap],
+    ordering: dict[tuple[str | None, str], int],
+    claimed: set[int],
+) -> list[tuple[int, EvidenceGap]]:
+    """Open questions no block answers, with the gap that explains them.
+
+    A conflict between two sources is a real open question — it is counted, and
+    it is what the reviewer has to resolve next — but its repair is to correct
+    the source, not to fill in a blank, so no template is offered for it. Left
+    out, the numbering would skip and the file would silently disagree with its
+    own header about how many questions there are.
+    """
+
+    entries: list[tuple[int, EvidenceGap]] = []
+    seen: set[int] = set()
+    for gap in gaps:
+        dimension = _DIMENSION_BY_GAP_KIND.get(str(gap.kind))
+        if dimension is None:
+            continue
+        number = ordering.get((gap.subject_id, dimension))
+        if number is None or number in claimed or number in seen:
+            continue
+        seen.add(number)
+        entries.append((number, gap))
+    return sorted(entries)
+
+
+def _header(questions: DeclarationQuestionCoverage | None) -> list[str]:
     lines = [
-        "# Declaration scaffold generated by agents-shipgate.",
+        "# Declaration questionnaire generated by agents-shipgate.",
         "#",
-        "# Each block below is what one evidence gap needs before this repository",
-        f"# can reach a `passed` verdict. Replace every {REVIEW_REQUIRED_SENTINEL}",
-        "# with a reviewed value, merge the block into shipgate.yaml at the path",
-        "# named above it, then re-run verification.",
-        "#",
-        "# These are human declarations on purpose. Agents Shipgate will not guess",
-        "# a tool's effect, its authority, or which object is the root agent, and",
-        f"# a block still containing {REVIEW_REQUIRED_SENTINEL} closes nothing.",
-        "#",
-        "# Every blank carries the values it accepts, or the shape its answer",
-        "# takes, on the comment line above it. Where a field is only required",
-        "# for some answers the comment says so — delete the lines your answer",
-        "# does not take.",
     ]
-    for entry in sections:
-        # Each block is its own YAML document. Concatenated mappings would
-        # repeat top-level keys (two `tool:` roots), which is not a file a
-        # reader or a parser can make sense of.
-        lines.append("")
-        lines.append("---")
-        lines.append(f"# closes: {', '.join(entry['kinds'])}")
-        lines.append(f"# merge into: {entry['path']}")
-        _emit_mapping(
-            entry["template"],
-            path="",
-            depth=0,
-            vocabulary=entry["vocabulary"],
-            agents=agents,
-            out=lines,
+    if questions is not None and questions.total:
+        lines.extend(_wrapped_comment(progress_sentence(questions), ""))
+        lines.append("#")
+        lines.extend(
+            _wrapped_comment(
+                "Ordered by how much answering can move the verdict, so the "
+                "first questions are the ones about money, outward "
+                "communication, and destruction.",
+                "",
+            )
         )
-    return "\n".join(lines) + "\n"
+        lines.append("#")
+    lines.extend(
+        [
+            "# Each block below is what one action still owes before this repository",
+            f"# can reach a `passed` verdict. Replace every {REVIEW_REQUIRED_SENTINEL}",
+            "# with a reviewed value, merge the block into shipgate.yaml at the path",
+            "# named above it, then re-run verification. One block answers both of",
+            "# an action's questions where it has two — they are one manifest row.",
+            "#",
+            "# Where a value is already filled in, the scan observed the evidence",
+            "# printed above it and proposes the most conservative reading of that",
+            "# evidence — it is never weaker than anything observed. Keep it to",
+            "# confirm it, or replace it with a value you can defend. Nothing here",
+            "# is operative until you merge it into shipgate.yaml yourself.",
+            "#",
+            "# Everything else is a human declaration on purpose. Agents Shipgate",
+            "# will not guess a tool's authority or which object is the root agent,",
+            f"# and a block still containing {REVIEW_REQUIRED_SENTINEL} closes nothing.",
+            "#",
+            "# Every blank carries the values it accepts, or the shape its answer",
+            "# takes, on the comment line above it. Where a field is only required",
+            "# for some answers the comment says so — delete the lines your answer",
+            "# does not take.",
+        ]
+    )
+    return lines
+
+
+#: Column the question banner rules out to, so the questionnaire scans as a
+#: list of sections rather than a wall of comments. Matches the width
+#: ``_wrapped_comment`` wraps prose at.
+_BANNER_WIDTH = 78
+
+
+def _question_banner(
+    numbers: Sequence[int],
+    total: int,
+    subject: str,
+    dimensions: Sequence[str] = (),
+) -> str:
+    """``Question 3 of 5 · effect · send_email [mcp]`` — a range where merged.
+
+    The dimensions are named because one block can answer two questions, and
+    the counter beside them counts questions rather than blocks: without them,
+    "Questions 2–3" would look like a numbering error.
+    """
+
+    label = (
+        f"Question {numbers[0]} of {total}"
+        if len(numbers) == 1
+        else f"Questions {numbers[0]}–{numbers[-1]} of {total}"
+    )
+    parts = [label]
+    if dimensions:
+        parts.append(", ".join(dimensions))
+    parts.append(display_literal(subject))
+    text = f"── {' · '.join(parts)} "
+    return text.ljust(_BANNER_WIDTH - 2, "─")
+
+
+def _emit_block(
+    entry: dict[str, Any],
+    *,
+    agents: Sequence[AgentBindingNode],
+    total_open: int,
+    out: list[str],
+) -> None:
+    # Each block is its own YAML document. Concatenated mappings would
+    # repeat top-level keys (two `tool:` roots), which is not a file a
+    # reader or a parser can make sense of.
+    out.append("")
+    if entry["numbers"]:
+        out.append(
+            "# "
+            + _question_banner(
+                entry["numbers"],
+                total_open,
+                entry["subject"],
+                entry["dimensions"],
+            )
+        )
+    out.extend(_reading_lines(entry["readings"], entry["template"]))
+    out.append("---")
+    out.append(f"# closes: {', '.join(entry['kinds'])}")
+    out.append(f"# merge into: {entry['path']}")
+    _emit_mapping(
+        entry["template"],
+        path="",
+        depth=0,
+        vocabulary=entry["vocabulary"],
+        agents=agents,
+        proposed=_proposed_fields(entry["template"]),
+        out=out,
+    )
+
+
+def _emit_unfillable(
+    number: int,
+    gap: EvidenceGap,
+    *,
+    total_open: int,
+    out: list[str],
+) -> None:
+    """A counted question with no blank to fill — say what closes it instead."""
+
+    out.append("")
+    dimension = _DIMENSION_BY_GAP_KIND.get(str(gap.kind))
+    out.append(
+        "# "
+        + _question_banner(
+            (number,),
+            total_open,
+            gap.subject,
+            (dimension,) if dimension else (),
+        )
+    )
+    out.extend(_wrapped_comment(one_line(gap.why), ""))
+    out.append("#")
+    out.extend(
+        _wrapped_comment(
+            "No block is offered for this one: "
+            + one_line(evidence_gap_action_text(gap, include_command=False)),
+            "",
+        )
+    )
+
+
+def _proposed_fields(template: dict[str, Any]) -> frozenset[str]:
+    """Template fields carrying a proposal rather than a blank.
+
+    Enumerated, not inferred from "is not the sentinel": a selector field is
+    filled in too, and calling the tool's own name a proposal would invite a
+    reviewer to change it.
+    """
+
+    proposed: set[str] = set()
+    if template.get("effect") not in (None, REVIEW_REQUIRED_SENTINEL):
+        proposed.add("effect")
+    if isinstance(template.get("risk_tags"), list) and template["risk_tags"]:
+        proposed.add("risk_tags")
+    return frozenset(proposed)
+
+
+def _reading_lines(
+    readings: Sequence[EvidenceReading],
+    template: dict[str, Any],
+) -> list[str]:
+    """What the scan read this action's effect as, above the value it proposes.
+
+    Observations and defaults are stated separately. A protocol default is what
+    the protocol assumes when a server publishes nothing about a tool, so
+    presenting it beside a keyword match as though both were evidence about
+    this action would misrepresent the weaker one — and it is exactly the
+    reading nothing is ever proposed from.
+    """
+
+    if not readings:
+        return []
+    observed = [reading for reading in readings if reading.observed]
+    defaults = [reading for reading in readings if not reading.observed]
+    lines: list[str] = []
+    if observed:
+        lines.append("# What this scan read this action's effect as:")
+        lines.extend(_reading_rows(observed))
+    if defaults:
+        lines.append(
+            "# Assumed in the absence of evidence, and never proposed from:"
+        )
+        lines.extend(_reading_rows(defaults))
+    proposal = template.get("effect")
+    if "effect" in _proposed_fields(template):
+        tags = template.get("risk_tags")
+        detail = (
+            f" with risk_tags: [{', '.join(str(tag) for tag in tags)}]"
+            if isinstance(tags, list) and tags
+            else ""
+        )
+        lines.extend(
+            _wrapped_comment(
+                f"Proposed below: {proposal}{detail} — at or above every reading "
+                "here, so confirming it can only over-declare. Replace it if you "
+                "can defend a different reading.",
+                "",
+            )
+        )
+    return lines
+
+
+def _reading_rows(readings: Sequence[EvidenceReading]) -> list[str]:
+    """One comment row per reading: the effect, then who says so.
+
+    ``display_literal`` on the sources because a claim source can embed a
+    repository-controlled name (``risk_hint:<hint source>``), and this is a
+    YAML comment directly above a value a reader pastes — a forged line break
+    here would render a filled-in field nobody wrote (#268).
+    """
+
+    return [
+        f"#   {display_literal(reading.effect)} — "
+        f"{', '.join(display_literal(source) for source in reading.sources)}"
+        for reading in readings
+    ]
 
 
 def _vocabulary_for(action: Any) -> dict[str, list[str]]:
@@ -266,6 +628,14 @@ def _drop_duplicate_blocks(sections: list[dict[str, Any]]) -> list[dict[str, Any
                 first["kinds"].append(kind)
         for field, values in entry["vocabulary"].items():
             first["vocabulary"].setdefault(field, values)
+        # The questions too. A dropped block still answered whatever it was
+        # asked, and losing its keys here would leave that question numbered by
+        # the counter and answered by no block in the file.
+        for question_key in entry["question_keys"]:
+            if question_key not in first["question_keys"]:
+                first["question_keys"].append(question_key)
+        if not first["readings"]:
+            first["readings"] = entry["readings"]
     return kept
 
 
@@ -285,6 +655,7 @@ def _annotate(
     depth: int,
     vocabulary: dict[str, list[str]],
     agents: Sequence[AgentBindingNode],
+    proposed: frozenset[str],
     out: list[str],
 ) -> None:
     """Write the comment lines that belong above the value at ``path``."""
@@ -292,6 +663,17 @@ def _annotate(
     pad = "  " * depth
     for line in _candidate_lines(path, agents):
         out.append(f"{pad}# {line}")
+    if path in proposed:
+        # Said at the cursor as well as in the header. A reader who scrolls
+        # straight to a filled-in field would otherwise have no way to tell it
+        # apart from a value they wrote on an earlier pass.
+        out.extend(
+            _wrapped_comment(
+                "proposed from the evidence above — keep it to confirm, or "
+                "replace it.",
+                pad,
+            )
+        )
     hint = _hint_for(path)
     if hint is not None:
         out.extend(_wrapped_comment(hint, pad))
@@ -395,6 +777,7 @@ def _emit_mapping(
     depth: int,
     vocabulary: dict[str, list[str]],
     agents: Sequence[AgentBindingNode],
+    proposed: frozenset[str] = frozenset(),
     out: list[str],
     first_prefix: str | None = None,
 ) -> None:
@@ -416,7 +799,14 @@ def _emit_mapping(
         lead = first_prefix if on_dash else pad
         # The dash line's own annotation belongs above the dash, at the
         # sequence's indentation rather than the item's.
-        _annotate(child, depth - 1 if on_dash else depth, vocabulary, agents, out)
+        _annotate(
+            child,
+            depth - 1 if on_dash else depth,
+            vocabulary,
+            agents,
+            proposed,
+            out,
+        )
         if isinstance(value, dict) and value:
             out.append(f"{lead}{key}:")
             _emit_mapping(
@@ -425,6 +815,7 @@ def _emit_mapping(
                 depth=depth + 1,
                 vocabulary=vocabulary,
                 agents=agents,
+                proposed=proposed,
                 out=out,
             )
         elif isinstance(value, (list, tuple)):
@@ -438,6 +829,7 @@ def _emit_mapping(
                 depth=depth,
                 vocabulary=vocabulary,
                 agents=agents,
+                proposed=proposed,
                 out=out,
             )
         else:
@@ -452,6 +844,7 @@ def _emit_sequence(
     depth: int,
     vocabulary: dict[str, list[str]],
     agents: Sequence[AgentBindingNode],
+    proposed: frozenset[str] = frozenset(),
     out: list[str],
 ) -> None:
     """Render a sequence: dashes at the key's indent, content one deeper.
@@ -469,6 +862,7 @@ def _emit_sequence(
                 depth=depth + 1,
                 vocabulary=vocabulary,
                 agents=agents,
+                proposed=proposed,
                 out=out,
                 first_prefix=f"{pad}- ",
             )
