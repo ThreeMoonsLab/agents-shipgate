@@ -62,7 +62,11 @@
   neither gates. Packet `0.13 → 0.14` and verifier `0.10 → 0.11` follow because
   they embed the same block; the prior versions keep their published bytes and
   are read forward, with an absent counter reported as `0 of 0` rather than as
-  a claim that nothing was owed.
+  a claim that nothing was owed. The safety-qualification gate's
+  `required_report_schema_version` moves with them — it compares for exact
+  equality, so a gate left behind a bump rejects every receipt for a reason
+  that has nothing to do with safety, and it is now pinned equal to what the
+  engine emits by a test.
 
 - **A declaration cannot discharge a category it does not cover, and a
   published schema keeps its bytes.** Three follow-ups to the monotone
