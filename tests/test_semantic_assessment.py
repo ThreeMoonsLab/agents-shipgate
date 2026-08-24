@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from agents_shipgate.core.capability_lattice import mcp_permission_risk_hints
 from agents_shipgate.core.domain import AuthInfo, Tool, ToolRiskHint
 from agents_shipgate.core.semantic_assessment import (
+    acknowledged_effect_claim_ids,
     assess_tool_semantics,
     attach_semantic_assessments,
 )
@@ -953,6 +954,47 @@ def test_override_cannot_silence_policy_eligible_contradiction() -> None:
     # …and the reviewer is told the block they wrote does not reach this
     # conflict, rather than re-running against an unchanged message.
     assert "the declared override does not apply" in issue.message
+
+
+def test_an_acknowledgement_can_never_cover_policy_eligible_evidence() -> None:
+    """The safety property behind consuming acknowledgements downstream.
+
+    Policy applicability, action policies, and capability policies all drop the
+    claims an override names. That is only safe because an override can never
+    name a policy-eligible claim: the resolver refuses to attach one while
+    policy-eligible evidence outranks the declaration, and the set it records is
+    filtered on ``not policy_eligible``. Asserted here rather than at each
+    consumer, because it is one property of the producer.
+    """
+
+    declaration = ActionDeclarationConfig.model_validate(
+        {
+            "tool": "process_order",
+            "effect": "read",
+            "authority": {"mode": "none"},
+            "override": {"evidence": "checked the handler", "reason": "returns a row"},
+        }
+    )
+
+    assessment = assess_tool_semantics(
+        _tool(
+            annotations={"readOnlyHint": True},
+            risk_hints=[_keyword_hint("destructive"), _keyword_hint("write")],
+            auth=AuthInfo(source="mcp", mode="none", explicit=True),
+        ),
+        declaration,
+    )
+
+    acknowledged = acknowledged_effect_claim_ids(assessment.effect.claims)
+    assert acknowledged
+    by_id = {claim.claim_id: claim for claim in assessment.effect.claims}
+    for claim_id in acknowledged:
+        claim = by_id[claim_id]
+        assert claim.policy_eligible is False, claim
+        assert claim.source not in {
+            "action_surface_declaration",
+            "action_surface_declaration_override",
+        }
 
 
 def test_the_read_versus_side_effect_conflict_also_names_an_ignored_override() -> None:
