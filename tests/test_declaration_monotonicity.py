@@ -123,6 +123,15 @@ def test_declaration_below_inferred_evidence_is_reported(tmp_path: Path) -> None
     assert "'read'" in row.why
     assert "'external_communication'" in row.why
     assert row.next_action.kind == "resolve_semantic_conflict"
+    # The instruction names the value. The short headline every human surface
+    # renders is the per-kind phrase, not this row's `why`, so an instruction
+    # that only pointed back at the row named the effect nowhere the user
+    # could see it — and `accepted_values` is the vocabulary for exactly the
+    # field `expects` names.
+    assert "Raise action_surface.actions[].effect to 'external_communication'" in (
+        row.next_action.expects
+    )
+    assert "external_communication" in row.next_action.accepted_values
     assert row.next_action.declaration_template is not None
     assert set(row.next_action.declaration_template["override"]) == {"evidence", "reason"}
     # A human assertion, never a machine-applicable patch.
@@ -270,3 +279,28 @@ def test_review_reason_names_the_concern_it_actually_found() -> None:
     )
     assert "unscoped or ambient authority" in both
     assert "1 acknowledged declaration sits below inferred effect evidence" in both
+
+
+def test_the_instruction_and_the_reason_name_the_same_effect(tmp_path: Path) -> None:
+    """One comparator, so the row cannot tell a reviewer two different things.
+
+    ``expects`` is built in the release-decision projection and ``why`` is built
+    in the resolver. Deriving the value twice is the recurring defect class in
+    this codebase, so both read
+    ``semantic_assessment.claims_above_declared_effect``.
+    """
+
+    report = _scan(_project(tmp_path, _WEAK), tmp_path / "reports")
+    row = next(
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "declaration_below_inferred_evidence"
+    )
+
+    named_in_reason = [
+        effect for effect in row.next_action.accepted_values if f"'{effect}'" in row.why
+    ]
+    # `read` is the declared value and also appears quoted, so compare the set.
+    assert set(named_in_reason) == {"read", "external_communication"}
+    assert "'external_communication'" in row.next_action.expects
+    assert "'read'" not in row.next_action.expects

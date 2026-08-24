@@ -35,6 +35,9 @@ POLICY_ELIGIBLE_EVIDENCE_BASES = frozenset(
 #: ``action_surface.actions[].override`` block. Written by the resolver and
 #: read by the release-decision projection, so both sides share one spelling
 #: rather than two string literals that have to agree (#409).
+#: Claim source for the manifest's own ``action_surface.actions[].effect``.
+DECLARED_EFFECT_SOURCE = "action_surface_declaration"
+
 DECLARATION_OVERRIDE_SOURCE = "action_surface_declaration_override"
 
 #: Effect-claim sources that restate the manifest action row itself — the
@@ -46,7 +49,7 @@ DECLARATION_OVERRIDE_SOURCE = "action_surface_declaration_override"
 #: set and a second copy is a drift waiting to happen.
 DECLARATION_CLAIM_SOURCES = frozenset(
     {
-        "action_surface_declaration",
+        DECLARED_EFFECT_SOURCE,
         "action_risk_tag_declaration",
         "action_scope",
         DECLARATION_OVERRIDE_SOURCE,

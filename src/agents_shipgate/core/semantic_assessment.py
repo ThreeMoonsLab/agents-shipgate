@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
 from agents_shipgate.core.domain import (
     DECLARATION_CLAIM_SOURCES,
     DECLARATION_OVERRIDE_SOURCE,
+    DECLARED_EFFECT_SOURCE,
     SURFACE_ENUMERATED,
     AuthorityMode,
     AuthoritySemanticAssessment,
@@ -441,8 +442,12 @@ def _assess_effect(
             if claim.source in {"risk_hint:manual", "action_risk_tag_declaration"}
             and claim.value != "read"
         )
-    declared = [claim for claim in authoritative if claim.source == "action_surface_declaration"]
-    structural = [claim for claim in authoritative if claim.source != "action_surface_declaration"]
+    declared = [
+        claim for claim in authoritative if claim.source == DECLARED_EFFECT_SOURCE
+    ]
+    structural = [
+        claim for claim in authoritative if claim.source != DECLARED_EFFECT_SOURCE
+    ]
     inferred = [claim for claim in claims if claim not in authoritative]
 
     is_mcp = tool.source_type in _MCP_SOURCE_TYPES or tool.annotations.get("mcp_server") is True
@@ -499,13 +504,9 @@ def _assess_effect(
             and _EFFECT_RANK[_as_effect(claim.value)] > declared_rank
         ]
         if not contradictory:
-            below_declared = [
-                claim
-                for claim in [*structural, *inferred]
-                if not claim.policy_eligible
-                and claim.value in _EFFECT_VALUES
-                and _EFFECT_RANK[_as_effect(claim.value)] > declared_rank
-            ]
+            below_declared = claims_above_declared_effect(
+                [*structural, *inferred], declaration.effect
+            )
         if below_declared:
             below_effect = _strongest_effect(
                 [_as_effect(claim.value) for claim in below_declared]
@@ -709,6 +710,64 @@ def _assess_effect(
         ),
         conservative,
     )
+
+
+def claims_above_declared_effect(
+    claims: Sequence[SemanticClaim],
+    declared_effect: str,
+) -> list[SemanticClaim]:
+    """Effect claims that outrank the declaration without being able to prove it.
+
+    The monotone rule's comparison, in one place. The resolver needs the claims
+    (it names their sources in the row); the release-decision projection needs
+    only the value they resolve to, so it can publish the exact effect to raise
+    to instead of an instruction that names nothing. Two derivations of the same
+    comparison is the recurring defect class in this codebase, so there is one.
+
+    Policy-eligible claims are excluded because outranking the declaration
+    *with* policy-eligible evidence is ``conflicting_effect_evidence`` — a
+    blocking conflict, decided elsewhere — and because the declaration's own
+    claim is policy-eligible and must never compare against itself.
+    """
+
+    if declared_effect not in _EFFECT_RANK:
+        return []
+    declared_rank = _EFFECT_RANK[_as_effect(declared_effect)]
+    return [
+        claim
+        for claim in claims
+        if not claim.policy_eligible
+        and claim.value in _EFFECT_VALUES
+        and _EFFECT_RANK[_as_effect(claim.value)] > declared_rank
+    ]
+
+
+def strongest_effect_above_declaration(
+    effect: EffectSemanticAssessment,
+) -> str | None:
+    """The effect this row asks a reviewer to raise to, or ``None``.
+
+    Reads the assessment the resolver already produced rather than re-deciding:
+    the declared claim carries the declared value, and
+    :func:`claims_above_declared_effect` is the same comparison the resolver
+    ran. An acknowledged override is absent from the claim list of any tool that
+    still carries this gap, so it cannot mask the answer.
+    """
+
+    declared = next(
+        (
+            claim
+            for claim in effect.claims
+            if claim.source == DECLARED_EFFECT_SOURCE
+        ),
+        None,
+    )
+    if declared is None:
+        return None
+    above = claims_above_declared_effect(effect.claims, declared.value)
+    if not above:
+        return None
+    return _strongest_effect([_as_effect(claim.value) for claim in above])
 
 
 def _below_evidence_message(
@@ -1169,4 +1228,9 @@ def _sorted_issues(issues: list[SemanticIssue]) -> list[SemanticIssue]:
     return [unique[key] for key in sorted(unique, key=lambda value: tuple(v or "" for v in value))]
 
 
-__all__ = ["assess_tool_semantics", "attach_semantic_assessments"]
+__all__ = [
+    "assess_tool_semantics",
+    "attach_semantic_assessments",
+    "claims_above_declared_effect",
+    "strongest_effect_above_declaration",
+]

@@ -35,7 +35,9 @@
   pass until it is answered.
 
   Two answers close it, and the reviewer owns the choice: raise `effect` to
-  what was inferred, or acknowledge the difference with the new
+  what was inferred — the row names the exact value, so `Improve evidence:`
+  reads *Raise action_surface.actions[].effect to 'external_communication'* —
+  or acknowledge the difference with the new
   `action_surface.actions[].override` block, which names the `evidence` you
   checked and the `reason` it does not apply. An acknowledged override is
   accepted — the action is pass-eligible again — and is reported as one
