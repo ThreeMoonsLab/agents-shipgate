@@ -567,7 +567,10 @@ def _assess_effect(
                 _issue(
                     "conflicting_effect_evidence",
                     "effect",
-                    "high-confidence read and side-effect evidence conflict",
+                    _conflicting_declaration_message(
+                        declaration,
+                        "high-confidence read and side-effect evidence conflict",
+                    ),
                     "tool_source",
                     pointer,
                 )
@@ -579,7 +582,10 @@ def _assess_effect(
                 _issue(
                     "conflicting_effect_evidence",
                     "effect",
-                    _conflicting_declaration_message(declaration),
+                    _conflicting_declaration_message(
+                        declaration,
+                        "declared effect is weaker than high-confidence source evidence",
+                    ),
                     "action_surface_declaration",
                     f"action_surface.actions[tool={tool.name!r}].effect",
                 )
@@ -730,20 +736,26 @@ def _below_evidence_message(
     return message
 
 
-def _conflicting_declaration_message(declaration: ActionDeclarationConfig) -> str:
+def _conflicting_declaration_message(
+    declaration: ActionDeclarationConfig,
+    message: str,
+) -> str:
     """Say when a written override does not reach this conflict.
 
     ``override`` acknowledges *inferred* evidence. A reviewer blocked here will
     reach for it — it is the route the sibling row publishes — and silently
     ignoring the block leaves them re-running against an unchanged message with
-    a reviewed exception in the manifest that the resolver discarded.
+    a reviewed exception in the manifest that the resolver discarded. Both
+    conflicting branches route through here: the user error is the same one
+    whether the source evidence outranks the declaration or splits read from
+    side-effect.
     """
 
-    message = "declared effect is weaker than high-confidence source evidence"
     if declaration.override is not None:
         message += (
-            "; the declared override does not apply — it acknowledges inferred "
-            "evidence, and this conflict is with policy-eligible source evidence"
+            "; the declared override does not apply here — it acknowledges "
+            "inferred evidence, and this conflict is in policy-eligible source "
+            "evidence"
         )
     return message
 

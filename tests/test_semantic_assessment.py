@@ -955,6 +955,33 @@ def test_override_cannot_silence_policy_eligible_contradiction() -> None:
     assert "the declared override does not apply" in issue.message
 
 
+def test_the_read_versus_side_effect_conflict_also_names_an_ignored_override() -> None:
+    """Both conflicting branches owe the note; it is the same user error."""
+
+    declaration = ActionDeclarationConfig.model_validate(
+        {
+            "tool": "process_order",
+            "effect": "read",
+            "authority": {"mode": "none"},
+            "override": {"evidence": "I read the annotations", "reason": "I disagree"},
+        }
+    )
+
+    assessment = assess_tool_semantics(
+        _tool(annotations={"readOnlyHint": True, "destructiveHint": True}),
+        declaration,
+    )
+
+    issue = next(
+        item
+        for item in assessment.effect.issues
+        if item.kind == "conflicting_effect_evidence"
+    )
+    assert "read and side-effect evidence conflict" in issue.message
+    assert "the declared override does not apply here" in issue.message
+    assert assessment.pass_eligible is False
+
+
 def test_an_override_with_nothing_to_acknowledge_is_accepted_silently() -> None:
     """Pinned decision, not an accident.
 

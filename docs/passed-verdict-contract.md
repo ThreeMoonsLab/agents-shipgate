@@ -113,6 +113,15 @@ agent can do and therefore require human review. Semantic next actions carry
 `requires_human_review: true`; a `declaration_template` is a placeholder for
 human review, not an executable Patch.
 
+A declaration may freely escalate past the evidence. Declaring an effect
+**weaker** than one the scan inferred raises
+`declaration_below_inferred_evidence` (v0.36+) and the action is not
+pass-eligible until a reviewer raises `effect` or acknowledges the difference
+with `actions[].override` (`evidence` + `reason`). An acknowledged override is
+accepted and the action is pass-eligible again, but it is counted as a semantic
+review concern — like `unscoped` and `ambient` authority, it keeps human review
+mandatory, so a run carrying one is never `passed`.
+
 ## CI behavior
 
 Advisory mode continues to exit zero while reporting the non-pass verdict.
