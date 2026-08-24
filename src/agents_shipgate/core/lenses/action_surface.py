@@ -5,7 +5,7 @@ import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from urllib.parse import unquote
 
 from agents_shipgate.core.action_semantics import ACTION_EFFECT_RANK
@@ -13,6 +13,7 @@ from agents_shipgate.core.domain import Action, Scope, Tool, ToolSemanticAssessm
 from agents_shipgate.core.effect_override import (
     EFFECT_OVERRIDE_CHECK_ID,
     assess_effect_override,
+    declaration_covers,
 )
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.heuristics import is_broad_scope
@@ -55,6 +56,7 @@ from agents_shipgate.schemas.report import (
 from agents_shipgate.schemas.semantic import ToolSemanticEvidence
 from agents_shipgate.schemas.surfaces import (
     ActionApprovalFact,
+    ActionEffect,
     ActionEvidenceFact,
     ActionFact,
     ActionSafeguardsFact,
@@ -1083,7 +1085,14 @@ def _effect_override_findings(
         "action_id": action.action_id,
         "declared_effect": override.declared_effect,
         "inferred_effect": override.strongest_effect,
-        "inferred_evidence": list(override.challenged_effects),
+        # Each observation with the producers that made it, not two flat lists.
+        # Storing the effects and a *union* of sources let the reviewer surface
+        # print the strongest effect beside every source, attributing
+        # `risk_hint:name` to a financial claim it never made (PR #412 review).
+        "inferred_evidence": [
+            {"effect": item.effect, "sources": list(item.sources)}
+            for item in override.challenging
+        ],
         "evidence_sources": list(override.evidence_sources),
         "acknowledged": override.acknowledged,
     }
@@ -1119,15 +1128,30 @@ def _effect_override_findings(
         evidence["unacknowledged_evidence"] = [item.effect for item in override.unacknowledged]
         if override.stale:
             evidence["stale_evidence"] = list(override.stale)
-        title = (
-            f"{action.tool_name} declares {override.declared_effect} below evidence "
-            "Shipgate observed"
-        )
-        recommendation = (
-            f"Raise action_surface.actions[].effect for {action.tool_name} to "
-            f"{override.strongest_effect}, or record an override naming exactly "
-            "the evidence it overrides and why."
-        )
+        if override.uncovered:
+            # Higher risk, different obligations. "Raise the effect" is wrong
+            # advice here — it is already higher — so this state gets its own
+            # sentence rather than the weaker-than one.
+            evidence["uncovered_evidence"] = [item.effect for item in override.uncovered]
+            categories = ", ".join(item.effect for item in override.uncovered)
+            title = (
+                f"{action.tool_name} declares {override.declared_effect}, which does "
+                f"not carry the controls required by {categories}"
+            )
+            recommendation = (
+                f"Declare the {categories} controls for {action.tool_name}, or "
+                "record an override naming exactly the evidence it overrides and why."
+            )
+        else:
+            title = (
+                f"{action.tool_name} declares {override.declared_effect} below evidence "
+                "Shipgate observed"
+            )
+            recommendation = (
+                f"Raise action_surface.actions[].effect for {action.tool_name} to "
+                f"{override.strongest_effect}, or record an override naming exactly "
+                "the evidence it overrides and why."
+            )
     return [
         _finding(
             check_id=EFFECT_OVERRIDE_CHECK_ID,
@@ -1872,13 +1896,22 @@ def _non_authoritative_effect_escalation_support(
     authoritative_rank = max(
         ACTION_EFFECT_RANK[claim.value] for claim in authoritative
     )
+    # Same comparison the declaration comparator makes, so the two surfaces
+    # cannot disagree about whether an observation is accounted for. Comparing
+    # ranks here while `assess_effect_override` compared coverage let a
+    # declaration read as covered on one path and raise `mixed_policy_evidence`
+    # on the other, with no override able to close the second (PR #412 review).
+    authoritative_effects = {claim.value for claim in authoritative}
     inferred_escalations = [
         claim
         for claim in assessment.effect.claims
         if not claim.policy_eligible
         and claim.value in ACTION_EFFECT_RANK
         and claim.value not in acknowledged
-        and ACTION_EFFECT_RANK[claim.value] > authoritative_rank
+        and not any(
+            declaration_covers(cast(ActionEffect, effect), cast(ActionEffect, claim.value))
+            for effect in authoritative_effects
+        )
     ]
     if not inferred_escalations:
         return None

@@ -557,6 +557,7 @@
             "missing_effect_evidence",
             "inferred_effect_only",
             "conflicting_effect_evidence",
+            "declaration_below_inferred_evidence",
             "missing_authority_evidence",
             "partial_authority_evidence",
             "conflicting_authority_evidence",
@@ -2086,7 +2087,7 @@
       "type": "object"
     }
   },
-  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.12.json",
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.13.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for packet.json. Generated from agents_shipgate.schemas.packet.EvidencePacket. Do not edit by hand.",
@@ -2183,8 +2184,8 @@
       "$ref": "#/$defs/NotProvenSection"
     },
     "packet_schema_version": {
-      "const": "0.12",
-      "default": "0.12",
+      "const": "0.13",
+      "default": "0.13",
       "title": "Packet Schema Version",
       "type": "string"
     },
@@ -2246,6 +2247,6 @@
     "dynamic_scenarios",
     "not_proven"
   ],
-  "title": "Agents Shipgate Release Evidence Packet v0.12",
+  "title": "Agents Shipgate Release Evidence Packet v0.13",
   "type": "object"
 }

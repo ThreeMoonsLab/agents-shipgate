@@ -656,6 +656,13 @@ finding — an override is never silent. `override` requires `effect`, a
 non-empty `evidence` list that does not repeat the declared effect, and a
 non-blank `reason`. Declarations that agree with or escalate above the
 evidence stay silent; only de-escalation is reported.
+
+`override` is a manifest input, not an action-fact field: it is **not** an
+`action_surface.policies[].require` path, and writing one resolves to
+`unknown_path` and fails the rule. Read a recorded override from the
+`SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE` finding's `evidence`, which carries
+`declared_effect`, `inferred_effect`, `evidence_sources`, `acknowledged`, and
+`override_reason`.
 Agents Shipgate still creates an action fact for every loaded tool when no
 declaration is present; set
 `require_explicit_actions: true` to emit `SHIP-ACTION-UNDECLARED` for tools
@@ -736,8 +743,6 @@ Known `policies[].require` paths:
 | `evidence.runbook` | string |
 | `evidence.approval_ticket` | string |
 | `effect` | one of `read`, `write`, `destructive`, `external_communication`, `financial_write`, `production_operation`, `privileged_data_access`, `code_execution`, `identity_access` |
-| `override.evidence` | list of effect values, exactly the inferred effects observed above `effect` |
-| `override.reason` | non-blank string |
 | `scopes` / `required_scopes` | list of strings |
 | `risk_tags` | list of strings |
 | `input_fields` | list of strings |

@@ -87,8 +87,10 @@ checks:
   description: Action declaration overrides inferred effect evidence.
   rationale: |-
     A declaration weaker than an inferred observation is the cheapest way past the gate, so it is recorded rather than accepted in silence. The declaration still stands - heuristics do not drive policy - but the reviewer sees which observation it overrides, and why.
-  fires_when: action_surface.actions.effect is weaker than an inferred (non-policy-eligible)
-    effect observation for the same tool.
+  fires_when: action_surface.actions.effect does not account for an inferred (non-policy-eligible)
+    effect observation for the same tool - it ranks below the observation, or it
+    outranks the observation without carrying the controls that observation would
+    require.
   evidence_fields:
   - action_id
   - declared_effect
@@ -97,6 +99,7 @@ checks:
   - evidence_sources
   - acknowledged
   - unacknowledged_evidence
+  - uncovered_evidence
   - stale_evidence
   - override_reason
   recommendation: |-

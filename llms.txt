@@ -65,7 +65,7 @@
 - Evidence-backed passed contract: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/passed-verdict-contract.md
 - Machine verdict boundary: `release_decision.static_analysis_only=true`, `runtime_behavior_verified=false`, plus `static_verdict_disclaimer`; packet §1 mirrors these fields.
 - Release Evidence Packet (Markdown / JSON / HTML, optional PDF): `agents-shipgate-reports/packet.{md,json,html}`.
-- Packet schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.12.json
+- Packet schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.13.json
 - SARIF report: `agents-shipgate-reports/report.sarif`.
 - Verifier orchestration record (ongoing-PR verify): `agents-shipgate-reports/verifier.json`.
 - Agent handoff artifact (preferred compact agent projection for verify): `agents-shipgate-reports/agent-handoff.json`.
@@ -78,8 +78,8 @@
 - Capability lock (stable static envelope): `.agents-shipgate/capabilities.lock.json`.
 - Verify head capability lock: `agents-shipgate-reports/capabilities.lock.json`.
 - Verify base capability lock and diff, when the base scan can be materialized: `agents-shipgate-reports/base.capabilities.lock.json`, `agents-shipgate-reports/capability-lock-diff.{json,md}`.
-- Capability lock schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-schema.v0.6.json
-- Capability lock diff schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-diff-schema.v0.7.json
+- Capability lock schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-schema.v0.7.json
+- Capability lock diff schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-diff-schema.v0.8.json
 - Attestation schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/attestation-schema.v0.5.json
 - Registry schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/registry-schema.v0.4.json
 - Org evidence bundle schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/org-evidence-bundle-schema.v2.json
@@ -159,11 +159,11 @@
 - Manifest schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json
 - Report schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.36.json
 - Privacy/redaction docs: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/privacy.md
-- Packet schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.12.json
+- Packet schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.13.json
 - Preflight schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/preflight-schema.v0.3.json
 - Capability standard: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-standard.md
-- Capability lock schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-schema.v0.6.json
-- Capability lock diff schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-diff-schema.v0.7.json
+- Capability lock schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-schema.v0.7.json
+- Capability lock diff schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-diff-schema.v0.8.json
 - Governance benchmark: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark.md
 - Current agent contract: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-contract-current.md
 - Verification identity contract: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verification-reproducibility.md

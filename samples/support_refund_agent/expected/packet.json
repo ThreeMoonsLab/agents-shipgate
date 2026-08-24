@@ -207,8 +207,8 @@
     "scenarios": [
       {
         "finding_ids": [
-          "fp_2c87a1e5fc91f47f",
-          "fp_4252fd1a8b26182f"
+          "fp_92bb0d5fa615e120",
+          "fp_b46a7d3061029897"
         ],
         "scenario": "Manual review for SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
         "why": "Confirm the recorded override for send_email_preview: Renders a draft for the agent to show; gmail.send_customer_email delivers."
@@ -1541,8 +1541,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
-            "fingerprint": "fp_4252fd1a8b26182f",
-            "id": "fp_4252fd1a8b26182f",
+            "fingerprint": "fp_92bb0d5fa615e120",
+            "id": "fp_92bb0d5fa615e120",
             "policy_evidence_source": null,
             "severity": "medium",
             "source": {
@@ -1589,8 +1589,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
-            "fingerprint": "fp_2c87a1e5fc91f47f",
-            "id": "fp_2c87a1e5fc91f47f",
+            "fingerprint": "fp_b46a7d3061029897",
+            "id": "fp_b46a7d3061029897",
             "policy_evidence_source": null,
             "severity": "medium",
             "source": {
@@ -1821,7 +1821,7 @@
       }
     ]
   },
-  "packet_schema_version": "0.12",
+  "packet_schema_version": "0.13",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",
@@ -2815,8 +2815,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
-        "fingerprint": "fp_4252fd1a8b26182f",
-        "id": "fp_4252fd1a8b26182f",
+        "fingerprint": "fp_92bb0d5fa615e120",
+        "id": "fp_92bb0d5fa615e120",
         "policy_evidence_source": null,
         "severity": "medium",
         "source": {
@@ -2863,8 +2863,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
-        "fingerprint": "fp_2c87a1e5fc91f47f",
-        "id": "fp_2c87a1e5fc91f47f",
+        "fingerprint": "fp_b46a7d3061029897",
+        "id": "fp_b46a7d3061029897",
         "policy_evidence_source": null,
         "severity": "medium",
         "source": {
@@ -2912,7 +2912,7 @@
     "verdict": "BLOCKED"
   },
   "request_id": null,
-  "run_id": "agents_shipgate_c0a16899fce8e58f",
+  "run_id": "agents_shipgate_451f9ef602218f07",
   "scope_coverage": {
     "declared_scopes": [
       "zendesk:tickets:read",

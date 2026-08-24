@@ -50,7 +50,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.27.json`](report-schema.v0.27.json) — frozen v0.27 reference schema; pre-v0.28 reports validate against this
 - [`report-schema.v0.26.json`](report-schema.v0.26.json) — frozen v0.26 reference schema; pre-v0.27 reports validate against this
 - [`report-schema.v0.25.json`](report-schema.v0.25.json) — frozen v0.25 reference schema; pre-v0.26 reports validate against this
-- [`verifier-schema.v0.9.json`](verifier-schema.v0.9.json) — current JSON Schema for `verifier.json`, including the fail-closed signed authorization evaluation, the `diff_status` input-health block, and `capability_review.policy_weakening_proven`
+- [`verifier-schema.v0.10.json`](verifier-schema.v0.10.json) — current JSON Schema for `verifier.json`, including the fail-closed signed authorization evaluation, the `diff_status` input-health block, and `capability_review.policy_weakening_proven`
+- [`verifier-schema.v0.9.json`](verifier-schema.v0.9.json) — frozen v0.9 reference; pre-v0.10 artifacts validate against this
 - [`verifier-schema.v0.8.json`](verifier-schema.v0.8.json) — frozen prior JSON Schema for `verifier.json`
 - [`verifier-schema.v0.6.json`](verifier-schema.v0.6.json) — frozen v0.6 reference schema
 - [`verifier-schema.v0.5.json`](verifier-schema.v0.5.json) — frozen v0.5 verifier reference
@@ -98,8 +99,10 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`attestation-schema.v0.2.json`](attestation-schema.v0.2.json) — frozen v0.2 attestation reference
 - [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json) — frozen v0.1 attestation reference
 - [`registry-schema.v0.2.json`](registry-schema.v0.2.json) — frozen v0.2 registry reference
-- [`capability-lock-schema.v0.6.json`](capability-lock-schema.v0.6.json) — current JSON Schema for `capabilities.lock.json`; carries typed semantic evidence and remains non-gating
-- [`capability-lock-diff-schema.v0.7.json`](capability-lock-diff-schema.v0.7.json) — current JSON Schema for semantic capability-lock diff artifacts; remains non-gating
+- [`capability-lock-schema.v0.7.json`](capability-lock-schema.v0.7.json) — current JSON Schema for `capabilities.lock.json`; carries typed semantic evidence and remains non-gating
+- [`capability-lock-schema.v0.6.json`](capability-lock-schema.v0.6.json) — frozen v0.6 reference; a v0.6 lock still loads and is advanced on read
+- [`capability-lock-diff-schema.v0.8.json`](capability-lock-diff-schema.v0.8.json) — current JSON Schema for semantic capability-lock diff artifacts; remains non-gating
+- [`capability-lock-diff-schema.v0.7.json`](capability-lock-diff-schema.v0.7.json) — frozen v0.7 reference
 - [`capability-lock-schema.v0.5.json`](capability-lock-schema.v0.5.json) — frozen v0.5 binding-hash reference
 - [`capability-lock-diff-schema.v0.6.json`](capability-lock-diff-schema.v0.6.json) — frozen v0.6 diff reference
 - [`capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json) — frozen v0.2 capability-lock reference
@@ -133,7 +136,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.8.json`](report-schema.v0.8.json) — frozen v0.8 reference schema; pre-v0.9 reports validate against this
 - [`report-schema.v0.7.json`](report-schema.v0.7.json) — frozen v0.7 reference schema; pre-v0.8 reports validate against this
 - [`report-schema.v0.6.json`](report-schema.v0.6.json) — frozen v0.6 reference schema; pre-v0.7 reports validate against this
-- [`packet-schema.v0.12.json`](packet-schema.v0.12.json) — JSON Schema for the Release Evidence Packet (current; emitted packets project typed policy support, evidence gaps, semantic coverage, and the static-only verdict boundary in §1)
+- [`packet-schema.v0.13.json`](packet-schema.v0.13.json) — JSON Schema for the Release Evidence Packet (current; emitted packets project typed policy support, evidence gaps, semantic coverage, and the static-only verdict boundary in §1)
+- [`packet-schema.v0.12.json`](packet-schema.v0.12.json) — frozen v0.12 reference; a v0.12 packet still loads and is advanced on read
 - [`packet-schema.v0.11.json`](packet-schema.v0.11.json) — frozen v0.11 typed policy-evidence packet reference
 - [`packet-schema.v0.10.json`](packet-schema.v0.10.json) — frozen v0.10 binding-aware packet reference
 - [`packet-schema.v0.9.json`](packet-schema.v0.9.json) — frozen v0.9 reference packet schema; pre-v0.10 packets validate against this

@@ -37,10 +37,24 @@
   evidence, or evidence that has since disappeared, re-opens the question
   instead of passing under a year-old answer.
 
+  Coverage is **category-aware**, not a total order. `financial_write` outranks
+  `external_communication` while requiring approval, audit, and idempotency but
+  not confirmation — so declaring the higher-risk effect does not discharge the
+  other category's obligation, and an observation the declaration does not cover
+  is reported whichever way it ranks. Coverage reads the whole reviewed surface:
+  a `risk_tags: [financial_action]` entry accounts for an inferred
+  `financial_write` exactly as the built-in controls already treat it.
+
   One comparator (`core/effect_override.py`) serves the resolver, the gap
-  scaffold, and the finding, so the row a coding agent works and the row a
-  reviewer reads cannot disagree about whether a declaration is below its
-  evidence, or by how much.
+  scaffold, the finding, the PR-comment rows, and the
+  `builtin-effect-control-applicability` policy path, so the row a coding agent
+  works and the row a reviewer reads cannot disagree about whether a declaration
+  accounts for an observation.
+
+  Schema versions move together because they all project the evidence-gap union:
+  report `0.35 → 0.36`, packet `0.12 → 0.13`, verifier `0.9 → 0.10`,
+  capability lock `0.6 → 0.7`, capability-lock diff `0.7 → 0.8`. Every prior
+  document keeps its bytes, and artifacts declaring a prior version still read.
 
 - **Every evidence gap now labels a tool the way a reader can use, in every gap
   kind.** `EvidenceGap.subject` is a display label — identity lives in

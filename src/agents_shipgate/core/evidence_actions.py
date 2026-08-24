@@ -19,6 +19,12 @@ import json
 import re
 import unicodedata
 
+from agents_shipgate.schemas._text import (
+    BIDI_CONTROLS,
+    DEFAULT_IGNORABLE_RANGES,
+    has_visible_content,
+    is_default_ignorable,
+)
 from agents_shipgate.schemas.report import EvidenceCoverageDecision, EvidenceGap
 
 # Longest subject we inline into a one-line headline. Gap subjects are
@@ -44,41 +50,13 @@ _MAX_SUBJECT_CHARS = 120
 # ``\s`` is Unicode-aware, so U+3000 and friends collapse too.
 _WHITESPACE_RUN = re.compile(r"\s+")
 
-# Rewriting the text after them is the whole point of these, so they are the
-# one class that is escaped rather than passed through: left intact, a forged
-# suffix can be made to display as if it were the real target.
-_BIDI_CONTROLS = frozenset(
-    "\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
-)
-
-# Unicode Default_Ignorable_Code_Point, the code points that render as
-# nothing. Used for *visibility*, never for rewriting: a joiner inside
-# ``agents/👩‍💻.yaml`` or a Persian identifier's ZWNJ is load-bearing,
-# so it stays in the display and only an all-invisible value is rejected.
-_DEFAULT_IGNORABLE_RANGES: tuple[tuple[int, int], ...] = (
-    (0x00AD, 0x00AD),
-    (0x034F, 0x034F),
-    (0x061C, 0x061C),
-    (0x115F, 0x1160),
-    (0x17B4, 0x17B5),
-    (0x180B, 0x180F),
-    (0x200B, 0x200F),
-    (0x202A, 0x202E),
-    (0x2060, 0x206F),
-    (0x3164, 0x3164),
-    (0xFE00, 0xFE0F),
-    (0xFEFF, 0xFEFF),
-    (0xFFA0, 0xFFA0),
-    (0xFFF0, 0xFFF8),
-    (0x1BCA0, 0x1BCA3),
-    (0x1D173, 0x1D17A),
-    (0xE0000, 0xE0FFF),
-)
-
-
-def _is_default_ignorable(char: str) -> bool:
-    point = ord(char)
-    return any(start <= point <= end for start, end in _DEFAULT_IGNORABLE_RANGES)
+# Moved to ``schemas/_text.py`` so the manifest validators can reach the
+# same character classes without ``schemas`` importing ``core`` (PR #412
+# review). Re-bound here, and re-exported below, so every existing caller
+# of ``has_visible_content`` is unchanged.
+_BIDI_CONTROLS = BIDI_CONTROLS
+_DEFAULT_IGNORABLE_RANGES = DEFAULT_IGNORABLE_RANGES
+_is_default_ignorable = is_default_ignorable
 
 
 def _is_noncharacter(char: str) -> bool:
@@ -232,23 +210,6 @@ def one_line(value: str) -> str:
         _escape(char) if _needs_escape(char, injective=False) else char
         for char in folded
     ).strip()
-
-
-def has_visible_content(value: str) -> bool:
-    """True when at least one character renders as something a reader can see.
-
-    Whitespace, controls, unassigned/surrogate/private-use code points, and
-    Default_Ignorable code points (ZWSP, ZWJ, VS16, CGJ, bidi controls, …)
-    all render as nothing on their own. A "path" made only of those names no
-    surface, however long the string is.
-    """
-
-    return any(
-        not char.isspace()
-        and unicodedata.category(char) not in {"Cc", "Cf", "Cs", "Co", "Cn"}
-        and not _is_default_ignorable(char)
-        for char in value
-    )
 
 
 def _is_unsafe_in_command(char: str) -> bool:

@@ -27,6 +27,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import cast
 
+from agents_shipgate.core.action_semantics import ACTION_EFFECT_RANK, builtin_obligations
 from agents_shipgate.core.domain import SemanticClaim
 from agents_shipgate.schemas.manifest import ActionOverrideConfig
 from agents_shipgate.schemas.semantic import SemanticClaimEvidence
@@ -40,6 +41,12 @@ EffectClaim = SemanticClaim | SemanticClaimEvidence
 #: Evidence strength order for one action's effect. Higher means "a stronger
 #: claim about what this action does in the world", so a declaration ranked
 #: below an observation is a de-escalation.
+#:
+#: Rank alone does not decide whether a declaration accounts for an
+#: observation — see :func:`declaration_covers`. Effects are risk-ordered but
+#: their *obligations* are orthogonal, and a total order over the second is
+#: what let a `financial_write` declaration discharge an
+#: `external_communication` observation (PR #412 review).
 EFFECT_EVIDENCE_RANK: dict[ActionEffect, int] = {
     "read": 0,
     "write": 1,
@@ -116,6 +123,33 @@ class EffectOverrideAssessment:
 
         return self.has_override and not self.unacknowledged and not self.stale
 
+    @property
+    def weaker(self) -> tuple[ChallengingEvidence, ...]:
+        """Unanswered observations that outrank the declaration on risk.
+
+        The #409 case: a `read` declaration under an inferred
+        `external_communication`. The remedy is to raise the declared effect.
+        """
+
+        return tuple(
+            item
+            for item in self.unacknowledged
+            if EFFECT_EVIDENCE_RANK[item.effect] > EFFECT_EVIDENCE_RANK[self.declared_effect]
+        )
+
+    @property
+    def uncovered(self) -> tuple[ChallengingEvidence, ...]:
+        """Unanswered observations the declaration outranks but does not cover.
+
+        A `financial_write` declaration over an inferred
+        `external_communication`: higher risk, different obligations. Telling
+        this reviewer to raise their effect would be wrong — it is already
+        higher — so every surface has to separate the two.
+        """
+
+        weaker = set(self.weaker)
+        return tuple(item for item in self.unacknowledged if item not in weaker)
+
     def render_evidence(self) -> str:
         """The challenged evidence, rendered once, for every surface that names it."""
 
@@ -123,6 +157,44 @@ class EffectOverrideAssessment:
 
     def render_unacknowledged(self) -> str:
         return "; ".join(item.render() for item in self.unacknowledged)
+
+
+def declaration_covers(declared: ActionEffect, inferred: ActionEffect) -> bool:
+    """Does declaring ``declared`` account for an observation of ``inferred``?
+
+    Two conditions, both necessary.
+
+    *Risk*: the declaration must not rank below the observation under **either**
+    published rank table. They disagree — :data:`EFFECT_EVIDENCE_RANK` orders
+    ``privileged_data_access`` above ``write`` and ``ACTION_EFFECT_RANK`` orders
+    it below — and picking a winner here would either loosen an existing gate
+    or leave the two surfaces contradicting each other, which is what let a
+    declared ``privileged_data_access`` read as covered here while the policy
+    path raised ``mixed_policy_evidence`` on the same action (PR #412 review).
+    Requiring both makes the two agree without weakening either. This is the
+    #409 case — ``read`` declared over an inferred ``external_communication``.
+
+    *Obligations*: the declaration must oblige at least the controls the
+    observation would. Rank is a total order; obligations are not.
+    ``financial_write`` outranks ``external_communication`` and requires
+    approval, audit, and idempotency — but not confirmation, which is
+    precisely what communicating outward requires. Testing rank alone let a
+    declaration discharge a category it does not cover: the action went
+    pass-eligible with no gap and no external-communication finding, while the
+    external-write risk tags sat untouched in the same report.
+
+    Equality is covered by both conditions and is the common case. Nothing
+    here decides *policy*: an uncovered observation becomes a reviewed
+    question, never a control the heuristic imposed on its own (#357).
+    """
+
+    if declared == inferred:
+        return True
+    if EFFECT_EVIDENCE_RANK[declared] < EFFECT_EVIDENCE_RANK[inferred]:
+        return False
+    if ACTION_EFFECT_RANK[declared] < ACTION_EFFECT_RANK[inferred]:
+        return False
+    return builtin_obligations(inferred).issubset(builtin_obligations(declared))
 
 
 def declared_effect_from_claims(claims: Sequence[EffectClaim]) -> ActionEffect | None:
@@ -159,7 +231,22 @@ def assess_effect_override(
 
     if declared_effect is None:
         return None
-    declared_rank = EFFECT_EVIDENCE_RANK[declared_effect]
+    claims = list(claims)
+    # Everything the reviewed surface asserts, not the `effect` field alone.
+    # `risk_tags: [financial_action]` produces a policy-eligible
+    # `financial_write` claim and applies the financial-write controls, so a
+    # heuristic saying the same thing is not an unaccounted-for observation.
+    # This is the set `_control_effects` unions for exactly that reason, and
+    # matching it keeps the declaration comparator and the policy path on one
+    # answer.
+    covering: set[ActionEffect] = {declared_effect}
+    covering.update(
+        cast(ActionEffect, claim.value)
+        for claim in claims
+        if claim.dimension == "effect"
+        and claim.policy_eligible
+        and claim.value in EFFECT_EVIDENCE_VALUES
+    )
     sources_by_effect: dict[ActionEffect, set[str]] = {}
     for claim in claims:
         if claim.dimension != "effect":
@@ -176,7 +263,7 @@ def assess_effect_override(
         if claim.value not in EFFECT_EVIDENCE_VALUES:
             continue
         effect = cast(ActionEffect, claim.value)
-        if EFFECT_EVIDENCE_RANK[effect] <= declared_rank:
+        if any(declaration_covers(asserted, effect) for asserted in covering):
             continue
         sources_by_effect.setdefault(effect, set()).add(claim.source)
 
@@ -220,10 +307,24 @@ def render_override_issue(assessment: EffectOverrideAssessment) -> str:
     clauses: list[str] = []
     if assessment.unacknowledged:
         qualifier = " not acknowledged by override.evidence" if assessment.has_override else ""
-        clauses.append(
-            f"declared effect {assessment.declared_effect!r} is weaker than inferred "
-            f"evidence{qualifier}: {assessment.render_unacknowledged()}"
-        )
+        # Two ways a declaration fails to account for an observation, and they
+        # want different words. Telling a reviewer who declared `financial_write`
+        # that it is "weaker than" `external_communication` is simply false, and
+        # sends them to raise an effect that is already higher.
+        weaker = assessment.weaker
+        uncovered = assessment.uncovered
+        if weaker:
+            rendered = "; ".join(item.render() for item in weaker)
+            clauses.append(
+                f"declared effect {assessment.declared_effect!r} is weaker than inferred "
+                f"evidence{qualifier}: {rendered}"
+            )
+        if uncovered:
+            rendered = "; ".join(item.render() for item in uncovered)
+            clauses.append(
+                f"declared effect {assessment.declared_effect!r} does not carry the "
+                f"controls required by inferred evidence{qualifier}: {rendered}"
+            )
     if assessment.stale:
         clauses.append(
             "override.evidence names effect evidence this scan did not observe: "
@@ -246,6 +347,7 @@ __all__ = [
     "ChallengingEvidence",
     "EffectOverrideAssessment",
     "assess_effect_override",
+    "declaration_covers",
     "declared_effect_from_claims",
     "render_override_issue",
 ]

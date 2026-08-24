@@ -3,9 +3,9 @@
 - Project: support-refund-agent
 - Agent: refund-assistant
 - Environment: production\_like
-- Run id: agents\_shipgate\_c0a16899fce8e58f
+- Run id: agents\_shipgate\_451f9ef602218f07
 - Generated at: 2026-01-01T00:00:00\+00:00
-- Packet schema: 0\.12
+- Packet schema: 0\.13
 
 This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See §10 for what the packet does *not* prove.
 
@@ -196,7 +196,7 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 ## §9 Required dynamic scenarios — partial
 
 - **Manual review for SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE** — Confirm the recorded override for send\_email\_preview: Renders a draft for the agent to show; gmail.send\_customer\_email delivers.
-  - Related finding(s): fp\_2c87a1e5fc91f47f, fp\_4252fd1a8b26182f
+  - Related finding(s): fp\_92bb0d5fa615e120, fp\_b46a7d3061029897
 - **Manual review for SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING** — Declare confirmation policy and safeguards.audit\_log for this external communication action.
   - Related finding(s): fp\_1c94d2d2693dccdf, fp\_e042ce7813b97a2d
 - **Manual review for SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING** — Declare approval.required, safeguards.audit\_log, and safeguards.idempotency for this financial write action.

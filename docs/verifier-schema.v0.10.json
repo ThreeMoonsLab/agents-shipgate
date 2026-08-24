@@ -818,6 +818,7 @@
             "missing_effect_evidence",
             "inferred_effect_only",
             "conflicting_effect_evidence",
+            "declaration_below_inferred_evidence",
             "missing_authority_evidence",
             "partial_authority_evidence",
             "conflicting_authority_evidence",
@@ -2476,7 +2477,7 @@
       "type": "object"
     }
   },
-  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verifier-schema.v0.9.json",
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verifier-schema.v0.10.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "allOf": [
@@ -3165,8 +3166,8 @@
       "type": "object"
     },
     "verifier_schema_version": {
-      "const": "0.9",
-      "default": "0.9",
+      "const": "0.10",
+      "default": "0.10",
       "title": "Verifier Schema Version",
       "type": "string"
     },
@@ -3182,6 +3183,6 @@
     "control",
     "authorization"
   ],
-  "title": "Agents Shipgate Verifier Artifact v0.9",
+  "title": "Agents Shipgate Verifier Artifact v0.10",
   "type": "object"
 }

@@ -599,10 +599,11 @@
         "evidence_sources",
         "acknowledged",
         "unacknowledged_evidence",
+        "uncovered_evidence",
         "stale_evidence",
         "override_reason"
       ],
-      "fires_when": "action_surface.actions.effect is weaker than an inferred (non-policy-eligible) effect observation for the same tool.",
+      "fires_when": "action_surface.actions.effect does not account for an inferred (non-policy-eligible) effect observation for the same tool - it ranks below the observation, or it outranks the observation without carrying the controls that observation would require.",
       "floor_severity": "medium",
       "id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
       "mvp_tier": "lifecycle",

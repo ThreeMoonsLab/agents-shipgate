@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "report_schema_version": "0.36",
-  "run_id": "agents_shipgate_c0a16899fce8e58f",
+  "run_id": "agents_shipgate_451f9ef602218f07",
   "request_id": null,
   "subject_id": null,
   "input_set_id": null,
@@ -640,8 +640,8 @@
         "support": null
       },
       {
-        "id": "fp_4252fd1a8b26182f",
-        "fingerprint": "fp_4252fd1a8b26182f",
+        "id": "fp_92bb0d5fa615e120",
+        "fingerprint": "fp_92bb0d5fa615e120",
         "check_id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
         "severity": "medium",
         "title": "send_email_preview overrides inferred external_communication evidence with a reviewed read declaration",
@@ -688,8 +688,8 @@
         }
       },
       {
-        "id": "fp_2c87a1e5fc91f47f",
-        "fingerprint": "fp_2c87a1e5fc91f47f",
+        "id": "fp_b46a7d3061029897",
+        "fingerprint": "fp_b46a7d3061029897",
         "check_id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
         "severity": "medium",
         "title": "support.search_kb overrides inferred financial_write evidence with a reviewed read declaration",
@@ -1269,16 +1269,16 @@
         "rationale": "requires_human_review=true (severity=medium); routed to review_items."
       },
       {
-        "finding_id": "fp_4252fd1a8b26182f",
-        "fingerprint": "fp_4252fd1a8b26182f",
+        "finding_id": "fp_92bb0d5fa615e120",
+        "fingerprint": "fp_92bb0d5fa615e120",
         "check_id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
         "category": "review_item",
         "rule": "review_required",
         "rationale": "requires_human_review=true (severity=medium); routed to review_items."
       },
       {
-        "finding_id": "fp_2c87a1e5fc91f47f",
-        "fingerprint": "fp_2c87a1e5fc91f47f",
+        "finding_id": "fp_b46a7d3061029897",
+        "fingerprint": "fp_b46a7d3061029897",
         "check_id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
         "category": "review_item",
         "rule": "review_required",
@@ -2006,8 +2006,8 @@
       "included_reason": "referenced_by_medium_finding",
       "control_status": "partial",
       "related_findings": [
-        "fp_4252fd1a8b26182f",
-        "fp_70c544942ba7c6ab"
+        "fp_70c544942ba7c6ab",
+        "fp_92bb0d5fa615e120"
       ]
     },
     {
@@ -2738,7 +2738,7 @@
       "control_status": "missing",
       "related_findings": [
         "fp_24d610b0d4324190",
-        "fp_2c87a1e5fc91f47f"
+        "fp_b46a7d3061029897"
       ]
     }
   ],
@@ -3070,7 +3070,7 @@
       "release_implication": "Release may include stale or unnecessary permission grants."
     },
     {
-      "id": "mis_01d7ba14ab6bd7c8",
+      "id": "mis_b5b43781e08f38a6",
       "kind": "undetected_gap",
       "severity": "medium",
       "tool_name": "send_email_preview",
@@ -3079,14 +3079,14 @@
       ],
       "intention_refs": [],
       "finding_refs": [
-        "fp_4252fd1a8b26182f"
+        "fp_92bb0d5fa615e120"
       ],
       "policy_requirement": "Static review requires deterministic evidence for release gaps.",
       "gap": "send_email_preview overrides inferred external_communication evidence with a reviewed read declaration.",
       "release_implication": "Human review is required to interpret this finding."
     },
     {
-      "id": "mis_f22f0c5528859a23",
+      "id": "mis_d492cbb1c25cf96b",
       "kind": "undetected_gap",
       "severity": "medium",
       "tool_name": "support.search_kb",
@@ -3095,7 +3095,7 @@
       ],
       "intention_refs": [],
       "finding_refs": [
-        "fp_2c87a1e5fc91f47f"
+        "fp_b46a7d3061029897"
       ],
       "policy_requirement": "Static review requires deterministic evidence for release gaps.",
       "gap": "support.search_kb overrides inferred financial_write evidence with a reviewed read declaration.",
@@ -6462,8 +6462,8 @@
       "agent_action": "escalate_to_human"
     },
     {
-      "id": "fp_4252fd1a8b26182f",
-      "fingerprint": "fp_4252fd1a8b26182f",
+      "id": "fp_92bb0d5fa615e120",
+      "fingerprint": "fp_92bb0d5fa615e120",
       "check_id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
       "title": "send_email_preview overrides inferred external_communication evidence with a reviewed read declaration",
       "severity": "medium",
@@ -6476,7 +6476,12 @@
         "declared_effect": "read",
         "inferred_effect": "external_communication",
         "inferred_evidence": [
-          "external_communication"
+          {
+            "effect": "external_communication",
+            "sources": [
+              "risk_hint:keyword"
+            ]
+          }
         ],
         "evidence_sources": [
           "risk_hint:keyword"
@@ -6536,8 +6541,8 @@
       "agent_action": "escalate_to_human"
     },
     {
-      "id": "fp_2c87a1e5fc91f47f",
-      "fingerprint": "fp_2c87a1e5fc91f47f",
+      "id": "fp_b46a7d3061029897",
+      "fingerprint": "fp_b46a7d3061029897",
       "check_id": "SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE",
       "title": "support.search_kb overrides inferred financial_write evidence with a reviewed read declaration",
       "severity": "medium",
@@ -6550,7 +6555,12 @@
         "declared_effect": "read",
         "inferred_effect": "financial_write",
         "inferred_evidence": [
-          "financial_write"
+          {
+            "effect": "financial_write",
+            "sources": [
+              "risk_hint:keyword"
+            ]
+          }
         ],
         "evidence_sources": [
           "risk_hint:keyword"

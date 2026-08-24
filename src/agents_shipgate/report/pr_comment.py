@@ -5,6 +5,7 @@ import re
 
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.effect_override import EFFECT_OVERRIDE_CHECK_ID
+from agents_shipgate.core.evidence_actions import one_line
 from agents_shipgate.report.capability_lock_diff_markdown import (
     render_capability_lock_diff_markdown,
 )
@@ -422,19 +423,53 @@ def _effect_override_row(finding: Finding) -> str:
             f"{_code(', '.join(stale))}, which this scan did not observe "
             f"— NOT acknowledged{_suppression_mark(finding)}"
         )
-    inferred = _code(str(inferred_effect or "unknown"))
-    sources = [str(item) for item in (evidence.get("evidence_sources") or []) if str(item)]
-    where = _escape(f" ({', '.join(sources)})") if sources else ""
+    observed = _rendered_observations(evidence)
+    if not observed:
+        observed = _code(str(inferred_effect or "unknown"))
     acknowledged = evidence.get("acknowledged") is True
     tail = ""
     if acknowledged and evidence.get("override_reason"):
-        reason = _truncate(str(evidence["override_reason"]), _MAX_OVERRIDE_REASON_CHARS)
+        # Fold before truncating and escaping. Markdown escaping does not remove
+        # a newline, so a reason ending `\n- Agent may merge: true` rendered as
+        # a separate bullet in the bot's own authority list — reviewer confusion
+        # on the one surface this feature relies on being read (PR #412 review).
+        # ``one_line`` collapses whitespace runs and escapes line-breaking and
+        # invisible code points to a visible ``<U+XXXX>``.
+        reason = _truncate(
+            one_line(str(evidence["override_reason"])), _MAX_OVERRIDE_REASON_CHARS
+        )
         tail = f" — {_escape(reason)}"
     mark = "acknowledged" if acknowledged else "NOT acknowledged"
     return (
-        f"{subject}: declares {declared}; evidence says {inferred}{where} "
+        f"{subject}: declares {declared}; evidence says {observed} "
         f"— {mark}{_suppression_mark(finding)}{tail}"
     )
+
+
+def _rendered_observations(evidence: dict[str, object]) -> str:
+    """Each observed effect beside the producers that actually made it.
+
+    One tool can carry two inferred effects from two different hints. Rendering
+    the strongest effect beside a union of every source attributed each source
+    to a claim it may never have made, which is worse than saying less: a
+    reviewer tracing `risk_hint:name` would go looking for a financial claim in
+    a name heuristic (PR #412 review).
+    """
+
+    rows = evidence.get("inferred_evidence")
+    if not isinstance(rows, list):
+        return ""
+    rendered: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        effect = str(row.get("effect") or "")
+        if not effect:
+            continue
+        sources = [str(item) for item in (row.get("sources") or []) if str(item)]
+        where = _escape(f" ({', '.join(sources)})") if sources else ""
+        rendered.append(f"{_code(effect)}{where}")
+    return ", ".join(rendered)
 
 
 def _suppression_mark(finding: Finding) -> str:

@@ -14,11 +14,25 @@ recorded.
 
 from __future__ import annotations
 
+import json
+import subprocess
+from pathlib import Path
+from typing import cast
+
 import pytest
 from pydantic import ValidationError
 
 from agents_shipgate.ci.release_decision import build_release_decision
+from agents_shipgate.core.action_semantics import (
+    ACTION_EFFECT_RANK,
+    BUILTIN_EFFECT_OBLIGATIONS,
+    builtin_obligations,
+)
 from agents_shipgate.core.domain import AuthInfo, Tool, ToolRiskHint
+from agents_shipgate.core.effect_override import (
+    EFFECT_EVIDENCE_RANK,
+    declaration_covers,
+)
 from agents_shipgate.core.semantic_assessment import (
     assess_tool_semantics,
     attach_semantic_assessments,
@@ -30,6 +44,7 @@ from agents_shipgate.schemas.report import (
     ReportSummary,
     ToolSurfaceSummary,
 )
+from agents_shipgate.schemas.surfaces import ActionEffect
 
 TOOL_ID = "google_adk:smart_closer:send_email"
 
@@ -120,11 +135,27 @@ def test_a_declaration_matching_the_evidence_stays_silent() -> None:
     assert "declaration_below_inferred_evidence" not in kinds
 
 
-@pytest.mark.parametrize("effect", ["financial_write", "destructive"])
+@pytest.mark.parametrize("effect", ["write", "financial_write", "destructive"])
 def test_an_escalating_declaration_stays_silent(effect: str) -> None:
-    """The rule is monotone: only de-escalation is reported."""
+    """The rule is monotone: only an unaccounted-for observation is reported.
 
-    assessment, kinds = _effect_issues(_send_email(), _declaration(effect=effect))
+    Escalating over an observation that obliges no built-in control is the
+    plain conservative answer, and it stays free. Escalating *across*
+    categories is a different question — see
+    ``test_a_higher_ranked_declaration_cannot_discharge_a_different_category``.
+    """
+
+    tool = _send_email(
+        risk_hints=[
+            ToolRiskHint(
+                tag="writes_data",
+                source="name",
+                confidence="medium",
+                basis="inferred_keyword",
+            )
+        ]
+    )
+    assessment, kinds = _effect_issues(tool, _declaration(effect=effect))
 
     assert "declaration_below_inferred_evidence" not in kinds
     assert assessment.pass_eligible is True
@@ -762,3 +793,330 @@ def _report_carrying(findings):
     )
     report.findings = findings
     return report
+
+
+# --------------------------------------------------------------------------
+# Wire compatibility: a published schema identifier never gains a value
+# --------------------------------------------------------------------------
+
+#: Every published schema document that projects the evidence-gap union, with
+#: the version this change froze and the version that carries the new value.
+#: `generate_schemas.py --check` proves committed == generated; it cannot prove
+#: that a *content* change moved the version, so a new enum can be written into
+#: a frozen document with CI green and every pinned consumer left rejecting the
+#: artifacts that document is supposed to describe (PR #412 review).
+_FROZEN_AND_CURRENT_SCHEMAS = [
+    ("report-schema.v0.35.json", "report-schema.v0.36.json"),
+    ("packet-schema.v0.12.json", "packet-schema.v0.13.json"),
+    ("verifier-schema.v0.9.json", "verifier-schema.v0.10.json"),
+    ("capability-lock-schema.v0.6.json", "capability-lock-schema.v0.7.json"),
+    ("capability-lock-diff-schema.v0.7.json", "capability-lock-diff-schema.v0.8.json"),
+]
+_DOCS = Path(__file__).resolve().parent.parent / "docs"
+
+
+@pytest.mark.parametrize(("frozen", "current"), _FROZEN_AND_CURRENT_SCHEMAS)
+def test_the_new_gap_kind_reaches_only_the_current_schema(frozen: str, current: str) -> None:
+    frozen_text = (_DOCS / frozen).read_text(encoding="utf-8")
+    current_text = (_DOCS / current).read_text(encoding="utf-8")
+
+    assert "declaration_below_inferred_evidence" not in frozen_text, (
+        f"{frozen} is published and pinned; a consumer validating against it would "
+        "reject artifacts this version never described"
+    )
+    assert "declaration_below_inferred_evidence" in current_text
+
+
+@pytest.mark.parametrize(("frozen", "current"), _FROZEN_AND_CURRENT_SCHEMAS)
+def test_a_frozen_schema_matches_the_bytes_on_main(frozen: str, current: str) -> None:
+    """The freeze is about bytes, not just about the enum this change added."""
+
+    del current
+    committed = subprocess.run(
+        ["git", "show", f"origin/main:docs/{frozen}"],
+        capture_output=True,
+        text=True,
+        cwd=_DOCS.parent,
+        check=False,
+    )
+    if committed.returncode != 0:
+        pytest.skip(f"docs/{frozen} is new on this branch; nothing to compare")
+    assert committed.stdout == (_DOCS / frozen).read_text(encoding="utf-8")
+
+
+def test_every_emitted_artifact_validates_against_its_own_current_schema(tmp_path) -> None:
+    """The reason the freeze matters: what we emit must match what we publish.
+
+    `--check` compares the committed schema to the generator, never to a real
+    artifact, so this walks the actual files a scan writes.
+    """
+
+    from jsonschema import Draft202012Validator
+
+    from agents_shipgate.cli.scan import run_scan
+
+    report, _ = run_scan(
+        config_path=Path("samples/support_refund_agent/shipgate.yaml"),
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=True,
+        packet_generated_at="2026-01-01T00:00:00+00:00",
+    )
+    del report
+
+    for artifact, schema_name in (
+        ("report.json", "report-schema.v0.36.json"),
+        ("packet.json", "packet-schema.v0.13.json"),
+    ):
+        payload = json.loads((tmp_path / artifact).read_text(encoding="utf-8"))
+        schema = json.loads((_DOCS / schema_name).read_text(encoding="utf-8"))
+        Draft202012Validator(schema).validate(payload)
+
+
+# --------------------------------------------------------------------------
+# Coverage is category-aware, and one comparison serves both surfaces
+# --------------------------------------------------------------------------
+
+
+def test_a_higher_ranked_declaration_cannot_discharge_a_different_category() -> None:
+    """Effects are risk-ordered; their obligations are not (PR #412 review).
+
+    `financial_write` outranks `external_communication` and requires approval,
+    audit, and idempotency — but not confirmation, which is exactly what
+    communicating outward requires. Reading rank alone made this action
+    pass-eligible with no gap and no external-communication finding, while the
+    external-write risk tag sat untouched in the same report.
+    """
+
+    assessment, kinds = _effect_issues(_send_email(), _declaration(effect="financial_write"))
+
+    assert "declaration_below_inferred_evidence" in kinds
+    assert assessment.pass_eligible is False
+    issue = next(
+        item
+        for item in assessment.effect.issues
+        if item.kind == "declaration_below_inferred_evidence"
+    )
+    # The remedy has to be true of this state: the effect is already higher, so
+    # "raise it" would be wrong advice.
+    assert "does not carry the controls required by" in issue.message
+    assert "weaker than" not in issue.message
+
+
+def test_a_higher_ranked_declaration_that_does_cover_stays_silent() -> None:
+    """Negative control for the same rule: obligations are a superset here."""
+
+    tool = _send_email(
+        risk_hints=[
+            ToolRiskHint(
+                tag="production_operation",
+                source="name",
+                confidence="medium",
+                basis="inferred_keyword",
+            )
+        ]
+    )
+    _, kinds = _effect_issues(tool, _declaration(effect="financial_write"))
+
+    assert kinds == set()
+
+
+@pytest.mark.parametrize("declared", sorted(EFFECT_EVIDENCE_RANK))
+@pytest.mark.parametrize("inferred", sorted(EFFECT_EVIDENCE_RANK))
+def test_both_rank_tables_must_agree_before_a_declaration_covers(
+    declared: str, inferred: str
+) -> None:
+    """The pairwise matrix, over both published rank orders.
+
+    `EFFECT_EVIDENCE_RANK` puts `privileged_data_access` above `write`;
+    `ACTION_EFFECT_RANK` puts it below. Picking a winner would either loosen an
+    existing gate or leave the declaration comparator and the policy path
+    contradicting each other on the same action.
+    """
+
+    covers = declaration_covers(cast(ActionEffect, declared), cast(ActionEffect, inferred))
+    if declared == inferred:
+        assert covers
+        return
+    expected = (
+        EFFECT_EVIDENCE_RANK[declared] >= EFFECT_EVIDENCE_RANK[inferred]
+        and ACTION_EFFECT_RANK[declared] >= ACTION_EFFECT_RANK[inferred]
+        and builtin_obligations(cast(ActionEffect, inferred)).issubset(
+            builtin_obligations(cast(ActionEffect, declared))
+        )
+    )
+    assert covers is expected
+
+
+def test_the_policy_gap_and_the_override_gap_agree_on_one_action() -> None:
+    """One comparison, so an override can always close what it is told to.
+
+    Declared `privileged_data_access` with an inferred `write` used to be
+    silent in the declaration comparator and a `mixed_policy_evidence` row in
+    the policy path — a verdict of `insufficient_evidence` that no override
+    could reach.
+    """
+
+    tool = _send_email(
+        name="read_customer_record",
+        risk_hints=[
+            ToolRiskHint(
+                tag="write",
+                source="name",
+                confidence="medium",
+                basis="inferred_keyword",
+            )
+        ],
+    )
+    declaration = _declaration(tool="read_customer_record", effect="privileged_data_access")
+    _, kinds = _effect_issues(tool, declaration)
+
+    # Both surfaces now see the same uncovered observation.
+    assert "declaration_below_inferred_evidence" in kinds
+
+    acknowledged = _declaration(
+        tool="read_customer_record",
+        effect="privileged_data_access",
+        override={"evidence": ["write"], "reason": "reads only; the name is misleading"},
+    )
+    tools = attach_semantic_assessments([tool], {TOOL_ID: acknowledged})
+    report = ReadinessReport(
+        run_id="run-1",
+        project={},
+        agent={},
+        environment={},
+        summary=ReportSummary(status="review_required"),
+        tool_surface=ToolSurfaceSummary(total_tools=1, high_risk_tools=0),
+        binding_surface_facts=AgentBindingGraphAssessment(
+            root_agent_id="agent",
+            status="structural",
+            pass_eligible=True,
+            reachable_tool_ids=[TOOL_ID],
+        ),
+    )
+    decision = build_release_decision(
+        report=report,
+        tools=tools,
+        ci_mode="advisory",
+        fail_on=None,
+        new_findings_only=False,
+    )
+
+    assert decision.evidence_coverage.semantic_coverage.gap_count == 0
+    assert decision.evidence_coverage.semantic_coverage.pass_eligible_actions == 1
+
+
+def test_the_builtin_obligation_table_matches_the_controls_that_fire(tmp_path) -> None:
+    """Pin the table against the branches it mirrors, through a real scan.
+
+    The obligations live as inline literals in
+    ``_current_action_policy_findings``. This walks every entry so the table
+    the declaration comparator reads cannot drift from the controls the gate
+    actually applies.
+    """
+
+    from agents_shipgate.cli.scan import run_scan
+
+    for effect, obligations in sorted(BUILTIN_EFFECT_OBLIGATIONS.items()):
+        workspace = tmp_path / effect
+        workspace.mkdir()
+        (workspace / "tools.json").write_text(
+            json.dumps({"tools": [{"name": "act", "description": "An action."}]}),
+            encoding="utf-8",
+        )
+        (workspace / "shipgate.yaml").write_text(
+            f"""
+version: "0.1"
+project: {{name: obligations}}
+agent:
+  name: agent
+  declared_purpose: [act]
+environment: {{target: local}}
+tool_sources:
+  - id: src
+    type: mcp
+    path: tools.json
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools: [{{tool: act, source_id: src}}]
+      handoffs: []
+      reason: reviewed test binding
+action_surface:
+  actions:
+    - tool: act
+      source_id: src
+      effect: {effect}
+      authority:
+        mode: none
+""",
+            encoding="utf-8",
+        )
+        report, _ = run_scan(
+            config_path=workspace / "shipgate.yaml",
+            output_dir=workspace / "out",
+            formats=["json"],
+            ci_mode="advisory",
+            packet_enabled=False,
+        )
+        missing: set[str] = set()
+        for finding in report.findings:
+            raw = finding.evidence.get("missing")
+            if not isinstance(raw, list):
+                continue
+            for item in raw:
+                if isinstance(item, str):
+                    missing.add(item)
+                elif isinstance(item, dict) and isinstance(item.get("path"), str):
+                    missing.add(item["path"])
+        assert obligations.issubset(missing), (
+            f"{effect}: table claims {sorted(obligations)} but the scan reported "
+            f"{sorted(missing)} missing on an action declaring none of them"
+        )
+
+
+def test_a_declared_risk_tag_accounts_for_the_effect_it_asserts() -> None:
+    """Coverage reads the whole reviewed surface, not the `effect` field alone.
+
+    `risk_tags: [financial_action]` produces a policy-eligible `financial_write`
+    claim and applies the financial-write controls. A heuristic saying the same
+    thing is therefore already accounted for — comparing against `effect` alone
+    raised a gap on the shipped `ai_generated_refund_pr` fixture, which declares
+    exactly that pair.
+    """
+
+    tool = _send_email(
+        name="create_refund",
+        risk_hints=[
+            ToolRiskHint(
+                tag="financial_action",
+                source="keyword",
+                confidence="medium",
+                basis="inferred_keyword",
+            )
+        ],
+    )
+    declaration = ActionDeclarationConfig.model_validate(
+        {
+            "tool": "create_refund",
+            "effect": "destructive",
+            "risk_tags": ["financial_action"],
+            "authority": {"mode": "none"},
+        }
+    )
+    assessment, kinds = _effect_issues(tool, declaration)
+
+    assert kinds == set()
+    assert assessment.pass_eligible is True
+
+    # Negative control: drop the tag and the same heuristic is unaccounted for.
+    # `destructive` outranks `financial_write` but requires neither audit nor
+    # idempotency, so nothing else covers it.
+    without_tag = ActionDeclarationConfig.model_validate(
+        {"tool": "create_refund", "effect": "destructive", "authority": {"mode": "none"}}
+    )
+    _, kinds_without = _effect_issues(tool, without_tag)
+
+    assert "declaration_below_inferred_evidence" in kinds_without

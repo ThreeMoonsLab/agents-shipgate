@@ -4,6 +4,10 @@ from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from agents_shipgate.schemas._text import (
+    has_visible_content,
+    unsafe_prose_characters,
+)
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.manifest._common import STRICT_MODEL_CONFIG
 
@@ -176,13 +180,25 @@ class ActionOverrideConfig(BaseModel):
     @field_validator("reason")
     @classmethod
     def validate_reason(cls, reason: str) -> str:
-        value = reason.strip()
-        if not value:
+        # ``strip()`` is not the boundary this field needs. A reason made only
+        # of U+200B survives it, and that reason then satisfies a requirement
+        # whose entire purpose is for a human to read it — restoring pass
+        # eligibility on a declaration nobody explained (PR #412 review).
+        if not has_visible_content(reason):
             raise ValueError(
                 "action_surface.actions[].override.reason must state why the declared "
-                "effect is correct despite the observed evidence"
+                "effect is correct despite the observed evidence; a value with no "
+                "visible characters explains nothing"
             )
-        return value
+        offenders = unsafe_prose_characters(reason)
+        if offenders:
+            raise ValueError(
+                "action_surface.actions[].override.reason must not contain "
+                f"invisible or direction-altering characters: {', '.join(offenders)}. "
+                "This text is rendered to reviewers, and those code points can make "
+                "it read as something it is not."
+            )
+        return reason.strip()
 
 
 class ActionDeclarationConfig(BaseModel):

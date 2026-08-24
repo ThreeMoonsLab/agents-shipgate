@@ -17,10 +17,16 @@ for reproducible CI.
 
 ## Migration Note: unreleased — a declaration below the evidence is recorded
 
-`report_schema_version` moves `0.35` → `0.36`; `docs/report-schema.v0.35.json`
-is frozen. `contract_version` and `minimum_control_contract_version` are
-unchanged, and the manifest stays `version: "0.1"`. Both changes are additive:
-one new value in a frozen union, one new optional manifest field.
+Five published schemas move, because five of them project the evidence-gap
+union: `report_schema_version` `0.35` → `0.36`, `packet_schema_version` `0.12`
+→ `0.13`, `verifier_schema_version` `0.9` → `0.10`, the capability lock `0.6` →
+`0.7`, and the capability-lock diff `0.7` → `0.8`. Every prior document keeps
+its bytes: a consumer pinned to `packet-schema.v0.12.json` still validates every
+artifact that declares `0.12`, and artifacts declaring a prior version are read
+and advanced on load rather than rejected. `contract_version` and
+`minimum_control_contract_version` are unchanged, and the manifest stays
+`version: "0.1"`. Every change is additive: one new value in a frozen union, one
+new optional manifest field.
 
 **New evidence-gap kind: `declaration_below_inferred_evidence.`** It is raised
 on an action whose declared `action_surface.actions[].effect` is weaker than an
@@ -50,6 +56,22 @@ closes the gap, restores pass eligibility, and resolves the matching
 finding. `evidence` must name exactly the inferred effects observed above the
 declared effect, so an override that has drifted from its evidence re-opens the
 question rather than passing under an old answer.
+
+**Coverage is category-aware.** A declaration accounts for an inferred
+observation only when it ranks at or above it under both published effect-rank
+orders *and* obliges at least that observation's built-in controls.
+`financial_write` therefore does not discharge an inferred
+`external_communication`: it outranks it, but requires no confirmation, which is
+what communicating outward requires. Coverage reads every policy-eligible claim
+on the action, so a `risk_tags: [financial_action]` entry accounts for an
+inferred `financial_write` exactly as the built-in control evaluator already
+treats it.
+
+**`override` is not a policy path.** It is a manifest input, absent from
+`action_surface_facts.actions[]`, so `action_surface.policies[].require` cannot
+read `override.reason` or `override.evidence` — writing one resolves to
+`unknown_path` and fails the rule. Read a recorded override from the
+`SHIP-ACTION-EFFECT-OVERRIDES-EVIDENCE` finding's `evidence`.
 
 **What may change for an existing repository.** Any manifest that already
 declares an effect below an inferred observation gains one gap, one finding,
@@ -2013,13 +2035,15 @@ release decision. That action may be `detect`/`initialize` for
 relevant unconfigured repos, or `verify` for configured repos. Use it as the
 first touch on a repo or PR before committing to a full scan.
 
-`verifier.json` is governed by [`docs/verifier-schema.v0.9.json`](docs/verifier-schema.v0.9.json).
-Verifier v0.1 through v0.8 remain frozen references — a published schema
-identifier never gains an emitted field, so `0.9` carries
-`capability_review.policy_weakening_proven` and `0.8` keeps the bytes every
-consumer pinned to it already validates against. Artifacts declaring `0.8`
-and earlier still read: the field defaults to `false`, which is exactly what
-"this artifact recorded no base-vs-head comparison" means. It remains an orchestration artifact: `release_decision.decision` in
+`verifier.json` is governed by [`docs/verifier-schema.v0.10.json`](docs/verifier-schema.v0.10.json).
+Verifier v0.1 through v0.9 remain frozen references — a published schema
+identifier never gains an emitted value, so `0.10` carries
+`declaration_below_inferred_evidence` in the projected evidence-gap union and
+`0.9` keeps the bytes every consumer pinned to it already validates against,
+just as `0.9` carried `capability_review.policy_weakening_proven` over a frozen
+`0.8`. Artifacts declaring `0.9` and earlier still read and are advanced to the
+current identifier on load: both deltas are additive, so nothing in an older
+artifact is reinterpreted. It remains an orchestration artifact: `release_decision.decision` in
 `report.json` is still the only release gate. Release and merge fields remain
 mirrors or deterministic projections of report data; the v0.6 authorization
 evaluation and the v0.7 `diff_status` block are operational overlays that
@@ -2213,12 +2237,14 @@ infer runtime routing, or execute tools. Action Surface Diff policy findings
 can affect release gating through `findings[].blocks_release`; Tool Surface
 Diff remains explanatory only.
 
-### Release Evidence Packet (v0.12)
+### Release Evidence Packet (v0.13)
 
 `agents-shipgate-reports/packet.json` is a supporting/provisional reviewer
-artifact governed by [`docs/packet-schema.v0.12.json`](docs/packet-schema.v0.12.json).
-v0.12 adds request, subject, input-set, engine-requirement, and decision IDs
-while preserving the report release decision as the only gate. v0.11 and
+artifact governed by [`docs/packet-schema.v0.13.json`](docs/packet-schema.v0.13.json).
+v0.13 adds `declaration_below_inferred_evidence` to the projected evidence-gap
+union and changes nothing else. v0.12 added request, subject, input-set,
+engine-requirement, and decision IDs
+while preserving the report release decision as the only gate. v0.12 and
 earlier packets validate against their matching frozen schemas. v0.11 added
 typed policy support; v0.9 added provider-scoped tool identities; v0.8 added
 report v0.29 semantic
