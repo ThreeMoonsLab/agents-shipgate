@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, model_validator
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from agents_shipgate.schemas.manifest._common import STRICT_MODEL_CONFIG
 
@@ -36,7 +38,15 @@ BUILTIN_PER_SCAN_ONLY_TOOL_SOURCE_TYPES: frozenset[str] = frozenset(
 class ToolSourceConfig(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
-    id: str
+    # The non-blank rule is stated twice on purpose, and the parity test in
+    # `tests/test_config.py` is what keeps the two from drifting. The
+    # validator below owns the *message* — it names the keys this id is
+    # joined on, which a generic constraint error cannot — while the pattern
+    # is what reaches `docs/manifest-v0.1.json`, where a consumer validating a
+    # manifest against the published schema would otherwise accept an id the
+    # runtime refuses (#329 review). `\S` is a search, so " orders " passes it
+    # and is then stripped, and "   " fails in both places.
+    id: str = Field(json_schema_extra={"pattern": r"\S"})
     # v0.20 (PR #111 review fix P1 #3): opened from a closed Literal to
     # ``str`` so manifests can reference third-party per_source adapters
     # registered via the ``agents_shipgate.adapters`` entry-point group.
@@ -62,6 +72,30 @@ class ToolSourceConfig(BaseModel):
     trust: str | None = None
     mode: str | None = None
     optional: bool = False
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def canonical_source_id(cls, value: Any) -> Any:
+        """A source id is a join key, so it is stripped and never blank.
+
+        ``tool_identity.bindings[].members[].source_id`` and
+        ``tool_inventories[].source_id`` are already stripped where they are
+        declared, and this side was not — so ``id: " orders "`` matched none
+        of them and quietly completed nothing. A blank id matches nothing at
+        all and is a manifest error, not the loader defect the duplicate-check
+        message downstream would otherwise call it (#329 review).
+        """
+
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError(
+                "tool_sources[].id must name the source, but is blank; it is "
+                "the key tool_inventories[].source_id and "
+                "tool_identity.bindings[].members[].source_id join on"
+            )
+        return normalized
 
     @model_validator(mode="after")
     def reject_per_scan_only_builtins(self) -> ToolSourceConfig:

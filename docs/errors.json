@@ -10,7 +10,7 @@
     "yes",
     "on"
   ],
-  "stderr_format": "Single JSON line, one object per emitted error. Always carries an `error` field naming the kind plus `next_action` (single-string back-compat) and `next_actions` (ranked array). Additional fields per kind are command-dependent and may be absent when they are not relevant.",
+  "stderr_format": "Single JSON line, one object per emitted error. Always carries an `error` field naming the kind plus `next_action` (single-string back-compat) and `next_actions` (ranked array). Additional fields per kind are command-dependent and may be absent when they are not relevant. `message`, `next_action`, and `next_actions[]` are written for a person to act on and name files, symbols, and manifest keys rather than internal identity fields; a `details` object, where a kind emits one, carries those identifiers for routing and bug reports.",
   "exit_codes": {
     "0": "pass (advisory mode, or strict-no-blockers)",
     "2": "configuration, catalog lookup, or patch-payload error (config_error, config_already_exists, unknown_check_id, unknown_fingerprint, malformed_patch)",
@@ -57,10 +57,11 @@
       "additional_fields": [
         "message",
         "source_report",
+        "details",
         "next_action",
         "next_actions"
       ],
-      "recovery_hint": "Follow `next_actions[]`. For scan/doctor tool-source failures, run `agents-shipgate doctor -c shipgate.yaml --json` to inspect `unresolved_sources[]`. For report-consuming commands, inspect `source_report` when present (or the `--from` path in the message) and regenerate a current `report.json` if needed."
+      "recovery_hint": "Follow `next_actions[]`. For scan/doctor tool-source failures, run `agents-shipgate doctor -c shipgate.yaml --json` to inspect `unresolved_sources[]`. For report-consuming commands, inspect `source_report` when present (or the `--from` path in the message) and regenerate a current `report.json` if needed. `message` and `next_actions[]` name files, symbols, and manifest keys only; when a failure has internal identifiers behind it they are in `details`, which is for routing and bug reports and is never required to act on the error. **Open only `next_actions[].path`.** It is the one field resolved for the caller — against the manifest the run actually read, and omitted entirely when the failure belongs to a ref that is not checked out. `details` is for routing and bug reports and is never required to act on the error; its paths are recorded as the loader saw them and are not verbatim-openable. Route on `details.failure` rather than pattern-matching the prose: `duplicate_tool_in_source` means one tool source produced the same tool twice, and `details.cause` says which repair applies — `repeated_source_entry` (the manifest names one artifact twice, so the action edits the manifest) or `duplicate_in_source_artifact` (one artifact defines the tool twice, so the action is a review naming it). `details.manifest_placeholders` lists the manifest fields still holding `CHANGE_ME`; `details.evaluated_ref` appears when the failure was evaluated against a ref rather than the working tree."
     },
     {
       "id": "unknown_check_id",

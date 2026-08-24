@@ -999,6 +999,40 @@ def run_verify(
                         head_manifest_text if archive_head else worktree_manifest_text
                     ),
                 )
+            except AgentsShipgateError as exc:
+                # `run_scan` records the manifest it read, and when the head is
+                # archived that is a path inside a temporary tree this function
+                # deletes on the way out — so the emitted recovery named a file
+                # that no longer exists by the time anyone read it (#329
+                # review).
+                #
+                # The checkout is only the right substitute when the archived
+                # head *is* the checkout. Evaluating an older commit and
+                # projecting its failure onto the working tree sends the reader
+                # to a file that may already contain the fix (#329 review 3),
+                # so the ref is named instead and no path is published — an
+                # honest "this commit, which is not the one you have" beats a
+                # precise pointer at the wrong tree.
+                # The prose names paths inside that same temporary tree —
+                # "Input file not found: /tmp/…/head/tools.json" — and telling
+                # a reader to inspect a deleted directory is worse than telling
+                # them nothing. Stripping the archive root leaves the path
+                # *within the evaluated tree*, which is true whichever ref that
+                # was; `evaluated_ref` says which. This is a substitution of a
+                # prefix we constructed, not a guess about the text.
+                if archive_head:
+                    archive_root = f"{head_tree_dir}/"
+                    exc.args = tuple(
+                        arg.replace(archive_root, "") if isinstance(arg, str) else arg
+                        for arg in exc.args
+                    )
+                    exc.details["evaluated_ref"] = head
+                    if head_tree == tree_sha(git_root, "HEAD"):
+                        exc.details["manifest_path"] = str(git_root / config_relative)
+                    else:
+                        exc.details.pop("manifest_path", None)
+                        exc.details["manifest_in_ref"] = config_relative.as_posix()
+                raise
             finally:
                 # Deactivated for the rest of the run so the worktree snapshot
                 # is restored for the externally supplied inputs it owns. It is

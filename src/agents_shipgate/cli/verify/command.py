@@ -15,7 +15,7 @@ from agents_shipgate.cli._helpers import (
 )
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error, is_agent_mode
 from agents_shipgate.cli.current_workspace import live_workspace
-from agents_shipgate.cli.diagnostics import top_next_actions
+from agents_shipgate.cli.diagnostics import input_parse_recovery, top_next_actions
 from agents_shipgate.cli.discovery.gitignore_block import REPORTS_DIR_NAME
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_control_envelope import (
@@ -342,24 +342,16 @@ def verify(
         raise typer.Exit(2) from exc
     except InputParseError as exc:
         typer.echo(f"Input parsing error: {exc}", err=True)
-        guidance = (
-            "Inspect the file referenced in the error; ensure it exists, "
-            "is valid, and resolves under the manifest directory."
-        )
+        # The same resolver `scan` uses: `verify` is the command an adopter
+        # runs (#327), so a failure with a precise route must not lose it here.
+        actions = input_parse_recovery(exc, manifest_path=config)
         emit_agent_mode_error(
             "input_parse_error",
             message=str(exc),
             exit_code=3,
-            next_action=guidance,
-            next_actions=[
-                NextAction(
-                    kind="review",
-                    why=guidance,
-                    expects=(
-                        "Referenced file is present, parseable, and inside the manifest directory."
-                    ),
-                ).model_dump(mode="json")
-            ],
+            next_action=actions[0].why,
+            next_actions=[a.model_dump(mode="json") for a in actions],
+            details=exc.details or None,
         )
         raise typer.Exit(3) from exc
     except ArtifactLifecycleError as exc:

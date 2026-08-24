@@ -147,11 +147,35 @@ def invalid_tool_binding_warning(binding_id: str, reasons: Sequence[str]) -> str
 
 
 def unmatched_binding_member(source_id: str, tool: str, match_count: int) -> str:
-    """Reason fragment for a member selector that did not resolve to one tool."""
+    """Reason fragment for a member selector that did not resolve to one tool.
 
+    The arithmetic alone ("matched 2 observations") names an internal noun and
+    no surface, so the reader is told a number and left to guess which file
+    holds the selector that produced it (#329). The two zero-cases that have a
+    *different* repair are split out above; this fragment covers the rest, and
+    the only lever for those is the selector itself.
+
+    Kept short deliberately: one invalid binding joins every bad member's
+    fragment into a single warning, so anything said here is said once per
+    member. The anchor plus the repair is the whole message.
+
+    The repair differs by direction and only one of them is ever possible.
+    Narrowing a selector that matched nothing cannot produce a match, so a
+    zero count is told to name a tool the source exposes instead (#329
+    review); a count above one is told to narrow.
+    """
+
+    if match_count == 0:
+        return (
+            f"member source_id={source_id!r}, tool={tool!r} matched no tool in "
+            "that source — correct the member at "
+            "shipgate.yaml#tool_identity.bindings[].members to name a tool that "
+            "source exposes"
+        )
     return (
-        f"member source_id={source_id!r}, tool={tool!r} "
-        f"matched {match_count} observations"
+        f"member source_id={source_id!r}, tool={tool!r} matched "
+        f"{match_count} tools in that source — narrow the member at "
+        "shipgate.yaml#tool_identity.bindings[].members so it names one"
     )
 
 
@@ -215,8 +239,8 @@ def unknown_inventory_source_warning(
         f"Tool inventory {inventory_path!r} declares source_id {source_id!r}, "
         "for which no tool source is configured, so it completes no source and "
         "its entries stay separate catalog tools. Correct it to name a "
-        f"configured tool source id — {_quoted_list(configured)} — then rerun "
-        "the scan."
+        f"configured shipgate.yaml#tool_sources[].id — {_quoted_list(configured)} "
+        "— then rerun the scan."
     )
 
 

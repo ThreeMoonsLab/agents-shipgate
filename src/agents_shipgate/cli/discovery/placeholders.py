@@ -15,6 +15,7 @@ someone chose to spell their YAML.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator, Mapping, Sequence
 
 import yaml
@@ -225,3 +226,32 @@ def _scan_lines(template: str) -> list[dict[str, object]]:
                 }
             )
     return placeholders
+
+
+#: A value the template actually wrote: the sentinel alone, or the sentinel as
+#: a filename with an extension (``path: CHANGE_ME.yaml``), optionally under a
+#: directory the author already filled in. Deliberately stricter than
+#: :func:`collect_placeholders`, which reports any value *containing* the
+#: sentinel because listing one too many is harmless — a routing decision is
+#: not: ``CHANGE_ME-tools.json`` is a legal filename, and a manifest that is
+#: fully filled in and merely points at a missing file was being told it still
+#: held template placeholders (#329 review 3). Where the two disagree the
+#: reader gets the generic route, which says something true.
+_PLACEHOLDER_TOKEN = re.compile(
+    rf"(?:^|[/\\]){re.escape(PLACEHOLDER_VALUE)}(?:\.[A-Za-z0-9]+)?$"
+)
+
+
+def manifest_placeholder_fields(manifest_text: str) -> list[str]:
+    """The manifest fields still holding a ``CHANGE_ME``, as field paths.
+
+    Typed state for the recovery router, which used to decide by searching the
+    whole exception text for the sentinel. The placeholder is a property of the
+    manifest, so this reads it from the manifest — and reads it exactly.
+    """
+
+    return [
+        str(entry["path"])
+        for entry in collect_placeholders(manifest_text)
+        if _PLACEHOLDER_TOKEN.search(str(entry.get("current") or ""))
+    ]

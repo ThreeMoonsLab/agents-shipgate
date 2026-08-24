@@ -7,7 +7,7 @@ Target: local
 ## Release Decision
 
 Decision: insufficient_evidence
-Reason: Insufficient evidence: the agent's tool binding graph is incomplete \(agent\_v1:7205d836e4b3fee257d90695\). Fix at shipgate.yaml\#agent\_bindings. Context: 1 binding evidence gap\(s\), 1 semantic evidence gap\(s\), 1 low-confidence tool\(s\) and 4 source warning\(s\); scan results are not trustworthy enough to gate release.
+Reason: Insufficient evidence: the agent's tool binding graph is incomplete \(durable\_order\_agent \[conductor\_workflows\]\). Fix at shipgate.yaml\#agent\_bindings. Context: 1 binding evidence gap\(s\), 1 semantic evidence gap\(s\), 1 low-confidence tool\(s\) and 4 source warning\(s\); scan results are not trustworthy enough to gate release.
 
 Blockers (0): none
 

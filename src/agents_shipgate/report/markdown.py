@@ -579,7 +579,7 @@ def _append_loaded_adapters(lines: list[str], report: ReadinessReport) -> None:
     for adapter in adapters:
         distribution = adapter.get("distribution") or "unknown distribution"
         version = adapter.get("version")
-        source_type = adapter.get("source_type") or "unknown source_type"
+        source_type = adapter.get("source_type") or "unknown source type"
         status = adapter.get("validation_status") or "unknown"
         suffix = f" {version}" if version else ""
         head = (

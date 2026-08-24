@@ -9,7 +9,10 @@ from agents_shipgate.core.semantic_assessment import attach_semantic_assessments
 from agents_shipgate.core.source_warnings import withdraw_completed_adk_tool_warnings
 from agents_shipgate.core.tool_identity import resolve_selectors_by_tool_id
 from agents_shipgate.inputs.google_adk import GoogleAdkArtifacts
-from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.manifest import (
+    AgentsShipgateManifest,
+    repeated_declared_artifacts,
+)
 
 from .agent_builder import _build_agent
 from .models import _LoadedInputs, _ToolsAndAgent
@@ -73,6 +76,9 @@ def _build_tools_and_agent(
     tools, identity_warnings = _build_canonical_tools(
         inputs.loaded_sources,
         manifest.tool_identity,
+        # Read from the config, because a loader that aggregates its artifacts
+        # cannot report which of them it read twice (#329 review).
+        repeated_declared_artifacts(manifest),
     )
     # Assemble in pre-decomp order: source → identity → artifact →
     # placeholder → policy_pack. Identity warnings MUST come immediately
