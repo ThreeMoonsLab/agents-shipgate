@@ -79,6 +79,12 @@ def select_pr_items(
             item = _item_from_finding(finding or decision_item, decision_item)
             _append_unique(selected, seen, item)
 
+    # A reviewed exception is the row a reviewer is meant to read: ✓ rows are
+    # machine-verified as evidence-consistent, ⚠ rows are the overrides. A
+    # count alone is not a review surface (#409, PR #411 review 2).
+    for override in _acknowledged_overrides(report):
+        _append_unique(selected, seen, _item_from_acknowledged_override(override))
+
     for change in _top_capability_changes(verifier):
         item = _item_from_capability_change(change)
         if item.source_path:
@@ -163,6 +169,51 @@ def _item_from_finding(
         ),
         related_finding_ids=tuple(_string_list(merged.get("related_finding_ids"))),
         capability_subject=_capability_subject(merged),
+    )
+
+
+def _acknowledged_overrides(report: dict[str, Any]) -> list[dict[str, Any]]:
+    coverage = (
+        ((report.get("release_decision") or {}).get("evidence_coverage") or {}).get(
+            "semantic_coverage"
+        )
+        or {}
+    )
+    rows = coverage.get("acknowledged_overrides")
+    return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+
+
+def _item_from_acknowledged_override(override: dict[str, Any]) -> PrReviewItem:
+    """One ⚠ row per reviewed exception, carrying both readings and the reason."""
+
+    subject = str(override.get("subject") or "unknown")
+    declared = str(override.get("declared_effect") or "unknown")
+    inferred = str(override.get("inferred_effect") or "unknown")
+    sources = ", ".join(_string_list(override.get("inferred_sources"))) or "static evidence"
+    agrees = _string_list(override.get("corroborating_sources"))
+    evidence = str(override.get("evidence") or "")
+    reason = str(override.get("reason") or "")
+    manifest_path = _str_or_none(override.get("manifest_path"))
+    message = (
+        f"Acknowledged override: {subject} declares {declared!r}; "
+        f"{sources} infers {inferred!r}."
+    )
+    if agrees:
+        message += f" Source evidence agrees with the declaration ({', '.join(agrees)})."
+    message += f" Evidence: {evidence} — Reason: {reason}"
+    return PrReviewItem(
+        check_id="SHIP-ACTION-EFFECT-OVERRIDE-ACKNOWLEDGED",
+        title=f"{subject} declares {declared!r} against inferred {inferred!r}",
+        severity="medium",
+        level=_action_level("medium"),
+        message=_truncate(message, 1000),
+        recommendation=(
+            f"Confirm the recorded evidence and reason, or set effect to {inferred!r}."
+        ),
+        source_path=manifest_path.split("#")[0] if manifest_path else None,
+        selector=manifest_path,
+        merge_impact="review_required",
+        capability_subject=f"action:{subject}",
     )
 
 

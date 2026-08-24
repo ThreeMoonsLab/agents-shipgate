@@ -38,8 +38,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.35.json`](report-schema.v0.35.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.35"` and the `surface_exclusions` ledger recording every narrowing decision the run made)
-- [`report-schema.v0.34.json`](report-schema.v0.34.json) — frozen v0.34 content-addressed verification reference; pre-v0.35 reports validate against this
+- [`report-schema.v0.36.json`](report-schema.v0.36.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.36"` and the `declaration_below_inferred_evidence` gap kind that records a declaration weaker than the evidence observed for it)
+- [`report-schema.v0.35.json`](report-schema.v0.35.json) — frozen v0.35 surface-exclusion-ledger reference; pre-v0.36 reports validate against this
 - [`report-schema.v0.33.json`](report-schema.v0.33.json) — frozen v0.33 typed policy-evidence reference
 - [`report-schema.v0.32.json`](report-schema.v0.32.json) — frozen v0.32 Conductor OSS summary reference; pre-v0.33 reports validate against this
 - [`report-schema.v0.31.json`](report-schema.v0.31.json) — frozen v0.31 root-reachable binding reference; pre-v0.32 reports validate against this
@@ -49,7 +49,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.27.json`](report-schema.v0.27.json) — frozen v0.27 reference schema; pre-v0.28 reports validate against this
 - [`report-schema.v0.26.json`](report-schema.v0.26.json) — frozen v0.26 reference schema; pre-v0.27 reports validate against this
 - [`report-schema.v0.25.json`](report-schema.v0.25.json) — frozen v0.25 reference schema; pre-v0.26 reports validate against this
-- [`verifier-schema.v0.9.json`](verifier-schema.v0.9.json) — current JSON Schema for `verifier.json`, including the fail-closed signed authorization evaluation, the `diff_status` input-health block, and `capability_review.policy_weakening_proven`
+- [`verifier-schema.v0.10.json`](verifier-schema.v0.10.json) — current JSON Schema for `verifier.json`, including the fail-closed signed authorization evaluation, the `diff_status` input-health block, and `capability_review.policy_weakening_proven`
 - [`verifier-schema.v0.8.json`](verifier-schema.v0.8.json) — frozen prior JSON Schema for `verifier.json`
 - [`verifier-schema.v0.6.json`](verifier-schema.v0.6.json) — frozen v0.6 reference schema
 - [`verifier-schema.v0.5.json`](verifier-schema.v0.5.json) — frozen v0.5 verifier reference
@@ -132,7 +132,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.8.json`](report-schema.v0.8.json) — frozen v0.8 reference schema; pre-v0.9 reports validate against this
 - [`report-schema.v0.7.json`](report-schema.v0.7.json) — frozen v0.7 reference schema; pre-v0.8 reports validate against this
 - [`report-schema.v0.6.json`](report-schema.v0.6.json) — frozen v0.6 reference schema; pre-v0.7 reports validate against this
-- [`packet-schema.v0.12.json`](packet-schema.v0.12.json) — JSON Schema for the Release Evidence Packet (current; emitted packets project typed policy support, evidence gaps, semantic coverage, and the static-only verdict boundary in §1)
+- [`packet-schema.v0.13.json`](packet-schema.v0.13.json) — JSON Schema for the Release Evidence Packet (current; emitted packets project typed policy support, evidence gaps, semantic coverage, and the static-only verdict boundary in §1)
 - [`packet-schema.v0.11.json`](packet-schema.v0.11.json) — frozen v0.11 typed policy-evidence packet reference
 - [`packet-schema.v0.10.json`](packet-schema.v0.10.json) — frozen v0.10 binding-aware packet reference
 - [`packet-schema.v0.9.json`](packet-schema.v0.9.json) — frozen v0.9 reference packet schema; pre-v0.10 packets validate against this

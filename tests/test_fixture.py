@@ -85,6 +85,7 @@ def test_cli_fixture_run(tmp_path: Path):
         "gap_count": 0,
         "review_concern_count": 0,
         "reason_counts": {},
+        "acknowledged_overrides": [],
     }
 
 

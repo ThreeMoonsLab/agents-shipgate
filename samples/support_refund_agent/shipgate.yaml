@@ -118,6 +118,9 @@ action_surface:
   actions:
     - tool: support.search_kb
       effect: read
+      override:
+        evidence: "readOnlyHint: true and idempotentHint: true on the MCP export; the only scope is support:kb:read"
+        reason: "The word 'refund' appears in the article text this tool searches, not in anything it changes."
       scopes: [support:kb:read]
       authority:
         mode: scoped
@@ -165,6 +168,9 @@ action_surface:
         credential_mode: service_account
     - tool: send_email_preview
       effect: read
+      override:
+        evidence: "readOnlyHint: true on the reviewed SDK inventory; the description states the preview is rendered locally"
+        reason: "The name carries 'email', but this action renders a draft and has no send path or credential."
       authority:
         mode: none
 

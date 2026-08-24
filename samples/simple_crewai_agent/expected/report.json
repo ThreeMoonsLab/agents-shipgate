@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.35",
+  "report_schema_version": "0.36",
   "run_id": "agents_shipgate_9702bae6947b59b3",
   "request_id": null,
   "subject_id": null,
@@ -129,7 +129,8 @@
         "review_concern_count": 1,
         "reason_counts": {
           "ambient_authority": 1
-        }
+        },
+        "acknowledged_overrides": []
       },
       "identity_coverage": {
         "total_observations": 6,

@@ -85,13 +85,26 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
     legacy_version = (
         version
         if version
-        in {"0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.10", "0.11"}
+        in {
+            "0.1",
+            "0.2",
+            "0.3",
+            "0.4",
+            "0.5",
+            "0.6",
+            "0.7",
+            "0.8",
+            "0.9",
+            "0.10",
+            "0.11",
+            "0.12",
+        }
         else None
     )
     if version == "0.1":
         payload_dict = {
             **payload_dict,
-            "packet_schema_version": "0.12",
+            "packet_schema_version": "0.13",
             "tool_surface_diff": {
                 "status": "not_declared",
                 "enabled": False,
@@ -106,43 +119,48 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.2":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.12"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
         _upgrade_hitl_v03(payload_dict)
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.3":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.12"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.4":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.12"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.5":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.12"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.6":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.12"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.7":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.12"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
     elif version == "0.8":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.12"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
     elif version == "0.9":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.12"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
     elif version == "0.10":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.12"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
     elif version == "0.11":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.12"}
-    elif version != "0.12":
+        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
+    elif version == "0.12":
+        # v0.13 adds ``acknowledged_overrides`` to semantic coverage. Absent on
+        # a v0.12 packet, and an empty list is the honest reading: that build
+        # could not have recorded a reviewed exception.
+        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
+    elif version != "0.13":
         raise PacketSchemaError(
             "unsupported packet_schema_version: "
             f"{version!r}; expected '0.1', '0.2', '0.3', '0.4', '0.5', "
-            "'0.6', '0.7', '0.8', '0.9', '0.10', '0.11', or '0.12'"
+            "'0.6', '0.7', '0.8', '0.9', '0.10', '0.11', '0.12', or '0.13'"
         )
 
     if legacy_version is not None:

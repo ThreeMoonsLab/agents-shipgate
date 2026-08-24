@@ -28,7 +28,7 @@ Review items (10):
 - HIGH SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING — shopify.cancel\_order is high-risk but has no owner
 - MEDIUM SHIP-MANIFEST-UNUSED-SCOPE — Manifest declares unused permission scope zendesk:tickets:read
 
-Evidence coverage: static (1 source warning(s); 1 binding evidence gap(s); 7/8 catalog tools reachable; 7 semantic evidence gap(s); 1 semantic review concern(s); 0/7 actions pass-eligible; human review recommended)
+Evidence coverage: static (1 source warning(s); 1 binding evidence gap(s); 7/8 catalog tools reachable; 7 semantic evidence gap(s); 3 semantic review concern(s); 0/7 actions pass-eligible; human review recommended)
 
 Baseline delta: not enabled
 

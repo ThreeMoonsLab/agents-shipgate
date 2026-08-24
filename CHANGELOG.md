@@ -2,6 +2,117 @@
 
 ## Unreleased
 
+- **A declaration weaker than the evidence inferred for it is no longer
+  silent.** Declaring `effect: read` on a tool this scanner itself tagged
+  `external_write` was accepted with zero findings: the pre-existing
+  `inferred_effect_only` gap was closed by the very declaration that
+  contradicted the heuristic which raised it, the action went pass-eligible,
+  and the contradicting `risk_tags` stayed in the same report with nothing
+  joining them
+  ([#409](https://github.com/ThreeMoonsLab/agents-shipgate/issues/409),
+  Increment 1 of
+  [#410](https://github.com/ThreeMoonsLab/agents-shipgate/issues/410)).
+
+  The contradiction check already existed and was correct for the claims it
+  could see: `semantic_assessment._assess_effect` admits a claim into
+  `contradictory` only when `policy_eligible`, and `domain.py` grants that only
+  to typed, high-confidence bases. Heuristic risk hints are deliberately
+  excluded — a heuristic must never *drive* policy (#357). But one flag
+  governed two different powers. **Driving a verdict** heuristics rightly
+  cannot. **Challenging a human assertion** they should: a declaration sitting
+  *below* an observation is not the heuristic gating anything, it is a human
+  statement contradicting something the scan saw, which is precisely what a
+  reviewer needs surfaced.
+
+  Effect declarations are now **monotone**. Adding or escalating relative to
+  the evidence stays silent — a reviewer calling an action more dangerous than
+  the evidence proves needs no ceremony. De-escalating past a non-policy-
+  eligible inference raises `declaration_below_inferred_evidence`
+  (report schema `0.35` → `0.36`): a review-level evidence gap naming the
+  declared value, the inferred value, and the hint that produced it. The
+  declaration remains the operative effect — heuristics still do not drive the
+  verdict, and this row never blocks — but the action is not evidence-backed-
+  pass until it is answered.
+
+  Two answers close it, and the reviewer owns the choice: raise `effect` to
+  what was inferred — the row names the exact value, so `Improve evidence:`
+  reads *Raise action_surface.actions[].effect to 'external_communication'* —
+  or acknowledge the difference with the new
+  `action_surface.actions[].override` block, which names the `evidence` you
+  checked and the `reason` it does not apply. An acknowledged override is
+  accepted — the action is pass-eligible again — and is reported as one
+  semantic review concern, so a run carrying one can never read `passed`. It is
+  a human assertion like every other declaration: the gap's template carries
+  `suggested_patch_kind: manual`, `auto_apply: false`,
+  `requires_human_review: true`, and `apply-patches` never writes it.
+
+  An override never silences `conflicting_effect_evidence`: where
+  **policy-eligible** evidence outranks the declaration, the existing blocking
+  conflict is unchanged, no acknowledgement attaches, and the row now says the
+  override does not reach it — a reviewer blocked there reaches for the field,
+  and silently discarding it left them re-running against an unchanged message.
+
+  Source evidence that **agrees** with the declared value does not exempt the
+  row. A first draft exempted it — `support.search_kb` declares `read` and
+  carries `readOnlyHint: true`, so why make a reviewer defend a protocol
+  annotation against a keyword? Because this resolver already refuses to pass
+  on that annotation alone: with no declaration the same tool is
+  `inferred_effect_only` and not pass-eligible, precisely because a hint
+  outranks it. A declaration that merely restates the annotation must not buy
+  what the annotation could not, or #409's hole moves rather than closes — and
+  the corroboration would be drawn from content the tool source supplies about
+  itself, which is not conditioned on `tool_sources[].trust` (an MCP server can
+  assert `readOnlyHint: true` about a destructive tool). The agreeing source is
+  **named in the row** instead — "source evidence agrees with the declaration
+  (mcp_annotation)" — which is what makes the override one line to write. The
+  manifest row's own `effect`, `risk_tags`, `scopes`, and `override` never
+  count as agreeing evidence for itself.
+
+  `samples/support_refund_agent` carries the two overrides this rule asks it
+  for, so the shipped sample is the worked example.
+
+  **The acknowledgement is consumed everywhere the question is asked.** Policy
+  applicability asks exactly what the override answers — "does the higher
+  heuristic effect apply here?" — so leaving the acknowledged claim unresolved
+  there traded `declaration_below_inferred_evidence` for
+  `mixed_policy_evidence`: the reviewer followed the row's own instruction and
+  landed on a differently-named `insufficient_evidence`. The override claim
+  carries `overridden_claim_ids`, and `_non_authoritative_effect_escalation_support`,
+  the action-policy predicates, and capability-policy matching all read that one
+  authored list rather than re-deriving the comparison. The acknowledged fixture
+  now reaches `review_required` with zero policy gaps.
+
+  **Each exception is a row, not a count.** `semantic_coverage.acknowledged_overrides[]`
+  (report schema `0.36`, packet `0.12` → `0.13`, verifier `0.9` → `0.10`) names
+  the action, both readings, the hint source, any source evidence that agrees,
+  and the human's evidence and reason. The packet's §1 and the PR comment
+  (`SHIP-ACTION-EFFECT-OVERRIDE-ACKNOWLEDGED`) render one row per override, so
+  a reviewer reads the exceptions rather than a number. Frozen `0.12` packets
+  and `0.9` verifier artifacts still read forward; the field is absent there and
+  an empty list is the honest reading.
+
+  **Blank-looking answers are rejected.** `str.strip()` leaves U+200B and U+2060
+  intact, so an override whose `evidence` and `reason` render as nothing to the
+  reviewer they exist for validated, suppressed the mismatch, and restored
+  pass-eligibility. Both fields now require visible content — the repository's
+  own `has_visible_content` semantics, moved to `schemas/text.py` so the schema
+  layer can use it without importing `core`, covering whitespace, controls,
+  bidi marks, and every Default_Ignorable code point.
+
+  **The published manifest schema says what the CLI enforces.**
+  `docs/manifest-v0.1.json` is advertised for live editor validation and
+  accepted both an `override` with no `effect` and blank `evidence`/`reason`,
+  which `model_validate` rejects — telling a user their manifest is valid and
+  then refusing it. The dependency is published as an `if`/`then`, the
+  visible-content rule as a `pattern` generated from the same code-point table
+  the runtime check reads, and `tests/test_manifest_schema_parity.py` runs
+  twelve payloads through both validators and requires them to agree.
+
+  Known limitation: an override whose inferred evidence later stops firing
+  stays accepted and unreported. Distinguishing a stale exception from one that
+  never applied needs the `basis: confirmed:<derivation_id>` pin from increment
+  4 of #410, which is where it belongs.
+
 - **Every evidence gap now labels a tool the way a reader can use, in every gap
   kind.** `EvidenceGap.subject` is a display label — identity lives in
   `subject_id` — but the policy evidence gaps (every row of

@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from agents_shipgate.core.capability_lattice import mcp_permission_risk_hints
 from agents_shipgate.core.domain import AuthInfo, Tool, ToolRiskHint
 from agents_shipgate.core.semantic_assessment import (
+    acknowledged_effect_claim_ids,
     assess_tool_semantics,
     attach_semantic_assessments,
 )
@@ -260,6 +261,12 @@ def test_heuristic_claim_cannot_conflict_with_reviewed_effect() -> None:
     assert assessment.conservative_effect == "destructive"
     assert assessment.effect.status == "declared"
     assert "conflicting_effect_evidence" not in {
+        issue.kind for issue in assessment.effect.issues
+    }
+    # ...but it is no longer silent: a heuristic cannot *drive* the verdict and
+    # cannot raise the blocking conflict, and it can now *challenge* the
+    # assertion it disagrees with (#409).
+    assert "declaration_below_inferred_evidence" in {
         issue.kind for issue in assessment.effect.issues
     }
 
@@ -716,3 +723,355 @@ def test_mcp_malformed_authority_cannot_be_normalized_into_pass(tmp_path, raw_au
     assessment = assess_tool_semantics(loaded.tools[0])
     assert assessment.pass_eligible is False
     assert "invalid_semantic_annotation" in {issue.kind for issue in assessment.authority.issues}
+
+
+def _keyword_hint(tag: str, confidence: str = "high") -> ToolRiskHint:
+    return ToolRiskHint(
+        tag=tag,
+        source="name",
+        confidence=confidence,
+        basis="inferred_keyword",
+        provenance_kind="keyword_heuristic",
+    )
+
+
+def _heuristic_tool() -> Tool:
+    """A tool whose only effect evidence is a name heuristic."""
+
+    return _tool(
+        source_type="langchain_inventory",
+        risk_hints=[_keyword_hint("external_write")],
+        auth=AuthInfo(source="inventory", mode="none", explicit=True),
+    )
+
+
+def test_declaration_below_heuristic_evidence_is_flagged() -> None:
+    """#409: `read` under an `external_write` hint is accepted, never silent."""
+
+    declaration = ActionDeclarationConfig.model_validate(
+        {"tool": "process_order", "effect": "read", "authority": {"mode": "none"}}
+    )
+
+    assessment = assess_tool_semantics(_heuristic_tool(), declaration)
+
+    issue = next(
+        item
+        for item in assessment.effect.issues
+        if item.kind == "declaration_below_inferred_evidence"
+    )
+    assert "'read'" in issue.message
+    assert "'external_communication'" in issue.message
+    assert issue.source_pointer == "action_surface.actions[tool='process_order'].effect"
+    # The declaration remains the operative statement — a heuristic still
+    # cannot drive a verdict (#357) — but it is no longer an evidence-backed
+    # pass on its own.
+    assert assessment.effect.status == "declared"
+    assert assessment.conservative_effect == "external_communication"
+    assert assessment.pass_eligible is False
+
+
+def test_acknowledged_override_restores_pass_eligibility_and_records_itself() -> None:
+    declaration = ActionDeclarationConfig.model_validate(
+        {
+            "tool": "process_order",
+            "effect": "read",
+            "authority": {"mode": "none"},
+            "override": {
+                "evidence": "the handler returns a cached row",
+                "reason": "no outbound client is constructed",
+            },
+        }
+    )
+
+    assessment = assess_tool_semantics(_heuristic_tool(), declaration)
+
+    assert not assessment.effect.issues
+    assert assessment.pass_eligible is True
+    claim = next(
+        item
+        for item in assessment.effect.claims
+        if item.source == "action_surface_declaration_override"
+    )
+    assert claim.value == "read"
+    assert claim.evidence["overridden_effect"] == "external_communication"
+    assert claim.evidence["overridden_sources"] == ["risk_hint:name"]
+    assert claim.evidence["reason"] == "no outbound client is constructed"
+
+
+def test_escalation_past_heuristic_evidence_stays_silent() -> None:
+    """Monotone: adding or escalating relative to evidence needs no ceremony."""
+
+    declaration = ActionDeclarationConfig.model_validate(
+        {"tool": "process_order", "effect": "destructive", "authority": {"mode": "none"}}
+    )
+
+    assessment = assess_tool_semantics(_heuristic_tool(), declaration)
+
+    assert assessment.effect.issues == []
+    assert assessment.pass_eligible is True
+
+
+def test_declaration_equal_to_heuristic_evidence_stays_silent() -> None:
+    declaration = ActionDeclarationConfig.model_validate(
+        {
+            "tool": "process_order",
+            "effect": "external_communication",
+            "authority": {"mode": "none"},
+        }
+    )
+
+    assessment = assess_tool_semantics(_heuristic_tool(), declaration)
+
+    assert assessment.effect.issues == []
+    assert assessment.pass_eligible is True
+
+
+def test_source_corroborated_declaration_is_still_challenged_and_says_so() -> None:
+    """Corroboration is named in the row, not treated as an exemption.
+
+    ``support.search_kb`` declares ``read`` and carries ``readOnlyHint: true``,
+    and a keyword reading ``financial_write`` out of the word "refund" in its
+    description is the weaker signal. Exempting that pair looks tempting, but
+    this resolver already refuses to pass on the annotation alone: with no
+    declaration the same tool is ``inferred_effect_only`` and not
+    pass-eligible. A declaration that merely restates the annotation must not
+    buy what the annotation could not, or #409's hole simply moves. Naming the
+    corroboration is what makes the row a one-line answer instead.
+    """
+
+    tool = _tool(
+        annotations={"readOnlyHint": True},
+        risk_hints=[_keyword_hint("financial_action")],
+        auth=AuthInfo(source="mcp", mode="none", explicit=True),
+    )
+
+    undeclared = assess_tool_semantics(tool)
+    assert "inferred_effect_only" in {issue.kind for issue in undeclared.effect.issues}
+    assert undeclared.pass_eligible is False
+
+    declaration = ActionDeclarationConfig.model_validate(
+        {"tool": "process_order", "effect": "read", "authority": {"mode": "none"}}
+    )
+    assessment = assess_tool_semantics(tool, declaration)
+
+    issue = next(
+        item
+        for item in assessment.effect.issues
+        if item.kind == "declaration_below_inferred_evidence"
+    )
+    assert "source evidence agrees with the declaration (mcp_annotation)" in issue.message
+    assert assessment.pass_eligible is False
+
+
+def test_source_annotations_do_not_buy_an_exemption_they_did_not_earn() -> None:
+    """#268's boundary: a tool source may not self-certify past a challenge.
+
+    ``readOnlyHint`` is content the tool source supplies about itself and is not
+    conditioned on ``tool_sources[].trust``. If corroboration exempted the row,
+    an MCP server would only have to assert ``readOnlyHint: true`` for a
+    ``read`` declaration to become pass-eligible on a tool the scanner reads as
+    destructive.
+    """
+
+    declaration = ActionDeclarationConfig.model_validate(
+        {"tool": "process_order", "effect": "read", "authority": {"mode": "none"}}
+    )
+
+    assessment = assess_tool_semantics(
+        _tool(
+            annotations={"readOnlyHint": True},
+            risk_hints=[_keyword_hint("destructive")],
+            auth=AuthInfo(source="mcp", mode="none", explicit=True),
+        ),
+        declaration,
+    )
+
+    assert "declaration_below_inferred_evidence" in {
+        issue.kind for issue in assessment.effect.issues
+    }
+    assert assessment.pass_eligible is False
+    assert assessment.conservative_effect == "destructive"
+
+
+def test_declarations_own_risk_tags_cannot_corroborate_its_own_effect() -> None:
+    """Self-declaration is not evidence — the manifest may not close its own gap."""
+
+    declaration = ActionDeclarationConfig.model_validate(
+        {
+            "tool": "process_order",
+            "effect": "write",
+            "risk_tags": ["write"],
+            "authority": {"mode": "none"},
+        }
+    )
+
+    assessment = assess_tool_semantics(
+        _tool(
+            source_type="langchain_inventory",
+            risk_hints=[_keyword_hint("destructive")],
+            auth=AuthInfo(source="inventory", mode="none", explicit=True),
+        ),
+        declaration,
+    )
+
+    assert "declaration_below_inferred_evidence" in {
+        issue.kind for issue in assessment.effect.issues
+    }
+
+
+def test_override_cannot_silence_policy_eligible_contradiction() -> None:
+    """An override acknowledges a heuristic. It never overrules proven evidence."""
+
+    declaration = ActionDeclarationConfig.model_validate(
+        {
+            "tool": "process_order",
+            "effect": "read",
+            "authority": {"mode": "none"},
+            "override": {
+                "evidence": "I looked at the annotation",
+                "reason": "I disagree with it",
+            },
+        }
+    )
+
+    assessment = assess_tool_semantics(
+        _tool(annotations={"destructiveHint": True}),
+        declaration,
+    )
+
+    issue = next(
+        item
+        for item in assessment.effect.issues
+        if item.kind == "conflicting_effect_evidence"
+    )
+    assert assessment.effect.status == "conflicting"
+    assert assessment.pass_eligible is False
+    assert not [
+        claim
+        for claim in assessment.effect.claims
+        if claim.source == "action_surface_declaration_override"
+    ]
+    # …and the reviewer is told the block they wrote does not reach this
+    # conflict, rather than re-running against an unchanged message.
+    assert "the declared override does not apply" in issue.message
+
+
+def test_an_acknowledgement_can_never_cover_policy_eligible_evidence() -> None:
+    """The safety property behind consuming acknowledgements downstream.
+
+    Policy applicability, action policies, and capability policies all drop the
+    claims an override names. That is only safe because an override can never
+    name a policy-eligible claim: the resolver refuses to attach one while
+    policy-eligible evidence outranks the declaration, and the set it records is
+    filtered on ``not policy_eligible``. Asserted here rather than at each
+    consumer, because it is one property of the producer.
+    """
+
+    declaration = ActionDeclarationConfig.model_validate(
+        {
+            "tool": "process_order",
+            "effect": "read",
+            "authority": {"mode": "none"},
+            "override": {"evidence": "checked the handler", "reason": "returns a row"},
+        }
+    )
+
+    assessment = assess_tool_semantics(
+        _tool(
+            annotations={"readOnlyHint": True},
+            risk_hints=[_keyword_hint("destructive"), _keyword_hint("write")],
+            auth=AuthInfo(source="mcp", mode="none", explicit=True),
+        ),
+        declaration,
+    )
+
+    acknowledged = acknowledged_effect_claim_ids(assessment.effect.claims)
+    assert acknowledged
+    by_id = {claim.claim_id: claim for claim in assessment.effect.claims}
+    for claim_id in acknowledged:
+        claim = by_id[claim_id]
+        assert claim.policy_eligible is False, claim
+        assert claim.source not in {
+            "action_surface_declaration",
+            "action_surface_declaration_override",
+        }
+
+
+def test_the_read_versus_side_effect_conflict_also_names_an_ignored_override() -> None:
+    """Both conflicting branches owe the note; it is the same user error."""
+
+    declaration = ActionDeclarationConfig.model_validate(
+        {
+            "tool": "process_order",
+            "effect": "read",
+            "authority": {"mode": "none"},
+            "override": {"evidence": "I read the annotations", "reason": "I disagree"},
+        }
+    )
+
+    assessment = assess_tool_semantics(
+        _tool(annotations={"readOnlyHint": True, "destructiveHint": True}),
+        declaration,
+    )
+
+    issue = next(
+        item
+        for item in assessment.effect.issues
+        if item.kind == "conflicting_effect_evidence"
+    )
+    assert "read and side-effect evidence conflict" in issue.message
+    assert "the declared override does not apply here" in issue.message
+    assert assessment.pass_eligible is False
+
+
+def test_an_override_with_nothing_to_acknowledge_is_accepted_silently() -> None:
+    """Pinned decision, not an accident.
+
+    An override whose inferred evidence has since stopped firing stays
+    accepted: nothing is asserted against, so nothing is owed. Telling the two
+    apart — a reviewer's exception that went stale versus one that never
+    applied — needs the ``basis: confirmed:<derivation_id>`` pin from increment
+    4 of the RFC, which is where that question belongs.
+    """
+
+    declaration = ActionDeclarationConfig.model_validate(
+        {
+            "tool": "process_order",
+            "effect": "read",
+            "authority": {"mode": "none"},
+            "override": {"evidence": "checked the handler", "reason": "returns a row"},
+        }
+    )
+
+    assessment = assess_tool_semantics(
+        _tool(annotations={"readOnlyHint": True}),
+        declaration,
+    )
+
+    assert assessment.effect.issues == []
+    assert assessment.pass_eligible is True
+    assert not [
+        claim
+        for claim in assessment.effect.claims
+        if claim.source == "action_surface_declaration_override"
+    ]
+
+
+def test_override_requires_a_declared_effect_to_acknowledge() -> None:
+    with pytest.raises(ValidationError):
+        ActionDeclarationConfig.model_validate(
+            {
+                "tool": "process_order",
+                "override": {"evidence": "checked", "reason": "fine"},
+            }
+        )
+
+
+@pytest.mark.parametrize("field", ["evidence", "reason"])
+def test_override_rejects_a_blank_answer(field: str) -> None:
+    payload = {"evidence": "checked the handler", "reason": "returns a cached row"}
+    payload[field] = "   "
+    with pytest.raises(ValidationError):
+        ActionDeclarationConfig.model_validate(
+            {"tool": "process_order", "effect": "read", "override": payload}
+        )

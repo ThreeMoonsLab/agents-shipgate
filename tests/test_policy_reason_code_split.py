@@ -443,26 +443,26 @@ def test_the_frozen_v0_8_schema_still_describes_v0_8_artifacts():
     """Adding an emitted field under a frozen identifier is a wire break.
 
     A consumer pinned to the published v0.8 schema validates every artifact
-    that *declares* 0.8. The field lives in 0.9; 0.8 keeps its bytes.
+    that *declares* 0.8. The field lives in 0.9 and later; 0.8 keeps its bytes.
     """
 
     from jsonschema import Draft202012Validator
 
     v08 = json.loads((REPO_ROOT / "docs" / "verifier-schema.v0.8.json").read_text("utf-8"))
-    v09 = json.loads((REPO_ROOT / "docs" / "verifier-schema.v0.9.json").read_text("utf-8"))
+    v010 = json.loads((REPO_ROOT / "docs" / "verifier-schema.v0.10.json").read_text("utf-8"))
 
     review = v08["$defs"]["VerifierCapabilityReview"]["properties"]
     assert "policy_weakening_proven" not in review
     assert "policy_weakening_proven" in (
-        v09["$defs"]["VerifierCapabilityReview"]["properties"]
+        v010["$defs"]["VerifierCapabilityReview"]["properties"]
     )
     assert v08["properties"]["verifier_schema_version"]["const"] == "0.8"
-    assert v09["properties"]["verifier_schema_version"]["const"] == "0.9"
+    assert v010["properties"]["verifier_schema_version"]["const"] == "0.10"
 
     from agents_shipgate.schemas.verifier import VerifierArtifact
 
-    assert VerifierArtifact.model_fields["verifier_schema_version"].default == "0.9"
-    Draft202012Validator.check_schema(v09)
+    assert VerifierArtifact.model_fields["verifier_schema_version"].default == "0.10"
+    Draft202012Validator.check_schema(v010)
 
 
 def test_a_v0_8_artifact_still_reads_and_normalizes_forward(tmp_path):
@@ -478,13 +478,13 @@ def test_a_v0_8_artifact_still_reads_and_normalizes_forward(tmp_path):
     repo = _repo_adopting_shipgate(tmp_path)
     verifier, _report, _exit = _run_verify(repo)
     payload = verifier.model_dump(mode="json")
-    assert payload["verifier_schema_version"] == "0.9"
+    assert payload["verifier_schema_version"] == "0.10"
 
     payload["verifier_schema_version"] = "0.8"
     payload["capability_review"].pop("policy_weakening_proven")
     normalized = VerifierArtifact.model_validate(payload)
 
-    assert normalized.verifier_schema_version == "0.9"
+    assert normalized.verifier_schema_version == "0.10"
     assert normalized.capability_review.policy_weakening_proven is False
 
 

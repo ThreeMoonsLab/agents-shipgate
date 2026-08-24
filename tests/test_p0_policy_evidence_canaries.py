@@ -360,7 +360,16 @@ action_surface:
     assert report.findings == []
     action = report.action_surface_facts.actions[0]
     assert action.semantic_assessment is not None
-    assert action.semantic_assessment.pass_eligible is True
+    # #409: the declaration is `write` and a heuristic reads `financial_write`
+    # off the name, so the discarded escalation is now on the record instead of
+    # being carried only by the policy-evidence gap below. The scope claim
+    # `refunds:write` corroborates the declared value and the row says so, but
+    # corroboration is not an exemption — this resolver already refuses to pass
+    # on that scope alone.
+    assert action.semantic_assessment.pass_eligible is False
+    assert "declaration_below_inferred_evidence" in {
+        issue.kind for issue in action.semantic_assessment.effect.issues
+    }
     gaps = [
         gap
         for gap in report.policy_evidence_gaps

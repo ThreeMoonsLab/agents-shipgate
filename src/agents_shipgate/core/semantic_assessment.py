@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, cast
 
 from agents_shipgate.core.domain import (
+    DECLARATION_CLAIM_SOURCES,
+    DECLARATION_OVERRIDE_SOURCE,
+    DECLARED_EFFECT_SOURCE,
     SURFACE_ENUMERATED,
     AuthorityMode,
     AuthoritySemanticAssessment,
@@ -19,7 +22,10 @@ from agents_shipgate.core.domain import (
     ToolSemanticAssessment,
 )
 from agents_shipgate.schemas.common import Confidence, ProvenanceKind, confidence_rank
-from agents_shipgate.schemas.manifest import ActionDeclarationConfig
+from agents_shipgate.schemas.manifest import (
+    ActionDeclarationConfig,
+    ActionEffectOverrideConfig,
+)
 from agents_shipgate.schemas.surfaces import ActionEffect
 
 _EFFECT_RANK: dict[ActionEffect, int] = {
@@ -436,8 +442,12 @@ def _assess_effect(
             if claim.source in {"risk_hint:manual", "action_risk_tag_declaration"}
             and claim.value != "read"
         )
-    declared = [claim for claim in authoritative if claim.source == "action_surface_declaration"]
-    structural = [claim for claim in authoritative if claim.source != "action_surface_declaration"]
+    declared = [
+        claim for claim in authoritative if claim.source == DECLARED_EFFECT_SOURCE
+    ]
+    structural = [
+        claim for claim in authoritative if claim.source != DECLARED_EFFECT_SOURCE
+    ]
     inferred = [claim for claim in claims if claim not in authoritative]
 
     is_mcp = tool.source_type in _MCP_SOURCE_TYPES or tool.annotations.get("mcp_server") is True
@@ -455,6 +465,104 @@ def _assess_effect(
             )
         )
 
+    # #409 — the monotone declaration rule. A heuristic must never *drive* a
+    # verdict (#357): it cannot prove a read-only action and it cannot block on
+    # its own. Challenging a human assertion is a different power, and one flag
+    # governed both — so the one asymmetric edit went unremarked. Declaring
+    # ``read`` on a tool this scanner itself tagged ``external_write`` closed
+    # the very gap that evidence raised and made the action pass-eligible with
+    # zero findings. Escalation past the evidence stays silent; only
+    # de-escalation is compared, and the declaration remains operative either
+    # way.
+    #
+    # A first draft exempted declarations the source itself corroborates —
+    # ``support.search_kb`` declares ``read`` and carries ``readOnlyHint:
+    # true``, so why make the reviewer defend a protocol annotation against a
+    # keyword? Because this resolver already refuses to pass on that annotation
+    # alone: with no declaration the same tool is ``inferred_effect_only`` and
+    # not pass-eligible, precisely because a hint outranks it. Letting a
+    # declaration that merely restates the annotation close that gap would put
+    # the exemption back where #409 found it, and it would take its
+    # corroboration from source content that is not conditioned on
+    # ``tool_sources[].trust`` — an MCP server can assert ``readOnlyHint: true``
+    # about itself. So corroboration does not exempt; it is *named* in the row
+    # instead, which is what the reviewer needs to answer it in one line.
+    below_declared: list[SemanticClaim] = []
+    contradictory: list[SemanticClaim] = []
+    corroborating: list[SemanticClaim] = []
+    acknowledged_override: ActionEffectOverrideConfig | None = None
+    below_effect: ActionEffect | None = None
+    below_sources: list[str] = []
+    if declaration is not None and declaration.effect is not None:
+        declared_rank = _EFFECT_RANK[declaration.effect]
+        # Unchanged: policy-eligible evidence outranking the declaration is a
+        # blocking conflict, and no override may acknowledge it away.
+        contradictory = [
+            claim
+            for claim in [*structural, *inferred]
+            if claim.policy_eligible
+            and _EFFECT_RANK[_as_effect(claim.value)] > declared_rank
+        ]
+        if not contradictory:
+            below_declared = claims_above_declared_effect(
+                [*structural, *inferred], declaration.effect
+            )
+        if below_declared:
+            below_effect = _strongest_effect(
+                [_as_effect(claim.value) for claim in below_declared]
+            )
+            below_sources = sorted(
+                {claim.source for claim in below_declared if claim.value == below_effect}
+            )
+            # What the source says *for* the declared value, so the row can
+            # state both readings. Never the manifest row's own restatements
+            # of itself — a declaration confirming itself is not evidence.
+            corroborating = [
+                claim
+                for claim in claims
+                if claim.policy_eligible
+                and claim.source not in DECLARATION_CLAIM_SOURCES
+                and claim.value == declaration.effect
+            ]
+            # An acknowledged override is itself reviewed evidence: it records
+            # that a human read the inference and rejected it, with a reason
+            # the next reviewer can re-check. It rides in ``claims`` rather
+            # than a new assessment field so only tools that actually carry one
+            # change shape.
+            acknowledged_override = declaration.override
+            if acknowledged_override is not None:
+                claims.append(
+                    _claim(
+                        "effect",
+                        declaration.effect,
+                        "high",
+                        "static_declaration",
+                        "reviewed_declaration",
+                        DECLARATION_OVERRIDE_SOURCE,
+                        f"action_surface.actions[tool={tool.name!r}].override",
+                        {
+                            "overridden_effect": below_effect,
+                            "overridden_sources": below_sources,
+                            # Exactly which claims this acknowledgement covers.
+                            # Policy applicability has to consume the same set
+                            # the reviewer answered, and re-deriving it at each
+                            # consumer is how the two drift apart.
+                            "overridden_claim_ids": sorted(
+                                {
+                                    claim.claim_id
+                                    for claim in below_declared
+                                    if claim.claim_id
+                                }
+                            ),
+                            "corroborating_sources": sorted(
+                                {claim.source for claim in corroborating}
+                            ),
+                            "evidence": acknowledged_override.evidence,
+                            "reason": acknowledged_override.reason,
+                        },
+                    )
+                )
+
     claims = _sorted_claims(claims)
     all_effects = [_as_effect(claim.value) for claim in claims if claim.value in _EFFECT_VALUES]
     conservative = _strongest_effect(all_effects) if all_effects else "write"
@@ -464,12 +572,6 @@ def _assess_effect(
         high_structural = [claim for claim in structural if claim.confidence == "high"]
         has_read = any(claim.value == "read" for claim in high_structural)
         has_non_read = any(claim.value != "read" for claim in high_structural)
-        contradictory = [
-            claim
-            for claim in [*structural, *inferred]
-            if claim.policy_eligible
-            and _EFFECT_RANK[_as_effect(claim.value)] > _EFFECT_RANK[declared_effect]
-        ]
         if has_read and has_non_read:
             status = "conflicting"
             confidence = "low"
@@ -477,7 +579,10 @@ def _assess_effect(
                 _issue(
                     "conflicting_effect_evidence",
                     "effect",
-                    "high-confidence read and side-effect evidence conflict",
+                    _conflicting_declaration_message(
+                        declaration,
+                        "high-confidence read and side-effect evidence conflict",
+                    ),
                     "tool_source",
                     pointer,
                 )
@@ -489,7 +594,32 @@ def _assess_effect(
                 _issue(
                     "conflicting_effect_evidence",
                     "effect",
-                    "declared effect is weaker than high-confidence source evidence",
+                    _conflicting_declaration_message(
+                        declaration,
+                        "declared effect is weaker than high-confidence source evidence",
+                    ),
+                    "action_surface_declaration",
+                    f"action_surface.actions[tool={tool.name!r}].effect",
+                )
+            )
+        elif below_declared and acknowledged_override is None:
+            # The declaration still wins — status stays ``declared`` and the
+            # human's value is what policy reads. What changes is that the
+            # de-escalation is now on the record and owed an answer, so the
+            # action is no longer evidence-backed-pass until the reviewer
+            # either raises the effect or acknowledges the override.
+            status = "declared"
+            confidence = "high"
+            issues.append(
+                _issue(
+                    "declaration_below_inferred_evidence",
+                    "effect",
+                    _below_evidence_message(
+                        declared_effect,
+                        below_effect,
+                        below_sources,
+                        corroborating,
+                    ),
                     "action_surface_declaration",
                     f"action_surface.actions[tool={tool.name!r}].effect",
                 )
@@ -591,6 +721,138 @@ def _assess_effect(
         ),
         conservative,
     )
+
+
+def claims_above_declared_effect(
+    claims: Sequence[SemanticClaim],
+    declared_effect: str,
+) -> list[SemanticClaim]:
+    """Effect claims that outrank the declaration without being able to prove it.
+
+    The monotone rule's comparison, in one place. The resolver needs the claims
+    (it names their sources in the row); the release-decision projection needs
+    only the value they resolve to, so it can publish the exact effect to raise
+    to instead of an instruction that names nothing. Two derivations of the same
+    comparison is the recurring defect class in this codebase, so there is one.
+
+    Policy-eligible claims are excluded because outranking the declaration
+    *with* policy-eligible evidence is ``conflicting_effect_evidence`` — a
+    blocking conflict, decided elsewhere — and because the declaration's own
+    claim is policy-eligible and must never compare against itself.
+    """
+
+    if declared_effect not in _EFFECT_RANK:
+        return []
+    declared_rank = _EFFECT_RANK[_as_effect(declared_effect)]
+    return [
+        claim
+        for claim in claims
+        if not claim.policy_eligible
+        and claim.value in _EFFECT_VALUES
+        and _EFFECT_RANK[_as_effect(claim.value)] > declared_rank
+    ]
+
+
+def strongest_effect_above_declaration(
+    effect: EffectSemanticAssessment,
+) -> str | None:
+    """The effect this row asks a reviewer to raise to, or ``None``.
+
+    Reads the assessment the resolver already produced rather than re-deciding:
+    the declared claim carries the declared value, and
+    :func:`claims_above_declared_effect` is the same comparison the resolver
+    ran. An acknowledged override is absent from the claim list of any tool that
+    still carries this gap, so it cannot mask the answer.
+    """
+
+    declared = next(
+        (
+            claim
+            for claim in effect.claims
+            if claim.source == DECLARED_EFFECT_SOURCE
+        ),
+        None,
+    )
+    if declared is None:
+        return None
+    above = claims_above_declared_effect(effect.claims, declared.value)
+    if not above:
+        return None
+    return _strongest_effect([_as_effect(claim.value) for claim in above])
+
+
+def acknowledged_effect_claim_ids(claims: Iterable[Any]) -> frozenset[str]:
+    """Effect-claim ids a reviewed ``override`` has acknowledged.
+
+    Empty unless the manifest carried an acknowledgement, so the default is the
+    conservative one. Consumers ask this instead of re-running the comparison:
+    an acknowledgement that policy applicability does not consume is not an
+    acknowledgement at all — the reviewer follows the row's instruction and
+    trades one gap for another (PR #411 review 1).
+
+    Only non-policy-eligible claims can ever appear here: the resolver refuses
+    to attach an override while policy-eligible evidence outranks the
+    declaration, so a reviewed exception can never reach proven evidence.
+    """
+
+    acknowledged: set[str] = set()
+    for claim in claims:
+        if getattr(claim, "source", None) != DECLARATION_OVERRIDE_SOURCE:
+            continue
+        evidence = getattr(claim, "evidence", None)
+        raw = evidence.get("overridden_claim_ids") if isinstance(evidence, dict) else None
+        if isinstance(raw, list):
+            acknowledged.update(str(value) for value in raw if value)
+    return frozenset(acknowledged)
+
+
+def _below_evidence_message(
+    declared_effect: ActionEffect,
+    below_effect: ActionEffect | None,
+    below_sources: list[str],
+    corroborating: list[SemanticClaim],
+) -> str:
+    """State both readings, so the row can be answered without a second lookup.
+
+    The reviewer's next move differs entirely depending on whether the source
+    agrees with them. Naming the corroboration is not an exemption — the
+    resolver already refuses to pass on that evidence alone (see
+    ``inferred_effect_only``) — it is the sentence that makes the override one
+    line to write instead of an investigation to open.
+    """
+
+    message = (
+        f"declared effect {declared_effect!r} is weaker than inferred "
+        f"{below_effect!r} evidence ({', '.join(below_sources)})"
+    )
+    if corroborating:
+        sources = ", ".join(sorted({claim.source for claim in corroborating}))
+        message += f"; source evidence agrees with the declaration ({sources})"
+    return message
+
+
+def _conflicting_declaration_message(
+    declaration: ActionDeclarationConfig,
+    message: str,
+) -> str:
+    """Say when a written override does not reach this conflict.
+
+    ``override`` acknowledges *inferred* evidence. A reviewer blocked here will
+    reach for it — it is the route the sibling row publishes — and silently
+    ignoring the block leaves them re-running against an unchanged message with
+    a reviewed exception in the manifest that the resolver discarded. Both
+    conflicting branches route through here: the user error is the same one
+    whether the source evidence outranks the declaration or splits read from
+    side-effect.
+    """
+
+    if declaration.override is not None:
+        message += (
+            "; the declared override does not apply here — it acknowledges "
+            "inferred evidence, and this conflict is in policy-eligible source "
+            "evidence"
+        )
+    return message
 
 
 def _assess_authority(
@@ -1002,4 +1264,10 @@ def _sorted_issues(issues: list[SemanticIssue]) -> list[SemanticIssue]:
     return [unique[key] for key in sorted(unique, key=lambda value: tuple(v or "" for v in value))]
 
 
-__all__ = ["assess_tool_semantics", "attach_semantic_assessments"]
+__all__ = [
+    "acknowledged_effect_claim_ids",
+    "assess_tool_semantics",
+    "attach_semantic_assessments",
+    "claims_above_declared_effect",
+    "strongest_effect_above_declaration",
+]

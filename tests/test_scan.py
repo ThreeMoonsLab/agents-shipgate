@@ -157,6 +157,7 @@ def test_openai_agents_sdk_directory_fixture_scans_static_tools(tmp_path):
         "gap_count": 0,
         "review_concern_count": 0,
         "reason_counts": {},
+        "acknowledged_overrides": [],
     }
     inventory = {entry["name"]: entry for entry in report.tool_inventory}
     assert set(inventory) == {"support.lookup_case", "support.render_reply"}

@@ -10,13 +10,21 @@ from agents_shipgate.ci.exit_policy import (
     effective_fail_on,
     exit_code_for_report,
 )
-from agents_shipgate.core.domain import SemanticIssueKind, Tool
+from agents_shipgate.core.domain import (
+    DECLARATION_OVERRIDE_SOURCE,
+    SemanticIssueKind,
+    Tool,
+    ToolSemanticAssessment,
+)
 from agents_shipgate.core.evidence_actions import (
     evidence_gap_command,
     evidence_gap_headline,
     evidence_gap_target,
     primary_evidence_gap,
     yaml_scalar,
+)
+from agents_shipgate.core.semantic_assessment import (
+    strongest_effect_above_declaration,
 )
 from agents_shipgate.core.source_warnings import unresolved_adk_tool_symbols
 from agents_shipgate.core.surface_exclusions import (
@@ -30,6 +38,7 @@ from agents_shipgate.schemas.bindings import (
 )
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.report import (
+    AcknowledgedEffectOverride,
     BaselineDelta,
     BindingCoverageDecision,
     ContributionRule,
@@ -997,6 +1006,7 @@ def _semantic_coverage(
 
     gaps: list[EvidenceGap] = []
     reason_counts: dict[str, int] = {}
+    acknowledged_overrides: list[AcknowledgedEffectOverride] = []
     pass_eligible_actions = 0
     review_concern_count = 0
 
@@ -1056,6 +1066,16 @@ def _semantic_coverage(
             review_concern_count += 1
             _increment(reason_counts, f"{mode}_authority")
 
+        # An acknowledged effect override is accepted — the declaration stands
+        # and the action stays pass-eligible — but it is never silent (#409).
+        # A review concern is exactly that tier: it cannot reach ``passed`` and
+        # it cannot block, so the reviewer sees the exception and decides. The
+        # count says how many; the row says what a reviewer has to judge.
+        for row in _acknowledged_overrides(tool, assessment):
+            acknowledged_overrides.append(row)
+            review_concern_count += 1
+            _increment(reason_counts, "acknowledged_effect_override")
+
         if (
             assessment.pass_eligible
             and not seen_issues
@@ -1087,9 +1107,49 @@ def _semantic_coverage(
             gap_count=len(gaps),
             review_concern_count=review_concern_count,
             reason_counts=dict(sorted(reason_counts.items())),
+            acknowledged_overrides=acknowledged_overrides,
         ),
         gaps,
     )
+
+
+def _acknowledged_overrides(
+    tool: Tool,
+    assessment: ToolSemanticAssessment,
+) -> list[AcknowledgedEffectOverride]:
+    """Project each reviewed exception into the row a reviewer has to judge.
+
+    Read off the override claim the resolver authored rather than re-derived,
+    so the row and the assessment cannot disagree about what was acknowledged.
+    """
+
+    rows: list[AcknowledgedEffectOverride] = []
+    for claim in assessment.effect.claims:
+        if claim.source != DECLARATION_OVERRIDE_SOURCE:
+            continue
+        evidence = claim.evidence if isinstance(claim.evidence, dict) else {}
+        rows.append(
+            AcknowledgedEffectOverride(
+                subject=f"{tool.name} [{tool.provider or tool.source_id or tool.source_type}]",
+                subject_id=tool.id or None,
+                declared_effect=str(claim.value),
+                inferred_effect=str(evidence.get("overridden_effect") or ""),
+                inferred_sources=_string_list(evidence.get("overridden_sources")),
+                corroborating_sources=_string_list(evidence.get("corroborating_sources")),
+                evidence=str(evidence.get("evidence") or ""),
+                reason=str(evidence.get("reason") or ""),
+                manifest_path=(
+                    f"shipgate.yaml#action_surface.actions[tool={tool.name!r}].override"
+                ),
+            )
+        )
+    return rows
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if isinstance(item, str) and item]
 
 
 def _identity_coverage(tools: list[Tool]) -> IdentityCoverageDecision:
@@ -1244,6 +1304,44 @@ def _semantic_gap(
         declaration_template = {
             **_action_selector(tool),
             "effect": "<REVIEW_REQUIRED>",
+        }
+    elif kind == "declaration_below_inferred_evidence":
+        # Two routes close this row, and the reviewer owns the choice: raise
+        # the declared effect to what was inferred, or state on the record that
+        # the observation does not apply here. The template carries only the
+        # second — the first is an edit to a value that already exists, and a
+        # template re-offering ``effect`` next to the row's own declared value
+        # would read as a request to re-answer a question already answered.
+        action_kind = "resolve_semantic_conflict"
+        accepted_values = list(_ACTION_EFFECT_VALUES)
+        action_why = (
+            "A declaration weaker than inferred evidence is accepted, but not silently."
+        )
+        # The instruction has to name the value. The short headline every
+        # human surface renders is the per-kind phrase, not this row's ``why``,
+        # so an instruction that said "raise it to the inferred effect this row
+        # names" named it nowhere the user could see.
+        inferred_effect = (
+            strongest_effect_above_declaration(tool.semantic_assessment.effect)
+            if tool.semantic_assessment is not None
+            else None
+        )
+        raise_to = (
+            f"Raise action_surface.actions[].effect to {inferred_effect!r}"
+            if inferred_effect
+            else "Raise action_surface.actions[].effect to the inferred effect"
+        )
+        expects = (
+            f"{raise_to}, or acknowledge the difference with an override "
+            "naming the evidence you checked and why it does not apply, then "
+            "rerun verification."
+        )
+        declaration_template = {
+            **_action_selector(tool),
+            "override": {
+                "evidence": REVIEW_REQUIRED_SENTINEL,
+                "reason": REVIEW_REQUIRED_SENTINEL,
+            },
         }
     elif kind in {
         "missing_authority_evidence",
@@ -1936,12 +2034,40 @@ def _decision_reason(
             verb = "requires" if n_reviews == 1 else "require"
             return f"{n_reviews} {noun} {verb} human review before shipping."
         if evidence.semantic_coverage.review_concern_count > 0:
-            n = evidence.semantic_coverage.review_concern_count
-            noun = "action" if n == 1 else "actions"
-            return (
-                f"{n} {noun} use known unscoped or ambient authority; "
-                "human review is required before shipping."
+            # Two different concerns share this tier, and naming the wrong one
+            # is worse than naming neither: an acknowledged effect override has
+            # nothing to do with authority mode.
+            counts = evidence.semantic_coverage.reason_counts
+            overrides = counts.get("acknowledged_effect_override", 0)
+            authority = (
+                counts.get("unscoped_authority", 0) + counts.get("ambient_authority", 0)
             )
+            phrases: list[str] = []
+            if authority:
+                noun, verb = ("action", "uses") if authority == 1 else ("actions", "use")
+                phrases.append(
+                    f"{authority} {noun} {verb} known unscoped or ambient authority"
+                )
+            if overrides:
+                noun = "declaration" if overrides == 1 else "declarations"
+                verb = "sits" if overrides == 1 else "sit"
+                phrases.append(
+                    f"{overrides} acknowledged {noun} {verb} below inferred effect evidence"
+                )
+            # Anything this function does not have a phrase for still has to
+            # appear: the sentence claims to explain why review is required,
+            # so a concern it cannot name must still be counted.
+            remainder = (
+                evidence.semantic_coverage.review_concern_count - authority - overrides
+            )
+            if remainder > 0:
+                noun = "concern" if remainder == 1 else "concerns"
+                phrases.append(
+                    f"{remainder} other semantic review {noun}"
+                    if phrases
+                    else f"{remainder} semantic review {noun}"
+                )
+            return f"{'; '.join(phrases)}; human review is required before shipping."
         if evidence.low_confidence_tool_count > 0:
             return "Static-only scan with low-confidence evidence; human review recommended."
         if evidence.source_warning_count > 0:

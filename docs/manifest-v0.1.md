@@ -621,7 +621,45 @@ Explicit declarations enrich operation, scopes, approval, safeguards, and
 evidence. Effect resolution remains monotonic across source and declaration
 claims: a declared effect may conservatively strengthen structural evidence,
 but a weaker declaration emits `SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED` and
-cannot erase the stronger effect. Manual positive risk tags may escalate risk,
+cannot erase the stronger effect.
+
+Monotonicity also holds against evidence that is *not* policy-eligible, at the
+review tier rather than the blocking one. Escalating past a heuristic
+observation is silent. Declaring an effect **weaker** than one the scan
+inferred raises `declaration_below_inferred_evidence`: the declaration stays
+operative — a heuristic never drives the verdict — but the action is not
+evidence-backed-pass until a reviewer either raises `effect` to the inferred
+value or acknowledges the difference:
+
+```yaml
+action_surface:
+  actions:
+    - tool: send_email_preview
+      effect: read
+      override:
+        evidence: agents/refund_agent.py renders a template; no client is built
+        reason: the name matches the comms heuristic but nothing is sent
+```
+
+Both `evidence` and `reason` are required and must contain visible content — whitespace, controls, bidi marks, and zero-width or other Default_Ignorable
+code points render as nothing to the reviewer the block exists for — and
+`override` requires a declared `effect` to acknowledge. Both rules are
+published in [`docs/manifest-v0.1.json`](manifest-v0.1.json), so an editor
+validating live gives the same answer the CLI does. An acknowledged override is
+accepted — the action is pass-eligible again — and is always reported as one
+semantic review concern, so a run carrying one never reads `passed`.
+
+`override` acknowledges *inferred* evidence only. Where policy-eligible source
+evidence outranks the declaration the conflict remains
+`conflicting_effect_evidence`, blocking, and the row says the override does not
+reach it. Source evidence that agrees with the declared value does not exempt
+the row either — a tool declaring `read` beside `readOnlyHint: true` is still
+challenged by a heuristic that reads higher, because a scan with no declaration
+already refuses to pass on that annotation alone (`inferred_effect_only`), and
+because annotations are content the tool source supplies about itself. The
+agreeing source is named in the row instead, so the override is one line to
+write. The manifest row's own `effect`, `risk_tags`, `scopes`, and `override`
+never count as agreeing evidence for itself. Manual positive risk tags may escalate risk,
 but cannot prove read-only safety or independently close an effect gap. Setting
 inherited approval or safeguards from `true` to `false` emits
 `SHIP-ACTION-CONTROL-DOWNGRADE`.

@@ -30,6 +30,32 @@ POLICY_ELIGIBLE_EVIDENCE_BASES = frozenset(
     }
 )
 
+#: Claim source for a reviewed acknowledgement that a declared effect sits
+#: below inferred (non-policy-eligible) evidence — the manifest's
+#: ``action_surface.actions[].override`` block. Written by the resolver and
+#: read by the release-decision projection, so both sides share one spelling
+#: rather than two string literals that have to agree (#409).
+#: Claim source for the manifest's own ``action_surface.actions[].effect``.
+DECLARED_EFFECT_SOURCE = "action_surface_declaration"
+
+DECLARATION_OVERRIDE_SOURCE = "action_surface_declaration_override"
+
+#: Effect-claim sources that restate the manifest action row itself — the
+#: declared effect, its ``risk_tags``, its ``scopes``, and an acknowledged
+#: override. They may still *contradict* the declared effect (a manifest
+#: disagreeing with itself is a real defect), but they can never *corroborate*
+#: it: a declaration confirming itself is not evidence. One spelling, because
+#: the resolver and the action-surface lens both have to exclude exactly this
+#: set and a second copy is a drift waiting to happen.
+DECLARATION_CLAIM_SOURCES = frozenset(
+    {
+        DECLARED_EFFECT_SOURCE,
+        "action_risk_tag_declaration",
+        "action_scope",
+        DECLARATION_OVERRIDE_SOURCE,
+    }
+)
+
 
 def provenance_for_evidence_basis(
     basis: EvidenceBasis,
@@ -78,6 +104,7 @@ SemanticIssueKind = Literal[
     "missing_effect_evidence",
     "inferred_effect_only",
     "conflicting_effect_evidence",
+    "declaration_below_inferred_evidence",
     "missing_authority_evidence",
     "partial_authority_evidence",
     "conflicting_authority_evidence",

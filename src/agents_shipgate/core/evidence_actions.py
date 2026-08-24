@@ -20,6 +20,7 @@ import re
 import unicodedata
 
 from agents_shipgate.schemas.report import EvidenceCoverageDecision, EvidenceGap
+from agents_shipgate.schemas.text import has_visible_content, is_default_ignorable
 
 # Longest subject we inline into a one-line headline. Gap subjects are
 # usually short identifiers, but ``source_warning`` rows carry the whole
@@ -50,36 +51,6 @@ _WHITESPACE_RUN = re.compile(r"\s+")
 _BIDI_CONTROLS = frozenset(
     "\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
 )
-
-# Unicode Default_Ignorable_Code_Point, the code points that render as
-# nothing. Used for *visibility*, never for rewriting: a joiner inside
-# ``agents/👩‍💻.yaml`` or a Persian identifier's ZWNJ is load-bearing,
-# so it stays in the display and only an all-invisible value is rejected.
-_DEFAULT_IGNORABLE_RANGES: tuple[tuple[int, int], ...] = (
-    (0x00AD, 0x00AD),
-    (0x034F, 0x034F),
-    (0x061C, 0x061C),
-    (0x115F, 0x1160),
-    (0x17B4, 0x17B5),
-    (0x180B, 0x180F),
-    (0x200B, 0x200F),
-    (0x202A, 0x202E),
-    (0x2060, 0x206F),
-    (0x3164, 0x3164),
-    (0xFE00, 0xFE0F),
-    (0xFEFF, 0xFEFF),
-    (0xFFA0, 0xFFA0),
-    (0xFFF0, 0xFFF8),
-    (0x1BCA0, 0x1BCA3),
-    (0x1D173, 0x1D17A),
-    (0xE0000, 0xE0FFF),
-)
-
-
-def _is_default_ignorable(char: str) -> bool:
-    point = ord(char)
-    return any(start <= point <= end for start, end in _DEFAULT_IGNORABLE_RANGES)
-
 
 def _is_noncharacter(char: str) -> bool:
     """True for a Unicode noncharacter — permanently reserved, never rendered.
@@ -126,7 +97,7 @@ def _needs_escape(char: str, *, injective: bool) -> bool:
         or unicodedata.category(char) in {"Cc", "Cs"}
         or char in _BIDI_CONTROLS
         or char in {"\u2028", "\u2029"}
-        or _is_default_ignorable(char)
+        or is_default_ignorable(char)
         or _is_noncharacter(char)
     )
 
@@ -234,28 +205,11 @@ def one_line(value: str) -> str:
     ).strip()
 
 
-def has_visible_content(value: str) -> bool:
-    """True when at least one character renders as something a reader can see.
-
-    Whitespace, controls, unassigned/surrogate/private-use code points, and
-    Default_Ignorable code points (ZWSP, ZWJ, VS16, CGJ, bidi controls, …)
-    all render as nothing on their own. A "path" made only of those names no
-    surface, however long the string is.
-    """
-
-    return any(
-        not char.isspace()
-        and unicodedata.category(char) not in {"Cc", "Cf", "Cs", "Co", "Cn"}
-        and not _is_default_ignorable(char)
-        for char in value
-    )
-
-
 def _is_unsafe_in_command(char: str) -> bool:
     return (
         unicodedata.category(char) in {"Cc", "Cf", "Cs", "Co", "Cn"}
         or char in _BIDI_CONTROLS
-        or _is_default_ignorable(char)
+        or is_default_ignorable(char)
         # Every whitespace character except U+0020. A leading NBSP, NEL, or
         # U+2028 is part of ``argv[0]``, so silently dropping it publishes a
         # different program from the one that was written.
@@ -300,6 +254,7 @@ _GAP_PHRASE: dict[str, str] = {
     "missing_effect_evidence": "an action has no declared effect",
     "inferred_effect_only": "an action's effect is inferred, not declared",
     "conflicting_effect_evidence": "an action carries conflicting effect evidence",
+    "declaration_below_inferred_evidence": "a declared effect is weaker than the evidence inferred for it",
     "missing_authority_evidence": "an action has no declared authority",
     "partial_authority_evidence": "an action's authority is only partly declared",
     "conflicting_authority_evidence": "an action carries conflicting authority evidence",

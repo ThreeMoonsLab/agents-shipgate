@@ -213,9 +213,23 @@ def _append_release_decision(lines: list[str], section: ReleaseDecisionSection) 
             "",
             (f"- Pass-eligible actions: {semantic.pass_eligible_actions}/{semantic.total_actions}"),
             f"- Evidence gaps: {semantic.gap_count}",
-            f"- Known authority review concerns: {semantic.review_concern_count}",
+            f"- Known review concerns: {semantic.review_concern_count}",
         ]
     )
+    for override in semantic.acknowledged_overrides:
+        agrees = (
+            f"; source evidence agrees ({', '.join(override.corroborating_sources)})"
+            if override.corroborating_sources
+            else ""
+        )
+        lines.append(
+            f"- Acknowledged override: {_escape(override.subject)} declares "
+            f"`{_escape(override.declared_effect)}`; "
+            f"{_escape(', '.join(override.inferred_sources) or 'static evidence')} "
+            f"infers `{_escape(override.inferred_effect)}`{_escape(agrees)}. "
+            f"Evidence: {_escape(override.evidence)} "
+            f"— Reason: {_escape(override.reason)}"
+        )
     if semantic.reason_counts:
         reasons = ", ".join(
             f"{_escape(key)}={count}" for key, count in sorted(semantic.reason_counts.items())

@@ -1,5 +1,71 @@
 {
   "$defs": {
+    "AcknowledgedEffectOverride": {
+      "additionalProperties": false,
+      "description": "v0.36: one reviewed exception, in the shape a reviewer has to judge it.\n\nA count is not a review surface. #409 asks for the override to appear as an\nexplicit row naming the action, both readings, and the reason a human gave\n\u2014 the reviewer reads exceptions, not every action, and that is what makes\nattestation real rather than rubber-stamped. Carried on the coverage block\nthat already owns ``review_concern_count``, so the report, the verifier,\nthe packet's \u00a71, and the PR comment all project the same record.",
+      "properties": {
+        "corroborating_sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Corroborating Sources",
+          "type": "array"
+        },
+        "declared_effect": {
+          "title": "Declared Effect",
+          "type": "string"
+        },
+        "evidence": {
+          "title": "Evidence",
+          "type": "string"
+        },
+        "inferred_effect": {
+          "title": "Inferred Effect",
+          "type": "string"
+        },
+        "inferred_sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Inferred Sources",
+          "type": "array"
+        },
+        "manifest_path": {
+          "title": "Manifest Path",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "subject": {
+          "title": "Subject",
+          "type": "string"
+        },
+        "subject_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject Id"
+        }
+      },
+      "required": [
+        "subject",
+        "declared_effect",
+        "inferred_effect",
+        "evidence",
+        "reason",
+        "manifest_path"
+      ],
+      "title": "AcknowledgedEffectOverride",
+      "type": "object"
+    },
     "AgentActionRequiredControl": {
       "additionalProperties": false,
       "description": "Non-terminal state with one exact coding-agent-owned next step.",
@@ -1904,6 +1970,13 @@
     "SemanticCoverageDecision": {
       "description": "v0.29 pass eligibility across the normalized action surface.\n\nUnlike extraction-confidence thresholds, semantic gaps are\nzero-tolerance: any non-pass-eligible unknown/partial/conflicting\ndimension prevents ``passed``. Known review concerns are counted\nseparately so they deterministically route to ``review_required``\nrather than ``insufficient_evidence``: ambient or unscoped\ncredentials, and (v0.36+) a declared effect that a reviewer\nacknowledged as weaker than the evidence inferred for it.\n``reason_counts`` names which.",
       "properties": {
+        "acknowledged_overrides": {
+          "items": {
+            "$ref": "#/$defs/AcknowledgedEffectOverride"
+          },
+          "title": "Acknowledged Overrides",
+          "type": "array"
+        },
         "gap_count": {
           "default": 0,
           "title": "Gap Count",
@@ -2477,7 +2550,7 @@
       "type": "object"
     }
   },
-  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verifier-schema.v0.9.json",
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verifier-schema.v0.10.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "allOf": [
@@ -3166,8 +3239,8 @@
       "type": "object"
     },
     "verifier_schema_version": {
-      "const": "0.9",
-      "default": "0.9",
+      "const": "0.10",
+      "default": "0.10",
       "title": "Verifier Schema Version",
       "type": "string"
     },
@@ -3183,6 +3256,6 @@
     "control",
     "authorization"
   ],
-  "title": "Agents Shipgate Verifier Artifact v0.9",
+  "title": "Agents Shipgate Verifier Artifact v0.10",
   "type": "object"
 }
