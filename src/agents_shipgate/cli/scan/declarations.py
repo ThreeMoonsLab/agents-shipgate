@@ -214,7 +214,11 @@ def build_declaration_scaffold(
         # In question order, not template order: the banner is read alongside
         # the numbers, so "Questions 2-3 · authority, effect" would name the
         # dimensions in the opposite order from the numbers beside them.
-        entry["dimensions"] = tuple(dimension for _, (_, dimension) in numbered_keys)
+        # Deduplicated: a merged block can answer two questions of one
+        # dimension, and "effect, effect" reads as a rendering fault.
+        entry["dimensions"] = tuple(
+            dict.fromkeys(dimension for _, (_, dimension) in numbered_keys)
+        )
     # Numbered blocks lead, in question order. A block nothing asked about —
     # a tool inventory, an ``agent_bindings`` root — is a declaration too, but
     # not a per-action question, so it keeps its emission order below them
