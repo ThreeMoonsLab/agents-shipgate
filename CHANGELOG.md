@@ -55,6 +55,33 @@
   sources disagreeing is still a conflict, and nothing that gated before stops
   gating.
 
+  *Do not ask a question a declaration cannot close.* Review of this change
+  found `partial_authority_evidence` counted as a declaration question while
+  the resolver preserves it whenever the *source's* authority evidence is
+  ambiguous or incomplete — "reviewed authority cannot replace ambiguous or
+  incomplete source authority alternatives", a deliberate safety property. An
+  MCP tool published with scopes and no auth type asked one authority question,
+  and writing the exact scoped block the scaffold requested left the counter at
+  `0 of 1 answered` forever. It is now routed to `provide_source` with no
+  declaration template and an instruction naming the source shapes that close
+  it. The narrower case of the same defect goes too: `conflicting_effect_evidence`
+  is raised about either surface, and only the branch the resolver attributes to
+  `action_surface_declaration` is a question a declaration answers — a server
+  publishing both `readOnlyHint: true` and `destructiveHint: true` contradicts
+  itself, and no declaration touches that. Every kind that remains is now pinned
+  by a round-trip test: raise it, apply the answer, re-resolve, require the
+  question answered.
+
+  *Reading an old packet no longer rewrites what it decided.* The legacy
+  upgrade path gated its `passed → insufficient_evidence` downgrade on "is this
+  a version I recognise" rather than on "is this before v0.8", so every
+  packet-schema bump quietly added the immediately previous version to the set
+  being rewritten — a stored v0.12 `passed` packet already loaded as
+  `insufficient_evidence` before this release, explained by a claim about
+  history that is false of it. The downgrade is now scoped to v0.1–v0.7, the
+  versions that genuinely predate evidence-backed semantic coverage; v0.7 still
+  downgrades and two sources disagreeing is still a conflict.
+
   Report schema `0.36 → 0.37` adds
   `release_decision.evidence_coverage.semantic_coverage.declaration_questions`
   (`{total, answered, open, open_by_dimension, open_questions[]}`) and

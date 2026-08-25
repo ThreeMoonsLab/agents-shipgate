@@ -1036,25 +1036,30 @@ def effect_readings(effect: EffectSemanticAssessment) -> list[EffectReading]:
     the strongest one.
     """
 
-    sources: dict[ActionEffect, set[str]] = {}
-    observed: dict[ActionEffect, bool] = {}
+    sources: dict[tuple[ActionEffect, bool], set[str]] = {}
     for claim in effect.claims:
         if claim.source in DECLARATION_CLAIM_SOURCES:
             continue
         if claim.value not in _EFFECT_VALUES:
             continue
-        value = _as_effect(claim.value)
-        sources.setdefault(value, set()).add(claim.source)
-        observed[value] = observed.get(value, False) or (
-            claim.basis not in NON_OBSERVATIONAL_EFFECT_BASES
-        )
+        # Keyed on the provenance class as well as the value. Grouping by
+        # effect alone and OR-ing the bit put an unannotated MCP tool's
+        # ``mcp_protocol_default`` into the same row as a keyword hint that
+        # happened to read the same effect, and the row came out
+        # ``observed=True`` — so the questionnaire printed the protocol default
+        # under "what this scan read this action's effect as", which is exactly
+        # what a default is not.
+        key = (_as_effect(claim.value), claim.basis not in NON_OBSERVATIONAL_EFFECT_BASES)
+        sources.setdefault(key, set()).add(claim.source)
     return [
-        EffectReading(
-            effect=value,
-            sources=tuple(sorted(sources[value])),
-            observed=observed[value],
+        EffectReading(effect=value, sources=tuple(sorted(sources[key])), observed=observed)
+        for key in sorted(
+            sources,
+            # Weakest reading first, and an observation ahead of a default that
+            # reads the same effect.
+            key=lambda item: (_EFFECT_RANK[item[0]], item[0], not item[1]),
         )
-        for value in sorted(sources, key=lambda item: (_EFFECT_RANK[item], item))
+        for value, observed in (key,)
     ]
 
 

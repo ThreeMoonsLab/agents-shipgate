@@ -665,6 +665,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -688,6 +689,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -711,6 +713,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -734,6 +737,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -757,6 +761,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -780,6 +785,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -803,6 +809,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -826,6 +833,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -851,6 +859,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -876,6 +885,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -901,6 +911,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -926,6 +937,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -951,6 +963,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -976,6 +989,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -1001,6 +1015,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -1021,6 +1036,7 @@
             "accepted_values": [],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -1067,7 +1083,14 @@
             "reason": "The word 'refund' appears in the article text this tool searches, not in anything it changes.",
             "manifest_path": "shipgate.yaml#action_surface.actions[tool='support.search_kb'].override"
           }
-        ]
+        ],
+        "declaration_questions": {
+          "total": 2,
+          "answered": 2,
+          "open": 0,
+          "open_by_dimension": {},
+          "open_questions": []
+        }
       },
       "identity_coverage": {
         "total_observations": 8,
@@ -10844,6 +10867,7 @@
         ],
         "suggested_patch_kind": "manual",
         "declaration_template": null,
+        "observed_readings": [],
         "auto_apply": false,
         "requires_human_review": true
       }
@@ -10869,6 +10893,7 @@
         ],
         "suggested_patch_kind": "manual",
         "declaration_template": null,
+        "observed_readings": [],
         "auto_apply": false,
         "requires_human_review": true
       }
@@ -10894,6 +10919,7 @@
         ],
         "suggested_patch_kind": "manual",
         "declaration_template": null,
+        "observed_readings": [],
         "auto_apply": false,
         "requires_human_review": true
       }
@@ -10919,6 +10945,7 @@
         ],
         "suggested_patch_kind": "manual",
         "declaration_template": null,
+        "observed_readings": [],
         "auto_apply": false,
         "requires_human_review": true
       }
@@ -10944,6 +10971,7 @@
         ],
         "suggested_patch_kind": "manual",
         "declaration_template": null,
+        "observed_readings": [],
         "auto_apply": false,
         "requires_human_review": true
       }
@@ -10969,6 +10997,7 @@
         ],
         "suggested_patch_kind": "manual",
         "declaration_template": null,
+        "observed_readings": [],
         "auto_apply": false,
         "requires_human_review": true
       }
@@ -10994,6 +11023,7 @@
         ],
         "suggested_patch_kind": "manual",
         "declaration_template": null,
+        "observed_readings": [],
         "auto_apply": false,
         "requires_human_review": true
       }

@@ -117,6 +117,7 @@
             "accepted_values": [],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -130,7 +131,14 @@
         "reason_counts": {
           "ambient_authority": 1
         },
-        "acknowledged_overrides": []
+        "acknowledged_overrides": [],
+        "declaration_questions": {
+          "total": 0,
+          "answered": 0,
+          "open": 0,
+          "open_by_dimension": {},
+          "open_questions": []
+        }
       },
       "identity_coverage": {
         "total_observations": 6,

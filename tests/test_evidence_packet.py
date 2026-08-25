@@ -1054,6 +1054,42 @@ def test_legacy_passed_packet_downgrades_to_actionable_insufficient_evidence(
     assert "INSUFFICIENT EVIDENCE" in render_packet_markdown(upgraded)
 
 
+@pytest.mark.parametrize("prior_version", ["0.8", "0.11", "0.12", "0.13"])
+def test_a_post_v08_packet_keeps_the_verdict_it_recorded(tmp_path, prior_version):
+    """Reading an old packet must not rewrite what it decided.
+
+    The downgrade above exists because v0.7 and older predate evidence-backed
+    semantic coverage — a real gap in what those artifacts can prove. It was
+    gated on "is this a version I recognise" rather than on "is this before
+    v0.8", so every packet-schema bump quietly added the *immediately previous*
+    version to the set being rewritten: a stored v0.13 `passed` packet loaded
+    as `insufficient_evidence`, explained by a claim about history that is
+    false of it.
+    """
+
+    _, packet = _scan_with_packet(tmp_path)
+    payload = serialize_packet_json(packet)
+    payload["packet_schema_version"] = prior_version
+    payload["release_decision"].update(
+        {
+            "decision": "passed",
+            "verdict": "PASSED",
+            "reason": "Static scan passed.",
+            "blockers": [],
+            "review_items": [],
+        }
+    )
+
+    upgraded = load_packet_json(payload)
+
+    assert upgraded.packet_schema_version == "0.14"
+    assert upgraded.release_decision.decision == "passed"
+    assert upgraded.release_decision.verdict == "PASSED"
+    assert "predates evidence-backed semantic coverage" not in (
+        upgraded.release_decision.reason
+    )
+
+
 def test_evidence_packet_cli_accepts_report_json(tmp_path):
     """Regression for PR #43 review: a CI-archived ``report.json`` must
     produce a (degraded) packet via ``evidence-packet --from``. The

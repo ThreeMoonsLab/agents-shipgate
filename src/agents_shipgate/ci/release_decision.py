@@ -1524,10 +1524,35 @@ def _semantic_gap(
             "naming the evidence you checked and why it does not apply, then "
             "rerun verification."
         )
-    elif kind in {
-        "missing_authority_evidence",
-        "partial_authority_evidence",
-    }:
+    elif kind == "partial_authority_evidence":
+        # Not a declaration question, and the row must not pretend otherwise.
+        # The resolver preserves this issue whenever the source's own authority
+        # evidence is ambiguous or incomplete, *whatever the manifest declares*
+        # — "reviewed authority cannot replace ambiguous or incomplete source
+        # authority alternatives". Publishing the ``declare_action_authority``
+        # template here sent a reviewer to write the exact block the scaffold
+        # asked for and get the identical row back, which is the one thing a
+        # published next step may never do.
+        action_kind = "provide_source"
+        accepted_values = [
+            "single_security_scheme",
+            "explicit_auth_type",
+            "explicit_scopes",
+        ]
+        action_why = (
+            "Authority evidence that is ambiguous at the source cannot be "
+            "replaced by a reviewed declaration; the source has to say which "
+            "one applies."
+        )
+        expects = (
+            "Make this tool's published authority unambiguous at the source — "
+            "give it an explicit auth type alongside its scopes, or reduce its "
+            "security alternatives to the single one this action uses — then "
+            "rerun verification. A reviewed action declaration cannot close "
+            "this row: the resolver keeps it whatever the manifest says."
+        )
+        # Deliberately no template: see ``action_why``.
+    elif kind == "missing_authority_evidence":
         action_kind = "declare_action_authority"
         accepted_values = list(_AUTHORITY_MODE_VALUES)
         action_why = "A complete authority mode and grant are required."

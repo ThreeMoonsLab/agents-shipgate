@@ -746,7 +746,7 @@ Newer commands (stable intent, flags may still evolve):
 | `agents-shipgate registry` | `ingest --attestation <file>` / `query` / `report --bypass` — local capability-release ledger over attestations. |
 | `agents-shipgate install-hooks` | Claude Code hooks: PreToolUse trust-root boundary (`ask`/`deny`), PostToolUse trigger nudge, Stop verify. |
 
-### Release Evidence Packet (v0.13)
+### Release Evidence Packet (v0.14)
 
 `scan` emits a reviewer-shaped Release Evidence Packet alongside
 `report.{md,json}` by default; outputs land at

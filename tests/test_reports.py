@@ -174,6 +174,72 @@ def test_sample_expected_report_json_is_current(sample_dir, expected_decision):
     )
 
 
+@pytest.mark.parametrize(
+    "sample_dir",
+    [
+        "samples/simple_openai_api_agent",
+        "samples/simple_langchain_agent",
+        "samples/simple_crewai_agent",
+        "samples/support_refund_agent",
+    ],
+)
+def test_sample_expected_report_json_has_no_structural_drift(sample_dir, tmp_path):
+    """A version stamp is not proof the body was regenerated.
+
+    ``test_sample_expected_report_json_is_current`` checks the version string
+    and the decision, and its own message says to regenerate the golden — but
+    both assertions pass after a one-line relabel. A report-schema bump that
+    only edited ``report_schema_version`` therefore shipped four goldens
+    claiming v0.37 while carrying no ``declaration_questions`` and no
+    ``observed_readings`` member anywhere.
+
+    Compares the *shape* rather than the values: a fresh scan's set of field
+    paths must equal the golden's. Values legitimately differ between runs
+    (paths, hashes, timestamps) and are covered by the markdown and packet
+    byte-comparisons and by the Conductor field-for-field check; a missing or
+    extra field is drift no value comparison would report.
+    """
+    from agents_shipgate.cli.scan import run_scan
+
+    run_scan(
+        config_path=Path(sample_dir) / "shipgate.yaml",
+        output_dir=tmp_path,
+        # The formats the committed goldens are generated with:
+        # ``generated_reports`` records them, so scanning with a narrower set
+        # would report a run-configuration difference as drift.
+        formats=["json", "markdown"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+    fresh = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
+    golden = json.loads(
+        (Path(sample_dir) / "expected" / "report.json").read_text(encoding="utf-8")
+    )
+
+    def paths(node, prefix=""):
+        # List indices are collapsed: a golden with one finding and a fresh
+        # scan with two are not structurally different, but a *member* the
+        # golden has never seen is.
+        if isinstance(node, dict):
+            for key, value in node.items():
+                child = f"{prefix}.{key}" if prefix else str(key)
+                yield child
+                yield from paths(value, child)
+        elif isinstance(node, list):
+            for value in node:
+                yield from paths(value, f"{prefix}[]")
+
+    missing = sorted(set(paths(fresh)) - set(paths(golden)))
+    extra = sorted(set(paths(golden)) - set(paths(fresh)))
+
+    assert not missing and not extra, (
+        f"{sample_dir}/expected/report.json is stale. Fields a fresh scan "
+        f"emits that the golden lacks: {missing}. Fields the golden carries "
+        f"that a fresh scan does not: {extra}. Regenerate it with a real scan "
+        "rather than editing the version stamp."
+    )
+
+
 def test_sample_expected_report_json_uses_repo_placeholder_for_manifest_dir():
     """Sample goldens should not expose or churn on contributor home paths."""
     for path in sorted(Path("samples").glob("*/expected/report.json")):

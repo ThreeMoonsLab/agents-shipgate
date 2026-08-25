@@ -559,6 +559,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -584,6 +585,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -609,6 +611,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -634,6 +637,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -659,6 +663,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -684,6 +689,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -697,7 +703,14 @@
         "reason_counts": {
           "unscoped_authority": 2
         },
-        "acknowledged_overrides": []
+        "acknowledged_overrides": [],
+        "declaration_questions": {
+          "total": 4,
+          "answered": 4,
+          "open": 0,
+          "open_by_dimension": {},
+          "open_questions": []
+        }
       },
       "identity_coverage": {
         "total_observations": 2,
@@ -3927,6 +3940,7 @@
         ],
         "suggested_patch_kind": "manual",
         "declaration_template": null,
+        "observed_readings": [],
         "auto_apply": false,
         "requires_human_review": true
       }
@@ -3952,6 +3966,7 @@
         ],
         "suggested_patch_kind": "manual",
         "declaration_template": null,
+        "observed_readings": [],
         "auto_apply": false,
         "requires_human_review": true
       }
@@ -3977,6 +3992,7 @@
         ],
         "suggested_patch_kind": "manual",
         "declaration_template": null,
+        "observed_readings": [],
         "auto_apply": false,
         "requires_human_review": true
       }
@@ -4002,6 +4018,7 @@
         ],
         "suggested_patch_kind": "manual",
         "declaration_template": null,
+        "observed_readings": [],
         "auto_apply": false,
         "requires_human_review": true
       }
@@ -4027,6 +4044,7 @@
         ],
         "suggested_patch_kind": "manual",
         "declaration_template": null,
+        "observed_readings": [],
         "auto_apply": false,
         "requires_human_review": true
       }
@@ -4052,6 +4070,7 @@
         ],
         "suggested_patch_kind": "manual",
         "declaration_template": null,
+        "observed_readings": [],
         "auto_apply": false,
         "requires_human_review": true
       }

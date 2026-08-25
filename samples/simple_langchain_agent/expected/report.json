@@ -81,7 +81,14 @@
         "gap_count": 0,
         "review_concern_count": 0,
         "reason_counts": {},
-        "acknowledged_overrides": []
+        "acknowledged_overrides": [],
+        "declaration_questions": {
+          "total": 0,
+          "answered": 0,
+          "open": 0,
+          "open_by_dimension": {},
+          "open_questions": []
+        }
       },
       "identity_coverage": {
         "total_observations": 4,

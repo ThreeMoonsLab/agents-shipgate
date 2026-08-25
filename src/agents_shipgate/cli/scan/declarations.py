@@ -433,6 +433,23 @@ _BANNER_WIDTH = 78
 _MIN_BANNER_SUBJECT = 24
 
 
+def _numbers_phrase(numbers: Sequence[int]) -> str:
+    """``Question 3`` / ``Questions 1-2`` / ``Questions 1 and 3``.
+
+    A range is only written when the numbers really are contiguous. Ordering
+    now keeps one action's questions adjacent, but a banner that renders any
+    set as a span is a renderer that can lie the moment ordering changes — and
+    what it would claim is another action's question.
+    """
+
+    if len(numbers) == 1:
+        return f"Question {numbers[0]}"
+    if numbers[-1] - numbers[0] == len(numbers) - 1:
+        return f"Questions {numbers[0]}–{numbers[-1]}"
+    listed = [str(number) for number in numbers]
+    return f"Questions {', '.join(listed[:-1])} and {listed[-1]}"
+
+
 def _question_banner(
     numbers: Sequence[int],
     total: int,
@@ -450,12 +467,7 @@ def _question_banner(
     exact ``tool`` and ``tool_id`` a reader has to act on.
     """
 
-    label = (
-        f"Question {numbers[0]} of {total}"
-        if len(numbers) == 1
-        else f"Questions {numbers[0]}–{numbers[-1]} of {total}"
-    )
-    parts = [label]
+    parts = [f"{_numbers_phrase(numbers)} of {total}"]
     if dimensions:
         parts.append(", ".join(dimensions))
     prefix = f"── {' · '.join(parts)} · "

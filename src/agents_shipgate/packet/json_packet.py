@@ -82,25 +82,17 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
         raise PacketSchemaError("packet.json must be a JSON object")
 
     version = payload_dict.get("packet_schema_version")
-    legacy_version = (
-        version
-        if version
-        in {
-            "0.1",
-            "0.2",
-            "0.3",
-            "0.4",
-            "0.5",
-            "0.6",
-            "0.7",
-            "0.8",
-            "0.9",
-            "0.10",
-            "0.11",
-            "0.12",
-            "0.13",
-        }
-        else None
+    # Two different questions, and one variable used to answer both. "Is this a
+    # prior version I can read?" is the ladder below, which grows by one on
+    # every bump. "Does its ``passed`` predate the evidence-backed pass
+    # contract?" is only v0.7 and older — the set
+    # ``_upgrade_semantic_coverage_v08`` was written for and says so in its own
+    # docstring. Sharing one variable meant that each time a version was
+    # appended, the immediately previous one's ``passed`` started being
+    # rewritten to ``insufficient_evidence`` with the false explanation that it
+    # "predates evidence-backed semantic coverage".
+    pre_semantic_coverage = (
+        version if version in _PRE_SEMANTIC_COVERAGE_VERSIONS else None
     )
     if version == "0.1":
         payload_dict = {
@@ -171,14 +163,22 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
             "'0.14'"
         )
 
-    if legacy_version is not None:
-        _upgrade_semantic_coverage_v08(payload_dict, source_version=legacy_version)
+    if pre_semantic_coverage is not None:
+        _upgrade_semantic_coverage_v08(payload_dict, source_version=pre_semantic_coverage)
 
     try:
         return EvidencePacket.model_validate(payload_dict)
     except ValidationError as exc:
         raise PacketSchemaError(f"packet.json failed validation: {exc}") from exc
 
+
+#: Packet versions whose ``passed`` verdict cannot prove the evidence-backed
+#: pass contract, because they predate it. Frozen: this list can only ever be
+#: the versions published before v0.8, so a new entry here would be a claim
+#: about history rather than about a release.
+_PRE_SEMANTIC_COVERAGE_VERSIONS = frozenset(
+    {"0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7"}
+)
 
 def _upgrade_hitl_v03(payload: dict[str, Any]) -> None:
     hitl = payload.get("human_in_the_loop")

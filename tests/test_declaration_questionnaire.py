@@ -224,6 +224,31 @@ def test_a_protocol_default_is_not_an_observation() -> None:
     assert propose_effect_declaration(readings) is None
 
 
+def test_a_default_is_not_folded_into_an_observation_that_reads_the_same() -> None:
+    """Provenance class is part of a reading's identity, not a flag to OR.
+
+    An unannotated MCP tool with a `writes_data` hint has *two* readings that
+    both say `write`: one observed, one assumed. Merging them produced a single
+    `observed=True` row carrying `mcp_protocol_default` among its sources, so
+    the questionnaire printed the default under "what this scan read this
+    action's effect as" — which is precisely what a default is not.
+    """
+
+    tool = _observing(
+        "write", source_type="mcp", annotations={"mcp_server": True}
+    )
+    readings = _readings(tool)
+
+    assert [(r.effect, r.sources, r.observed) for r in readings] == [
+        ("write", ("risk_hint:hint0",), True),
+        ("write", ("mcp_protocol_default",), False),
+    ]
+    # The proposal is unaffected: it reasons over values, and the observation
+    # is still what unlocks it.
+    proposal = propose_effect_declaration(readings)
+    assert proposal is not None and proposal.effect == "write"
+
+
 def test_a_heuristic_cannot_propose_that_an_action_is_read_only() -> None:
     """#357, at the one place pre-filling could quietly reverse it.
 
@@ -448,6 +473,132 @@ def test_the_answerable_kinds_are_real_gap_kinds_and_belong_to_one_dimension() -
         assert not kinds & seen, "a gap kind cannot answer two dimensions"
         seen |= kinds
     assert set(DIMENSION_BY_GAP_KIND) == seen
+
+
+#: One reachable configuration per answerable kind, with the declaration that
+#: is supposed to close it. `conflicting_effect_evidence` appears twice on
+#: purpose: it is raised about two different surfaces, and only one of them is
+#: a question a declaration can answer.
+_ROUND_TRIP_CASES: dict[str, tuple[dict, dict, dict]] = {
+    # kind: (tool kwargs, declaration that raised it or {}, the answer)
+    "missing_effect_evidence": (
+        {"source_type": "mcp", "annotations": {"mcp_server": True}},
+        {},
+        {"effect": "write"},
+    ),
+    "inferred_effect_only": (
+        {"risk_hints": "external_communication"},
+        {},
+        {"effect": "external_communication"},
+    ),
+    "declaration_below_inferred_evidence": (
+        {"risk_hints": "external_communication"},
+        {"effect": "read"},
+        {"effect": "external_communication"},
+    ),
+    "conflicting_effect_evidence": (
+        {"annotations": {"httpMethod": "POST"}},
+        {"effect": "read"},
+        {"effect": "write"},
+    ),
+    "missing_authority_evidence": (
+        {},
+        {},
+        {"authority": {"mode": "none"}},
+    ),
+    "conflicting_authority_evidence": (
+        {"auth": {"type": "oauth2", "scopes": ["a:write"]}},
+        {"authority": {"mode": "none"}},
+        {
+            "scopes": ["a:write"],
+            "authority": {"mode": "scoped", "auth_type": "oauth2"},
+        },
+    ),
+}
+
+
+def test_every_answerable_kind_has_an_answer_that_closes_it() -> None:
+    """The finish line the counter advertises has to be reachable.
+
+    `partial_authority_evidence` was counted as a question while the resolver
+    preserved it *whatever the manifest declared* — so an MCP tool published
+    with scopes and no auth type asked one authority question that writing the
+    exact scoped block the scaffold requested left at `0 of 1 answered`
+    forever. This walks every kind in the table: raise it, apply the answer,
+    re-resolve, and require the question to be answered.
+    """
+
+    dimension_of = {
+        kind: dimension
+        for dimension, kinds in ANSWERABLE_ISSUE_KINDS.items()
+        for kind in kinds
+    }
+    assert set(_ROUND_TRIP_CASES) >= set(dimension_of), (
+        "a kind was added to ANSWERABLE_ISSUE_KINDS with no round-trip case"
+    )
+
+    for kind, (tool_kwargs, raising, answer) in _ROUND_TRIP_CASES.items():
+        dimension = dimension_of[kind]
+        hint = tool_kwargs.pop("risk_hints", None) if "risk_hints" in tool_kwargs else None
+        tool = _observing(hint, **tool_kwargs) if hint else _tool(**tool_kwargs)
+        raised = assess_tool_semantics(
+            tool,
+            ActionDeclarationConfig.model_validate({"tool": "send_email", **raising})
+            if raising
+            else None,
+        )
+        assert kind in {issue.kind for issue in _dim_issues(raised, dimension)}, (
+            f"{kind}: the fixture no longer raises it"
+        )
+
+        answered = assess_tool_semantics(
+            tool,
+            ActionDeclarationConfig.model_validate({"tool": "send_email", **answer}),
+        )
+        tool.semantic_assessment = answered
+        questions = {
+            (question.dimension, question.answered)
+            for question in declaration_questions([tool])
+        }
+        assert (dimension, False) not in questions, (
+            f"{kind}: applying {answer} left the {dimension} question open — "
+            "the counter advertises a finish line this answer cannot reach"
+        )
+
+
+def test_a_source_that_contradicts_itself_is_not_a_declaration_question() -> None:
+    """The second branch of `conflicting_effect_evidence`, which no answer closes.
+
+    A server publishing both `readOnlyHint: true` and `destructiveHint: true`
+    contradicts itself, and the resolver reads that before it reads the
+    manifest — so the issue is attributed to `tool_source` and stands whatever
+    is declared. Counting it is the `partial_authority_evidence` mistake one
+    branch deeper.
+    """
+
+    tool = _tool(annotations={"readOnlyHint": True, "destructiveHint": True})
+    for declared in (None, "destructive", "read"):
+        assessment = assess_tool_semantics(
+            tool,
+            None
+            if declared is None
+            else ActionDeclarationConfig.model_validate(
+                {"tool": "send_email", "effect": declared}
+            ),
+        )
+        assert "conflicting_effect_evidence" in {
+            issue.kind for issue in assessment.effect.issues
+        }
+        tool.semantic_assessment = assessment
+        assert not [
+            question
+            for question in declaration_questions([tool])
+            if question.dimension == "effect"
+        ], f"declared={declared!r}: counted a question no declaration can close"
+
+
+def _dim_issues(assessment, dimension: str):
+    return assessment.effect.issues if dimension == "effect" else assessment.authority.issues
 
 
 def test_the_counts_are_internally_consistent() -> None:
@@ -797,6 +948,49 @@ def test_the_pr_comment_reports_progress_and_omits_it_when_nothing_was_asked(
         DeclarationQuestionCoverage()
     )
     assert "Declaration question" not in render_pr_comment(verifier, report=report)
+
+
+def test_two_tools_sharing_a_display_name_keep_their_questions_contiguous() -> None:
+    """A block may only claim numbers it owns.
+
+    Two canonical tools can render the same `name [provider]` label. Ordering
+    by dimension before tool interleaved them — A.effect, B.effect,
+    A.authority — so the row merged for A owned questions 1 and 3, and the
+    banner announced "Questions 1-3", claiming the one in between that belongs
+    to B.
+    """
+
+    tools = []
+    for tool_id in ("t_a", "t_b"):
+        tool = _observing("external_communication", id=tool_id)
+        tool.semantic_assessment = assess_tool_semantics(tool, None)
+        tools.append(tool)
+
+    numbered = list(enumerate(declaration_questions(tools), start=1))
+    per_tool: dict[str, list[int]] = {}
+    for number, question in numbered:
+        per_tool.setdefault(question.tool_id, []).append(number)
+
+    assert len(per_tool) == 2
+    for tool_id, numbers in per_tool.items():
+        assert numbers[-1] - numbers[0] == len(numbers) - 1, (
+            f"{tool_id} owns non-contiguous questions {numbers}"
+        )
+
+
+def test_a_banner_never_renders_a_gap_in_its_numbers_as_a_range() -> None:
+    """The renderer must not be able to lie even if ordering changes.
+
+    Contiguity is a property of the ordering; a banner that renders any set as
+    a span is one edit away from claiming another action's question.
+    """
+
+    from agents_shipgate.cli.scan.declarations import _numbers_phrase
+
+    assert _numbers_phrase([3]) == "Question 3"
+    assert _numbers_phrase([1, 2]) == "Questions 1–2"
+    assert _numbers_phrase([1, 3]) == "Questions 1 and 3"
+    assert _numbers_phrase([1, 3, 5]) == "Questions 1, 3 and 5"
 
 
 def test_blocks_and_unanswerable_notes_are_interleaved_by_number() -> None:

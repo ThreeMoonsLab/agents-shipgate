@@ -42,6 +42,7 @@ from typing import Literal
 
 from agents_shipgate.core.domain import (
     DECLARATION_CLAIM_SOURCES,
+    DECLARED_EFFECT_SOURCE,
     SemanticIssue,
     Tool,
     ToolSemanticAssessment,
@@ -68,6 +69,19 @@ DECLARATION_DIMENSIONS: tuple[DeclarationDimension, ...] = ("effect", "authority
 #: dimension. Enumerated, never derived from ``issue.dimension``: see the
 #: module docstring for the two kinds that ride on a dimension they cannot be
 #: answered on.
+#:
+#: ``partial_authority_evidence`` is deliberately **absent**. The resolver
+#: preserves it whenever the source's own authority evidence is ambiguous or
+#: incomplete, *whatever the manifest declares* — "reviewed authority cannot
+#: replace ambiguous or incomplete source authority alternatives" is a
+#: deliberate safety property, not an oversight. Counting it would advertise a
+#: finish line no answer reaches: an MCP tool published with scopes but no auth
+#: type asks one authority question, and writing the exact scoped declaration
+#: the scaffold requests leaves the counter at 0 of 1 answered forever.
+#:
+#: ``test_every_answerable_kind_has_an_answer_that_closes_it`` is the guard:
+#: each kind here must have a generated declaration that makes its question
+#: answered on re-resolution, in every configuration that raises it.
 ANSWERABLE_ISSUE_KINDS: dict[DeclarationDimension, frozenset[str]] = {
     "effect": frozenset(
         {
@@ -80,11 +94,27 @@ ANSWERABLE_ISSUE_KINDS: dict[DeclarationDimension, frozenset[str]] = {
     "authority": frozenset(
         {
             "missing_authority_evidence",
-            "partial_authority_evidence",
             "conflicting_authority_evidence",
         }
     ),
 }
+
+#: Kinds raised about *either* surface, where the resolver's own attribution
+#: decides whether a declaration can close it.
+#:
+#: ``conflicting_effect_evidence`` has two branches. One says the declaration
+#: is weaker than policy-eligible source evidence and blames
+#: ``action_surface_declaration`` — raising the declared effect closes it. The
+#: other says the *source* asserts read-only and a side effect at once and
+#: blames ``tool_source``; no declaration touches that, because the resolver
+#: reads the source's self-contradiction before it reads the manifest. Treating
+#: the kind as uniformly answerable is the same defect as counting
+#: ``partial_authority_evidence``, one branch deeper.
+DECLARATION_ATTRIBUTED_KINDS: frozenset[str] = frozenset({"conflicting_effect_evidence"})
+
+#: The issue source the resolver stamps when the manifest row is what is at
+#: fault. One spelling, shared with the resolver's claim sources.
+_DECLARATION_ISSUE_SOURCE = DECLARED_EFFECT_SOURCE
 
 #: The inverse of :data:`ANSWERABLE_ISSUE_KINDS` — which dimension each gap
 #: kind belongs to. Inverted once, here, because both the questionnaire and the
@@ -257,7 +287,14 @@ def _issues(
 
 
 def _asks(issues: Sequence[SemanticIssue], answerable: frozenset[str]) -> bool:
-    return any(issue.kind in answerable for issue in issues)
+    return any(
+        issue.kind in answerable
+        and (
+            issue.kind not in DECLARATION_ATTRIBUTED_KINDS
+            or issue.source == _DECLARATION_ISSUE_SOURCE
+        )
+        for issue in issues
+    )
 
 
 def _has_declaration(assessment: ToolSemanticAssessment) -> bool:
@@ -281,17 +318,29 @@ def _subject(tool: Tool) -> str:
     return f"{tool.name} [{tool.provider or tool.source_id or tool.source_type}]"
 
 
-def _ordering(question: DeclarationQuestion) -> tuple[int, str, int, str]:
+def _ordering(question: DeclarationQuestion) -> tuple[int, str, str, int]:
+    """Risk, then subject, then **tool**, then dimension.
+
+    Tool before dimension is what keeps one action's questions contiguous. Two
+    canonical tools can render the same display subject, and ordering by
+    dimension first interleaved them — tool A effect, tool B effect, tool A
+    authority — so the block merged for tool A owned questions 1 and 3 and the
+    scaffold announced it as "Questions 1-3", claiming the one in between that
+    belongs to the other tool. Within an action the dimension order still
+    holds, which is the only thing it was ever there for.
+    """
+
     return (
         -question.rank,
         question.subject,
-        _DIMENSION_ORDER[question.dimension],
         question.tool_id,
+        _DIMENSION_ORDER[question.dimension],
     )
 
 
 __all__ = [
     "ANSWERABLE_ISSUE_KINDS",
+    "DECLARATION_ATTRIBUTED_KINDS",
     "DECLARATION_DIMENSIONS",
     "DIMENSION_BY_GAP_KIND",
     "DeclarationDimension",
