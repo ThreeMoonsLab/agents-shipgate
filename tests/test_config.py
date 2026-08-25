@@ -448,3 +448,142 @@ def test_inventory_entry_still_rejects_an_unknown_key(tmp_path) -> None:
 
     with pytest.raises(ConfigError):
         load_manifest(manifest_path)
+
+
+
+def test_a_blank_tool_source_id_is_a_manifest_error_not_a_loader_defect(tmp_path):
+    """`tool_sources[].id` is a join key, so blank is rejected at load.
+
+    It used to validate, reach `core/tool_identity._observations`, and be
+    reported as a defect in Agents Shipgate that the repository could not
+    repair — while the schema that accepted it was the thing at fault
+    (#329 review). A padded id is worse than blank: it validated, then matched
+    none of the `source_id` selectors that are stripped where they are
+    declared, so an inventory silently completed nothing.
+    """
+
+    from agents_shipgate.schemas.manifest import ToolSourceConfig
+
+    assert ToolSourceConfig(id=" orders ", type="mcp", path="t.json").id == "orders"
+    with pytest.raises(ValueError, match="tool_sources\\[\\].id must name the source"):
+        ToolSourceConfig(id="   ", type="mcp", path="t.json")
+
+
+@pytest.mark.parametrize(
+    ("source_id", "accepted"),
+    [
+        pytest.param("orders", True, id="plain"),
+        pytest.param(" orders ", True, id="padded"),
+        pytest.param("", False, id="empty"),
+        pytest.param("   ", False, id="whitespace-only"),
+        pytest.param("\t\n", False, id="tab-and-newline"),
+    ],
+)
+def test_the_published_schema_and_the_runtime_agree_about_source_ids(
+    source_id, accepted
+):
+    """A `field_validator` is invisible to the generated JSON Schema.
+
+    `docs/manifest-v0.1.json` is part of the manifest contract, so a consumer
+    validating against it accepted ids the runtime refuses (#329 review 2).
+    The rule is now stated in both places; this is what keeps them equal.
+    """
+
+    import jsonschema
+
+    from agents_shipgate.schemas.manifest import ToolSourceConfig
+
+    published = json.loads(
+        (Path(__file__).resolve().parent.parent / "docs" / "manifest-v0.1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    defs = published.get("$defs") or published.get("definitions") or {}
+    schema = {**defs["ToolSourceConfig"], "$defs": defs}
+    document = {"id": source_id, "type": "mcp", "path": "t.json"}
+
+    schema_accepts = True
+    try:
+        jsonschema.validate(document, schema)
+    except jsonschema.ValidationError:
+        schema_accepts = False
+
+    runtime_accepts = True
+    try:
+        ToolSourceConfig.model_validate(document)
+    except ValueError:
+        runtime_accepts = False
+
+    assert schema_accepts is accepted, source_id
+    assert runtime_accepts is accepted, source_id
+
+
+#: Artifact lists a framework block declares that are read for something other
+#: than tools. Kept explicit so a new list must be classified rather than
+#: silently inheriting either answer.
+_NON_TOOL_ARTIFACT_LISTS = frozenset(
+    {
+        "agent_traces",
+        "approval_traces",
+        "credential_stubs",
+        "data_table_schemas",
+        "eval_sets",
+        "execution_samples",
+        "high_risk_exclusions",
+        "override_logs",
+        "policy_rules",
+        "promotion_criteria",
+        "response_formats",
+        "test_cases",
+        "trace_samples",
+        "variable_stubs",
+    }
+)
+
+
+def test_every_declared_artifact_list_is_classified():
+    """A new artifact list cannot arrive unclassified.
+
+    `repeated_declared_artifacts` counts a repeat only within a *tool-producing*
+    list, because a path repeated under `openai_api.test_cases` says nothing
+    about a duplicate tool (#329 review 3). That is only true while the
+    tool-producing set is complete, so this walks the manifest model and
+    requires every artifact list to be on one side or the other.
+    """
+
+    from pydantic import BaseModel
+
+    from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+    from agents_shipgate.schemas.manifest._artifacts import (
+        TOOL_PRODUCING_ARTIFACT_LISTS,
+        ArtifactPathConfig,
+    )
+
+    def artifact_lists(model: type[BaseModel], seen: set[type]) -> set[str]:
+        if model in seen:
+            return set()
+        seen.add(model)
+        found: set[str] = set()
+        for name, field in model.model_fields.items():
+            annotation = repr(field.annotation)
+            if "ArtifactPathConfig" in annotation or "InventoryConfig" in annotation:
+                if "list[" in annotation:
+                    found.add(name)
+            for candidate in getattr(field.annotation, "__args__", ()) or ():
+                inner = getattr(candidate, "__args__", (candidate,))
+                for nested in inner:
+                    if isinstance(nested, type) and issubclass(nested, BaseModel):
+                        if not issubclass(nested, ArtifactPathConfig):
+                            found |= artifact_lists(nested, seen)
+            if isinstance(field.annotation, type) and issubclass(
+                field.annotation, BaseModel
+            ):
+                found |= artifact_lists(field.annotation, seen)
+        return found
+
+    declared = artifact_lists(AgentsShipgateManifest, set())
+    unclassified = declared - TOOL_PRODUCING_ARTIFACT_LISTS - _NON_TOOL_ARTIFACT_LISTS
+    assert not unclassified, (
+        "artifact lists on the manifest model that are neither tool-producing "
+        f"nor explicitly excluded: {sorted(unclassified)}"
+    )

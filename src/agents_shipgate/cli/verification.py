@@ -19,7 +19,7 @@ from agents_shipgate.cli.agent_mode import (
     emit_agent_mode_error,
     emit_agent_mode_error_action,
 )
-from agents_shipgate.cli.diagnostics import top_next_actions
+from agents_shipgate.cli.diagnostics import input_parse_recovery, top_next_actions
 from agents_shipgate.cli.verify.git import (
     archive_tree,
     commit_date,
@@ -66,7 +66,6 @@ from agents_shipgate.core.verification_identity import (
 from agents_shipgate.packet.json_packet import load_packet_json, write_packet_json
 from agents_shipgate.report.json_report import report_json_payload
 from agents_shipgate.schemas.current_control import RECEIPT_ARTIFACT_KEY
-from agents_shipgate.schemas.diagnostics import NextAction
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verification_identity import (
     VerificationPlan,
@@ -177,20 +176,20 @@ def prepare(
         )
     except InputParseError as exc:
         typer.echo(f"Input parsing error: {exc}", err=True)
+        # One resolver across scan, verify, and the assembly path, so a
+        # failure that has a precise route keeps it here too (#329).
+        #
+        # `prepare` builds its plan through the input loader rather than
+        # `run_scan`, so nothing injects the resolved manifest for it and the
+        # resolver fell back to the literal `shipgate.yaml` — a different
+        # trust root whenever `--config` names a nested one (#329 review 3).
+        # This frame knows it exactly.
         emit_agent_mode_error_action(
             "input_parse_error",
             message=exc,
             exit_code=3,
-            action=NextAction(
-                kind="review",
-                why=(
-                    "Inspect the file referenced in the error; ensure it exists, "
-                    "is valid, and resolves under the manifest directory."
-                ),
-                expects=(
-                    "Referenced file is present, parseable, and inside the manifest directory."
-                ),
-            ),
+            action=input_parse_recovery(exc, manifest_path=root / config_relative)[0],
+            details=exc.details or None,
         )
         raise typer.Exit(3) from exc
     except ConfigError as exc:

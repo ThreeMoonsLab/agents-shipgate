@@ -25,8 +25,14 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, cast, get_args
 
+from agents_shipgate.core.adopter_text import (
+    AGENT_ID_PATTERN,
+    FINGERPRINT_PATTERN,
+    OBSERVATION_ID_PATTERN,
+    TOOL_ID_PATTERN,
+)
 from agents_shipgate.core.domain import SourceSurfaceOmission
-from agents_shipgate.schemas.bindings import AgentBindingIssue
+from agents_shipgate.schemas.bindings import AgentBindingIssue, AgentBindingNode
 from agents_shipgate.schemas.detect import DetectResult
 from agents_shipgate.schemas.exclusions import (
     SurfaceExclusion,
@@ -67,20 +73,106 @@ def unavailable_base_subject(report: ReadinessReport) -> str:
     )
 
 
-#: A canonical tool id anywhere inside a string, not only as the whole of it.
+#: A derived id anywhere inside a string, not only as the whole of it, with the
+#: noun each shape names so a guard can say which kind reached a display string.
+#:
 #: ``_stable_id`` builds every tool id as ``tool_v<n>`` plus a sha256 digest, and
 #: the spellings that reached users wrapped one in a label —
 #: ``create_refund [tool_v2_6dcebe…]`` — so a guard comparing the whole subject
 #: against the catalog never saw it. Matching the *shape* also covers an id that
 #: no longer resolves: a stale or plugin-supplied id is exactly as unreadable as
 #: a current one, and a current-catalog check cannot recognise it at all.
-_TOOL_ID_PATTERN = re.compile(r"tool_v[0-9]+[_:][0-9a-f]{8,}")
+#:
+#: The agent shape is the same rule one subject kind later:
+#: ``core.agent_bindings`` builds an agent id as ``agent_v1:`` plus a truncated
+#: sha256, and the binding gaps fell back to it whenever the issue named no
+#: tool — so ``samples/conductor_agent`` shipped ``…is incomplete
+#: (agent_v1:7205d836…)`` as the sentence under the verdict. A guard scoped to
+#: one kind of id passes vacuously for every other one (#329).
+#:
+#: The patterns themselves live in :mod:`agents_shipgate.core.adopter_text`,
+#: which owns the reader-facing half of the same rule. Two copies would drift,
+#: and the drift would be silent in exactly the direction that matters.
+#: All four shapes, not the two that had been seen in a subject. A
+#: ``source_warning`` is copied verbatim into an ``EvidenceGap.subject``, so
+#: loader text carrying an observation id or a fingerprint reached the field
+#: this rule exists to keep readable while passing validation — the same
+#: "scoped to today's instances" mistake one level down.
+DERIVED_ID_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("tool", TOOL_ID_PATTERN),
+    ("agent", AGENT_ID_PATTERN),
+    ("observation", OBSERVATION_ID_PATTERN),
+    ("finding", FINGERPRINT_PATTERN),
+)
 
 
-def contains_tool_id(value: str) -> bool:
-    """True when a display label carries a canonical tool id anywhere in it."""
+#: The one position a derived id can occupy in a display subject *without*
+#: being an adopter-controlled name: the bracketed qualifier
+#: ``catalog_subject`` appends, as in ``create_refund [tool_v2_6dcebe…]``.
+_BRACKETED_QUALIFIER = re.compile(r"\[([^\[\]]*)\]")
 
-    return _TOOL_ID_PATTERN.search(value) is not None
+
+def derived_id_kind(value: str) -> str | None:
+    """Which derived identifier ``value`` carries *as an identifier*.
+
+    ``"tool"``, ``"agent"``, ``"observation"``, ``"finding"``, or ``None``.
+
+    Shape alone is not enough, and getting that wrong is expensive in one
+    direction only: this predicate aborts a scan, so a false positive on an
+    adopter-controlled name is an outage rather than a lint. A tool may legally
+    be named ``tool_v2_deadbeef`` or ``tool_v2_deadbeef-helper``, and word
+    boundaries cannot separate those from the real thing — ``-`` and ``.`` are
+    name characters (#329 review 3).
+
+    So position decides. A derived id is refused when it is the *whole*
+    subject, or when it sits inside the bracketed qualifier, which is the only
+    part of a subject that emitters build rather than adopters — that is where
+    every spelling this rule was written for actually appeared. A shape in the
+    *name* position, with a qualifier beside it, is a name.
+    """
+
+    stripped = value.strip()
+    for noun, pattern in DERIVED_ID_PATTERNS:
+        match = pattern.fullmatch(stripped)
+        if match is not None:
+            return noun
+        for qualifier in _BRACKETED_QUALIFIER.findall(stripped):
+            if pattern.search(qualifier):
+                return noun
+    return None
+
+
+def agent_subject(node: AgentBindingNode) -> str:
+    """The subject string an agent-binding node is named by.
+
+    ``catalog_subject`` for agents, and deliberately the same shape: the
+    declared name, qualified by the source it was read from when there is one,
+    because two sources can define an agent of the same name. The reader
+    recognises ``closer_agent [google_adk:agent.py]``; they cannot do anything
+    at all with ``agent_v1:507abc67``.
+
+    An unnamed agent — an extractor that resolved no literal ``name=`` — falls
+    back to where it was read, never to the id. Returning the id here would
+    not merely be unreadable: :func:`derived_id_kind` refuses a derived id in
+    any gap subject, so the fallback would abort the scan it was written to
+    describe.
+    """
+
+    name = node.name.strip()
+    if not name:
+        return node.source_ref or node.source_pointer or node.source_id or "unnamed agent"
+    return f"{name} [{node.source_id}]" if node.source_id else name
+
+
+def agent_label_index(agents: Iterable[AgentBindingNode]) -> dict[str, str]:
+    """Map agent id to the one display label that names that agent.
+
+    Resolved from the binding graph through one index, for the reason
+    :func:`catalog_label_index` exists: an emitter that renders a label from
+    its own fields produces a second spelling of the same subject.
+    """
+
+    return {node.agent_id: agent_subject(node) for node in agents}
 
 
 def catalog_label_index(rows: Iterable[Any]) -> dict[str, str]:
@@ -468,8 +560,11 @@ def build_detect_exclusions(result: DetectResult) -> SurfaceExclusionLedger:
 
 __all__ = [
     "BINDING_GAP_KINDS",
+    "DERIVED_ID_PATTERNS",
+    "agent_label_index",
+    "agent_subject",
     "catalog_label_index",
-    "contains_tool_id",
+    "derived_id_kind",
     "tool_label",
     "unavailable_base_subject",
     "build_detect_exclusions",

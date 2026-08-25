@@ -120,6 +120,74 @@
   that has nothing to do with safety, and it is now pinned equal to what the
   engine emits by a test.
 
+- **Adopter-facing output stops naming the internal identity model.** Running
+  the tool on your own repository for the first time could produce
+  `Duplicate tool observation identity: source_type='google_adk_function',
+  source_id='google_adk:agent.py', native_locator='agent.py#map_account'` —
+  three internal concepts, none of them in the manifest you wrote, and the one
+  recoverable fact (a file was listed twice) unstated
+  ([#329](https://github.com/ThreeMoonsLab/agents-shipgate/issues/329),
+  invariant 5 of [#327](https://github.com/ThreeMoonsLab/agents-shipgate/issues/327)).
+
+  Every string whose purpose is to tell a person what to do next — console
+  output, the agent-mode `message` / `next_action` / `next_actions[]`,
+  `agent-handoff.json` prose, `fix_task.instructions[]`, PR comment text — now
+  names a file, a symbol, an agent, or a manifest key. That message reads
+  `Tool 'map_account' was read twice from 'agent.py' as one tool source. Check
+  shipgate.yaml for an entry naming 'agent.py' more than once…`, and the
+  identity triple moves to a new `details` object on the error envelope, where
+  a machine consumer or a bug report can still read it. `report.json` evidence
+  blocks and the tool catalog are untouched: they are the identity model, and
+  they are supposed to be precise.
+
+  *A digest was the subject of a shipped verdict.* A binding gap whose issue
+  named no tool fell back to the derived agent id, so `samples/conductor_agent`
+  shipped `Insufficient evidence: the agent's tool binding graph is incomplete
+  (agent_v1:7205d836…)` as the sentence under its verdict. It now reads
+  `(durable_order_agent [conductor_workflows])`. The report's conservation
+  invariant — which already refused a raw *tool* id in a gap subject — now
+  refuses any derived id, matched by shape: a guard scoped to one kind of
+  identifier passes vacuously for every other one.
+
+  *`verify` and `scan` disagreed about the same failure.* Each caught
+  `InputParseError` and wrote its own recovery, so a failure with a precise
+  route on one command got generic advice on the other. One resolver now serves
+  `scan`, `verify`, and the verifier assembly path — and it names the manifest
+  the run actually read, since `scan --workspace <repo>` can discover a sole
+  nested `services/billing/shipgate.yaml` while the emitted `edit` action said
+  `shipgate.yaml`, a different file in the caller's working directory.
+
+  *One failure, two repairs.* A tool read twice is either a repeated manifest
+  entry or a duplicate definition inside the artifact, and the structured
+  action carries one path — so naming both let a consumer delete a source
+  declaration when the file was the problem. The check now reports which cause
+  it saw in `details.cause` and the action follows it, reading the answer from
+  the manifest because the loaders that aggregate their artifacts cannot say
+  which one they read twice. `tool_sources[].id` is also stripped and refused
+  when blank, in the published JSON Schema as well as at runtime: it is the key
+  `tool_inventories[]` and `tool_identity.bindings[]` join on, both of which
+  were already stripped, so `id: " orders "` matched neither and silently
+  completed nothing.
+
+  *`next_actions[].path` is the one field a caller opens verbatim, so it is the
+  one field that is always resolved.* The manifest an `edit` action names is
+  the one the run read — through `--workspace` discovery, through a defaulted
+  `--config` on `verify` and `verification prepare`, and through an archived
+  `verify --base/--head`, where it used to name a temporary file that had
+  already been deleted. Two things follow: a declared artifact is never
+  published as a path, because it has no single base, and a failure evaluated
+  against a ref that is not checked out publishes none either — the action
+  names the commit instead of a working-tree file that may already hold the
+  fix. `ArtifactPathConfig.path` is also canonicalized, so declaring both
+  `tools.json` and `./tools.json` no longer reads one file twice and produces
+  two canonical tools.
+
+  `tests/test_adopter_vocabulary.py` is the guard: it enumerates the
+  adopter-facing strings four ways — every evidence-gap kind through the real
+  renderers, every published message builder, every hand-written string at an
+  emit site in the modules that produce this output, and the shipped sample
+  artifacts — and fails on reintroduced internal vocabulary.
+
 - **A declaration cannot discharge a category it does not cover, and a
   published schema keeps its bytes.** Three follow-ups to the monotone
   declaration rule, each a defect that shipped with it

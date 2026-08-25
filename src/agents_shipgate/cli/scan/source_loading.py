@@ -250,12 +250,14 @@ def _invoke_per_source_adapter(
 def _build_canonical_tools(
     loaded_sources: list[LoadedToolSource],
     identity_config: ToolIdentityConfig | None = None,
+    repeated_artifacts: frozenset[str] = frozenset(),
 ) -> tuple[list[Tool], list[str]]:
     """Build the provider-scoped identity catalog and return identity warnings."""
 
     return build_tool_identity_catalog(
         loaded_sources,
         identity_config or ToolIdentityConfig(),
+        repeated_artifacts,
     )
 
 

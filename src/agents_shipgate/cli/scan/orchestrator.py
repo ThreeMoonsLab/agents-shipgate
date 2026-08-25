@@ -5,8 +5,9 @@ from pathlib import Path
 
 from agents_shipgate import __version__, _perf
 from agents_shipgate.ci.github_summary import write_github_step_summary
+from agents_shipgate.cli.discovery.placeholders import manifest_placeholder_fields
 from agents_shipgate.core.capability_lock import build_capability_lock
-from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.errors import AgentsShipgateError, ConfigError
 from agents_shipgate.schemas.capabilities import CapabilityLockFileV1
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verification import VerificationContext
@@ -53,6 +54,91 @@ def run_scan(
     """
     if deep_import:
         raise ConfigError("Deep import is intentionally deferred and is not supported.")
+
+    try:
+        return _run_scan(
+            config_path=config_path,
+            output_dir=output_dir,
+            formats=formats,
+            ci_mode=ci_mode,
+            fail_on=fail_on,
+            baseline_path=baseline_path,
+            diff_from_path=diff_from_path,
+            baseline_mode=baseline_mode,
+            policy_pack_paths=policy_pack_paths,
+            plugins_enabled=plugins_enabled,
+            verbose=verbose,
+            suggest_patches=suggest_patches,
+            no_heuristics=no_heuristics,
+            packet_enabled=packet_enabled,
+            packet_formats=packet_formats,
+            packet_generated_at=packet_generated_at,
+            verification_context=verification_context,
+            capability_lock_callback=capability_lock_callback,
+            manifest_text=manifest_text,
+        )
+    except AgentsShipgateError as exc:
+        # Every recovery route that names a file to edit needs the manifest
+        # this run actually read, and only this frame knows it: the CLI is
+        # spelled `--workspace .` or `-c '*/shipgate.yaml'` as often as with a
+        # literal path, and the recovery emitted from the caller's `except`
+        # would otherwise name `shipgate.yaml` relative to the caller's CWD —
+        # an unrelated trust root (#329 review). Recorded once here rather
+        # than at each raise site, none of which knows the manifest either.
+        exc.details.setdefault("manifest_path", str(config_path))
+        # Typed placeholder state, read from the manifest rather than searched
+        # for in the failure text (#329 review 3). Absent — not empty — when
+        # the manifest could not be read at all, so the router can tell "no
+        # placeholders" from "we never looked".
+        placeholders = _manifest_placeholders(config_path, manifest_text)
+        if placeholders is not None:
+            exc.details.setdefault("manifest_placeholders", placeholders)
+        raise
+
+
+def _manifest_placeholders(
+    config_path: Path, manifest_text: str | None
+) -> list[str] | None:
+    """Placeholder fields in the manifest this run read, or ``None``.
+
+    Re-reads the file only when the caller supplied no text, and only on a
+    failure path: the manifest was already read once by this point, so the
+    cost is a second read of a file that is known small and known present.
+    """
+
+    text = manifest_text
+    if text is None:
+        try:
+            text = config_path.read_text(encoding="utf-8")
+        except OSError:
+            return None
+    return manifest_placeholder_fields(text)
+
+
+def _run_scan(
+    *,
+    config_path: Path,
+    output_dir: Path | None,
+    formats: list[str] | None,
+    ci_mode: str | None,
+    fail_on: list[str] | None,
+    baseline_path: Path | None,
+    diff_from_path: Path | None,
+    baseline_mode: str,
+    policy_pack_paths: list[Path] | None,
+    plugins_enabled: bool | None,
+    verbose: bool,
+    suggest_patches: bool,
+    no_heuristics: bool,
+    packet_enabled: bool | None,
+    packet_formats: list[str] | None,
+    packet_generated_at: str | None,
+    verification_context: VerificationContext | None,
+    capability_lock_callback: Callable[[CapabilityLockFileV1], None] | None,
+    manifest_text: str | None,
+) -> tuple[ReadinessReport, int]:
+    """The pipeline itself. Split from :func:`run_scan` so the manifest the
+    run read can be attached to any failure on the way out, in one place."""
 
     # Phase-timing instrumentation (`_perf`): opt-in, zero overhead when
     # off. Phase names are stable strings — benchmark snapshots and the

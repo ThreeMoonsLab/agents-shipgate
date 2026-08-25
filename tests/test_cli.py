@@ -233,8 +233,47 @@ tool_sources:
     result = runner.invoke(app, ["scan", "--config", str(config)])
 
     assert result.exit_code == 3
-    assert "CHANGE_ME placeholders" in result.output
-    assert "next: Edit shipgate.yaml" in result.output
+    # Named from the parsed manifest, so the route says which field still
+    # holds the placeholder rather than that one exists somewhere.
+    assert "still declares CHANGE_ME at tool_sources[0].path" in result.output
+    # The manifest the run read, not the bare filename: `--workspace` can
+    # select a nested one, and a caller-relative `shipgate.yaml` is a
+    # different file (#329 review).
+    assert f"next: Edit {config}" in result.output
+
+
+def test_a_missing_file_named_change_me_is_not_a_placeholder_manifest(tmp_path):
+    """The placeholder route is a fact about the manifest, not about the text.
+
+    A manifest with every field filled in, pointing at a file that happens to
+    be named `CHANGE_ME-tools.json`, matched a substring search of the failure
+    and was told it still contained template placeholders (#329 review 3).
+    """
+
+    config = tmp_path / "shipgate.yaml"
+    config.write_text(
+        """version: "0.1"
+project:
+  name: real-project
+agent:
+  name: support-agent
+  declared_purpose:
+    - look things up
+environment:
+  target: local
+tool_sources:
+  - id: tools
+    type: mcp
+    path: CHANGE_ME-tools.json
+""",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["scan", "--config", str(config)])
+
+    assert result.exit_code == 3
+    assert "CHANGE_ME" not in result.output.replace("CHANGE_ME-tools.json", "")
+    assert "next: Review:" in result.output
 
 
 def test_cli_agent_mode_suppresses_prose_hint(tmp_path, monkeypatch):

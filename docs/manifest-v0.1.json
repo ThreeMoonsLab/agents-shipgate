@@ -2301,6 +2301,7 @@
       "additionalProperties": false,
       "properties": {
         "id": {
+          "pattern": "\\S",
           "title": "Id",
           "type": "string"
         },

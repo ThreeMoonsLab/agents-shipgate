@@ -209,7 +209,8 @@ class AdapterRegistry:
             if discovery_enabled:
                 remediation = (
                     "Either (a) install the third-party adapter "
-                    "package that registers this source_type, or "
+                    "package that registers this "
+                    "shipgate.yaml#tool_sources[].type, or "
                     "(b) fix a typo of a built-in name "
                     "(`agents-shipgate list-checks --json` exposes "
                     "the catalog and `agents-shipgate doctor --json` "

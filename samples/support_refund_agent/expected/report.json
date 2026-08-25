@@ -648,7 +648,7 @@
       "evidence_gaps": [
         {
           "kind": "conflicting_binding_evidence",
-          "subject": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "subject": "refund_agent [openai_sdk_static]",
           "subject_id": null,
           "source_type": null,
           "source_ref": "/agent_bindings/declarations/0",
