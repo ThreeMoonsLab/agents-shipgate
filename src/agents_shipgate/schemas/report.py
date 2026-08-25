@@ -360,6 +360,28 @@ class ReleaseDecisionItem(BaseModel):
     support: FindingSupport | None = None
 
 
+class EvidenceReading(BaseModel):
+    """v0.37: one effect the evidence for an action can be read as.
+
+    A blank asking for an action's effect is only answerable in place if the
+    reader can see what the scan actually saw. These rows are that: the
+    distinct readings the non-declaration effect claims support, each with the
+    producers that support it.
+
+    ``observed`` separates evidence *about this action* from a default standing
+    in for the absence of any. An MCP tool with no annotations gets a
+    ``write`` reading from the protocol default — worth showing, never worth
+    pre-filling, because it is a statement about the protocol rather than an
+    observation of the tool.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    effect: str
+    sources: list[str] = Field(default_factory=list)
+    observed: bool = True
+
+
 class EvidenceGapAction(BaseModel):
     """One concrete, mechanically-executable step that closes a gap.
 
@@ -405,6 +427,14 @@ class EvidenceGapAction(BaseModel):
     # guidance for authorization to write it.
     suggested_patch_kind: Literal["manual"] = "manual"
     declaration_template: dict[str, Any] | None = None
+    # v0.37: what the scan read this action's effect as, so the row can be
+    # answered without opening ``action_surface_facts`` to find out. Populated
+    # for effect gaps; empty everywhere else. Where the readings support one
+    # conservative answer, ``declaration_template`` carries it pre-filled
+    # instead of a ``<REVIEW_REQUIRED>`` blank — a proposal to confirm, never
+    # an assertion: nothing consumes this template, and only a reviewed edit to
+    # the manifest can make any of it operative.
+    observed_readings: list[EvidenceReading] = Field(default_factory=list)
     auto_apply: Literal[False] = False
     requires_human_review: Literal[True] = True
 
@@ -493,6 +523,58 @@ class AcknowledgedEffectOverride(BaseModel):
     manifest_path: str
 
 
+class DeclarationQuestionRow(BaseModel):
+    """v0.37: one open declaration question, in the order to answer it.
+
+    Ordered strongest-acting action first. Answering the two that move money
+    and communicate outward is what reached a verdict on the fourth
+    ``adk-samples#1745`` walk, so the list leads with them rather than with
+    whatever sorts first alphabetically. Ordering is ranking only — it decides
+    what to read first and can never change a verdict.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    subject: str
+    # Joins to ``EvidenceGap.subject_id``. ``subject`` is a display label and
+    # two catalog ids can render the same one, so anything matching a question
+    # to its gap row joins on this.
+    subject_id: str | None = None
+    dimension: str
+
+
+class DeclarationQuestionCoverage(BaseModel):
+    """v0.37: how much of the per-action declaration work is done.
+
+    A gap count names a symptom and has no finish line. This is the same facts
+    as a task with an end: how many questions this repository was ever asked,
+    how many a reviewed declaration has answered, and how many remain.
+
+    The denominator counts only what both halves can be measured on — the
+    ``effect`` and ``authority`` of one ``action_surface.actions`` row. An
+    action whose effect the scan established by itself was never asked about
+    and is not counted; an inventory or an ``agent_bindings`` declaration is a
+    human answer too but has no counterfactual to score against, so it is
+    excluded rather than guessed at. See
+    ``agents_shipgate.core.declaration_questions``.
+
+    ``total == answered + open`` always. ``open_by_dimension`` sums to
+    ``open``: a question belongs to exactly one dimension.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    total: int = 0
+    answered: int = 0
+    open: int = 0
+    open_by_dimension: dict[str, int] = Field(default_factory=dict)
+    # The open questions themselves, in answer order. The counts say how far
+    # along the work is; this says what the work is, and it is what lets the
+    # generated questionnaire number its blocks with the same numbers this
+    # block reports.
+    open_questions: list[DeclarationQuestionRow] = Field(default_factory=list)
+
+
 class SemanticCoverageDecision(BaseModel):
     """v0.29 pass eligibility across the normalized action surface.
 
@@ -515,6 +597,11 @@ class SemanticCoverageDecision(BaseModel):
     # ``reason_counts["acknowledged_effect_override"]`` counts them; this is
     # what a reviewer actually has to read.
     acknowledged_overrides: list[AcknowledgedEffectOverride] = Field(default_factory=list)
+    # v0.37: the same action surface counted as a questionnaire rather than as
+    # a pile of gaps. Purely a projection — nothing here gates.
+    declaration_questions: DeclarationQuestionCoverage = Field(
+        default_factory=DeclarationQuestionCoverage
+    )
 
 
 class IdentityCoverageDecision(BaseModel):
@@ -1059,7 +1146,7 @@ class ReadinessReport(BaseModel):
     # release gate remains ``release_decision.decision``, but a subject this
     # change newly excluded now reaches it as an evidence gap instead of
     # disappearing between stages (#403).
-    report_schema_version: str = "0.36"
+    report_schema_version: str = "0.37"
     run_id: str
     request_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
     subject_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)

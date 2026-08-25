@@ -33,7 +33,7 @@ different audience and can never disagree with it.
 | `packet.{md,json,html}` | **GRC / security reviewer** | formal release evidence | Yes for day-to-day PRs |
 | `verify-run.json` | **agents, CI, auditors** | reproducibility and input identity | Yes for casual human review; no for deterministic reruns |
 | `suggested-inventory.json` | **whoever fixes `insufficient_evidence`** | when evidence gaps exist | Yes when confidence is high |
-| `suggested-declarations.yaml` | **the human who owns the declaration** | when a gap needs a reviewed effect, authority, or binding | Yes — advisory scaffold; a block still containing `<REVIEW_REQUIRED>` closes nothing |
+| `suggested-declarations.yaml` | **the human who owns the declaration** | when a gap needs a reviewed effect, authority, or binding | Yes — advisory questionnaire; a block still containing `<REVIEW_REQUIRED>` closes nothing, and a pre-filled `effect:` is a proposal drawn from evidence printed above it, never an assertion — only merging it into `shipgate.yaml` makes it operative |
 | capability lock / diff | **external integrations, research** | cross-repo capability tracking | Yes — never gates |
 | attestation | **release record keepers** | after merge | Yes — durable record, not a gate |
 

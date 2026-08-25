@@ -6,7 +6,7 @@ This document is the contract. If the runtime ever diverges from what's document
 
 Shipgate is pre-1.0. The CLI surface, exit codes, and `contract_version`
 described here are stable within the `0.x` line, but the `report.json` schema
-(`report_schema_version`, currently `0.36`) is still additive-versioned and
+(`report_schema_version`, currently `0.37`) is still additive-versioned and
 not yet frozen. A `1.0` line will not begin until the report schema reaches
 `1.0` and holds without a breaking change. Pin a version (or the Action tag)
 for reproducible CI.
@@ -19,7 +19,7 @@ for reproducible CI.
 
 Two capability schemas move: `capability_lock_schema_version` `0.6` → `0.7` and
 `capability_lock_diff_schema_version` `0.7` → `0.8`. `report_schema_version`
-(`0.36`), `packet_schema_version` (`0.13`), `verifier_schema_version` (`0.10`),
+(`0.37`), `packet_schema_version` (`0.14`), `verifier_schema_version` (`0.11`),
 `contract_version`, and the manifest `version: "0.1"` are unchanged.
 
 **Four published documents are restored to the bytes they were published with.**
@@ -1422,9 +1422,10 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `report_schema_version` — bumps minor on additive changes, major on breaking
 - `release_decision.{decision, reason, blockers, review_items, evidence_coverage, baseline_delta, fail_policy}` (v0.8+)
 - `release_decision.evidence_coverage.semantic_coverage.{total_actions, pass_eligible_actions, gap_count, review_concern_count, reason_counts}` (v0.29+) — zero-tolerance semantic pass coverage. It is derived from normalized action assessments and contributes directly to the release decision; it is not suppressible or baseline-able.
+- `release_decision.evidence_coverage.semantic_coverage.declaration_questions.{total, answered, open, open_by_dimension, open_questions[]}` (v0.37+) — the same action surface counted as a questionnaire. A *question* is one `(action, dimension)` a reviewed `action_surface.actions` row has to answer; only `effect` and `authority` are counted, and an action whose effect the scan established by itself never enters `total`. `answered` counts dimensions that gap when the same action is re-resolved without its declaration, so it can neither credit a declaration nobody needed nor be raised by restating what the scan already knew. `total == answered + open`, `open_by_dimension` sums to `open`, and `open_questions[]` is the answer order (highest-acting action first, `effect` before `authority`), joining to `evidence_gaps[].subject_id`. Purely a projection: no branch of the release decision reads it, and its ordering cannot change a verdict.
 - `release_decision.evidence_coverage.policy_gap_count` and `policy_evidence_gaps[]` (v0.33+) — zero-tolerance policy-applicability gaps for heuristic-only, mixed, unknown, or conflicting predicates. They remain outside Findings and cannot be suppressed, baselined, acknowledged, severity-overridden, or hidden by `--no-heuristics`.
 - `release_decision.{static_analysis_only,runtime_behavior_verified,static_verdict_disclaimer}` (v0.29+) — explicit machine boundary for every verdict. Current emitted values are `true`, `false`, and the canonical disclaimer that the static scan did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.
-- `release_decision.evidence_coverage.evidence_gaps[]` (v0.26+; semantic gap kinds added v0.29) — deterministic, human-routed remediation rows. v0.29 adds `incomplete_surface`, `missing_effect_evidence`, `inferred_effect_only`, `conflicting_effect_evidence`, `missing_authority_evidence`, `partial_authority_evidence`, `conflicting_authority_evidence`, and `invalid_semantic_annotation`, plus next-action kinds `declare_action_effect`, `declare_action_authority`, `provide_complete_inventory`, and `resolve_semantic_conflict`. Semantic declaration placeholders always carry `suggested_patch_kind="manual"`, `auto_apply=false`, and `requires_human_review=true`; they never enter `apply-patches`. v0.36 adds `declaration_below_inferred_evidence` — a declaration weaker than the (non-policy-eligible) evidence inferred for the same action. It routes to `resolve_semantic_conflict` and is closed either by raising the declared effect or by adding `action_surface.actions[].override` (`evidence` + `reason`), which keeps the action pass-eligible and records one acknowledged review concern. Each acknowledgement is also emitted as a row in `release_decision.evidence_coverage.semantic_coverage.acknowledged_overrides[]` (v0.36+) naming the action, both readings, the hint source, any source evidence that agrees, and the reviewer's evidence and reason — the packet's §1 and the PR comment render it, because a count is not a review surface. The acknowledgement is consumed by policy applicability as well, so applying it reaches the review route rather than trading one gap for another.
+- `release_decision.evidence_coverage.evidence_gaps[]` (v0.26+; semantic gap kinds added v0.29) — deterministic, human-routed remediation rows. v0.29 adds `incomplete_surface`, `missing_effect_evidence`, `inferred_effect_only`, `conflicting_effect_evidence`, `missing_authority_evidence`, `partial_authority_evidence`, `conflicting_authority_evidence`, and `invalid_semantic_annotation`, plus next-action kinds `declare_action_effect`, `declare_action_authority`, `provide_complete_inventory`, and `resolve_semantic_conflict`. Semantic declaration placeholders always carry `suggested_patch_kind="manual"`, `auto_apply=false`, and `requires_human_review=true`; they never enter `apply-patches`. v0.36 adds `declaration_below_inferred_evidence` — a declaration weaker than the (non-policy-eligible) evidence inferred for the same action. It routes to `resolve_semantic_conflict` and is closed either by raising the declared effect or by adding `action_surface.actions[].override` (`evidence` + `reason`), which keeps the action pass-eligible and records one acknowledged review concern. Each acknowledgement is also emitted as a row in `release_decision.evidence_coverage.semantic_coverage.acknowledged_overrides[]` (v0.36+) naming the action, both readings, the hint source, any source evidence that agrees, and the reviewer's evidence and reason — the packet's §1 and the PR comment render it, because a count is not a review surface. The acknowledgement is consumed by policy applicability as well, so applying it reaches the review route rather than trading one gap for another. v0.37 adds `next_action.observed_readings[]` (`{effect, sources[], observed}`) on effect rows — the distinct readings this scan's non-declaration evidence supports — and, where those readings support one conservative answer, `next_action.declaration_template` carries that answer **pre-filled** instead of a `<REVIEW_REQUIRED>` blank. A pre-filled value is a proposal, not an assertion: it is drawn from the closed `ActionEffect` vocabulary and never from source content, it is never weaker than any reading, and it is offered only where something was observed — a protocol default, or a heuristic reading of `read`, keeps the blank. `suggested_patch_kind`, `auto_apply`, and `requires_human_review` are unchanged, and nothing applies a template: only a reviewed edit to the manifest makes any of it operative. v0.37 also re-routes `partial_authority_evidence`: it is raised when the *source's* authority evidence is ambiguous or incomplete, and the resolver preserves it whatever the manifest declares ("reviewed authority cannot replace ambiguous or incomplete source authority alternatives"). Its `next_action.kind` is therefore `provide_source` with no declaration template, rather than a `declare_action_authority` block that could not close the row it was printed on. It is excluded from `declaration_questions` for the same reason.
 - `release_decision.fail_policy.{ci_mode, fail_on, new_findings_only, would_fail_ci, exit_code}`
 - `release_decision.blockers[].{id, fingerprint, check_id, severity, title, baseline_status, blocks_release, capability_refs, capability_trace_refs}` and `release_decision.review_items[].{id, fingerprint, check_id, severity, title, baseline_status, blocks_release, capability_refs, capability_trace_refs}` (reference-only — both arrays share the same item shape; full Finding payload is in `findings[]`; `capability_refs` is v0.24+ audit metadata and is empty when no capability-policy subject matched; `capability_trace_refs` is v0.25+ local trace-evidence audit metadata and is empty when no local trace row matched)
 - `capability_facts[].{id, tool_name, source_type, source_ref, capability, risk_tags, auth_scopes, owner, included_reason, control_status, related_findings}` (v0.9+)
@@ -2022,7 +2023,7 @@ release decision. That action may be `detect`/`initialize` for
 relevant unconfigured repos, or `verify` for configured repos. Use it as the
 first touch on a repo or PR before committing to a full scan.
 
-`verifier.json` is governed by [`docs/verifier-schema.v0.10.json`](docs/verifier-schema.v0.10.json).
+`verifier.json` is governed by [`docs/verifier-schema.v0.11.json`](docs/verifier-schema.v0.11.json).
 Verifier v0.1 through v0.8 remain frozen references — a published schema
 identifier never gains an emitted field, so `0.9` carries
 `capability_review.policy_weakening_proven` and `0.8` keeps the bytes every
@@ -2222,10 +2223,10 @@ infer runtime routing, or execute tools. Action Surface Diff policy findings
 can affect release gating through `findings[].blocks_release`; Tool Surface
 Diff remains explanatory only.
 
-### Release Evidence Packet (v0.13)
+### Release Evidence Packet (v0.14)
 
 `agents-shipgate-reports/packet.json` is a supporting/provisional reviewer
-artifact governed by [`docs/packet-schema.v0.13.json`](docs/packet-schema.v0.13.json).
+artifact governed by [`docs/packet-schema.v0.14.json`](docs/packet-schema.v0.14.json).
 v0.12 adds request, subject, input-set, engine-requirement, and decision IDs
 while preserving the report release decision as the only gate. v0.11 and
 earlier packets validate against their matching frozen schemas. v0.11 added

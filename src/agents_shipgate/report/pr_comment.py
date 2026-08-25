@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 
+from agents_shipgate.core.declaration_questions import progress_sentence
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.report.capability_lock_diff_markdown import (
     render_capability_lock_diff_markdown,
@@ -130,6 +131,16 @@ def _human_summary_lines(
             f"{summary.reidentified} reidentified, "
             f"{summary.evidence_changed} evidence-only"
         )
+    # How much of the declaration work is left, on the surface a reviewer of an
+    # adopting repository reads. A gap tally says what is wrong; this says what
+    # remains, which is the only one of the two the author can finish (#410).
+    # Omitted entirely when nothing was ever asked, so a repository that owes
+    # no declarations gains no line.
+    progress = progress_sentence(
+        decision.evidence_coverage.semantic_coverage.declaration_questions
+    )
+    if progress:
+        lines.append(f"- {_escape(progress)}")
     lines.append(
         "- Fail policy: "
         f"would_fail_ci=`{str(decision.fail_policy.would_fail_ci).lower()}` "

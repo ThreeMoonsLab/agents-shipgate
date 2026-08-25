@@ -360,7 +360,7 @@ class EvidencePacket(BaseModel):
     # human_in_the_loop. release_decision.decision remains the only gate.
     # v0.8: release-decision evidence coverage carries the additive
     # evidence-backed semantic coverage and gap remediation contract.
-    packet_schema_version: Literal["0.13"] = "0.13"
+    packet_schema_version: Literal["0.14"] = "0.14"
     generated_at: str | None = None
     run_id: str
     request_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)

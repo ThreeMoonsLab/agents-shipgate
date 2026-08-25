@@ -82,29 +82,22 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
         raise PacketSchemaError("packet.json must be a JSON object")
 
     version = payload_dict.get("packet_schema_version")
-    legacy_version = (
-        version
-        if version
-        in {
-            "0.1",
-            "0.2",
-            "0.3",
-            "0.4",
-            "0.5",
-            "0.6",
-            "0.7",
-            "0.8",
-            "0.9",
-            "0.10",
-            "0.11",
-            "0.12",
-        }
-        else None
+    # Two different questions, and one variable used to answer both. "Is this a
+    # prior version I can read?" is the ladder below, which grows by one on
+    # every bump. "Does its ``passed`` predate the evidence-backed pass
+    # contract?" is only v0.7 and older — the set
+    # ``_upgrade_semantic_coverage_v08`` was written for and says so in its own
+    # docstring. Sharing one variable meant that each time a version was
+    # appended, the immediately previous one's ``passed`` started being
+    # rewritten to ``insufficient_evidence`` with the false explanation that it
+    # "predates evidence-backed semantic coverage".
+    pre_semantic_coverage = (
+        version if version in _PRE_SEMANTIC_COVERAGE_VERSIONS else None
     )
     if version == "0.1":
         payload_dict = {
             **payload_dict,
-            "packet_schema_version": "0.13",
+            "packet_schema_version": "0.14",
             "tool_surface_diff": {
                 "status": "not_declared",
                 "enabled": False,
@@ -119,58 +112,73 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.2":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.14"}
         _upgrade_hitl_v03(payload_dict)
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.3":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.14"}
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.4":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.14"}
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.5":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.14"}
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.6":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.14"}
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.7":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.14"}
     elif version == "0.8":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.14"}
     elif version == "0.9":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.14"}
     elif version == "0.10":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.14"}
     elif version == "0.11":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.14"}
     elif version == "0.12":
         # v0.13 adds ``acknowledged_overrides`` to semantic coverage. Absent on
         # a v0.12 packet, and an empty list is the honest reading: that build
         # could not have recorded a reviewed exception.
-        payload_dict = {**payload_dict, "packet_schema_version": "0.13"}
-    elif version != "0.13":
+        payload_dict = {**payload_dict, "packet_schema_version": "0.14"}
+    elif version == "0.13":
+        # v0.14 adds the declaration-question counter and the readings a gap
+        # row publishes. Both default empty, and empty is the honest reading:
+        # a v0.13 build never counted questions, so "0 of 0 answered" is what
+        # it knew — not a claim that nothing was owed.
+        payload_dict = {**payload_dict, "packet_schema_version": "0.14"}
+    elif version != "0.14":
         raise PacketSchemaError(
             "unsupported packet_schema_version: "
             f"{version!r}; expected '0.1', '0.2', '0.3', '0.4', '0.5', "
-            "'0.6', '0.7', '0.8', '0.9', '0.10', '0.11', '0.12', or '0.13'"
+            "'0.6', '0.7', '0.8', '0.9', '0.10', '0.11', '0.12', '0.13', or "
+            "'0.14'"
         )
 
-    if legacy_version is not None:
-        _upgrade_semantic_coverage_v08(payload_dict, source_version=legacy_version)
+    if pre_semantic_coverage is not None:
+        _upgrade_semantic_coverage_v08(payload_dict, source_version=pre_semantic_coverage)
 
     try:
         return EvidencePacket.model_validate(payload_dict)
     except ValidationError as exc:
         raise PacketSchemaError(f"packet.json failed validation: {exc}") from exc
 
+
+#: Packet versions whose ``passed`` verdict cannot prove the evidence-backed
+#: pass contract, because they predate it. Frozen: this list can only ever be
+#: the versions published before v0.8, so a new entry here would be a claim
+#: about history rather than about a release.
+_PRE_SEMANTIC_COVERAGE_VERSIONS = frozenset(
+    {"0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7"}
+)
 
 def _upgrade_hitl_v03(payload: dict[str, Any]) -> None:
     hitl = payload.get("human_in_the_loop")

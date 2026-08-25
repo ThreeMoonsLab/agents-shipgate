@@ -10,6 +10,15 @@ from agents_shipgate.ci.exit_policy import (
     effective_fail_on,
     exit_code_for_report,
 )
+from agents_shipgate.core.declaration_questions import (
+    ANSWERABLE_ISSUE_KINDS,
+    DIMENSION_BY_GAP_KIND,
+    DeclarationQuestion,
+    declaration_questions,
+    is_declaration_answerable,
+    open_counts_by_dimension,
+    open_questions,
+)
 from agents_shipgate.core.domain import (
     DECLARATION_OVERRIDE_SOURCE,
     SemanticIssueKind,
@@ -20,11 +29,14 @@ from agents_shipgate.core.evidence_actions import (
     evidence_gap_command,
     evidence_gap_headline,
     evidence_gap_target,
+    has_visible_content,
     primary_evidence_gap,
     yaml_scalar,
 )
 from agents_shipgate.core.semantic_assessment import (
+    effect_readings,
     effect_repair,
+    propose_effect_declaration,
 )
 from agents_shipgate.core.source_warnings import unresolved_adk_tool_symbols
 from agents_shipgate.core.surface_exclusions import (
@@ -43,9 +55,12 @@ from agents_shipgate.schemas.report import (
     BindingCoverageDecision,
     ContributionRule,
     ContributionRuleName,
+    DeclarationQuestionCoverage,
+    DeclarationQuestionRow,
     EvidenceCoverageDecision,
     EvidenceGap,
     EvidenceGapAction,
+    EvidenceReading,
     FailPolicy,
     Finding,
     IdentityCoverageDecision,
@@ -1057,6 +1072,7 @@ def _semantic_coverage(
                 kind=issue.kind,
                 why=issue.message,
                 source_ref=issue.source_pointer or issue.source,
+                issue_source=issue.source,
             )
             gaps.append(gap)
             _increment(reason_counts, gap.kind)
@@ -1100,6 +1116,12 @@ def _semantic_coverage(
             gaps.append(gap)
             _increment(reason_counts, gap.kind)
 
+    # The same action surface, counted as a questionnaire. A projection of the
+    # assessments above and nothing else: it names no gap the rows do not
+    # already carry, and no branch of the decision reads it.
+    questions = declaration_questions(tools)
+    still_open = open_questions(questions)
+    gaps = _in_question_order(gaps, still_open)
     return (
         SemanticCoverageDecision(
             total_actions=len(tools),
@@ -1108,9 +1130,74 @@ def _semantic_coverage(
             review_concern_count=review_concern_count,
             reason_counts=dict(sorted(reason_counts.items())),
             acknowledged_overrides=acknowledged_overrides,
+            declaration_questions=DeclarationQuestionCoverage(
+                total=len(questions),
+                answered=len(questions) - len(still_open),
+                open=len(still_open),
+                open_by_dimension=open_counts_by_dimension(questions),
+                open_questions=[
+                    DeclarationQuestionRow(
+                        subject=question.subject,
+                        subject_id=question.tool_id or None,
+                        dimension=question.dimension,
+                    )
+                    for question in still_open
+                ],
+            ),
         ),
         gaps,
     )
+
+
+def _in_question_order(
+    gaps: list[EvidenceGap],
+    still_open: Sequence[DeclarationQuestion],
+) -> list[EvidenceGap]:
+    """Put the declaration-question rows in the order the questionnaire asks them.
+
+    Two surfaces name a first thing to do: the ``Improve evidence:`` line (and
+    the reason, and ``first_recommended_action``) project
+    ``primary_evidence_gap``, which takes the first addressable row in this
+    list; the generated questionnaire numbers its blocks from
+    ``declaration_questions.open_questions``. Left alone, one led with whatever
+    sorted first by tool name and the other with whatever could move the
+    verdict — the same "two answers to one question" defect #362 fixed between
+    the reason and the line beneath it.
+
+    The permutation is restricted to rows that *are* declaration questions, and
+    they only trade places with each other. Everything else — binding rows
+    first, an unenumerated surface, an identity conflict — keeps its position
+    exactly, so no ordering decision made elsewhere is quietly overruled here.
+
+    Ranking only: ``evidence_gaps`` is a projection of counts already decided,
+    so no order of it can change a verdict.
+    """
+
+    rank = {
+        (question.tool_id or None, question.dimension): index
+        for index, question in enumerate(still_open)
+    }
+    positions = [
+        index
+        for index, gap in enumerate(gaps)
+        if (gap.subject_id, DIMENSION_BY_GAP_KIND.get(str(gap.kind))) in rank
+    ]
+    if len(positions) < 2:
+        return gaps
+    # Sorted by (question, original position) rather than by the row itself:
+    # ``EvidenceGap`` compares by value, so two rows that render identically
+    # would both resolve to one index and the permutation would drop one.
+    reordered = sorted(
+        (
+            rank[(gaps[index].subject_id, DIMENSION_BY_GAP_KIND[str(gaps[index].kind)])],
+            index,
+        )
+        for index in positions
+    )
+    ordered = list(gaps)
+    for slot, (_, source) in zip(positions, reordered, strict=True):
+        ordered[slot] = gaps[source]
+    return ordered
 
 
 def _acknowledged_overrides(
@@ -1234,10 +1321,28 @@ def _semantic_gap(
     kind: SemanticIssueKind,
     why: str,
     source_ref: str | None = None,
+    issue_source: str | None = None,
 ) -> EvidenceGap:
+    """One remediation row for one resolver issue.
+
+    ``issue_source`` is the resolver's attribution of what is at fault. Some
+    kinds are raised about *either* surface, and dropping it published the
+    manifest repair for a row only the source can fix.
+    """
+
     action_kind: str
     accepted_values: list[str]
     declaration_template: dict[str, object] | None = None
+    # Every effect-dimension gap publishes the readings behind it, so the row
+    # can be answered without opening ``action_surface_facts`` to find out what
+    # the scan saw. Read off the one table that says which kinds those are — a
+    # second list here would silently stop carrying readings for a kind added
+    # to the other.
+    observed_readings = (
+        effect_readings(tool.semantic_assessment.effect)
+        if kind in ANSWERABLE_ISSUE_KINDS["effect"] and tool.semantic_assessment is not None
+        else []
+    )
     # Whether ``expects`` should also name the on-disk scaffold. Off for the
     # inventory repair: that row's own ``path`` is the skeleton to open and its
     # remediation spells the manifest entry inline, so naming a second file for
@@ -1337,14 +1442,51 @@ def _semantic_gap(
         action_kind = "declare_action_effect"
         accepted_values = list(_ACTION_EFFECT_VALUES)
         action_why = "A reviewed or structural effect is required for an evidence-backed pass."
-        expects = (
-            "Declare the conservative effect under action_surface.actions in "
-            "shipgate.yaml, then rerun verification."
+        # #410 increment 2 — evidence-first effects. Where the readings this
+        # row publishes support one conservative answer, the template carries
+        # it instead of a blank: the scan already knows what it saw, and asking
+        # a human to retype it is the cost that stalls adoption.
+        #
+        # A proposal is not an assertion. Nothing reads this template; only a
+        # reviewed edit to the manifest makes any of it operative, and the
+        # proposed value is drawn from the closed ``ActionEffect`` vocabulary,
+        # never from source content. It is also never weaker than any reading
+        # (see ``propose_effect_declaration``), so a reviewer who confirms it
+        # without thinking over-declares — the safe direction — instead of
+        # under-declaring, which the monotone rule (#409) would catch anyway.
+        proposal = (
+            propose_effect_declaration(observed_readings)
+            if tool.semantic_assessment is not None
+            else None
         )
-        declaration_template = {
-            **_action_selector(tool),
-            "effect": "<REVIEW_REQUIRED>",
-        }
+        if proposal is None:
+            expects = (
+                "Declare the conservative effect under action_surface.actions in "
+                "shipgate.yaml, then rerun verification."
+            )
+            declaration_template = {
+                **_action_selector(tool),
+                "effect": REVIEW_REQUIRED_SENTINEL,
+            }
+        else:
+            declaration_template = {
+                **_action_selector(tool),
+                "effect": proposal.effect,
+            }
+            tags = ""
+            if proposal.risk_tags:
+                # No single effect covers every reading, so the categories are
+                # named as reviewed risk tags — which both accounts for them
+                # and makes each category's built-in controls apply. Same route
+                # ``effect_repair`` publishes for the post-declaration case.
+                declaration_template["risk_tags"] = list(proposal.risk_tags)
+                tags = f" with risk_tags: [{', '.join(proposal.risk_tags)}]"
+            expects = (
+                f"Confirm effect: {proposal.effect}{tags} — the conservative "
+                "reading of the evidence this row lists — under "
+                "action_surface.actions in shipgate.yaml, or replace it with an "
+                "effect you can defend, then rerun verification."
+            )
     elif kind == "declaration_below_inferred_evidence":
         # Two routes close this row, and the reviewer owns the choice: account
         # for every observation, or state on the record that they do not apply
@@ -1393,10 +1535,35 @@ def _semantic_gap(
             "naming the evidence you checked and why it does not apply, then "
             "rerun verification."
         )
-    elif kind in {
-        "missing_authority_evidence",
-        "partial_authority_evidence",
-    }:
+    elif kind == "partial_authority_evidence":
+        # Not a declaration question, and the row must not pretend otherwise.
+        # The resolver preserves this issue whenever the source's own authority
+        # evidence is ambiguous or incomplete, *whatever the manifest declares*
+        # — "reviewed authority cannot replace ambiguous or incomplete source
+        # authority alternatives". Publishing the ``declare_action_authority``
+        # template here sent a reviewer to write the exact block the scaffold
+        # asked for and get the identical row back, which is the one thing a
+        # published next step may never do.
+        action_kind = "provide_source"
+        accepted_values = [
+            "single_security_scheme",
+            "explicit_auth_type",
+            "explicit_scopes",
+        ]
+        action_why = (
+            "Authority evidence that is ambiguous at the source cannot be "
+            "replaced by a reviewed declaration; the source has to say which "
+            "one applies."
+        )
+        expects = (
+            "Make this tool's published authority unambiguous at the source — "
+            "give it an explicit auth type alongside its scopes, or reduce its "
+            "security alternatives to the single one this action uses — then "
+            "rerun verification. A reviewed action declaration cannot close "
+            "this row: the resolver keeps it whatever the manifest says."
+        )
+        # Deliberately no template: see ``action_why``.
+    elif kind == "missing_authority_evidence":
         action_kind = "declare_action_authority"
         accepted_values = list(_AUTHORITY_MODE_VALUES)
         action_why = "A complete authority mode and grant are required."
@@ -1423,6 +1590,30 @@ def _semantic_gap(
                 "reason": REVIEW_REQUIRED_SENTINEL,
             },
         }
+    elif kind == "conflicting_effect_evidence" and not is_declaration_answerable(
+        kind, issue_source
+    ):
+        # The tool's own annotations assert read-only and a side effect at
+        # once. The resolver reads that self-contradiction *before* it reads
+        # the manifest, so the declaration is inert here — publishing the
+        # generic "add a conservative reviewed action declaration" sent a
+        # reviewer to write `effect: destructive` and get the identical row
+        # back on rescan.
+        action_kind = "provide_source"
+        accepted_values = ["single_effect_annotation", "consistent_permission_class"]
+        action_why = (
+            "A source that asserts read-only and a side effect at once cannot "
+            "be resolved by a reviewed declaration; the resolver reads the "
+            "contradiction before it reads the manifest."
+        )
+        expects = (
+            "Correct this tool's published annotations at the source so they "
+            "agree — a tool is read-only or it has a side effect, not both — "
+            "then rerun verification. A reviewed action declaration cannot "
+            "close this row, whatever effect it names."
+        )
+        # Deliberately no template, and no effect vocabulary: neither would
+        # change the answer.
     else:
         action_kind = "resolve_semantic_conflict"
         if kind == "conflicting_effect_evidence":
@@ -1458,13 +1649,21 @@ def _semantic_gap(
         next_action=EvidenceGapAction(
             kind=action_kind,  # type: ignore[arg-type]
             command=_SEMANTIC_RERUN_COMMAND,
-            path=_semantic_gap_path(kind, tool),
+            path=_semantic_gap_path(kind, tool, issue_source),
             why=action_why,
             expects=_with_scaffold_pointer(
                 expects, declaration_template if name_scaffold else None
             ),
             accepted_values=accepted_values,
             declaration_template=declaration_template,
+            observed_readings=[
+                EvidenceReading(
+                    effect=reading.effect,
+                    sources=list(reading.sources),
+                    observed=reading.observed,
+                )
+                for reading in observed_readings
+            ],
         ),
     )
 
@@ -1496,10 +1695,49 @@ _AGENT_BINDING_KINDS = frozenset(
 )
 
 
-def _semantic_gap_path(kind: str, tool: Tool) -> str:
-    """The manifest location that repairs this gap kind."""
+def _source_artifact_path(tool: Tool) -> str | None:
+    """Where this tool's own published evidence lives, or ``None``.
+
+    Used by the rows whose repair is in the source rather than in the manifest.
+    ``path`` is the machine-readable target coding agents and the short-form
+    ``Fix at …`` line consume, so a row saying "a reviewed action declaration
+    cannot close this" while pointing at ``action_surface.actions`` sends the
+    reader to write exactly the block it just told them would not work.
+
+    ``None`` when nothing openable is known — these rows still carry the rerun
+    command, so they stay addressable without naming a file that does not
+    exist.
+    """
+
+    base = next(
+        (
+            value
+            for value in (tool.source_location, tool.source_ref, tool.source_path)
+            if value and has_visible_content(value)
+        ),
+        None,
+    )
+    pointer = (
+        tool.source_pointer
+        if tool.source_pointer and has_visible_content(tool.source_pointer)
+        else None
+    )
+    if base and pointer and pointer != base:
+        return f"{base}#{pointer}"
+    return base or pointer
+
+
+def _semantic_gap_path(kind: str, tool: Tool, issue_source: str | None = None) -> str | None:
+    """The location that repairs this gap kind — manifest, or source."""
 
     action_row = f"shipgate.yaml#action_surface.actions[tool={tool.name!r}]"
+    if kind == "partial_authority_evidence" or not is_declaration_answerable(
+        kind, issue_source
+    ):
+        # The repair is in the tool's own published evidence. Same predicate the
+        # questionnaire counts by, so a row can never be excluded from the
+        # counter as unanswerable while still publishing a manifest route.
+        return _source_artifact_path(tool)
     if kind == "incomplete_surface":
         if inventory_manifest_key(tool.source_type) is not None:
             return SUGGESTED_INVENTORY_FILENAME

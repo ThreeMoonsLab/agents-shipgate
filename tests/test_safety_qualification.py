@@ -200,7 +200,7 @@ def _test_requirements() -> SafetyQualificationRequirementsV1:
         minimum_blocked_exact=1,
         minimum_review_exact=1,
         minimum_insufficient_evidence_exact=1,
-        required_report_schema_version="0.36",
+        required_report_schema_version="0.37",
     )
 
 
@@ -461,6 +461,22 @@ def _run(
         receipt_index_path=receipts,
         policy_paths=[policy],
         requirements=_test_requirements(),
+    )
+
+
+def test_the_qualification_gate_demands_the_schema_the_engine_emits() -> None:
+    """A gate pinned to a schema no build produces rejects every receipt.
+
+    ``_evaluate_receipt`` compares ``report_schema_version`` for exact
+    equality, so leaving this behind a report-schema bump fails the whole
+    qualification run with "qualification report schema mismatch" — on every
+    case, for a reason that has nothing to do with safety.
+    """
+
+    from agents_shipgate.schemas.report import ReadinessReport
+
+    assert production_safety_requirements().required_report_schema_version == (
+        ReadinessReport.model_fields["report_schema_version"].default
     )
 
 

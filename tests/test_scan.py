@@ -158,6 +158,17 @@ def test_openai_agents_sdk_directory_fixture_scans_static_tools(tmp_path):
         "review_concern_count": 0,
         "reason_counts": {},
         "acknowledged_overrides": [],
+        # Nothing was ever asked: both actions' effect and authority come
+        # from the reviewed inventory's own annotations, so the scan proved
+        # them without a declaration. The counter says so rather than crediting
+        # the manifest for answers it did not have to give.
+        "declaration_questions": {
+            "total": 0,
+            "answered": 0,
+            "open": 0,
+            "open_by_dimension": {},
+            "open_questions": [],
+        },
     }
     inventory = {entry["name"]: entry for entry in report.tool_inventory}
     assert set(inventory) == {"support.lookup_case", "support.render_reply"}

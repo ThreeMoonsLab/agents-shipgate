@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.36",
+  "report_schema_version": "0.37",
   "run_id": "agents_shipgate_68a230995652f841",
   "request_id": null,
   "subject_id": null,
@@ -140,6 +140,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -164,6 +165,7 @@
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -184,6 +186,7 @@
             "accepted_values": [],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -204,6 +207,7 @@
             "accepted_values": [],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -224,6 +228,7 @@
             "accepted_values": [],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -244,6 +249,7 @@
             "accepted_values": [],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -264,6 +270,7 @@
             "accepted_values": [],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -277,7 +284,14 @@
         "reason_counts": {
           "incomplete_surface": 1
         },
-        "acknowledged_overrides": []
+        "acknowledged_overrides": [],
+        "declaration_questions": {
+          "total": 2,
+          "answered": 2,
+          "open": 0,
+          "open_by_dimension": {},
+          "open_questions": []
+        }
       },
       "identity_coverage": {
         "total_observations": 1,

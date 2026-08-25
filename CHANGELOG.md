@@ -2,6 +2,124 @@
 
 ## Unreleased
 
+- **Ask only what the scanner cannot prove, and say how much is left.**
+  Adoption stalls at a wall of blanks: the fourth `adk-samples#1745` walk faced
+  `0/12` pass-eligible actions and a report that described the work as "24
+  semantic evidence gaps" — a symptom count with no order and no finish line,
+  while the same report already held a derived `financial_write` reading for
+  the tool that mattered. Increment 2 of the evidence-first declaration RFC
+  ([#410](https://github.com/ThreeMoonsLab/agents-shipgate/issues/410)) turns
+  that surface into a questionnaire.
+
+  *Effects the scan observed are pre-filled.* `suggested-declarations.yaml`
+  now prints the readings behind each effect question — the distinct effects
+  the evidence supports, each with the producers that support it — and, where
+  they support one conservative answer, offers that answer in the `effect:`
+  line instead of a `<REVIEW_REQUIRED>` blank. A proposal is not an assertion:
+  nothing consumes the file, the value comes from the closed `ActionEffect`
+  vocabulary rather than from source content, and it is never weaker than any
+  reading, so confirming one without thinking can only over-declare — the safe
+  direction, and one the monotone rule already keeps visible. Nothing is
+  proposed from an *absence*: an unannotated MCP tool's protocol default, and a
+  heuristic reading of `read`, both keep the blank, because pre-filling either
+  would let the scanner establish what only a human may (#357, #268).
+
+  *The file is numbered and counted.* Blocks carry `Question 3 of 5` banners
+  ordered by how much answering them can move the verdict — money, outward
+  communication, and destruction first, which is what reached a verdict in two
+  answers on the walk — and both the file header and the CLI print
+  `Declaration questions: 1 of 2 answered; 1 open (1 authority).` from one
+  rendering, so they cannot describe the same state two ways. An open question
+  with no blank to fill (a conflict whose repair is in the source) is still
+  numbered and still shown, so the numbering never skips.
+
+  *A question is not the same thing as a declaration.* The denominator counts
+  only what both halves can be measured on — the `effect` and `authority` of one
+  `action_surface.actions` row — and `answered` is exact: it counts dimensions
+  that gap when the same action is re-resolved *without* its declaration. An
+  action whose effect an OpenAPI method or an MCP annotation established was
+  never asked and never appears in `total`, so a repository cannot improve its
+  progress by restating what the scan already knew.
+
+  *A manifest cannot be the source that contradicts itself.* Found by applying
+  the proposal exhaustively across structural evidence: declaring
+  `risk_tags: [code_execution]` on a tool whose server published
+  `readOnlyHint: true` was reported as "high-confidence read and side-effect
+  evidence conflict" attributed to `tool_source` — but the side-effect half was
+  the reviewer's own line. The read/side-effect conflict is a disagreement
+  between *sources*, so it now excludes the manifest's own `risk_tags`,
+  `scopes`, and acknowledged `override` (the set `DECLARATION_CLAIM_SOURCES`
+  already names). This also repairs the `risk_tags` repair that
+  `declaration_below_inferred_evidence` publishes, which could not close the
+  row it was printed on whenever the action carried a read-only annotation. Two
+  sources disagreeing is still a conflict, and nothing that gated before stops
+  gating.
+
+  *Do not ask a question a declaration cannot close.* Review of this change
+  found `partial_authority_evidence` counted as a declaration question while
+  the resolver preserves it whenever the *source's* authority evidence is
+  ambiguous or incomplete — "reviewed authority cannot replace ambiguous or
+  incomplete source authority alternatives", a deliberate safety property. An
+  MCP tool published with scopes and no auth type asked one authority question,
+  and writing the exact scoped block the scaffold requested left the counter at
+  `0 of 1 answered` forever. It is now routed to `provide_source` with no
+  declaration template and an instruction naming the source shapes that close
+  it. The narrower case of the same defect goes too: `conflicting_effect_evidence`
+  is raised about either surface, and only the branch the resolver attributes to
+  `action_surface_declaration` is a question a declaration answers — a server
+  publishing both `readOnlyHint: true` and `destructiveHint: true` contradicts
+  itself, and no declaration touches that. Every kind that remains is now pinned
+  by a round-trip test: raise it, apply the answer, re-resolve, require the
+  question answered.
+
+  *A row that says the manifest cannot fix it does not point at the manifest.*
+  `next_action.path` is the machine-readable target coding agents and the
+  short-form `Fix at …` line consume, and it fell through to
+  `shipgate.yaml#action_surface.actions[...]` for every kind — including the
+  two whose repair is in the tool's own published evidence. Those now point at
+  the source artifact (`tools.json#/tools/0`), or at nothing when no openable
+  reference exists; they stay addressable through their rerun command either
+  way. `conflicting_effect_evidence` raised against a self-contradicting source
+  also stops publishing the effect vocabulary and the "add a conservative
+  reviewed action declaration" instruction, because adding one leaves the
+  identical row. One predicate, `is_declaration_answerable`, now decides both
+  what the questionnaire counts and what the row publishes — counting a row the
+  repair cannot close and publishing a repair for a row the counter knows is
+  unanswerable are the same defect from two ends.
+
+  *A reviewed `risk_overrides` tag is the manifest speaking.* The source
+  read/side-effect conflict excluded the `action_surface.actions` row but not
+  its sibling manifest surface: `risk_overrides.tags` reaches the effect
+  dimension as `risk_hint:manual` with basis `reviewed_declaration`. A reviewed
+  `code_execution` tag on a tool published with `readOnlyHint: true` was
+  reported as the *source* contradicting itself, and declaring the matching
+  effect and risk tag could not clear it. Manifest ownership is now decided by
+  both routes — the declaration claim sources and the `reviewed_declaration`
+  basis, which in this dimension no tool-published content can carry.
+
+  *Reading an old packet no longer rewrites what it decided.* The legacy
+  upgrade path gated its `passed → insufficient_evidence` downgrade on "is this
+  a version I recognise" rather than on "is this before v0.8", so every
+  packet-schema bump quietly added the immediately previous version to the set
+  being rewritten — a stored v0.12 `passed` packet already loaded as
+  `insufficient_evidence` before this release, explained by a claim about
+  history that is false of it. The downgrade is now scoped to v0.1–v0.7, the
+  versions that genuinely predate evidence-backed semantic coverage; v0.7 still
+  downgrades and two sources disagreeing is still a conflict.
+
+  Report schema `0.36 → 0.37` adds
+  `release_decision.evidence_coverage.semantic_coverage.declaration_questions`
+  (`{total, answered, open, open_by_dimension, open_questions[]}`) and
+  `evidence_gaps[].next_action.observed_readings[]`. Both are additive and
+  neither gates. Packet `0.13 → 0.14` and verifier `0.10 → 0.11` follow because
+  they embed the same block; the prior versions keep their published bytes and
+  are read forward, with an absent counter reported as `0 of 0` rather than as
+  a claim that nothing was owed. The safety-qualification gate's
+  `required_report_schema_version` moves with them — it compares for exact
+  equality, so a gate left behind a bump rejects every receipt for a reason
+  that has nothing to do with safety, and it is now pinned equal to what the
+  engine emits by a test.
+
 - **A declaration cannot discharge a category it does not cover, and a
   published schema keeps its bytes.** Three follow-ups to the monotone
   declaration rule, each a defect that shipped with it

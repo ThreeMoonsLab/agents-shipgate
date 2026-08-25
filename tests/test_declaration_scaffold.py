@@ -230,16 +230,27 @@ def test_authority_template_is_fillable_against_the_manifest_schema() -> None:
 
 
 def test_no_shipped_template_asserts_on_a_humans_behalf() -> None:
-    """A template must ask, never answer.
+    """A template must ask, never answer — and where it answers, say what from.
 
     The binding template once shipped `complete: true`, `tools: []` and
     `handoffs: []` — a claim that the agent definitively reaches no tools —
     which a reviewer could paste while sentinels were still present. Every
     scalar a template offers must therefore be a sentinel, and every list must
     be empty or sentinel-filled, so a verbatim paste cannot state a fact.
+
+    Two fields are now exceptions, and they are narrow ones (#410 increment 2).
+    `effect` and `risk_tags` may carry a **proposal**: a value the scan derived
+    from evidence it publishes on the same row. Every such value must come from
+    the closed `ActionEffect` vocabulary — never from source content — and must
+    arrive beside the `observed_readings` that justify it. A proposal with no
+    readings under it is a guess wearing the same clothes.
     """
 
     from agents_shipgate.ci.release_decision import REVIEW_REQUIRED_SENTINEL
+    from agents_shipgate.schemas.surfaces import ActionEffect
+
+    vocabulary = set(get_args(ActionEffect))
+    proposals = 0
 
     def assert_no_assertion(node, path: str = "") -> None:
         if isinstance(node, dict):
@@ -266,19 +277,44 @@ def test_no_shipped_template_asserts_on_a_humans_behalf() -> None:
             "handoffs",
         }:
             return
+        if leaf in {"effect", "risk_tags"} and node != REVIEW_REQUIRED_SENTINEL:
+            nonlocal proposals
+            proposals += 1
+            assert node in vocabulary, (
+                f"{path} = {node!r} is not an ActionEffect; a proposal may only "
+                "ever be a value from the closed vocabulary"
+            )
+            return
         assert node == REVIEW_REQUIRED_SENTINEL, (
             f"{path} = {node!r} asserts a value the human owns"
         )
 
-    for template in _shipped_templates():
+    proposing = 0
+    for template, readings in _shipped_templates():
+        before = proposals
         assert_no_assertion(template)
+        if proposals > before:
+            proposing += 1
+            assert readings, (
+                "a template proposing a value must publish the readings it "
+                f"was derived from: {template!r}"
+            )
+    # The guard must actually reach the path it guards. Built with no
+    # assessment, every effect template keeps its sentinel and this test would
+    # pass while testing nothing (PR #413 review 3).
+    assert proposing, "no shipped template exercised the proposal path"
 
 
-def _shipped_templates() -> list[dict]:
-    """Every declaration_template the decision engine can emit."""
+def _shipped_templates() -> list[tuple[dict, list]]:
+    """Every declaration_template the engine can emit, with its row's readings.
+
+    Paired, because the effect templates now carry a proposal and the guard's
+    question about one is "what evidence arrived with it?".
+    """
 
     import agents_shipgate.ci.release_decision as rd
-    from agents_shipgate.core.domain import Tool
+    from agents_shipgate.core.domain import Tool, ToolRiskHint
+    from agents_shipgate.core.semantic_assessment import assess_tool_semantics
 
     tool = Tool(
         id="t1",
@@ -286,6 +322,24 @@ def _shipped_templates() -> list[dict]:
         source_type="sdk_function",
         source_id="openai_sdk_agent",
     )
+    # A resolved tool as well. Without one, ``propose_effect_declaration`` is
+    # never reached and every effect template keeps its sentinel — the guard
+    # would pass without ever seeing the values it exists to constrain.
+    assessed = Tool(
+        id="t3",
+        name="send_email",
+        source_type="sdk_function",
+        source_id="openai_sdk_agent",
+        risk_hints=[
+            ToolRiskHint(
+                tag="external_write",
+                source="name",
+                confidence="medium",
+                basis="inferred_keyword",
+            )
+        ],
+    )
+    assessed.semantic_assessment = assess_tool_semantics(assessed, None)
     # An ADK tool as well: ``incomplete_surface`` only scaffolds an inventory
     # for a source type that HAS a tool_inventories key, so a guard run only
     # over sdk_function would never see that template at all.
@@ -298,12 +352,13 @@ def _shipped_templates() -> list[dict]:
     # The binding templates are emitted from _binding_coverage, not
     # _semantic_gap, so enumerate them explicitly — a guard that misses the
     # template which actually carried an assertion is false confidence.
-    templates: list[dict] = [
-        dict(rd.AGENT_BINDINGS_ROOT_TEMPLATE),
-        _binding_declarations_template(),
+    templates: list[tuple[dict, list]] = [
+        (dict(rd.AGENT_BINDINGS_ROOT_TEMPLATE), []),
+        (_binding_declarations_template(), []),
     ]
-    for source in (tool, adk_tool):
+    for source in (tool, adk_tool, assessed):
         for kind in (
+            "missing_effect_evidence",
             "inferred_effect_only",
             "missing_authority_evidence",
             "partial_authority_evidence",
@@ -313,7 +368,7 @@ def _shipped_templates() -> list[dict]:
             gap = rd._semantic_gap(source, kind=kind, why="test")
             template = gap.next_action.declaration_template
             if template:
-                templates.append(template)
+                templates.append((template, list(gap.next_action.observed_readings)))
     assert templates, "expected at least one shipped template"
     return templates
 
@@ -645,7 +700,7 @@ def test_comments_are_the_only_difference_from_a_plain_yaml_dump() -> None:
     consumer of that dict sees.
     """
 
-    for template in _shipped_templates():
+    for template, _readings in _shipped_templates():
         gap = _gap("inferred_effect_only", "shipgate.yaml", template)
         scaffold = build_declaration_scaffold([gap])
         assert scaffold is not None

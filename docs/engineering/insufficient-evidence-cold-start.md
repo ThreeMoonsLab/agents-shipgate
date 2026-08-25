@@ -52,7 +52,9 @@ assembles them next to the report — merged per target, so two gaps on one tool
 produce one pasteable row rather than two invalid ones — and every gap that
 has a template names the file in its `expects`. Every human-owned value stays
 `<REVIEW_REQUIRED>`, and the file says outright that a block still containing
-a sentinel closes nothing.
+a sentinel closes nothing. (That last sentence held until 2026-08-24 — see
+*Third round* below, where the values the scan itself observed stopped being
+blanks.)
 
 **What surfacing the templates exposed.** Making them readable turned out to be
 a correctness audit of the templates themselves, and three were wrong:
@@ -451,3 +453,86 @@ shipping the half of it that fits.* A gate that misdirects is not better than
 one that abstains, and a partial fix to shared resolver semantics is exactly
 where a silent fail-open gets introduced.
 
+## Third round (2026-08-24): ask only what the scanner cannot prove
+
+`suggested-declarations.yaml` made the task *findable*. It did not make it
+*small*, and it did not say when it ends. The fourth `adk-samples#1745` walk met
+`0/12` pass-eligible actions and a report describing the work as "24 semantic
+evidence gaps" — a symptom count with no order and no finish line — while the
+same report already held a derived `financial_write` reading for the one tool
+that moved money. Declaring 2 of 12 was enough to reach a verdict; nothing said
+which 2.
+
+Three changes, and one idea holding them up.
+
+**Effects the scan observed are pre-filled.** Each effect question now prints
+the readings behind it — the distinct effects the evidence supports, each with
+the producers that support it — and, where they support one conservative
+answer, offers it in the `effect:` line.
+
+**The file is a numbered questionnaire.** `Question 3 of 5` banners, ordered by
+how much answering can move the verdict; the same shared progress sentence in
+the file header, the CLI, and the PR comment; and a counted question with no
+blank to fill (a source conflict) still numbered and shown, so the numbering
+never skips.
+
+**A question is not a declaration.** The denominator counts only the `effect`
+and `authority` of one `action_surface.actions` row, and `answered` is a
+counterfactual: dimensions that gap when the same action is re-resolved
+*without* its declaration. An action whose effect an OpenAPI method or an MCP
+annotation established was never asked and never enters the total — a
+repository cannot improve its progress bar by restating what the scan knew.
+
+### The line this moves, and why it stays safe
+
+The doc above says every human-owned value stays a sentinel. That is now false
+for exactly one field, so the reason it is safe has to be mechanical rather
+than editorial:
+
+- **nothing consumes the file.** Only a reviewed edit to `shipgate.yaml`, the
+  trust root, makes any of it operative, and `auto_apply=false` /
+  `requires_human_review=true` are unchanged. The only readers of a
+  `declaration_template` are the scaffold writer and a count in the verify
+  prose;
+- **the value comes from the closed `ActionEffect` vocabulary**, never from
+  source content, so no repository can put a word of its choosing in front of a
+  reviewer;
+- **it is never weaker than any reading.** Confirming one without thinking
+  *over*-declares — the safe direction, and one the monotone rule already keeps
+  visible;
+- **it is offered only where something was observed.** An unannotated MCP
+  tool's protocol default keeps its blank: pre-filling `write` from an
+  *absence* of evidence would arrive on 117 rows at once, which is the
+  blanket-accept the blank was protecting against. A heuristic reading of
+  `read` keeps its blank too — every other proposal over-declares, and `read`
+  is the one direction where blanket acceptance loses safety.
+
+### What surfacing the proposals exposed, again
+
+The 2026-07 round found that making templates readable was a correctness audit
+of the templates. The same held here, twice over.
+
+- **A manifest was allowed to be the source that contradicts itself.** The
+  read/side-effect conflict branch compared every authoritative claim that was
+  not the declared `effect` — which includes the manifest's own `risk_tags`,
+  `scopes`, and acknowledged `override`. Declaring
+  `risk_tags: [code_execution]` on a tool published with `readOnlyHint: true`
+  was reported as "high-confidence read and side-effect evidence conflict"
+  attributed to `tool_source`, when the side-effect half was the reviewer's own
+  line. That broke the `risk_tags` repair
+  `declaration_below_inferred_evidence` publishes: it could not close the row
+  it was printed on. Found by an exhaustive sweep only after the *structural*
+  (policy-eligible) dimension was crossed into it — heuristic readings alone
+  never reach that branch.
+- **A guard stopped guarding.** The test that enumerates every shipped template
+  and fails on a non-sentinel value still passed after pre-filling shipped,
+  because its fixture built tools with no semantic assessment and never reached
+  the proposal path. When an invariant genuinely changes, the test has to state
+  the new truth *and* assert that it reaches the new path.
+
+**The rule this adds:** *a progress counter must be measurable on both halves.*
+Inventory and `agent_bindings` declarations are human answers too, and they are
+deliberately outside the denominator — there is no counterfactual for them,
+because removing an inventory does not re-run extraction. Counting what can
+only be measured on one side is how a progress bar starts lying, and a lying
+finish line is worse than none.
