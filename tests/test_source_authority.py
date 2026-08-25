@@ -1049,3 +1049,29 @@ def test_adding_the_block_survives_the_base_comparison(tmp_path: Path) -> None:
     action = report.action_surface_facts.actions[0]
     assert action.semantic_assessment is not None
     assert action.required_scopes == sorted(set(action.semantic_assessment.authority.scopes))
+
+
+def test_a_declared_effect_below_a_declared_grant_is_never_quiet(tmp_path: Path) -> None:
+    """The adversarial declaration, with the grant moved to the source block.
+
+    ``effect: read`` on an action the manifest says requires ``crm.delete`` is
+    a contradiction, and the whole point of reading one resolved permission
+    list is that moving the grant four lines up the file does not make it go
+    quiet. Written on the action row this has always been a blocking conflict;
+    it has to stay one written on the source.
+    """
+
+    config = _workspace(
+        tmp_path,
+        tools=[_mcp_tool("fetch_record", "Fetch a record by identifier.")],
+        source_authority={"mode": "scoped", "auth_type": "oauth2", "scopes": ["crm.delete"]},
+        actions=[{"tool": "fetch_record", "source_id": "crm", "effect": "read"}],
+    )
+    report = _scan(tmp_path, config)
+    coverage = report.release_decision.evidence_coverage.semantic_coverage
+
+    assert report.release_decision.decision == "blocked"
+    assert coverage.pass_eligible_actions == 0
+    assert "conflicting_effect_evidence" in {
+        gap.kind for gap in report.release_decision.evidence_coverage.evidence_gaps
+    }
