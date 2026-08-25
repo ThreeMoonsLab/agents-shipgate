@@ -733,6 +733,32 @@ def _assess_effect(
     )
 
 
+def _is_manifest_owned(claim: SemanticClaim) -> bool:
+    """True when a human wrote this claim into the manifest.
+
+    Two tests, because the manifest reaches the effect dimension by two routes
+    that carry different bases:
+
+    * :data:`DECLARATION_CLAIM_SOURCES` names the ``action_surface.actions``
+      row itself — the declared effect, its ``risk_tags``, its ``scopes`` (a
+      ``structural_scope`` basis, so the basis test below does not see it), and
+      an acknowledged ``override``;
+    * ``reviewed_declaration`` is the basis, and in this dimension a producer
+      may only carry it by being ``risk_hint:manual`` — the hint
+      ``risk_overrides.tags`` writes (``_validated_hint_basis`` grants the
+      basis for no other source, so tool-published content cannot claim it).
+
+    Missing the second route left the sibling manifest surface counted as
+    *source* evidence: a reviewed ``risk_overrides`` tag of ``code_execution``
+    on a tool published with ``readOnlyHint: true`` was reported as the source
+    contradicting itself, and no declaration could clear it.
+    """
+
+    return (
+        claim.source in DECLARATION_CLAIM_SOURCES or claim.basis == "reviewed_declaration"
+    )
+
+
 def _source_read_conflict(structural: Sequence[SemanticClaim]) -> tuple[bool, bool]:
     """Does the *source* claim both read-only and a side effect at high confidence?
 
@@ -760,7 +786,7 @@ def _source_read_conflict(structural: Sequence[SemanticClaim]) -> tuple[bool, bo
     high = [
         claim
         for claim in structural
-        if claim.confidence == "high" and claim.source not in DECLARATION_CLAIM_SOURCES
+        if claim.confidence == "high" and not _is_manifest_owned(claim)
     ]
     return (
         any(claim.value == "read" for claim in high),

@@ -566,6 +566,157 @@ def test_every_answerable_kind_has_an_answer_that_closes_it() -> None:
         )
 
 
+def _rendered_gaps(tmp_path: Path, *, tools: list[dict], actions: list[dict]):
+    """The evidence-gap rows a real scan publishes, as the reader receives them."""
+
+    report, _ = run_scan(
+        config_path=_mcp_workspace(tmp_path, tools=tools, actions=actions),
+        output_dir=tmp_path / "out",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+    assert report.release_decision is not None
+    return report, report.release_decision.evidence_coverage.evidence_gaps
+
+
+def test_a_source_owned_row_points_at_the_source_it_names(tmp_path: Path) -> None:
+    """A row's machine-readable target must agree with its own instruction.
+
+    `partial_authority_evidence` correctly says "a reviewed action declaration
+    cannot close this row" — and then set `path` to
+    `shipgate.yaml#action_surface.actions[...]`, which is where a coding agent
+    and the short-form `Fix at …` line both go. The contradiction is
+    operational, not cosmetic: it sends the reader to write exactly the block
+    the sentence above it says will not work.
+    """
+
+    report, gaps = _rendered_gaps(
+        tmp_path,
+        tools=[
+            {
+                "name": "docs.lookup",
+                "description": "Look up an article.",
+                "annotations": {"readOnlyHint": True},
+                # Scopes with no auth type: `_source_authority` reads this as
+                # `partial`, and no declaration changes it.
+                "auth": {"scopes": ["docs:read"]},
+            }
+        ],
+        actions=[],
+    )
+    gap = next(item for item in gaps if item.kind == "partial_authority_evidence")
+    action = gap.next_action
+
+    assert action.kind == "provide_source"
+    assert action.declaration_template is None
+    assert action.path == "tools.json#/tools/0"
+    assert "action_surface" not in (action.path or "")
+    assert "cannot close this row" in action.expects
+    # And the short forms that project this row agree with it.
+    assert report.release_decision is not None
+    assert "shipgate.yaml#action_surface" not in report.release_decision.reason
+
+
+def test_a_self_contradicting_source_is_not_sent_to_the_manifest(tmp_path: Path) -> None:
+    """The published repair, not only the counter.
+
+    Excluding this row from the questionnaire was half the fix. The other half
+    is what the row still told people to do: the generic conflict branch kept
+    publishing every effect value, the manifest action row, and "add a
+    conservative reviewed action declaration" — and adding the exact
+    conservative `effect: destructive` leaves the identical conflict.
+    """
+
+    tools = [
+        {
+            "name": "confused",
+            "description": "Two annotations.",
+            "annotations": {"readOnlyHint": True, "destructiveHint": True},
+        }
+    ]
+    _, gaps = _rendered_gaps(tmp_path, tools=tools, actions=[])
+    action = next(
+        item for item in gaps if item.kind == "conflicting_effect_evidence"
+    ).next_action
+
+    assert action.kind == "provide_source"
+    assert action.declaration_template is None
+    assert action.path == "tools.json#/tools/0"
+    # Publishing the effect vocabulary here invites the declaration the row
+    # cannot be closed by.
+    assert not set(action.accepted_values) & set(ActionEffect.__args__)  # type: ignore[attr-defined]
+    assert "A reviewed action declaration cannot close this row" in action.expects
+
+    # ...and that is true: the conservative declaration leaves the same row.
+    answered = tmp_path / "answered"
+    answered.mkdir()
+    _, after = _rendered_gaps(
+        answered,
+        tools=tools,
+        actions=[{"tool": "confused", "effect": "destructive", "authority": {"mode": "none"}}],
+    )
+    assert "conflicting_effect_evidence" in {item.kind for item in after}
+
+
+def test_a_reviewed_risk_override_is_the_manifest_speaking(tmp_path: Path) -> None:
+    """`risk_overrides.tags` is the manifest's other positive-risk surface.
+
+    It reaches the effect dimension as `risk_hint:manual` with basis
+    `reviewed_declaration` — not one of `DECLARATION_CLAIM_SOURCES` — so the
+    source-conflict test counted a human's reviewed tag as the *source*
+    contradicting a `readOnlyHint`. Declaring the matching effect and risk tag
+    left the same conflict, contradicting the rule that an untrusted
+    annotation may never block a reviewed over-declaration.
+    """
+
+    config = _mcp_workspace(
+        tmp_path,
+        tools=[
+            {
+                "name": "overridden",
+                "description": "A reviewed override.",
+                "annotations": {"readOnlyHint": True},
+            }
+        ],
+        actions=[
+            {
+                "tool": "overridden",
+                "effect": "code_execution",
+                "risk_tags": ["code_execution"],
+                "authority": {"mode": "none"},
+            }
+        ],
+    )
+    manifest = yaml.safe_load(config.read_text(encoding="utf-8"))
+    manifest["risk_overrides"] = {
+        "tools": {
+            "overridden": {
+                "tags": ["code_execution"],
+                "confidence": "manual",
+                "reason": "reviewed - this tool shells out",
+            }
+        }
+    }
+    config.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+
+    report, _ = run_scan(
+        config_path=config,
+        output_dir=tmp_path / "out",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+
+    assert report.release_decision is not None
+    coverage = report.release_decision.evidence_coverage
+    assert "conflicting_effect_evidence" not in {
+        gap.kind for gap in coverage.evidence_gaps
+    }
+    questions = coverage.semantic_coverage.declaration_questions
+    assert questions.open == 0 and questions.answered == questions.total
+
+
 def test_a_source_that_contradicts_itself_is_not_a_declaration_question() -> None:
     """The second branch of `conflicting_effect_evidence`, which no answer closes.
 

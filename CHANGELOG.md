@@ -72,6 +72,31 @@
   by a round-trip test: raise it, apply the answer, re-resolve, require the
   question answered.
 
+  *A row that says the manifest cannot fix it does not point at the manifest.*
+  `next_action.path` is the machine-readable target coding agents and the
+  short-form `Fix at …` line consume, and it fell through to
+  `shipgate.yaml#action_surface.actions[...]` for every kind — including the
+  two whose repair is in the tool's own published evidence. Those now point at
+  the source artifact (`tools.json#/tools/0`), or at nothing when no openable
+  reference exists; they stay addressable through their rerun command either
+  way. `conflicting_effect_evidence` raised against a self-contradicting source
+  also stops publishing the effect vocabulary and the "add a conservative
+  reviewed action declaration" instruction, because adding one leaves the
+  identical row. One predicate, `is_declaration_answerable`, now decides both
+  what the questionnaire counts and what the row publishes — counting a row the
+  repair cannot close and publishing a repair for a row the counter knows is
+  unanswerable are the same defect from two ends.
+
+  *A reviewed `risk_overrides` tag is the manifest speaking.* The source
+  read/side-effect conflict excluded the `action_surface.actions` row but not
+  its sibling manifest surface: `risk_overrides.tags` reaches the effect
+  dimension as `risk_hint:manual` with basis `reviewed_declaration`. A reviewed
+  `code_execution` tag on a tool published with `readOnlyHint: true` was
+  reported as the *source* contradicting itself, and declaring the matching
+  effect and risk tag could not clear it. Manifest ownership is now decided by
+  both routes — the declaration claim sources and the `reviewed_declaration`
+  basis, which in this dimension no tool-published content can carry.
+
   *Reading an old packet no longer rewrites what it decided.* The legacy
   upgrade path gated its `passed → insufficient_evidence` downgrade on "is this
   a version I recognise" rather than on "is this before v0.8", so every

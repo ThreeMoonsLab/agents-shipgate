@@ -116,6 +116,27 @@ DECLARATION_ATTRIBUTED_KINDS: frozenset[str] = frozenset({"conflicting_effect_ev
 #: fault. One spelling, shared with the resolver's claim sources.
 _DECLARATION_ISSUE_SOURCE = DECLARED_EFFECT_SOURCE
 
+
+def is_declaration_answerable(kind: str, source: str | None) -> bool:
+    """Can a reviewed ``action_surface.actions`` row close this exact issue?
+
+    The one predicate. Two surfaces ask it and they must not diverge: the
+    questionnaire decides whether to *count* the issue as a question, and the
+    evidence-gap builder decides what repair to *publish* for it. Counting a
+    row the published repair cannot close, or publishing a declaration for a
+    row the counter knows is unanswerable, are the same defect seen from two
+    ends.
+
+    ``source`` is the resolver's own attribution of what is at fault, so this
+    never re-derives the judgement — it reads the one the resolver already
+    recorded. ``None`` is treated as source-owned: it is the conservative
+    reading, and it never promises a declaration that may not work.
+    """
+
+    if kind not in DECLARATION_ATTRIBUTED_KINDS:
+        return True
+    return source == _DECLARATION_ISSUE_SOURCE
+
 #: The inverse of :data:`ANSWERABLE_ISSUE_KINDS` — which dimension each gap
 #: kind belongs to. Inverted once, here, because both the questionnaire and the
 #: gap ordering need the same routing and a second spelling of it is how they
@@ -288,11 +309,7 @@ def _issues(
 
 def _asks(issues: Sequence[SemanticIssue], answerable: frozenset[str]) -> bool:
     return any(
-        issue.kind in answerable
-        and (
-            issue.kind not in DECLARATION_ATTRIBUTED_KINDS
-            or issue.source == _DECLARATION_ISSUE_SOURCE
-        )
+        issue.kind in answerable and is_declaration_answerable(issue.kind, issue.source)
         for issue in issues
     )
 
@@ -346,6 +363,7 @@ __all__ = [
     "DeclarationDimension",
     "DeclarationQuestion",
     "declaration_questions",
+    "is_declaration_answerable",
     "open_counts_by_dimension",
     "open_questions",
     "progress_sentence",

@@ -15,6 +15,7 @@ from agents_shipgate.core.declaration_questions import (
     DIMENSION_BY_GAP_KIND,
     DeclarationQuestion,
     declaration_questions,
+    is_declaration_answerable,
     open_counts_by_dimension,
     open_questions,
 )
@@ -28,6 +29,7 @@ from agents_shipgate.core.evidence_actions import (
     evidence_gap_command,
     evidence_gap_headline,
     evidence_gap_target,
+    has_visible_content,
     primary_evidence_gap,
     yaml_scalar,
 )
@@ -1070,6 +1072,7 @@ def _semantic_coverage(
                 kind=issue.kind,
                 why=issue.message,
                 source_ref=issue.source_pointer or issue.source,
+                issue_source=issue.source,
             )
             gaps.append(gap)
             _increment(reason_counts, gap.kind)
@@ -1318,7 +1321,15 @@ def _semantic_gap(
     kind: SemanticIssueKind,
     why: str,
     source_ref: str | None = None,
+    issue_source: str | None = None,
 ) -> EvidenceGap:
+    """One remediation row for one resolver issue.
+
+    ``issue_source`` is the resolver's attribution of what is at fault. Some
+    kinds are raised about *either* surface, and dropping it published the
+    manifest repair for a row only the source can fix.
+    """
+
     action_kind: str
     accepted_values: list[str]
     declaration_template: dict[str, object] | None = None
@@ -1579,6 +1590,30 @@ def _semantic_gap(
                 "reason": REVIEW_REQUIRED_SENTINEL,
             },
         }
+    elif kind == "conflicting_effect_evidence" and not is_declaration_answerable(
+        kind, issue_source
+    ):
+        # The tool's own annotations assert read-only and a side effect at
+        # once. The resolver reads that self-contradiction *before* it reads
+        # the manifest, so the declaration is inert here — publishing the
+        # generic "add a conservative reviewed action declaration" sent a
+        # reviewer to write `effect: destructive` and get the identical row
+        # back on rescan.
+        action_kind = "provide_source"
+        accepted_values = ["single_effect_annotation", "consistent_permission_class"]
+        action_why = (
+            "A source that asserts read-only and a side effect at once cannot "
+            "be resolved by a reviewed declaration; the resolver reads the "
+            "contradiction before it reads the manifest."
+        )
+        expects = (
+            "Correct this tool's published annotations at the source so they "
+            "agree — a tool is read-only or it has a side effect, not both — "
+            "then rerun verification. A reviewed action declaration cannot "
+            "close this row, whatever effect it names."
+        )
+        # Deliberately no template, and no effect vocabulary: neither would
+        # change the answer.
     else:
         action_kind = "resolve_semantic_conflict"
         if kind == "conflicting_effect_evidence":
@@ -1614,7 +1649,7 @@ def _semantic_gap(
         next_action=EvidenceGapAction(
             kind=action_kind,  # type: ignore[arg-type]
             command=_SEMANTIC_RERUN_COMMAND,
-            path=_semantic_gap_path(kind, tool),
+            path=_semantic_gap_path(kind, tool, issue_source),
             why=action_why,
             expects=_with_scaffold_pointer(
                 expects, declaration_template if name_scaffold else None
@@ -1660,10 +1695,49 @@ _AGENT_BINDING_KINDS = frozenset(
 )
 
 
-def _semantic_gap_path(kind: str, tool: Tool) -> str:
-    """The manifest location that repairs this gap kind."""
+def _source_artifact_path(tool: Tool) -> str | None:
+    """Where this tool's own published evidence lives, or ``None``.
+
+    Used by the rows whose repair is in the source rather than in the manifest.
+    ``path`` is the machine-readable target coding agents and the short-form
+    ``Fix at …`` line consume, so a row saying "a reviewed action declaration
+    cannot close this" while pointing at ``action_surface.actions`` sends the
+    reader to write exactly the block it just told them would not work.
+
+    ``None`` when nothing openable is known — these rows still carry the rerun
+    command, so they stay addressable without naming a file that does not
+    exist.
+    """
+
+    base = next(
+        (
+            value
+            for value in (tool.source_location, tool.source_ref, tool.source_path)
+            if value and has_visible_content(value)
+        ),
+        None,
+    )
+    pointer = (
+        tool.source_pointer
+        if tool.source_pointer and has_visible_content(tool.source_pointer)
+        else None
+    )
+    if base and pointer and pointer != base:
+        return f"{base}#{pointer}"
+    return base or pointer
+
+
+def _semantic_gap_path(kind: str, tool: Tool, issue_source: str | None = None) -> str | None:
+    """The location that repairs this gap kind — manifest, or source."""
 
     action_row = f"shipgate.yaml#action_surface.actions[tool={tool.name!r}]"
+    if kind == "partial_authority_evidence" or not is_declaration_answerable(
+        kind, issue_source
+    ):
+        # The repair is in the tool's own published evidence. Same predicate the
+        # questionnaire counts by, so a row can never be excluded from the
+        # counter as unanswerable while still publishing a manifest route.
+        return _source_artifact_path(tool)
     if kind == "incomplete_surface":
         if inventory_manifest_key(tool.source_type) is not None:
             return SUGGESTED_INVENTORY_FILENAME
