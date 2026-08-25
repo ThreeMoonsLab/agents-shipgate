@@ -1338,11 +1338,15 @@ def reviewed_authority(
     eligibility all apply identically to both.
 
     The two sites are alternatives, not a mixture. Whichever one is operative
-    supplies the whole record — mode, type, credential mode, and the grant it
-    names. That grant is the *credential's*, not any one action's: it answers
-    the authority dimension and is deliberately not copied into an action's
-    ``required_scopes`` or read as per-action effect evidence, because the
-    block never said which part of the grant a given action requires.
+    supplies the whole record — mode, type, credential mode, and the permission
+    list — and that one list is what every surface reports and judges: the
+    action's ``required_scopes``, this dimension's ``scopes``, the capability
+    fact's (``CapabilityFactV1`` *requires* those to agree), and the list the
+    effect evidence reads. Mixing the two sites' lists, or letting one surface
+    pick a different one, gave two answers to "what is this action granted?" —
+    once quietly, as a declared ``crm.delete`` grant beside a declared
+    ``effect: read`` with nothing objecting, and once loudly, as a validation
+    error on the base-vs-head path.
     """
 
     if declaration is not None and declaration.authority is not None:
