@@ -10,6 +10,7 @@ from agents_shipgate.core.domain import (
     DECLARATION_CLAIM_SOURCES,
     DECLARATION_OVERRIDE_SOURCE,
     DECLARED_EFFECT_SOURCE,
+    DECLARED_SOURCE_AUTHORITY_SOURCE,
     SURFACE_ENUMERATED,
     AuthorityMode,
     AuthoritySemanticAssessment,
@@ -28,6 +29,7 @@ from agents_shipgate.schemas.manifest import (
     ActionDeclarationConfig,
     ActionEffectOverrideConfig,
     ActionRiskTag,
+    ToolSourceConfig,
 )
 from agents_shipgate.schemas.surfaces import ActionEffect
 
@@ -114,16 +116,26 @@ _TAG_EFFECTS: dict[str, ActionEffect] = {
 def assess_tool_semantics(
     tool: Tool,
     declaration: ActionDeclarationConfig | None = None,
+    *,
+    tool_source: ToolSourceConfig | None = None,
 ) -> ToolSemanticAssessment:
     """Resolve one tool's static effect and authority evidence.
 
     The resolver is deterministic, local-only, and conservative. Parsed input
     is not itself safety evidence: ambiguous protocol defaults and heuristic-
     only effects remain non-pass-eligible.
+
+    ``tool_source`` is the ``tool_sources[]`` entry this tool was extracted
+    from, when one configures it. It carries the source-wide authority
+    declaration (#410 increment 3) and, declared or not, it is what tells the
+    resolver that a source block exists to answer this action's authority in.
+    Omitting it resolves exactly as before — which is what makes the
+    counterfactual in ``declaration_questions`` mean "with no reviewed
+    declaration at all", covering both sites in one call.
     """
 
     effect, conservative_effect = _assess_effect(tool, declaration)
-    authority = _assess_authority(tool, declaration)
+    authority = _assess_authority(tool, declaration, tool_source)
     identity = tool.identity_assessment or _compat_identity_assessment(tool)
     binding = tool.binding_assessment or _compat_binding_assessment(tool)
     surface_complete = _surface_is_complete(tool)
@@ -180,6 +192,7 @@ def attach_semantic_assessments(
     tools: list[Tool],
     declarations: Mapping[str, ActionDeclarationConfig] | None = None,
     *,
+    tool_sources: Mapping[str, ToolSourceConfig] | None = None,
     copy_tools: bool = True,
 ) -> list[Tool]:
     """Attach one declaration-aware assessment keyed strictly by tool ID.
@@ -189,14 +202,26 @@ def attach_semantic_assessments(
     non-mutation default; the scan pipeline sets ``copy_tools=False`` because
     it exclusively owns the enriched objects. Name-keyed declaration maps are
     intentionally ignored so same-name providers can never share evidence.
+
+    ``tool_sources`` is the manifest's configured sources keyed by id, so a
+    tool can be joined to the entry that may declare its authority. Keyed by
+    the *configured* id and never by ``tool.source_id`` alone: a per-scan
+    adapter stamps a source id that ``tool_sources`` does not accept, and a
+    tool whose id is absent from this map simply has no source block.
     """
 
     by_tool = declarations or {}
+    by_source = tool_sources or {}
     assessed: list[Tool] = []
     for original in tools:
         tool = original.model_copy() if copy_tools else original
         declaration = by_tool.get(tool.id)
-        tool.semantic_assessment = assess_tool_semantics(tool, declaration)
+        tool_source = by_source.get(tool.source_id) if tool.source_id else None
+        tool.semantic_assessment = assess_tool_semantics(
+            tool,
+            declaration,
+            tool_source=tool_source,
+        )
         assessed.append(tool)
     return assessed
 
@@ -1264,9 +1289,99 @@ def _conflicting_declaration_message(
     return message
 
 
+@dataclass(frozen=True)
+class ReviewedAuthority:
+    """One reviewed authority claim, normalized across the two sites it can be written at.
+
+    ``claim_source`` and ``pointer`` are carried rather than re-derived because
+    every consumer that reports this claim — the claim list, the conflict
+    issue, the repair a gap publishes — has to name the *same* block, and a
+    second derivation of "which site was this?" is how two of them start
+    naming different ones.
+    """
+
+    mode: AuthorityMode
+    auth_type: str | None
+    credential_mode: str | None
+    scopes: list[str]
+    claim_source: str
+    pointer: str
+
+
+def reviewed_authority(
+    tool: Tool,
+    declaration: ActionDeclarationConfig | None,
+    tool_source: ToolSourceConfig | None,
+) -> ReviewedAuthority | None:
+    """The reviewed authority that governs this action, and where it was written.
+
+    Two manifest sites can carry the same claim (#410 increment 3). The action
+    row wins where it exists — it is the more specific statement, and it is how
+    one action of a source declares an authority the rest of the source does
+    not have. Everything downstream of this function reads the normalized
+    record, so the two spellings cannot drift into two behaviours: the conflict
+    rule, the "cannot replace ambiguous source evidence" rule, and pass
+    eligibility all apply identically to both.
+
+    The two sites are alternatives, not a mixture. Whichever one is operative
+    supplies the *whole* record, scopes included — an action that needs a
+    different permission list declares its own ``authority`` block alongside
+    its ``scopes``. Mixing them produced two answers to "what is this action
+    granted?": an action row declaring ``mode: none`` under a scoped source
+    reported empty scopes in its assessment and the source's scopes in its
+    action fact, and an action row listing bare ``scopes`` under a declared
+    source reported them the other way round. Public for exactly that reason —
+    the action lens reads this instead of re-deriving the precedence.
+    """
+
+    if declaration is not None and declaration.authority is not None:
+        authority = declaration.authority
+        return ReviewedAuthority(
+            mode=cast(AuthorityMode, authority.mode),
+            auth_type=authority.auth_type,
+            credential_mode=authority.credential_mode,
+            # An action row keeps its permission list in the sibling
+            # ``scopes`` field, so the canonical list stays in one place.
+            scopes=sorted(set(declaration.scopes)),
+            claim_source=DECLARED_EFFECT_SOURCE,
+            pointer=f"action_surface.actions[tool={tool.name!r}].authority",
+        )
+    if tool_source is not None and tool_source.authority is not None:
+        authority = tool_source.authority
+        return ReviewedAuthority(
+            mode=cast(AuthorityMode, authority.mode),
+            auth_type=authority.auth_type,
+            credential_mode=authority.credential_mode,
+            scopes=sorted(set(authority.scopes)),
+            claim_source=DECLARED_SOURCE_AUTHORITY_SOURCE,
+            pointer=f"tool_sources[id={tool_source.id!r}].authority",
+        )
+    return None
+
+
+def _answerable_source_id(
+    declaration: ActionDeclarationConfig | None,
+    tool_source: ToolSourceConfig | None,
+) -> str | None:
+    """Where an authority answer for this action belongs — a source, or nowhere.
+
+    ``None`` means "on the action row": either a per-action declaration already
+    claims this authority, or the action came from a surface that no
+    ``tool_sources`` entry configures, in which case there is no source block
+    to write. Never guessed from ``tool.source_id`` alone: a per-scan adapter
+    stamps a source id that ``tool_sources`` does not accept, and prescribing a
+    block there would publish a repair the schema rejects.
+    """
+
+    if declaration is not None and declaration.authority is not None:
+        return None
+    return tool_source.id if tool_source is not None else None
+
+
 def _assess_authority(
     tool: Tool,
     declaration: ActionDeclarationConfig | None,
+    tool_source: ToolSourceConfig | None = None,
 ) -> AuthoritySemanticAssessment:
     claims: list[SemanticClaim] = []
     issues: list[SemanticIssue] = []
@@ -1320,25 +1435,25 @@ def _assess_authority(
             )
         )
 
-    authority = declaration.authority if declaration is not None else None
-    if authority is not None:
+    reviewed = reviewed_authority(tool, declaration, tool_source)
+    if reviewed is not None:
         claims.append(
             _claim(
                 "authority",
-                authority.mode,
+                reviewed.mode,
                 "high",
                 "static_declaration",
                 "reviewed_declaration",
-                "action_surface_declaration",
-                f"action_surface.actions[tool={tool.name!r}].authority",
+                reviewed.claim_source,
+                reviewed.pointer,
                 {
-                    "auth_type": authority.auth_type,
-                    "credential_mode": authority.credential_mode,
-                    "scopes": sorted(set(declaration.scopes)),
+                    "auth_type": reviewed.auth_type,
+                    "credential_mode": reviewed.credential_mode,
+                    "scopes": reviewed.scopes,
                 },
             )
         )
-        declared_mode = cast(AuthorityMode, authority.mode)
+        declared_mode = reviewed.mode
         if tool.auth.invalid_annotations:
             status = "conflicting"
             mode = "unknown"
@@ -1359,8 +1474,7 @@ def _assess_authority(
             )
         elif source_status == "structural" and _authority_declaration_conflicts(
             tool,
-            declaration,
-            declared_mode=declared_mode,
+            reviewed,
             source_mode=source_mode,
         ):
             status = "conflicting"
@@ -1370,16 +1484,19 @@ def _assess_authority(
                     "conflicting_authority_evidence",
                     "authority",
                     "declared authority conflicts with source authority evidence",
-                    "action_surface_declaration",
-                    f"action_surface.actions[tool={tool.name!r}].authority",
+                    # Attributed to the site the declaration was written at, so
+                    # the repair points at the block a reviewer has to edit
+                    # rather than at whichever site happens to be spelled first.
+                    reviewed.claim_source,
+                    reviewed.pointer,
                 )
             )
         else:
             status = "declared"
             mode = declared_mode
-        auth_type = authority.auth_type
-        credential_mode = authority.credential_mode
-        scopes = sorted(set(declaration.scopes))
+        auth_type = reviewed.auth_type
+        credential_mode = reviewed.credential_mode
+        scopes = reviewed.scopes
     else:
         status = source_status
         mode = source_mode
@@ -1415,6 +1532,7 @@ def _assess_authority(
         scopes=scopes,
         claims=_sorted_claims(claims),
         issues=_sorted_issues(issues),
+        answerable_source_id=_answerable_source_id(declaration, tool_source),
     )
 
 
@@ -1482,9 +1600,8 @@ def _authority_modes_conflict(left: AuthorityMode, right: AuthorityMode) -> bool
 
 def _authority_declaration_conflicts(
     tool: Tool,
-    declaration: ActionDeclarationConfig,
+    reviewed: ReviewedAuthority,
     *,
-    declared_mode: AuthorityMode,
     source_mode: AuthorityMode,
 ) -> bool:
     """Reject reviewed declarations that weaken concrete source authority.
@@ -1493,22 +1610,25 @@ def _authority_declaration_conflicts(
     not replace high-confidence source scopes or an authentication type with
     weaker/different values. A scope superset is an explicit authority
     broadening and remains visible to the existing broad-scope policies.
+
+    Reads the normalized record, so a source-wide declaration is held to
+    exactly the rule a per-action one is. That is what keeps the new spelling
+    from becoming a way to weaken published evidence in bulk: declaring
+    ``mode: none`` across a source whose tools publish an OAuth scope raises
+    the conflict on each of those tools, and the reviewer either corrects the
+    block or declares the exception on the action row.
     """
 
-    if _authority_modes_conflict(declared_mode, source_mode):
+    if _authority_modes_conflict(reviewed.mode, source_mode):
         return True
 
-    authority = declaration.authority
-    if authority is None:
-        return False
-
     source_auth_type = (tool.auth.type or "").strip().lower()
-    declared_auth_type = (authority.auth_type or "").strip().lower()
+    declared_auth_type = (reviewed.auth_type or "").strip().lower()
     if source_auth_type and declared_auth_type and source_auth_type != declared_auth_type:
         return True
 
     source_credential_mode = (tool.auth.credential_mode or "").strip().lower()
-    declared_credential_mode = (authority.credential_mode or "").strip().lower()
+    declared_credential_mode = (reviewed.credential_mode or "").strip().lower()
     if (
         source_credential_mode
         and declared_credential_mode
@@ -1518,7 +1638,7 @@ def _authority_declaration_conflicts(
 
     if source_mode == "scoped":
         source_scopes = set(tool.auth.scopes)
-        declared_scopes = set(declaration.scopes)
+        declared_scopes = set(reviewed.scopes)
         if not source_scopes.issubset(declared_scopes):
             return True
 
@@ -1676,7 +1796,9 @@ def _sorted_issues(issues: list[SemanticIssue]) -> list[SemanticIssue]:
 __all__ = [
     "acknowledged_effect_claim_ids",
     "assess_tool_semantics",
+    "ReviewedAuthority",
     "attach_semantic_assessments",
+    "reviewed_authority",
     "claims_above_declared_effect",
     "EffectRepair",
     "effect_repair",

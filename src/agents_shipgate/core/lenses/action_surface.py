@@ -32,6 +32,7 @@ from agents_shipgate.core.semantic_assessment import (
     acknowledged_effect_claim_ids,
     assess_tool_semantics,
     declaration_covers,
+    reviewed_authority,
 )
 from agents_shipgate.core.surface_exclusions import (
     catalog_label_index,
@@ -50,6 +51,7 @@ from agents_shipgate.schemas.manifest import (
     ActionDeclarationConfig,
     ActionPolicyConfig,
     AgentsShipgateManifest,
+    ToolSourceConfig,
 )
 from agents_shipgate.schemas.report import (
     EvidenceGap,
@@ -493,6 +495,47 @@ def action_reference_from_scan_reference(
     )
 
 
+def _tool_source_for(
+    manifest: AgentsShipgateManifest,
+    tool: Tool,
+) -> ToolSourceConfig | None:
+    """The configured ``tool_sources`` entry this tool came from, if any."""
+
+    if not tool.source_id:
+        return None
+    return next(
+        (source for source in manifest.tool_sources if source.id == tool.source_id),
+        None,
+    )
+
+
+def _declared_scope_strings(
+    tool: Tool,
+    declaration: ActionDeclarationConfig | None,
+    source: ToolSourceConfig | None,
+) -> list[str]:
+    """The permission list this action is judged on.
+
+    Where a reviewed authority exists it *is* the answer, read from the one
+    function that decides which of the two manifest sites is operative. Two
+    derivations here meant two answers to "what is this action granted?": an
+    action row declaring `mode: none` under a scoped source published the
+    source's scopes as its `required_scopes` while its own assessment reported
+    none, and an action row listing bare `scopes` under a declared source
+    published them while the assessment reported the source's.
+
+    With no reviewed authority at either site the behaviour is unchanged: a
+    declared `scopes` list, else what the source published.
+    """
+
+    reviewed = reviewed_authority(tool, declaration, source)
+    if reviewed is not None:
+        return list(reviewed.scopes)
+    if declaration is not None and declaration.scopes:
+        return list(declaration.scopes)
+    return list(tool.auth.scopes)
+
+
 def build_action(
     manifest: AgentsShipgateManifest,
     *,
@@ -519,20 +562,26 @@ def build_action(
         provider=provider,
         operation=operation,
     )
+    source = _tool_source_for(manifest, tool)
     # Live scans resolve semantics exactly once after extraction and manifest
     # enrichment. Direct unit callers may still provide an unattached Tool,
     # so retain a compatibility fallback without creating a second live path.
-    semantic_assessment = tool.semantic_assessment or assess_tool_semantics(tool, declaration)
+    semantic_assessment = tool.semantic_assessment or assess_tool_semantics(
+        tool,
+        declaration,
+        tool_source=source,
+    )
     inferred_tags = _normalized_risk_tags(tool)
     declared_tags = (
         _normalize_risk_tag_values(declaration.risk_tags) if declaration is not None else []
     )
     risk_tag_values = sorted(set(inferred_tags) | set(declared_tags))
-    scope_strings = (
-        _normalize_strings(declaration.scopes)
-        if declaration and declaration.scopes
-        else _normalize_strings(tool.auth.scopes)
-    )
+    # The permission list this action is judged on, in the same precedence the
+    # semantic resolver applies: the action row, then the source-wide reviewed
+    # block (#410 increment 3), then what the source itself published. Declared
+    # scopes have to reach the typed action or the broad-scope policies would
+    # not see the grant a reviewer just wrote down.
+    scope_strings = _normalize_strings(_declared_scope_strings(tool, declaration, source))
     effect = semantic_assessment.conservative_effect
     semantic_effects = {
         claim.value

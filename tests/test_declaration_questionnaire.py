@@ -1120,7 +1120,7 @@ def test_two_tools_sharing_a_display_name_keep_their_questions_contiguous() -> N
     numbered = list(enumerate(declaration_questions(tools), start=1))
     per_tool: dict[str, list[int]] = {}
     for number, question in numbered:
-        per_tool.setdefault(question.tool_id, []).append(number)
+        per_tool.setdefault(question.subject_id, []).append(number)
 
     assert len(per_tool) == 2
     for tool_id, numbers in per_tool.items():

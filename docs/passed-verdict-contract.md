@@ -98,6 +98,27 @@ When two providers export the same display name, qualify the selector with
 applies nowhere. Use `tool_identity.bindings[]` only for reviewed equivalence
 between observations; equal names never merge automatically.
 
+Authority may also be declared once for a whole source, because every action a
+source contributes normally runs with one credential:
+
+```yaml
+tool_sources:
+  - id: crm
+    type: mcp
+    path: tools.json
+    authority:
+      mode: scoped
+      auth_type: oauth2
+      scopes: [crm.read]
+```
+
+An `action_surface.actions[]` row that declares its own `authority` overrides
+it for that action. The resolver holds both spellings to the same rules — the
+same mode co-requirements, the same refusal to weaken concrete published
+evidence, and the same refusal to stand in for authority a source publishes
+ambiguously — so writing the claim once is a convenience, never a weaker
+statement.
+
 Authority modes are:
 
 - `none`: no authority is required; scopes and auth type must be empty.

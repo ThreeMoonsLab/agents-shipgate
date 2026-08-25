@@ -486,7 +486,16 @@ class EvidenceGap(BaseModel):
     # catalog ids can legitimately render the same one, so joining on it marked
     # both rows accounted-for when only one was (PR #404 review 2). Consumers
     # display ``subject``; anything that needs identity joins on this.
+    #
+    # v0.38: ``subject_kind`` says which id space ``subject_id`` is in. Almost
+    # every row is about one action; a source-wide authority question is about
+    # the ``tool_sources`` entry that answers it, because one block answers
+    # every action of that source (#410). Tool ids and source ids are
+    # independent repository-chosen namespaces, so a consumer joining one
+    # against the other has to be able to tell them apart rather than discover
+    # the difference on a collision.
     subject_id: str | None = None
+    subject_kind: Literal["action", "tool_source"] = "action"
     source_type: str | None = None
     source_ref: str | None = None
     why: str
@@ -531,15 +540,28 @@ class DeclarationQuestionRow(BaseModel):
     ``adk-samples#1745`` walk, so the list leads with them rather than with
     whatever sorts first alphabetically. Ordering is ranking only — it decides
     what to read first and can never change a verdict.
+
+    v0.38: a question is one blank a reviewer fills, so ``answer_path`` — the
+    manifest block that blank lives in — is its identity. Actions answered by
+    the same block are one question: a source of 117 actions with no authority
+    evidence owes one ``tool_sources[].authority`` block, and counting that as
+    117 questions describes one edit as a backlog (#410 increment 3).
     """
 
     model_config = ConfigDict(extra="forbid")
 
     subject: str
-    # Joins to ``EvidenceGap.subject_id``. ``subject`` is a display label and
-    # two catalog ids can render the same one, so anything matching a question
-    # to its gap row joins on this.
+    # Joins to ``EvidenceGap.subject_id`` *within one* ``subject_kind``.
+    # ``subject`` is a display label and two catalog ids can render the same
+    # one, so anything matching a question to its gap row joins on the id.
     subject_id: str | None = None
+    subject_kind: Literal["action", "tool_source"] = "action"
+    # The manifest block this question is answered in — an
+    # ``action_surface.actions`` row, or the ``tool_sources`` entry whose
+    # ``authority`` every action of that source inherits. Machine-readable
+    # route and question identity in one, derived once beside the evidence-gap
+    # row's own ``next_action.path`` so the two cannot name different blocks.
+    answer_path: str = ""
     dimension: str
 
 
@@ -551,12 +573,18 @@ class DeclarationQuestionCoverage(BaseModel):
     how many a reviewed declaration has answered, and how many remain.
 
     The denominator counts only what both halves can be measured on — the
-    ``effect`` and ``authority`` of one ``action_surface.actions`` row. An
-    action whose effect the scan established by itself was never asked about
-    and is not counted; an inventory or an ``agent_bindings`` declaration is a
-    human answer too but has no counterfactual to score against, so it is
-    excluded rather than guessed at. See
+    ``effect`` and ``authority`` a reviewed declaration answers. An action
+    whose effect the scan established by itself was never asked about and is
+    not counted; an inventory or an ``agent_bindings`` declaration is a human
+    answer too but has no counterfactual to score against, so it is excluded
+    rather than guessed at. See
     ``agents_shipgate.core.declaration_questions``.
+
+    v0.38: the unit is one blank a reviewer fills, so actions answered by the
+    same manifest block are one question. An authority every action of a source
+    shares is answered once in that source's ``tool_sources[].authority``
+    block; ``open_questions[].answer_path`` names the block, and
+    ``subject_kind`` says which id space ``subject_id`` is in.
 
     ``total == answered + open`` always. ``open_by_dimension`` sums to
     ``open``: a question belongs to exactly one dimension.
@@ -1146,7 +1174,14 @@ class ReadinessReport(BaseModel):
     # release gate remains ``release_decision.decision``, but a subject this
     # change newly excluded now reaches it as an evidence gap instead of
     # disappearing between stages (#403).
-    report_schema_version: str = "0.37"
+    # v0.36: acknowledged effect overrides, as reviewable rows.
+    # v0.37: the declaration questionnaire — pre-filled effect proposals, the
+    # readings behind them, and a progress counter.
+    # v0.38: per-source authority. A declaration question is identified by the
+    # manifest block that answers it (``answer_path``), so the actions one
+    # ``tool_sources[].authority`` block covers are one question and one
+    # evidence-gap row rather than N of each (#410 increment 3).
+    report_schema_version: str = "0.38"
     run_id: str
     request_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
     subject_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)

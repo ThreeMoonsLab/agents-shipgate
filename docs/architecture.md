@@ -3,7 +3,7 @@
 A single-page summary of the `agents-shipgate` codebase for new
 contributors and AI coding agents extending the project. Current as of
 2026-07-13; auto-checked against `agents-shipgate contract --json`:
-runtime contract `24`, report schema `v0.37`, packet schema `v0.14`.
+runtime contract `24`, report schema `v0.38`, packet schema `v0.15`.
 
 For the per-field stability contract, see
 [`../STABILITY.md`](../STABILITY.md). For the agent-facing field index,
@@ -521,7 +521,7 @@ containment); files larger than 10 MB rejected.
 
 `scan` emits a reviewer-shaped artifact alongside `report.{md,json,sarif}`
 whenever `output.packet.enabled` is true (default). The packet has its
-own JSON contract ([`packet-schema.v0.14.json`](packet-schema.v0.14.json))
+own JSON contract ([`packet-schema.v0.15.json`](packet-schema.v0.15.json))
 so the report schema stays minimal.
 
 The packet is derived from the in-memory scan (manifest, tools,
@@ -665,7 +665,7 @@ contract. Headlines:
 
 - **Manifest schema** stable across `0.x` (`version: "0.1"`).
 - **Report JSON shape** is additive across the `0.x` line. Current
-  `report_schema_version: "0.37"`; older schemas frozen as
+  `report_schema_version: "0.38"`; older schemas frozen as
   `docs/report-schema.v0.N.json`.
 - **Packet JSON shape** is additive across the `0.x` line. Current
   `packet_schema_version: "0.14"`; older schemas frozen.

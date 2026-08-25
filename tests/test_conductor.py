@@ -55,7 +55,7 @@ def test_conductor_static_mcp_call_and_human_checkpoint(tmp_path):
         ci_mode="advisory",
     )
 
-    assert report.report_schema_version == "0.37"
+    assert report.report_schema_version == "0.38"
     surface = report.frameworks["conductor"]
     assert surface["workflow_count"] == 1
     assert surface["mcp_call_task_count"] == 1

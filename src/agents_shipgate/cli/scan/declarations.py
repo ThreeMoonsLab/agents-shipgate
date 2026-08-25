@@ -70,6 +70,7 @@ from agents_shipgate.core.evidence_actions import (
 from agents_shipgate.schemas.bindings import AgentBindingNode
 from agents_shipgate.schemas.report import (
     DeclarationQuestionCoverage,
+    DeclarationQuestionRow,
     EvidenceGap,
     EvidenceReading,
     ReadinessReport,
@@ -101,13 +102,18 @@ _VOCABULARY_FIELD_BY_ACTION_KIND: dict[str, str] = {
 # framework blocks.
 _FIELD_HINTS: dict[str, str] = {
     "authority.auth_type": (
-        "how this action authenticates, in your own words "
+        "how the credential behind this authenticates, in your own words "
         "(api_key, oauth2, service_account, workload_identity, …). "
         "Required for every mode except `none`; delete this line for `none`."
     ),
     "authority.reason": (
         "why this authority is the right one. Required for `unscoped` and "
         "`ambient`; optional otherwise."
+    ),
+    "authority.scopes": (
+        "the exact permission strings this source's credential is granted, "
+        "one per line. Required and non-empty for `mode: scoped`; must be "
+        "empty (delete this block) for every other mode."
     ),
     "scopes": (
         "the exact permission strings this action is granted, one per line. "
@@ -206,19 +212,26 @@ def build_declaration_scaffold(
     ordering = _question_numbers(questions)
     for entry in sections:
         numbered_keys = sorted(
-            (number, key)
+            (numbered[0], numbered[1], key)
             for key in entry["question_keys"]
-            if (number := ordering.get(key)) is not None
+            if (numbered := ordering.get(key)) is not None
         )
-        entry["numbers"] = tuple(number for number, _ in numbered_keys)
+        entry["numbers"] = tuple(number for number, _, _ in numbered_keys)
         # In question order, not template order: the banner is read alongside
         # the numbers, so "Questions 2-3 · authority, effect" would name the
         # dimensions in the opposite order from the numbers beside them.
         # Deduplicated: a merged block can answer two questions of one
         # dimension, and "effect, effect" reads as a rendering fault.
         entry["dimensions"] = tuple(
-            dict.fromkeys(dimension for _, (_, dimension) in numbered_keys)
+            dict.fromkeys(dimension for _, _, (_, _, dimension) in numbered_keys)
         )
+        # The banner names the *question's* subject when the block answers
+        # questions about exactly one. A source-wide authority block is built
+        # from one of its source's actions, so labelling it with that action
+        # would name one of twelve and read as a per-action row.
+        subjects = {subject for _, subject, _ in numbered_keys}
+        if len(subjects) == 1:
+            entry["subject"] = subjects.pop()
     # Numbered blocks lead, in question order. A block nothing asked about —
     # a tool inventory, an ``agent_bindings`` root — is a declaration too, but
     # not a per-action question, so it keeps its emission order below them
@@ -238,15 +251,21 @@ def build_declaration_scaffold(
     # Blocks and comment-only entries interleaved by question number. Emitting
     # every block and *then* every unanswerable note printed a file numbered
     # 2, 3–4, 5–6, 1 — which is worse than not numbering it at all.
-    for numbers, entry, gap in sorted(
-        [(entry["numbers"], entry, None) for entry in numbered]
-        + [((number,), None, gap) for number, gap in unfillable],
+    for numbers, entry, subject, gap in sorted(
+        [(entry["numbers"], entry, "", None) for entry in numbered]
+        + [((number,), None, subject, gap) for number, subject, gap in unfillable],
         key=lambda item: item[0],
     ):
         if entry is not None:
             _emit_block(entry, agents=agents, total_open=total_open, out=lines)
         else:
-            _emit_unfillable(numbers[0], gap, total_open=total_open, out=lines)
+            _emit_unfillable(
+                numbers[0],
+                subject,
+                gap,
+                total_open=total_open,
+                out=lines,
+            )
     if unnumbered:
         if numbered or unfillable:
             lines.extend(
@@ -289,12 +308,12 @@ def _sections(gaps: Sequence[EvidenceGap]) -> list[dict[str, Any]]:
         )
         vocabulary = _vocabulary_for(action)
         dimension = DIMENSION_BY_GAP_KIND.get(str(gap.kind))
-        # The questions this block answers, as the same ``(subject_id,
-        # dimension)`` pair the decision engine numbers them by. Carried as a
-        # set rather than as a subject plus a dimension list, because merging
-        # two blocks can bring questions about two different subjects together
-        # and a single ``subject_id`` on the entry would silently drop one.
-        question_key = (gap.subject_id, dimension) if dimension else None
+        # The questions this block answers, keyed exactly as the decision
+        # engine numbers them. Carried as a set rather than as a subject plus a
+        # dimension list, because merging two blocks can bring questions about
+        # two different subjects together and a single subject on the entry
+        # would silently drop one.
+        question_key = _gap_question_key(gap, dimension) if dimension else None
         existing = by_target.get(target)
         if existing is None:
             entry: dict[str, Any] = {
@@ -337,24 +356,47 @@ def _absorb(
         entry["vocabulary"].setdefault(field, values)
 
 
+#: How a block or a gap row is matched to the question it answers.
+#:
+#: The id and its namespace, never the display label: two catalog tools can
+#: render one subject, and a ``tool_sources`` id lives in a different namespace
+#: from a tool id entirely.
+QuestionKey = tuple[str, str | None, str]
+
+
+def _question_key(row: DeclarationQuestionRow) -> QuestionKey:
+    return (row.subject_kind, row.subject_id, row.dimension)
+
+
+def _gap_question_key(gap: EvidenceGap, dimension: str) -> QuestionKey:
+    return (gap.subject_kind, gap.subject_id, dimension)
+
+
 def _question_numbers(
     questions: DeclarationQuestionCoverage | None,
-) -> dict[tuple[str | None, str], int]:
-    """``(subject_id, dimension) -> 1-based question number``, in answer order."""
+) -> dict[QuestionKey, tuple[int, str]]:
+    """``key -> (1-based question number, subject)``, in answer order.
+
+    The subject travels with the number because the banner is announcing a
+    *question*, and one question can be raised on many actions: a source-wide
+    authority question is asked once and answered once, so the block that
+    answers it has to say whose question it is rather than name whichever of
+    the source's actions happened to build the block.
+    """
 
     if questions is None:
         return {}
     return {
-        (row.subject_id, row.dimension): index
+        _question_key(row): (index, row.subject)
         for index, row in enumerate(questions.open_questions, start=1)
     }
 
 
 def _unfillable_questions(
     gaps: Sequence[EvidenceGap],
-    ordering: dict[tuple[str | None, str], int],
+    ordering: dict[QuestionKey, tuple[int, str]],
     claimed: set[int],
-) -> list[tuple[int, EvidenceGap]]:
+) -> list[tuple[int, str, EvidenceGap]]:
     """Open questions no block answers, with the gap that explains them.
 
     A conflict between two sources is a real open question — it is counted, and
@@ -364,18 +406,21 @@ def _unfillable_questions(
     own header about how many questions there are.
     """
 
-    entries: list[tuple[int, EvidenceGap]] = []
+    entries: list[tuple[int, str, EvidenceGap]] = []
     seen: set[int] = set()
     for gap in gaps:
         dimension = DIMENSION_BY_GAP_KIND.get(str(gap.kind))
         if dimension is None:
             continue
-        number = ordering.get((gap.subject_id, dimension))
-        if number is None or number in claimed or number in seen:
+        numbered = ordering.get(_gap_question_key(gap, dimension))
+        if numbered is None:
+            continue
+        number, subject = numbered
+        if number in claimed or number in seen:
             continue
         seen.add(number)
-        entries.append((number, gap))
-    return sorted(entries)
+        entries.append((number, subject, gap))
+    return sorted(entries, key=lambda entry: entry[0])
 
 
 def _header(questions: DeclarationQuestionCoverage | None) -> list[str]:
@@ -397,11 +442,14 @@ def _header(questions: DeclarationQuestionCoverage | None) -> list[str]:
         lines.append("#")
     lines.extend(
         [
-            "# Each block below is what one action still owes before this repository",
+            "# Each block below is one blank this repository still owes before it",
             f"# can reach a `passed` verdict. Replace every {REVIEW_REQUIRED_SENTINEL}",
             "# with a reviewed value, merge the block into shipgate.yaml at the path",
             "# named above it, then re-run verification. One block answers both of",
-            "# an action's questions where it has two — they are one manifest row.",
+            "# an action's questions where it has two — they are one manifest row —",
+            "# and a `tool_sources[].authority` block answers for every action that",
+            "# source contributes, since they run with one credential. An",
+            "# `action_surface.actions` row still overrides it for one action.",
             "#",
             "# Where a value is already filled in, the scan observed the evidence",
             "# printed above it and proposes the most conservative reading of that",
@@ -523,6 +571,7 @@ def _emit_block(
 
 def _emit_unfillable(
     number: int,
+    subject: str,
     gap: EvidenceGap,
     *,
     total_open: int,
@@ -537,7 +586,7 @@ def _emit_unfillable(
         + _question_banner(
             (number,),
             total_open,
-            gap.subject,
+            subject or gap.subject,
             (dimension,) if dimension else (),
         )
     )

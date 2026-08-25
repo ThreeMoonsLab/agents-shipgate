@@ -1,7 +1,13 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, model_validator
+from typing import Literal
 
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from agents_shipgate.schemas.manifest._authority import (
+    validate_authority_co_requirements,
+    validate_authority_scopes,
+)
 from agents_shipgate.schemas.manifest._common import STRICT_MODEL_CONFIG
 
 #: v0.20 (PR #111 review fix P1 #3): the curated set of built-in
@@ -33,6 +39,58 @@ BUILTIN_PER_SCAN_ONLY_TOOL_SOURCE_TYPES: frozenset[str] = frozenset(
 )
 
 
+#: The reviewed modes a source may declare. Identical to
+#: ``ActionAuthorityMode``: the same claim, made once for a whole source
+#: instead of once per action.
+SourceAuthorityMode = Literal["none", "scoped", "unscoped", "ambient"]
+
+
+class SourceAuthorityConfig(BaseModel):
+    """Reviewed authority for every action a tool source contributes (#410).
+
+    Authority is a fact about a *deployment*, not about a function: the six
+    Salesforce tools behind one OAuth client share one answer, and asking for
+    it once per tool asks the same infrastructure question six times. That is
+    not merely tedious — it is what breeds the copy-paste that breeds wrong
+    answers, and a wrong authority declaration is the one that makes an
+    unscoped production credential read as ``mode: none``.
+
+    Declared here, it applies to every action of the source. An
+    ``action_surface.actions[]`` row that declares its own ``authority``
+    overrides it for that action, and the resolver treats both spellings
+    identically: same conflict rule against the source's own published
+    evidence, same refusal to stand in for authority the source itself
+    publishes ambiguously.
+
+    ``scopes`` lives inside this block rather than beside it, because unlike an
+    action row there is no sibling permission list for a source to own.
+    """
+
+    model_config = STRICT_MODEL_CONFIG
+
+    mode: SourceAuthorityMode
+    auth_type: str | None = None
+    credential_mode: str | None = None
+    scopes: list[str] = Field(default_factory=list)
+    reason: str | None = None
+
+    @field_validator("scopes")
+    @classmethod
+    def validate_concrete_scopes(cls, scopes: list[str]) -> list[str]:
+        return validate_authority_scopes(scopes, label="tool_sources[].authority.scopes")
+
+    @model_validator(mode="after")
+    def validate_co_requirements(self) -> SourceAuthorityConfig:
+        validate_authority_co_requirements(
+            mode=self.mode,
+            auth_type=self.auth_type,
+            scopes=self.scopes,
+            reason=self.reason,
+            mode_label="tool_sources[].authority.mode",
+        )
+        return self
+
+
 class ToolSourceConfig(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
@@ -62,6 +120,10 @@ class ToolSourceConfig(BaseModel):
     trust: str | None = None
     mode: str | None = None
     optional: bool = False
+    # #410 increment 3. Additive: a source with no ``authority`` block behaves
+    # exactly as before, and every existing per-action declaration keeps
+    # working and keeps winning.
+    authority: SourceAuthorityConfig | None = None
 
     @model_validator(mode="after")
     def reject_per_scan_only_builtins(self) -> ToolSourceConfig:

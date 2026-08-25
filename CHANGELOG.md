@@ -2,6 +2,61 @@
 
 ## Unreleased
 
+- **Authority follows credentials, not functions: declare it once per source.**
+  Every action a tool source contributes normally runs with the same
+  credential, and asking for it once per action asks the same infrastructure
+  question N times. That is not merely tedious — it is what breeds the
+  copy-paste that breeds wrong answers, and a wrong authority declaration is
+  the one that makes an unscoped production credential read as `mode: none`.
+  Increment 3 of the evidence-first declaration RFC
+  ([#410](https://github.com/ThreeMoonsLab/agents-shipgate/issues/410)) moves
+  the claim to where the fact lives.
+
+  *A new `tool_sources[].authority` block.* `{mode, auth_type,
+  credential_mode, scopes, reason}`, with exactly the mode co-requirements an
+  action row already obeys — they are now one shared rule rather than two
+  copies, so a manifest one site rejects and the other accepts is not
+  reachable. The only difference is where `scopes` lives: an action row keeps
+  its permission list in the sibling `actions[].scopes` field so there is one
+  canonical list per action, and a source, having no such sibling, carries its
+  scopes inside the block. Declared scopes reach the typed action surface, so
+  the scope policies see the grant a reviewer just wrote down.
+
+  *Additive, and never a weaker statement.* An `action_surface.actions[]` row
+  that declares its own `authority` still wins for that action; a source with
+  no `authority` block resolves exactly as before. The resolver normalizes both
+  spellings into one record before it judges anything, so the source block is
+  held to the same rule as the action row: it may resolve missing metadata and
+  may broaden a scope set, but declaring `mode: none` across a source whose
+  actions publish an OAuth scope raises `conflicting_authority_evidence` on
+  each action that disagrees — naming the block to correct — and it still
+  cannot stand in for authority a source publishes *ambiguously*.
+
+  *One blank is one question.* The declaration questionnaire's unit was
+  `(action, dimension)`, which counted one edit as N things to do: a source of
+  117 actions with no authority evidence read as 117 questions. A question is
+  now identified by the manifest block that answers it, published as
+  `open_questions[].answer_path`, so those 117 are one question, one numbered
+  block in `suggested-declarations.yaml`, and one `evidence_gaps[]` row —
+  `subject_kind: tool_source`, subject `crm [tool_source]`, and a `why` that
+  says how many actions are waiting on it. Nothing above the published rows
+  changed: every action still carries the issue and still fails pass
+  eligibility for it. Conflicts stay per action, because each one asks a
+  reader of *that* action which of the two claims is wrong.
+
+  *Nothing is prescribed where nothing can be written.* The source route is
+  offered only for a `source_id` the manifest actually configures. A per-scan
+  adapter stamps a source id that `tool_sources` does not accept, and those
+  actions keep being asked on their own row rather than being sent to a
+  manifest key the schema rejects.
+
+  Report schema `0.37 → 0.38` adds `subject_kind` to `evidence_gaps[]` and
+  `subject_kind`/`answer_path` to `declaration_questions.open_questions[]`.
+  Packet `0.14 → 0.15` and verifier `0.11 → 0.12` follow because they embed the
+  same rows; the prior versions keep their published bytes and are read
+  forward, defaulting to the action-scoped reading, which is exactly what those
+  builds could produce.
+
 - **Ask only what the scanner cannot prove, and say how much is left.**
   Adoption stalls at a wall of blanks: the fourth `adk-samples#1745` walk faced
   `0/12` pass-eligible actions and a report that described the work as "24

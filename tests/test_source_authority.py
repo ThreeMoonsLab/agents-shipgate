@@ -1,0 +1,872 @@
+"""Per-source authority: one credential, one question (#410 increment 3).
+
+Authority is a fact about a *deployment*, not about a function. Six Salesforce
+tools behind one OAuth client have one answer, and asking for it once per tool
+asks the same infrastructure question six times — which is not merely tedious.
+It is what breeds the copy-paste that breeds wrong answers, and a wrong
+authority declaration is the one that makes an unscoped production credential
+read as ``mode: none``.
+
+Four properties this increment lives or dies on, each with a test that would
+fail if it were lost:
+
+1. **The two sites obey one rule.** A ``scoped`` grant without scopes is
+   unfillable wherever it is written, and a manifest that the action row
+   rejects and the source block accepts is a second implementation with a
+   safety gap in it.
+2. **A source-wide declaration is held to exactly the conflict rule a
+   per-action one is.** Otherwise the new spelling is a way to weaken published
+   evidence in bulk — the #409 fail-open, restored at a wider scope.
+3. **A question is one blank a reviewer fills.** That is the whole payoff: 117
+   actions with no authority evidence owe one block, and a counter that calls
+   that 117 questions describes one edit as a backlog.
+4. **Nothing is prescribed where nothing can be written.** An action from a
+   surface no ``tool_sources`` entry configures has no source block, and
+   publishing one would send a reviewer to a manifest key the schema rejects.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+import yaml
+from pydantic import ValidationError
+
+from agents_shipgate.ci.release_decision import REVIEW_REQUIRED_SENTINEL
+from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.cli.scan.declarations import scaffold_for_report
+from agents_shipgate.core.declaration_questions import (
+    ANSWERABLE_ISSUE_KINDS,
+    SOURCE_ANSWERABLE_AUTHORITY_KINDS,
+    declaration_answer_target,
+    declaration_questions,
+)
+from agents_shipgate.core.domain import (
+    DECLARED_SOURCE_AUTHORITY_SOURCE,
+    REVIEWED_DECLARATION_CLAIM_SOURCES,
+    Tool,
+)
+from agents_shipgate.core.evidence_actions import evidence_gap_headline
+from agents_shipgate.core.semantic_assessment import (
+    assess_tool_semantics,
+    attach_semantic_assessments,
+)
+from agents_shipgate.schemas.manifest import (
+    ActionDeclarationConfig,
+    SourceAuthorityConfig,
+    ToolSourceConfig,
+)
+from agents_shipgate.schemas.manifest._authority import AUTHORITY_MODE_VALUES
+from agents_shipgate.schemas.manifest.action_surface import ActionAuthorityMode
+from agents_shipgate.schemas.manifest.tool_sources import SourceAuthorityMode
+from agents_shipgate.schemas.report import EvidenceGap
+from agents_shipgate.schemas.semantic import AuthoritySemanticEvidence
+
+# --------------------------------------------------------------------------
+# helpers
+# --------------------------------------------------------------------------
+
+
+def _tool(name: str = "send_email", **updates: object) -> Tool:
+    values: dict[str, object] = {
+        "id": f"mcp:crm:{name}",
+        "name": name,
+        "source_type": "mcp",
+        "source_id": "crm",
+        "provider": "crm",
+        "source_pointer": "tools.json",
+        "extraction_confidence": "high",
+        "extraction": {"surface": "enumerated"},
+    }
+    values.update(updates)
+    return Tool.model_validate(values)
+
+
+def _source(**authority: object) -> ToolSourceConfig:
+    payload: dict[str, object] = {"id": "crm", "type": "mcp", "path": "tools.json"}
+    if authority:
+        payload["authority"] = authority
+    return ToolSourceConfig.model_validate(payload)
+
+
+def _authority_issues(assessment) -> set[str]:
+    return {issue.kind for issue in assessment.authority.issues}
+
+
+def _workspace(
+    tmp_path: Path,
+    *,
+    tools: list[dict],
+    source_authority: dict | None = None,
+    actions: list[dict] | None = None,
+) -> Path:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "tools.json").write_text(json.dumps({"tools": tools}), encoding="utf-8")
+    source: dict[str, object] = {"id": "crm", "type": "mcp", "path": "tools.json"}
+    if source_authority is not None:
+        source["authority"] = source_authority
+    manifest: dict[str, object] = {
+        "version": "0.1",
+        "project": {"name": "source-authority"},
+        "agent": {"name": "asst", "declared_purpose": ["exercise per-source authority"]},
+        "environment": {"target": "local"},
+        "tool_sources": [source],
+        "agent_bindings": {
+            "declarations": [
+                {
+                    "agent": "root",
+                    "complete": True,
+                    "tools": [{"tool": tool["name"], "source_id": "crm"} for tool in tools],
+                    "handoffs": [],
+                    "reason": "reviewed fixture binding",
+                }
+            ]
+        },
+    }
+    if actions:
+        manifest["action_surface"] = {"actions": actions}
+    config = tmp_path / "shipgate.yaml"
+    config.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+    return config
+
+
+def _scan(tmp_path: Path, config: Path):
+    report, _ = run_scan(
+        config_path=config,
+        output_dir=tmp_path / "out",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+    assert report.release_decision is not None
+    return report
+
+
+def _mcp_tool(name: str, description: str, **extra: object) -> dict:
+    return {
+        "name": name,
+        "description": description,
+        "inputSchema": {"type": "object", "properties": {}},
+        **extra,
+    }
+
+
+# --------------------------------------------------------------------------
+# 1. The two sites obey one rule
+# --------------------------------------------------------------------------
+
+#: ``(mode, auth_type, scopes, reason)`` and whether a reviewer may write it.
+#:
+#: Both the accepted and the rejected halves matter. A table of legal answers
+#: proves nothing about a validator that accepts everything.
+_AUTHORITY_CASES: list[tuple[str, str | None, list[str], str | None, bool]] = [
+    ("none", None, [], None, True),
+    ("none", "oauth2", [], None, False),
+    ("none", None, ["a"], None, False),
+    ("scoped", "oauth2", ["a"], None, True),
+    ("scoped", None, ["a"], None, False),
+    ("scoped", "oauth2", [], None, False),
+    ("unscoped", "oauth2", [], "shared admin token", True),
+    ("unscoped", "oauth2", [], None, False),
+    ("unscoped", "oauth2", ["a"], "shared admin token", False),
+    ("unscoped", None, [], "shared admin token", False),
+    ("ambient", None, [], "runs as the host process", True),
+    ("ambient", None, [], None, False),
+    ("ambient", None, ["a"], "runs as the host process", False),
+]
+
+
+@pytest.mark.parametrize(("mode", "auth_type", "scopes", "reason", "accepted"), _AUTHORITY_CASES)
+def test_both_authority_sites_accept_and_reject_the_same_declarations(
+    mode: str, auth_type: str | None, scopes: list[str], reason: str | None, accepted: bool
+) -> None:
+    """One rule, two spellings.
+
+    The co-requirements are about the claim, not about where it is written, so
+    a manifest one site rejects and the other accepts would be a safety gap
+    reachable by moving four lines up the file.
+    """
+
+    authority = {"mode": mode}
+    if auth_type is not None:
+        authority["auth_type"] = auth_type
+    if reason is not None:
+        authority["reason"] = reason
+
+    def _action() -> None:
+        ActionDeclarationConfig.model_validate(
+            {"tool": "send_email", "authority": authority, "scopes": list(scopes)}
+        )
+
+    def _source_block() -> None:
+        ToolSourceConfig.model_validate(
+            {
+                "id": "crm",
+                "type": "mcp",
+                "path": "tools.json",
+                "authority": {**authority, "scopes": list(scopes)},
+            }
+        )
+
+    for name, build in (("action row", _action), ("source block", _source_block)):
+        if accepted:
+            build()
+            continue
+        with pytest.raises(ValidationError, match=f"'{mode}' requires"):
+            build()
+            pytest.fail(f"{name} accepted {authority} with scopes={scopes}")
+
+
+def test_both_authority_sites_share_one_mode_vocabulary() -> None:
+    """A mode added to one spelling has to be added to all three."""
+
+    from typing import get_args
+
+    assert set(get_args(ActionAuthorityMode)) == set(AUTHORITY_MODE_VALUES)
+    assert set(get_args(SourceAuthorityMode)) == set(AUTHORITY_MODE_VALUES)
+
+
+def test_a_blank_scope_is_rejected_wherever_it_is_written() -> None:
+    """``scoped`` may not be satisfied by a list that grants nothing."""
+
+    for payload, model in (
+        ({"tool": "t", "scopes": ["  "]}, ActionDeclarationConfig),
+        ({"mode": "scoped", "auth_type": "oauth2", "scopes": ["  "]}, SourceAuthorityConfig),
+    ):
+        with pytest.raises(ValidationError, match="concrete, non-blank scope strings"):
+            model.model_validate(payload)
+
+
+# --------------------------------------------------------------------------
+# 2. A source-wide declaration is held to the per-action conflict rule
+# --------------------------------------------------------------------------
+
+
+def test_a_source_declaration_answers_every_action_of_its_source() -> None:
+    """The point of the feature, stated as a resolver property."""
+
+    source = _source(mode="scoped", auth_type="oauth2", scopes=["crm.read"])
+    for name in ("send_email", "list_contacts", "create_invoice"):
+        assessed = assess_tool_semantics(_tool(name), None, tool_source=source)
+        assert assessed.authority.status == "declared"
+        assert assessed.authority.mode == "scoped"
+        assert assessed.authority.scopes == ["crm.read"]
+        assert not assessed.authority.issues
+        assert {claim.source for claim in assessed.authority.claims} == {
+            DECLARED_SOURCE_AUTHORITY_SOURCE
+        }
+
+
+def test_an_action_declaration_overrides_the_source_it_belongs_to() -> None:
+    """The more specific statement wins, and the claim says which one it was."""
+
+    source = _source(mode="ambient", reason="inherited host credentials")
+    declaration = ActionDeclarationConfig.model_validate(
+        {
+            "tool": "send_email",
+            "scopes": ["crm.send"],
+            "authority": {"mode": "scoped", "auth_type": "oauth2"},
+        }
+    )
+    assessed = assess_tool_semantics(_tool(), declaration, tool_source=source)
+
+    assert assessed.authority.mode == "scoped"
+    assert assessed.authority.scopes == ["crm.send"]
+    assert {claim.source for claim in assessed.authority.claims} == {
+        "action_surface_declaration"
+    }
+    # The action row is now where this action's authority is answered, so the
+    # source block must not be advertised as its repair.
+    assert assessed.authority.answerable_source_id is None
+
+
+def test_a_source_declaration_cannot_weaken_what_an_action_publishes() -> None:
+    """The #409 rule, at source scope: bulk de-escalation is never quiet.
+
+    Declaring ``mode: none`` across a source whose actions publish an OAuth
+    scope is the convenient lie — it clears the authority dimension for every
+    one of them in four lines. It must raise, on each action that disagrees,
+    and the row must name the block that is wrong.
+    """
+
+    source = _source(mode="none")
+    published = _tool(auth={"type": "oauth2", "scopes": ["crm.write"], "mode": "scoped"})
+    assessed = assess_tool_semantics(published, None, tool_source=source)
+
+    assert "conflicting_authority_evidence" in _authority_issues(assessed)
+    assert assessed.authority.status == "conflicting"
+    assert assessed.authority.mode == "unknown"
+    conflict = next(
+        issue
+        for issue in assessed.authority.issues
+        if issue.kind == "conflicting_authority_evidence"
+    )
+    assert conflict.source == DECLARED_SOURCE_AUTHORITY_SOURCE
+    assert "tool_sources[id='crm']" in (conflict.source_pointer or "")
+
+
+def test_a_source_declaration_may_broaden_what_an_action_publishes() -> None:
+    """A superset is an explicit broadening, and stays visible as scopes."""
+
+    source = _source(mode="scoped", auth_type="oauth2", scopes=["crm.read", "crm.write"])
+    published = _tool(auth={"type": "oauth2", "scopes": ["crm.read"], "mode": "scoped"})
+    assessed = assess_tool_semantics(published, None, tool_source=source)
+
+    assert not assessed.authority.issues
+    assert assessed.authority.scopes == ["crm.read", "crm.write"]
+
+
+def test_a_source_declaration_cannot_replace_ambiguous_source_evidence() -> None:
+    """The deliberate safety property, unchanged at the new site.
+
+    "Reviewed authority cannot replace ambiguous or incomplete source authority
+    alternatives" is why ``partial_authority_evidence`` is not a question. A
+    source block must not become the way around it.
+    """
+
+    # An OpenAPI security requirement naming a scheme with no declared type:
+    # the source says a credential is needed and does not say what kind.
+    ambiguous = _tool(
+        source_type="openapi",
+        auth={"alternatives": [{"schemes": [{"name": "oauth", "type": None, "scopes": ["crm.read"]}]}]},
+    )
+    undeclared = assess_tool_semantics(ambiguous, None)
+    assert "partial_authority_evidence" in _authority_issues(undeclared), (
+        "the fixture no longer produces partial source authority evidence"
+    )
+
+    declared = assess_tool_semantics(
+        ambiguous,
+        None,
+        tool_source=_source(mode="scoped", auth_type="oauth2", scopes=["crm.read"]),
+    )
+    assert "partial_authority_evidence" in _authority_issues(declared)
+    assert declared.authority.status == "partial"
+    # And it is not counted as a question either, at either site — a finish
+    # line no answer reaches is worse than no finish line.
+    ambiguous.semantic_assessment = declared
+    assert not [
+        question
+        for question in declaration_questions([ambiguous])
+        if question.dimension == "authority"
+    ]
+
+
+# --------------------------------------------------------------------------
+# 3. A question is one blank a reviewer fills
+# --------------------------------------------------------------------------
+
+
+def test_actions_that_share_one_authority_block_are_one_question() -> None:
+    """Twelve actions, one credential, one question."""
+
+    tools = attach_semantic_assessments(
+        [_tool(name) for name in ("a", "b", "c", "d")],
+        {},
+        tool_sources={"crm": _source()},
+    )
+    authority = [q for q in declaration_questions(tools) if q.dimension == "authority"]
+
+    assert len(authority) == 1
+    assert authority[0].subject_kind == "tool_source"
+    assert authority[0].subject_id == "crm"
+    assert authority[0].answer_path == "shipgate.yaml#tool_sources[id='crm'].authority"
+    assert authority[0].answered is False
+
+
+def test_answering_the_source_block_answers_the_question() -> None:
+    """The counterfactual has to see a source-wide answer as an answer.
+
+    ``answered`` is measured by re-resolving with no reviewed declaration at
+    all. If the counterfactual kept the source block, every action would
+    resolve clean without it and the question would read as never asked.
+    """
+
+    tools = attach_semantic_assessments(
+        [_tool(name) for name in ("a", "b", "c")],
+        {},
+        tool_sources={"crm": _source(mode="scoped", auth_type="oauth2", scopes=["crm.read"])},
+    )
+    authority = [q for q in declaration_questions(tools) if q.dimension == "authority"]
+
+    assert len(authority) == 1
+    assert authority[0].answered is True
+
+
+def test_an_action_answering_for_itself_is_a_separate_question() -> None:
+    """Two blanks are two questions, and one of them can be finished first."""
+
+    declaration = ActionDeclarationConfig.model_validate(
+        {"tool": "a", "scopes": ["crm.read"], "authority": {"mode": "scoped", "auth_type": "oauth2"}}
+    )
+    tools = attach_semantic_assessments(
+        [_tool(name) for name in ("a", "b", "c")],
+        {"mcp:crm:a": declaration},
+        tool_sources={"crm": _source()},
+    )
+    authority = sorted(
+        (q for q in declaration_questions(tools) if q.dimension == "authority"),
+        key=lambda q: q.subject_kind,
+    )
+
+    assert [(q.subject_kind, q.answered) for q in authority] == [
+        ("action", True),
+        ("tool_source", False),
+    ]
+
+
+def test_a_block_that_conflicts_with_one_action_leaves_that_action_asking() -> None:
+    """Answering three of four actions does not finish the work, and says so.
+
+    ``mode: none`` closes the authority dimension for the three actions that
+    publish no credential — that answer really was given, and counting it as
+    unanswered would be its own kind of lie. The fourth publishes an OAuth
+    scope, disagrees, and keeps asking **on its own row**, because the
+    judgement it needs is about that action: correct the block, or declare the
+    exception here. So the counter reports two questions, one of them open, and
+    nothing reads as finished.
+    """
+
+    tools = attach_semantic_assessments(
+        [
+            _tool("a"),
+            _tool("b"),
+            _tool("c"),
+            _tool("d", auth={"type": "oauth2", "scopes": ["crm.write"], "mode": "scoped"}),
+        ],
+        {},
+        tool_sources={"crm": _source(mode="none")},
+    )
+    questions = sorted(
+        (q for q in declaration_questions(tools) if q.dimension == "authority"),
+        key=lambda q: q.subject_kind,
+    )
+
+    assert [(q.subject_kind, q.subject_id, q.answered) for q in questions] == [
+        ("action", "mcp:crm:d", False),
+        ("tool_source", "crm", True),
+    ]
+
+
+def test_an_action_from_an_unconfigured_source_is_still_asked_on_its_own_row() -> None:
+    """Never prescribe a block the manifest schema will not accept.
+
+    A per-scan adapter stamps a ``source_id`` that ``tool_sources`` does not
+    configure. Guessing a source block from it would publish a repair that
+    cannot be written.
+    """
+
+    tools = attach_semantic_assessments([_tool("a", source_id="n8n_workflow")], {}, tool_sources={})
+    authority = [q for q in declaration_questions(tools) if q.dimension == "authority"]
+
+    assert [q.subject_kind for q in authority] == ["action"]
+    assert authority[0].answer_path == "shipgate.yaml#action_surface.actions[tool='a']"
+
+
+def test_only_the_kinds_a_source_block_can_close_route_to_one() -> None:
+    """The routing table and the resolver must agree about what a block answers."""
+
+    assert SOURCE_ANSWERABLE_AUTHORITY_KINDS == frozenset({"missing_authority_evidence"})
+    # Routing a kind to a block that cannot close it is the defect the
+    # questionnaire already fixed once, one level up: every kind the source
+    # route claims has to be answerable by a reviewed declaration at all.
+    assert SOURCE_ANSWERABLE_AUTHORITY_KINDS <= ANSWERABLE_ISSUE_KINDS["authority"]
+    tool = _tool()
+    tool.semantic_assessment = assess_tool_semantics(tool, None, tool_source=_source())
+    assert declaration_answer_target(tool, "missing_authority_evidence").kind == "tool_source"
+    for kind in ("conflicting_authority_evidence", "missing_effect_evidence"):
+        assert declaration_answer_target(tool, kind).kind == "action"
+
+
+# --------------------------------------------------------------------------
+# 4. What the reader is handed
+# --------------------------------------------------------------------------
+
+
+def _authority_gaps(report) -> list[EvidenceGap]:
+    return [
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "missing_authority_evidence"
+    ]
+
+
+def test_one_row_names_the_source_and_says_how_many_actions_wait_on_it(tmp_path: Path) -> None:
+    """One blank is one instruction — with the scale it is holding up attached."""
+
+    config = _workspace(
+        tmp_path,
+        tools=[
+            _mcp_tool("send_email", "Send an email to a customer."),
+            _mcp_tool("list_contacts", "List the contacts in the CRM."),
+            _mcp_tool("create_invoice", "Create an invoice and charge a customer."),
+        ],
+    )
+    report = _scan(tmp_path, config)
+    gaps = _authority_gaps(report)
+
+    assert len(gaps) == 1
+    row = gaps[0]
+    assert row.subject == "crm [tool_source]"
+    assert row.subject_kind == "tool_source"
+    assert row.subject_id == "crm"
+    assert "3 actions from tool source 'crm'" in row.why
+    assert row.next_action.path == "shipgate.yaml#tool_sources[id='crm'].authority"
+    assert evidence_gap_headline(row).startswith("a tool source has no declared authority")
+    # The template is a ``tool_sources`` entry, and its scopes live inside the
+    # authority block because a source has no sibling permission list.
+    template = row.next_action.declaration_template
+    assert template is not None
+    assert template["id"] == "crm"
+    assert set(template["authority"]) == {"mode", "auth_type", "scopes", "reason"}
+
+
+def test_the_row_and_the_question_name_the_same_block(tmp_path: Path) -> None:
+    """Two surfaces publish a route to one blank; they may not disagree.
+
+    The evidence-gap row's ``next_action.path`` is what a coding agent and the
+    short-form ``Fix at …`` line consume; the question's ``answer_path`` is
+    what the questionnaire numbers a block by. A row that says one block while
+    the counter numbers another is the defect this derivation exists to make
+    impossible, so it is asserted rather than assumed.
+    """
+
+    config = _workspace(
+        tmp_path,
+        tools=[
+            _mcp_tool("send_email", "Send an email to a customer."),
+            _mcp_tool("list_contacts", "List the contacts in the CRM."),
+        ],
+    )
+    report = _scan(tmp_path, config)
+    coverage = (
+        report.release_decision.evidence_coverage.semantic_coverage.declaration_questions
+    )
+    question = next(row for row in coverage.open_questions if row.dimension == "authority")
+    row = _authority_gaps(report)[0]
+
+    assert question.answer_path == row.next_action.path
+    assert (question.subject_kind, question.subject_id) == (row.subject_kind, row.subject_id)
+    assert question.subject == row.subject
+
+
+def test_the_questionnaire_asks_the_source_once(tmp_path: Path) -> None:
+    """Rendered, not merely counted — a numbering defect is only visible here."""
+
+    config = _workspace(
+        tmp_path,
+        tools=[
+            _mcp_tool("send_email", "Send an email to a customer."),
+            _mcp_tool("list_contacts", "List the contacts in the CRM."),
+            _mcp_tool("create_invoice", "Create an invoice and charge a customer."),
+        ],
+    )
+    report = _scan(tmp_path, config)
+    scaffold = scaffold_for_report(report)
+    assert scaffold is not None
+
+    assert scaffold.count("merge into: shipgate.yaml#tool_sources[id='crm'].authority") == 1
+    assert "· authority · crm [tool_source]" in scaffold
+    coverage = (
+        report.release_decision.evidence_coverage.semantic_coverage.declaration_questions
+    )
+    assert coverage.open_by_dimension.get("authority") == 1
+    # Every numbered block the counter promises is present exactly once.
+    for number in range(1, coverage.open + 1):
+        assert scaffold.count(f"Question {number} of {coverage.open} ") <= 1
+
+
+def test_the_published_block_closes_the_question_it_is_printed_on(tmp_path: Path) -> None:
+    """A published repair is verified by applying it, not by reading it."""
+
+    tools = [
+        _mcp_tool("send_email", "Send an email to a customer."),
+        _mcp_tool("list_contacts", "List the contacts in the CRM."),
+    ]
+    report = _scan(tmp_path, _workspace(tmp_path, tools=tools))
+    template = _authority_gaps(report)[0].next_action.declaration_template
+    assert template is not None
+
+    # What a reviewer does with the block: replace the blanks, delete the
+    # optional line their mode does not need.
+    answered = dict(template["authority"])
+    answered["mode"] = "scoped"
+    answered["auth_type"] = "oauth2"
+    answered["scopes"] = ["crm.read"]
+    del answered["reason"]
+    assert REVIEW_REQUIRED_SENTINEL not in json.dumps(answered)
+
+    reapplied = _scan(
+        tmp_path / "second",
+        _workspace(tmp_path / "second", tools=tools, source_authority=answered),
+    )
+    coverage = (
+        reapplied.release_decision.evidence_coverage.semantic_coverage.declaration_questions
+    )
+    assert not _authority_gaps(reapplied)
+    assert coverage.open_by_dimension.get("authority") is None
+    assert coverage.answered >= 1
+
+
+def test_scopes_declared_once_reach_every_action_of_the_source(tmp_path: Path) -> None:
+    """A grant a reviewer wrote down has to be visible to the scope policies."""
+
+    config = _workspace(
+        tmp_path,
+        tools=[
+            _mcp_tool("send_email", "Send an email to a customer."),
+            _mcp_tool("list_contacts", "List the contacts in the CRM."),
+        ],
+        source_authority={
+            "mode": "scoped",
+            "auth_type": "oauth2",
+            "credential_mode": "service_account",
+            "scopes": ["crm.read", "crm.send"],
+        },
+    )
+    report = _scan(tmp_path, config)
+
+    for action in report.action_surface_facts.actions:
+        assert action.required_scopes == ["crm.read", "crm.send"]
+        assert action.semantic_assessment is not None
+        assert action.semantic_assessment.authority.credential_mode == "service_account"
+
+
+def test_declaring_none_across_a_published_credential_is_never_quiet(tmp_path: Path) -> None:
+    """The adversarial declaration, at source scope (the #409 method).
+
+    Four lines that would make every action of a source read as credential-free
+    must not reach a clean authority dimension for the actions that publish one.
+    """
+
+    config = _workspace(
+        tmp_path,
+        tools=[
+            _mcp_tool(
+                "send_email",
+                "Send an email to a customer.",
+                auth={"type": "oauth2", "scopes": ["crm.send"]},
+            ),
+            _mcp_tool(
+                "list_contacts",
+                "List the contacts in the CRM.",
+                auth={"type": "oauth2", "scopes": ["crm.read"]},
+            ),
+        ],
+        source_authority={"mode": "none"},
+    )
+    report = _scan(tmp_path, config)
+    coverage = report.release_decision.evidence_coverage.semantic_coverage
+
+    assert coverage.pass_eligible_actions == 0
+    assert coverage.reason_counts.get("conflicting_authority_evidence") == 2
+    assert report.release_decision.decision != "passed"
+    conflicts = [
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "conflicting_authority_evidence"
+    ]
+    assert {gap.subject_kind for gap in conflicts} == {"action"}
+    for gap in conflicts:
+        assert "tool_sources[id='crm']" in gap.next_action.expects
+
+
+def test_the_answer_routing_hint_never_reaches_the_published_evidence() -> None:
+    """``answerable_source_id`` says where a blank is filled, not what is true.
+
+    ``AuthoritySemanticEvidence`` forbids extras, so a routing hint leaking
+    into the domain dump would both break the projection and invite a consumer
+    to read it as a claim about the action.
+    """
+
+    assessed = assess_tool_semantics(_tool(), None, tool_source=_source())
+    assert assessed.authority.answerable_source_id == "crm"
+    assert "answerable_source_id" not in assessed.authority.model_dump(mode="json")
+    AuthoritySemanticEvidence.model_validate(assessed.authority.model_dump(mode="python"))
+
+
+def test_a_source_authority_claim_counts_as_a_reviewed_declaration() -> None:
+    """The counterfactual is gated on this set; a miss makes it never run."""
+
+    assert DECLARED_SOURCE_AUTHORITY_SOURCE in REVIEWED_DECLARATION_CLAIM_SOURCES
+
+
+# --------------------------------------------------------------------------
+# 5. It is still a declaration only a human may make
+# --------------------------------------------------------------------------
+
+
+def test_an_agent_may_not_author_a_source_authority_block(tmp_path: Path) -> None:
+    """Appending a source is proposal-safe; declaring its authority is not.
+
+    Preflight lets a coding agent author the one coverage-increasing manifest
+    edit — a new ``tool_sources`` row pointing at an artifact that exists —
+    precisely because such a row asserts nothing about what the agent may do.
+    A row carrying ``authority`` asserts exactly that, so the new field must
+    fall outside the allowlist rather than ride in on the surface that carries
+    it. The allowlist is what makes this hold; the test is what keeps it true.
+    """
+
+    from agents_shipgate.core.boundary_diff import DiffFile, ResolvedFileText
+    from agents_shipgate.core.manifest_proposals import (
+        assess_coverage_increasing_tool_source_proposal,
+    )
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "tools.json").write_text('{"tools": []}\n', encoding="utf-8")
+    (root / "more.json").write_text('{"tools": []}\n', encoding="utf-8")
+    old = (
+        'version: "0.1"\n'
+        "project:\n  name: authorship\n"
+        "agent:\n  name: asst\n  declared_purpose:\n    - test authorship\n"
+        "environment:\n  target: local\n"
+        "tool_sources:\n  - id: tools\n    type: mcp\n    path: tools.json\n"
+    )
+    (root / "shipgate.yaml").write_text(old, encoding="utf-8")
+
+    plain_rows = ["  - id: more", "    type: mcp", "    path: more.json"]
+    authority_rows = [*plain_rows, "    authority:", "      mode: none"]
+
+    def _assess(rows: list[str]):
+        new_text = old + "".join(f"{line}\n" for line in rows)
+        return assess_coverage_increasing_tool_source_proposal(
+            workspace=root,
+            diff_file=DiffFile(
+                old_path="shipgate.yaml",
+                new_path="shipgate.yaml",
+                added_lines=list(rows),
+            ),
+            resolved=ResolvedFileText(
+                old_text=old,
+                new_text=new_text,
+                source="test",
+                old_sha256=None,
+                new_sha256=None,
+            ),
+            manifest_dir=root,
+        )
+
+    safe = _assess(plain_rows)
+    assert safe.proposal_safe is True, safe.reason
+    assert safe.added_source_ids == ("more",)
+
+    refused = _assess(authority_rows)
+    assert refused.proposal_safe is False
+    assert "authority-bearing" in refused.reason
+
+
+def test_a_source_authority_placeholder_is_human_owned() -> None:
+    """``doctor`` must not publish an executable edit for this block.
+
+    Placeholder ownership is matched against every segment of the reported
+    path, and ``authority`` is already a human-owned leaf name — which is what
+    makes the new block human-owned without a second rule. Pinned because the
+    consequence of losing it is an agent-executable edit for a declaration only
+    a person may make.
+    """
+
+    from agents_shipgate.cli.discovery.placeholders import placeholder_owner
+
+    for path in (
+        "tool_sources[0].authority.mode",
+        "tool_sources[0].authority.auth_type",
+        "tool_sources[0].authority.scopes[0]",
+    ):
+        assert placeholder_owner(path) == "human", path
+    # The row itself stays agent-owned: a missing source path is ordinary
+    # repository reading, and routing it to a human stops a turn for nothing.
+    assert placeholder_owner("tool_sources[0].path") == "coding_agent"
+
+
+def test_every_gap_kind_a_source_can_own_has_its_own_phrase() -> None:
+    """A row about a source must not be described in the voice of an action.
+
+    ``_GAP_PHRASE`` is keyed by kind alone, so a source-scoped row inherited
+    "an action has no declared authority (crm [tool_source])" — a sentence
+    describing neither the subject nor the edit. The override table has to
+    cover every kind that can carry ``subject_kind: tool_source``, which is
+    exactly the set the questionnaire routes to a source block.
+    """
+
+    from agents_shipgate.core.evidence_actions import (
+        _GAP_PHRASE,
+        _SOURCE_SCOPED_GAP_PHRASE,
+    )
+
+    assert set(_SOURCE_SCOPED_GAP_PHRASE) == set(SOURCE_ANSWERABLE_AUTHORITY_KINDS)
+    for kind, phrase in _SOURCE_SCOPED_GAP_PHRASE.items():
+        assert phrase != _GAP_PHRASE[kind]
+        assert "action" not in phrase.split(" ")[1]
+
+
+# --------------------------------------------------------------------------
+# 6. One answer about what an action is granted
+# --------------------------------------------------------------------------
+
+
+def _granted(tmp_path: Path, *, source_authority: dict | None, action: dict | None):
+    """``(required_scopes, resolved authority scopes)`` for one action."""
+
+    config = _workspace(
+        tmp_path,
+        tools=[_mcp_tool("send_email", "Send an email to a customer.")],
+        source_authority=source_authority,
+        actions=[{"tool": "send_email", "source_id": "crm", **action}] if action else None,
+    )
+    report = _scan(tmp_path, config)
+    fact = report.action_surface_facts.actions[0]
+    assert fact.semantic_assessment is not None
+    return fact.required_scopes, list(fact.semantic_assessment.authority.scopes)
+
+
+def test_the_operative_block_supplies_the_whole_permission_list(tmp_path: Path) -> None:
+    """The action fact and the assessment may not answer this two ways.
+
+    Two derivations of "which site is operative" gave two answers. An action
+    declaring ``mode: none`` under a scoped source published the *source's*
+    scopes as its `required_scopes` while its assessment reported none — a
+    reviewer reading the action surface would see a grant the reviewed
+    authority for that action says does not exist.
+    """
+
+    granted, resolved = _granted(
+        tmp_path,
+        source_authority={"mode": "scoped", "auth_type": "oauth2", "scopes": ["crm.read", "crm.send"]},
+        action={"authority": {"mode": "none"}},
+    )
+    assert granted == resolved == []
+
+
+def test_a_source_block_supplies_its_scopes_to_an_action_that_declares_none(
+    tmp_path: Path,
+) -> None:
+    """A bare ``scopes`` list does not make an action row the operative authority.
+
+    The two sites are alternatives, not a mixture: an action that needs a
+    different permission list declares its own ``authority`` block beside its
+    ``scopes``. Resolving to the source's list is also the conservative
+    direction — it can only widen what the scope policies see, never narrow it.
+    """
+
+    granted, resolved = _granted(
+        tmp_path,
+        source_authority={"mode": "scoped", "auth_type": "oauth2", "scopes": ["crm.read", "crm.send"]},
+        action={"scopes": ["crm.read"]},
+    )
+    assert granted == resolved == ["crm.read", "crm.send"]
+
+
+def test_with_no_reviewed_authority_a_declared_scope_list_still_stands(
+    tmp_path: Path,
+) -> None:
+    """Unchanged where neither site declares authority — the pre-existing path."""
+
+    granted, _resolved = _granted(
+        tmp_path,
+        source_authority=None,
+        action={"scopes": ["crm.read"]},
+    )
+    assert granted == ["crm.read"]

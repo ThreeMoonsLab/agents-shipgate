@@ -14,6 +14,8 @@ from agents_shipgate.core.declaration_questions import (
     ANSWERABLE_ISSUE_KINDS,
     DIMENSION_BY_GAP_KIND,
     DeclarationQuestion,
+    action_declaration_target,
+    declaration_answer_target,
     declaration_questions,
     is_declaration_answerable,
     open_counts_by_dimension,
@@ -21,6 +23,7 @@ from agents_shipgate.core.declaration_questions import (
 )
 from agents_shipgate.core.domain import (
     DECLARATION_OVERRIDE_SOURCE,
+    DECLARED_SOURCE_AUTHORITY_SOURCE,
     SemanticIssueKind,
     Tool,
     ToolSemanticAssessment,
@@ -1028,16 +1031,16 @@ def _semantic_coverage(
     for tool in sorted(tools, key=lambda item: (item.name, item.source_type, item.id)):
         assessment = tool.semantic_assessment
         if assessment is None:
-            gap = _semantic_gap(
-                tool,
-                kind="incomplete_surface",
-                why=(
-                    "No normalized semantic assessment was produced for this "
-                    "tool; effect and authority evidence were not evaluated."
-                ),
+            gaps.append(
+                _semantic_gap(
+                    tool,
+                    kind="incomplete_surface",
+                    why=(
+                        "No normalized semantic assessment was produced for this "
+                        "tool; effect and authority evidence were not evaluated."
+                    ),
+                )
             )
-            gaps.append(gap)
-            _increment(reason_counts, gap.kind)
             continue
 
         issues = sorted(
@@ -1067,15 +1070,15 @@ def _semantic_coverage(
             if key in seen_issues:
                 continue
             seen_issues.add(key)
-            gap = _semantic_gap(
-                tool,
-                kind=issue.kind,
-                why=issue.message,
-                source_ref=issue.source_pointer or issue.source,
-                issue_source=issue.source,
+            gaps.append(
+                _semantic_gap(
+                    tool,
+                    kind=issue.kind,
+                    why=issue.message,
+                    source_ref=issue.source_pointer or issue.source,
+                    issue_source=issue.source,
+                )
             )
-            gaps.append(gap)
-            _increment(reason_counts, gap.kind)
 
         mode = assessment.authority.mode
         if mode in {"unscoped", "ambient"}:
@@ -1105,16 +1108,27 @@ def _semantic_coverage(
         elif not seen_issues and mode not in {"unscoped", "ambient"}:
             # Defensive invariant: a non-pass-eligible assessment must explain
             # itself. If a future resolver violates that contract, fail closed.
-            gap = _semantic_gap(
-                tool,
-                kind="invalid_semantic_annotation",
-                why=(
-                    "The semantic resolver marked this tool non-pass-eligible "
-                    "without an actionable issue."
-                ),
+            gaps.append(
+                _semantic_gap(
+                    tool,
+                    kind="invalid_semantic_annotation",
+                    why=(
+                        "The semantic resolver marked this tool non-pass-eligible "
+                        "without an actionable issue."
+                    ),
+                )
             )
-            gaps.append(gap)
-            _increment(reason_counts, gap.kind)
+
+    # Rows a single edit closes are one row. A source-wide authority question
+    # is raised on every action of the source — that is the truth of the
+    # assessment, and ``pass_eligible_actions`` above counts it that way — but
+    # publishing it N times would describe one blank as N things to do, which
+    # is the shape ``insufficient_evidence`` already fails at (#410).
+    gaps = _merge_source_scoped_gaps(gaps)
+    # Counted off the published rows, after the merge, so ``gap_count`` and
+    # ``reason_counts`` cannot describe the same list two ways.
+    for gap in gaps:
+        _increment(reason_counts, gap.kind)
 
     # The same action surface, counted as a questionnaire. A projection of the
     # assessments above and nothing else: it names no gap the rows do not
@@ -1138,7 +1152,9 @@ def _semantic_coverage(
                 open_questions=[
                     DeclarationQuestionRow(
                         subject=question.subject,
-                        subject_id=question.tool_id or None,
+                        subject_id=question.subject_id or None,
+                        subject_kind=question.subject_kind,
+                        answer_path=question.answer_path,
                         dimension=question.dimension,
                     )
                     for question in still_open
@@ -1146,6 +1162,60 @@ def _semantic_coverage(
             ),
         ),
         gaps,
+    )
+
+
+def _merge_source_scoped_gaps(gaps: list[EvidenceGap]) -> list[EvidenceGap]:
+    """Collapse rows a single source-block edit closes into one row.
+
+    ``missing_authority_evidence`` is raised on every action of a source whose
+    authority nothing declares, and every one of those rows carries the same
+    subject, the same repair, and the same block to paste (#410 increment 3).
+    Published as-is they read as N separate things to do; merged, the row says
+    what it is — one blank, and how much of the surface is waiting on it.
+
+    The merge is on the *published* rows only. Nothing above it changes: every
+    action still carries the issue, still fails pass eligibility for it, and
+    the questionnaire still counts one question because one edit answers it.
+
+    Order is preserved: the merged row keeps the position of the first row it
+    absorbed, so no ordering decision made elsewhere is disturbed.
+    """
+
+    merged: list[EvidenceGap] = []
+    first_by_key: dict[tuple[str, str | None, str], int] = {}
+    covered: dict[tuple[str, str | None, str], int] = {}
+    for gap in gaps:
+        if gap.subject_kind != "tool_source":
+            merged.append(gap)
+            continue
+        key = (gap.subject_kind, gap.subject_id, str(gap.kind))
+        covered[key] = covered.get(key, 0) + 1
+        if key not in first_by_key:
+            first_by_key[key] = len(merged)
+            merged.append(gap)
+    for key, index in first_by_key.items():
+        merged[index] = merged[index].model_copy(
+            update={"why": _source_scoped_why(merged[index], covered[key])}
+        )
+    return merged
+
+
+def _source_scoped_why(gap: EvidenceGap, action_count: int) -> str:
+    """Restate a per-action message as the source-wide fact it now reports.
+
+    The count is the point. "No authority evidence" says nothing about scale;
+    "117 actions from this tool source have no authority evidence" is the
+    same fact with the reason to answer it attached, and it is what keeps the
+    merge from hiding how much of the surface one blank is holding up.
+    """
+
+    noun = "action" if action_count == 1 else "actions"
+    return (
+        f"{action_count} {noun} from tool source {gap.subject_id!r} have no "
+        "explicit or structural authority evidence."
+        if gap.kind == "missing_authority_evidence"
+        else gap.why
     )
 
 
@@ -1174,26 +1244,24 @@ def _in_question_order(
     """
 
     rank = {
-        (question.tool_id or None, question.dimension): index
+        (question.subject_kind, question.subject_id or None, question.dimension): index
         for index, question in enumerate(still_open)
     }
-    positions = [
-        index
-        for index, gap in enumerate(gaps)
-        if (gap.subject_id, DIMENSION_BY_GAP_KIND.get(str(gap.kind))) in rank
-    ]
+
+    def key(gap: EvidenceGap) -> tuple[str, str | None, str | None]:
+        return (
+            gap.subject_kind,
+            gap.subject_id,
+            DIMENSION_BY_GAP_KIND.get(str(gap.kind)),
+        )
+
+    positions = [index for index, gap in enumerate(gaps) if key(gap) in rank]
     if len(positions) < 2:
         return gaps
     # Sorted by (question, original position) rather than by the row itself:
     # ``EvidenceGap`` compares by value, so two rows that render identically
     # would both resolve to one index and the permutation would drop one.
-    reordered = sorted(
-        (
-            rank[(gaps[index].subject_id, DIMENSION_BY_GAP_KIND[str(gaps[index].kind)])],
-            index,
-        )
-        for index in positions
-    )
+    reordered = sorted((rank[key(gaps[index])], index) for index in positions)
     ordered = list(gaps)
     for slot, (_, source) in zip(positions, reordered, strict=True):
         ordered[slot] = gaps[source]
@@ -1333,6 +1401,10 @@ def _semantic_gap(
     action_kind: str
     accepted_values: list[str]
     declaration_template: dict[str, object] | None = None
+    # Where the answer to this row is written. One derivation, shared with the
+    # questionnaire, so the block a reviewer is sent to and the question the
+    # counter numbers are the same thing (#410 increment 3).
+    target = declaration_answer_target(tool, kind)
     # Every effect-dimension gap publishes the readings behind it, so the row
     # can be answered without opening ``action_surface_facts`` to find out what
     # the scan saw. Read off the one table that says which kinds those are — a
@@ -1564,32 +1636,58 @@ def _semantic_gap(
         )
         # Deliberately no template: see ``action_why``.
     elif kind == "missing_authority_evidence":
+        # The kind stays ``declare_action_authority`` at both targets. It names
+        # the *claim* being asked for — a reviewed authority for these actions,
+        # the one an agent may never assert on a human's behalf — and the
+        # contract's ``do_not_auto_assert`` list is keyed on exactly that. The
+        # ``path`` and the template say which block holds it.
         action_kind = "declare_action_authority"
         accepted_values = list(_AUTHORITY_MODE_VALUES)
-        action_why = "A complete authority mode and grant are required."
-        expects = (
-            "Declare reviewed authority under action_surface.actions in "
-            "shipgate.yaml, then rerun verification."
-        )
-        # Every mode except ``none`` also requires ``auth_type``, and
-        # ``scoped`` requires non-empty ``scopes`` — a template offering
-        # ``mode`` alone is unfillable for the answers people actually give,
-        # so it names the co-required fields and lets the reviewer delete what
-        # ``mode: none`` does not take.
         # Co-required fields differ per mode: every mode except ``none`` needs
         # ``auth_type``; ``scoped`` needs non-empty ``scopes``; ``unscoped``
         # and ``ambient`` need ``reason`` and empty ``scopes``. Naming all of
         # them keeps the template fillable for every supported answer, and the
         # scaffold tells the reviewer to delete what their mode does not take.
-        declaration_template = {
-            **_action_selector(tool),
-            "scopes": [REVIEW_REQUIRED_SENTINEL],
-            "authority": {
-                "mode": REVIEW_REQUIRED_SENTINEL,
-                "auth_type": REVIEW_REQUIRED_SENTINEL,
-                "reason": REVIEW_REQUIRED_SENTINEL,
-            },
-        }
+        if target.kind == "tool_source":
+            # Authority follows credentials, not functions: every action of one
+            # source runs with the same grant, so it is asked once (#410). The
+            # source block keeps its scopes *inside* ``authority`` — unlike an
+            # action row, a source has no sibling permission list to own.
+            action_why = (
+                "A complete authority mode and grant are required, and every "
+                "action this source contributes shares one."
+            )
+            expects = (
+                f"Declare reviewed authority once under tool_sources[id="
+                f"{target.id!r}] in shipgate.yaml — it applies to every action "
+                "this source contributes, and an action_surface.actions row "
+                "may still override it for one action — then rerun "
+                "verification."
+            )
+            declaration_template = {
+                "id": target.id,
+                "authority": {
+                    "mode": REVIEW_REQUIRED_SENTINEL,
+                    "auth_type": REVIEW_REQUIRED_SENTINEL,
+                    "scopes": [REVIEW_REQUIRED_SENTINEL],
+                    "reason": REVIEW_REQUIRED_SENTINEL,
+                },
+            }
+        else:
+            action_why = "A complete authority mode and grant are required."
+            expects = (
+                "Declare reviewed authority under action_surface.actions in "
+                "shipgate.yaml, then rerun verification."
+            )
+            declaration_template = {
+                **_action_selector(tool),
+                "scopes": [REVIEW_REQUIRED_SENTINEL],
+                "authority": {
+                    "mode": REVIEW_REQUIRED_SENTINEL,
+                    "auth_type": REVIEW_REQUIRED_SENTINEL,
+                    "reason": REVIEW_REQUIRED_SENTINEL,
+                },
+            }
     elif kind == "conflicting_effect_evidence" and not is_declaration_answerable(
         kind, issue_source
     ):
@@ -1614,6 +1712,42 @@ def _semantic_gap(
         )
         # Deliberately no template, and no effect vocabulary: neither would
         # change the answer.
+    elif kind == "conflicting_authority_evidence" and issue_source == (
+        DECLARED_SOURCE_AUTHORITY_SOURCE
+    ):
+        # The reviewed authority at fault is the source-wide one. It governs
+        # every action of the source, so the first route is to correct that one
+        # block — sending the reviewer to write a per-action exception for each
+        # disagreeing action is the copy-paste the source block exists to
+        # remove. The row stays per-action because the judgement is: each of
+        # these actions publishes something the block does not cover, and only
+        # a reader of that action can say which of the two is wrong.
+        action_kind = "resolve_semantic_conflict"
+        accepted_values = list(_AUTHORITY_MODE_VALUES)
+        action_why = "Conflicting authority evidence cannot be auto-resolved."
+        # Never rendered as ``id=None``: the attribution above is only stamped
+        # when a source block was the operative declaration, which is exactly
+        # when the resolver recorded the id. The fallback is here because a
+        # display string that can print ``None`` at a reviewer is worse than
+        # one general sentence, and this branch is one refactor from unreachable.
+        source_id = _declaring_source_id(tool)
+        expects = (
+            (
+                f"The reviewed authority on tool_sources[id={source_id!r}] does "
+                "not match what this action publishes. Correct that block — it "
+                "governs every action of this source — or declare this action's "
+                "own authority under action_surface.actions to override it "
+                "here, then rerun verification."
+            )
+            if source_id
+            else (
+                "The reviewed authority declared for this action's source does "
+                "not match what the action publishes. Correct the declaration, "
+                "or declare this action's own authority under "
+                "action_surface.actions to override it here, then rerun "
+                "verification."
+            )
+        )
     else:
         action_kind = "resolve_semantic_conflict"
         if kind == "conflicting_effect_evidence":
@@ -1635,15 +1769,35 @@ def _semantic_gap(
 
     return EvidenceGap(
         kind=kind,
-        subject=f"{tool.name} [{tool.provider or tool.source_id or tool.source_type}]",
-        subject_id=tool.id or None,
+        # The subject is the thing the answer is about. For every row but a
+        # source-wide authority question that is the action; for that one it is
+        # the source, because a row naming one of twelve actions would send the
+        # reviewer to write a per-action block the questionnaire is not asking
+        # for.
+        subject=target.subject if target.kind == "tool_source" else _tool_subject(tool),
+        subject_id=(target.id if target.kind == "tool_source" else tool.id) or None,
+        subject_kind=target.kind,
         source_type=tool.source_type,
+        # A row about a source names the *file* the source is read from, not
+        # the line one of its actions happens to sit on: this row covers every
+        # action of the source, and ``agent.py:42`` beside "12 actions from
+        # tool source 'smart_closer'" reads as a claim about action 42's line.
         source_ref=(
-            source_ref
-            or tool.source_location
-            or tool.source_ref
-            or tool.source_path
-            or tool.source_pointer
+            (
+                source_ref
+                or tool.source_path
+                or tool.source_ref
+                or tool.source_location
+                or tool.source_pointer
+            )
+            if target.kind == "tool_source"
+            else (
+                source_ref
+                or tool.source_location
+                or tool.source_ref
+                or tool.source_path
+                or tool.source_pointer
+            )
         ),
         why=why,
         next_action=EvidenceGapAction(
@@ -1727,10 +1881,29 @@ def _source_artifact_path(tool: Tool) -> str | None:
     return base or pointer
 
 
+def _declaring_source_id(tool: Tool) -> str | None:
+    """The ``tool_sources`` id whose reviewed authority governs this action.
+
+    Read off the resolver's own record rather than from ``tool.source_id``: the
+    two differ exactly when no ``tool_sources`` entry configures the surface,
+    which is the case where naming a source block would send a reviewer to a
+    key the schema does not accept.
+    """
+
+    assessment = tool.semantic_assessment
+    return assessment.authority.answerable_source_id if assessment is not None else None
+
+
+def _tool_subject(tool: Tool) -> str:
+    """The display label for one action, spelled the way every surface spells it."""
+
+    return f"{tool.name} [{tool.provider or tool.source_id or tool.source_type}]"
+
+
 def _semantic_gap_path(kind: str, tool: Tool, issue_source: str | None = None) -> str | None:
     """The location that repairs this gap kind — manifest, or source."""
 
-    action_row = f"shipgate.yaml#action_surface.actions[tool={tool.name!r}]"
+    action_row = action_declaration_target(tool).path
     if kind == "partial_authority_evidence" or not is_declaration_answerable(
         kind, issue_source
     ):
@@ -1748,7 +1921,9 @@ def _semantic_gap_path(kind: str, tool: Tool, issue_source: str | None = None) -
         return "shipgate.yaml#tool_identity"
     if kind in _AGENT_BINDING_KINDS:
         return "shipgate.yaml#agent_bindings"
-    return action_row
+    # One derivation of where a declaration answer goes, so a row can never
+    # publish a route the questionnaire numbers under a different block.
+    return declaration_answer_target(tool, kind).path
 
 
 def _action_selector(tool: Tool) -> dict[str, object]:

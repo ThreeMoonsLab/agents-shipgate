@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.37",
+  "report_schema_version": "0.38",
   "run_id": "agents_shipgate_9702bae6947b59b3",
   "request_id": null,
   "subject_id": null,
@@ -105,6 +105,7 @@
           "kind": "source_warning",
           "subject": "CrewAI prebuilt tool 'FileReadTool' at crew.py:28 was recorded as low-confidence metadata; provide an explicit inventory for full review.",
           "subject_id": null,
+          "subject_kind": "action",
           "source_type": null,
           "source_ref": null,
           "why": "A source loader degraded while reading declared inputs.",

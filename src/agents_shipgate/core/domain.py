@@ -56,6 +56,22 @@ DECLARATION_CLAIM_SOURCES = frozenset(
     }
 )
 
+#: Claim source for ``tool_sources[].authority`` — one reviewed authority for
+#: every action a source contributes (#410 increment 3). A separate spelling
+#: from ``DECLARED_EFFECT_SOURCE`` because an audit reading the claims has to
+#: be able to say *where* the answer was written; the resolver treats the two
+#: identically in every other respect.
+DECLARED_SOURCE_AUTHORITY_SOURCE = "tool_source_authority_declaration"
+
+#: Every claim source that restates something a human wrote in the manifest.
+#: ``DECLARATION_CLAIM_SOURCES`` is the *effect*-dimension set — the one the
+#: resolver excludes from source-evidence comparison — so it cannot simply be
+#: widened; this is the union both dimensions need, for the one question
+#: "did a reviewed declaration produce this claim?".
+REVIEWED_DECLARATION_CLAIM_SOURCES = DECLARATION_CLAIM_SOURCES | {
+    DECLARED_SOURCE_AUTHORITY_SOURCE
+}
+
 
 def provenance_for_evidence_basis(
     basis: EvidenceBasis,
@@ -202,6 +218,18 @@ class AuthoritySemanticAssessment(BaseModel):
     scopes: list[str] = Field(default_factory=list)
     claims: list[SemanticClaim] = Field(default_factory=list)
     issues: list[SemanticIssue] = Field(default_factory=list)
+    #: The ``tool_sources[].id`` whose ``authority`` block is where this
+    #: action's authority answer belongs, or ``None`` when it belongs on the
+    #: action row — because a per-action declaration already claims it, or
+    #: because the action came from a surface no ``tool_sources`` entry
+    #: configures (#410 increment 3).
+    #:
+    #: Routing, not evidence: it says where a blank is filled, never what is
+    #: true about the action. Excluded from every dump for exactly that reason
+    #: — ``AuthoritySemanticEvidence`` is the published projection and it
+    #: forbids extras, so a routing hint leaking into it would both widen the
+    #: wire and invite a consumer to read it as a claim.
+    answerable_source_id: str | None = Field(default=None, exclude=True)
 
 
 class ToolIdentityAssessment(BaseModel):

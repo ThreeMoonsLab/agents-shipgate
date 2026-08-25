@@ -217,10 +217,10 @@ Downstream repos generated with
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b7` — see [pyproject.toml](../pyproject.toml)
 - Runtime contract: `24` (minimum control contract: `21`)
-- Current report schema: `0.37` — [`docs/report-schema.v0.37.json`](report-schema.v0.37.json)
-- Current packet schema: `0.14` — [`docs/packet-schema.v0.14.json`](packet-schema.v0.14.json)
+- Current report schema: `0.38` — [`docs/report-schema.v0.38.json`](report-schema.v0.38.json)
+- Current packet schema: `0.15` — [`docs/packet-schema.v0.15.json`](packet-schema.v0.15.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
-- Current verifier schema: `0.11` — [`docs/verifier-schema.v0.11.json`](verifier-schema.v0.11.json) (v0.10 and earlier stay frozen; `0.11` adds `semantic_coverage.declaration_questions`)
+- Current verifier schema: `0.12` — [`docs/verifier-schema.v0.12.json`](verifier-schema.v0.12.json) (v0.11 and earlier stay frozen; `0.12` adds `subject_kind`/`answer_path` to declaration questions and evidence gaps)
 - Current verify-run schema: `shipgate.verify_run/v4` — [`docs/verify-run-schema.v4.json`](verify-run-schema.v4.json)
 - Current verification identity schemas: [`plan v1`](verification-plan-schema.v1.json), [`unit result v1`](verification-unit-result-schema.v1.json), [`artifact manifest v1`](verification-artifact-manifest-schema.v1.json), and [`terminal receipt v1`](verification-receipt-schema.v1.json)
 - Current control pointer schema: `shipgate.current_control/v1` — [`docs/current-control-schema.v1.json`](current-control-schema.v1.json)
@@ -579,7 +579,7 @@ agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --jso
 ```
 
 In `agents-shipgate-reports/verifier.json`, read the fields below (full
-schema [`docs/verifier-schema.v0.11.json`](verifier-schema.v0.11.json)). **Lead
+schema [`docs/verifier-schema.v0.12.json`](verifier-schema.v0.12.json)). **Lead
 with `control.state`.** Every release and merge field below is a mirror or
 deterministic projection of `report.json`; the authorization evaluation is an
 operational overlay and cannot change those fields.
@@ -957,8 +957,8 @@ For reviewer-shaped output, also read the **Release Evidence Packet** at
 `[pdf]` extras are installed). The packet is a supporting/provisional reviewer
 projection, not a second gate. Packet outputs are redacted by the same default
 privacy layer as the report. The packet has fixed reviewer sections governed by
-[`docs/packet-schema.v0.14.json`](packet-schema.v0.14.json) — see
-[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v014).
+[`docs/packet-schema.v0.15.json`](packet-schema.v0.15.json) — see
+[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v015).
 Packet schema `0.9` carries the report's evidence-backed semantic coverage and
 gap remediation contract. Packet §1 also mirrors
 `static_analysis_only=true`, `runtime_behavior_verified=false`, and
@@ -1011,9 +1011,9 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full alpha stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.37.json`](report-schema.v0.37.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.38.json`](report-schema.v0.38.json) — machine-validatable JSON Schema for the current report.
 - [`docs/privacy.md`](privacy.md) and [`docs/report-sensitive-fields.json`](report-sensitive-fields.json) — default redaction behavior and sensitive-field inventory.
-- [`docs/packet-schema.v0.14.json`](packet-schema.v0.14.json) — machine-validatable JSON Schema for the current packet.
+- [`docs/packet-schema.v0.15.json`](packet-schema.v0.15.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog, including `mvp_tier` for MVP/readiness triage.
 
 ## See also

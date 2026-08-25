@@ -6,6 +6,13 @@ finish line, and says nothing about which of the 36 could move the verdict.
 The same facts, asked as a numbered questionnaire with a progress counter, are
 a task a person can finish (#410 increment 2).
 
+A question is **one blank a reviewer fills**, identified by the manifest block
+that fills it (:class:`DeclarationTarget`). Two rows closed by the same edit
+are one question, however many actions raised them: a source of 117 actions
+with no authority evidence owes one ``tool_sources[].authority`` block, and
+counting that as 117 questions describes one edit as a backlog (#410
+increment 3). The unit of the counter has to be the unit of the work.
+
 Three rules decide what counts as a question, and each of them is the RFC's
 first principle applied literally — *never ask a human what the scanner can
 prove*:
@@ -41,8 +48,8 @@ from dataclasses import dataclass
 from typing import Literal
 
 from agents_shipgate.core.domain import (
-    DECLARATION_CLAIM_SOURCES,
     DECLARED_EFFECT_SOURCE,
+    REVIEWED_DECLARATION_CLAIM_SOURCES,
     SemanticIssue,
     Tool,
     ToolSemanticAssessment,
@@ -53,14 +60,18 @@ from agents_shipgate.core.semantic_assessment import (
 )
 from agents_shipgate.schemas.report import DeclarationQuestionCoverage
 
-#: The two dimensions a per-action declaration answers.
+#: The two dimensions a reviewed declaration answers.
 #:
 #: Deliberately not every dimension that can gap. A tool inventory and an
 #: ``agent_bindings`` root are human declarations too, but neither is per
 #: action and neither has a counterfactual this module can evaluate — removing
 #: an inventory does not re-run extraction. Counting what cannot be counted on
 #: both halves is how a progress bar starts lying, so the denominator is the
-#: two dimensions whose answers live on one ``action_surface.actions`` row.
+#: two dimensions whose answers live on an ``action_surface.actions`` row —
+#: or, for an authority every action of a source shares, on that source's
+#: ``tool_sources[].authority`` block. Both are the same claim, and both are
+#: measurable on both halves: the counterfactual drops every reviewed
+#: declaration, whichever site it was written at.
 DeclarationDimension = Literal["effect", "authority"]
 
 DECLARATION_DIMENSIONS: tuple[DeclarationDimension, ...] = ("effect", "authority")
@@ -153,22 +164,150 @@ DIMENSION_BY_GAP_KIND: dict[str, DeclarationDimension] = {
 _DIMENSION_ORDER: dict[DeclarationDimension, int] = {"effect": 0, "authority": 1}
 
 
+#: Authority issue kinds a ``tool_sources[].authority`` block can answer.
+#:
+#: Exactly one: the action has no authority evidence at all, so the answer is
+#: the deployment fact the whole source shares — which credential its actions
+#: run with — and asking it once per action asks the same infrastructure
+#: question N times (#410 increment 3).
+#:
+#: A *conflict* is deliberately absent. It is raised about one action whose own
+#: published evidence disagrees with the reviewed block, so the decision it
+#: asks for is about that action: correct the block, or declare the exception
+#: on its row. Folding those into one source-wide question would count one
+#: answer for N independent judgements.
+SOURCE_ANSWERABLE_AUTHORITY_KINDS: frozenset[str] = frozenset({"missing_authority_evidence"})
+
+
+@dataclass(frozen=True)
+class DeclarationTarget:
+    """The manifest block one declaration question is answered in.
+
+    A question is one blank a reviewer fills, so the block is its identity: two
+    rows closed by the same edit are one question, however many actions they
+    were raised on. That is the whole of the per-source authority payoff —
+    117 actions with no authority evidence are one question, because one block
+    answers all of them.
+
+    ``id`` is the identity and ``subject`` is the label. Never the other way
+    round: two catalog tools can render one display subject, so keying on the
+    label would merge two actions' questions into one and answer neither.
+    ``path`` is the machine-readable route, and it is derived here so the
+    questionnaire and the evidence-gap row cannot name two different blocks.
+    """
+
+    kind: Literal["action", "tool_source"]
+    id: str
+    subject: str
+    path: str
+
+
+def action_declaration_target(tool: Tool) -> DeclarationTarget:
+    """The ``action_surface.actions`` row that answers for this action."""
+
+    return DeclarationTarget(
+        kind="action",
+        id=tool.id,
+        subject=_subject(tool),
+        path=f"shipgate.yaml#action_surface.actions[tool={tool.name!r}]",
+    )
+
+
+def declaration_answer_target(tool: Tool, kind: str) -> DeclarationTarget:
+    """Where the answer to one gap ``kind`` on ``tool`` is written.
+
+    The one derivation. The evidence-gap builder reads it to publish a repair
+    and the questionnaire reads it to identify a question, and if those two
+    ever disagreed the file would number a block the counter does not know
+    about.
+    """
+
+    source_id = _source_answering(tool, kind)
+    if source_id is None:
+        return action_declaration_target(tool)
+    return DeclarationTarget(
+        kind="tool_source",
+        id=source_id,
+        # Labelled by what it is. A source id and a tool name are both
+        # repository-chosen strings, and a reader looking at a numbered
+        # question has to be able to tell which kind of thing it names.
+        subject=f"{source_id} [tool_source]",
+        path=f"shipgate.yaml#tool_sources[id={source_id!r}].authority",
+    )
+
+
+def _source_answering(tool: Tool, kind: str) -> str | None:
+    """The ``tool_sources`` id that answers this kind here, or ``None``.
+
+    ``None`` covers three different situations that all mean "the answer goes
+    on the action row": the kind is not one a source block can answer, this
+    action already carries its own reviewed authority, or nothing in
+    ``tool_sources`` configures the surface it came from. The resolver decides
+    the last two — see ``AuthoritySemanticAssessment.answerable_source_id`` —
+    so no caller has to guess a source id from ``tool.source_id``.
+    """
+
+    assessment = tool.semantic_assessment
+    if kind not in SOURCE_ANSWERABLE_AUTHORITY_KINDS or assessment is None:
+        return None
+    return assessment.authority.answerable_source_id
+
+
 @dataclass(frozen=True)
 class DeclarationQuestion:
-    """One (action, dimension) a reviewed declaration has to answer.
+    """One blank a reviewed declaration has to fill.
 
     Deliberately carries no readings and no proposed answer. Those belong to
     the *row* a reviewer answers — ``EvidenceGapAction.observed_readings`` and
     ``declaration_template`` — and deriving them a second time here would be
     two sources for one row's contents. This model is the identity of a
     question and its place in the queue, nothing more.
+
+    ``subject_id`` is a tool id when ``subject_kind`` is ``action`` and a
+    ``tool_sources[].id`` when it is ``tool_source``. The kind is carried
+    rather than inferred, because both are repository-chosen strings and a
+    consumer joining one id space against the other would silently match
+    nothing — or, once, the wrong thing.
     """
 
-    tool_id: str
     subject: str
+    subject_id: str
+    subject_kind: Literal["action", "tool_source"]
+    answer_path: str
     dimension: DeclarationDimension
     answered: bool
     rank: int
+
+
+class _PendingQuestion:
+    """One question under construction, folding in every action that asks it."""
+
+    def __init__(self, target: DeclarationTarget, dimension: DeclarationDimension) -> None:
+        self.target = target
+        self.dimension = dimension
+        self.answered = True
+        self.rank = 0
+
+    def absorb(self, *, answered: bool, rank: int) -> None:
+        # Open wins. A block that answers eleven of its twelve actions and
+        # leaves the twelfth gapping is not an answered question: the reviewer
+        # still has an edit to make, and a counter that said otherwise would
+        # report a finish line the scan does not agree has been reached.
+        self.answered = self.answered and answered
+        # Ranked by the strongest action it covers, so a source carrying one
+        # financial write is asked about before a source of readers.
+        self.rank = max(self.rank, rank)
+
+    def build(self) -> DeclarationQuestion:
+        return DeclarationQuestion(
+            subject=self.target.subject,
+            subject_id=self.target.id,
+            subject_kind=self.target.kind,
+            answer_path=self.target.path,
+            dimension=self.dimension,
+            answered=self.answered,
+            rank=self.rank,
+        )
 
 
 def declaration_questions(tools: Iterable[Tool]) -> list[DeclarationQuestion]:
@@ -178,34 +317,61 @@ def declaration_questions(tools: Iterable[Tool]) -> list[DeclarationQuestion]:
     by subject, then effect before authority. A tool with no semantic
     assessment contributes nothing — it has not been resolved, so nothing is
     known about what it owes.
+
+    Actions asking the same question are folded together. That is not a
+    display convenience: the unit of the counter is the unit of the work, and
+    counting one edit as N questions is what made ``insufficient_evidence``
+    read as an unbounded backlog on a repository that owed one authority block.
     """
 
-    questions: list[DeclarationQuestion] = []
+    pending: dict[tuple[str, str, DeclarationDimension], _PendingQuestion] = {}
     for tool in tools:
         assessment = tool.semantic_assessment
         if assessment is None:
             continue
         # The counterfactual: what this action would owe with no declaration at
         # all. Computed once per tool, and only when a declaration could
-        # possibly be doing the work.
+        # possibly be doing the work. Resolved with no ``tool_source`` either,
+        # so it means "no reviewed declaration anywhere" and a source-wide
+        # answer scores exactly like a per-action one.
         undeclared = (
             assess_tool_semantics(tool, None) if _has_declaration(assessment) else assessment
         )
         rank = effect_evidence_rank(assessment.conservative_effect)
-        subject = _subject(tool)
         for dimension in DECLARATION_DIMENSIONS:
-            question = _question(
-                tool_id=tool.id,
-                subject=subject,
-                dimension=dimension,
-                rank=rank,
-                assessment=assessment,
-                undeclared=undeclared,
-            )
-            if question is not None:
-                questions.append(question)
+            asked = _asked(dimension, assessment, undeclared)
+            if asked is None:
+                continue
+            answered, kinds = asked
+            target = _target_for(tool, dimension, kinds)
+            key = (target.kind, target.id, dimension)
+            slot = pending.get(key)
+            if slot is None:
+                slot = _PendingQuestion(target, dimension)
+                pending[key] = slot
+            slot.absorb(answered=answered, rank=rank)
+    questions = [slot.build() for slot in pending.values()]
     questions.sort(key=_ordering)
     return questions
+
+
+def _target_for(
+    tool: Tool,
+    dimension: DeclarationDimension,
+    kinds: frozenset[str],
+) -> DeclarationTarget:
+    """The block that answers this dimension, given what it is being asked.
+
+    Falls back to the action row unless *every* asking kind agrees the source
+    block answers it. One kind that a source block cannot close makes the whole
+    question the action's, because the reviewer's edit has to land where all of
+    it can be answered.
+    """
+
+    targets = {declaration_answer_target(tool, kind) for kind in kinds}
+    if len(targets) == 1:
+        return targets.pop()
+    return action_declaration_target(tool)
 
 
 def open_questions(
@@ -269,34 +435,29 @@ def progress_sentence(coverage: DeclarationQuestionCoverage) -> str:
     return f"{sentence}; {coverage.open} open ({breakdown})."
 
 
-def _question(
-    *,
-    tool_id: str,
-    subject: str,
+def _asked(
     dimension: DeclarationDimension,
-    rank: int,
     assessment: ToolSemanticAssessment,
     undeclared: ToolSemanticAssessment,
-) -> DeclarationQuestion | None:
+) -> tuple[bool, frozenset[str]] | None:
+    """``(answered, asking kinds)`` for one action's dimension, or ``None``.
+
+    ``None`` means the dimension was never a question: the scan closed it by
+    itself, and nothing was ever asked of a human. The kinds come back with the
+    answer because they decide *where* the question is answered, and the two
+    halves have to be read off the same assessment — the open kinds off what
+    stands now, the answered kinds off the counterfactual.
+    """
+
     answerable = ANSWERABLE_ISSUE_KINDS[dimension]
-    if _asks(_issues(assessment, dimension), answerable):
-        return DeclarationQuestion(
-            tool_id=tool_id,
-            subject=subject,
-            dimension=dimension,
-            answered=False,
-            rank=rank,
-        )
-    if _asks(_issues(undeclared, dimension), answerable):
+    open_kinds = _asking(_issues(assessment, dimension), answerable)
+    if open_kinds:
+        return False, open_kinds
+    would_ask = _asking(_issues(undeclared, dimension), answerable)
+    if would_ask:
         # The dimension is clean *and* it would not have been without the
         # declaration: a human answered this one.
-        return DeclarationQuestion(
-            tool_id=tool_id,
-            subject=subject,
-            dimension=dimension,
-            answered=True,
-            rank=rank,
-        )
+        return True, would_ask
     return None
 
 
@@ -307,10 +468,13 @@ def _issues(
     return assessment.effect.issues if dimension == "effect" else assessment.authority.issues
 
 
-def _asks(issues: Sequence[SemanticIssue], answerable: frozenset[str]) -> bool:
-    return any(
-        issue.kind in answerable and is_declaration_answerable(issue.kind, issue.source)
+def _asking(issues: Sequence[SemanticIssue], answerable: frozenset[str]) -> frozenset[str]:
+    """The kinds among ``issues`` that a reviewed declaration can actually close."""
+
+    return frozenset(
+        issue.kind
         for issue in issues
+        if issue.kind in answerable and is_declaration_answerable(issue.kind, issue.source)
     )
 
 
@@ -324,7 +488,7 @@ def _has_declaration(assessment: ToolSemanticAssessment) -> bool:
     """
 
     return any(
-        claim.source in DECLARATION_CLAIM_SOURCES
+        claim.source in REVIEWED_DECLARATION_CLAIM_SOURCES
         for claim in (*assessment.effect.claims, *assessment.authority.claims)
     )
 
@@ -335,22 +499,27 @@ def _subject(tool: Tool) -> str:
     return f"{tool.name} [{tool.provider or tool.source_id or tool.source_type}]"
 
 
-def _ordering(question: DeclarationQuestion) -> tuple[int, str, str, int]:
-    """Risk, then subject, then **tool**, then dimension.
+def _ordering(question: DeclarationQuestion) -> tuple[int, str, str, str, int]:
+    """Risk, then subject, then **subject id**, then dimension.
 
-    Tool before dimension is what keeps one action's questions contiguous. Two
-    canonical tools can render the same display subject, and ordering by
-    dimension first interleaved them — tool A effect, tool B effect, tool A
-    authority — so the block merged for tool A owned questions 1 and 3 and the
-    scaffold announced it as "Questions 1-3", claiming the one in between that
-    belongs to the other tool. Within an action the dimension order still
-    holds, which is the only thing it was ever there for.
+    Subject id before dimension is what keeps one subject's questions
+    contiguous. Two canonical tools can render the same display subject, and
+    ordering by dimension first interleaved them — tool A effect, tool B
+    effect, tool A authority — so the block merged for tool A owned questions 1
+    and 3 and the scaffold announced it as "Questions 1-3", claiming the one in
+    between that belongs to the other tool. Within a subject the dimension
+    order still holds, which is the only thing it was ever there for.
+
+    ``subject_kind`` joins the key because a source id and a tool id are
+    independent namespaces: without it, ordering would depend on which one
+    happened to be compared.
     """
 
     return (
         -question.rank,
         question.subject,
-        question.tool_id,
+        question.subject_kind,
+        question.subject_id,
         _DIMENSION_ORDER[question.dimension],
     )
 
@@ -360,8 +529,12 @@ __all__ = [
     "DECLARATION_ATTRIBUTED_KINDS",
     "DECLARATION_DIMENSIONS",
     "DIMENSION_BY_GAP_KIND",
+    "SOURCE_ANSWERABLE_AUTHORITY_KINDS",
     "DeclarationDimension",
     "DeclarationQuestion",
+    "DeclarationTarget",
+    "action_declaration_target",
+    "declaration_answer_target",
     "declaration_questions",
     "is_declaration_answerable",
     "open_counts_by_dimension",
