@@ -134,8 +134,13 @@ def assess_tool_semantics(
     declaration at all", covering both sites in one call.
     """
 
-    effect, conservative_effect = _assess_effect(tool, declaration)
-    authority = _assess_authority(tool, declaration, tool_source)
+    # Resolved once and read by both dimensions: which of the two manifest
+    # sites is operative decides the permission list an action is judged on,
+    # and the effect evidence drawn from it has to be the same list the
+    # authority dimension reports. Two derivations meant two answers.
+    reviewed = reviewed_authority(tool, declaration, tool_source)
+    effect, conservative_effect = _assess_effect(tool, declaration, reviewed)
+    authority = _assess_authority(tool, declaration, tool_source, reviewed)
     identity = tool.identity_assessment or _compat_identity_assessment(tool)
     binding = tool.binding_assessment or _compat_binding_assessment(tool)
     surface_complete = _surface_is_complete(tool)
@@ -255,6 +260,7 @@ def _compat_identity_assessment(tool: Tool) -> ToolIdentityAssessment:
 def _assess_effect(
     tool: Tool,
     declaration: ActionDeclarationConfig | None,
+    reviewed: ReviewedAuthority | None = None,
 ) -> tuple[EffectSemanticAssessment, ActionEffect]:
     claims: list[SemanticClaim] = []
     issues: list[SemanticIssue] = []
@@ -394,8 +400,16 @@ def _assess_effect(
         )
 
     scope_sources = [(raw_scope, "auth_scope") for raw_scope in tool.auth.scopes]
-    if declaration is not None:
-        scope_sources.extend((raw_scope, "action_scope") for raw_scope in declaration.scopes)
+    # The *operative* reviewed permission list, which is the same one the
+    # authority dimension reports and the same one the action fact publishes as
+    # ``required_scopes`` — the capability standard requires those two to
+    # agree. Reading a different list here is how a declared ``crm.delete``
+    # grant could sit beside a declared ``effect: read`` with nothing
+    # objecting: a write-verb scope this manifest asserts the action requires
+    # has to bound its effect, whichever of the two sites asserted it (#410
+    # increment 3).
+    for raw_scope in _reviewed_scopes(declaration, reviewed):
+        scope_sources.append((raw_scope, "action_scope"))
     for raw_scope, scope_source in scope_sources:
         scope = Scope.parse(raw_scope)
         if not scope.is_write():
@@ -1324,14 +1338,11 @@ def reviewed_authority(
     eligibility all apply identically to both.
 
     The two sites are alternatives, not a mixture. Whichever one is operative
-    supplies the *whole* record, scopes included — an action that needs a
-    different permission list declares its own ``authority`` block alongside
-    its ``scopes``. Mixing them produced two answers to "what is this action
-    granted?": an action row declaring ``mode: none`` under a scoped source
-    reported empty scopes in its assessment and the source's scopes in its
-    action fact, and an action row listing bare ``scopes`` under a declared
-    source reported them the other way round. Public for exactly that reason —
-    the action lens reads this instead of re-deriving the precedence.
+    supplies the whole record — mode, type, credential mode, and the grant it
+    names. That grant is the *credential's*, not any one action's: it answers
+    the authority dimension and is deliberately not copied into an action's
+    ``required_scopes`` or read as per-action effect evidence, because the
+    block never said which part of the grant a given action requires.
     """
 
     if declaration is not None and declaration.authority is not None:
@@ -1359,6 +1370,23 @@ def reviewed_authority(
     return None
 
 
+def _reviewed_scopes(
+    declaration: ActionDeclarationConfig | None,
+    reviewed: ReviewedAuthority | None,
+) -> list[str]:
+    """The permission list a reviewer asserted for this action.
+
+    The operative reviewed authority owns it whenever one exists — the two
+    sites are alternatives, and mixing their lists produced two answers to
+    "what is this action granted?". With no reviewed authority at either site
+    an action row's bare ``scopes`` list still stands, exactly as before.
+    """
+
+    if reviewed is not None:
+        return list(reviewed.scopes)
+    return list(declaration.scopes) if declaration is not None else []
+
+
 def _answerable_source_id(
     declaration: ActionDeclarationConfig | None,
     tool_source: ToolSourceConfig | None,
@@ -1382,6 +1410,7 @@ def _assess_authority(
     tool: Tool,
     declaration: ActionDeclarationConfig | None,
     tool_source: ToolSourceConfig | None = None,
+    reviewed: ReviewedAuthority | None = None,
 ) -> AuthoritySemanticAssessment:
     claims: list[SemanticClaim] = []
     issues: list[SemanticIssue] = []
@@ -1435,7 +1464,8 @@ def _assess_authority(
             )
         )
 
-    reviewed = reviewed_authority(tool, declaration, tool_source)
+    if reviewed is None:
+        reviewed = reviewed_authority(tool, declaration, tool_source)
     if reviewed is not None:
         claims.append(
             _claim(

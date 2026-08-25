@@ -19,8 +19,13 @@
   reachable. The only difference is where `scopes` lives: an action row keeps
   its permission list in the sibling `actions[].scopes` field so there is one
   canonical list per action, and a source, having no such sibling, carries its
-  scopes inside the block. Declared scopes reach the typed action surface, so
-  the scope policies see the grant a reviewer just wrote down.
+  scopes inside the block. Whichever site is operative supplies the
+  whole record, permission list included, and that one list is what every
+  surface reports and judges: the action's `required_scopes`, the authority
+  dimension's `scopes`, and the capability fact's — which the capability
+  standard requires to agree — and the list the effect evidence reads, so a
+  write-verb permission the manifest says an action requires still bounds that
+  action's effect whichever site asserted it.
 
   *Additive, and never a weaker statement.* An `action_surface.actions[]` row
   that declares its own `authority` still wins for that action; a source with
@@ -49,6 +54,13 @@
   adapter stamps a source id that `tool_sources` does not accept, and those
   actions keep being asked on their own row rather than being sent to a
   manifest key the schema rejects.
+
+  Measured on a synthetic 117-tool MCP source, the shape the RFC names: 234
+  declaration questions become 118, of which exactly one is the authority
+  question, and `suggested-declarations.yaml` carries exactly one
+  `tool_sources` block. The 117 identical authority gap rows become one,
+  reading "117 actions from tool source 'github' have no explicit or
+  structural authority evidence."
 
   Report schema `0.37 → 0.38` adds `subject_kind` to `evidence_gaps[]` and
   `subject_kind`/`answer_path` to `declaration_questions.open_questions[]`.

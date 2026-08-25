@@ -216,7 +216,9 @@ Do not bypass the verifier by suppressing findings, lowering severity,
 expanding baselines or waivers, removing Shipgate CI, or weakening agent
 instructions. Verify-mode `SHIP-VERIFY-*` checks make those trust-root edits
 release-visible and route them to human review.
-Never invent or auto-fill an action effect or action authority declaration.
+Never invent or auto-fill an action effect or action authority declaration —
+including the shared `tool_sources[].authority` block, which is the same
+authority claim made once for a whole source rather than once per action.
 Never invent or auto-fill `agent_bindings` root, tool, or handoff declarations;
 they are reviewed closed-world claims about deployed wiring.
 Contract v14 publishes these boundaries as `action_effect`, `action_authority`,

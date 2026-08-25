@@ -1779,17 +1779,18 @@ def _semantic_gap(
         subject_kind=target.kind,
         source_type=tool.source_type,
         # A row about a source names the *file* the source is read from, not
-        # the line one of its actions happens to sit on: this row covers every
-        # action of the source, and ``agent.py:42`` beside "12 actions from
-        # tool source 'smart_closer'" reads as a claim about action 42's line.
+        # the place one of its actions happens to sit: this row covers every
+        # action of the source, and ``crm.json#/tools/1`` beside "12 actions
+        # from tool source 'crm'" points at whichever action built the row.
+        #
+        # The caller's ``source_ref`` is deliberately **not** consulted here.
+        # It is the issue's own pointer, which is per action and always set for
+        # this kind, so a fallback chain beginning with it could never reach
+        # the file — the first version of this branch was dead for exactly that
+        # reason. ``None`` when no file is known: better than a pointer that
+        # names one row of twelve.
         source_ref=(
-            (
-                source_ref
-                or tool.source_path
-                or tool.source_ref
-                or tool.source_location
-                or tool.source_pointer
-            )
+            (tool.source_path or tool.source_ref or tool.source_location)
             if target.kind == "tool_source"
             else (
                 source_ref

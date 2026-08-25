@@ -652,11 +652,19 @@ rules:
 - otherwise the action's own published authority evidence stands.
 
 The two sites are alternatives, not a mixture: whichever one is operative
-supplies the **whole** authority record, its permission list included. An
-action that needs different scopes from the rest of its source declares its own
-`authority` block alongside its `scopes`; a bare `scopes` list under a source
-that declares authority does not make the action row operative, and the
-action's `required_scopes` resolve to the source's list.
+supplies the **whole** authority record — mode, type, credential mode, and the
+permission list. An action that needs a list different from the rest of its
+source declares its own `authority` block alongside its `scopes`; a bare
+`scopes` list does not by itself make the action row operative.
+
+That one list is what every surface reports and judges: the action's
+`required_scopes`, the authority dimension's `scopes`, and the capability
+fact's — the capability standard requires them to agree — and it is the list
+the effect evidence reads, so a write-verb permission the manifest says an
+action requires still bounds that action's effect, whichever site asserted it.
+A source whose grant is wider than some of its actions need should say so per
+action; declaring the wider grant for all of them is the conservative reading
+and is treated as one.
 
 A reviewed declaration at either site may resolve missing source metadata and
 may broaden a scope set, but it may not replace a concrete published auth type

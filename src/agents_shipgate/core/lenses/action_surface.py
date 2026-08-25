@@ -514,18 +514,17 @@ def _declared_scope_strings(
     declaration: ActionDeclarationConfig | None,
     source: ToolSourceConfig | None,
 ) -> list[str]:
-    """The permission list this action is judged on.
+    """The permission list this action is judged on, from the one resolver.
 
-    Where a reviewed authority exists it *is* the answer, read from the one
-    function that decides which of the two manifest sites is operative. Two
-    derivations here meant two answers to "what is this action granted?": an
-    action row declaring `mode: none` under a scoped source published the
-    source's scopes as its `required_scopes` while its own assessment reported
-    none, and an action row listing bare `scopes` under a declared source
-    published them while the assessment reported the source's.
+    Not a second derivation: ``CapabilityFactV1`` *requires*
+    ``authority.scopes`` to equal the semantic authority's, and one of its two
+    builders reconstructs the fact from this list — so deciding it separately
+    here does not merely risk two answers, it raises a validation error on the
+    base-vs-head path the moment the two disagree. That is exactly what a draft
+    that kept a source's grant off the action did.
 
     With no reviewed authority at either site the behaviour is unchanged: a
-    declared `scopes` list, else what the source published.
+    declared ``scopes`` list, else what the source published for this tool.
     """
 
     reviewed = reviewed_authority(tool, declaration, source)
@@ -576,11 +575,8 @@ def build_action(
         _normalize_risk_tag_values(declaration.risk_tags) if declaration is not None else []
     )
     risk_tag_values = sorted(set(inferred_tags) | set(declared_tags))
-    # The permission list this action is judged on, in the same precedence the
-    # semantic resolver applies: the action row, then the source-wide reviewed
-    # block (#410 increment 3), then what the source itself published. Declared
-    # scopes have to reach the typed action or the broad-scope policies would
-    # not see the grant a reviewer just wrote down.
+    # In the resolver's own precedence, because the capability standard binds
+    # this list to the semantic authority's (#410 increment 3).
     scope_strings = _normalize_strings(_declared_scope_strings(tool, declaration, source))
     effect = semantic_assessment.conservative_effect
     semantic_effects = {

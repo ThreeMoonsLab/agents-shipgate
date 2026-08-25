@@ -514,6 +514,11 @@ def test_one_row_names_the_source_and_says_how_many_actions_wait_on_it(tmp_path:
     assert row.subject_id == "crm"
     assert "3 actions from tool source 'crm'" in row.why
     assert row.next_action.path == "shipgate.yaml#tool_sources[id='crm'].authority"
+    # The file the source is read from, not the JSON pointer of whichever
+    # action built the row. The issue's own pointer is per action and always
+    # set for this kind, so a fallback chain that consulted it first could
+    # never reach the file — the first version of this branch was dead.
+    assert row.source_ref == "tools.json"
     assert evidence_gap_headline(row).startswith("a tool source has no declared authority")
     # The template is a ``tool_sources`` entry, and its scopes live inside the
     # authority block because a source has no sibling permission list.
@@ -610,8 +615,23 @@ def test_the_published_block_closes_the_question_it_is_printed_on(tmp_path: Path
     assert coverage.answered >= 1
 
 
-def test_scopes_declared_once_reach_every_action_of_the_source(tmp_path: Path) -> None:
-    """A grant a reviewer wrote down has to be visible to the scope policies."""
+def test_the_grant_reaches_every_action_and_is_read_as_evidence_about_it(
+    tmp_path: Path,
+) -> None:
+    """One permission list, published and judged the same way everywhere.
+
+    ``CapabilityFactV1`` *requires* ``authority.scopes`` to equal the semantic
+    authority's, and one of its builders reconstructs the fact from the
+    action's ``required_scopes`` — so these are not two fields that merely
+    ought to agree, they are one fact with two spellings, and a draft that kept
+    a source's grant off the action raised a validation error on the
+    base-vs-head path.
+
+    The same list therefore has to bound the effect. A manifest asserting these
+    actions require ``crm.delete`` while declaring one of them ``read`` is a
+    contradiction, and it is the *scope* half that must not go quiet — that is
+    the #409 failure mode with the assertion moved four lines up the file.
+    """
 
     config = _workspace(
         tmp_path,
@@ -623,15 +643,85 @@ def test_scopes_declared_once_reach_every_action_of_the_source(tmp_path: Path) -
             "mode": "scoped",
             "auth_type": "oauth2",
             "credential_mode": "service_account",
-            "scopes": ["crm.read", "crm.send"],
+            "scopes": ["crm.delete", "crm.read"],
         },
     )
     report = _scan(tmp_path, config)
 
     for action in report.action_surface_facts.actions:
-        assert action.required_scopes == ["crm.read", "crm.send"]
         assert action.semantic_assessment is not None
-        assert action.semantic_assessment.authority.credential_mode == "service_account"
+        authority = action.semantic_assessment.authority
+        assert authority.mode == "scoped"
+        assert authority.credential_mode == "service_account"
+        assert list(authority.scopes) == ["crm.delete", "crm.read"]
+        assert action.required_scopes == ["crm.delete", "crm.read"]
+        # A delete-verb permission this manifest says the action requires
+        # bounds its effect, exactly as it would written on the action row.
+        assert action.effect == "destructive"
+
+
+def test_the_action_fact_and_the_assessment_publish_one_permission_list(
+    tmp_path: Path,
+) -> None:
+    """The invariant the capability standard already demands, asserted directly.
+
+    ``CapabilityFactV1._semantic_projection_is_consistent`` raises when
+    ``authority.scopes`` and the semantic authority disagree, and the
+    base-vs-head builder reconstructs the fact from ``required_scopes`` — so a
+    divergence is a crash, not a cosmetic mismatch. Asserted here for every
+    shape a reviewed authority can take, because the end-to-end path that
+    surfaced it only fires when a base report is available.
+    """
+
+    tools = [
+        _mcp_tool("send_email", "Send an email to a customer."),
+        _mcp_tool("list_contacts", "List the contacts in the CRM."),
+    ]
+    # Every shape where a reviewed authority exists at one of the two sites —
+    # which is all this increment governs. A bare ``scopes`` list with no
+    # ``authority`` block anywhere is deliberately absent: those two fields
+    # already disagree on ``main`` (the row's list against the source's
+    # published one), and the same builder already raises on it there. Widening
+    # this test to cover it would be asserting a fix this change does not make.
+    shapes: list[tuple[dict | None, list[dict] | None]] = [
+        ({"mode": "scoped", "auth_type": "oauth2", "scopes": ["crm.read"]}, None),
+        ({"mode": "none"}, None),
+        (
+            {"mode": "scoped", "auth_type": "oauth2", "scopes": ["crm.read"]},
+            [{"tool": "send_email", "source_id": "crm", "authority": {"mode": "none"}}],
+        ),
+        (
+            {"mode": "scoped", "auth_type": "oauth2", "scopes": ["crm.read"]},
+            [{"tool": "send_email", "source_id": "crm", "scopes": ["crm.send"]}],
+        ),
+        (
+            None,
+            [
+                {
+                    "tool": "send_email",
+                    "source_id": "crm",
+                    "scopes": ["crm.send"],
+                    "authority": {"mode": "scoped", "auth_type": "oauth2"},
+                }
+            ],
+        ),
+    ]
+    for index, (source_authority, actions) in enumerate(shapes):
+        workspace = tmp_path / f"shape_{index}"
+        report = _scan(
+            workspace,
+            _workspace(
+                workspace,
+                tools=tools,
+                source_authority=source_authority,
+                actions=actions,
+            ),
+        )
+        for action in report.action_surface_facts.actions:
+            assert action.semantic_assessment is not None
+            assert action.required_scopes == sorted(
+                set(action.semantic_assessment.authority.scopes)
+            ), f"shape {index}: {action.tool_name} publishes two permission lists"
 
 
 def test_declaring_none_across_a_published_credential_is_never_quiet(tmp_path: Path) -> None:
@@ -822,14 +912,12 @@ def _granted(tmp_path: Path, *, source_authority: dict | None, action: dict | No
     return fact.required_scopes, list(fact.semantic_assessment.authority.scopes)
 
 
-def test_the_operative_block_supplies_the_whole_permission_list(tmp_path: Path) -> None:
-    """The action fact and the assessment may not answer this two ways.
+def test_an_action_that_declares_no_credential_is_granted_nothing(tmp_path: Path) -> None:
+    """A per-action ``mode: none`` is the operative authority, and it says none.
 
-    Two derivations of "which site is operative" gave two answers. An action
-    declaring ``mode: none`` under a scoped source published the *source's*
-    scopes as its `required_scopes` while its assessment reported none — a
-    reviewer reading the action surface would see a grant the reviewed
-    authority for that action says does not exist.
+    The source block is not consulted for this action at all: its own reviewed
+    authority answers the dimension, so it holds no credential and requires no
+    permission — and both surfaces say so.
     """
 
     granted, resolved = _granted(
@@ -840,15 +928,15 @@ def test_the_operative_block_supplies_the_whole_permission_list(tmp_path: Path) 
     assert granted == resolved == []
 
 
-def test_a_source_block_supplies_its_scopes_to_an_action_that_declares_none(
+def test_a_bare_scope_list_does_not_make_an_action_row_the_operative_authority(
     tmp_path: Path,
 ) -> None:
-    """A bare ``scopes`` list does not make an action row the operative authority.
+    """The two sites are alternatives, not a mixture.
 
-    The two sites are alternatives, not a mixture: an action that needs a
-    different permission list declares its own ``authority`` block beside its
-    ``scopes``. Resolving to the source's list is also the conservative
-    direction — it can only widen what the scope policies see, never narrow it.
+    An action that needs a permission list different from the rest of its
+    source declares its own ``authority`` block beside its ``scopes``. Falling
+    back to the source's list is also the conservative direction: it can only
+    widen what the checks see, never narrow it.
     """
 
     granted, resolved = _granted(
@@ -870,3 +958,94 @@ def test_with_no_reviewed_authority_a_declared_scope_list_still_stands(
         action={"scopes": ["crm.read"]},
     )
     assert granted == ["crm.read"]
+
+
+def test_a_broad_credential_declared_once_is_still_flagged(tmp_path: Path) -> None:
+    """The grant is not per-action evidence, and it is not invisible either.
+
+    Not copying the credential's scopes onto each action is only safe because
+    the grant still reaches the checks that judge *credentials*: the capability
+    fact carries it, so a broad grant declared once for a whole source raises
+    the same broad-scope finding it would raise written out per action. Without
+    this, moving a scope list into the source block would be a way to quiet a
+    real signal.
+    """
+
+    config = _workspace(
+        tmp_path,
+        tools=[_mcp_tool("read_thing", "Read a thing from the store.")],
+        source_authority={"mode": "scoped", "auth_type": "oauth2", "scopes": ["admin:*"]},
+    )
+    report = _scan(tmp_path, config)
+
+    assert "SHIP-AUTH-TOOL-BROAD-SCOPE" in {finding.check_id for finding in report.findings}
+    fact = report.capability_facts[0]
+    assert fact.semantic_assessment is not None
+    assert list(fact.semantic_assessment.authority.scopes) == ["admin:*"]
+
+
+def test_adding_the_block_survives_the_base_comparison(tmp_path: Path) -> None:
+    """The path that found the divergence, kept as the guard for it.
+
+    A unit assertion that two fields agree is easy to write against the shape
+    you happened to think of. This runs the real base-vs-head comparison, which
+    rebuilds each capability fact from the *serialized* action — the builder
+    whose validator raised ``CapabilityFactV1.authority.scopes must project
+    semantic authority`` and turned adding the block into an internal error.
+
+    It also states what adding the block should do: touch the trust root, and
+    route to a human. A declaration about what an agent may do is not a change
+    an agent merges.
+    """
+
+    import subprocess
+
+    from agents_shipgate.cli.verify.orchestrator import run_verify
+
+    repo = tmp_path / "repo"
+    tools = [_mcp_tool("read_thing", "Read a thing from the datastore.")]
+    config = _workspace(repo, tools=tools)
+
+    def _git(*args: str) -> None:
+        subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+    _git("init")
+    _git("config", "user.email", "test@example.test")
+    _git("config", "user.name", "Test User")
+    _git("add", ".")
+    _git("commit", "-m", "before the declaration")
+
+    _workspace(
+        repo,
+        tools=tools,
+        source_authority={"mode": "scoped", "auth_type": "oauth2", "scopes": ["crm.read"]},
+    )
+    _git("add", ".")
+    _git("commit", "-m", "declare the source authority")
+
+    verifier, report, _exit = run_verify(
+        workspace=repo,
+        config=config,
+        base="HEAD~1",
+        head="HEAD",
+        archive_head=True,
+        out=repo / "agents-shipgate-reports",
+        ci_mode="advisory",
+        fail_on=None,
+        baseline=None,
+        baseline_mode="new-findings",
+        diff_from=None,
+        policy_packs=None,
+        plugins_enabled=False,
+        strict_plugins=False,
+        suggest_patches=False,
+        no_heuristics=False,
+        verbose=False,
+    )
+
+    assert verifier.capability_review.trust_root_touched is True
+    assert verifier.control.state == "review_publishable"
+    assert report.release_decision is not None
+    action = report.action_surface_facts.actions[0]
+    assert action.semantic_assessment is not None
+    assert action.required_scopes == sorted(set(action.semantic_assessment.authority.scopes))
