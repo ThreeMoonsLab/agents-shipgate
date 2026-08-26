@@ -682,6 +682,38 @@ def test_moving_to_a_pack_that_requires_less_is_a_weakening(base_pack: str) -> N
     assert "more effects" in findings[0].recommendation
 
 
+@pytest.mark.parametrize(
+    "removed, expected_title_fragment, expected_verb",
+    [
+        ([("write", ["approval.required"])], "1 effect requires less", "requires"),
+        (
+            [("write", ["approval.required"]), ("destructive", ["safeguards.rollback"])],
+            "2 effects require less",
+            "require",
+        ),
+    ],
+)
+def test_the_weakening_sentence_agrees_at_every_length(
+    removed: list, expected_title_fragment: str, expected_verb: str
+) -> None:
+    """No two built-in packs differ on exactly one effect, so the singular
+    reading is unreachable through a real scan and would ship unread."""
+
+    from agents_shipgate.checks.verify_policy import (
+        _weakening_sentence,
+        _weakening_title,
+    )
+
+    assert expected_title_fragment in _weakening_title("a", "b", removed)
+    sentence = _weakening_sentence("a", "b", removed)
+    assert f"no longer {expected_verb} controls" in sentence
+    for effect, controls in removed:
+        assert effect.replace("_", " ") in sentence
+        for path in controls:
+            # `confirmation.required` is renamed; the rest are the raw path.
+            assert path in sentence or "confirmation policy" in sentence
+
+
 @pytest.mark.parametrize("head_pack", CONTROL_PACK_IDS)
 @pytest.mark.parametrize("base_pack", CONTROL_PACK_IDS)
 def test_a_pack_move_is_reported_exactly_where_something_was_dropped(

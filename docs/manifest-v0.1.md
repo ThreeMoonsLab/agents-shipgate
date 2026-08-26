@@ -1118,6 +1118,12 @@ accepting the narrower gap stops matching and the finding re-opens. That is the
 intended direction: an acceptance recorded under looser rules should not carry
 into stricter ones.
 
+Moving to a pack that requires *less* of some effect is a release-policy
+weakening, and `verify --base` reports it: `SHIP-VERIFY-POLICY-WEAKENED` with
+`kind: control_pack_weakened`, one finding per pack move, naming every effect
+that lost a control. Changing the pack to make a scan pass is the thing that
+check exists to catch.
+
 `shipgate init --control-pack <id>` writes the selection. `init --json`
 reports it under `control_pack`: `requested` is what the invocation asked for,
 `selected` is what the manifest **on disk** carries (`null` when there is none

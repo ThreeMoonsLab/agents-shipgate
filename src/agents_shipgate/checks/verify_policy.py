@@ -224,15 +224,11 @@ def _compare(context: ScanContext, base, head) -> list[Finding]:
     if removed:
         base_pack = base.control_pack or DEFAULT_CONTROL_PACK_ID
         head_pack = head.control_pack or DEFAULT_CONTROL_PACK_ID
-        noun = "effect" if len(removed) == 1 else "effects"
         findings.append(
             verify_finding(
                 context,
                 check_id=CHECK_ID,
-                title=(
-                    f"Control pack weakened: {base_pack} -> {head_pack} "
-                    f"({len(removed)} {noun} require less)"
-                ),
+                title=_weakening_title(base_pack, head_pack, removed),
                 severity="high",
                 evidence={
                     "kind": "control_pack_weakened",
@@ -243,12 +239,8 @@ def _compare(context: ScanContext, base, head) -> list[Finding]:
                         for effect, controls in removed
                     ],
                 },
-                recommendation=(
-                    f"This PR moves policies.control_pack from {base_pack} to "
-                    f"{head_pack}, so {len(removed)} action {noun} no longer "
-                    "require controls they required on the base "
-                    f"({_removed_summary(removed)}). A human must approve the "
-                    "reduced gate; do not change the pack to make a scan pass."
+                recommendation=_weakening_sentence(
+                    base_pack, head_pack, removed
                 ),
             )
         )
@@ -260,6 +252,38 @@ def _compare(context: ScanContext, base, head) -> list[Finding]:
 #: naming. Three is what fits a console line beside the rest of the sentence;
 #: the full list is always in ``evidence.removed_controls``.
 _NAMED_WEAKENED_EFFECTS = 3
+
+
+def _weakening_title(
+    base_pack: str, head_pack: str, removed: list[tuple[str, list[str]]]
+) -> str:
+    noun, verb = ("effect", "requires") if len(removed) == 1 else ("effects", "require")
+    return (
+        f"Control pack weakened: {base_pack} -> {head_pack} "
+        f"({len(removed)} {noun} {verb} less)"
+    )
+
+
+def _weakening_sentence(
+    base_pack: str, head_pack: str, removed: list[tuple[str, list[str]]]
+) -> str:
+    """What the reader is being asked to approve, and what it costs.
+
+    Extracted so both agreements — ``effect``/``effects`` and
+    ``requires``/``require`` — are exercised at every length. No pair of
+    built-in packs differs on exactly one effect today, so the singular
+    reading is unreachable through a real scan and would otherwise ship
+    unread until the pack tables changed.
+    """
+
+    noun = "effect" if len(removed) == 1 else "effects"
+    verb = "requires" if len(removed) == 1 else "require"
+    return (
+        f"This PR moves policies.control_pack from {base_pack} to {head_pack}, "
+        f"so {len(removed)} action {noun} no longer {verb} controls they "
+        f"required on the base ({_removed_summary(removed)}). A human must "
+        "approve the reduced gate; do not change the pack to make a scan pass."
+    )
 
 
 def _removed_summary(removed: list[tuple[str, list[str]]]) -> str:
