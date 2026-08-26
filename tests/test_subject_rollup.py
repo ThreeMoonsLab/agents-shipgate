@@ -1024,6 +1024,32 @@ def test_a_finding_carrying_only_a_name_joins_that_tools_group():
     }
 
 
+def test_one_tool_listed_twice_is_not_an_ambiguous_name():
+    """Ambiguity is two *tools* answering to a name, not two rows.
+
+    Marking a repeated catalog row ambiguous would push a resolvable finding
+    back into its own heading for no reason.
+    """
+
+    unkeyed = Finding(
+        check_id="SHIP-BASELINE-INTEGRITY-MISMATCH",
+        title="create_refund baseline entry does not match",
+        severity="high",
+        category="baseline",
+        recommendation="re-save the baseline",
+        tool_id=None,
+        tool_name="create_refund",
+        agent_id="agent:p/a",
+    )
+    row = {"tool_id": "tool_v2_aaaa", "name": "create_refund", "provider": "stripe"}
+    report = _report_with(
+        [unkeyed], catalog=[row, dict(row)], agent={"id": "agent:p/a", "name": "a"}
+    )
+
+    (group,) = roll_up_findings(report)
+    assert group.subject == "create_refund [stripe]"
+
+
 def test_an_ambiguous_name_is_left_unresolved_rather_than_guessed():
     """Two tools can share a name across sources.
 

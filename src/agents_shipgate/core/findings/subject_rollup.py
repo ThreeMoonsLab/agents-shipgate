@@ -353,8 +353,10 @@ def _tool_id_by_name(report: ReadinessReport) -> dict[str, str]:
         name = str(row.get("name") or "").strip()
         if not tool_id or not name:
             continue
-        # None marks a name that more than one tool answers to.
-        seen[name] = None if name in seen else str(tool_id)
+        # None marks a name that more than one *tool* answers to. A name
+        # repeated for one id is one tool listed twice, which resolves.
+        previous = seen.get(name, str(tool_id))
+        seen[name] = str(tool_id) if previous == str(tool_id) else None
     return {name: tool_id for name, tool_id in seen.items() if tool_id}
 
 
