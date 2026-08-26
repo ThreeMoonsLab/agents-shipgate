@@ -191,6 +191,47 @@ def _scan(tmp_path: Path, *, approval_declared: bool = True):
     return report, out
 
 
+def _report_with(findings: list[Finding], *, catalog: list[dict], agent: dict):
+    """A report shaped enough for the projection, with no scan behind it.
+
+    The scanned repro above cannot produce a nameless catalog row or an agent
+    named like a derived id, and those are exactly the shapes that put an
+    unreadable string in a heading.
+    """
+
+    return ReadinessReport(
+        run_id="run_test",
+        project={"name": "p"},
+        agent=agent,
+        environment={"target": "production_like"},
+        summary=summarize_findings(findings, []),
+        tool_surface=summarize_tool_surface([]),
+        findings=findings,
+        tool_catalog=catalog,
+    )
+
+
+def _decision(*, blockers: list[Finding], review_items: list[Finding]) -> ReleaseDecision:
+    """A decision that names the given findings, built the way scans build it."""
+
+    return ReleaseDecision(
+        decision="blocked" if blockers else "review_required",
+        reason="fixture",
+        blockers=[_to_item(finding) for finding in blockers],
+        review_items=[_to_item(finding) for finding in review_items],
+        evidence_coverage=EvidenceCoverageDecision(
+            level="static",
+            human_review_recommended=False,
+            source_warning_count=0,
+            low_confidence_tool_count=0,
+        ),
+        baseline_delta=BaselineDelta(enabled=False),
+        fail_policy=FailPolicy(
+            ci_mode="advisory", would_fail_ci=False, exit_code=0
+        ),
+    )
+
+
 # --------------------------------------------------------------------------
 # The reported repro
 # --------------------------------------------------------------------------
@@ -478,7 +519,7 @@ def test_all_three_human_surfaces_read_the_same_groups(tmp_path):
     which findings belong to which subject.
     """
 
-    report, out = _scan(tmp_path)
+    report, _out = _scan(tmp_path)
     groups = roll_up_findings(report)
     markdown = render_markdown_report(report)
     block = top_findings_block(groups, group_limit=99, row_limit=99)
@@ -626,47 +667,6 @@ def test_group_summary_names_the_status_before_the_severities(tmp_path):
     assert "critical" in group_summary(blocking)
 
 
-def _report_with(findings: list[Finding], *, catalog: list[dict], agent: dict):
-    """A report shaped enough for the projection, with no scan behind it.
-
-    The scanned repro above cannot produce a nameless catalog row or an agent
-    named like a derived id, and those are exactly the shapes that put an
-    unreadable string in a heading.
-    """
-
-    return ReadinessReport(
-        run_id="run_test",
-        project={"name": "p"},
-        agent=agent,
-        environment={"target": "production_like"},
-        summary=summarize_findings(findings, []),
-        tool_surface=summarize_tool_surface([]),
-        findings=findings,
-        tool_catalog=catalog,
-    )
-
-
-def _decision(*, blockers: list[Finding], review_items: list[Finding]) -> ReleaseDecision:
-    """A decision that names the given findings, built the way scans build it."""
-
-    return ReleaseDecision(
-        decision="blocked" if blockers else "review_required",
-        reason="fixture",
-        blockers=[_to_item(finding) for finding in blockers],
-        review_items=[_to_item(finding) for finding in review_items],
-        evidence_coverage=EvidenceCoverageDecision(
-            level="static",
-            human_review_recommended=False,
-            source_warning_count=0,
-            low_confidence_tool_count=0,
-        ),
-        baseline_delta=BaselineDelta(enabled=False),
-        fail_policy=FailPolicy(
-            ci_mode="advisory", would_fail_ci=False, exit_code=0
-        ),
-    )
-
-
 def test_a_nameless_catalog_row_never_becomes_a_group_heading():
     """``catalog_subject`` falls back to the tool id, which is right where it
     joins two surfaces by value and wrong in a heading (#329)."""
@@ -717,7 +717,7 @@ def test_two_tools_with_one_name_stay_two_subjects():
     """Grouping is on identity, not on the label — a name repeated across
     sources would otherwise merge two tools into one heading."""
 
-    def _finding(tool_id: str, provider: str) -> Finding:
+    def _finding(tool_id: str) -> Finding:
         return Finding(
             check_id="SHIP-EXAMPLE",
             title="one thing",
@@ -729,7 +729,7 @@ def test_two_tools_with_one_name_stay_two_subjects():
         )
 
     report = _report_with(
-        [_finding("tool_v2_aaaa", "openapi"), _finding("tool_v2_bbbb", "mcp")],
+        [_finding("tool_v2_aaaa"), _finding("tool_v2_bbbb")],
         catalog=[
             {"tool_id": "tool_v2_aaaa", "name": "search", "provider": "openapi"},
             {"tool_id": "tool_v2_bbbb", "name": "search", "provider": "mcp"},
