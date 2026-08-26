@@ -5,7 +5,11 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, cast, get_args
 
-from agents_shipgate.core.action_semantics import ACTION_EFFECT_RANK, builtin_obligations
+from agents_shipgate.core.action_semantics import (
+    ACTION_EFFECT_RANK,
+    builtin_obligations,
+    normalize_declared_strings,
+)
 from agents_shipgate.core.domain import (
     DECLARATION_CLAIM_SOURCES,
     DECLARATION_OVERRIDE_SOURCE,
@@ -1445,15 +1449,9 @@ def resolve_action_scopes(
     if reviewed is None:
         reviewed = reviewed_authority(tool, declaration, tool_source)
     if reviewed is not None:
-        return normalize_scopes(reviewed.scopes)
-    declared = normalize_scopes(declaration.scopes if declaration is not None else [])
-    return declared or normalize_scopes(tool.auth.scopes)
-
-
-def normalize_scopes(values: Iterable[str]) -> list[str]:
-    """Scope strings as every surface compares them: stripped, deduped, sorted."""
-
-    return sorted({str(value).strip() for value in values if str(value).strip()})
+        return normalize_declared_strings(reviewed.scopes)
+    declared = normalize_declared_strings(declaration.scopes if declaration is not None else [])
+    return declared or normalize_declared_strings(tool.auth.scopes)
 
 
 def _assess_authority(
@@ -1779,8 +1777,8 @@ def _scopes_narrow_source(
 
     if source_mode != "scoped":
         return False
-    source_scopes = set(normalize_scopes(tool.auth.scopes))
-    return not source_scopes.issubset(set(normalize_scopes(resolved_scopes)))
+    source_scopes = set(normalize_declared_strings(tool.auth.scopes))
+    return not source_scopes.issubset(set(normalize_declared_strings(resolved_scopes)))
 
 
 def _claim(

@@ -8,7 +8,10 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import unquote
 
-from agents_shipgate.core.action_semantics import ACTION_EFFECT_RANK
+from agents_shipgate.core.action_semantics import (
+    ACTION_EFFECT_RANK,
+    normalize_declared_strings,
+)
 from agents_shipgate.core.domain import (
     DECLARATION_CLAIM_SOURCES,
     Action,
@@ -2200,12 +2203,10 @@ def _annotation_bool(annotations: dict[str, Any], *keys: str) -> bool | None:
     return None
 
 
-def _normalize_strings(values: list[str]) -> list[str]:
-    return sorted({str(value).strip() for value in values if str(value).strip()})
-
-
 def _normalize_risk_tag_values(values: list[str]) -> list[str]:
-    return sorted({_RISK_TAG_MAP.get(value, value) for value in _normalize_strings(values)})
+    return sorted(
+        {_RISK_TAG_MAP.get(value, value) for value in normalize_declared_strings(values)}
+    )
 
 
 def _normalize_token(value: str) -> str:
