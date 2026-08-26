@@ -826,12 +826,14 @@ Known `policies[].require` paths:
 | `operation` | string |
 | `input_schema_hash` | string |
 
-Built-in current-surface action policies require approval, audit logging, and
-idempotency for financial writes; approval, confirmation, and rollback for
-destructive actions; confirmation and audit logging for external communication;
-and approval for production operations and code execution. They also cover
-wildcard/admin scopes. Diff-only findings add severity for effect escalation,
-declared effect/control downgrades, approval removal, and safeguard removal.
+Built-in current-surface action policies are the *control pack* selected by
+`policies.control_pack` (see [Control Packs](#control-packs)). Under the
+`default` pack they require approval, audit logging, and idempotency for
+financial writes; approval, confirmation, and rollback for destructive actions;
+confirmation and audit logging for external communication; and approval for
+production operations and code execution. They also cover wildcard/admin
+scopes. Diff-only findings add severity for effect escalation, declared
+effect/control downgrades, approval removal, and safeguard removal.
 
 ## Validation Evidence Artifacts
 
@@ -1051,10 +1053,59 @@ checks:
 
 Suppressed findings remain in the JSON report with `suppressed: true`.
 
+## Control Packs
+
+`policies.control_pack` selects which controls each action effect requires. It
+is one answer for the repository, not one per tool: an organization's control
+requirements are a property of the organization, and asking per tool is what
+breeds the copy-paste that breeds wrong answers.
+
+```yaml
+policies:
+  control_pack: default   # default | financial-strict | read-only-agent
+```
+
+| Pack | What it requires |
+|---|---|
+| `default` | Shipgate's built-in requirements. Money, destruction, production operations, code execution, and outbound communication carry controls; a plain write or a privileged read carries none. |
+| `financial-strict` | `default`, plus an audit log and idempotency on every write, an audit trail on privileged reads, approval on identity access, confirmation on financial writes, and rollback on production operations. |
+| `read-only-agent` | `default`, plus approval and an audit log on every state change, outbound message, privileged read, and identity access. Nothing is forbidden — a static scanner cannot forbid — but every non-read becomes an exception someone has to have signed for. |
+
+Omitting the key means `default`; every existing manifest keeps its verdict.
+
+**A pack can only tighten the gate.** Every built-in pack requires at least
+what `default` requires, checked at import and pinned by a test, so choosing
+one can cost work but never coverage — and a report that passes under any pack
+would also have passed under `default`.
+
+**A pack decides which control findings fire, never what a declaration means.**
+The obligation lattice that decides whether a declared effect covers an
+inferred one is the built-in table, unaffected by the selection: a pack that
+required the same controls for two effects still cannot let a declaration of
+one discharge the other.
+
+Effects with no control check of their own — `write`, `privileged_data_access`,
+`identity_access` — report a pack obligation through
+`SHIP-ACTION-POLICY-VIOLATION` at `high`, with the rule named in
+`findings[].evidence.policy_id` as `control-pack:<pack>:<effect>`. Like the
+four dedicated control families, these are mandatory current-surface controls:
+a `checks.ignore` entry records the exception but does not waive the blocker.
+
+Switching to a stricter pack changes the `missing` list on a control finding
+whose requirements grew, and therefore its fingerprint — a baseline entry
+accepting the narrower gap stops matching and the finding re-opens. That is the
+intended direction: an acceptance recorded under looser rules should not carry
+into stricter ones.
+
+`shipgate init --control-pack <id>` writes the selection, and `init --json`
+reports the selected pack and every alternative under `control_pack`.
+
 ## Policy Packs
 
 v0.4 supports local declarative YAML policy packs for organization-specific
-rules. Policy packs are static data: Agents Shipgate reads YAML and never
+rules. These are *additional* rules matched against the tool surface, and are
+independent of the control pack above: the control pack parameterizes the
+built-in checks, while a policy pack adds rules of its own. Policy packs are static data: Agents Shipgate reads YAML and never
 imports Python or executes pack code.
 
 ```yaml

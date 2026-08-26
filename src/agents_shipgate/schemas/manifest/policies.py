@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -48,6 +48,22 @@ def _parse_policy_entries(value: Any) -> list[PolicyToolEntry]:
 class PoliciesConfig(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
+    # #410 §F: which built-in control pack states what each effect obliges.
+    # Chosen once for the repository instead of answered once per tool.
+    # ``None`` means ``default`` — silence has to keep today's rules, or
+    # adding the field would move every existing manifest's verdict. Every
+    # other pack obliges a superset of ``default``, so this answer can only
+    # tighten the gate (``core.control_packs``).
+    control_pack: Literal["default", "financial-strict", "read-only-agent"] | None = (
+        Field(
+            default=None,
+            description=(
+                "Built-in control pack naming which controls each action "
+                "effect obliges. Omit for 'default'. Every pack requires at "
+                "least what 'default' requires."
+            ),
+        )
+    )
     require_approval_for_tools: list[PolicyToolEntry] = Field(default_factory=list)
     require_confirmation_for_tools: list[PolicyToolEntry] = Field(default_factory=list)
     require_idempotency_for_tools: list[PolicyToolEntry] = Field(default_factory=list)

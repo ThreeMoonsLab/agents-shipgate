@@ -46,6 +46,11 @@ from agents_shipgate.cli.setup_control import (
     setup_input_id,
 )
 from agents_shipgate.cli.workspace_guard import require_workspace
+from agents_shipgate.core.control_packs import (
+    BUILTIN_CONTROL_PACKS,
+    CONTROL_PACK_IDS,
+    DEFAULT_CONTROL_PACK_ID,
+)
 from agents_shipgate.core.errors import DiscoveryError
 from agents_shipgate.invocation import render_command
 from agents_shipgate.schemas.agent_control import AgentActionKind
@@ -755,6 +760,18 @@ def register(app: typer.Typer) -> None:
                 "decisions; generated CI stays advisory by default."
             ),
         ),
+        control_pack: str = typer.Option(
+            DEFAULT_CONTROL_PACK_ID,
+            "--control-pack",
+            help=(
+                "Which built-in control pack the manifest selects: which "
+                "controls each action effect requires. One answer for the "
+                "repository instead of one per tool. "
+                f"Choices: {', '.join(CONTROL_PACK_IDS)}. Every pack requires "
+                "at least what 'default' requires, so this can only tighten "
+                "the gate."
+            ),
+        ),
         agent_instructions_kit: Path | None = typer.Option(
             None,
             "--agent-instructions-kit",
@@ -775,6 +792,34 @@ def register(app: typer.Typer) -> None:
         require_workspace(workspace)
         workspace_resolved = workspace.resolve()
         target = workspace / "shipgate.yaml"
+
+        # Validated before any filesystem work, like --agent-instructions
+        # below: a typo here would otherwise be caught by the schema after
+        # the manifest was already written.
+        if control_pack not in CONTROL_PACK_IDS:
+            message = (
+                f"Unknown control pack {control_pack!r}. "
+                f"Expected one of: {', '.join(CONTROL_PACK_IDS)}."
+            )
+            typer.echo(message, err=True)
+            pack_action = NextAction(
+                kind="command",
+                command=render_command(
+                    ["init", "--control-pack", DEFAULT_CONTROL_PACK_ID]
+                ),
+                why=message,
+                expects=(
+                    "shipgate.yaml carrying policies.control_pack with a "
+                    "built-in pack id."
+                ),
+            )
+            _emit_agent_mode_error(
+                "config_error",
+                message=message,
+                next_action=pack_action.to_legacy_string(),
+                next_actions=[pack_action.model_dump(mode="json")],
+            )
+            raise typer.Exit(2)
 
         # Parse --agent-instructions selector early so invalid input fails before
         # any filesystem mutation. ``None`` = flag absent.
@@ -824,7 +869,9 @@ def register(app: typer.Typer) -> None:
         scope_project_roots = 0
         scope_python_files = 0
         if minimal:
-            template = render_manifest_template(workspace_resolved)
+            template = render_manifest_template(
+                workspace_resolved, control_pack=control_pack
+            )
             placeholders = collect_placeholders(template)
             auto_detected: dict[str, object] = {}
             next_action_create = NextAction(
@@ -864,7 +911,9 @@ def register(app: typer.Typer) -> None:
                     next_actions=[action.model_dump(mode="json")],
                 )
                 raise typer.Exit(4) from exc
-            template = render_auto_manifest(workspace_resolved, detect_result)
+            template = render_auto_manifest(
+                workspace_resolved, detect_result, control_pack=control_pack
+            )
             # Validation gate: refuse to emit a manifest the schema would reject.
             try:
                 _validate_manifest_text(template)
@@ -1328,6 +1377,25 @@ def register(app: typer.Typer) -> None:
                 payload["agent_instructions"] = agent_instructions_outcome
             if local_contract_target is not None:
                 payload["local_contract"] = local_contract_target.to_json()
+            # The one question this command asks, and every answer it takes
+            # (#410 §F). Emitted for every run, including a refused one: a
+            # caller that is going to re-run init needs to know what it may
+            # pass, not only what this run happened to select.
+            payload["control_pack"] = {
+                "selected": control_pack,
+                "manifest_path": "policies.control_pack",
+                "available": [
+                    {
+                        "id": pack.id,
+                        "name": pack.name,
+                        "version": pack.version,
+                        "summary": pack.summary,
+                    }
+                    for pack in (
+                        BUILTIN_CONTROL_PACKS[pack_id] for pack_id in CONTROL_PACK_IDS
+                    )
+                ],
+            }
             if gitignore_outcome is not None:
                 payload["gitignore"] = gitignore_outcome.to_json()
             if claude_code_outcome is not None:

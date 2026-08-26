@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "report_schema_version": "0.38",
-  "run_id": "agents_shipgate_68e6c601d170ef92",
+  "run_id": "agents_shipgate_3dbfbfc5f81a5507",
   "request_id": null,
   "subject_id": null,
   "input_set_id": null,
@@ -5999,7 +5999,8 @@
           "financial_action",
           "write"
         ],
-        "policy_match": null
+        "policy_match": null,
+        "control_pack": "default"
       },
       "confidence": "high",
       "provenance_kind": "static_declaration",
@@ -6132,7 +6133,8 @@
           "financial_action",
           "write"
         ],
-        "policy_match": null
+        "policy_match": null,
+        "control_pack": "default"
       },
       "confidence": "high",
       "provenance_kind": "static_declaration",
@@ -6264,7 +6266,8 @@
           "customer_communication",
           "external_write"
         ],
-        "policy_match": null
+        "policy_match": null,
+        "control_pack": "default"
       },
       "confidence": "high",
       "provenance_kind": "static_declaration",
@@ -6536,7 +6539,8 @@
         "missing": [
           "safeguards.audit_log",
           "confirmation.required"
-        ]
+        ],
+        "control_pack": "default"
       },
       "confidence": "high",
       "provenance_kind": "static_declaration",
@@ -6633,7 +6637,8 @@
         "missing": [
           "safeguards.audit_log",
           "confirmation.required"
-        ]
+        ],
+        "control_pack": "default"
       },
       "confidence": "high",
       "provenance_kind": "static_declaration",
@@ -6729,7 +6734,8 @@
           "approval.required",
           "safeguards.audit_log",
           "safeguards.idempotency"
-        ]
+        ],
+        "control_pack": "default"
       },
       "confidence": "high",
       "provenance_kind": "static_declaration",

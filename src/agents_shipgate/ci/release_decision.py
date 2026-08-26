@@ -10,6 +10,10 @@ from agents_shipgate.ci.exit_policy import (
     effective_fail_on,
     exit_code_for_report,
 )
+from agents_shipgate.core.control_packs import (
+    HIGH_IMPACT_APPROVAL_POLICY_ID,
+    is_control_pack_policy_id,
+)
 from agents_shipgate.core.declaration_questions import (
     ANSWERABLE_ISSUE_KINDS,
     DIMENSION_BY_GAP_KIND,
@@ -425,10 +429,16 @@ def build_release_decision(
 def _is_mandatory_current_control(finding: Finding) -> bool:
     if finding.check_id in _MANDATORY_CURRENT_CONTROL_CHECKS:
         return True
-    return (
-        finding.check_id == "SHIP-ACTION-POLICY-VIOLATION"
-        and finding.evidence.get("policy_id") == "builtin-high-impact-approval"
-    )
+    if finding.check_id != "SHIP-ACTION-POLICY-VIOLATION":
+        return False
+    policy_id = finding.evidence.get("policy_id")
+    if policy_id == HIGH_IMPACT_APPROVAL_POLICY_ID:
+        return True
+    # #410 §F: an obligation that exists because the repository selected a
+    # stricter control pack is as built-in as the four above. Routing it
+    # through the generic action-policy id must not make it the one control
+    # a ``checks.ignore`` entry can waive.
+    return is_control_pack_policy_id(policy_id)
 
 
 # Framework source-type prefixes that support an explicit local tool

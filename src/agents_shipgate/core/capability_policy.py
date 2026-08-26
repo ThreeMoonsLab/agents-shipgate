@@ -10,6 +10,7 @@ from agents_shipgate.core.artifact_models import (
 )
 from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.capabilities import build_capability_facts
+from agents_shipgate.core.control_packs import ControlPack
 from agents_shipgate.core.domain import Tool, ToolParameter
 from agents_shipgate.core.policy_evidence import (
     conjunction_status,
@@ -773,21 +774,46 @@ def _contributing_branches(
     return supports
 
 
-def subject_requires_approval_review(subject: CapabilityPolicySubject) -> bool:
+def subject_requires_approval_review(
+    subject: CapabilityPolicySubject,
+    *,
+    pack: ControlPack,
+) -> bool:
+    """Does the selected pack oblige approval for anything this subject does?
+
+    #410 §F. The effect set was written out here —
+    ``{financial_write, destructive, production_operation, code_execution}``
+    — which is exactly the projection ``pack.effects_obliging`` computes, kept
+    in step with the obligation table by hand. Reading it from the pack makes
+    the two one fact, and makes this check answer the manifest's question
+    instead of a fixed one.
+
+    ``pack`` is required rather than defaulted. A default would let a caller
+    that forgot to thread it silently apply ``default``'s rules to a
+    repository that chose a stricter pack — under-reporting, quietly, in a
+    predicate whose whole job is deciding whether a control is missing. A
+    ``TypeError`` is the better failure.
+    """
+
     return bool(
-        _subject_control_effects(subject)
-        & {
-            "financial_write",
-            "destructive",
-            "production_operation",
-            "code_execution",
-        }
+        _subject_control_effects(subject) & pack.effects_obliging("approval.required")
     ) and _missing_approval_policy(subject)
 
 
-def subject_requires_confirmation_review(subject: CapabilityPolicySubject) -> bool:
+def subject_requires_confirmation_review(
+    subject: CapabilityPolicySubject,
+    *,
+    pack: ControlPack,
+) -> bool:
+    """Does the selected pack oblige confirmation for anything this subject does?
+
+    Sibling of :func:`subject_requires_approval_review`; its hand-written set
+    was ``{destructive, external_communication}``.
+    """
+
     return bool(
-        _subject_control_effects(subject) & {"destructive", "external_communication"}
+        _subject_control_effects(subject)
+        & pack.effects_obliging("confirmation.required")
     ) and _missing_confirmation_policy(subject)
 
 

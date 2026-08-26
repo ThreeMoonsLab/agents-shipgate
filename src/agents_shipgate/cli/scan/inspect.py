@@ -14,6 +14,7 @@ from agents_shipgate.core.artifact_models import (
     N8nArtifacts,
     OpenAIApiArtifacts,
 )
+from agents_shipgate.core.control_packs import resolve_control_pack
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.privacy import RedactionStats, redact_data
 from agents_shipgate.inputs.policy_packs import load_policy_packs
@@ -145,10 +146,19 @@ def inspect_sources(
     # Some adapters expose the same warnings through both LoadedToolSource
     # and the artifact bag; keep doctor warning output stable and unique.
     warnings = list(dict.fromkeys(warnings))
+    control_pack = resolve_control_pack(manifest)
     payload = {
         "project": manifest.project.name,
         "agent": manifest.agent.name,
         "config": str(config_path),
+        # #410 §F: the one question `init` asks, read back from the manifest.
+        # An answer nothing repeats is an answer nobody can check.
+        "control_pack": {
+            "id": control_pack.id,
+            "name": control_pack.name,
+            "version": control_pack.version,
+            "declared": manifest.policies.control_pack is not None,
+        },
         "total_tools": len(tools),
         "sources": [
             {

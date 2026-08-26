@@ -15,6 +15,8 @@ from agents_shipgate.cli.diagnostics import (
 )
 from agents_shipgate.cli.discovery import discover_manifest_paths
 from agents_shipgate.cli.scan.orchestrator import run_scan
+from agents_shipgate.core.action_semantics import effect_phrase, join_phrases
+from agents_shipgate.core.control_packs import control_rule_summaries
 from agents_shipgate.core.declaration_questions import progress_sentence
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
@@ -43,6 +45,10 @@ _STRICT_PLUGINS_EXIT_CODE = 4
 # Both truncate with a count, so a wider repo says how much it is not showing.
 _CLI_SUBJECT_LIMIT = 5
 _CLI_ROW_LIMIT = 4
+# Control-pack rules named on the console line. Three covers every rule the
+# built-in ``default`` pack can raise on one scan; a stricter pack that raises
+# more says how many it is not naming.
+_CLI_CONTROL_RULE_LIMIT = 3
 
 
 def _apply_strict_plugins(
@@ -500,6 +506,25 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
         f"medium={summary.medium_count}, low={summary.low_count}, "
         f"suppressed={summary.suppressed_count}"
     )
+    # Which rule wanted the missing controls, named once instead of implied
+    # by N per-tool rows (#410 §F). Same projection the report section reads,
+    # so the console and report.md cannot disagree on the count.
+    control_rules = control_rule_summaries(report.findings)
+    if control_rules:
+        shown = control_rules[:_CLI_CONTROL_RULE_LIMIT]
+        parts = [
+            f"{join_phrases([effect_phrase(e) for e in row.effects])} "
+            f"({row.action_count})"
+            for row in shown
+        ]
+        hidden = len(control_rules) - len(shown)
+        if hidden:
+            noun = "rule" if hidden == 1 else "rules"
+            parts.append(f"and {hidden} more {noun}")
+        typer.echo(
+            f"Control pack: {control_rules[0].pack.id} — actions short of "
+            f"{', '.join(parts)}"
+        )
     action_diff = report.action_surface_diff
     if action_diff.enabled:
         if _action_surface_has_signal(action_diff.summary):

@@ -54,7 +54,7 @@ baseline summary and do not fail CI.
 | `SHIP-POLICY-APPROVAL-MISSING` | critical | A high-risk tool lacks a manifest approval policy. |
 | `SHIP-POLICY-CONFIRMATION-MISSING` | high | A destructive, external-write, or customer-communication tool lacks a confirmation policy. |
 | `SHIP-ACTION-UNDECLARED` | high | A loaded tool lacks explicit action-surface metadata when explicit actions are required. |
-| `SHIP-ACTION-POLICY-VIOLATION` | high | A user-declared action-surface policy requirement is not satisfied. |
+| `SHIP-ACTION-POLICY-VIOLATION` | high | A user-declared action-surface policy, or a selected control pack's obligation, is not satisfied. |
 | `SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING` | critical | A newly added financial write action lacks approval, audit, or idempotency controls. |
 | `SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING` | critical | A newly added destructive action lacks approval or rollback controls. |
 | `SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING` | high | A newly added external communication action lacks audit evidence. |
@@ -259,6 +259,15 @@ tool or disable the explicit-action requirement.
 A user-declared `action_surface.policies[]` rule matched an action, and one or
 more required dot-path values were absent or different. Satisfy the policy
 requirements or narrow/remove the action.
+
+This id also carries two built-in rules, distinguished by
+`evidence.policy_id`. `builtin-high-impact-approval` is the approval a
+production operation or code execution requires. `control-pack:<pack>:<effect>`
+is an obligation the manifest's selected control pack
+(`policies.control_pack`) states about an effect with no control check of its
+own — a plain write, a privileged read, or identity access. Both are mandatory
+current-surface controls: a `checks.ignore` entry records the exception but
+does not waive the blocker.
 
 ### SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING
 

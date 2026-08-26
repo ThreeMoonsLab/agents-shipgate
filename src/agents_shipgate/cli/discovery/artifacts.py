@@ -8,6 +8,10 @@ import threading
 from pathlib import Path
 
 from agents_shipgate.cli.discovery.source_ids import assign_source_ids
+from agents_shipgate.core.control_packs import (
+    DEFAULT_CONTROL_PACK_ID,
+    manifest_control_pack_block,
+)
 from agents_shipgate.core.errors import DiscoveryError
 
 OPENAPI_PATTERNS = (
@@ -236,7 +240,11 @@ def discover_tool_sources(workspace: Path) -> list[dict[str, str]]:
     ]
 
 
-def render_manifest_template(workspace: Path) -> str:
+def render_manifest_template(
+    workspace: Path,
+    *,
+    control_pack: str = DEFAULT_CONTROL_PACK_ID,
+) -> str:
     sources = discover_tool_sources(workspace)
     api_artifacts = discover_openai_api_artifacts(workspace)
     lines = [
@@ -320,6 +328,10 @@ def render_manifest_template(workspace: Path) -> str:
             "# - Add risk_overrides.tools.<tool>.owner for production high-risk tools.",
             "",
             "policies:",
+            # Same one question the auto template asks, rendered by the same
+            # function so the legacy path cannot describe the packs
+            # differently from the path everyone actually uses (#410 §F).
+            *manifest_control_pack_block(control_pack),
             "  require_approval_for_tools: []",
             "  require_confirmation_for_tools: []",
             "  require_idempotency_for_tools: []",

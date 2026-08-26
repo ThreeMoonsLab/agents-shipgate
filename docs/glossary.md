@@ -78,6 +78,15 @@ A JSON file containing an MCP server's `listTools` response, scanned by
 agents-shipgate as a tool source. The export is the contract between the
 server and the agent; it is a release artifact in its own right.
 
+## Control pack
+
+The named rule set saying which controls each *action effect* requires —
+`policies.control_pack: default | financial-strict | read-only-agent`. One
+answer for the repository, chosen at `init`, rather than one answered per
+tool. Every pack requires at least what `default` requires, so the choice can
+only tighten the gate. Distinct from a [policy pack](policy-packs.md), which
+is a local YAML file adding rules of its own.
+
 ## Approval policy
 
 A manifest entry declaring that a specific tool requires a human approval

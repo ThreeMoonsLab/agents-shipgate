@@ -165,6 +165,13 @@ Next validation:
 
 - MCP source declares wildcard tool exposure
 
+## Control Pack
+
+`default` — Shipgate default controls v1. Shipgate's built-in requirements: money, destruction, production operations, code execution, and outbound communication carry controls.
+
+- external communication requires confirmation policy and safeguards.audit\_log — 2 actions short
+- financial write requires approval.required, safeguards.audit\_log, and safeguards.idempotency — 1 action short
+
 ## Tool Surface Summary
 
 - Total tools: 7

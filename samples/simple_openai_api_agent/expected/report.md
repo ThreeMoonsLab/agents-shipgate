@@ -147,6 +147,13 @@ Next validation:
 - Declare operation-specific auth scopes for send\_customer\_email, or explicitly declare anonymous authority when the operation requires no credentials.
 - Declare operation-specific auth scopes for create\_refund, or explicitly declare anonymous authority when the operation requires no credentials.
 
+## Control Pack
+
+`default` — Shipgate default controls v1. Shipgate's built-in requirements: money, destruction, production operations, code execution, and outbound communication carry controls.
+
+- external communication requires confirmation policy and safeguards.audit\_log — 1 action short
+- financial write requires approval.required, safeguards.audit\_log, and safeguards.idempotency — 1 action short
+
 ## Tool Surface Summary
 
 - Total tools: 2

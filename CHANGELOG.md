@@ -2,6 +2,55 @@
 
 ## Unreleased
 
+- **Control packs: the rules layer, chosen once at `init`.** (#410 §F) The rule
+  that a financial write needs approval, an audit log, and idempotency was
+  written four times in the engine, was not selectable, was not named, and was
+  stated nowhere the adopter reads — so seven findings said "lacks a declared
+  approval policy" and none of them said *what* requires one.
+
+  `policies.control_pack` now names the effect → required-controls rule set for
+  the whole repository: `default` (today's rules exactly), `financial-strict`,
+  or `read-only-agent`. `shipgate init --control-pack <id>` writes the
+  selection with a glossary of the alternatives above it, and `init --json`
+  reports the choice and every answer it takes under `control_pack`. Omitting
+  the key means `default`, so every existing manifest keeps its verdict — the
+  sample goldens' findings, severities, `blocks_release`, and release decisions
+  are unchanged.
+
+  **Selecting a pack can only tighten the gate.** Every built-in pack requires
+  at least what `default` requires — asserted at import, and pinned by a real
+  scan across every (pack × effect) pair plus a whole-finding-set comparison,
+  because a table read by eye is not the property that matters. A pack also
+  decides only which control findings *fire*: the obligation lattice that says
+  whether a declared effect covers an inferred one stays the built-in one, so a
+  pack requiring identical controls for two effects still cannot let a
+  declaration of one discharge the other (#413).
+
+  The engine now reads that one table rather than mirroring it. The three
+  dedicated action-control branches, the high-impact approval rule, and the
+  tool-level `SHIP-POLICY-APPROVAL-MISSING` / `SHIP-POLICY-CONFIRMATION-MISSING`
+  effect sets were four hand-maintained copies of the same rows; they are one
+  now. Effects with no control check of their own report a pack obligation
+  through `SHIP-ACTION-POLICY-VIOLATION` at `high`, naming the rule in
+  `evidence.policy_id` as `control-pack:<pack>:<effect>` — and, like the four
+  dedicated families, a `checks.ignore` entry records the exception without
+  waiving the blocker.
+
+  `scan` stdout and `report.md` now name the rule that wanted each missing
+  control, once per rule instead of once per tool: *"financial write requires
+  approval.required, safeguards.audit_log, and safeguards.idempotency — 3
+  actions short"*. Both render one projection, so they cannot report different
+  counts from one report. `SHIP-ACTION-POLICY-VIOLATION`'s built-in title says
+  "without required controls" rather than "without approval", which under a
+  stricter pack was telling an action that *has* approval that it does not.
+
+  No new check ids, no report-schema change, and no CLI command. Findings carry
+  `evidence.control_pack`, excluded from the fingerprint so baselines recorded
+  before the field keep matching; `run_id` does move, because which rules
+  produced a report is part of what that report is. Switching to a stricter
+  pack re-opens baseline entries for control findings whose requirements grew —
+  an acceptance recorded under looser rules should not carry into tighter ones.
+
 - **Human-facing findings are grouped by subject, and a recommendation names
   only what is missing.** (#364) A scan of four money-moving tools produced
   seventeen findings across five check families. The summary showed three of

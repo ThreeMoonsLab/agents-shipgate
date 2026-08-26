@@ -29,13 +29,22 @@ from agents_shipgate.cli.discovery.artifacts import (
 )
 from agents_shipgate.cli.discovery.signals import select_agent_name
 from agents_shipgate.cli.discovery.source_ids import assign_source_ids
+from agents_shipgate.core.control_packs import (
+    DEFAULT_CONTROL_PACK_ID,
+    manifest_control_pack_block,
+)
 from agents_shipgate.schemas.detect import DetectResult
 
 # Frameworks that register one tool_sources entry per candidate file.
 PYTHON_AST_FRAMEWORKS = {"langchain", "crewai", "google_adk", "openai_agents_sdk"}
 
 
-def render_auto_manifest(workspace: Path, detect_result: DetectResult) -> str:
+def render_auto_manifest(
+    workspace: Path,
+    detect_result: DetectResult,
+    *,
+    control_pack: str = DEFAULT_CONTROL_PACK_ID,
+) -> str:
     """Build a schema-valid ``shipgate.yaml`` for a detected workspace.
 
     Falls back to a CHANGE_ME-heavy template when no framework was
@@ -114,7 +123,7 @@ def render_auto_manifest(workspace: Path, detect_result: DetectResult) -> str:
         lines.extend(n8n_lines)
         lines.append("")
 
-    lines.extend(_policies_block())
+    lines.extend(_policies_block(control_pack))
     lines.append("")
     lines.extend(_permissions_block())
     lines.append("")
@@ -345,10 +354,11 @@ def _append_artifact_paths(
         lines.append(f"    - path: {path}")
 
 
-def _policies_block() -> list[str]:
+def _policies_block(control_pack: str) -> list[str]:
     return [
         "# ADD policies for write/high-risk tools (approval, confirmation, idempotency).",
         "policies:",
+        *manifest_control_pack_block(control_pack),
         "  require_approval_for_tools: []",
         "  require_confirmation_for_tools: []",
         "  require_idempotency_for_tools: []",

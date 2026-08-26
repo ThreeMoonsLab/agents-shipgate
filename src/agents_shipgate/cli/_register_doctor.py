@@ -417,6 +417,10 @@ def register(app: typer.Typer) -> None:
             typer.echo(f"Project: {payload['project']}")
             typer.echo(f"Agent: {payload['agent']}")
             typer.echo(f"Total tools: {payload['total_tools']}")
+            pack = payload.get("control_pack")
+            if isinstance(pack, dict):
+                origin = "declared" if pack.get("declared") else "default"
+                typer.echo(f"Control pack: {pack['id']} ({origin})")
             for source in payload["sources"]:
                 typer.echo(
                     f"- {source['id']} ({source['type']}): {source['tool_count']} tools"

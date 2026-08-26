@@ -77,6 +77,21 @@ _CONTROL_ORDER: tuple[str, ...] = (
 )
 
 
+def ordered_controls(paths: Iterable[str]) -> list[str]:
+    """``paths`` in the order a reviewer decides in, unknown paths last.
+
+    Exported so the sentence telling a reader what to declare and the control
+    pack's own rule listing put the same set of controls in the same order.
+    Sorting alphabetically instead reads "confirmation policy and
+    safeguards.audit_log" in one surface and "safeguards.audit_log and
+    confirmation policy" in another, for one rule.
+    """
+
+    wanted = {str(path) for path in paths}
+    known = [path for path in _CONTROL_ORDER if path in wanted]
+    return known + sorted(wanted - set(_CONTROL_ORDER))
+
+
 def builtin_obligations(effect: ActionEffect) -> frozenset[str]:
     """The built-in controls ``effect`` obliges — empty for effects with none."""
 
@@ -149,9 +164,7 @@ def missing_control_recommendation(
     wanted = set(missing) or set().union(
         *(builtin_obligations(effect) for effect in effects), set()
     )
-    known = [path for path in _CONTROL_ORDER if path in wanted]
-    unknown = sorted(wanted - set(_CONTROL_ORDER))
-    phrases = [_CONTROL_PHRASES[path] for path in known] + unknown
+    phrases = [control_phrase(path) for path in ordered_controls(wanted)]
     subject = join_phrases([effect_phrase(effect) for effect in effects])
     return f"Declare {join_phrases(phrases)} for this {subject} action."
 
@@ -176,4 +189,5 @@ __all__ = [
     "join_phrases",
     "missing_control_recommendation",
     "normalize_declared_strings",
+    "ordered_controls",
 ]
