@@ -43,10 +43,14 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from agents_shipgate.core.action_semantics import (
+    ACTION_EFFECT_RANK,
     BUILTIN_EFFECT_OBLIGATIONS,
     ordered_controls,
 )
 from agents_shipgate.schemas.common import Severity
+from agents_shipgate.schemas.manifest.action_surface import (
+    CONTROL_PACK_POLICY_ID_PREFIX as _RESERVED_POLICY_ID_PREFIX,
+)
 from agents_shipgate.schemas.surfaces import ActionEffect
 
 #: The id written to ``policies.control_pack`` when the manifest is silent.
@@ -72,6 +76,30 @@ class ControlPack:
         """The controls ``effect`` obliges under this pack — empty for none."""
 
         return self.obligations.get(effect, frozenset())  # type: ignore[arg-type]
+
+    def run_identity(self) -> dict[str, object]:
+        """The pack as run identity: what it is called *and* what it requires.
+
+        Hashed into ``run_id`` (#410 §F review). Two manifests differing only
+        in their pack enforce different policy, so they are different runs —
+        but before this they could hash identically whenever neither produced
+        a control finding, which is exactly the clean-surface case a reviewer
+        would most want to tell apart.
+
+        The obligations are included rather than only the id and version: a
+        Shipgate release that changes what ``default`` requires changes what
+        the run means, and an id alone would hide that behind a name that did
+        not move.
+        """
+
+        return {
+            "id": self.id,
+            "version": self.version,
+            "obligations": {
+                effect: sorted(controls)
+                for effect, controls in sorted(self.obligations.items())
+            },
+        }
 
     def effects_obliging(self, control: str) -> frozenset[str]:
         """Every effect this pack obliges ``control`` for.
@@ -214,8 +242,9 @@ HIGH_IMPACT_APPROVAL_POLICY_ID = "builtin-high-impact-approval"
 #: ``evidence.policy_id`` prefix for an obligation that exists only because
 #: a pack was selected. Same non-waivable treatment as the rule above: a
 #: suppression explains accepted noise, and it cannot stand in for a control
-#: the repository's own pack says the effect requires.
-CONTROL_PACK_POLICY_ID_PREFIX = "control-pack:"
+#: the repository's own pack says the effect requires. Re-exported from the
+#: manifest schema, which reserves it against user-authored policy ids.
+CONTROL_PACK_POLICY_ID_PREFIX = _RESERVED_POLICY_ID_PREFIX
 
 
 def _assert_packs_extend_default() -> None:
@@ -295,12 +324,41 @@ class ControlRuleSummary:
     action_count: int
 
 
+#: Built-in current-surface controls whose finding a ``checks.ignore`` entry
+#: records but does not waive. Four shipped check ids plus, through
+#: :func:`is_control_pack_finding`, every obligation a selected pack states
+#: about an effect with no check of its own.
+#:
+#: Lives here rather than in the release decision because two consumers read
+#: it: the decision, to keep the blocker, and the human Control Pack section,
+#: to keep explaining a blocker the decision kept. They disagreed, and a
+#: report said BLOCKED while naming nothing that blocked it.
+MANDATORY_CURRENT_CONTROL_CHECKS = frozenset(
+    {
+        "SHIP-ACTION-WILDCARD-SCOPE",
+        "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
+        "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
+        "SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING",
+    }
+)
+
+
+def is_mandatory_current_control(finding) -> bool:
+    """Is ``finding`` a control a suppression cannot waive?"""
+
+    if finding.check_id in MANDATORY_CURRENT_CONTROL_CHECKS:
+        return True
+    if finding.check_id != "SHIP-ACTION-POLICY-VIOLATION":
+        return False
+    return is_control_pack_finding(finding)
+
+
 #: Separator joining the effects one pack rule covers inside a ``policy_id``.
 #: Effect names never contain it, so the id round-trips.
 CONTROL_PACK_EFFECT_SEPARATOR = "+"
 
 
-def control_pack_policy_id(pack_id: str, effects: Sequence[str]) -> str:
+def control_pack_policy_id(effects: Sequence[str]) -> str:
     """``evidence.policy_id`` for one pack rule, written in one place.
 
     Takes the whole effect group rather than one effect: a pack requiring the
@@ -308,52 +366,74 @@ def control_pack_policy_id(pack_id: str, effects: Sequence[str]) -> str:
     action that does both, and the reader has *one* edit to make. Emitting a
     finding per effect would say the same sentence three times about one
     action — the shape #410 exists to remove.
+
+    The **pack name is deliberately absent** (#410 §F review). ``policy_id``
+    is a fingerprint input, and two packs that require the same controls for
+    the same effect state the same rule — naming the pack would re-fingerprint
+    an identical finding on an identical action just because the manifest
+    switched between them, silently dropping the baseline entry that accepted
+    it. Which pack is in force is ``evidence.control_pack``, which is excluded
+    from the fingerprint precisely because it is context rather than identity.
+    Where two packs require *different* controls the ``missing`` rows differ,
+    so the fingerprint still moves — for the reason that actually changed.
     """
 
     joined = CONTROL_PACK_EFFECT_SEPARATOR.join(sorted(effects))
-    return f"{CONTROL_PACK_POLICY_ID_PREFIX}{pack_id}:{joined}"
+    return f"{CONTROL_PACK_POLICY_ID_PREFIX}{joined}"
 
 
-def is_control_pack_policy_id(policy_id: object) -> bool:
-    """Is ``policy_id`` one this engine minted for a pack obligation?
+def is_control_pack_finding(finding) -> bool:
+    """Did *this engine* raise ``finding`` for a pack obligation?
 
-    Matching the bare prefix would also claim a *user* policy someone happened
-    to name ``control-pack:…`` — and this predicate decides whether a finding
-    can be waived by ``checks.ignore``, so it should recognise only ids whose
-    pack segment is a pack that exists.
+    #410 §F review. Deciding this from the ``policy_id`` string alone read a
+    user-authored ``action_surface.policies[].id`` that happened to match the
+    grammar as engine-minted — which would have made that user's own rule
+    non-waivable, and (worse) turned their ``checks.ignore`` entry into a
+    blocker. Provenance is ``evidence.control_pack``, which only this engine
+    writes; the id grammar is checked too, so a stray ``control_pack`` on some
+    other action-policy finding cannot claim the route either.
+
+    ``action_surface.policies[].id`` additionally rejects the reserved prefix
+    at manifest load, so the collision is refused before it can be raised.
+    Both layers are kept: the validator is the guarantee, and this predicate
+    is what a report loaded from disk — written by any build — is judged on.
     """
 
+    evidence = getattr(finding, "evidence", None) or {}
+    if evidence.get("control_pack") not in BUILTIN_CONTROL_PACKS:
+        return False
+    policy_id = evidence.get("policy_id")
+    if policy_id == HIGH_IMPACT_APPROVAL_POLICY_ID:
+        return True
     if not isinstance(policy_id, str) or not policy_id.startswith(
         CONTROL_PACK_POLICY_ID_PREFIX
     ):
         return False
-    remainder = policy_id[len(CONTROL_PACK_POLICY_ID_PREFIX) :]
-    pack_id, _, effects = remainder.partition(":")
-    if pack_id not in BUILTIN_CONTROL_PACKS:
-        return False
-    parts = effects.split(CONTROL_PACK_EFFECT_SEPARATOR)
-    return bool(parts) and all(
-        part in BUILTIN_CONTROL_PACKS[pack_id].obligations for part in parts
+    effects = policy_id[len(CONTROL_PACK_POLICY_ID_PREFIX) :].split(
+        CONTROL_PACK_EFFECT_SEPARATOR
     )
+    return bool(effects) and all(part in ACTION_EFFECT_RANK for part in effects)
 
 
 def finding_control_rule(finding) -> tuple[str, str, tuple[str, ...]] | None:
     """``(pack_id, action_id, effects)`` for one control-rule row, else ``None``.
 
-    The pack id is stamped on the finding rather than looked up from the
-    manifest because the only caller that needs it — the human report — is
-    handed a report, not a workspace. Effects come from the *shipped* check
-    id, or from the pack rule named in ``evidence.policy_id`` where the id is
-    the generic action-policy one.
+    Every field is *stamped by the emitter*, not reconstructed. The first
+    draft recovered the effects from the check id, and from the pack rule
+    named in ``policy_id`` — which was right for the two routes that carry the
+    effect in their identity and wrong for the third: the built-in high-impact
+    rule shares one id between ``production_operation`` and ``code_execution``,
+    so an action doing only one of them was reported as doing both, and the
+    rule row then unioned the obligations of both and demanded a rollback the
+    actual rule never asked for (#410 §F review). Read what the finding says
+    about itself.
 
     A rule row is about an **action**, so the discriminator is an
-    ``action_id`` rather than a list of check ids that are allowed in. The
-    tool-level ``SHIP-POLICY-APPROVAL-MISSING`` carries the pack and speaks
-    about the same missing approval, but about a whole tool: counting it too
-    would report two actions short where one is. Excluding it by naming its
-    check id would be a guard scoped to one id shape — vacuous for the next
-    check that carries a pack — and, as it happens, unreachable today, since
-    that finding has no ``policy_id`` either. The structural test is the one
+    ``action_id``. The tool-level ``SHIP-POLICY-APPROVAL-MISSING`` carries the
+    pack and speaks about the same missing approval, but about a whole tool:
+    counting it too would report two actions short where one is. Excluding it
+    by naming its check id would be a guard scoped to one id shape — vacuous
+    for the next check that carries a pack. The structural test is the one
     that stays true.
     """
 
@@ -364,20 +444,10 @@ def finding_control_rule(finding) -> tuple[str, str, tuple[str, ...]] | None:
     action_id = evidence.get("action_id")
     if not isinstance(action_id, str) or not action_id:
         return None
-    effects = _CHECK_ID_EFFECTS.get(finding.check_id)
-    if effects is not None:
-        return pack_id, action_id, effects
-    policy_id = evidence.get("policy_id")
-    if policy_id == HIGH_IMPACT_APPROVAL_POLICY_ID:
-        return pack_id, action_id, tuple(sorted(HIGH_IMPACT_EFFECTS))
-    if is_control_pack_policy_id(policy_id):
-        joined = str(policy_id).rsplit(":", 1)[-1]
-        return (
-            pack_id,
-            action_id,
-            tuple(sorted(joined.split(CONTROL_PACK_EFFECT_SEPARATOR))),
-        )
-    return None
+    effects = evidence.get("control_effects")
+    if not isinstance(effects, list) or not effects:
+        return None
+    return pack_id, action_id, tuple(sorted(str(effect) for effect in effects))
 
 
 def control_rule_summaries(findings) -> list[ControlRuleSummary]:
@@ -394,7 +464,15 @@ def control_rule_summaries(findings) -> list[ControlRuleSummary]:
 
     counted: dict[tuple[str, tuple[str, ...]], set[str]] = {}
     for finding in findings:
-        if getattr(finding, "suppressed", False):
+        # A suppression explains accepted noise, and for a mandatory
+        # current-surface control it does not waive the blocker — the release
+        # decision keeps it in ``blockers[]``. Dropping those rows here left a
+        # report that says BLOCKED with no Control Pack section and no console
+        # line naming the rule doing the blocking (#410 §F review). One
+        # predicate, shared with the release decision, decides both.
+        if getattr(finding, "suppressed", False) and not is_mandatory_current_control(
+            finding
+        ):
             continue
         rule = finding_control_rule(finding)
         if rule is None:
@@ -532,11 +610,13 @@ __all__ = [
     "ControlPack",
     "ControlRuleSummary",
     "control_pack_by_id",
+    "MANDATORY_CURRENT_CONTROL_CHECKS",
     "control_pack_policy_id",
     "pack_only_effect_groups",
     "manifest_control_pack_block",
     "control_rule_summaries",
     "finding_control_rule",
-    "is_control_pack_policy_id",
+    "is_control_pack_finding",
+    "is_mandatory_current_control",
     "resolve_control_pack",
 ]

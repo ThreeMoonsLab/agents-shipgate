@@ -213,7 +213,49 @@ def _compare(context: ScanContext, base, head) -> list[Finding]:
             )
         )
 
-    # 4. control pack moved to one that requires less of some effect.
+    # 4a. the pack comparison could not be made at all.
+    #
+    # An id neither side's build knows is not "no weakening" — it is "no
+    # answer", and this check's whole discipline is that those are different
+    # claims (#410 §F review). A base report written by a newer build can
+    # name a pack this one has never heard of; returning an empty delta there
+    # let `future-strict -> default` read as a clean comparison. Routed to the
+    # fail-safe id, which is the one that says the comparison could not be
+    # made, under the same touched-policy-surface guard the no-base route
+    # uses.
+    unknown = _unrecognized_pack_ids(base.control_pack, head.control_pack)
+    if unknown:
+        hit = _touched_policy_surfaces(context)
+        if hit:
+            findings.append(
+                verify_finding(
+                    context,
+                    check_id=BASE_ABSENT_CHECK_ID,
+                    title=(
+                        "Control pack comparison unavailable: "
+                        f"{', '.join(unknown)} is not a pack this build knows"
+                    ),
+                    severity="medium",
+                    evidence={
+                        "kind": "control_pack_unrecognized",
+                        "base_control_pack": base.control_pack,
+                        "head_control_pack": head.control_pack,
+                        "unrecognized": unknown,
+                        "changed_policy_files": hit,
+                    },
+                    recommendation=(
+                        "This PR changes a policy trust root, and the control "
+                        "pack recorded on one side is not one this build can "
+                        "resolve — so whether the gate was weakened cannot be "
+                        "proven either way. A human must review the "
+                        "policies.control_pack change directly, or re-run the "
+                        "base scan with a build that knows both packs."
+                    ),
+                )
+            )
+        return findings
+
+    # 4b. control pack moved to one that requires less of some effect.
     #
     # One edit, one finding — the shape ``fail_on_loosened`` already uses,
     # and the reason it matters here: a single changed line drops obligations
@@ -252,6 +294,23 @@ def _compare(context: ScanContext, base, head) -> list[Finding]:
 #: naming. Three is what fits a console line beside the rest of the sentence;
 #: the full list is always in ``evidence.removed_controls``.
 _NAMED_WEAKENED_EFFECTS = 3
+
+
+def _unrecognized_pack_ids(*pack_ids: str | None) -> list[str]:
+    """Pack ids this build cannot resolve — ``None`` is not one of them.
+
+    ``None`` predates the field and resolves to ``default`` (see
+    :func:`_weakened_pack_rules`); an unknown *name* is a different thing and
+    has no obligations to compare.
+    """
+
+    return sorted(
+        {
+            pack_id
+            for pack_id in pack_ids
+            if pack_id is not None and pack_id not in BUILTIN_CONTROL_PACKS
+        }
+    )
 
 
 def _weakening_title(
@@ -315,13 +374,14 @@ def _weakened_pack_rules(
     invariant is enforced here instead of assumed: if a weaker pack were ever
     added, this comparison would report it rather than stay silent.
 
-    An id neither side's build knows cannot be compared in either direction,
-    and a base report from a newer build already fails validation upstream, so
-    the diff is disabled long before this runs.
+    An id neither side's build knows is handled before this is called: see
+    ``_unrecognized_pack_ids`` and the fail-safe branch in ``_compare``.
     """
 
     base_pack = BUILTIN_CONTROL_PACKS.get(base_pack_id or DEFAULT_CONTROL_PACK_ID)
     head_pack = BUILTIN_CONTROL_PACKS.get(head_pack_id or DEFAULT_CONTROL_PACK_ID)
+    # Unresolvable ids never reach here — ``_compare`` routes them to the
+    # fail-safe first, because "cannot compare" is not "nothing changed".
     if base_pack is None or head_pack is None or base_pack.id == head_pack.id:
         return []
     weakened: list[tuple[str, list[str]]] = []

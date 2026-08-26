@@ -135,7 +135,7 @@ def test_one_rule_is_one_finding_however_many_effects_share_it(
     ]
     assert len(rows) == 1, [row.evidence.get("policy_id") for row in rows]
     policy_id = rows[0].evidence["policy_id"]
-    assert policy_id == "control-pack:read-only-agent:privileged_data_access+write"
+    assert policy_id == "control-pack:privileged_data_access+write"
     summaries = control_rule_summaries(report.findings)
     assert [row.effects for row in summaries] == [
         ("privileged_data_access", "write")
@@ -371,35 +371,80 @@ checks:
     assert "SHIP-ACTION-POLICY-VIOLATION" in blocked
 
 
+def _policy_violation(**evidence) -> Finding:
+    return Finding(
+        check_id="SHIP-ACTION-POLICY-VIOLATION",
+        title="t",
+        severity="high",
+        category="action_surface",
+        evidence=evidence,
+        recommendation="r",
+        tool_id="tool-1",
+    )
+
+
 @pytest.mark.parametrize(
-    "policy_id, recognised",
+    "evidence, recognised",
     [
-        ("control-pack:read-only-agent:write", True),
-        ("control-pack:default:financial_write", True),
-        ("control-pack:read-only-agent:privileged_data_access+write", True),
-        # A user policy that merely starts with the prefix is not one of ours.
-        ("control-pack:my-org:write", False),
-        ("control-pack:default:not_an_effect", False),
-        ("control-pack:default:write+not_an_effect", False),
-        ("control-pack:", False),
-        ("control-pack:default", False),
-        ("builtin-high-impact-approval", False),
-        (None, False),
-        (17, False),
+        # Engine-minted: the pack is stamped and the id is in the grammar.
+        ({"policy_id": "control-pack:write", "control_pack": "read-only-agent"}, True),
+        (
+            {
+                "policy_id": "control-pack:privileged_data_access+write",
+                "control_pack": "read-only-agent",
+            },
+            True,
+        ),
+        ({"policy_id": "builtin-high-impact-approval", "control_pack": "default"}, True),
+        # A *user* policy that took the grammar. Without engine provenance it
+        # is their rule, and making it non-waivable would turn their own
+        # suppression of it into a blocker.
+        ({"policy_id": "control-pack:write"}, False),
+        # Provenance without the grammar is not this route either.
+        ({"policy_id": "org-approval", "control_pack": "default"}, False),
+        ({"policy_id": "control-pack:not_an_effect", "control_pack": "default"}, False),
+        ({"policy_id": "control-pack:", "control_pack": "default"}, False),
+        ({"policy_id": "control-pack:write", "control_pack": "made-up"}, False),
+        ({"control_pack": "default"}, False),
+        ({}, False),
     ],
 )
-def test_only_ids_this_engine_minted_are_read_as_pack_rules(
-    policy_id: object, recognised: bool
+def test_only_findings_this_engine_raised_are_read_as_pack_rules(
+    evidence: dict, recognised: bool
 ) -> None:
-    """The predicate decides waivability, so a bare prefix match is too coarse.
+    """Provenance is the stamp, not the string.
 
-    It would claim a user-declared ``action_surface.policies`` rule someone
-    named ``control-pack:…`` and quietly make their own rule non-waivable.
+    Deciding this from ``policy_id`` alone read a user-authored
+    ``action_surface.policies[].id`` in the same grammar as engine-minted —
+    silently non-waivable, and their suppression of it promoted to a blocker.
     """
 
-    from agents_shipgate.core.control_packs import is_control_pack_policy_id
+    from agents_shipgate.core.control_packs import is_control_pack_finding
 
-    assert is_control_pack_policy_id(policy_id) is recognised
+    assert is_control_pack_finding(_policy_violation(**evidence)) is recognised
+
+
+def test_the_manifest_refuses_the_reserved_policy_id_prefix() -> None:
+    """The second layer: the collision is refused before it can be raised."""
+
+    data = _manifest_dict()
+    data["action_surface"] = {
+        "policies": [
+            {
+                "id": "control-pack:write",
+                "severity": "high",
+                "require": {"approval.required": True},
+            }
+        ]
+    }
+    with pytest.raises(Exception) as excinfo:
+        AgentsShipgateManifest.model_validate(data)
+    message = str(excinfo.value)
+    assert "reserved" in message
+    assert "policies.control_pack" in message
+    # …and an ordinary organization id is untouched.
+    data["action_surface"]["policies"][0]["id"] = "ORG-REQUIRE-APPROVAL"
+    AgentsShipgateManifest.model_validate(data)
 
 
 @pytest.mark.parametrize(
@@ -410,10 +455,7 @@ def test_only_ids_this_engine_minted_are_read_as_pack_rules(
         # And with a policy_id, because excluding this finding by naming its
         # check id would be unreachable *today* and vacuous tomorrow: the
         # reason it is not a rule row is that it is not about an action.
-        {
-            "control_pack": "default",
-            "policy_id": "control-pack:default:financial_write",
-        },
+        {"control_pack": "default", "policy_id": "control-pack:financial_write"},
     ],
 )
 def test_a_finding_about_a_tool_is_not_a_rule_row(tool_level_evidence: dict) -> None:
@@ -434,6 +476,7 @@ def test_a_finding_about_a_tool_is_not_a_rule_row(tool_level_evidence: dict) -> 
                 "action_id": "a1",
                 "missing": ["approval.required"],
                 "control_pack": "default",
+                "control_effects": ["financial_write"],
             },
             recommendation="r",
             tool_id="tool-1",
@@ -636,12 +679,16 @@ def _policy_context(head_pack: str | None, base_pack: str | None):
     )
 
 
-def _weakenings(head_pack: str | None, base_pack: str | None) -> list:
+def _run_policy_check(head_pack: str | None, base_pack: str | None) -> list:
     from agents_shipgate.checks import verify_policy
 
+    return verify_policy.run(_policy_context(head_pack, base_pack))
+
+
+def _weakenings(head_pack: str | None, base_pack: str | None) -> list:
     return [
         finding
-        for finding in verify_policy.run(_policy_context(head_pack, base_pack))
+        for finding in _run_policy_check(head_pack, base_pack)
         if finding.evidence.get("kind") == "control_pack_weakened"
     ]
 
@@ -801,6 +848,146 @@ def test_the_snapshot_publishes_the_pack_in_force(tmp_path: Path) -> None:
     assert report.effective_policy.control_pack == "read-only-agent"
 
 
+def test_an_unrecognized_base_pack_is_not_read_as_no_weakening() -> None:
+    """"Cannot compare" and "nothing changed" are different claims.
+
+    A base report written by a build that knows a pack this one does not
+    resolves to no delta at all, so ``future-strict -> default`` read as a
+    clean comparison. It routes to the fail-safe id — the one whose whole job
+    is saying the comparison could not be made — rather than to a weakening
+    claim nothing can support.
+    """
+
+    from agents_shipgate.checks.verify_policy import BASE_ABSENT_CHECK_ID
+
+    findings = _run_policy_check(DEFAULT_CONTROL_PACK_ID, "future-strict")
+    assert [f.check_id for f in findings] == [BASE_ABSENT_CHECK_ID]
+    evidence = findings[0].evidence
+    assert evidence["kind"] == "control_pack_unrecognized"
+    assert evidence["unrecognized"] == ["future-strict"]
+    assert evidence["base_control_pack"] == "future-strict"
+    assert evidence["head_control_pack"] == DEFAULT_CONTROL_PACK_ID
+    # And no weakening finding is invented beside it.
+    assert not _weakenings(DEFAULT_CONTROL_PACK_ID, "future-strict")
+
+
+def test_the_high_impact_rule_reports_only_the_effects_the_action_has(
+    tmp_path: Path,
+) -> None:
+    """One id serves two effects; the finding must not inherit both.
+
+    Recovering the effects from ``builtin-high-impact-approval`` reported a
+    code-execution action as also operating on production — and the rule row
+    then unioned the obligations of both and demanded ``safeguards.rollback``,
+    which is `production_operation`'s requirement under ``financial-strict``
+    and nothing this action was ever asked for.
+    """
+
+    report = _scan_effect(
+        tmp_path / "high-impact", "code_execution", pack_id="financial-strict"
+    )
+    rows = [
+        finding
+        for finding in report.findings
+        if finding.check_id == "SHIP-ACTION-POLICY-VIOLATION"
+    ]
+    assert len(rows) == 1
+    assert rows[0].evidence["control_effects"] == ["code_execution"]
+    summaries = control_rule_summaries(report.findings)
+    assert [row.effects for row in summaries] == [("code_execution",)]
+    assert set(summaries[0].controls) == set(
+        BUILTIN_CONTROL_PACKS["financial-strict"].obligations_for("code_execution")
+    )
+    assert "safeguards.rollback" not in summaries[0].controls
+
+
+def test_a_suppressed_mandatory_control_still_explains_the_blocker(
+    tmp_path: Path,
+) -> None:
+    """A report cannot say BLOCKED and name nothing that blocks it.
+
+    The release decision keeps a mandatory current-surface control blocking
+    through a ``checks.ignore`` entry. The summary dropped every suppressed
+    finding, so that report rendered no Control Pack section and no console
+    line — the blocker was real and unexplained. One predicate now decides
+    both.
+    """
+
+    workspace = tmp_path / "suppressed-visible"
+    report = _scan_effect(
+        workspace,
+        "financial_write",
+        extra="""
+checks:
+  ignore:
+    - check_id: SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING
+      tool: act
+      reason: accepted for this test
+""",
+    )
+    decision = report.release_decision
+    assert decision is not None
+    assert "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING" in {
+        item.check_id for item in decision.blockers
+    }
+    summaries = control_rule_summaries(report.findings)
+    assert [row.effects for row in summaries] == [("financial_write",)]
+    text = (workspace / "out" / "report.md").read_text(encoding="utf-8")
+    assert "## Control Pack" in text
+    assert "financial write requires" in text
+
+
+@pytest.mark.parametrize(
+    "effect, expected_check",
+    [
+        # The pack-only route, which is where the pack name lived in the id.
+        ("identity_access", "SHIP-ACTION-POLICY-VIOLATION"),
+        # …and a dedicated route, whose id never carried it. Named explicitly
+        # so this case cannot quietly become a second copy of the first.
+        (
+            "external_communication",
+            "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
+        ),
+    ],
+)
+def test_equivalent_rules_keep_one_fingerprint_across_packs(
+    tmp_path: Path, effect: str, expected_check: str
+) -> None:
+    """A baseline entry survives a move between packs that ask the same thing.
+
+    ``policy_id`` used to embed the pack name, so the same missing control on
+    the same action re-fingerprinted on a switch between packs whose rule for
+    that effect is identical — silently dropping the accepted-debt entry. The
+    pack is context (``evidence.control_pack``, excluded from the
+    fingerprint); the rule is the effects and what they require.
+    """
+
+    pack_a, pack_b = "financial-strict", "read-only-agent"
+    assert BUILTIN_CONTROL_PACKS[pack_a].obligations_for(effect) == (
+        BUILTIN_CONTROL_PACKS[pack_b].obligations_for(effect)
+    ), "fixture assumes these two packs state one rule for this effect"
+    a = _scan_effect(tmp_path / f"{pack_a}-{effect}", effect, pack_id=pack_a)
+    b = _scan_effect(tmp_path / f"{pack_b}-{effect}", effect, pack_id=pack_b)
+    assert expected_check in {
+        finding.check_id for finding in a.findings
+    }, "fixture must exercise the route it names"
+    assert _control_fingerprints(a) == _control_fingerprints(b)
+
+
+def test_a_pack_that_asks_for_more_does_move_the_fingerprint(
+    tmp_path: Path,
+) -> None:
+    """The other half: a rule that grew is a different row, and must re-open.
+
+    Stability across equivalent packs would be a fail-open if it also held
+    where the requirement changed.
+    """
+
+    base = _scan_effect(tmp_path / "write-fs", "write", pack_id="financial-strict")
+    grown = _scan_effect(tmp_path / "write-ro", "write", pack_id="read-only-agent")
+    assert _control_fingerprints(base) != _control_fingerprints(grown)
+
+
 # --------------------------------------------------------------------------
 # init: the one question, and every answer it takes
 # --------------------------------------------------------------------------
@@ -944,6 +1131,144 @@ def test_init_says_nothing_it_cannot_know_about_a_manifest_that_is_not_there(
     assert "control_pack: read-only-agent" in payload["template"]
 
 
+def _init_workspace(tmp_path: Path, name: str) -> Path:
+    workspace = tmp_path / name
+    workspace.mkdir(parents=True, exist_ok=True)
+    (workspace / "tools.json").write_text(
+        json.dumps({"tools": [{"name": "act", "description": "An action."}]}),
+        encoding="utf-8",
+    )
+    return workspace
+
+
+@pytest.mark.parametrize("pack_id", _NON_DEFAULT_PACKS)
+def test_the_route_a_dry_run_emits_writes_the_pack_the_dry_run_was_asked_for(
+    tmp_path: Path, pack_id: str
+) -> None:
+    """Run the emitted argv, not a reconstruction of it (#410 §F review).
+
+    ``_requested_setup_flags`` did not carry ``--control-pack``, so a dry run
+    with a non-default pack handed back a machine-readable command that wrote
+    ``default`` — the agent-mode promise is that following the route completes
+    the setup that was asked for.
+    """
+
+    workspace = _init_workspace(tmp_path, f"route-{pack_id}")
+    dry = runner.invoke(
+        app,
+        ["init", "--workspace", str(workspace), "--control-pack", pack_id, "--json"],
+    )
+    assert dry.exit_code == 0, dry.output
+    payload = json.loads(dry.stdout)
+    argv = payload["next_actions"][0]["args"]
+    assert f"--control-pack={pack_id}" in argv
+
+    executed = runner.invoke(app, argv)
+    assert executed.exit_code == 0, executed.output
+    manifest = (workspace / "shipgate.yaml").read_text(encoding="utf-8")
+    assert f"control_pack: {pack_id}" in manifest
+
+
+def test_two_packs_do_not_share_one_route_identity(tmp_path: Path) -> None:
+    """A cache keyed by the documented identity must not reuse another answer."""
+
+    seen = {}
+    for pack_id in CONTROL_PACK_IDS:
+        workspace = _init_workspace(tmp_path, f"identity-{pack_id}")
+        result = runner.invoke(
+            app,
+            [
+                "init",
+                "--workspace",
+                str(workspace),
+                "--control-pack",
+                pack_id,
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        seen[pack_id] = json.loads(result.stdout)["control"]["input_id"]
+    assert len(set(seen.values())) == len(CONTROL_PACK_IDS), seen
+
+
+def test_the_unresolved_scope_route_carries_the_pack(tmp_path: Path) -> None:
+    """The refusal route is a rerun too, and reruns repeat what was asked."""
+
+    workspace = tmp_path / "multi"
+    for name in ("alpha", "beta"):
+        project = workspace / name
+        project.mkdir(parents=True)
+        (project / "pyproject.toml").write_text(
+            f'[project]\nname = "{name}"\n', encoding="utf-8"
+        )
+        (project / "agent.py").write_text(
+            "from google.adk.agents import Agent\n"
+            "def act() -> str:\n    return 'ok'\n"
+            f"root_agent = Agent(name='{name}', tools=[act])\n",
+            encoding="utf-8",
+        )
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            "--workspace",
+            str(workspace),
+            "--write",
+            "--control-pack",
+            "read-only-agent",
+            "--json",
+        ],
+    )
+    payload = json.loads(result.stdout)
+    if payload["manifest_status"] != "refused_unresolved_scope":
+        pytest.skip("workspace did not produce an unresolved scope")
+    commands = [action.get("command") or "" for action in payload["next_actions"]]
+    assert commands, payload
+    assert any("--control-pack=read-only-agent" in command for command in commands), (
+        commands
+    )
+
+
+def test_the_invalid_pack_recovery_repeats_the_run_it_corrects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A recovery that drops --workspace runs somewhere else entirely."""
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    workspace = _init_workspace(tmp_path, "bad-pack")
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            "--workspace",
+            str(workspace),
+            "--write",
+            "--json",
+            "--ci",
+            "--control-pack",
+            "strict",
+        ],
+    )
+    assert result.exit_code == 2
+    # The structured route rides the error stream, beside the human line.
+    payload = json.loads(
+        next(
+            line
+            for line in reversed((result.stderr or result.output).splitlines())
+            if line.startswith("{")
+        )
+    )
+    argv = payload["next_actions"][0]["args"]
+    assert "--workspace" in argv
+    assert str(workspace.resolve()) in argv
+    assert "--write" in argv
+    assert "--json" in argv
+    assert "--ci" in argv
+    # The corrected value is the one the command assumes when the flag is
+    # absent, so it is not repeated.
+    assert not any(arg.startswith("--control-pack") for arg in argv)
+
+
 def test_init_refuses_an_unknown_pack_before_writing_anything(tmp_path: Path) -> None:
     workspace = tmp_path / "bad"
     workspace.mkdir()
@@ -1029,6 +1354,42 @@ def test_the_minimal_template_offers_the_same_choice(tmp_path: Path) -> None:
     assert "control_pack: financial-strict" in text
     for pack_id in CONTROL_PACK_IDS:
         assert pack_id in text
+
+
+# --------------------------------------------------------------------------
+# Run identity
+# --------------------------------------------------------------------------
+
+
+def test_a_clean_surface_still_tells_two_packs_apart(tmp_path: Path) -> None:
+    """Two manifests enforcing different policy are two different runs.
+
+    ``run_id`` hashed the findings but not the rules that produced them, so a
+    workspace clean under every pack — no control finding to differ — hashed
+    identically under all three while enforcing three different policies
+    (#410 §F review). The pack's obligations are hashed, not only its name,
+    so a release that changes what ``default`` requires moves it too.
+    """
+
+    run_ids = {}
+    for pack_id in CONTROL_PACK_IDS:
+        report = _scan_effect(tmp_path / f"identity-{pack_id}", "read", pack_id=pack_id)
+        assert report.findings == [] or all(
+            finding.check_id not in _CONTROL_CHECKS for finding in report.findings
+        ), "fixture must be clean of control findings for this to mean anything"
+        run_ids[pack_id] = report.run_id
+    assert len(set(run_ids.values())) == len(CONTROL_PACK_IDS), run_ids
+
+
+def test_the_run_identity_covers_what_a_pack_requires_not_only_its_name() -> None:
+    from agents_shipgate.core.control_packs import DEFAULT_CONTROL_PACK
+
+    identity = DEFAULT_CONTROL_PACK.run_identity()
+    assert identity["id"] == DEFAULT_CONTROL_PACK_ID
+    assert identity["version"] == DEFAULT_CONTROL_PACK.version
+    assert identity["obligations"]["financial_write"] == sorted(
+        DEFAULT_CONTROL_PACK.obligations_for("financial_write")
+    )
 
 
 # --------------------------------------------------------------------------
@@ -1160,6 +1521,14 @@ def _fingerprints(report) -> set[str]:
         finding.fingerprint
         for finding in report.findings
         if finding.fingerprint is not None
+    }
+
+
+def _control_fingerprints(report) -> set[str]:
+    return {
+        finding.fingerprint
+        for finding in report.findings
+        if finding.fingerprint is not None and finding.check_id in _CONTROL_CHECKS
     }
 
 

@@ -49,19 +49,39 @@
   a control pack answers *does the same action still produce the finding?*,
   which is the other way a gate gets weaker — and the one a base-vs-head
   comparison could not see. `effective_policy.control_pack` (report schema
-  `0.38 → 0.39`, additive, v0.38 frozen) publishes the pack in force, and
+  `0.39 → 0.40`, additive, v0.39 frozen) publishes the pack in force, and
   `SHIP-VERIFY-POLICY-WEAKENED` gains `kind: control_pack_weakened`: one
   finding per pack move carrying `removed_controls[] = {effect, controls}`.
   A base snapshot with no pack predates the field and is compared as
   `default`, so the "no pack is weaker than default" invariant is enforced by
-  the comparison rather than assumed by it.
+  the comparison rather than assumed by it. A snapshot naming a pack the build
+  cannot resolve is the other case and is not read as "no weakening": it
+  routes to `SHIP-VERIFY-POLICY-BASE-ABSENT` with
+  `kind: control_pack_unrecognized`, the reason code that says the comparison
+  could not be made.
 
-  No new check ids and no new CLI command. Findings carry
-  `evidence.control_pack`, excluded from the fingerprint so baselines recorded
-  before the field keep matching; `run_id` does move, because which rules
-  produced a report is part of what that report is. Switching to a stricter
-  pack re-opens baseline entries for control findings whose requirements grew —
-  an acceptance recorded under looser rules should not carry into tighter ones.
+  **A finding says which rules it is about, and identity follows.** Every
+  control finding stamps `evidence.control_pack` and `evidence.control_effects`
+  — the effects the rule actually matched, not its whole category, because one
+  id serves both high-impact effects and recovering them from it reported a
+  code-execution action as also operating on production. Both are excluded
+  from the fingerprint, so baselines recorded before the fields keep matching.
+  `run_id` now hashes the pack's id, version, and canonical obligations: two
+  manifests enforcing different policy are different runs even where neither
+  produces a control finding. The pack-only `policy_id` is
+  `control-pack:<effects>` with **no** pack name — it is a fingerprint input,
+  and two packs asking the same thing state one rule, so naming the pack would
+  re-open a baseline entry on a move that changed nothing. That prefix is
+  reserved: `action_surface.policies[].id` rejects it at manifest load, and
+  non-waivability is decided from `evidence.control_pack` rather than from the
+  id string, so a user policy cannot inherit the treatment.
+
+  No new check ids and no new CLI command. `init`'s recovery routes repeat the
+  selected pack, so following an emitted `next_action` completes the setup that
+  was asked for. Switching to a stricter pack re-opens baseline entries for
+  control findings whose requirements grew — an acceptance recorded under
+  looser rules should not carry into tighter ones — while a move between packs
+  that require the same controls re-opens nothing.
 
 - **Human-facing findings are grouped by subject, and a recommendation names
   only what is missing.** (#364) A scan of four money-moving tools produced

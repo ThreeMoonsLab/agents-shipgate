@@ -189,6 +189,7 @@ def _requested_setup_flags(
     ci: bool,
     claude_code: bool,
     agent_instructions: str | None,
+    control_pack: str = DEFAULT_CONTROL_PACK_ID,
 ) -> list[str]:
     """The setup this invocation asked for, as flags a rerun must repeat.
 
@@ -196,6 +197,15 @@ def _requested_setup_flags(
     selection completes with less than the caller requested and reports
     success for it. Mirrors ``_rerun_options`` in the verifier, for the
     same reason.
+
+    ``--control-pack`` is repeated only when it is not the default (#410 §F
+    review). The recovery argv has to *complete what was asked for*, and
+    omitting a flag whose value the command already assumes completes exactly
+    that — the manifest it writes is byte-identical either way. Repeating it
+    unconditionally would instead rewrite every existing route string, and
+    with it every route identity, to say something the previous string already
+    meant. This rests on "omitting the key means ``default``", which
+    ``STABILITY.md`` pins.
 
     ``--agent-instructions-kit`` is deliberately not here: it is a path,
     and a path is only meaningful relative to a workspace. See
@@ -207,9 +217,41 @@ def _requested_setup_flags(
         flags.append("--ci")
     if claude_code:
         flags.append("--claude-code")
+    if control_pack != DEFAULT_CONTROL_PACK_ID:
+        flags.append(f"--control-pack={control_pack}")
     if agent_instructions is not None:
         flags.append(f"--agent-instructions={agent_instructions}")
     return flags
+
+
+def _recovery_command(
+    *,
+    workspace: Path,
+    write: bool,
+    json_output: bool,
+    setup_flags: Sequence[str],
+) -> str:
+    """The argv that re-runs *this* invocation with the bad value corrected.
+
+    #410 §F review. An early-validation route used to render a bare
+    ``init --control-pack default``, dropping the workspace, the ``--write``
+    that made it a real run, and the ``--json`` the caller is reading the
+    answer through — so following the recovery exactly produced a dry run
+    against the wrong directory and printed prose to a JSON consumer. Both
+    early-validation routes build their command here, because two routes
+    spelling the same recovery two ways is how one of them stays wrong.
+    """
+
+    return render_command(
+        [
+            "init",
+            "--workspace",
+            str(workspace),
+            *(["--write"] if write else []),
+            *setup_flags,
+            *(["--json"] if json_output else []),
+        ]
+    )
 
 
 def _unresolved_scope_message(
@@ -831,8 +873,17 @@ def register(app: typer.Typer) -> None:
             typer.echo(message, err=True)
             pack_action = NextAction(
                 kind="command",
-                command=render_command(
-                    ["init", "--control-pack", DEFAULT_CONTROL_PACK_ID]
+                command=_recovery_command(
+                    workspace=workspace_resolved,
+                    write=write,
+                    json_output=json_output,
+                    # The rest of the requested setup, with the bad pack
+                    # replaced by the one this command assumes.
+                    setup_flags=_requested_setup_flags(
+                        ci=ci,
+                        claude_code=claude_code,
+                        agent_instructions=agent_instructions,
+                    ),
                 ),
                 why=message,
                 expects=(
@@ -868,7 +919,19 @@ def register(app: typer.Typer) -> None:
                     next_actions=[
                         NextAction(
                             kind="command",
-                            command="agents-shipgate init --agent-instructions=default",
+                            # Same rule as the control-pack route above: the
+                            # recovery repeats the run it is correcting.
+                            command=_recovery_command(
+                                workspace=workspace_resolved,
+                                write=write,
+                                json_output=json_output,
+                                setup_flags=_requested_setup_flags(
+                                    ci=ci,
+                                    claude_code=claude_code,
+                                    agent_instructions="default",
+                                    control_pack=control_pack,
+                                ),
+                            ),
                             why=str(exc),
                             expects=(
                                 "Snippets render for the recommended downstream "
@@ -1202,6 +1265,7 @@ def register(app: typer.Typer) -> None:
                     ci=ci,
                     claude_code=claude_code,
                     agent_instructions=agent_instructions,
+                    control_pack=control_pack,
                 ),
                 kit=agent_instructions_kit,
                 truncated=scope_truncated,
@@ -1218,6 +1282,7 @@ def register(app: typer.Typer) -> None:
                         ci=ci,
                         claude_code=claude_code,
                         agent_instructions=agent_instructions,
+                        control_pack=control_pack,
                     ),
                 ],
                 # With an instruction target selected, `init --write` leaves an
@@ -1284,6 +1349,7 @@ def register(app: typer.Typer) -> None:
                     ci=ci,
                     claude_code=claude_code,
                     agent_instructions=agent_instructions,
+                    control_pack=control_pack,
                 ),
                 *(["--allow-unresolved-scope"] if allow_unresolved_scope else []),
                 *(

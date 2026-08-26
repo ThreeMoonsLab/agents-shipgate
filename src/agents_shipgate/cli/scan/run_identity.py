@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 
+from agents_shipgate.core.control_packs import resolve_control_pack
 from agents_shipgate.core.domain import Tool
 from agents_shipgate.core.findings.summaries import tool_inventory
 from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment
@@ -36,6 +37,12 @@ def _run_id(
     binding_graph: AgentBindingGraphAssessment | None = None,
 ) -> str:
     payload = {
+        # #410 §F: which control rules produced this report. Derived from the
+        # manifest here rather than read from ``report.effective_policy``,
+        # which is assigned after this hash is taken — and taken from the same
+        # single reader every other consumer uses, so run identity cannot
+        # disagree with the rules the scan applied.
+        "control_pack": resolve_control_pack(manifest).run_identity(),
         "project": project
         if project is not None
         else manifest.project.model_dump(mode="json", exclude_none=False),

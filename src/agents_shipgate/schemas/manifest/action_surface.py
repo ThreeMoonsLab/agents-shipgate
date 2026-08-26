@@ -15,6 +15,13 @@ from agents_shipgate.schemas.text import (
     has_visible_content,
 )
 
+#: Reserved namespace for ``evidence.policy_id`` values this engine mints for
+#: a selected control pack's obligations (#410 §F). Declared beside the field
+#: it constrains — ``action_surface.policies[].id`` refuses it — and imported
+#: by ``core.control_packs``, which mints them, so the reserving side and the
+#: using side cannot drift.
+CONTROL_PACK_POLICY_ID_PREFIX = "control-pack:"
+
 ActionEffect = Literal[
     "read",
     "write",
@@ -358,6 +365,29 @@ class ActionPolicyConfig(BaseModel):
     block: bool = True
     message: str | None = None
     recommendation: str | None = None
+
+    @field_validator("id")
+    @classmethod
+    def _reserved_policy_id_prefix(cls, value: str) -> str:
+        """``control-pack:`` names a rule the engine raises, not one you write.
+
+        #410 §F review. Findings from a selected control pack route through
+        ``SHIP-ACTION-POLICY-VIOLATION`` and are mandatory current-surface
+        controls — a ``checks.ignore`` entry records the exception without
+        waiving the blocker. A user policy that happened to take an id in that
+        grammar would inherit the treatment: their own rule silently
+        non-waivable, and their own suppression of it turned into a blocker.
+        Reserved the same way ``SHIP-`` is reserved for built-in check ids.
+        """
+
+        if value.startswith(CONTROL_PACK_POLICY_ID_PREFIX):
+            raise ValueError(
+                f"action_surface.policies id {value!r} uses the reserved "
+                f"{CONTROL_PACK_POLICY_ID_PREFIX!r} prefix, which names rules "
+                "raised by the manifest's policies.control_pack. Choose an "
+                "organization-namespaced id instead."
+            )
+        return value
 
     @model_validator(mode="after")
     def validate_require_value_types(self) -> ActionPolicyConfig:

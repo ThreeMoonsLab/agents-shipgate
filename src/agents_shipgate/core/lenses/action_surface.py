@@ -1609,6 +1609,12 @@ def _current_action_policy_findings(
                             for path in missing
                         ],
                         "control_pack": pack.id,
+                        # The effects this action actually has, not the whole
+                        # category. One id serves both high-impact effects, so
+                        # recovering them from it reported a code-execution
+                        # action as also operating on production — and then
+                        # demanded production's rollback (#410 §F review).
+                        "control_effects": sorted(high_impact_effects),
                     },
                     # One obligation, so this sentence cannot name a
                     # control the reader already declared — but it used to
@@ -1690,10 +1696,11 @@ def _pack_only_control_findings(
                 action=action,
                 agent_id=agent_id,
                 evidence={
-                    "policy_id": control_pack_policy_id(pack.id, effects),
+                    "policy_id": control_pack_policy_id(effects),
                     "action_id": action.action_id,
                     "missing": [{"path": path, "expected": True} for path in missing],
                     "control_pack": pack.id,
+                    "control_effects": list(effects),
                 },
                 recommendation=missing_control_recommendation(list(effects), missing),
                 blocks_release=True,
@@ -1916,12 +1923,14 @@ def _builtin_control_finding(
         evidence={
             "action_id": action.action_id,
             "missing": missing,
-            # Which rule set asked for these. Excluded from the fingerprint
+            # Which rule set asked for these, and which effects it asked
+            # about. Both are excluded from the fingerprint
             # (``FINGERPRINT_EXCLUDED_EVIDENCE_KEYS``) because the finding is
-            # "this action lacks an audit log" either way — the pack changes
-            # who asked, not what is wrong or how to fix it, and baselines
-            # recorded before the field existed have to keep matching.
+            # "this action lacks an audit log" either way — they change who
+            # asked, not what is wrong or how to fix it, and baselines
+            # recorded before the fields existed have to keep matching.
             "control_pack": control_pack,
+            "control_effects": [effect],
         },
         recommendation=missing_control_recommendation([effect], missing),
         blocks_release=True,

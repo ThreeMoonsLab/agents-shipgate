@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "report_schema_version": "0.40",
-  "run_id": "agents_shipgate_3dbfbfc5f81a5507",
+  "run_id": "agents_shipgate_1be92682021df486",
   "request_id": null,
   "subject_id": null,
   "input_set_id": null,
@@ -6540,7 +6540,10 @@
           "safeguards.audit_log",
           "confirmation.required"
         ],
-        "control_pack": "default"
+        "control_pack": "default",
+        "control_effects": [
+          "external_communication"
+        ]
       },
       "confidence": "high",
       "provenance_kind": "static_declaration",
@@ -6638,7 +6641,10 @@
           "safeguards.audit_log",
           "confirmation.required"
         ],
-        "control_pack": "default"
+        "control_pack": "default",
+        "control_effects": [
+          "external_communication"
+        ]
       },
       "confidence": "high",
       "provenance_kind": "static_declaration",
@@ -6735,7 +6741,10 @@
           "safeguards.audit_log",
           "safeguards.idempotency"
         ],
-        "control_pack": "default"
+        "control_pack": "default",
+        "control_effects": [
+          "financial_write"
+        ]
       },
       "confidence": "high",
       "provenance_kind": "static_declaration",

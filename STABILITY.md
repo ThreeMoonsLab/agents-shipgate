@@ -2050,10 +2050,18 @@ a declared effect covers an inferred one stays the built-in table.
 Obligations for effects with no dedicated control check (`write`,
 `privileged_data_access`, `identity_access`) are reported through
 `SHIP-ACTION-POLICY-VIOLATION` at `high`, with the rule named in
-`findings[].evidence.policy_id` as `control-pack:<pack>:<effects>` (effects
-joined by `+` where one rule covers several). Like the four dedicated control
-families, they are mandatory current-surface controls: a `checks.ignore` entry
-records the exception without waiving the blocker.
+`findings[].evidence.policy_id` as `control-pack:<effects>` (effects joined by
+`+` where one rule covers several). The pack name is deliberately **not** in
+that id: `policy_id` is a fingerprint input, and two packs requiring the same
+controls for the same effect state one rule, so naming the pack would re-open
+a baseline entry on a move that changed nothing. `control-pack:` is a reserved
+prefix — `action_surface.policies[].id` rejects it at manifest load, the same
+way `SHIP-` is reserved for built-in check ids.
+
+Like the four dedicated control families, these are mandatory current-surface
+controls: a `checks.ignore` entry records the exception without waiving the
+blocker. That is decided from `findings[].evidence.control_pack`, which only
+the engine writes, and never from the `policy_id` string alone.
 
 `effective_policy.control_pack` (v0.40+) publishes the pack in force, so a
 base-vs-head comparison can see the gate weakened by a *rule* change and not
@@ -2062,15 +2070,26 @@ only by a severity one. `SHIP-VERIFY-POLICY-WEAKENED` gains
 `removed_controls[] = {effect, controls}` for every effect the head pack
 requires less of. A snapshot with no `control_pack` predates the field and is
 compared as `default` — a build without control packs could not have loaded a
-manifest naming one.
+manifest naming one. A snapshot naming a pack this build cannot resolve is a
+different case and is not read as "no weakening": it routes to
+`SHIP-VERIFY-POLICY-BASE-ABSENT` with `kind: control_pack_unrecognized`, the
+reason code that says the comparison could not be made.
 
-Control findings carry `findings[].evidence.control_pack`. It is excluded from
-the finding fingerprint, so a baseline recorded before the field keeps
-matching; it *is* part of `run_id`, because which rules produced a report is
-part of what that report is. Moving to a stricter pack changes the `missing`
-list of a control finding whose requirements grew, and therefore its
-fingerprint — a baseline entry that accepted the narrower gap stops matching
-and the finding re-opens.
+Control findings carry `findings[].evidence.control_pack` and
+`findings[].evidence.control_effects` (the effects the rule actually matched,
+not its whole category). Both are excluded from the finding fingerprint, so a
+baseline recorded before the fields keeps matching.
+
+`run_id` covers the pack's **id, version, and canonical obligations**: two
+manifests selecting different packs enforce different policy and are different
+runs, including where neither produces a control finding, and a release that
+changes what `default` requires moves it too.
+
+Moving to a stricter pack changes the `missing` list of a control finding
+whose requirements grew, and therefore its fingerprint — a baseline entry that
+accepted the narrower gap stops matching and the finding re-opens. A move
+between two packs that require the *same* controls for an effect re-opens
+nothing, because the rule did not change.
 
 ### Baseline Integrity (v0.5)
 

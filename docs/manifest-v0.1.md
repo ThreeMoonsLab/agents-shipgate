@@ -1183,15 +1183,20 @@ one discharge the other.
 Effects with no control check of their own — `write`, `privileged_data_access`,
 `identity_access` — report a pack obligation through
 `SHIP-ACTION-POLICY-VIOLATION` at `high`, with the rule named in
-`findings[].evidence.policy_id` as `control-pack:<pack>:<effect>`. Like the
-four dedicated control families, these are mandatory current-surface controls:
-a `checks.ignore` entry records the exception but does not waive the blocker.
+`findings[].evidence.policy_id` as `control-pack:<effects>`. That prefix is
+reserved: an `action_surface.policies[].id` using it is rejected at manifest
+load, the same way `SHIP-` is reserved for built-in check ids. Like the four
+dedicated control families, these are mandatory current-surface controls — a
+`checks.ignore` entry records the exception but does not waive the blocker —
+and that is decided from `evidence.control_pack`, which only the engine
+writes, never from the id string alone.
 
 Switching to a stricter pack changes the `missing` list on a control finding
 whose requirements grew, and therefore its fingerprint — a baseline entry
 accepting the narrower gap stops matching and the finding re-opens. That is the
 intended direction: an acceptance recorded under looser rules should not carry
-into stricter ones.
+into stricter ones. A move between two packs that require the *same* controls
+for an effect re-opens nothing, because the rule did not change.
 
 Moving to a pack that requires *less* of some effect is a release-policy
 weakening, and `verify --base` reports it: `SHIP-VERIFY-POLICY-WEAKENED` with
