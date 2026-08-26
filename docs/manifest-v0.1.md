@@ -617,6 +617,16 @@ Authority modes are:
 authority produces `insufficient_evidence`. Global `permissions.scopes` proves
 manifest coverage only; it does not fill missing per-action authority.
 
+`actions[].scopes` is the action's permission list with or without a reviewed
+authority: a row that lists scopes and declares no `authority` at either site
+still publishes them as the action's `required_scopes` *and* as its authority
+scopes. Listing scopes is not the same as reviewing authority — such a row
+still reports `missing_authority_evidence` and cannot be pass-eligible. A
+declared list replaces the source's own scopes, so it may broaden them;
+dropping a scope a `scoped` source proves is a conflict
+(`conflicting_authority_evidence`), on this route exactly as on a reviewed
+block's.
+
 ### Authority declared once per source
 
 Authority is a fact about a deployment, not about a function: every action a

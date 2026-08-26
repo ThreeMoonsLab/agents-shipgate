@@ -8,7 +8,10 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import unquote
 
-from agents_shipgate.core.action_semantics import ACTION_EFFECT_RANK
+from agents_shipgate.core.action_semantics import (
+    ACTION_EFFECT_RANK,
+    normalize_declared_strings,
+)
 from agents_shipgate.core.domain import (
     DECLARATION_CLAIM_SOURCES,
     Action,
@@ -32,7 +35,7 @@ from agents_shipgate.core.semantic_assessment import (
     acknowledged_effect_claim_ids,
     assess_tool_semantics,
     declaration_covers,
-    reviewed_authority,
+    resolve_action_scopes,
 )
 from agents_shipgate.core.surface_exclusions import (
     catalog_label_index,
@@ -511,32 +514,6 @@ def _tool_source_for(
     )
 
 
-def _declared_scope_strings(
-    tool: Tool,
-    declaration: ActionDeclarationConfig | None,
-    source: ToolSourceConfig | None,
-) -> list[str]:
-    """The permission list this action is judged on, from the one resolver.
-
-    Not a second derivation: ``CapabilityFactV1`` *requires*
-    ``authority.scopes`` to equal the semantic authority's, and one of its two
-    builders reconstructs the fact from this list — so deciding it separately
-    here does not merely risk two answers, it raises a validation error on the
-    base-vs-head path the moment the two disagree. That is exactly what a draft
-    that kept a source's grant off the action did.
-
-    With no reviewed authority at either site the behaviour is unchanged: a
-    declared ``scopes`` list, else what the source published for this tool.
-    """
-
-    reviewed = reviewed_authority(tool, declaration, source)
-    if reviewed is not None:
-        return list(reviewed.scopes)
-    if declaration is not None and declaration.scopes:
-        return list(declaration.scopes)
-    return list(tool.auth.scopes)
-
-
 def build_action(
     manifest: AgentsShipgateManifest,
     *,
@@ -577,9 +554,11 @@ def build_action(
         _normalize_risk_tag_values(declaration.risk_tags) if declaration is not None else []
     )
     risk_tag_values = sorted(set(inferred_tags) | set(declared_tags))
-    # In the resolver's own precedence, because the capability standard binds
-    # this list to the semantic authority's (#410 increment 3).
-    scope_strings = _normalize_strings(_declared_scope_strings(tool, declaration, source))
+    # From the resolver itself, not a second derivation in its precedence,
+    # because the capability standard binds this list to the semantic
+    # authority's (#410 increment 3) — including the no-reviewed-record case,
+    # where a bare ``scopes:`` list used to reach only this side.
+    scope_strings = resolve_action_scopes(tool, declaration, source)
     effect = semantic_assessment.conservative_effect
     semantic_effects = {
         claim.value
@@ -2224,12 +2203,10 @@ def _annotation_bool(annotations: dict[str, Any], *keys: str) -> bool | None:
     return None
 
 
-def _normalize_strings(values: list[str]) -> list[str]:
-    return sorted({str(value).strip() for value in values if str(value).strip()})
-
-
 def _normalize_risk_tag_values(values: list[str]) -> list[str]:
-    return sorted({_RISK_TAG_MAP.get(value, value) for value in _normalize_strings(values)})
+    return sorted(
+        {_RISK_TAG_MAP.get(value, value) for value in normalize_declared_strings(values)}
+    )
 
 
 def _normalize_token(value: str) -> str:

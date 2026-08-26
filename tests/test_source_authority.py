@@ -681,12 +681,13 @@ def test_the_action_fact_and_the_assessment_publish_one_permission_list(
         _mcp_tool("send_email", "Send an email to a customer."),
         _mcp_tool("list_contacts", "List the contacts in the CRM."),
     ]
-    # Every shape where a reviewed authority exists at one of the two sites —
-    # which is all this increment governs. A bare ``scopes`` list with no
-    # ``authority`` block anywhere is deliberately absent: those two fields
-    # already disagree on ``main`` (the row's list against the source's
-    # published one), and the same builder already raises on it there. Widening
-    # this test to cover it would be asserting a fix this change does not make.
+    # Every shape a reviewed authority can take at either site, plus the one
+    # that needs none: a bare ``scopes`` list with no ``authority`` block
+    # anywhere. That last shape was deliberately absent while the two fields
+    # still disagreed on it — the row's list against the source's published
+    # one — and it is covered now that one resolver decides both
+    # (``resolve_action_scopes``); the sweep in
+    # ``tests/test_action_scope_projection.py`` walks the rest of that class.
     shapes: list[tuple[dict | None, list[dict] | None]] = [
         ({"mode": "scoped", "auth_type": "oauth2", "scopes": ["crm.read"]}, None),
         ({"mode": "none"}, None),
@@ -709,6 +710,8 @@ def test_the_action_fact_and_the_assessment_publish_one_permission_list(
                 }
             ],
         ),
+        # No reviewed authority at either site: the row's own permission list.
+        (None, [{"tool": "send_email", "source_id": "crm", "scopes": ["crm.send"]}]),
     ]
     for index, (source_authority, actions) in enumerate(shapes):
         workspace = tmp_path / f"shape_{index}"

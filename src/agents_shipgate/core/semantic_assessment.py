@@ -5,7 +5,11 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, cast, get_args
 
-from agents_shipgate.core.action_semantics import ACTION_EFFECT_RANK, builtin_obligations
+from agents_shipgate.core.action_semantics import (
+    ACTION_EFFECT_RANK,
+    builtin_obligations,
+    normalize_declared_strings,
+)
 from agents_shipgate.core.domain import (
     DECLARATION_CLAIM_SOURCES,
     DECLARATION_OVERRIDE_SOURCE,
@@ -1412,6 +1416,44 @@ def _answerable_source_id(
     return tool_source.id if tool_source is not None else None
 
 
+def resolve_action_scopes(
+    tool: Tool,
+    declaration: ActionDeclarationConfig | None,
+    tool_source: ToolSourceConfig | None = None,
+    reviewed: ReviewedAuthority | None = None,
+) -> list[str]:
+    """The one permission list this action publishes, normalized and sorted.
+
+    A reviewed authority supplies the whole record including its scopes
+    (:func:`reviewed_authority`). With none at either site the row's own
+    ``scopes:`` list stands where it lists anything, and the source's
+    published scopes otherwise. Note what that last rule is *not*: a declared
+    list replaces the source's, so this is where a row can drop a scope the
+    source proves — ``_scopes_narrow_source`` guards it, and only the
+    authority resolver can, because only it holds the source's evidence grade.
+    Listing scopes does not grade the authority either: a row with no reviewed
+    block still reports ``missing_authority_evidence``.
+
+    Every surface that publishes an action's permissions reads this function:
+    ``ActionFact.required_scopes`` (via ``build_action``) and this dimension's
+    ``scopes`` (via ``_assess_authority``), and through both,
+    ``CapabilityFactV1.authority.scopes`` — which *requires* the two to be one
+    list. A second spelling of the rule is therefore not a style question: two
+    spellings put two permission lists on one action, and ``verify --base`` —
+    the only path that rebuilds a capability fact from a serialized
+    ``ActionFact`` — raises ``internal_error`` on a legal manifest. The
+    reviewed half of that was closed with the normalized record; the bare
+    ``scopes:`` half is closed by this being the only derivation.
+    """
+
+    if reviewed is None:
+        reviewed = reviewed_authority(tool, declaration, tool_source)
+    if reviewed is not None:
+        return normalize_declared_strings(reviewed.scopes)
+    declared = normalize_declared_strings(declaration.scopes if declaration is not None else [])
+    return declared or normalize_declared_strings(tool.auth.scopes)
+
+
 def _assess_authority(
     tool: Tool,
     declaration: ActionDeclarationConfig | None,
@@ -1547,14 +1589,39 @@ def _assess_authority(
             if reviewed.credential_mode or reviewed.mode == "none"
             else tool.auth.credential_mode
         )
-        scopes = reviewed.scopes
     else:
         status = source_status
         mode = source_mode
         auth_type = tool.auth.type
         credential_mode = tool.auth.credential_mode
-        scopes = sorted(set(tool.auth.scopes))
-        if status == "partial":
+        # A bare ``scopes:`` list is not a reviewed authority — it names no
+        # mode, no auth type, no credential mode — but it *is* the permission
+        # list this action publishes (``resolve_action_scopes``), so this
+        # dimension publishes it too. What it must never do is silently shrink
+        # authority the source proves: with no reviewed record there is no
+        # ``_authority_declaration_conflicts`` call on this route, and nothing
+        # else compares the two lists.
+        if (
+            status == "structural"
+            and declaration is not None
+            and _scopes_narrow_source(
+                tool,
+                resolve_action_scopes(tool, declaration),
+                source_mode=source_mode,
+            )
+        ):
+            status = "conflicting"
+            mode = "unknown"
+            issues.append(
+                _issue(
+                    "conflicting_authority_evidence",
+                    "authority",
+                    "declared scopes drop scopes the source proves this action requires",
+                    DECLARED_EFFECT_SOURCE,
+                    f"action_surface.actions[tool={tool.name!r}].scopes",
+                )
+            )
+        elif status == "partial":
             issues.append(
                 _issue(
                     "partial_authority_evidence",
@@ -1580,7 +1647,7 @@ def _assess_authority(
         mode=mode,
         auth_type=auth_type,
         credential_mode=credential_mode,
-        scopes=scopes,
+        scopes=resolve_action_scopes(tool, declaration, tool_source, reviewed),
         claims=_sorted_claims(claims),
         issues=_sorted_issues(issues),
         answerable_source_id=_answerable_source_id(declaration, tool_source),
@@ -1687,13 +1754,31 @@ def _authority_declaration_conflicts(
     ):
         return True
 
-    if source_mode == "scoped":
-        source_scopes = set(tool.auth.scopes)
-        declared_scopes = set(reviewed.scopes)
-        if not source_scopes.issubset(declared_scopes):
-            return True
+    return _scopes_narrow_source(tool, reviewed.scopes, source_mode=source_mode)
 
-    return False
+
+def _scopes_narrow_source(
+    tool: Tool,
+    resolved_scopes: Iterable[str],
+    *,
+    source_mode: AuthorityMode,
+) -> bool:
+    """Does the list this action resolved to drop a scope the source proves?
+
+    Only meaningful against a source whose own authority is concrete: a
+    ``scoped`` source names the grant this action runs under, and a list that
+    is narrower has replaced that grant with a weaker claim. A superset is an
+    explicit broadening and stays visible to the broad-scope policies.
+
+    Both routes ask this question of the *resolved* list, because both replace
+    the same one: a reviewed authority at either manifest site, and a bare
+    ``scopes:`` list with no reviewed record at all.
+    """
+
+    if source_mode != "scoped":
+        return False
+    source_scopes = set(normalize_declared_strings(tool.auth.scopes))
+    return not source_scopes.issubset(set(normalize_declared_strings(resolved_scopes)))
 
 
 def _claim(

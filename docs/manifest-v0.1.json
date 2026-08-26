@@ -33,7 +33,7 @@
     },
     "ActionAuthorityConfig": {
       "additionalProperties": false,
-      "description": "Reviewed authority evidence for one declared action.\n\nScopes intentionally remain on ``ActionDeclarationConfig.scopes`` so\nthere is one canonical permission list in the manifest.",
+      "description": "Reviewed authority evidence for one declared action.\n\nScopes intentionally remain on ``ActionDeclarationConfig.scopes`` so\nthere is one canonical permission list in the manifest. This block is\noptional, so that list is the action's permissions with or without it;\none resolver reads it for every surface\n(``core.semantic_assessment.resolve_action_scopes``).",
       "properties": {
         "auth_type": {
           "anyOf": [

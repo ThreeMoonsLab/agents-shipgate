@@ -144,7 +144,10 @@ class ActionAuthorityConfig(BaseModel):
     """Reviewed authority evidence for one declared action.
 
     Scopes intentionally remain on ``ActionDeclarationConfig.scopes`` so
-    there is one canonical permission list in the manifest.
+    there is one canonical permission list in the manifest. This block is
+    optional, so that list is the action's permissions with or without it;
+    one resolver reads it for every surface
+    (``core.semantic_assessment.resolve_action_scopes``).
     """
 
     model_config = STRICT_MODEL_CONFIG

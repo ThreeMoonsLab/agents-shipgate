@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from agents_shipgate.schemas.surfaces import ActionEffect
 
 ACTION_EFFECT_RANK: dict[ActionEffect, int] = {
@@ -43,6 +45,17 @@ BUILTIN_EFFECT_OBLIGATIONS: dict[ActionEffect, frozenset[str]] = {
 }
 
 
+def normalize_declared_strings(values: Iterable[str]) -> list[str]:
+    """Declared token lists as every surface compares them: stripped, deduped, sorted.
+
+    One rule for the two lists an ``action_surface.actions`` row can carry —
+    ``scopes`` and ``risk_tags`` — because comparing them is what decides
+    whether a declaration matches, broadens, or narrows.
+    """
+
+    return sorted({str(value).strip() for value in values if str(value).strip()})
+
+
 def builtin_obligations(effect: ActionEffect) -> frozenset[str]:
     """The built-in controls ``effect`` obliges — empty for effects with none."""
 
@@ -53,4 +66,5 @@ __all__ = [
     "ACTION_EFFECT_RANK",
     "BUILTIN_EFFECT_OBLIGATIONS",
     "builtin_obligations",
+    "normalize_declared_strings",
 ]
