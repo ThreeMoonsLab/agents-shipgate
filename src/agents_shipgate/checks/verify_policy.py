@@ -11,6 +11,8 @@ against the head manifest and emits one finding per detected weakening:
   (head ⊊ base), i.e. fewer severities now fail CI.
 - ``severity_override_lowered`` — a check's applied severity dropped
   across a tier boundary versus the base.
+- ``control_pack_weakened`` — the manifest moved to a control pack that
+  requires less of some effect than the base's did (#410 §F).
 
 ``SHIP-VERIFY-POLICY-BASE-ABSENT`` is the fail-safe for when there is no base
 policy to compare against at all. It carries no weakening claim in either
@@ -52,11 +54,21 @@ from agents_shipgate.checks._verify_common import (
     verification_active,
     verify_finding,
 )
+from agents_shipgate.core.action_semantics import (
+    control_phrase,
+    effect_phrase,
+    join_phrases,
+    ordered_controls,
+)
 from agents_shipgate.core.check_ids import (
     SPLIT_CHECK_ID_ALIASES,
     expands_to_check_id,
 )
 from agents_shipgate.core.context import ScanContext
+from agents_shipgate.core.control_packs import (
+    BUILTIN_CONTROL_PACKS,
+    DEFAULT_CONTROL_PACK_ID,
+)
 from agents_shipgate.core.policy_reason_codes import (
     POLICY_BASE_ABSENT_CHECK_ID,
     POLICY_WEAKENED_CHECK_ID,
@@ -201,7 +213,99 @@ def _compare(context: ScanContext, base, head) -> list[Finding]:
             )
         )
 
+    # 4. control pack moved to one that requires less of some effect.
+    #
+    # One edit, one finding — the shape ``fail_on_loosened`` already uses,
+    # and the reason it matters here: a single changed line drops obligations
+    # across up to nine effects, and a finding per effect would repeat one
+    # sentence nine times about one edit. The per-effect detail is evidence,
+    # not nine rows to read.
+    removed = _weakened_pack_rules(base.control_pack, head.control_pack)
+    if removed:
+        base_pack = base.control_pack or DEFAULT_CONTROL_PACK_ID
+        head_pack = head.control_pack or DEFAULT_CONTROL_PACK_ID
+        noun = "effect" if len(removed) == 1 else "effects"
+        findings.append(
+            verify_finding(
+                context,
+                check_id=CHECK_ID,
+                title=(
+                    f"Control pack weakened: {base_pack} -> {head_pack} "
+                    f"({len(removed)} {noun} require less)"
+                ),
+                severity="high",
+                evidence={
+                    "kind": "control_pack_weakened",
+                    "base_control_pack": base_pack,
+                    "head_control_pack": head_pack,
+                    "removed_controls": [
+                        {"effect": effect, "controls": controls}
+                        for effect, controls in removed
+                    ],
+                },
+                recommendation=(
+                    f"This PR moves policies.control_pack from {base_pack} to "
+                    f"{head_pack}, so {len(removed)} action {noun} no longer "
+                    "require controls they required on the base "
+                    f"({_removed_summary(removed)}). A human must approve the "
+                    "reduced gate; do not change the pack to make a scan pass."
+                ),
+            )
+        )
+
     return findings
+
+
+#: Effects named in the recommendation before it says how many it is not
+#: naming. Three is what fits a console line beside the rest of the sentence;
+#: the full list is always in ``evidence.removed_controls``.
+_NAMED_WEAKENED_EFFECTS = 3
+
+
+def _removed_summary(removed: list[tuple[str, list[str]]]) -> str:
+    """``write loses approval.required; …, and 5 more`` — truncation stated."""
+
+    shown = removed[:_NAMED_WEAKENED_EFFECTS]
+    parts = [
+        f"{effect_phrase(effect)} loses "
+        f"{join_phrases([control_phrase(path) for path in controls])}"
+        for effect, controls in shown
+    ]
+    hidden = len(removed) - len(shown)
+    if hidden:
+        noun = "effect" if hidden == 1 else "effects"
+        parts.append(f"and {hidden} more {noun}")
+    return "; ".join(parts)
+
+
+def _weakened_pack_rules(
+    base_pack_id: str | None,
+    head_pack_id: str | None,
+) -> list[tuple[str, list[str]]]:
+    """Effects the head pack requires less of than the base pack did.
+
+    ``None`` on the base side means the snapshot predates the field, which is
+    by construction the ``default`` rule set — that build could not have
+    loaded a manifest naming a pack. It is resolved to ``default`` and
+    compared rather than skipped, so the "no pack is weaker than default"
+    invariant is enforced here instead of assumed: if a weaker pack were ever
+    added, this comparison would report it rather than stay silent.
+
+    An id neither side's build knows cannot be compared in either direction,
+    and a base report from a newer build already fails validation upstream, so
+    the diff is disabled long before this runs.
+    """
+
+    base_pack = BUILTIN_CONTROL_PACKS.get(base_pack_id or DEFAULT_CONTROL_PACK_ID)
+    head_pack = BUILTIN_CONTROL_PACKS.get(head_pack_id or DEFAULT_CONTROL_PACK_ID)
+    if base_pack is None or head_pack is None or base_pack.id == head_pack.id:
+        return []
+    weakened: list[tuple[str, list[str]]] = []
+    for effect in sorted(base_pack.obligations):
+        dropped = base_pack.obligations_for(effect) - head_pack.obligations_for(effect)
+        if dropped:
+            weakened.append((effect, ordered_controls(dropped)))
+    return weakened
 
 
 @lru_cache(maxsize=1)

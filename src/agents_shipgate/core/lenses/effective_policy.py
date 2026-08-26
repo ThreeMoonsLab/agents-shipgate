@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from agents_shipgate.core.control_packs import resolve_control_pack
 from agents_shipgate.schemas.capability_change import EffectivePolicy
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest, CiConfig
 
@@ -72,6 +73,7 @@ def build_effective_policy_snapshot(
         check_id: entry.severity for check_id, entry in overrides.items()
     }
     return EffectivePolicy(
+        control_pack=resolve_control_pack(manifest).id,
         ci_mode=getattr(ci, "mode", None),
         fail_on=list(getattr(ci, "fail_on", None) or []),
         suppressed_check_ids=suppressed_check_ids,

@@ -549,6 +549,10 @@ _FROZEN_AND_CURRENT_SCHEMAS = [
     ("report-schema.v0.37.json", "report-schema.v0.38.json", "tool_source"),
     ("packet-schema.v0.14.json", "packet-schema.v0.15.json", "tool_source"),
     ("verifier-schema.v0.11.json", "verifier-schema.v0.12.json", "tool_source"),
+    # #410 §F: the effective-policy snapshot gained the control pack in force,
+    # so a base-vs-head comparison can see a pack moved to one that requires
+    # less. Only the report schema embeds ``EffectivePolicy``.
+    ("report-schema.v0.38.json", "report-schema.v0.39.json", "control_pack"),
 ]
 
 
@@ -606,6 +610,9 @@ _PUBLISHED_SCHEMA_SHA256 = {
     "verifier-schema.v0.11.json": (
         "adbbcd85f870b8f12f060c02b090395a34ffec4f660f1994d6001a2728397090"
     ),
+    "report-schema.v0.38.json": (
+        "df00a7abfbd59fa3274caacd78acf5960f8c754fab2d6e1a62840b7997ca8d24"
+    ),
 }
 
 
@@ -649,7 +656,7 @@ def test_every_emitted_artifact_validates_against_its_own_current_schema(tmp_pat
     )
 
     for artifact, schema_name in (
-        ("report.json", "report-schema.v0.38.json"),
+        ("report.json", "report-schema.v0.39.json"),
         ("packet.json", "packet-schema.v0.15.json"),
     ):
         payload = json.loads((tmp_path / artifact).read_text(encoding="utf-8"))

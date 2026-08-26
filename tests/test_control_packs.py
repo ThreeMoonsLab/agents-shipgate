@@ -600,6 +600,139 @@ def test_the_documented_pack_matrix_matches_the_packs() -> None:
 
 
 # --------------------------------------------------------------------------
+# Moving to a weaker pack is a weakening, and the gate has to say so
+# --------------------------------------------------------------------------
+
+
+def _policy_context(head_pack: str | None, base_pack: str | None):
+    """A verify-active context whose base snapshot names ``base_pack``."""
+
+    from agents_shipgate.core.context import ScanContext
+    from agents_shipgate.core.domain import Agent
+    from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference
+    from agents_shipgate.schemas.capability_change import EffectivePolicy
+    from agents_shipgate.schemas.verification import VerificationContext
+
+    data = _manifest_dict()
+    if head_pack is not None:
+        data["policies"] = {"control_pack": head_pack}
+    manifest = AgentsShipgateManifest.model_validate(data)
+    reference = ToolSurfaceDiffReference(
+        kind="report",
+        facts=None,
+        effective_policy=EffectivePolicy(control_pack=base_pack),
+    )
+    return ScanContext(
+        manifest=manifest,
+        agent=Agent(id="agent:test/test", name="test"),
+        tools=[],
+        config_path=Path("shipgate.yaml"),
+        verification=VerificationContext(
+            changed_files=["shipgate.yaml"],
+            configured_manifest_path="shipgate.yaml",
+            manifest_introduced=False,
+        ),
+        diff_reference=reference,
+    )
+
+
+def _weakenings(head_pack: str | None, base_pack: str | None) -> list:
+    from agents_shipgate.checks import verify_policy
+
+    return [
+        finding
+        for finding in verify_policy.run(_policy_context(head_pack, base_pack))
+        if finding.evidence.get("kind") == "control_pack_weakened"
+    ]
+
+
+def _removed_rows(head_pack: str | None, base_pack: str | None) -> set:
+    rows = set()
+    for finding in _weakenings(head_pack, base_pack):
+        for row in finding.evidence["removed_controls"]:
+            rows.add((row["effect"], tuple(sorted(row["controls"]))))
+    return rows
+
+
+@pytest.mark.parametrize("base_pack", _NON_DEFAULT_PACKS)
+def test_moving_to_a_pack_that_requires_less_is_a_weakening(base_pack: str) -> None:
+    """The gate can be weakened by a *rule* change, not only a severity change.
+
+    Every other field in the effective-policy snapshot answers "does the same
+    finding still block?". The control pack answers "does the same action
+    still produce the finding?", which is the other way a gate gets weaker —
+    and, before this, the one a base-vs-head comparison could not see.
+    """
+
+    findings = _weakenings(DEFAULT_CONTROL_PACK_ID, base_pack)
+    # One changed line is one finding, the shape `fail_on_loosened` uses. A
+    # finding per effect would repeat one sentence eight times about one edit,
+    # which is the shape #410 exists to remove.
+    assert len(findings) == 1, [f.title for f in findings]
+    evidence = findings[0].evidence
+    assert evidence["base_control_pack"] == base_pack
+    assert evidence["head_control_pack"] == DEFAULT_CONTROL_PACK_ID
+    assert evidence["removed_controls"]
+    assert findings[0].severity == "high"
+    # The title says how much the evidence carries, and the sentence names a
+    # bounded prefix of it plus how many it is not naming (#364).
+    assert f"{len(evidence['removed_controls'])} effects require less" in (
+        findings[0].title
+    )
+    assert "more effects" in findings[0].recommendation
+
+
+@pytest.mark.parametrize("head_pack", CONTROL_PACK_IDS)
+@pytest.mark.parametrize("base_pack", CONTROL_PACK_IDS)
+def test_a_pack_move_is_reported_exactly_where_something_was_dropped(
+    head_pack: str, base_pack: str
+) -> None:
+    """Both directions, all nine pairs — including the two incomparable ones.
+
+    ``financial-strict`` and ``read-only-agent`` are not ordered: each
+    requires something the other does not, so *either* direction between them
+    is a weakening for some effect. Asserting only on the obvious
+    "strict -> default" pair would leave the sideways move silent.
+    """
+
+    base = BUILTIN_CONTROL_PACKS[base_pack]
+    head = BUILTIN_CONTROL_PACKS[head_pack]
+    expected = {
+        (
+            effect,
+            tuple(sorted(base.obligations_for(effect) - head.obligations_for(effect))),
+        )
+        for effect in base.obligations
+        if base.obligations_for(effect) - head.obligations_for(effect)
+    }
+    assert _removed_rows(head_pack, base_pack) == expected
+
+
+def test_a_base_that_predates_the_field_is_compared_as_default() -> None:
+    """``None`` is the ``default`` rule set, not "cannot compare".
+
+    A build without control packs could not have loaded a manifest naming
+    one, so a base snapshot with no ``control_pack`` ran ``default``'s rules.
+    Resolving it to ``default`` and comparing keeps the "no pack is weaker
+    than default" invariant enforced here rather than assumed: nothing is
+    reported today, and a weaker pack added later would be.
+    """
+
+    assert _weakenings(DEFAULT_CONTROL_PACK_ID, None) == []
+    assert _weakenings("read-only-agent", None) == []
+    # …and the reverse is a weakening, because the base did run `default`.
+    assert _weakenings(DEFAULT_CONTROL_PACK_ID, "read-only-agent")
+
+
+def test_the_snapshot_publishes_the_pack_in_force(tmp_path: Path) -> None:
+    """A comparison needs the base side to have been recorded at all."""
+
+    report = _scan_effect(tmp_path / "snapshot", "write", pack_id="read-only-agent")
+    assert report.effective_policy is not None
+    assert report.effective_policy.control_pack == "read-only-agent"
+
+
+# --------------------------------------------------------------------------
 # init: the one question, and every answer it takes
 # --------------------------------------------------------------------------
 
@@ -640,6 +773,7 @@ def test_init_writes_the_selected_pack(tmp_path: Path, pack_id: str) -> None:
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
     assert payload["control_pack"]["selected"] == pack_id
+    assert payload["control_pack"]["requested"] == pack_id
     assert [entry["id"] for entry in payload["control_pack"]["available"]] == list(
         CONTROL_PACK_IDS
     )
@@ -671,16 +805,74 @@ def test_init_reports_the_choice_even_when_it_writes_nothing(tmp_path: Path) -> 
         json.dumps({"tools": [{"name": "act", "description": "An action."}]}),
         encoding="utf-8",
     )
-    (workspace / "shipgate.yaml").write_text("version: \"0.1\"\n", encoding="utf-8")
+    (workspace / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project: {name: existing}
+agent:
+  name: agent
+  declared_purpose: [act]
+environment: {target: local}
+tool_sources:
+  - id: src
+    type: mcp
+    path: tools.json
+policies:
+  control_pack: financial-strict
+""",
+        encoding="utf-8",
+    )
     result = runner.invoke(
-        app, ["init", "--workspace", str(workspace), "--write", "--json"]
+        app,
+        [
+            "init",
+            "--workspace",
+            str(workspace),
+            "--write",
+            "--json",
+            "--control-pack",
+            "read-only-agent",
+        ],
     )
     payload = json.loads(result.stdout)
     assert payload["manifest_status"] == "skipped_existing"
-    assert payload["control_pack"]["selected"] == DEFAULT_CONTROL_PACK_ID
+    # The manifest on disk is the authority. Reporting the *request* here
+    # would describe a file this run did not write (#399, one field over).
+    assert payload["control_pack"]["selected"] == "financial-strict"
+    assert payload["control_pack"]["requested"] == "read-only-agent"
     assert [entry["id"] for entry in payload["control_pack"]["available"]] == list(
         CONTROL_PACK_IDS
     )
+
+
+def test_init_says_nothing_it_cannot_know_about_a_manifest_that_is_not_there(
+    tmp_path: Path,
+) -> None:
+    """A dry run wrote no manifest, so no pack governs anything yet."""
+
+    workspace = tmp_path / "dry"
+    workspace.mkdir()
+    (workspace / "tools.json").write_text(
+        json.dumps({"tools": [{"name": "act", "description": "An action."}]}),
+        encoding="utf-8",
+    )
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            "--workspace",
+            str(workspace),
+            "--json",
+            "--control-pack",
+            "read-only-agent",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["control_pack"]["selected"] is None
+    assert payload["control_pack"]["requested"] == "read-only-agent"
+    # …and the template it *would* write carries the request.
+    assert "control_pack: read-only-agent" in payload["template"]
 
 
 def test_init_refuses_an_unknown_pack_before_writing_anything(tmp_path: Path) -> None:

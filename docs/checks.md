@@ -158,7 +158,7 @@ baseline summary and do not fail CI.
 | `SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING` | high | A high-risk production or production-like tool lacks owner metadata. |
 | `SHIP-MANIFEST-UNUSED-SCOPE` | medium/high | `permissions.scopes` contains a scope unused by any loaded tool; broad unused scopes are high. |
 | `SHIP-VERIFY-TRUST-ROOT-TOUCHED` | medium | A PR changed a release trust-root file; emitted only when a verification context (changed files) is supplied. |
-| `SHIP-VERIFY-POLICY-WEAKENED` | high | Base-vs-head effective policy weakened (CI mode downgraded, fail-on loosened, or a severity override lowered across a tier). |
+| `SHIP-VERIFY-POLICY-WEAKENED` | high | Base-vs-head effective policy weakened (CI mode downgraded, fail-on loosened, a severity override lowered across a tier, or the control pack moved to one that requires less). |
 | `SHIP-VERIFY-POLICY-BASE-ABSENT` | medium | A policy or manifest trust root changed with no base policy snapshot to compare against (first adoption, or no base report); routed to human review without a weakening claim. |
 | `SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED` | high | The PR broadens what the gate forgives — a new suppression, a widened waiver scope, or a larger accepted-debt baseline — versus the base. |
 | `SHIP-VERIFY-CI-GATE-REMOVED` | critical | The PR deletes the Shipgate CI workflow from an opted-in repo, which would stop the release gate from running. |
@@ -939,8 +939,17 @@ changed, it compares the normalized effective-policy snapshot of the base
 report (supplied via `--diff-from`) against the head manifest and fires
 when the gate moved toward *less* review or *less* blocking — CI mode
 downgraded (e.g. `strict` → `advisory`), the fail-on severity set lost a
-tier, or a check's severity override dropped across a tier boundary. The
-comparison is semantic, not a text diff, so it is robust to reformatting.
+tier, a check's severity override dropped across a tier boundary, or
+`policies.control_pack` moved to a pack that requires *less* of some action
+effect (`kind: control_pack_weakened`). The comparison is semantic, not a text
+diff, so it is robust to reformatting.
+
+The first three kinds answer "does the same finding still block?"; the control
+pack answers "does the same action still produce the finding?", which is the
+other way a gate gets weaker. A pack move is one changed line, so it is one
+finding: `evidence.removed_controls` carries `{effect, controls}` for every
+effect that lost something, and the sentence names a bounded prefix plus how
+many it is not naming.
 
 The claim is base-relative, so this check fires only when a base snapshot
 exists to compare against. The no-base fail-safe is its own reason code,

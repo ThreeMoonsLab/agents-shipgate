@@ -50,6 +50,7 @@ from agents_shipgate.core.control_packs import (
     BUILTIN_CONTROL_PACKS,
     CONTROL_PACK_IDS,
     DEFAULT_CONTROL_PACK_ID,
+    resolve_control_pack,
 )
 from agents_shipgate.core.errors import DiscoveryError
 from agents_shipgate.invocation import render_command
@@ -483,6 +484,32 @@ def _manifest_placeholders(
             return [], data, f"{target} is not valid UTF-8: {exc}"
         return collect_placeholders(text), data, _manifest_defect(text)
     return [], None, None
+
+
+def _manifest_control_pack(manifest_bytes: bytes | None) -> str | None:
+    """The control pack the manifest *on disk* carries, or ``None``.
+
+    Same authority rule as :func:`_manifest_placeholders`: when a manifest
+    exists it is the authority, whether this run wrote it or found it.
+    Reporting ``--control-pack`` as the selection on ``skipped_existing``
+    would describe a file this run did not write — the defect #399 fixed one
+    field over, where ``placeholders`` reported the template's list for a
+    manifest that was never written.
+
+    ``None`` covers both "no manifest on disk" and "these bytes do not load":
+    a caller cannot be told which pack governs a file that is not there or
+    that the next command will reject.
+    """
+
+    if manifest_bytes is None:
+        return None
+    from agents_shipgate.config.loader import load_manifest_text
+
+    try:
+        manifest = load_manifest_text(manifest_bytes.decode("utf-8"))
+    except Exception:  # noqa: BLE001 - any objection means "cannot say".
+        return None
+    return resolve_control_pack(manifest).id
 
 
 def _manifest_defect(text: str) -> str | None:
@@ -1382,7 +1409,14 @@ def register(app: typer.Typer) -> None:
             # caller that is going to re-run init needs to know what it may
             # pass, not only what this run happened to select.
             payload["control_pack"] = {
-                "selected": control_pack,
+                # What the manifest at `path` carries, on the same authority
+                # rule the placeholders follow — `null` when no manifest is
+                # on disk, or when the one there does not load. `requested`
+                # is what this invocation asked for; on `skipped_existing`
+                # the two differ and reporting only the request would
+                # describe a file this run did not write.
+                "selected": _manifest_control_pack(control_manifest_bytes),
+                "requested": control_pack,
                 "manifest_path": "policies.control_pack",
                 "available": [
                     {

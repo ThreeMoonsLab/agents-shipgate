@@ -600,6 +600,7 @@ def build_report_schema() -> tuple[Path, str]:
                 "baseline_integrity_mode",
                 "baseline_fingerprints",
                 "ci_gate_present",
+                "control_pack",
             ]
         )
     if "HumanAckEntry" in defs:

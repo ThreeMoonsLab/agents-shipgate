@@ -1118,8 +1118,15 @@ accepting the narrower gap stops matching and the finding re-opens. That is the
 intended direction: an acceptance recorded under looser rules should not carry
 into stricter ones.
 
-`shipgate init --control-pack <id>` writes the selection, and `init --json`
-reports the selected pack and every alternative under `control_pack`.
+`shipgate init --control-pack <id>` writes the selection. `init --json`
+reports it under `control_pack`: `requested` is what the invocation asked for,
+`selected` is what the manifest **on disk** carries (`null` when there is none
+or it does not load — a second `init` over an existing manifest writes
+nothing, and reporting the request there would describe a file it did not
+write), and `available` lists every pack this CLI knows. That list is also the
+capability probe: a CLI that predates control packs emits no `control_pack`
+key, and one that predates the *field* rejects a manifest carrying it with a
+routable config error rather than ignoring a release rule.
 
 ## Policy Packs
 

@@ -6,7 +6,7 @@ This document is the contract. If the runtime ever diverges from what's document
 
 Shipgate is pre-1.0. The CLI surface, exit codes, and `contract_version`
 described here are stable within the `0.x` line, but the `report.json` schema
-(`report_schema_version`, currently `0.38`) is still additive-versioned and
+(`report_schema_version`, currently `0.39`) is still additive-versioned and
 not yet frozen. A `1.0` line will not begin until the report schema reaches
 `1.0` and holds without a breaking change. Pin a version (or the Action tag)
 for reproducible CI.
@@ -148,7 +148,7 @@ exit code (3) are unchanged.
 
 Two capability schemas move: `capability_lock_schema_version` `0.6` → `0.7` and
 `capability_lock_diff_schema_version` `0.7` → `0.8`. `report_schema_version`
-(`0.38`), `packet_schema_version` (`0.15`), `verifier_schema_version` (`0.12`),
+(`0.39`), `packet_schema_version` (`0.15`), `verifier_schema_version` (`0.12`),
 `contract_version`, and the manifest `version: "0.1"` are unchanged.
 
 **Four published documents are restored to the bytes they were published with.**
@@ -2032,7 +2032,13 @@ conflict rule against published source evidence, and existing manifests are
 unaffected — a source with no `authority` block resolves exactly as before.
 
 `policies.control_pack` (`default` | `financial-strict` | `read-only-agent`)
-is additive and requires no report-schema change. It selects which controls
+is additive and changes no published schema, so there is no
+`report_schema_version` floor to check for it. A CLI that predates the field
+*rejects* it — the manifest loader is strict, so the run stops with a routable
+`ConfigError` (exit 2) naming the unknown key rather than ignoring a release
+rule. To detect support before writing it, read `control_pack.available` from
+`agents-shipgate init --json`; a CLI without control packs emits no
+`control_pack` key at all. It selects which controls
 each action effect requires. Omitting it means `default`, which is exactly the
 rule set every prior release applied, so existing manifests keep their
 verdicts. Every built-in pack requires at least what `default` requires — a
@@ -2048,6 +2054,15 @@ Obligations for effects with no dedicated control check (`write`,
 joined by `+` where one rule covers several). Like the four dedicated control
 families, they are mandatory current-surface controls: a `checks.ignore` entry
 records the exception without waiving the blocker.
+
+`effective_policy.control_pack` (v0.39+) publishes the pack in force, so a
+base-vs-head comparison can see the gate weakened by a *rule* change and not
+only by a severity one. `SHIP-VERIFY-POLICY-WEAKENED` gains
+`kind: control_pack_weakened`: one finding per pack move, carrying
+`removed_controls[] = {effect, controls}` for every effect the head pack
+requires less of. A snapshot with no `control_pack` predates the field and is
+compared as `default` — a build without control packs could not have loaded a
+manifest naming one.
 
 Control findings carry `findings[].evidence.control_pack`. It is excluded from
 the finding fingerprint, so a baseline recorded before the field keeps

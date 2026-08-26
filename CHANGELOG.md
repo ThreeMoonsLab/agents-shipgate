@@ -44,7 +44,19 @@
   "without required controls" rather than "without approval", which under a
   stricter pack was telling an action that *has* approval that it does not.
 
-  No new check ids, no report-schema change, and no CLI command. Findings carry
+  **A pack move is a policy weakening, and the gate says so.** Every field in
+  the effective-policy snapshot answers *does the same finding still block?*;
+  a control pack answers *does the same action still produce the finding?*,
+  which is the other way a gate gets weaker — and the one a base-vs-head
+  comparison could not see. `effective_policy.control_pack` (report schema
+  `0.38 → 0.39`, additive, v0.38 frozen) publishes the pack in force, and
+  `SHIP-VERIFY-POLICY-WEAKENED` gains `kind: control_pack_weakened`: one
+  finding per pack move carrying `removed_controls[] = {effect, controls}`.
+  A base snapshot with no pack predates the field and is compared as
+  `default`, so the "no pack is weaker than default" invariant is enforced by
+  the comparison rather than assumed by it.
+
+  No new check ids and no new CLI command. Findings carry
   `evidence.control_pack`, excluded from the fingerprint so baselines recorded
   before the field keep matching; `run_id` does move, because which rules
   produced a report is part of what that report is. Switching to a stricter

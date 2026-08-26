@@ -38,7 +38,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.38.json`](report-schema.v0.38.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.38"`, and a declaration question carries the manifest block that answers it, so the actions one `tool_sources[].authority` block covers are one question rather than N)
+- [`report-schema.v0.39.json`](report-schema.v0.39.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.39"`, and `effective_policy.control_pack` names the control pack in force, so a base-vs-head comparison can see a pack moved to one that requires less)
+- [`report-schema.v0.38.json`](report-schema.v0.38.json) — frozen reference (a declaration question carries the manifest block that answers it, so the actions one `tool_sources[].authority` block covers are one question rather than N)
 - [`report-schema.v0.37.json`](report-schema.v0.37.json) — frozen reference (added `semantic_coverage.declaration_questions`, the questionnaire projection that says how many declarations a repository still owes)
 - [`report-schema.v0.36.json`](report-schema.v0.36.json) — frozen reference (added the `declaration_below_inferred_evidence` gap kind that records a declaration weaker than the evidence observed for it)
 - [`report-schema.v0.35.json`](report-schema.v0.35.json) — frozen v0.35 surface-exclusion-ledger reference; pre-v0.36 reports validate against this

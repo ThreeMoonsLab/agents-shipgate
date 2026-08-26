@@ -258,6 +258,10 @@ class EffectivePolicy(BaseModel):
     - ``baseline_fingerprints`` — was the accepted-debt baseline expanded?
     - ``baseline_integrity_mode`` — was baseline tamper-checking weakened?
     - ``ci_gate_present`` — was Shipgate CI removed from an opted-in repo?
+    - ``control_pack`` — was the control pack moved to one that requires
+      less (#410 §F)? Every other field here answers "does the same finding
+      still block?"; this one answers "does the same action still produce
+      the finding?", which is the other way a gate gets weaker.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -282,6 +286,11 @@ class EffectivePolicy(BaseModel):
     # manifest-derived fields.
     baseline_fingerprints: list[str] = Field(default_factory=list)
     ci_gate_present: bool = True
+    # v0.39: the ``policies.control_pack`` in force — which controls each
+    # action effect requires. ``None`` on a snapshot written before the field
+    # existed, which is by construction the ``default`` rule set: that build
+    # could not load a manifest naming a pack at all.
+    control_pack: str | None = None
 
     @model_validator(mode="after")
     def _sort(self) -> EffectivePolicy:
