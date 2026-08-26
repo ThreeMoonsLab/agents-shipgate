@@ -172,6 +172,10 @@ def roll_up_findings(
     review item.  Before #364 the three surfaces each had their own rule and
     their own limit, so one scan reported a different "top" three ways.
 
+    A group blocks when the release decision names one of its findings as a
+    blocker — not when a finding carries ``blocks_release``, which stays true
+    on debt a baseline has accepted.
+
     Ordering is blocking groups first, then by the group's most severe row,
     then by how much is wrong with the subject, then by name — so the tie
     break is deterministic and a rerun on an unchanged repo prints an
@@ -179,8 +183,11 @@ def roll_up_findings(
     """
 
     rows = list(report.findings if findings is None else findings)
-    blocking_keys = _decision_keys(report, blockers_only=True)
-    decision_keys = _decision_keys(report, blockers_only=False)
+    decision = report.release_decision
+    blocking = _decision_index(decision.blockers if decision else [])
+    named = _decision_index(
+        [*decision.blockers, *decision.review_items] if decision else []
+    )
     tool_labels = _tool_label_index(report)
     agent_labels = _agent_label_index(report)
 
@@ -189,13 +196,18 @@ def roll_up_findings(
     for finding in rows:
         if finding.suppressed:
             continue
-        keys = _finding_keys(finding)
-        if finding.severity not in _ALWAYS_SHOWN_SEVERITIES and not (
-            keys & decision_keys
+        if finding.severity not in _ALWAYS_SHOWN_SEVERITIES and not named.names(
+            finding
         ):
             continue
         group_key, subject = _subject(finding, tool_labels, agent_labels)
-        blocks = bool(keys & blocking_keys) or finding.blocks_release
+        # The release decision is the authority on what blocks, and
+        # `finding.blocks_release` is not the same claim: a policy finding
+        # whose debt a baseline has accepted keeps the flag and is filed as a
+        # *review item*. Reading the flag would print "BLOCKS RELEASE" two
+        # lines under a decision that says otherwise. It is consulted only
+        # when there is no decision to contradict.
+        blocks = blocking.names(finding) if decision else finding.blocks_release
         members.setdefault(group_key, []).append((finding, blocks))
         # First writer names the group. The key is identity (a canonical tool
         # id where there is one) and the subject is a label; resolving the
@@ -245,54 +257,48 @@ def _group_sort_key(group: SubjectGroup) -> tuple[Any, ...]:
     )
 
 
-def _finding_keys(finding: Finding) -> frozenset[str]:
-    """The values a release-decision item can be joined to this finding by."""
+@dataclass(frozen=True)
+class _DecisionIndex:
+    """Which findings a list of release-decision items names.
 
-    return frozenset(
-        value
-        for value in (
-            finding.id,
-            finding.fingerprint,
-            f"{finding.check_id}{_KEY_SEPARATOR}{finding.title}",
-        )
-        if value
-    )
+    Two sets, because one would be wrong in both directions.  ``precise``
+    holds the ids and fingerprints, which identify a finding exactly.
+    ``unkeyed`` holds ``check_id`` + ``title`` for items that carry *neither*
+    — the only case where guessing is better than not matching, and the case
+    a report predating id assignment is in.
 
-
-def _item_keys(item: Any) -> frozenset[str]:
-    """The same values, read off a ``ReleaseDecisionItem``.
-
-    Deliberately the mirror of :func:`_finding_keys` rather than a second
-    definition of "same finding": the check-id-and-title fallback exists
-    because a decision item built before ids were assigned carries neither an
-    id nor a fingerprint, and both sides have to spell that fallback the same
-    way for the join to happen at all.
+    Applying the title fallback to every item is what makes it a bug rather
+    than a fallback: ``samples/conductor_agent`` emits the same check twice
+    with the same title, so a decision naming one of them would mark both.
     """
 
-    return frozenset(
-        value
-        for value in (
-            getattr(item, "id", None),
-            getattr(item, "fingerprint", None),
-            f"{item.check_id}{_KEY_SEPARATOR}{item.title}",
-        )
-        if value
-    )
+    precise: frozenset[str]
+    unkeyed: frozenset[str]
+
+    def names(self, finding: Finding) -> bool:
+        if finding.id and finding.id in self.precise:
+            return True
+        if finding.fingerprint and finding.fingerprint in self.precise:
+            return True
+        if not self.unkeyed:
+            return False
+        return f"{finding.check_id}{_KEY_SEPARATOR}{finding.title}" in self.unkeyed
 
 
-def _decision_keys(report: ReadinessReport, *, blockers_only: bool) -> frozenset[str]:
-    decision = report.release_decision
-    if decision is None:
-        return frozenset()
-    items = (
-        list(decision.blockers)
-        if blockers_only
-        else [*decision.blockers, *decision.review_items]
-    )
-    keys: set[str] = set()
+def _decision_index(items: Sequence[Any]) -> _DecisionIndex:
+    precise: set[str] = set()
+    unkeyed: set[str] = set()
     for item in items:
-        keys |= _item_keys(item)
-    return frozenset(keys)
+        keys = {
+            value
+            for value in (getattr(item, "id", None), getattr(item, "fingerprint", None))
+            if value
+        }
+        if keys:
+            precise |= keys
+        else:
+            unkeyed.add(f"{item.check_id}{_KEY_SEPARATOR}{item.title}")
+    return _DecisionIndex(precise=frozenset(precise), unkeyed=frozenset(unkeyed))
 
 
 def _tool_label_index(report: ReadinessReport) -> dict[str, str]:

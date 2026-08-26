@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from agents_shipgate.ci.release_decision import _to_item
 from agents_shipgate.cli._helpers import _print_cli_summary
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core.action_semantics import (
@@ -49,7 +50,14 @@ from agents_shipgate.core.findings.summaries import (
 from agents_shipgate.core.surface_exclusions import derived_id_kind
 from agents_shipgate.report.markdown import _safe_markdown_text, render_markdown_report
 from agents_shipgate.schemas.common import SourceReference
-from agents_shipgate.schemas.report import Finding, ReadinessReport
+from agents_shipgate.schemas.report import (
+    BaselineDelta,
+    EvidenceCoverageDecision,
+    FailPolicy,
+    Finding,
+    ReadinessReport,
+    ReleaseDecision,
+)
 
 SAMPLES = Path(__file__).resolve().parents[1] / "samples"
 
@@ -638,6 +646,27 @@ def _report_with(findings: list[Finding], *, catalog: list[dict], agent: dict):
     )
 
 
+def _decision(*, blockers: list[Finding], review_items: list[Finding]) -> ReleaseDecision:
+    """A decision that names the given findings, built the way scans build it."""
+
+    return ReleaseDecision(
+        decision="blocked" if blockers else "review_required",
+        reason="fixture",
+        blockers=[_to_item(finding) for finding in blockers],
+        review_items=[_to_item(finding) for finding in review_items],
+        evidence_coverage=EvidenceCoverageDecision(
+            level="static",
+            human_review_recommended=False,
+            source_warning_count=0,
+            low_confidence_tool_count=0,
+        ),
+        baseline_delta=BaselineDelta(enabled=False),
+        fail_policy=FailPolicy(
+            ci_mode="advisory", would_fail_ci=False, exit_code=0
+        ),
+    )
+
+
 def test_a_nameless_catalog_row_never_becomes_a_group_heading():
     """``catalog_subject`` falls back to the tool id, which is right where it
     joins two surfaces by value and wrong in a heading (#329)."""
@@ -710,3 +739,100 @@ def test_two_tools_with_one_name_stay_two_subjects():
     groups = roll_up_findings(report)
     assert len(groups) == 2
     assert {group.subject for group in groups} == {"search [openapi]", "search [mcp]"}
+
+
+def test_accepted_debt_is_not_reported_as_blocking():
+    """`finding.blocks_release` and "the decision blocks on this" are two
+    claims, and a baseline separates them.
+
+    A policy finding whose debt a baseline has accepted keeps
+    ``blocks_release=True`` and is filed by `ci.release_decision` as a *review
+    item*. Reading the flag would print BLOCKS RELEASE two lines under a
+    verdict that accepted it.
+    """
+
+    accepted = Finding(
+        id="fp_accepted",
+        fingerprint="fp_accepted",
+        check_id="SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
+        title="t lacks controls",
+        severity="critical",
+        category="action_surface",
+        recommendation="declare them",
+        tool_id="tool_v2_aaaa",
+        tool_name="t",
+        blocks_release=True,
+        baseline_status="matched",
+    )
+    report = _report_with(
+        [accepted],
+        catalog=[{"tool_id": "tool_v2_aaaa", "name": "t", "provider": "mcp"}],
+        agent={"id": "agent:p/a", "name": "a"},
+    )
+    report.release_decision = _decision(blockers=[], review_items=[accepted])
+
+    (group,) = roll_up_findings(report)
+    assert not group.blocks_release
+    assert group_summary(group).startswith("review")
+    assert "(blocks release)" not in finding_line(accepted, blocks_release=False)
+
+
+def test_a_shared_title_does_not_borrow_another_findings_verdict():
+    """Two findings can share a check id and a title — ``conductor_agent``
+    ships exactly that pair — so the check-id-and-title fallback is applied
+    only to a decision item that carries no id and no fingerprint."""
+
+    def _finding(finding_id: str, pointer: str) -> Finding:
+        return Finding(
+            id=finding_id,
+            fingerprint=finding_id,
+            check_id="SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
+            title="Conductor tool surface cannot be statically enumerated",
+            severity="high",
+            category="conductor",
+            recommendation="bind it literally",
+            agent_id="agent:p/a",
+            source=SourceReference(
+                type="conductor_workflow", path="workflows/a.json", pointer=pointer
+            ),
+        )
+
+    blocking, quiet = _finding("fp_one", "/tasks/1"), _finding("fp_two", "/tasks/4")
+    report = _report_with(
+        [blocking, quiet],
+        catalog=[],
+        agent={"id": "agent:p/a", "name": "a"},
+    )
+    report.release_decision = _decision(blockers=[blocking], review_items=[quiet])
+
+    (group,) = roll_up_findings(report)
+    assert dict(zip([f.id for f in group.findings], group.blocking, strict=True)) == {
+        "fp_one": True,
+        "fp_two": False,
+    }
+
+
+def test_an_item_with_no_id_still_matches_by_check_and_title():
+    """The fallback exists for a report predating id assignment, and removing
+    the collision must not remove the fallback with it."""
+
+    finding = Finding(
+        check_id="SHIP-EXAMPLE",
+        title="one thing",
+        severity="medium",
+        category="example",
+        recommendation="do the thing",
+        agent_id="agent:p/a",
+    )
+    report = _report_with(
+        [finding], catalog=[], agent={"id": "agent:p/a", "name": "a"}
+    )
+    report.release_decision = _decision(blockers=[finding], review_items=[])
+    report.release_decision.blockers[0].id = None
+    report.release_decision.blockers[0].fingerprint = None
+
+    (group,) = roll_up_findings(report)
+    # A medium is selected only because the decision names it, and it is
+    # marked blocking through the same fallback.
+    assert group.findings == (finding,)
+    assert group.blocks_release
