@@ -83,10 +83,12 @@ def _load_sources(
     per_source_loaded: list[LoadedToolSource] = []
     per_scan_loaded: list[LoadedToolSource] = []
     bag = ArtifactBag()
-    # ``(type, id) -> configured id`` for pass 2. Keyed on the pair because the
-    # id alone is not a foreign key: see ``_configured_id_for``.
+    # ``(type, id) -> configured id`` for pass 2. Keyed on the pair itself
+    # rather than on a joined string, because the id is repository-chosen and a
+    # separator is one more thing that can appear inside it. The pair is the
+    # key because the id alone is not a foreign key: see ``_configured_id_for``.
     configured_ids_by_source_id = {
-        f"{source.type}\n{source.id.strip()}": source.id
+        (source.type, source.id.strip()): source.id
         for source in manifest.tool_sources
     }
 
@@ -190,7 +192,7 @@ def _absorb(
     bag: ArtifactBag,
     adapter: ToolSourceAdapter,
     configured_source_id: str | None = None,
-    configured_ids_by_source_id: Mapping[str, str] | None = None,
+    configured_ids_by_source_id: Mapping[tuple[str, str], str] | None = None,
 ) -> None:
     for loaded in result.tool_sources:
         loaded.configured_source_id = _configured_id_for(
@@ -224,7 +226,7 @@ def _configured_id_for(
     loaded: LoadedToolSource,
     adapter: ToolSourceAdapter,
     configured_source_id: str | None,
-    configured_ids_by_source_id: Mapping[str, str] | None,
+    configured_ids_by_source_id: Mapping[tuple[str, str], str] | None,
 ) -> str | None:
     """Which ``tool_sources`` entry this result was produced for, or ``None``.
 
@@ -249,7 +251,7 @@ def _configured_id_for(
     if not configured_ids_by_source_id:
         return None
     return configured_ids_by_source_id.get(
-        f"{adapter.source_type}\n{loaded.source_id.strip()}"
+        (adapter.source_type, loaded.source_id.strip())
     )
 
 
