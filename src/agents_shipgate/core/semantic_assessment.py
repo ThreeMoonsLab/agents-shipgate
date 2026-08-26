@@ -24,6 +24,7 @@ from agents_shipgate.core.domain import (
     ToolIdentityAssessment,
     ToolSemanticAssessment,
 )
+from agents_shipgate.core.tool_identity import configured_tool_source
 from agents_shipgate.schemas.common import Confidence, ProvenanceKind, confidence_rank
 from agents_shipgate.schemas.manifest import (
     ActionDeclarationConfig,
@@ -208,11 +209,12 @@ def attach_semantic_assessments(
     it exclusively owns the enriched objects. Name-keyed declaration maps are
     intentionally ignored so same-name providers can never share evidence.
 
-    ``tool_sources`` is the manifest's configured sources keyed by id, so a
-    tool can be joined to the entry that may declare its authority. Keyed by
-    the *configured* id and never by ``tool.source_id`` alone: a per-scan
-    adapter stamps a source id that ``tool_sources`` does not accept, and a
-    tool whose id is absent from this map simply has no source block.
+    ``tool_sources`` is the manifest's configured sources keyed by id. The join
+    runs through ``configured_tool_source``, which reads the provenance the
+    dispatcher recorded — never ``tool.source_id``, which is minted by the
+    adapter and shares a namespace with configured ids, so joining on it
+    applied an MCP row's reviewed authority to OpenAI API actions and failed to
+    apply a ``codex_config`` row's to the source it was written for.
     """
 
     by_tool = declarations or {}
@@ -221,7 +223,7 @@ def attach_semantic_assessments(
     for original in tools:
         tool = original.model_copy() if copy_tools else original
         declaration = by_tool.get(tool.id)
-        tool_source = by_source.get(tool.source_id) if tool.source_id else None
+        tool_source = configured_tool_source(tool, by_source) if by_source else None
         tool.semantic_assessment = assess_tool_semantics(
             tool,
             declaration,
@@ -1529,7 +1531,22 @@ def _assess_authority(
             status = "declared"
             mode = declared_mode
         auth_type = reviewed.auth_type
-        credential_mode = reviewed.credential_mode
+        # ``credential_mode`` is optional, and omitting it is not a claim that
+        # the action has none. Overwriting a published ``service_account`` with
+        # ``None`` left the dimension ``declared`` and pass-eligible while
+        # capability policies matching ``credential_modes: [service_account]``
+        # silently stopped matching — a control dropped by an omission (#410
+        # review). Where the declaration states one it still governs, and a
+        # *different* stated value is a conflict, as before.
+        #
+        # Not preserved under ``mode: none``: that mode is the claim that no
+        # credential exists, so there is nothing for a credential mode to
+        # describe — and the schema now refuses to let one be declared there.
+        credential_mode = (
+            reviewed.credential_mode
+            if reviewed.credential_mode or reviewed.mode == "none"
+            else tool.auth.credential_mode
+        )
         scopes = reviewed.scopes
     else:
         status = source_status

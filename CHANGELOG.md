@@ -62,6 +62,41 @@
   reading "117 actions from tool source 'github' have no explicit or
   structural authority evidence."
 
+  *A source id is not a foreign key.* Review of this change found the join
+  itself wrong. `Tool.source_id` is minted by the adapter, and configured ids
+  share that namespace: a `tool_sources` row of type `mcp` calling itself
+  `openai_api` had its reviewed authority applied to the OpenAI API surface —
+  clearing `missing_authority_evidence` for actions nobody declared anything
+  about — while a `codex_config` row, whose adapter emits ids derived from the
+  file it read, applied to nothing at all. The dispatcher now records which
+  configured entry each loaded result was produced *for*, identity resolution
+  carries it onto the canonical action, and the declaration joins on that. A
+  reviewed `tool_identity` binding that merges observations from two configured
+  sources answers for neither: their credentials are separate facts, and the
+  question stays on the action row.
+
+  *An omitted optional field is not a claim of absence.* `credential_mode` is
+  optional, and a declaration that leaves it out was overwriting a published
+  `service_account` with nothing — leaving the dimension `declared` and
+  pass-eligible while capability policies matching
+  `credential_modes: [service_account]` silently stopped matching. The
+  published value is preserved where the declaration states none; a
+  *different* stated value is still a conflict.
+
+  *`mode: none` means no credential, including its mode.* Both declaration
+  sites accepted `{mode: none, credential_mode: service_account}` — a fact
+  about a credential the same block says does not exist, which on a
+  structurally complete read action was pass-eligible. Both now reject it.
+
+  *A version bump moves the labels, not only the filenames.* The public
+  schema-version statements had drifted: table cells reading `0.37` beside a
+  v0.38 link, "The packet schema is `0.14`" above a v0.15 link, and a
+  `verifier_schema_version: "0.7"` in README and the Claude Code skill that had
+  been stale for several releases. Two parity tests now hold them together — a
+  line that links the current schema must also name its version, and a quoted
+  `<kind>_schema_version` must equal what the engine emits unless the line or
+  its section marks it as history.
+
   Report schema `0.37 → 0.38` adds `subject_kind` to `evidence_gaps[]` and
   `subject_kind`/`answer_path` to `declaration_questions.open_questions[]`.
   Packet `0.14 → 0.15` and verifier `0.11 → 0.12` follow because they embed the

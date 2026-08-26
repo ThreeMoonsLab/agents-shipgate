@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -82,6 +83,12 @@ def _load_sources(
     per_source_loaded: list[LoadedToolSource] = []
     per_scan_loaded: list[LoadedToolSource] = []
     bag = ArtifactBag()
+    # ``(type, id) -> configured id`` for pass 2. Keyed on the pair because the
+    # id alone is not a foreign key: see ``_configured_id_for``.
+    configured_ids_by_source_id = {
+        f"{source.type}\n{source.id.strip()}": source.id
+        for source in manifest.tool_sources
+    }
 
     # Pass 1 — per-source adapters only, in tool_sources declared
     # order. Per-scan source types (langchain, crewai, etc.) are
@@ -106,7 +113,14 @@ def _load_sources(
             # captured the failure into runtime_errors and we skip
             # absorbing the (None) result.
             continue
-        _absorb(result, source.type, per_source_loaded, bag, adapter)
+        _absorb(
+            result,
+            source.type,
+            per_source_loaded,
+            bag,
+            adapter,
+            configured_source_id=source.id,
+        )
 
     # Pass 2 — every per-scan adapter fires once, in registry order.
     # Covers framework adapters (always check their manifest section
@@ -130,7 +144,14 @@ def _load_sources(
                 continue
         else:
             result = adapter.load(None, base_dir, manifest)
-        _absorb(result, adapter.source_type, per_scan_loaded, bag, adapter)
+        _absorb(
+            result,
+            adapter.source_type,
+            per_scan_loaded,
+            bag,
+            adapter,
+            configured_ids_by_source_id=configured_ids_by_source_id,
+        )
 
     return per_source_loaded + per_scan_loaded, bag
 
@@ -168,7 +189,16 @@ def _absorb(
     sink: list[LoadedToolSource],
     bag: ArtifactBag,
     adapter: ToolSourceAdapter,
+    configured_source_id: str | None = None,
+    configured_ids_by_source_id: Mapping[str, str] | None = None,
 ) -> None:
+    for loaded in result.tool_sources:
+        loaded.configured_source_id = _configured_id_for(
+            loaded,
+            adapter,
+            configured_source_id,
+            configured_ids_by_source_id,
+        )
     sink.extend(result.tool_sources)
     if result.artifact is not None:
         if adapter.artifact_class is not None and not isinstance(
@@ -188,6 +218,39 @@ def _absorb(
                 warnings=list(result.warnings),
             )
         )
+
+
+def _configured_id_for(
+    loaded: LoadedToolSource,
+    adapter: ToolSourceAdapter,
+    configured_source_id: str | None,
+    configured_ids_by_source_id: Mapping[str, str] | None,
+) -> str | None:
+    """Which ``tool_sources`` entry this result was produced for, or ``None``.
+
+    Pass 1 knows exactly — the dispatcher called the adapter *with* the config
+    object, so every result of that call belongs to it however the adapter
+    chose to spell the ids it mints (``codex_config`` emits
+    ``codex_config_mcp:<path>``, which matches no configured row).
+
+    Pass 2 has no config object, because a per-scan adapter fires once and may
+    cover several entries plus a top-level manifest section. It is attributed
+    by the pair ``(minted source id, adapter source type)``: a framework
+    adapter reads its own ``tool_sources`` rows and mints their ids, so the
+    pair identifies the row. The *type* half is what makes this safe — the four
+    manifest-only adapters (``openai_api``, ``anthropic_api``, ``n8n``,
+    ``validation``) are rejected in ``tool_sources`` outright, so no configured
+    row can ever carry their type, and their fixed minted ids can no longer
+    collide with a row that happens to reuse the name (#410 review).
+    """
+
+    if configured_source_id is not None:
+        return configured_source_id
+    if not configured_ids_by_source_id:
+        return None
+    return configured_ids_by_source_id.get(
+        f"{adapter.source_type}\n{loaded.source_id.strip()}"
+    )
 
 
 def _invoke_per_source_adapter(

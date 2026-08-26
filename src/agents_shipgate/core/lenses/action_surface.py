@@ -41,6 +41,7 @@ from agents_shipgate.core.surface_exclusions import (
 from agents_shipgate.core.tool_identity import (
     ToolSelectorIndex,
     action_identity_aliases,
+    configured_tool_source,
 )
 from agents_shipgate.schemas.common import (
     Severity,
@@ -499,13 +500,14 @@ def _tool_source_for(
     manifest: AgentsShipgateManifest,
     tool: Tool,
 ) -> ToolSourceConfig | None:
-    """The configured ``tool_sources`` entry this tool came from, if any."""
+    """The configured ``tool_sources`` entry this action came from, if exactly one did.
 
-    if not tool.source_id:
-        return None
-    return next(
-        (source for source in manifest.tool_sources if source.id == tool.source_id),
-        None,
+    The same join the resolver uses, for the same reason: ``tool.source_id`` is
+    minted by the adapter and is not a foreign key into ``tool_sources``.
+    """
+
+    return configured_tool_source(
+        tool, {source.id: source for source in manifest.tool_sources}
     )
 
 

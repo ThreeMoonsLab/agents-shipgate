@@ -677,7 +677,8 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.38.json`](docs/report-schema.v0.38.json) | `0.37` |
+| Report schema (current) | [`docs/report-schema.v0.38.json`](docs/report-schema.v0.38.json) | `0.38` |
+| Report schema (v0.37 frozen reference) | [`docs/report-schema.v0.37.json`](docs/report-schema.v0.37.json) | `0.37` |
 | Report schema (v0.34 frozen reference) | [`docs/report-schema.v0.34.json`](docs/report-schema.v0.34.json) | `0.34` |
 | Report schema (v0.33 frozen reference) | [`docs/report-schema.v0.33.json`](docs/report-schema.v0.33.json) | `0.33` |
 | Report schema (v0.32 frozen reference) | [`docs/report-schema.v0.32.json`](docs/report-schema.v0.32.json) | `0.32` |
@@ -715,7 +716,7 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Report schema (v0.8 frozen reference) | [`docs/report-schema.v0.8.json`](docs/report-schema.v0.8.json) | `0.8` |
 | Report schema (v0.7 frozen reference) | [`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json) | `0.7` |
 | Report schema (v0.6 frozen reference) | [`docs/report-schema.v0.6.json`](docs/report-schema.v0.6.json) | `0.6` |
-| Packet schema (Release Evidence Packet, latest) | [`docs/packet-schema.v0.15.json`](docs/packet-schema.v0.15.json) | `0.14` |
+| Packet schema (Release Evidence Packet, latest) | [`docs/packet-schema.v0.15.json`](docs/packet-schema.v0.15.json) | `0.15` |
 | Agent result schema (current) | [`docs/agent-result-schema.v2.json`](docs/agent-result-schema.v2.json) | `agent_result_v2` |
 | Verifier schema (current) | [`docs/verifier-schema.v0.5.json`](docs/verifier-schema.v0.5.json) | `0.5` |
 | Agent handoff schema (current) | [`docs/agent-handoff-schema.v5.json`](docs/agent-handoff-schema.v5.json) | `shipgate.agent_handoff/v5` |

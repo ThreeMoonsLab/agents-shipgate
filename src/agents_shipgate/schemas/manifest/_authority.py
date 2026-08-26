@@ -48,13 +48,15 @@ def validate_authority_co_requirements(
     scopes: Sequence[str],
     reason: str | None,
     mode_label: str,
+    credential_mode: str | None = None,
 ) -> None:
     """Raise when a declared mode is missing what that mode requires.
 
     ``mode_label`` names the field being judged (``tool_sources[].authority.mode``
     …) so the message points at the line the reviewer has to edit. The rules:
 
-    * ``none`` — no credential at all, so no ``auth_type`` and no scopes;
+    * ``none`` — no credential at all, so no ``auth_type``, no
+      ``credential_mode``, and no scopes;
     * ``scoped`` — an ``auth_type`` and a concrete, non-empty scope list;
     * ``unscoped`` — an ``auth_type`` and a ``reason``, and no scopes (a scope
       list would contradict the claim that the grant is unscoped);
@@ -63,6 +65,7 @@ def validate_authority_co_requirements(
 
     normalized_auth_type = (auth_type or "").strip()
     normalized_reason = (reason or "").strip()
+    normalized_credential_mode = (credential_mode or "").strip()
     has_scopes = bool(list(scopes))
 
     if mode == "none":
@@ -70,6 +73,12 @@ def validate_authority_co_requirements(
             raise ValueError(f"{mode_label} 'none' requires empty scopes")
         if normalized_auth_type:
             raise ValueError(f"{mode_label} 'none' requires no auth_type")
+        # ``none`` is the claim that this runs with no credential at all. A
+        # credential *mode* beside it is a fact about a credential the same
+        # block says does not exist, and on a structurally complete read action
+        # that contradiction was pass-eligible (#410 review).
+        if normalized_credential_mode:
+            raise ValueError(f"{mode_label} 'none' requires no credential_mode")
     elif mode == "scoped":
         if not normalized_auth_type:
             raise ValueError(f"{mode_label} 'scoped' requires auth_type")

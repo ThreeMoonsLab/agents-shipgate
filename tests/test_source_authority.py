@@ -79,6 +79,10 @@ def _tool(name: str = "send_email", **updates: object) -> Tool:
         "source_pointer": "tools.json",
         "extraction_confidence": "high",
         "extraction": {"surface": "enumerated"},
+        # What the dispatcher records: the configured ``tool_sources`` entry
+        # this observation came from. The join runs on this, never on
+        # ``source_id`` — see the provenance tests below.
+        "configured_source_ids": ["crm"],
     }
     values.update(updates)
     return Tool.model_validate(values)
@@ -1075,3 +1079,285 @@ def test_a_declared_effect_below_a_declared_grant_is_never_quiet(tmp_path: Path)
     assert "conflicting_effect_evidence" in {
         gap.kind for gap in report.release_decision.evidence_coverage.evidence_gaps
     }
+
+
+# --------------------------------------------------------------------------
+# 7. The join is provenance, not a shared namespace (#410 review)
+# --------------------------------------------------------------------------
+
+
+def test_a_declaration_never_reaches_a_source_that_merely_shares_an_id(
+    tmp_path: Path,
+) -> None:
+    """``Tool.source_id`` is not a foreign key into ``tool_sources``.
+
+    Configured ids are arbitrary and per-scan adapters mint fixed ones in the
+    same namespace, so an MCP row calling itself ``openai_api`` had its
+    reviewed authority applied to the OpenAI API surface — clearing
+    ``missing_authority_evidence`` for actions nobody declared anything about,
+    and moving them from non-eligible to eligible on that dimension. The join
+    runs on the provenance the dispatcher recorded instead.
+    """
+
+    (tmp_path / "tools.json").write_text(
+        json.dumps({"tools": [_mcp_tool("mcp_read", "Read a record from the store.")]}),
+        encoding="utf-8",
+    )
+    (tmp_path / "openai-tools.json").write_text(
+        json.dumps(
+            [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "charge_card",
+                        "description": "Charge a customer card for an order.",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "agent.md").write_text("Assist with billing questions.\n", encoding="utf-8")
+    manifest = {
+        "version": "0.1",
+        "project": {"name": "collision"},
+        "agent": {"name": "a", "declared_purpose": ["exercise a source-id collision"]},
+        "environment": {"target": "local"},
+        # The id an unconfigured per-scan adapter also mints for itself.
+        "tool_sources": [
+            {
+                "id": "openai_api",
+                "type": "mcp",
+                "path": "tools.json",
+                "authority": {"mode": "none"},
+            }
+        ],
+        "agent_bindings": {
+            "declarations": [
+                {
+                    "agent": "root",
+                    "complete": True,
+                    "tools": [
+                        {"tool": "mcp_read", "source_id": "openai_api"},
+                        {"tool": "charge_card", "source_id": "openai_api"},
+                    ],
+                    "handoffs": [],
+                    "reason": "reviewed fixture binding",
+                }
+            ]
+        },
+        "openai_api": {
+            "prompt_files": ["agent.md"],
+            "tools": [{"path": "openai-tools.json"}],
+        },
+    }
+    config = tmp_path / "shipgate.yaml"
+    config.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+    report = _scan(tmp_path, config)
+
+    by_name = {
+        action.tool_name: action for action in report.action_surface_facts.actions
+    }
+    declared = by_name["mcp_read"].semantic_assessment
+    borrowed = by_name["charge_card"].semantic_assessment
+    assert declared is not None and borrowed is not None
+
+    # The configured MCP source is answered.
+    assert declared.authority.status == "declared"
+    assert {claim.source for claim in declared.authority.claims} == {
+        DECLARED_SOURCE_AUTHORITY_SOURCE
+    }
+    # The OpenAI API surface, which no configured entry produced, is not.
+    assert borrowed.authority.status == "unknown"
+    assert not borrowed.authority.claims
+    assert "missing_authority_evidence" in _authority_issues(borrowed)
+
+
+def test_a_declaration_reaches_a_source_whose_adapter_mints_its_own_ids() -> None:
+    """The inverse failure: a row that matched nothing it was written for.
+
+    A ``codex_config`` entry emits results whose ids are derived from the file
+    it read (``codex_config_mcp:.codex/config.toml``), matching no configured
+    row. Joining on the minted id silently applied its reviewed authority
+    nowhere. The dispatcher records the entry every result of that call belongs
+    to, whatever the adapter chose to call it.
+    """
+
+    from agents_shipgate.core.domain import LoadedToolSource
+    from agents_shipgate.core.tool_identity import (
+        build_tool_identity_catalog,
+        configured_tool_source,
+    )
+    from agents_shipgate.schemas.manifest import ToolIdentityConfig
+
+    configured = ToolSourceConfig.model_validate(
+        {
+            "id": "codex",
+            "type": "codex_config",
+            "path": ".",
+            "authority": {"mode": "unscoped", "auth_type": "api_key", "reason": "shared token"},
+        }
+    )
+    loaded = LoadedToolSource(
+        source_id="codex_config_mcp:.codex/config.toml",
+        source_type="codex_config_mcp",
+        configured_source_id="codex",
+        tools=[
+            Tool.model_validate(
+                {
+                    "id": "seed",
+                    "name": "billing.charge",
+                    "source_type": "codex_config_mcp",
+                    "source_id": "codex_config_mcp:.codex/config.toml",
+                    "extraction_confidence": "high",
+                    "extraction": {"surface": "enumerated"},
+                }
+            )
+        ],
+    )
+    catalog, _warnings = build_tool_identity_catalog([loaded], ToolIdentityConfig())
+
+    assert [tool.configured_source_ids for tool in catalog] == [["codex"]]
+    assert configured_tool_source(catalog[0], {"codex": configured}) is configured
+
+
+def test_a_binding_spanning_two_configured_sources_answers_for_neither() -> None:
+    """One declaration does not speak for another deployment's credential.
+
+    A reviewed ``tool_identity`` binding may merge observations from several
+    configured sources. Their credentials are separate facts, so no single
+    source-wide block is the answer and the question stays on the action row.
+    """
+
+    from agents_shipgate.core.domain import LoadedToolSource
+    from agents_shipgate.core.tool_identity import (
+        build_tool_identity_catalog,
+        configured_tool_source,
+    )
+    from agents_shipgate.schemas.manifest import ToolIdentityConfig
+
+    def _loaded(configured_id: str) -> LoadedToolSource:
+        return LoadedToolSource(
+            source_id=configured_id,
+            source_type="mcp",
+            configured_source_id=configured_id,
+            tools=[
+                Tool.model_validate(
+                    {
+                        "id": f"seed_{configured_id}",
+                        "name": "charge",
+                        "source_type": "mcp",
+                        "source_id": configured_id,
+                        "extraction_confidence": "high",
+                        "extraction": {"surface": "enumerated"},
+                    }
+                )
+            ],
+        )
+
+    identity = ToolIdentityConfig.model_validate(
+        {
+            "bindings": [
+                {
+                    "id": "charge",
+                    "provider": "billing",
+                    "primary": {"tool": "charge", "source_id": "east", "source_type": "mcp"},
+                    "members": [
+                        {"tool": "charge", "source_id": "east", "source_type": "mcp"},
+                        {"tool": "charge", "source_id": "west", "source_type": "mcp"},
+                    ],
+                    "reason": "reviewed cross-region equivalence",
+                }
+            ]
+        }
+    )
+    catalog, _warnings = build_tool_identity_catalog(
+        [_loaded("east"), _loaded("west")], identity
+    )
+
+    assert len(catalog) == 1
+    assert catalog[0].configured_source_ids == ["east", "west"]
+    by_id = {
+        "east": ToolSourceConfig.model_validate(
+            {"id": "east", "type": "mcp", "path": "e.json", "authority": {"mode": "none"}}
+        ),
+        "west": ToolSourceConfig.model_validate(
+            {"id": "west", "type": "mcp", "path": "w.json", "authority": {"mode": "none"}}
+        ),
+    }
+    assert configured_tool_source(catalog[0], by_id) is None
+
+
+# --------------------------------------------------------------------------
+# 8. An omitted optional field is not a claim of absence (#410 review)
+# --------------------------------------------------------------------------
+
+
+def test_a_declaration_that_omits_credential_mode_does_not_erase_a_published_one() -> None:
+    """Dropping a control by omission is still dropping it.
+
+    ``credential_mode`` is optional. Overwriting a published
+    ``service_account`` with ``None`` left the dimension ``declared`` and
+    pass-eligible while capability policies matching
+    ``credential_modes: [service_account]`` silently stopped matching.
+    """
+
+    published = _tool(
+        auth={
+            "type": "oauth2",
+            "credential_mode": "service_account",
+            "scopes": ["crm.read"],
+            "alternatives": [
+                {"schemes": [{"name": "o", "type": "oauth2", "scopes": ["crm.read"]}]}
+            ],
+        }
+    )
+    assessed = assess_tool_semantics(
+        published,
+        None,
+        tool_source=_source(mode="scoped", auth_type="oauth2", scopes=["crm.read"]),
+    )
+
+    assert assessed.authority.status == "declared"
+    assert assessed.authority.credential_mode == "service_account"
+
+    # A declaration that *states* a different one is still a conflict.
+    conflicting = assess_tool_semantics(
+        published,
+        None,
+        tool_source=_source(
+            mode="scoped",
+            auth_type="oauth2",
+            credential_mode="delegated",
+            scopes=["crm.read"],
+        ),
+    )
+    assert "conflicting_authority_evidence" in _authority_issues(conflicting)
+
+
+def test_a_credential_free_mode_may_not_carry_a_credential_mode() -> None:
+    """``none`` is the claim that no credential exists; a mode for one contradicts it.
+
+    Both sites accepted `{mode: none, credential_mode: service_account}`, and
+    on a structurally complete read action that contradictory pair was
+    pass-eligible.
+    """
+
+    for payload, model in (
+        (
+            {"tool": "t", "authority": {"mode": "none", "credential_mode": "service_account"}},
+            ActionDeclarationConfig,
+        ),
+        (
+            {
+                "id": "s",
+                "type": "mcp",
+                "path": "t.json",
+                "authority": {"mode": "none", "credential_mode": "service_account"},
+            },
+            ToolSourceConfig,
+        ),
+    ):
+        with pytest.raises(ValidationError, match="'none' requires no credential_mode"):
+            model.model_validate(payload)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, cast
@@ -31,6 +31,7 @@ from agents_shipgate.schemas.manifest import (
     ToolIdentityBindingConfig,
     ToolIdentityConfig,
     ToolObservationSelectorConfig,
+    ToolSourceConfig,
 )
 
 _MCP_LIKE = {
@@ -257,6 +258,38 @@ class ToolSelectorIndex:
         )
 
 
+def configured_tool_source(
+    tool: Tool,
+    by_configured_id: Mapping[str, ToolSourceConfig],
+) -> ToolSourceConfig | None:
+    """The one ``tool_sources`` entry that speaks for this action, or ``None``.
+
+    ``None`` covers three situations that all mean "no source-wide declaration
+    applies here", and each is a deliberate refusal rather than a gap:
+
+    * nothing in ``tool_sources`` configures the surface this action came from
+      — a per-scan adapter reading a top-level manifest section, say — so there
+      is no entry whose declaration could be about it;
+    * a reviewed ``tool_identity`` binding merged observations from **several**
+      configured sources. Their credentials are not the same fact, and picking
+      one would apply a declaration written about one deployment to another;
+    * the action carries no configured provenance at all.
+
+    Never falls back to ``tool.source_id``. That id is minted by the adapter
+    and shares a namespace with configured ids, so the fallback is exactly the
+    join that applied an MCP row's reviewed authority to OpenAI API actions.
+    """
+
+    configured = {
+        source_id
+        for source_id in tool.configured_source_ids
+        if source_id in by_configured_id
+    }
+    if len(configured) != 1:
+        return None
+    return by_configured_id[configured.pop()]
+
+
 def build_tool_identity_catalog(
     loaded_sources: list[LoadedToolSource],
     config: ToolIdentityConfig,
@@ -380,6 +413,16 @@ def build_tool_identity_catalog(
         merged.id = tool_id
         merged.provider = binding.provider
         merged.observation_ids = observation_ids
+        # The union, not the primary's. A reviewed binding may join
+        # observations from several configured sources, and an authority
+        # declared on one of them does not speak for the others.
+        merged.configured_source_ids = sorted(
+            {
+                configured
+                for member in members
+                for configured in member.configured_source_ids
+            }
+        )
         merged.identity_assessment = _assessment(
             tool_id=tool_id,
             provider=binding.provider,
@@ -676,6 +719,12 @@ def _observations(loaded_sources: list[LoadedToolSource]) -> list[Tool]:
             tool.native_locator = locator
             tool.observation_id = observation_id
             tool.observation_ids = [observation_id]
+            # Which configured ``tool_sources`` entry produced this
+            # observation, carried from the dispatcher rather than re-derived
+            # from ``source_id`` — the two namespaces overlap (#410 review).
+            tool.configured_source_ids = (
+                [loaded.configured_source_id] if loaded.configured_source_id else []
+            )
             tool.provider = source_id
             observations.append(tool)
     return observations

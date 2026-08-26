@@ -668,7 +668,7 @@ contract. Headlines:
   `report_schema_version: "0.38"`; older schemas frozen as
   `docs/report-schema.v0.N.json`.
 - **Packet JSON shape** is additive across the `0.x` line. Current
-  `packet_schema_version: "0.14"`; older schemas frozen.
+  `packet_schema_version: "0.15"`; older schemas frozen.
 - **Exit codes**: `0` pass, `2` manifest config error, `3` input
   parse error, `4` other error, `6` baseline integrity failure (strict
   `baseline verify` only), `20` strict-mode gate failure.

@@ -271,6 +271,7 @@ class ActionDeclarationConfig(BaseModel):
             scopes=self.scopes,
             reason=authority.reason,
             mode_label="action_surface.actions[].authority.mode",
+            credential_mode=authority.credential_mode,
         )
         return self
 

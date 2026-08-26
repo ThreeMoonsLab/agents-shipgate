@@ -444,6 +444,14 @@ class Tool(BaseModel):
         exclude=True,
     )
     resolved_controls: list[str] = Field(default_factory=list, exclude=True)
+    # The ``tool_sources[].id`` values whose loaded results contributed an
+    # observation to this canonical action — a *list* because a reviewed
+    # ``tool_identity`` binding can merge observations from several configured
+    # sources, and a declaration on one of them does not speak for the others.
+    #
+    # In-memory, like the assessments: it is a join between the manifest and
+    # the catalog, not a fact about the tool that any report publishes.
+    configured_source_ids: list[str] = Field(default_factory=list, exclude=True)
 
     @model_validator(mode="after")
     def normalize_extraction_confidence(self) -> Tool:
@@ -566,6 +574,18 @@ class SourceSurfaceOmission(BaseModel):
 class LoadedToolSource(BaseModel):
     source_id: str
     source_type: str
+    # The ``tool_sources[].id`` this result was produced *for*, when the
+    # dispatcher can prove one. **Not** ``source_id``: that is minted by the
+    # adapter, and the two namespaces overlap. A per-scan adapter with no
+    # configured entry at all mints a fixed id (``openai_api``), which a
+    # configured MCP row is free to reuse as its own ``id`` — and a
+    # ``codex_config`` entry emits ids like ``codex_config_mcp:<path>`` that
+    # match no configured row. Joining declarations on ``source_id`` therefore
+    # applied one source's reviewed authority to another's actions, and failed
+    # to apply it to the source it was written for (#410 review).
+    #
+    # ``None`` when nothing in ``tool_sources`` configures this result.
+    configured_source_id: str | None = None
     tools: list[Tool] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     # Entries this source dropped. Empty for every adapter that has not been

@@ -87,6 +87,7 @@ class SourceAuthorityConfig(BaseModel):
             scopes=self.scopes,
             reason=self.reason,
             mode_label="tool_sources[].authority.mode",
+            credential_mode=self.credential_mode,
         )
         return self
 
