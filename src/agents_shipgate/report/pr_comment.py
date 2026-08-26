@@ -5,11 +5,15 @@ import re
 
 from agents_shipgate.core.declaration_questions import progress_sentence
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
+from agents_shipgate.core.findings.subject_rollup import (
+    roll_up_findings,
+    top_findings_block,
+)
 from agents_shipgate.report.capability_lock_diff_markdown import (
     render_capability_lock_diff_markdown,
 )
 from agents_shipgate.schemas.capabilities import CapabilityLockDiffV1
-from agents_shipgate.schemas.report import Finding, ReadinessReport
+from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verifier import (
     VerifierArtifact,
     VerifierCapabilityChange,
@@ -28,6 +32,13 @@ _IMPACT_LABELS = {
     "none": "none",
 }
 _COMMENT_MAX_CHARS = 6000
+
+# Budget for the grouped summary inside a comment that is truncated at
+# ``_COMMENT_MAX_CHARS``. Narrower than ``report.md`` on purpose: this block
+# exists to tell a reviewer which subjects to open, and the report it links to
+# carries the rest.
+_COMMENT_SUBJECT_LIMIT = 4
+_COMMENT_ROW_LIMIT = 3
 
 
 def render_pr_comment(
@@ -344,12 +355,22 @@ def _render_findings_comment(
         lines.append(f"Reviewer start: `{surface.name}` - {_escape(surface.why)}")
 
     lines.extend(_diff_lines(report))
-    top = _top_findings(report.findings)
+    groups = roll_up_findings(report)
     lines.append("")
-    if top:
-        lines.append("Top findings:")
-        for index, finding in enumerate(top, start=1):
-            lines.append(f"{index}. {_escape(finding.title or finding.check_id)}")
+    if groups:
+        # Grouped by subject (#364). A reviewer reads this comment to decide
+        # what to look at, and three rows of one check family on three sibling
+        # tools names one thing to look at while the other four go unmentioned.
+        lines.extend(
+            top_findings_block(
+                groups,
+                group_limit=_COMMENT_SUBJECT_LIMIT,
+                row_limit=_COMMENT_ROW_LIMIT,
+                escape=_escape,
+                bullet="- ",
+                row_prefix="  - ",
+            )
+        )
     else:
         lines.append("No critical or high findings.")
     lines.extend(_artifact_lines(verifier, links=False))
@@ -576,14 +597,6 @@ def _diff_lines(report: ReadinessReport) -> list[str]:
     elif tool_diff.notes:
         lines.append(f"Tool-surface diff: {_escape(tool_diff.notes[0])}")
     return lines
-
-
-def _top_findings(findings: list[Finding]) -> list[Finding]:
-    severities = {"critical": 0, "high": 1}
-    active = [
-        finding for finding in findings if not finding.suppressed and finding.severity in severities
-    ]
-    return sorted(active, key=lambda item: (severities[item.severity], item.check_id))[:3]
 
 
 def _artifact_lines(verifier: VerifierArtifact, *, links: bool = True) -> list[str]:

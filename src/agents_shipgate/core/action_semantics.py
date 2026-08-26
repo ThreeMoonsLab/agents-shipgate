@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 from agents_shipgate.schemas.surfaces import ActionEffect
 
@@ -45,6 +45,88 @@ BUILTIN_EFFECT_OBLIGATIONS: dict[ActionEffect, frozenset[str]] = {
 }
 
 
+#: How each built-in control path is spelled in a sentence an adopter reads.
+#:
+#: Four of the five are the manifest key itself, under
+#: ``action_surface.actions[]`` — naming them any other way would send the
+#: reader looking for a field that does not exist.  ``confirmation.required``
+#: is the exception and the reason this table is not ``{path: path}``: no
+#: action row carries it.  It is satisfied from
+#: ``policies.require_confirmation_for_tools``, so the sentence names the
+#: policy rather than a key nobody can write.
+_CONTROL_PHRASES: dict[str, str] = {
+    "approval.required": "approval.required",
+    "confirmation.required": "confirmation policy",
+    "safeguards.audit_log": "safeguards.audit_log",
+    "safeguards.idempotency": "safeguards.idempotency",
+    "safeguards.rollback": "safeguards.rollback",
+    "safeguards.dry_run": "safeguards.dry_run",
+}
+
+#: Reading order for a control list, so one set of missing controls has one
+#: sentence regardless of which branch collected it or in what order.  The
+#: order is the order a reviewer decides in — who authorises, who confirms,
+#: then what the system records and undoes.
+_CONTROL_ORDER: tuple[str, ...] = (
+    "approval.required",
+    "confirmation.required",
+    "safeguards.audit_log",
+    "safeguards.idempotency",
+    "safeguards.rollback",
+    "safeguards.dry_run",
+)
+
+
+def effect_phrase(effect: str) -> str:
+    """``financial_write`` as a reader says it: ``financial write``."""
+
+    return str(effect).replace("_", " ")
+
+
+def join_phrases(phrases: Sequence[str]) -> str:
+    """``a``, ``a and b``, ``a, b, and c`` — the serial comma this repo uses."""
+
+    items = list(phrases)
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    if len(items) == 2:
+        return f"{items[0]} and {items[1]}"
+    return f"{', '.join(items[:-1])}, and {items[-1]}"
+
+
+def missing_control_recommendation(
+    effects: Sequence[str],
+    missing: Sequence[str],
+) -> str:
+    """The sentence telling a reader what is left to declare — and only that.
+
+    Issue #364: this used to be a per-check literal naming every control the
+    effect obliges, which is a different list from the one the finding fired
+    on.  An action that already declared ``approval.required`` was told to
+    declare it again, in the same finding whose ``evidence.missing`` says it
+    is present — so following the sentence costs a round and returns the
+    reader to the same finding.
+
+    Deriving the sentence from ``missing`` is not enough on its own; the
+    caller could still pass a different list to ``evidence``.  The two are
+    built from one value at one call site (``_builtin_control_finding``),
+    which is what makes them agree by construction rather than by review.
+
+    Unknown paths are rendered verbatim.  A control this table has not
+    learned to spell is still a control the reader has to declare, and
+    dropping it silently would put the sentence back in the business of
+    disagreeing with the evidence.
+    """
+
+    known = [path for path in _CONTROL_ORDER if path in set(missing)]
+    unknown = sorted(set(missing) - set(_CONTROL_ORDER))
+    phrases = [_CONTROL_PHRASES[path] for path in known] + unknown
+    subject = join_phrases([effect_phrase(effect) for effect in effects])
+    return f"Declare {join_phrases(phrases)} for this {subject} action."
+
+
 def normalize_declared_strings(values: Iterable[str]) -> list[str]:
     """Declared token lists as every surface compares them: stripped, deduped, sorted.
 
@@ -66,5 +148,8 @@ __all__ = [
     "ACTION_EFFECT_RANK",
     "BUILTIN_EFFECT_OBLIGATIONS",
     "builtin_obligations",
+    "effect_phrase",
+    "join_phrases",
+    "missing_control_recommendation",
     "normalize_declared_strings",
 ]

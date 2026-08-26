@@ -734,19 +734,29 @@ work, not claims this scanner makes today.
 The bundled support-refund fixture demonstrates the kind of release risks Agents Shipgate is designed to surface:
 
 ```text
-## Release Decision
-
 Decision: blocked
-Reason: 2 active findings block release.
-Blockers: 2
-Review items: 16
-Fail policy: would_fail_ci=false (exit 0)
+Reason: 5 active findings block release.
+Blockers: 5
+Review items: 10
+Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fail_ci=false
 
-Top findings:
-1. stripe.create_refund lacks a declared approval policy
-2. stripe.create_refund lacks idempotency evidence
-3. Manifest declares broad permission scopes
+Top findings (15 findings across 7 subjects):
+- stripe.create_refund [support_openapi] (at specs/support-tools.openapi.yaml#/paths/~1refunds/post) — BLOCKS RELEASE (3 critical, 2 high)
+    critical SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING (blocks release) — missing: approval.required, safeguards.audit_log, safeguards.idempotency
+    critical SHIP-POLICY-APPROVAL-MISSING (blocks release) — stripe.create_refund lacks a declared approval policy
+    critical SHIP-SIDEFX-IDEMPOTENCY-MISSING (blocks release) — stripe.create_refund lacks idempotency evidence
+    high SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING (blocks release) — missing: safeguards.audit_log, confirmation.required
+    … and 1 more finding for this subject
+- gmail.send_customer_email [support_mcp_tools] (at .agents-shipgate/mcp-tools.json#/tools/1) — BLOCKS RELEASE (3 high)
+    high SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING (blocks release) — missing: safeguards.audit_log, confirmation.required
+    high SHIP-AUTH-SCOPE-COVERAGE-MISSING — gmail.send_customer_email requires scopes not declared in the manifest
+    high SHIP-POLICY-CONFIRMATION-MISSING — gmail.send_customer_email lacks a declared confirmation policy
+- … and 5 more subjects
 ```
+
+Human-facing output groups by *subject* — the tool you would open — with
+severity as an attribute of each row. `report.json` keeps the flat
+per-finding record that automation consumes.
 
 - `stripe.create_refund` lacks a declared approval policy, so a financial action could ship without an explicit human review gate.
 - `stripe.create_refund.amount` lacks a maximum bound, weakening blast-radius control.

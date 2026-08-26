@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- **Human-facing findings are grouped by subject, and a recommendation names
+  only what is missing.** (#364) A scan of four money-moving tools produced
+  seventeen findings across five check families. The summary showed three of
+  them, and all three were the *same* check on sibling tools — so scopes,
+  idempotency, owners and guardrails were never mentioned at all. Severity is
+  not the axis a reader acts along: they open one tool, fix what is wrong with
+  it, and move on. The subject is now the group key on all three human
+  surfaces (`scan` stdout, `report.md`, the PR comment), with severity and
+  blocking status as attributes of each row, a location hoisted to the heading
+  when every row shares one, and every truncation stating what it hid.
+
+  Separately, the finding a reader would open first told them to declare a
+  control the same finding's `evidence.missing` says they had already
+  declared: the sentence was a per-check literal naming every control the
+  effect obliges, while the evidence named the subset actually absent.
+  Following it costs a round and returns the reader to the same finding. The
+  three built-in control checks now build the evidence, the sentence, and the
+  predicate row from **one** `missing` list at one call site, so they agree by
+  construction rather than by review; `SHIP-ACTION-POLICY-VIOLATION` stops
+  naming both high-impact effects on an action that has one. Where nothing is
+  declared the sentence is unchanged, which is why no shipped sample's
+  `recommendation` moved.
+
+  Presentation only. `findings[]`, fingerprints, counts, severities,
+  `blocks_release`, SARIF, and the release decision are untouched —
+  `report.json` stays the flat per-finding record automation consumes, and the
+  sample `report.json` goldens are byte-identical.
+
 - **One action, one permission list, with no reviewed authority either.** A
   manifest row that listed `scopes:` and declared no `authority:` block at
   either site turned `verify --base` into `Internal error` (exit 4) on a legal

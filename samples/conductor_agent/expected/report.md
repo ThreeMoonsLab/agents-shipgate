@@ -32,13 +32,13 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
 
 ## Top Findings
 
-1. Conductor tool surface cannot be statically enumerated
-   Evidence: surface=\{'source\_id': 'conductor\_workflows', 'source\_path': 'workflows/order-agent.json', 'source\_pointer': '/tasks/1', 'workflow\_name': 'durable\_order\_agent', 'workflow\_version': 1, 'task\_type': 'LLM\_CHAT\_COMPLETE', 'task\_reference\_name': 'plan', 'kind': 'llm\_tool\_advertisement', 'dynamic\_fields': \['tools'\]\}; explicit\_inventory=False
-   Recommendation: Use literal MCP server and method bindings, a static LLM tool advertisement, or an exact local sub-workflow target before release review.
+2 findings across 1 subject, most urgent first.
 
-2. Conductor tool surface cannot be statically enumerated
-   Evidence: surface=\{'source\_id': 'conductor\_workflows', 'source\_path': 'workflows/order-agent.json', 'source\_pointer': '/tasks/4/decisionCases/yes/0', 'workflow\_name': 'durable\_order\_agent', 'workflow\_version': 1, 'task\_type': 'CALL\_MCP\_TOOL', 'task\_reference\_name': 'dynamic\_call', 'kind': 'mcp\_call', 'dynamic\_fields': \['method'\]\}; explicit\_inventory=False
-   Recommendation: Use literal MCP server and method bindings, a static LLM tool advertisement, or an exact local sub-workflow target before release review.
+- durable-order-agent \(agent-wide\) — review \(2 high\)
+  - high SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE — Conductor tool surface cannot be statically enumerated \(at workflows/order-agent.json\#/tasks/1\)
+    - Use literal MCP server and method bindings, a static LLM tool advertisement, or an exact local sub-workflow target before release review.
+  - high SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE — Conductor tool surface cannot be statically enumerated \(at workflows/order-agent.json\#/tasks/4/decisionCases/yes/0\)
+    - Use literal MCP server and method bindings, a static LLM tool advertisement, or an exact local sub-workflow target before release review.
 
 ## Finding Provenance
 

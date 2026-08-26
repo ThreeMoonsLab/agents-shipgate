@@ -45,25 +45,45 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
 
 ## Top Findings
 
-1. stripe.create\_refund has financial write capability without required controls
-   Evidence: action\_id=agent:support-refund-agent/refund-assistant:action\_v2\_6f2d18a55f2189a165089034897d52ada547bb19afe20036cb7ec3119c2d95ca; missing=\['approval.required', 'safeguards.audit\_log', 'safeguards.idempotency'\]
-   Recommendation: Declare approval.required, safeguards.audit\_log, and safeguards.idempotency for this financial write action.
+15 findings across 7 subjects, most urgent first.
 
-2. stripe.create\_refund lacks a declared approval policy
-   Evidence: risk\_tags=\['external\_write', 'financial\_action', 'write'\]; policy\_match=None
-   Recommendation: Declare an approval policy for stripe.create\_refund or remove this tool from the release.
-
-3. stripe.create\_refund lacks idempotency evidence
-   Evidence: risk\_tags=\['external\_write', 'financial\_action', 'write'\]; retry\_policy\_known=True
-   Recommendation: Add an idempotency key, idempotent annotation, or declared idempotency policy for stripe.create\_refund.
-
-4. gmail.send\_customer\_email has external communication capability without required controls
-   Evidence: action\_id=agent:support-refund-agent/refund-assistant:action\_v2\_49bfadd2eb7605a1065c24081f890481ee2f37e9718152ae533c8e43ddaab17a; missing=\['safeguards.audit\_log', 'confirmation.required'\]
-   Recommendation: Declare confirmation policy and safeguards.audit\_log for this external communication action.
-
-5. stripe.create\_refund has external communication capability without required controls
-   Evidence: action\_id=agent:support-refund-agent/refund-assistant:action\_v2\_6f2d18a55f2189a165089034897d52ada547bb19afe20036cb7ec3119c2d95ca; missing=\['safeguards.audit\_log', 'confirmation.required'\]
-   Recommendation: Declare confirmation policy and safeguards.audit\_log for this external communication action.
+- stripe.create\_refund \[support\_openapi\] \(at specs/support-tools.openapi.yaml\#/paths/~1refunds/post\) — BLOCKS RELEASE \(3 critical, 2 high\)
+  - critical SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING \(blocks release\) — missing: approval.required, safeguards.audit\_log, safeguards.idempotency
+    - Declare approval.required, safeguards.audit\_log, and safeguards.idempotency for this financial write action.
+  - critical SHIP-POLICY-APPROVAL-MISSING \(blocks release\) — stripe.create\_refund lacks a declared approval policy
+    - Declare an approval policy for stripe.create\_refund or remove this tool from the release.
+  - critical SHIP-SIDEFX-IDEMPOTENCY-MISSING \(blocks release\) — stripe.create\_refund lacks idempotency evidence
+    - Add an idempotency key, idempotent annotation, or declared idempotency policy for stripe.create\_refund.
+  - high SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING \(blocks release\) — missing: safeguards.audit\_log, confirmation.required
+    - Declare confirmation policy and safeguards.audit\_log for this external communication action.
+  - high SHIP-POLICY-CONFIRMATION-MISSING — stripe.create\_refund lacks a declared confirmation policy
+    - Declare a user confirmation policy for stripe.create\_refund or remove this action from the release.
+- gmail.send\_customer\_email \[support\_mcp\_tools\] \(at .agents-shipgate/mcp-tools.json\#/tools/1\) — BLOCKS RELEASE \(3 high\)
+  - high SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING \(blocks release\) — missing: safeguards.audit\_log, confirmation.required
+    - Declare confirmation policy and safeguards.audit\_log for this external communication action.
+  - high SHIP-AUTH-SCOPE-COVERAGE-MISSING — gmail.send\_customer\_email requires scopes not declared in the manifest
+    - Add the required scopes for gmail.send\_customer\_email to permissions.scopes or narrow the tool's declared auth requirements.
+  - high SHIP-POLICY-CONFIRMATION-MISSING — gmail.send\_customer\_email lacks a declared confirmation policy
+    - Declare a user confirmation policy for gmail.send\_customer\_email or remove this action from the release.
+- refund-assistant \(agent-wide\) — review \(1 high, 1 medium\)
+  - high SHIP-AUTH-MANIFEST-BROAD-SCOPE — Manifest declares broad permission scopes \(at shipgate.yaml\#/permissions/scopes\)
+    - Replace broad manifest permission scopes with the narrowest scopes needed for this release.
+  - medium SHIP-MANIFEST-UNUSED-SCOPE — Manifest declares unused permission scope zendesk:tickets:read \(at shipgate.yaml\)
+    - Remove unused manifest scopes or add tool metadata showing why they are required.
+- shopify.cancel\_order \[support\_openapi\] \(at specs/support-tools.openapi.yaml\#/paths/~1orders~1\{order\_id\}~1cancel/post\) — review \(2 high\)
+  - high SHIP-AUTH-SCOPE-COVERAGE-MISSING — shopify.cancel\_order requires scopes not declared in the manifest
+    - Add the required scopes for shopify.cancel\_order to permissions.scopes or narrow the tool's declared auth requirements.
+  - high SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING — shopify.cancel\_order is high-risk but has no owner
+    - Declare an owner for each high-risk production tool in risk\_overrides.tools.
+- refund\_status\_lookup \[support\_openapi\] \(at specs/support-tools.openapi.yaml\#/paths/~1refunds~1\{payment\_id\}~1status/get\) — review \(1 high\)
+  - high SHIP-AUTH-MISSING-SCOPE — refund\_status\_lookup lacks declared auth scopes
+    - Declare operation-specific auth scopes for refund\_status\_lookup, or explicitly declare anonymous authority when the operation requires no credentials.
+- support.search\_kb \[support\_mcp\_tools\] \(at .agents-shipgate/mcp-tools.json\#/tools/0\) — review \(1 high\)
+  - high SHIP-AUTH-SCOPE-COVERAGE-MISSING — support.search\_kb requires scopes not declared in the manifest
+    - Add the required scopes for support.search\_kb to permissions.scopes or narrow the tool's declared auth requirements.
+- send\_email\_preview \[openai\_sdk\_static\] \(at agents/refund\_agent.py\) — review \(1 medium\)
+  - medium SHIP-SCHEMA-FREEFORM-OUTPUT — send\_email\_preview returns free-form text output
+    - Prefer a structured output schema for send\_email\_preview, especially when output is later passed back into model context.
 
 ## Finding Provenance
 
