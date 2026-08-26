@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import get_args
 
 from agents_shipgate.ci.release_decision import _to_item
 from agents_shipgate.cli._helpers import (
@@ -34,14 +35,16 @@ from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.cli.verify.orchestrator import _derive_verifier_control
 from agents_shipgate.core.action_semantics import (
     BUILTIN_EFFECT_OBLIGATIONS,
+    control_phrase,
     missing_control_recommendation,
 )
 from agents_shipgate.core.findings.subject_rollup import (
+    _SEVERITY_DISPLAY_ORDER,
     AGENT_WIDE_SUBJECT,
     SubjectGroup,
     finding_line,
     group_summary,
-    missing_controls,
+    missing_items,
     roll_up_findings,
     rollup_detail,
     rollup_headline,
@@ -55,12 +58,17 @@ from agents_shipgate.core.findings.summaries import (
 from agents_shipgate.core.surface_exclusions import derived_id_kind
 from agents_shipgate.report.markdown import (
     _MARKDOWN_SUBJECT_LIMIT,
+    _recommendation_note,
     _safe_markdown_text,
     render_markdown_report,
 )
-from agents_shipgate.report.pr_comment import _COMMENT_SUBJECT_LIMIT, render_pr_comment
+from agents_shipgate.report.pr_comment import (
+    _COMMENT_MAX_CHARS,
+    _COMMENT_SUBJECT_LIMIT,
+    render_pr_comment,
+)
 from agents_shipgate.report.pr_comment import _escape as _pr_escape
-from agents_shipgate.schemas.common import SourceReference
+from agents_shipgate.schemas.common import Severity, SourceReference
 from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
 from agents_shipgate.schemas.report import (
     BaselineDelta,
@@ -182,12 +190,16 @@ def _manifest(*, approval_declared: bool) -> str:
     )
 
 
-def _pr_comment(report) -> str:
-    """The findings-style PR comment for a scanned report.
+def _pr_comment(
+    report, *, style: str | None = None, trigger_rationale: str = "1 rule matched."
+) -> str:
+    """A PR comment for a scanned report, in the caller's style.
 
     Assembled here rather than mocked: the comment is a surface a reviewer
-    reads, and the point of the assertion it serves is that it renders the
-    same groups the other two do.
+    reads, and the point of the assertions it serves is that it renders the
+    same groups the other two surfaces do.  ``style=None`` means *the
+    default*, which is what a reviewer actually gets — wiring the rollup into
+    the legacy ``findings`` renderer alone would have shipped it to nobody.
     """
 
     review = VerifierCapabilityReview()
@@ -208,7 +220,7 @@ def _pr_comment(report) -> str:
         diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
         authorization=AuthorizationEvaluationV1.not_requested(),
-        trigger={"rationale": "1 rule matched."},
+        trigger={"rationale": trigger_rationale},
         execution="succeeded",
         head_status="succeeded",
         release_decision=report.release_decision,
@@ -220,7 +232,9 @@ def _pr_comment(report) -> str:
         capability_review=review,
         artifacts={"report_json": "agents-shipgate-reports/report.json"},
     )
-    return render_pr_comment(verifier, report=report, style="findings")
+    if style is None:
+        return render_pr_comment(verifier, report=report)
+    return render_pr_comment(verifier, report=report, style=style)
 
 
 def _block_after(lines: list[str], header: str) -> list[str]:
@@ -390,7 +404,7 @@ def test_a_declared_control_is_not_recommended_again(tmp_path):
     ]
     assert len(findings) == len(SPRAAY_TOOLS)
     for finding in findings:
-        assert missing_controls(finding) == [
+        assert missing_items(finding) == [
             "safeguards.audit_log",
             "safeguards.idempotency",
         ]
@@ -415,11 +429,11 @@ def test_undeclared_controls_are_all_recommended(tmp_path):
     ]
     assert findings
     for finding in findings:
-        assert set(missing_controls(finding)) == BUILTIN_EFFECT_OBLIGATIONS[
+        assert set(missing_items(finding)) == BUILTIN_EFFECT_OBLIGATIONS[
             "financial_write"
         ]
         assert _named_controls(finding.recommendation) == set(
-            missing_controls(finding)
+            missing_items(finding)
         )
 
 
@@ -714,19 +728,77 @@ def test_the_row_says_what_is_missing_when_the_check_knows(tmp_path):
     assert "(blocks release)" not in finding_line(finding, blocks_release=False)
 
 
-def test_missing_controls_reads_both_evidence_shapes():
-    """Built-in checks write strings; action-policy checks write rows."""
+def test_only_a_list_of_plain_strings_is_a_missing_list():
+    """The row shape is deliberately not read.
 
-    class _Finding:
-        def __init__(self, evidence):
-            self.evidence = evidence
+    ``_missing_requirements`` writes ``{"path": …, "expected": …}`` both for a
+    path that does not exist and for one that exists with the wrong value —
+    the actual value going to a sibling ``evidence.observed``. Flattening
+    those to a path list says "missing: safeguards.dry_run" about an action
+    that declares ``dry_run``.
+    """
 
-    assert missing_controls(_Finding({"missing": ["a", " b "]})) == ["a", "b"]
-    assert missing_controls(
-        _Finding({"missing": [{"path": "a", "expected": True}]})
-    ) == ["a"]
-    assert missing_controls(_Finding({"missing": "a"})) == []
-    assert missing_controls(_Finding({})) == []
+    def _finding(evidence: dict) -> Finding:
+        return Finding(
+            check_id="SHIP-EXAMPLE",
+            title="one thing",
+            severity="high",
+            category="example",
+            recommendation="do the thing",
+            evidence=evidence,
+        )
+
+    assert missing_items(_finding({"missing": ["a", "b"]})) == ["a", "b"]
+    assert missing_items(_finding({"missing": [{"path": "a", "expected": True}]})) == []
+    assert missing_items(_finding({"missing": ["a", {"path": "b"}]})) == []
+    assert missing_items(_finding({"missing": "a"})) == []
+    assert missing_items(_finding({"missing": []})) == []
+    assert missing_items(_finding({})) == []
+    # A string that renders as nothing names nothing.
+    assert missing_items(_finding({"missing": ["\u200b"]})) == []
+
+
+def test_a_policy_finding_keeps_its_own_title_and_recommendation():
+    """Two policies requiring one path are two decisions, not one row.
+
+    Flattened to ``missing: approval.required`` they rendered identically and
+    the adopter-authored sentence was suppressed along the way.
+    """
+
+    def _policy_finding(policy_id: str, message: str) -> Finding:
+        return Finding(
+            check_id="SHIP-ACTION-POLICY-VIOLATION",
+            title=message,
+            severity="high",
+            category="action_surface",
+            recommendation=f"Satisfy {policy_id}.",
+            tool_id="tool_v2_aaaa",
+            tool_name="pay",
+            agent_id="agent:p/a",
+            evidence={
+                "policy_id": policy_id,
+                "missing": [{"path": "approval.required", "expected": True}],
+                "observed": {"approval.required": False},
+            },
+        )
+
+    first = _policy_finding("finance-approval", "pay needs finance approval")
+    second = _policy_finding("security-approval", "pay needs security approval")
+    report = _report_with(
+        [first, second],
+        catalog=[{"tool_id": "tool_v2_aaaa", "name": "pay", "provider": "stripe"}],
+        agent={"id": "agent:p/a", "name": "a"},
+    )
+
+    (group,) = roll_up_findings(report)
+    details = [rollup_detail(finding) for finding in group.findings]
+    assert details == [
+        "pay needs finance approval",
+        "pay needs security approval",
+    ]
+    assert all("missing:" not in detail for detail in details)
+    # And the sentence the adopter wrote survives into `report.md`.
+    assert _recommendation_note(first) == ("Satisfy finance-approval.",)
 
 
 def test_group_summary_names_the_status_before_the_severities(tmp_path):
@@ -981,13 +1053,15 @@ def test_an_empty_missing_list_never_renders_a_hole():
     assert _named_controls(sentence) == BUILTIN_EFFECT_OBLIGATIONS["financial_write"]
 
 
-def test_a_finding_carrying_only_a_name_joins_that_tools_group():
-    """``checks.baseline_integrity`` emits ``tool_id=None`` with a name.
+def test_a_finding_with_no_tool_id_is_not_bound_to_a_catalog_tool_by_name():
+    """A name is not a binding, and the catalog is the *current* one.
 
-    Keyed on the name, that finding opened a *second* heading beside the
-    tool's own — ``create_refund`` and ``create_refund [stripe]`` — which is
-    the second-spelling failure ``catalog_label_index`` exists to prevent,
-    arrived at from the other side.
+    ``checks.baseline_integrity`` is the only producer of a name without an
+    id, and that name is copied from a historical ``BaselineFinding``.  If the
+    tool it named was removed and a new provider now exposes the same name,
+    resolving through today's catalog files a stale entry under a tool it was
+    never about.  The missing ``[provider]`` qualifier is the signal that the
+    two are not known to be the same tool.
     """
 
     scoped = Finding(
@@ -1000,7 +1074,7 @@ def test_a_finding_carrying_only_a_name_joins_that_tools_group():
         tool_name="create_refund",
         agent_id="agent:p/a",
     )
-    unkeyed = Finding(
+    historical = Finding(
         check_id="SHIP-BASELINE-INTEGRITY-MISMATCH",
         title="create_refund baseline entry does not match",
         severity="high",
@@ -1011,73 +1085,19 @@ def test_a_finding_carrying_only_a_name_joins_that_tools_group():
         agent_id="agent:p/a",
     )
     report = _report_with(
-        [scoped, unkeyed],
+        [scoped, historical],
         catalog=[{"tool_id": "tool_v2_aaaa", "name": "create_refund", "provider": "stripe"}],
         agent={"id": "agent:p/a", "name": "a"},
     )
 
-    (group,) = roll_up_findings(report)
-    assert group.subject == "create_refund [stripe]"
-    assert {finding.check_id for finding in group.findings} == {
-        "SHIP-AUTH-MISSING-SCOPE",
-        "SHIP-BASELINE-INTEGRITY-MISMATCH",
-    }
-
-
-def test_one_tool_listed_twice_is_not_an_ambiguous_name():
-    """Ambiguity is two *tools* answering to a name, not two rows.
-
-    Marking a repeated catalog row ambiguous would push a resolvable finding
-    back into its own heading for no reason.
-    """
-
-    unkeyed = Finding(
-        check_id="SHIP-BASELINE-INTEGRITY-MISMATCH",
-        title="create_refund baseline entry does not match",
-        severity="high",
-        category="baseline",
-        recommendation="re-save the baseline",
-        tool_id=None,
-        tool_name="create_refund",
-        agent_id="agent:p/a",
-    )
-    row = {"tool_id": "tool_v2_aaaa", "name": "create_refund", "provider": "stripe"}
-    report = _report_with(
-        [unkeyed], catalog=[row, dict(row)], agent={"id": "agent:p/a", "name": "a"}
-    )
-
-    (group,) = roll_up_findings(report)
-    assert group.subject == "create_refund [stripe]"
-
-
-def test_an_ambiguous_name_is_left_unresolved_rather_than_guessed():
-    """Two tools can share a name across sources.
-
-    Picking one would file a finding under a tool it is not about, which is
-    worse than a heading the reader has to reconcile.
-    """
-
-    unkeyed = Finding(
-        check_id="SHIP-BASELINE-INTEGRITY-MISMATCH",
-        title="create_refund baseline entry does not match",
-        severity="high",
-        category="baseline",
-        recommendation="re-save the baseline",
-        tool_id=None,
-        tool_name="create_refund",
-        agent_id="agent:p/a",
-    )
-    report = _report_with(
-        [unkeyed],
-        catalog=[
-            {"tool_id": "tool_v2_aaaa", "name": "create_refund", "provider": "stripe"},
-            {"tool_id": "tool_v2_bbbb", "name": "create_refund", "provider": "adyen"},
-        ],
-        agent={"id": "agent:p/a", "name": "a"},
-    )
-
-    (group,) = roll_up_findings(report)
-    assert group.subject == "create_refund"
+    subjects = {group.subject: group for group in roll_up_findings(report)}
+    assert set(subjects) == {"create_refund [stripe]", "create_refund"}
+    assert [f.check_id for f in subjects["create_refund [stripe]"].findings] == [
+        "SHIP-AUTH-MISSING-SCOPE"
+    ]
+    assert [f.check_id for f in subjects["create_refund"].findings] == [
+        "SHIP-BASELINE-INTEGRITY-MISMATCH"
+    ]
 
 
 def test_the_report_never_prints_the_missing_list_twice(tmp_path):
@@ -1097,3 +1117,245 @@ def test_the_report_never_prints_the_missing_list_twice(tmp_path):
     assert "Declare safeguards.audit\\_log and safeguards.idempotency" not in section
     # A row with no missing list keeps its sentence.
     assert "Declare an owner for each high-risk production tool" in section
+
+
+def test_the_default_pr_comment_carries_the_grouped_findings(tmp_path):
+    """`capability-review` is the default and `findings` is the legacy style
+    being retired, so a rollup wired only into the latter reaches nobody.
+
+    Before this, a default-style comment told a reviewer what *moved* and
+    nothing about what is wrong per tool.
+    """
+
+    report, _out = _scan(tmp_path)
+    groups = roll_up_findings(report)
+    default = _pr_comment(report)
+
+    assert "Findings by subject" in default
+    for group in groups[:_COMMENT_SUBJECT_LIMIT]:
+        assert _pr_escape(group.subject) in default
+    # And it still fits the comment budget with the agent block intact.
+    assert len(default) <= _COMMENT_MAX_CHARS
+    assert "### Agent instruction block" in default
+
+
+def test_both_pr_comment_styles_render_the_same_groups(tmp_path):
+    """One surface, however it is laid out — same projection, same budget."""
+
+    report, _out = _scan(tmp_path)
+    default = _pr_comment(report)
+    legacy = _pr_comment(report, style="findings")
+    for group in roll_up_findings(report)[:_COMMENT_SUBJECT_LIMIT]:
+        assert _pr_escape(group.subject) in default
+        assert _pr_escape(group.subject) in legacy
+
+
+def test_a_blocking_row_survives_truncation():
+    """A heading has to be able to show its own evidence.
+
+    Sorted by severity alone, a subject whose only blocker sorted last by
+    check id rendered BLOCKS RELEASE above three rows that do not block, with
+    the one that does hidden under "and 2 more findings".
+    """
+
+    def _finding(check_id: str) -> Finding:
+        return Finding(
+            id=f"fp_{check_id}",
+            fingerprint=f"fp_{check_id}",
+            check_id=check_id,
+            title=f"{check_id} on pay",
+            severity="high",
+            category="example",
+            recommendation="do the thing",
+            tool_id="tool_v2_aaaa",
+            tool_name="pay",
+            agent_id="agent:p/a",
+        )
+
+    # The blocker sorts last of five by check id, and every row is `high`.
+    rows = [_finding(f"SHIP-A{index}") for index in range(4)]
+    blocker = _finding("SHIP-Z")
+    report = _report_with(
+        [*rows, blocker],
+        catalog=[{"tool_id": "tool_v2_aaaa", "name": "pay", "provider": "stripe"}],
+        agent={"id": "agent:p/a", "name": "a"},
+    )
+    report.release_decision = _decision(blockers=[blocker], review_items=rows)
+
+    (group,) = roll_up_findings(report)
+    assert group.blocks_release
+    assert group.findings[0] is blocker
+    block = "\n".join(top_findings_block([group], group_limit=1, row_limit=3))
+    assert "BLOCKS RELEASE" in block
+    assert "SHIP-Z (blocks release)" in block
+
+
+def test_an_info_blocker_still_shows_a_histogram():
+    """`Severity` includes `info`, and a finding the decision names is
+    selected whatever its severity — so a hand-written display order that
+    stopped at `low` rendered `BLOCKS RELEASE ()`."""
+
+    finding = Finding(
+        id="fp_info",
+        fingerprint="fp_info",
+        check_id="SHIP-EXAMPLE",
+        title="one thing",
+        severity="info",
+        category="example",
+        recommendation="do the thing",
+        agent_id="agent:p/a",
+    )
+    report = _report_with([finding], catalog=[], agent={"id": "agent:p/a", "name": "a"})
+    report.release_decision = _decision(blockers=[finding], review_items=[])
+
+    (group,) = roll_up_findings(report)
+    assert group_summary(group) == "BLOCKS RELEASE (1 info)"
+
+
+def test_the_histogram_covers_every_severity_the_schema_has():
+    """A list of "the severities we have today" cannot survive a new one."""
+
+    assert set(_SEVERITY_DISPLAY_ORDER) == set(get_args(Severity))
+    assert _SEVERITY_DISPLAY_ORDER[0] == "critical"
+
+
+def test_a_location_only_source_keeps_its_line():
+    """Most adapters populate `ref` + `location` and leave `path` unset.
+
+    Skipping `location` dropped the line, so four findings on four different
+    functions rendered one suffix — and then shared it, hoisting it to the
+    heading as if they were one place.
+    """
+
+    def _finding(line: int) -> Finding:
+        return Finding(
+            check_id="SHIP-EXAMPLE",
+            title=f"line {line}",
+            severity="high",
+            category="example",
+            recommendation="do the thing",
+            source=SourceReference(
+                type="google_adk_function", ref="agent.py", location=f"agent.py:{line}"
+            ),
+        )
+
+    assert source_suffix(_finding(5)) == " (at agent.py:5)"
+    assert source_suffix(_finding(5)) != source_suffix(_finding(15))
+
+
+def test_a_path_is_never_trimmed_before_it_is_escaped():
+    """`display_literal` exists to preserve a value exactly; stripping first
+    undoes that. A leading space is part of a filename that has one."""
+
+    finding = Finding(
+        check_id="SHIP-EXAMPLE",
+        title="one thing",
+        severity="high",
+        category="example",
+        recommendation="do the thing",
+        source=SourceReference(type="file", path=" spaced.json "),
+    )
+    assert source_suffix(finding) == " (at  spaced.json )"
+
+
+def test_a_source_that_renders_as_nothing_names_nothing():
+    finding = Finding(
+        check_id="SHIP-EXAMPLE",
+        title="one thing",
+        severity="high",
+        category="example",
+        recommendation="do the thing",
+        source=SourceReference(type="file", path="​", ref="  "),
+    )
+    assert source_suffix(finding) == ""
+
+
+def test_a_renamed_control_still_counts_as_repeating_the_row():
+    """`confirmation.required` is written "confirmation policy".
+
+    Looking for the raw path in the sentence said "not the same fact" about a
+    sentence built from exactly that fact, so the report printed the missing
+    list twice for every external-communication finding.
+    """
+
+    finding = Finding(
+        check_id="SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
+        title="send has external communication capability without required controls",
+        severity="high",
+        category="action_surface",
+        recommendation=missing_control_recommendation(
+            ["external_communication"],
+            ["safeguards.audit_log", "confirmation.required"],
+        ),
+        evidence={"missing": ["safeguards.audit_log", "confirmation.required"]},
+    )
+    assert control_phrase("confirmation.required") == "confirmation policy"
+    assert _recommendation_note(finding) == ()
+
+
+def test_a_sentence_that_adds_something_is_kept():
+    """An ADK metadata row names `description`; its sentence says where to
+    write one. Two different facts, and the row keeps both."""
+
+    finding = Finding(
+        check_id="SHIP-ADK-FUNCTION-TOOL-METADATA-MISSING",
+        title="lookup lacks static ADK function-tool metadata",
+        severity="medium",
+        category="adk",
+        recommendation=(
+            "Add docstrings, type annotations, or explicit local tool "
+            "inventory metadata for ADK tool lookup."
+        ),
+        evidence={"missing": ["description", "parameters"]},
+    )
+    assert _recommendation_note(finding) == (finding.recommendation,)
+
+
+def test_every_builtin_obligation_has_a_phrase_and_round_trips():
+    """The producer and the reader of the table are the same table."""
+
+    for path in set().union(*BUILTIN_EFFECT_OBLIGATIONS.values()):
+        phrase = control_phrase(path)
+        assert phrase
+        sentence = missing_control_recommendation(["financial_write"], [path])
+        assert phrase in sentence
+
+
+def test_the_grouped_block_does_not_evict_the_agent_instruction_block():
+    """The default comment truncates at ``_COMMENT_MAX_CHARS`` and preserves
+    the agent block; adding prose above it must not change that.
+
+    A machine reads that block. Losing it to a rendering addition would turn
+    a readability change into a broken handoff.
+    """
+
+    findings: list[Finding] = []
+    catalog: list[dict] = []
+    for index in range(40):
+        tool_id = f"tool_v2_{index:04d}"
+        name = f"a_very_long_tool_name_number_{index}"
+        catalog.append({"tool_id": tool_id, "name": name, "provider": "openapi"})
+        for row in range(6):
+            findings.append(
+                Finding(
+                    id=f"fp_{index}_{row}",
+                    fingerprint=f"fp_{index}_{row}",
+                    check_id=f"SHIP-EXAMPLE-CHECK-WITH-A-LONG-ID-{row}",
+                    title=f"{name} has a fairly long finding title number {row}",
+                    severity="critical",
+                    category="example",
+                    recommendation="r" * 80,
+                    tool_id=tool_id,
+                    tool_name=name,
+                    agent_id="agent:p/a",
+                )
+            )
+    report = _report_with(
+        findings, catalog=catalog, agent={"id": "agent:p/a", "name": "a"}
+    )
+    report.release_decision = _decision(blockers=findings, review_items=[])
+
+    comment = _pr_comment(report, trigger_rationale="x" * 4000)
+    assert len(comment) == _COMMENT_MAX_CHARS
+    assert "### Agent instruction block" in comment
+    assert "Findings by subject" in comment

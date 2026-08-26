@@ -83,6 +83,20 @@ def builtin_obligations(effect: ActionEffect) -> frozenset[str]:
     return BUILTIN_EFFECT_OBLIGATIONS.get(effect, frozenset())
 
 
+def control_phrase(path: str) -> str:
+    """How ``path`` is spelled in a sentence, or the path itself.
+
+    Exported because the reader of the table has to be the same as its writer.
+    ``report.md`` drops a recommendation that only repeats the row it sits
+    under, and deciding that by looking for the raw *path* in the sentence
+    misses every control this table renames — ``confirmation.required`` is
+    written "confirmation policy", so the check said "not the same fact" about
+    a sentence built from exactly that fact.
+    """
+
+    return _CONTROL_PHRASES.get(path, path)
+
+
 def effect_phrase(effect: str) -> str:
     """``financial_write`` as a reader says it: ``financial write``."""
 
@@ -157,6 +171,7 @@ __all__ = [
     "ACTION_EFFECT_RANK",
     "BUILTIN_EFFECT_OBLIGATIONS",
     "builtin_obligations",
+    "control_phrase",
     "effect_phrase",
     "join_phrases",
     "missing_control_recommendation",

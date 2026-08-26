@@ -30,6 +30,7 @@ from typing import Any, Literal
 from agents_shipgate.core.evidence_actions import display_literal
 from agents_shipgate.core.surface_exclusions import catalog_subject, derived_id_kind
 from agents_shipgate.schemas.report import Finding, ReadinessReport
+from agents_shipgate.schemas.text import has_visible_content
 
 from .constants import SEVERITY_ORDER
 
@@ -38,7 +39,7 @@ __all__ = [
     "SubjectGroup",
     "finding_line",
     "group_summary",
-    "missing_controls",
+    "missing_items",
     "roll_up_findings",
     "rollup_detail",
     "rollup_headline",
@@ -115,28 +116,31 @@ class SubjectGroup:
         return tuple(zip(self.findings, self.blocking, strict=True))
 
 
-def missing_controls(finding: Finding) -> list[str]:
-    """The control paths ``finding`` says are absent, in evidence order.
+def missing_items(finding: Finding) -> list[str]:
+    """What ``finding`` says is absent, when "absent" is what it means.
 
-    Two shapes reach here: the built-in control checks write
-    ``missing: ["safeguards.audit_log", …]``, and the action-policy checks
-    write ``missing: [{"path": …, "expected": …}, …]``.  Both are read, and
-    anything else returns empty rather than guessing — a summary line is not
-    worth inventing a fact for.
+    A check that writes ``missing`` as a list of plain strings is naming
+    things that are not there — controls for the built-in effect checks,
+    metadata fields for the framework ones — and "missing: a, b" is a faithful
+    rendering of that.
+
+    The **row** shape is deliberately not read.  Action-policy evaluation
+    (``_missing_requirements``) writes ``{"path": …, "expected": …}`` for two
+    different situations: a path that does not exist, and a path that exists
+    with a value other than the one required — with the actual value in a
+    sibling ``evidence.observed``.  Flattening those to a path list says
+    ``missing: safeguards.dry_run`` about an action that declares
+    ``dry_run``, and collapses two policies requiring the same path into one
+    indistinguishable row.  Those findings keep their own title and their
+    adopter-authored recommendation, which say the thing correctly.
     """
 
     raw = finding.evidence.get("missing")
-    if not isinstance(raw, list):
+    if not isinstance(raw, list) or not raw:
         return []
-    paths: list[str] = []
-    for item in raw:
-        if isinstance(item, str) and item.strip():
-            paths.append(item.strip())
-        elif isinstance(item, Mapping):
-            path = item.get("path")
-            if isinstance(path, str) and path.strip():
-                paths.append(path.strip())
-    return paths
+    if not all(isinstance(item, str) for item in raw):
+        return []
+    return [item for item in raw if has_visible_content(item)]
 
 
 def rollup_detail(finding: Finding) -> str:
@@ -149,7 +153,7 @@ def rollup_detail(finding: Finding) -> str:
     print one fact twice in different words.
     """
 
-    missing = missing_controls(finding)
+    missing = missing_items(finding)
     if missing:
         return "missing: " + ", ".join(missing)
     return finding.title
@@ -179,7 +183,6 @@ def roll_up_findings(report: ReadinessReport) -> list[SubjectGroup]:
         [*decision.blockers, *decision.review_items] if decision else []
     )
     tool_labels = _tool_label_index(report)
-    tool_ids_by_name = _tool_id_by_name(report)
     agent_labels = _agent_label_index(report)
 
     subjects: dict[tuple[str, str], str] = {}
@@ -191,9 +194,7 @@ def roll_up_findings(report: ReadinessReport) -> list[SubjectGroup]:
             finding
         ):
             continue
-        group_key, subject = _subject(
-            finding, tool_labels, tool_ids_by_name, agent_labels
-        )
+        group_key, subject = _subject(finding, tool_labels, agent_labels)
         # The release decision is the authority on what blocks, and
         # `finding.blocks_release` is not the same claim: a policy finding
         # whose debt a baseline has accepted keeps the flag and is filed as a
@@ -221,9 +222,16 @@ def _build_group(
     subject: str,
     members: list[tuple[Finding, bool]],
 ) -> SubjectGroup:
+    # Blocking rows first, then severity — the same order the groups
+    # themselves are in, and for the same reason one level down. Sorted by
+    # severity alone, a subject with five equal-severity findings whose only
+    # blocker sorted last by check id rendered BLOCKS RELEASE above three rows
+    # that do not block, with the one that does hidden under "and 2 more".
+    # A heading has to be able to show its own evidence.
     ordered = sorted(
         members,
         key=lambda row: (
+            not row[1],
             SEVERITY_ORDER[row[0].severity],
             row[0].check_id,
             row[0].title,
@@ -330,36 +338,6 @@ def _tool_label_index(report: ReadinessReport) -> dict[str, str]:
     return labels
 
 
-def _tool_id_by_name(report: ReadinessReport) -> dict[str, str]:
-    """Tool name to canonical id, for the names that resolve to exactly one.
-
-    Not every finding about a tool carries its id: ``checks.baseline_integrity``
-    emits ``tool_id=None`` with a name, so a tool with one of those and one
-    ordinary finding produced *two* headings for one tool — ``create_refund``
-    and ``create_refund [stripe]`` — which is the second-spelling failure
-    ``catalog_label_index`` exists to prevent, arrived at from the other side.
-
-    An ambiguous name is left unresolved rather than guessed.  Two tools can
-    share a name across sources; picking one would file a finding under a tool
-    it is not about, and that is worse than a heading the reader has to
-    reconcile.
-    """
-
-    seen: dict[str, str | None] = {}
-    for row in report.tool_catalog:
-        if not isinstance(row, Mapping):
-            continue
-        tool_id = row.get("tool_id") or row.get("id")
-        name = str(row.get("name") or "").strip()
-        if not tool_id or not name:
-            continue
-        # None marks a name that more than one *tool* answers to. A name
-        # repeated for one id is one tool listed twice, which resolves.
-        previous = seen.get(name, str(tool_id))
-        seen[name] = str(tool_id) if previous == str(tool_id) else None
-    return {name: tool_id for name, tool_id in seen.items() if tool_id}
-
-
 def _agent_label_index(report: ReadinessReport) -> dict[str, str]:
     """The one agent a report is about, keyed by the id its findings carry.
 
@@ -385,7 +363,6 @@ def _agent_label_index(report: ReadinessReport) -> dict[str, str]:
 def _subject(
     finding: Finding,
     tool_labels: Mapping[str, str],
-    tool_ids_by_name: Mapping[str, str],
     agent_labels: Mapping[str, str],
 ) -> tuple[tuple[str, str], str]:
     """This finding's group key and the label that names it.
@@ -397,6 +374,9 @@ def _subject(
     index for the reason that index exists — an emitter that builds a label
     from its own fields produces a second spelling of a subject other surfaces
     already name.
+
+    A finding that carries a name and no id is *not* resolved through the
+    catalog: see the comment on that branch.
 
     For an agent the *label* is the key.  An agent whose name does not resolve
     has no readable subject, and keying those on the id would print two
@@ -412,12 +392,18 @@ def _subject(
         if label:
             return ("tool", finding.tool_id), label
     if finding.tool_name:
-        # A finding that carries only a name is still about a catalog tool
-        # where the name resolves to exactly one, and keying it on the name
-        # would give that tool a second heading beside its own.
-        resolved = tool_ids_by_name.get(finding.tool_name)
-        if resolved and resolved in tool_labels:
-            return ("tool", resolved), tool_labels[resolved]
+        # A name is not a binding, and resolving one through the *current*
+        # catalog would be a claim this projection cannot support. The only
+        # producer of a name without an id is `checks.baseline_integrity`,
+        # whose name is copied from a historical `BaselineFinding`: if that
+        # tool was removed and a new provider now exposes the same name,
+        # binding by name files a stale entry under a tool it was never
+        # about. So the name keys its own group, and the missing `[provider]`
+        # qualifier is exactly the signal that the two are not known to be
+        # the same tool. Binding it properly means carrying
+        # `BaselineFinding.tool_id` through to the finding, which moves that
+        # check's fingerprint — a baseline-compatibility change, not a
+        # rendering one.
         return ("tool", f"name:{finding.tool_name}"), finding.tool_name
     name = agent_labels.get(finding.agent_id or "")
     label = f"{name} ({AGENT_WIDE_SUBJECT})" if name else AGENT_WIDE_SUBJECT
@@ -426,7 +412,15 @@ def _subject(
 
 #: Reading order for a severity histogram — worst first, and always this
 #: order, so the same group reads the same way on every surface.
-_SEVERITY_DISPLAY_ORDER: tuple[str, ...] = ("critical", "high", "medium", "low")
+#:
+#: Derived from the rank table rather than written out beside it.  Spelled by
+#: hand it omitted ``info``, and since a finding the release decision names is
+#: selected whatever its severity, an ``info`` blocker rendered
+#: ``BLOCKS RELEASE ()`` — a histogram of nothing.  A list of "the severities
+#: we have today" cannot survive the table gaining one.
+_SEVERITY_DISPLAY_ORDER: tuple[str, ...] = tuple(
+    sorted(SEVERITY_ORDER, key=lambda severity: SEVERITY_ORDER[severity])
+)
 
 
 def group_summary(group: SubjectGroup) -> str:
@@ -456,25 +450,37 @@ def source_suffix(finding: Finding) -> str:
     emits the same check twice with the same title, and without the pointer
     the two rows are one row printed twice.
 
-    Rendered through :func:`display_literal` because a path names something
-    the reader will open — an escape keeps a zero-width character visible and
-    recoverable, where folding or deleting it would quietly name a different
-    file.  This is display only; no consumer routes on it.
+    The fallback chain is ordered by how much of the location each field
+    carries, and ``location`` is in it because most adapters populate exactly
+    ``ref="agent.py"`` + ``location="agent.py:5"`` and leave ``path`` unset.
+    Skipping it dropped the line, which made four findings on four different
+    functions render one suffix — and then share it, so it was hoisted to the
+    heading as if they were one place.
+
+    Rendered through :func:`display_literal`, on the **stored** value: a path
+    names something the reader will open, so an escape keeps a zero-width or
+    line-breaking character visible and recoverable.  Trimming first would
+    undo that — a leading or trailing space is part of a filename that has
+    one — so emptiness is decided by :func:`has_visible_content`, which asks
+    whether anything renders rather than whether anything is there.  Display
+    only; no consumer routes on it.
     """
 
     source = finding.source
     if source is None:
         return ""
-    path = (source.path or "").strip()
-    if not path:
-        ref = (source.ref or "").strip()
-        return f" (at {display_literal(ref)})" if ref else ""
-    pointer = (source.pointer or "").strip()
-    if pointer:
-        return f" (at {display_literal(path)}#{display_literal(pointer)})"
-    if source.start_line is not None:
-        return f" (at {display_literal(path)}:{source.start_line})"
-    return f" (at {display_literal(path)})"
+    path = source.path or ""
+    if has_visible_content(path):
+        pointer = source.pointer or ""
+        if has_visible_content(pointer):
+            return f" (at {display_literal(path)}#{display_literal(pointer)})"
+        if source.start_line is not None:
+            return f" (at {display_literal(path)}:{source.start_line})"
+        return f" (at {display_literal(path)})"
+    for fallback in (source.location, source.ref):
+        if has_visible_content(fallback or ""):
+            return f" (at {display_literal(fallback or '')})"
+    return ""
 
 
 def finding_line(

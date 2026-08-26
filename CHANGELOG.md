@@ -30,6 +30,30 @@
   `report.json` stays the flat per-finding record automation consumes, and the
   sample `report.json` goldens are byte-identical.
 
+  Both PR-comment styles carry the block. `capability-review` is the default
+  and `findings` is the legacy style being retired, so wiring it only into the
+  latter would have shipped the change to nobody — the comment a reviewer
+  actually gets said what *moved* and nothing about what is wrong per tool.
+
+  Three rules keep a row honest about what it is saying. A row only renders
+  `missing: …` when the check wrote that list as plain strings; the
+  action-policy checks write `{"path", "expected"}` rows for *both* an absent
+  path and a present-but-wrong value, so flattening them said
+  `missing: safeguards.dry_run` about an action that declares `dry_run` and
+  collapsed two policies requiring one path into one indistinguishable row —
+  those keep their own title and their adopter-authored recommendation. A
+  location falls back to `location` before `ref`, because most adapters
+  populate `ref="agent.py"` + `location="agent.py:5"` and leave `path` unset;
+  without it four findings on four functions rendered one suffix and then
+  shared it. And a path is escaped, never trimmed, so a filename with a
+  leading space stays that filename.
+
+  A finding carrying a tool *name* and no id — `SHIP-BASELINE-INTEGRITY-*`,
+  copied from a historical baseline entry — is not resolved through the
+  current catalog. Uniqueness today cannot establish identity then, and the
+  missing `[provider]` qualifier is the signal that the two are not known to
+  be the same tool.
+
   Two joins had to get stricter to make the grouping honest. A group blocks
   when the *release decision* names one of its findings as a blocker, not when
   a finding carries `blocks_release` — a baseline separates those, filing
@@ -38,6 +62,9 @@
   id, then by check id and title for an item with neither, each tier holding
   only what the tier above could not: two findings can share a fingerprint,
   and `samples/conductor_agent` ships two that share a check id and a title.
+  Within a group, blocking rows sort ahead of severity: a subject whose only
+  blocker sorted last by check id showed BLOCKS RELEASE above three rows that
+  do not block, with the one that does hidden under "and 2 more findings".
 
 - **One action, one permission list, with no reviewed authority either.** A
   manifest row that listed `scopes:` and declared no `authority:` block at

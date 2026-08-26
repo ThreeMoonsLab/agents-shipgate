@@ -36,7 +36,8 @@ _COMMENT_MAX_CHARS = 6000
 # Budget for the grouped summary inside a comment that is truncated at
 # ``_COMMENT_MAX_CHARS``. Narrower than ``report.md`` on purpose: this block
 # exists to tell a reviewer which subjects to open, and the report it links to
-# carries the rest.
+# carries the rest. One budget for both comment styles — a PR comment is one
+# surface however it is laid out.
 _COMMENT_SUBJECT_LIMIT = 4
 _COMMENT_ROW_LIMIT = 3
 
@@ -170,6 +171,7 @@ def _human_summary_lines(
             )
     elif review.notes:
         lines.append(f"- Capability delta note: {_escape(review.notes[0])}")
+    lines.extend(_subject_rollup_lines(report))
     if review.trust_root_touched or review.policy_weakened:
         if review.trust_root_touched:
             lines.append("- Trust root touched: `true`")
@@ -178,6 +180,37 @@ def _human_summary_lines(
     lines.extend(_trigger_and_base_summary(verifier))
     lines.extend(_artifact_summary_lines(verifier))
     return lines
+
+
+def _subject_rollup_lines(report: ReadinessReport) -> list[str]:
+    """The grouped findings block, for the renderer a reviewer actually gets.
+
+    ``capability-review`` is the default style and ``findings`` is the legacy
+    one being retired, so putting the #364 rollup only in the latter would
+    have shipped the change to nobody: what this comment told a reviewer was
+    what *moved*, with no view of what is wrong per tool.  Both styles render
+    the same projection at the same budget now — a PR comment is one surface
+    however it is laid out.
+
+    Nested one level, because everything in this comment is a bullet under
+    "Human summary", and omitted entirely when nothing is selected: a
+    repository with no critical or high finding and nothing named by the
+    decision gains no line.
+    """
+
+    groups = roll_up_findings(report)
+    if not groups:
+        return []
+    block = top_findings_block(
+        groups,
+        group_limit=_COMMENT_SUBJECT_LIMIT,
+        row_limit=_COMMENT_ROW_LIMIT,
+        escape=_escape,
+        heading="Findings by subject",
+        bullet="  - ",
+        row_prefix="    - ",
+    )
+    return [f"- {block[0]}", *block[1:]]
 
 
 def _next_actor_lines(verifier: VerifierArtifact) -> list[str]:

@@ -4,6 +4,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
+from agents_shipgate.core.action_semantics import control_phrase
 from agents_shipgate.core.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
 from agents_shipgate.core.findings import (
     PROVENANCE_KIND_ORDER,
@@ -11,7 +12,7 @@ from agents_shipgate.core.findings import (
     provenance_kind_counts,
 )
 from agents_shipgate.core.findings.subject_rollup import (
-    missing_controls,
+    missing_items,
     roll_up_findings,
     rollup_headline,
     top_findings_block,
@@ -308,17 +309,26 @@ def _recommendation_note(finding: Finding) -> tuple[str, ...]:
     sentence that used to sit under the flat one.  The console and the PR
     comment do not — they stay at one line per finding and point here.
 
-    A row whose detail is already the missing-control list gets no sentence,
-    on any surface.  Since #364 the recommendation is *derived from that
-    list*, so printing both says one fact twice in different words — and the
-    reason the compact surfaces skip it applies just as well to a row in a
-    report.
+    The sentence is dropped only where it *repeats the row*: the built-in
+    control checks derive it from the same ``evidence.missing`` the row
+    already prints, and saying one fact twice in different words is the one
+    thing a summary cannot afford.  Deciding that by "the row has a missing
+    list" was too broad — an ADK metadata finding's row names ``description``
+    while its sentence says where to write one, which is not the same fact.
+
+    So the test is whether the row's items already appear in the sentence,
+    asked through ``control_phrase`` — the table that renders them, so a
+    control the sentence *renames* still matches.  Its failure mode is one
+    redundant line, never a lost instruction.
     """
 
-    if missing_controls(finding):
-        return ()
     recommendation = (finding.recommendation or "").strip()
-    return (recommendation,) if recommendation else ()
+    if not recommendation:
+        return ()
+    items = missing_items(finding)
+    if items and all(control_phrase(item) in recommendation for item in items):
+        return ()
+    return (recommendation,)
 
 
 def _append_finding_provenance(lines: list[str], findings: list[Finding]) -> None:

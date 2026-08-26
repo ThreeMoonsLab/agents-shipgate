@@ -78,7 +78,7 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
 - support.search\_kb \[support\_mcp\_tools\] \(at .agents-shipgate/mcp-tools.json\#/tools/0\) — review \(1 high\)
   - high SHIP-AUTH-SCOPE-COVERAGE-MISSING — support.search\_kb requires scopes not declared in the manifest
     - Add the required scopes for support.search\_kb to permissions.scopes or narrow the tool's declared auth requirements.
-- send\_email\_preview \[openai\_sdk\_static\] \(at agents/refund\_agent.py\) — review \(1 medium\)
+- send\_email\_preview \[openai\_sdk\_static\] \(at agents/refund\_agent.py:5\) — review \(1 medium\)
   - medium SHIP-SCHEMA-FREEFORM-OUTPUT — send\_email\_preview returns free-form text output
     - Prefer a structured output schema for send\_email\_preview, especially when output is later passed back into model context.
 
