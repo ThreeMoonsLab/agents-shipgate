@@ -4,11 +4,18 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
+from agents_shipgate.core.action_semantics import control_phrase
 from agents_shipgate.core.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
 from agents_shipgate.core.findings import (
     PROVENANCE_KIND_ORDER,
     SEVERITY_ORDER,
     provenance_kind_counts,
+)
+from agents_shipgate.core.findings.subject_rollup import (
+    missing_items,
+    roll_up_findings,
+    rollup_headline,
+    top_findings_block,
 )
 from agents_shipgate.core.privacy import sanitize_report
 from agents_shipgate.core.source_warnings import group_source_warnings
@@ -58,6 +65,14 @@ HITL_EVIDENCE_CHECKS = {
     "SHIP-EVIDENCE-HIGH-RISK-EXCLUSION-MISSING",
     "SHIP-EVIDENCE-HITL-PROMOTION-CRITERIA-MISSING",
 }
+
+
+# Section budget for the grouped summary. Much wider than the flat five
+# findings this replaced, because the section is now a map of the report
+# rather than a sample of it — and every finding still has its own row in
+# Findings By Category below, so the cap costs the reader nothing but scroll.
+_MARKDOWN_SUBJECT_LIMIT = 8
+_MARKDOWN_ROW_LIMIT = 5
 
 
 def write_markdown_report(
@@ -117,7 +132,7 @@ def render_markdown_report(
             "",
         ]
     )
-    _append_top_findings(lines, report.findings)
+    _append_top_findings(lines, report)
     _append_finding_provenance(lines, report.findings)
     _append_capability_intent_diff(lines, report)
     _append_baseline(lines, report)
@@ -247,27 +262,73 @@ def _append_decision_items(
     lines.append("")
 
 
-def _append_top_findings(lines: list[str], findings: list[Finding]) -> None:
-    active = sorted(
-        [
-            finding
-            for finding in findings
-            if not finding.suppressed and finding.severity in {"critical", "high"}
-        ],
-        key=lambda finding: (SEVERITY_ORDER[finding.severity], finding.check_id),
-    )
+def _append_top_findings(lines: list[str], report: ReadinessReport) -> None:
+    """The reader-facing section, grouped by subject since #364.
+
+    A flat severity-ordered five could spend all five on one check family
+    repeated over sibling tools, which is a summary that says one thing and
+    hides four.  Grouped, the same budget covers the subjects — and every
+    finding still has its own row in Findings By Category below, and its own
+    record in ``report.json``.
+    """
+
+    groups = roll_up_findings(report)
     lines.extend(["## Top Findings", ""])
-    if not active:
+    if not groups:
         lines.extend(["No critical or high findings.", ""])
         return
-    for index, finding in enumerate(active[:5], start=1):
-        lines.append(f"{index}. {_safe_markdown_text(finding.title)}")
-        lines.append(f"   Evidence: {_compact_evidence(finding.evidence)}")
-        lines.append(f"   Recommendation: {_safe_markdown_text(finding.recommendation)}")
-        lines.append("")
-    if any(finding.check_id in HITL_EVIDENCE_CHECKS for finding in active[:5]):
+    lines.extend([f"{rollup_headline(groups)}, most urgent first.", ""])
+    lines.extend(
+        top_findings_block(
+            groups,
+            group_limit=_MARKDOWN_SUBJECT_LIMIT,
+            row_limit=_MARKDOWN_ROW_LIMIT,
+            escape=_safe_markdown_text,
+            heading=None,
+            bullet="- ",
+            row_prefix="  - ",
+            note_prefix="    - ",
+            annotate=_recommendation_note,
+        )
+    )
+    lines.append("")
+    # Read over every selected finding, not over the block's visible rows. A
+    # second copy of the truncation rule here would put the disclaimer one
+    # limit change away from being absent where it is required, and showing it
+    # for a row that scrolled off costs nothing.
+    selected = [finding for group in groups for finding in group.findings]
+    if any(finding.check_id in HITL_EVIDENCE_CHECKS for finding in selected):
         lines.append(_safe_markdown_text(HITL_RUNTIME_CONTROL_DISCLAIMER))
         lines.append("")
+
+
+def _recommendation_note(finding: Finding) -> tuple[str, ...]:
+    """What to do about one row, for the surface that has room to say it.
+
+    ``report.md`` is the long-form artifact, so a grouped row keeps the
+    sentence that used to sit under the flat one.  The console and the PR
+    comment do not — they stay at one line per finding and point here.
+
+    The sentence is dropped only where it *repeats the row*: the built-in
+    control checks derive it from the same ``evidence.missing`` the row
+    already prints, and saying one fact twice in different words is the one
+    thing a summary cannot afford.  Deciding that by "the row has a missing
+    list" was too broad — an ADK metadata finding's row names ``description``
+    while its sentence says where to write one, which is not the same fact.
+
+    So the test is whether the row's items already appear in the sentence,
+    asked through ``control_phrase`` — the table that renders them, so a
+    control the sentence *renames* still matches.  Its failure mode is one
+    redundant line, never a lost instruction.
+    """
+
+    recommendation = (finding.recommendation or "").strip()
+    if not recommendation:
+        return ()
+    items = missing_items(finding)
+    if items and all(control_phrase(item) in recommendation for item in items):
+        return ()
+    return (recommendation,)
 
 
 def _append_finding_provenance(lines: list[str], findings: list[Finding]) -> None:
@@ -1012,15 +1073,6 @@ def _append_binding_surface(lines: list[str], report: ReadinessReport) -> None:
 
 def _human_status(status: str) -> str:
     return status.replace("_", " ").capitalize()
-
-
-def _compact_evidence(evidence: dict[str, object]) -> str:
-    parts = []
-    for key, value in evidence.items():
-        if key == "source_provenance" and isinstance(value, list):
-            value = f"{len(value)} provenance item(s)"
-        parts.append(_safe_markdown_text(f"{key}={value}"))
-    return "; ".join(parts) or "static metadata"
 
 
 def _table_cell(value: object) -> str:

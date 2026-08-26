@@ -45,25 +45,36 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
 
 ## Top Findings
 
-1. create\_refund has financial write capability without required controls
-   Evidence: action\_id=agent:simple-openai-api-agent/api-refund-assistant:action\_v2\_b5ba1b1612ff86ebfe4ad43459c8c26a79e44eb61a5a2f7496ab5d9166b4cfd5; missing=\['approval.required', 'safeguards.audit\_log', 'safeguards.idempotency'\]
-   Recommendation: Declare approval.required, safeguards.audit\_log, and safeguards.idempotency for this financial write action.
+15 findings across 3 subjects, most urgent first.
 
-2. send\_customer\_email has external communication capability without required controls
-   Evidence: action\_id=agent:simple-openai-api-agent/api-refund-assistant:action\_v2\_9d10be42545cd7457766e72c52ab9ba754eee7aa97c9613ae60ba4bc4048af82; missing=\['safeguards.audit\_log', 'confirmation.required'\]
-   Recommendation: Declare confirmation policy and safeguards.audit\_log for this external communication action.
-
-3. send\_customer\_email function schema is not strict enough
-   Evidence: issues=\['broad\_free\_text:message'\]; risk\_tags=\['customer\_communication', 'external\_write', 'write'\]
-   Recommendation: Make send\_customer\_email a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
-
-4. create\_refund function schema is not strict enough
-   Evidence: issues=\['missing\_strict\_true', 'additional\_properties\_not\_false', 'properties\_missing\_from\_required:amount,reason', 'risky\_field\_unbounded:amount'\]; risk\_tags=\['financial\_action', 'write'\]
-   Recommendation: Make create\_refund a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
-
-5. send\_customer\_email may be retried without idempotency evidence
-   Evidence: retry\_policy=\{'max\_attempts': 2\}; risk\_tags=\['customer\_communication', 'external\_write', 'write'\]
-   Recommendation: Add idempotency evidence for send\_customer\_email or avoid retrying this side effect.
+- create\_refund \[openai\_api\] \(at tools/openai-tools.json\#/tools/0\) — BLOCKS RELEASE \(1 critical, 5 high, 1 medium\)
+  - critical SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING \(blocks release\) — missing: approval.required, safeguards.audit\_log, safeguards.idempotency
+  - high SHIP-API-FUNCTION-SCHEMA-STRICTNESS — create\_refund function schema is not strict enough
+    - Make create\_refund a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
+  - high SHIP-API-RETRY-WITHOUT-IDEMPOTENCY — create\_refund may be retried without idempotency evidence
+    - Add idempotency evidence for create\_refund or avoid retrying this side effect.
+  - high SHIP-AUTH-MISSING-SCOPE — create\_refund lacks declared auth scopes
+    - Declare operation-specific auth scopes for create\_refund, or explicitly declare anonymous authority when the operation requires no credentials.
+  - high SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING — create\_refund is high-risk but has no owner
+    - Declare an owner for each high-risk production tool in risk\_overrides.tools.
+  - … and 2 more findings for this subject
+- send\_customer\_email \[openai\_api\] \(at tools/openai-tools.json\#/tools/1\) — BLOCKS RELEASE \(5 high\)
+  - high SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING \(blocks release\) — missing: safeguards.audit\_log, confirmation.required
+  - high SHIP-API-FUNCTION-SCHEMA-STRICTNESS — send\_customer\_email function schema is not strict enough
+    - Make send\_customer\_email a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
+  - high SHIP-API-RETRY-WITHOUT-IDEMPOTENCY — send\_customer\_email may be retried without idempotency evidence
+    - Add idempotency evidence for send\_customer\_email or avoid retrying this side effect.
+  - high SHIP-AUTH-MISSING-SCOPE — send\_customer\_email lacks declared auth scopes
+    - Declare operation-specific auth scopes for send\_customer\_email, or explicitly declare anonymous authority when the operation requires no credentials.
+  - high SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING — send\_customer\_email is high-risk but has no owner
+    - Declare an owner for each high-risk production tool in risk\_overrides.tools.
+- api-refund-assistant \(agent-wide\) \(at shipgate.yaml\) — review \(3 medium\)
+  - medium SHIP-API-STRUCTURED-OUTPUT-READINESS — Response format schemas/refund\_decision.schema.json is under-specified
+    - Tighten the structured output schema with enums, needs\_review/refusal/error modeling, and declared critical fields.
+  - medium SHIP-API-TIMEOUT-MISSING — OpenAI API flow lacks timeout metadata
+    - Declare tool-call timeout metadata for high-risk OpenAI API flows.
+  - medium SHIP-API-TRACE-APPROVAL-MISSING — Trace sample shows create\_refund without approval
+    - Require approval before calling create\_refund.
 
 ## Finding Provenance
 

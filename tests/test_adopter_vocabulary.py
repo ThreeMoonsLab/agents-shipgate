@@ -674,6 +674,7 @@ ADOPTER_FACING_MODULES = (
     "core/agent_controls.py",
     "core/agent_handoff.py",
     "core/evidence_actions.py",
+    "core/findings/subject_rollup.py",
     "core/source_warnings.py",
     "core/tool_identity.py",
     "report/markdown.py",
