@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+- **One action, one permission list, with no reviewed authority either.** A
+  manifest row that listed `scopes:` and declared no `authority:` block at
+  either site turned `verify --base` into `Internal error` (exit 4) on a legal
+  manifest. The action's permissions were spelled twice and the two spellings
+  disagreed: the action lens took the row's list when it had one and the
+  source's auth scopes otherwise, while the authority dimension took the row's
+  list only where a reviewed record existed. `CapabilityFactV1` requires the
+  two to project one list, so where they disagreed, rebuilding a capability
+  fact from a serialized `ActionFact` raised — and that rebuild happens on
+  exactly one route, the MCP capability comparison against a base scan. A
+  plain `scan` never reaches it, which is why no sample and no scan-level test
+  saw this.
+
+  Declaring authority once per source closed the reviewed half of that by
+  normalizing both sites into one record. This closes the rest: one resolver
+  (`core.semantic_assessment.resolve_action_scopes`) decides an action's
+  permission list, read by the action lens and the authority dimension alike,
+  rather than teaching the capability builder to paper over a disagreement it
+  would then have to keep tolerating. Because the shared rule is the one the
+  lens already applied, no shape that resolves today resolves differently —
+  every list that moves belongs to a shape that was exit 4. A sweep over
+  source authority × declaration row now pins it, and the parity assertion
+  added with the source-level block covers the bare-`scopes` shape it had to
+  leave out.
+
+  *And a row cannot quietly shrink a grant.* Publishing the row's list on the
+  authority dimension is also what would let `scopes: [crm.read]` erase a
+  `crm.write` grant the source proves, with a `structural` status and nothing
+  raised. The subset rule a reviewed authority is held to now reads the
+  *resolved* list, so a bare `scopes:` list is held to it too and reports
+  `conflicting_authority_evidence` against `actions[].scopes`. Adding the
+  dropped scope back closes it. Broadening is still a broadening, visible to
+  the broad-scope policies as before.
+
+  Two consequences for a manifest that used the broken shape, and only for
+  those. `SHIP-AUTH-SCOPE-COVERAGE-MISSING` now sees the declared list, so a
+  row declaring `scopes: [crm.read]` against a manifest whose
+  `permissions.scopes` does not cover it raises the review item it always
+  should have — the divergence, not the check, was what kept it quiet. And
+  `authority_hash` moves with the scopes, in a capability lock, an
+  `action_surface.actions` row, or both.
+
 - **Authority follows credentials, not functions: declare it once per source.**
   Every action a tool source contributes normally runs with the same
   credential, and asking for it once per action asks the same infrastructure
