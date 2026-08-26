@@ -34,8 +34,9 @@ from agents_shipgate.core.declaration_questions import (
     ANSWERABLE_ISSUE_KINDS,
     declaration_questions,
 )
-from agents_shipgate.core.domain import Tool, ToolRiskHint
+from agents_shipgate.core.domain import SemanticClaim, Tool, ToolRiskHint
 from agents_shipgate.core.semantic_assessment import (
+    _readings_from_claims,
     assess_tool_semantics,
     confirmed_basis,
     effect_derivation_id,
@@ -481,14 +482,17 @@ def test_the_loop_closes_through_real_scans(tmp_path: Path) -> None:
         drift = [gap for gap in gaps if gap.kind == "declaration_drift"]
         return report, drift
 
-    # 1. Unpinned: whatever the scan read, and no pin to compare.
+    # 1. Unpinned: whatever the scan read, and no pin to compare. The pin is
+    #    taken from the claims *this scan published*, not re-derived from a
+    #    synthetic tool — a test that builds its own copy of the input is
+    #    asserting that two derivations agree, which is the thing under test.
     first, drift = scan("first", annotated=True, basis=None)
     assert not drift
-    pinned_against = (
-        first.action_surface_facts.actions[0].semantic_assessment.effect.claims
+    published = first.action_surface_facts.actions[0].semantic_assessment.effect.claims
+    assert any(claim.source == "mcp_annotation" for claim in published)
+    pin = confirmed_basis(
+        _readings_from_claims([SemanticClaim.model_validate(c.model_dump()) for c in published])
     )
-    assert any(claim.source == "mcp_annotation" for claim in pinned_against)
-    pin = _pin(_tool(annotations={"readOnlyHint": True}, source_type="mcp"))
 
     # 2. Pinned against exactly that: silent.
     _, drift = scan("pinned", annotated=True, basis=pin)

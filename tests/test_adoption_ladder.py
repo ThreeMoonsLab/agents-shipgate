@@ -537,6 +537,28 @@ def test_the_rung_is_the_highest_one_this_repository_already_meets(
     assert adoption_rung(_manifest(**overrides), _protection(covered)).number == rung
 
 
+def test_the_first_rung_names_the_verdict_it_actually_produces(tmp_path: Path) -> None:
+    """A rung that promises more than the product does is worse than no ladder.
+
+    The first draft of rung 1 said "a verdict on every pull request, covering
+    what that pull request changed" — the RFC's intent, and not what a manifest
+    with nothing declared produces: the whole surface is unanswered and the
+    verdict is `insufficient_evidence`. This ties the sentence to the
+    behaviour, so the two cannot drift apart silently.
+    """
+
+    root = _mk(tmp_path)
+    config = _workspace(root, tools=[_READ_ONLY_TOOL], target="local")
+    manifest = AgentsShipgateManifest.model_validate(
+        yaml.safe_load(config.read_text(encoding="utf-8"))
+    )
+    rung = adoption_rung(manifest, _protection(False))
+
+    assert rung.number == 1
+    assert "insufficient_evidence" in rung.you_get
+    assert _scan(root, config).decision == "insufficient_evidence"
+
+
 def test_a_rung_names_only_the_conditions_that_are_actually_unmet() -> None:
     """Telling an adopter who already set `ci.mode: strict` to set it again is
     how a next step stops being read at all.

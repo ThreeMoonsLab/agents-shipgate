@@ -91,10 +91,14 @@ def adoption_rung(
         return AdoptionRung(
             number=3,
             name="Strict",
+            # Says what CODEOWNERS establishes, not what it implies. Whether
+            # a review is *enforced* is branch protection, which lives in
+            # repository settings nothing here can read — the same line
+            # ``SHIP-TRUST-MANIFEST-UNPROTECTED`` refuses to cross.
             you_get=(
-                "an enforced gate: CI fails on a blocking verdict, and the "
-                "manifest that decides it takes a named owner's review to "
-                "change."
+                "an enforced gate: CI fails on a blocking verdict, and a "
+                "CODEOWNERS rule names who reviews a change to the manifest "
+                "that decides it."
             ),
             exit_criterion="",
         )
@@ -104,8 +108,9 @@ def adoption_rung(
             number=2,
             name="Answer on touch",
             you_get=(
-                "per-pull-request verdicts and a shrinking question backlog; "
-                "`scan` reports how many declaration questions remain."
+                "a verdict that can move: every answered question takes an "
+                "action out of the backlog, and `scan` reports how many are "
+                "left."
             ),
             exit_criterion=_strict_exit_criterion(blocking),
             blocking=blocking,
@@ -113,10 +118,15 @@ def adoption_rung(
     return AdoptionRung(
         number=1,
         name="Gate the delta",
+        # What running the gate here actually produces, which is not yet a
+        # gateable verdict: with nothing declared the answer is
+        # ``insufficient_evidence``, and promising otherwise would be the same
+        # over-claim the audit rung was rewritten to avoid.
         you_get=(
-            "a verdict on every pull request, covering what that pull request "
-            "changed. Nothing already in the repository has to be declared "
-            "first."
+            "the gate running on every pull request, and "
+            "`suggested-declarations.yaml` beside the report listing what this "
+            "repository still owes — highest-risk first. The verdict stays "
+            "`insufficient_evidence` until those are answered."
         ),
         exit_criterion=(
             "answer a declaration question — `suggested-declarations.yaml`, "
@@ -170,8 +180,13 @@ def _strict_exit_criterion(blocking: tuple[str, ...]) -> str:
         )
     if not steps:  # pragma: no cover - rung 3 is returned before this is reached
         return ""
+    # "any … `scan` still reports", not "the remaining": nothing here has run
+    # a scan, so a sentence asserting there is a backlog would be guessing at
+    # one — and a repository that has already cleared it would be told to do
+    # work it finished.
     return (
-        f"clear the remaining declaration questions, then {' and '.join(steps)}."
+        "answer any declaration questions `scan` still reports, then "
+        f"{' and '.join(steps)}."
     )
 
 
