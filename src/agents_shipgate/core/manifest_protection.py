@@ -68,16 +68,40 @@ class ManifestProtection:
     owners: tuple[str, ...]
 
 
+#: Owner forms GitHub accepts in a CODEOWNERS rule: ``@user``, ``@org/team``,
+#: and an email address. Anything else is skipped by GitHub, so a rule whose
+#: only token is ``not-an-owner`` assigns nobody — and reading it as ownership
+#: reports a manifest as protected that is not.
+_OWNER_PATTERN = re.compile(
+    r"^(?:@[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?(?:/[A-Za-z0-9._-]+)?"
+    r"|[^@\s]+@[^@\s]+\.[^@\s]+)$"
+)
+
+
 def manifest_protection(config_path: Path) -> ManifestProtection:
     """Read this checkout's CODEOWNERS and say whether it covers the manifest.
 
-    Never raises: an unreadable or absent file is reported as no coverage,
-    which is what it is. A repository that is not a git checkout has no
-    CODEOWNERS semantics at all and is reported the same way.
+    Never raises, and fails **closed** on every question it cannot answer: an
+    unreadable file, an absent one, or a directory that is not a git checkout
+    all report no coverage.
+
+    That last one is not pedantry. CODEOWNERS is a *forge* convention: outside
+    a git checkout there is no repository for a rule to govern and no pull
+    request for it to gate, so a stray file of that name proves nothing. It
+    would still have suppressed the guidance finding and, through the ladder,
+    awarded rung 3 — a protection claim resting on a filename.
     """
 
     manifest = config_path.resolve()
-    root = git_root_for(manifest.parent) or manifest.parent
+    root = git_root_for(manifest.parent)
+    if root is None:
+        return ManifestProtection(
+            manifest_path=manifest.name,
+            codeowners_path=None,
+            covered=False,
+            matching_pattern=None,
+            owners=(),
+        )
     try:
         relative = manifest.relative_to(root).as_posix()
     except ValueError:  # pragma: no cover - resolve() keeps these under root
@@ -124,7 +148,12 @@ def _last_matching_rule(text: str, path: str) -> tuple[str | None, tuple[str, ..
             # are ordinary rules, so skipping the header alone is right.
             continue
         parts = line.split()
-        pattern, owners = parts[0], tuple(parts[1:])
+        # Only tokens GitHub would accept as an owner. A rule with a pattern
+        # and a typo assigns nobody, and last-wins means such a rule *removes*
+        # ownership a broader rule granted — so counting the typo as an owner
+        # gets the answer exactly backwards.
+        pattern = parts[0]
+        owners = tuple(token for token in parts[1:] if _OWNER_PATTERN.match(token))
         if _matches(pattern, path):
             matched = (pattern, owners)
     return matched

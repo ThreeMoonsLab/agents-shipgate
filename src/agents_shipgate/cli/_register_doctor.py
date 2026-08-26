@@ -25,7 +25,7 @@ from agents_shipgate.cli.setup_control import (
 )
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.config.loader import manifest_read_error
-from agents_shipgate.core.adoption_ladder import AUDIT_RUNG
+from agents_shipgate.core.adoption_ladder import audit_rung
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.environment import environment_report
@@ -173,6 +173,23 @@ def _doctor_failure_routing(
     )
 
 
+def _init_command(config: str, workspace: Path | None) -> str:
+    """The invocation that actually writes a manifest for this call.
+
+    Three things a fixed string gets wrong, and each of them makes the next
+    step unable to advance the rung it is printed on: bare ``init`` is a dry
+    run that writes nothing, it defaults to the process's cwd rather than the
+    workspace this ``doctor`` was pointed at, and it names a console script the
+    caller may not have entered through (#322). ``render_command`` settles the
+    last one.
+    """
+
+    target = workspace if workspace is not None else Path(config).parent
+    return render_command(
+        ["init", "--workspace", str(target.resolve()), "--write"]
+    )
+
+
 def register(app: typer.Typer) -> None:
     @app.command(hidden=True)
     def doctor(
@@ -208,7 +225,10 @@ def register(app: typer.Typer) -> None:
             # with none still gets the audit — the state both adoption-walk
             # targets were actually in — so say where that leaves the adopter
             # before sending them to write one.
-            typer.echo(f"Adoption: {AUDIT_RUNG.summary()}", err=True)
+            typer.echo(
+                f"Adoption: {audit_rung(_init_command(config, workspace)).summary()}",
+                err=True,
+            )
             diagnostics = _diagnose_config_error(
                 config=config, workspace=workspace, exc=exc
             )
@@ -286,7 +306,11 @@ def register(app: typer.Typer) -> None:
                     # exists and fails to load is a defect and this line would
                     # be the wrong answer to it (#410 §G).
                     if not path.is_file():
-                        typer.echo(f"Adoption: {AUDIT_RUNG.summary()}", err=True)
+                        typer.echo(
+                            "Adoption: "
+                            + audit_rung(_init_command(str(path), workspace)).summary(),
+                            err=True,
+                        )
                     diagnostics = _diagnose_config_error(
                         config=str(path), workspace=None, exc=exc
                     )

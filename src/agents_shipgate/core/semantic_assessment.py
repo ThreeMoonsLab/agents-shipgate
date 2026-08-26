@@ -1544,14 +1544,25 @@ def _template_authority_applies(
       stops seeing anything to cover. A repository-wide claim about deployment
       may not subtract evidence a source proved.
 
-    ``_source_authority`` reports ``"unknown"`` status exactly when the source
-    published nothing usable — including the ambiguous and invalid cases, which
-    are *something published*, badly, and equally not this claim's to overwrite.
+    The test for that last one is **every field the record would replace**, not
+    every field one grader happens to read. :class:`ReviewedAuthority` carries
+    four — mode, auth type, credential mode, and scopes — and installing it
+    overwrites all four. ``_source_authority`` grades three of them (reporting
+    ``"unknown"`` status exactly when the source published nothing usable, and
+    something else for the ambiguous and invalid cases, which are *something
+    published*, badly, and equally not this claim's to overwrite). It never
+    reads ``credential_mode``, so a tool publishing ``service_account`` and
+    nothing else graded ``unknown``, took ``mode: none``, and had its credential
+    mode cleared — with ``credential_modes`` policy selectors silently ceasing
+    to match it. ``test_the_template_fallback_yields_to_every_field_it_would_replace``
+    is keyed off the record's own fields so a fifth one cannot be forgotten.
     """
 
     if environment_target != TEMPLATE_ENVIRONMENT_TARGET:
         return False
     if _reviewed_scopes(declaration, None):
+        return False
+    if tool.auth.credential_mode:
         return False
     return _source_authority(tool)[1] == "unknown"
 

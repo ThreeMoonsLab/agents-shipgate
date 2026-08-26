@@ -89,6 +89,13 @@ def inspect_sources(
             # with the wrong shape (#384); the errno is only in hand here.
             raise manifest_read_error(config_path, exc) from exc
     manifest = load_manifest_text(decode_manifest(manifest_bytes, config_path), source=config_path)
+    # The manifest as written, kept before the filtering below removes sources
+    # that could not be loaded. Adoption is a statement about what a human
+    # declared, so it has to read the declared file: a source whose path is
+    # broken still carries its reviewed ``authority`` answer, and reading the
+    # filtered copy reported such a repository as rung 1 while its manifest
+    # plainly held a rung-2 answer.
+    declared_manifest = manifest
     base_dir = config_path.resolve().parent
     unresolved_sources = _resolve_source_paths(manifest, base_dir, config_path)
     if unresolved_sources:
@@ -147,7 +154,7 @@ def inspect_sources(
     # Some adapters expose the same warnings through both LoadedToolSource
     # and the artifact bag; keep doctor warning output stable and unique.
     warnings = list(dict.fromkeys(warnings))
-    rung = adoption_rung(manifest, manifest_protection(config_path))
+    rung = adoption_rung(declared_manifest, manifest_protection(config_path))
     payload = {
         "project": manifest.project.name,
         "agent": manifest.agent.name,

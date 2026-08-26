@@ -44,13 +44,15 @@
   same claim spelled at cost. Declaring `template` answers the authority
   dimension once, for every action that does not say otherwise.
 
-  A default, never an override: an action row's `authority`, a
-  `tool_sources[].authority` block, and an action's own `scopes:` list each win
-  over it, and a source that publishes a real credential is challenged by it
-  exactly as a hand-written `mode: none` would be. And never silent: every
-  action it answers for is one semantic review concern, so a template
-  repository can reach `review_required` and never `passed`. Stating real
-  authority stays the price of a green gate.
+  A default, never an override, and it applies only where nothing else answers
+  the question: an action row's `authority`, a `tool_sources[].authority`
+  block, an action's own `scopes:` list, and **anything the source publishes**
+  all win over it. That last one is the whole safety argument — the reviewed
+  record supplies mode, auth type, credential mode, and permission list
+  together, so applying it over a source that published any of the four erases
+  what that source proved. And never silent: every action it answers for is one
+  semantic review concern, so a template repository can reach `review_required`
+  and never `passed`. Stating real authority stays the price of a green gate.
 
 - **`SHIP-TRUST-MANIFEST-UNPROTECTED` — who may change the gate.** Every verdict
   rests on the manifest, so a repository that lets it change unreviewed has a
@@ -69,7 +71,29 @@
   touch, 3 Strict — says what it is worth on its own, and names only the
   conditions that are actually unmet to reach the next one. Published on
   `doctor --json` as `adoption`. A workspace with no manifest is told it is on
-  rung 0 rather than only that a file is missing.
+  rung 0 rather than only that a file is missing, with the exact
+  `init --workspace … --write` invocation that leaves it.
+
+  A rung describes what a repository has **declared**, and says so. It does not
+  predict a verdict — a fully structural surface owes no declaration questions
+  and can pass from rung 1 — and it does not claim enforcement: `ci.mode:
+  strict` is the manifest's own statement, while the workflow that runs
+  Shipgate passes its own `ci_mode` (the generated one ships `advisory`), and
+  branch protection is a repository setting no file in a checkout can read.
+  Rung 3 names both limits rather than implying neither. The rungs are also not
+  a cumulative chain: a repository whose surface resolves structurally may never
+  be asked a declaration question, and would otherwise be stranded at rung 1
+  forever.
+
+- **Existing `capabilities.lock.json` files keep loading.** The lock schema bump
+  froze `0.7` without teaching the reader about it, so every committed v0.7 lock
+  started failing to load — v0.7 had been readable only because it *was* the
+  current constant, and nothing moved it into the compatibility set when the
+  next bump took that constant. It is there now, with its historical capability
+  standard pinned literally rather than defaulting to the current one. The guard
+  walks the published `docs/capability-lock-schema.v*.json` set instead of a
+  hardcoded version, so the next bump cannot repeat it: the old test pinned
+  `0.6` and kept passing throughout.
 
 - **A merged declaration block reads in manifest field order.** Two evidence-gap
   rows about one action are merged into one block to paste, and the merge kept

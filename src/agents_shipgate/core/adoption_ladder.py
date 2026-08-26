@@ -14,16 +14,27 @@ useful without the next**:
   knowing before deciding whether to gate it, and both repositories the
   adoption walks used were samples someone was evaluating rather than shipping.
 * **1 · Gate the delta** is the first verdict: a manifest exists, so a pull
-  request gets an answer about what it changed.
+  request gets an answer.
 * **2 · Answer on touch** is the working state. Questions arrive with the pull
-  requests that raise them, the backlog shrinks, and the counter says by how
-  much.
-* **3 · Strict** is the enforced gate: CI fails on a bad verdict, and the
-  manifest that decides it cannot change without a named human's review.
+  requests that raise them, and the backlog shrinks.
+* **3 · Strict** is the strongest posture the manifest can state, with a named
+  reviewer on the file that states it.
+
+Each rung names **its own** conditions and the highest match wins; they are not
+a cumulative chain. That is deliberate. A repository whose surface resolves
+structurally may never be asked a declaration question at all, and a cumulative
+ladder would strand it at rung 1 forever — unable to reach the rung that
+describes the posture it actually has.
 
 Derived from the manifest and the checkout alone — never from a scan. The rung
 is the shape of an adoption, and it has to be answerable by ``doctor``, which
-runs before any report exists.
+runs before any report exists. **That is also the limit on what a rung may
+say.** A rung describes what this repository has *declared*. It cannot describe
+what a verdict will be — that depends on evidence no manifest carries — and it
+cannot describe what CI or a branch will *enforce*: the generated workflow
+passes ``ci_mode: advisory``, which overrides the manifest, and branch
+protection lives in repository settings no file here can read. Every over-claim
+caught in review was a rung reaching past that line.
 """
 
 from __future__ import annotations
@@ -55,55 +66,72 @@ class AdoptionRung:
         return f"{line} Next: {self.exit_criterion}" if self.exit_criterion else line
 
 
-#: The rung a repository with no manifest is on. Named here rather than at the
-#: one call site that can observe it, so the ladder is one list in one place.
-AUDIT_RUNG = AdoptionRung(
-    number=0,
-    name="Audit",
-    you_get=(
-        "a read-only look with no manifest and nothing written: `shipgate "
-        "detect` for the agent frameworks and tool sources present, `shipgate "
-        "audit --host` for the host grants."
-    ),
-    exit_criterion=(
-        "run `agents-shipgate init` to write a manifest, and the next pull "
-        "request gets a verdict on what it changed."
-    ),
-    blocking=("manifest_absent",),
-)
+#: The rung a repository with no manifest is on. A function rather than a
+#: constant because its next step is a *command*, and a command that drops the
+#: caller's workspace — or that omits ``--write``, which makes ``init`` a dry
+#: run that writes nothing — is a next step that cannot advance the rung it is
+#: printed on.
+def audit_rung(init_command: str) -> AdoptionRung:
+    """Rung 0, with the exact invocation that leaves it.
+
+    ``init_command`` is rendered by the caller through the invocation policy
+    (#322), because only the caller knows how this process was entered and
+    which workspace it was pointed at.
+    """
+
+    return AdoptionRung(
+        number=0,
+        name="Audit",
+        you_get=(
+            "a read-only look with no manifest and nothing written: `shipgate "
+            "detect` for the agent frameworks and tool sources present, "
+            "`shipgate audit --host` for the host grants."
+        ),
+        exit_criterion=(
+            f"run `{init_command}` to write a manifest, and the next pull "
+            "request gets a verdict."
+        ),
+        blocking=("manifest_absent",),
+    )
 
 
 def adoption_rung(
     manifest: AgentsShipgateManifest,
     protection: ManifestProtection,
 ) -> AdoptionRung:
-    """The highest rung whose conditions this repository already meets.
+    """The highest rung whose own conditions this repository already meets.
 
-    Conditions are cumulative and each is a fact about the manifest or the
-    checkout: a rung is never awarded for something a scan would have to prove,
-    because the rung has to be answerable before the first scan runs.
+    Not cumulative — see the module docstring for why a structurally-resolved
+    repository must be able to reach rung 3 without ever having been asked a
+    declaration question.
     """
 
-    strict = manifest.ci.mode == "strict"
-    answered = _has_reviewed_declaration(manifest)
-
-    if answered and strict and protection.covered:
+    if manifest.ci.mode == "strict" and protection.covered:
         return AdoptionRung(
             number=3,
             name="Strict",
-            # Says what CODEOWNERS establishes, not what it implies. Whether
-            # a review is *enforced* is branch protection, which lives in
-            # repository settings nothing here can read — the same line
-            # ``SHIP-TRUST-MANIFEST-UNPROTECTED`` refuses to cross.
+            # Says what is *declared*, and then says what that does not
+            # establish. `ci.mode: strict` is this repository's own statement;
+            # the workflow that runs Shipgate passes its own `ci_mode`, and the
+            # generated one ships `advisory` — so promising "CI fails on a
+            # blocking verdict" here would promise something a manifest cannot
+            # deliver and this module cannot check.
             you_get=(
-                "an enforced gate: CI fails on a blocking verdict, and a "
-                "CODEOWNERS rule names who reviews a change to the manifest "
-                "that decides it."
+                "the strongest posture the manifest can state — `ci.mode: "
+                "strict`, so a run in this repository's own mode fails on a "
+                "blocking verdict — and a CODEOWNERS rule naming who reviews a "
+                "change to the manifest that decides it."
             ),
-            exit_criterion="",
+            exit_criterion=(
+                "nothing here. What this cannot see: whether your CI workflow "
+                "runs Shipgate with `ci_mode: strict` (the generated workflow "
+                "ships `advisory`, which overrides the manifest), and whether "
+                "the branch requires the review CODEOWNERS assigns. Confirm "
+                "both where they live."
+            ),
         )
-    if answered:
-        blocking = _blocking(strict=strict, protection=protection)
+    if _has_reviewed_declaration(manifest):
+        blocking = _blocking(manifest=manifest, protection=protection)
         return AdoptionRung(
             number=2,
             name="Answer on touch",
@@ -118,44 +146,60 @@ def adoption_rung(
     return AdoptionRung(
         number=1,
         name="Gate the delta",
-        # What running the gate here actually produces, which is not yet a
-        # gateable verdict: with nothing declared the answer is
-        # ``insufficient_evidence``, and promising otherwise would be the same
-        # over-claim the audit rung was rewritten to avoid.
+        # Deliberately silent about the verdict. A fully structural tool
+        # surface can owe no declaration questions at all and scan
+        # `review_required` or `passed` from here, so naming
+        # `insufficient_evidence` — or promising a `suggested-declarations.yaml`
+        # that would have nothing to list — states a scan result from manifest
+        # shape alone.
         you_get=(
-            "the gate running on every pull request, and "
-            "`suggested-declarations.yaml` beside the report listing what this "
-            "repository still owes — highest-risk first. The verdict stays "
-            "`insufficient_evidence` until those are answered."
+            "the gate running on every pull request. `scan` reports what, if "
+            "anything, this repository still owes before its verdict can be "
+            "evidence-backed."
         ),
         exit_criterion=(
-            "answer a declaration question — `suggested-declarations.yaml`, "
-            "written beside the report, lists them in the order that moves the "
-            "verdict fastest."
+            "run `scan` and answer any declaration questions it reports — they "
+            "are written out as `suggested-declarations.yaml` beside the "
+            "report, highest-risk first."
         ),
         blocking=("no_reviewed_declaration",),
     )
 
 
 def _has_reviewed_declaration(manifest: AgentsShipgateManifest) -> bool:
-    """Whether anyone has answered a declaration question in this manifest.
+    """Whether anyone has answered a **declaration question** in this manifest.
 
-    ``environment.target: template`` counts, and counts as one answer for the
-    whole repository: it is a reviewed statement that nothing here holds a
+    Not "is there an action row". The questionnaire counts exactly two
+    dimensions — effect and authority — so a row carrying only ``approval`` or
+    only ``safeguards`` is a perfectly valid control declaration that answers
+    neither, and treating it as semantic evidence advanced ``doctor`` to rung 2
+    while the questionnaire stayed exactly as open as before.
+
+    ``risk_tags`` counts because it is the second of the two routes out of a
+    ``declaration_below_inferred_evidence`` row — declaring the category is an
+    answer about the effect, made without raising the headline value.
+
+    ``environment.target: template`` counts, and counts once for the whole
+    repository: it is a reviewed statement that nothing here holds a
     credential, which is exactly the authority question every action would
     otherwise be asked (#410 §G).
     """
 
     return bool(
-        manifest.action_surface.actions
+        any(
+            action.effect is not None or action.risk_tags or action.authority is not None
+            for action in manifest.action_surface.actions
+        )
         or any(source.authority is not None for source in manifest.tool_sources)
         or manifest.environment.target == "template"
     )
 
 
-def _blocking(*, strict: bool, protection: ManifestProtection) -> tuple[str, ...]:
+def _blocking(
+    *, manifest: AgentsShipgateManifest, protection: ManifestProtection
+) -> tuple[str, ...]:
     reasons: list[str] = []
-    if not strict:
+    if manifest.ci.mode != "strict":
         reasons.append("ci_mode_not_strict")
     if not protection.covered:
         reasons.append("manifest_unprotected")
@@ -190,4 +234,4 @@ def _strict_exit_criterion(blocking: tuple[str, ...]) -> str:
     )
 
 
-__all__ = ["AUDIT_RUNG", "AdoptionRung", "adoption_rung"]
+__all__ = ["AdoptionRung", "adoption_rung", "audit_rung"]

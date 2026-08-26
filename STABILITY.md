@@ -2500,15 +2500,15 @@ envelope to `.agents-shipgate/capabilities.lock.json` and, by default, a
 byte-identical generated mirror at
 `agents-shipgate-reports/capabilities.lock.json`. The current lock schema is
 [`docs/capability-lock-schema.v0.8.json`](docs/capability-lock-schema.v0.8.json)
-and emitted locks carry `capability_lock_schema_version: "0.7"` plus
-`experimental: false`. Prior schemas stay frozen; a lock declaring `0.6` is
-advanced to `0.7` on read, so nothing needs regenerating.
+and emitted locks carry `capability_lock_schema_version: "0.8"` plus
+`experimental: false`. Prior schemas stay frozen; a lock declaring `0.6` or
+`0.7` is advanced to `0.8` on read, so nothing needs regenerating.
 
 `agents-shipgate capability diff` compares two lockfiles and emits added,
 removed, `reidentified`, semantic `changed`, and `evidence_changed` rows. The
 current diff schema is
 [`docs/capability-lock-diff-schema.v0.9.json`](docs/capability-lock-diff-schema.v0.9.json)
-and emitted diffs carry `capability_lock_diff_schema_version: "0.8"` plus
+and emitted diffs carry `capability_lock_diff_schema_version: "0.9"` plus
 `experimental: false`. `reidentified` is the scope/resource case: scope is part
 of capability identity, so a scope escalation changes the id and is paired by
 agent/provider/operation/tool identity instead of being reported as unrelated add/remove
@@ -2527,7 +2527,7 @@ research; they are not emitted in `report.json` and do not gate.
 `release_decision.decision` remains the only gate. Capability standard v0.2
 adds each fact's optional normalized `semantic_assessment`; newly emitted v0.3
 locks populate it. The v0.2 lock and v0.3 diff schemas remain frozen references
-for archived artifacts. Old experimental
+for archived artifacts. Legacy experimental
 `capability_lock_schema_version: "0.1"` lock files remain readable by
 `agents-shipgate capability diff`; the old combined schema remains a frozen
 reference at

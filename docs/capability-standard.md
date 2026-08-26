@@ -156,13 +156,13 @@ static capability envelope.
 
 ## Compatibility
 
-New exports use `capability_lock_schema_version: "0.7"` and
+New exports use `capability_lock_schema_version: "0.8"` and
 `experimental: false`. `agents-shipgate capability diff` continues to accept
 old experimental `0.1` lock inputs and normalizes them before comparison.
 Diff metadata reports the normalized current lock schema version for such
 legacy inputs.
 
-New diffs use `capability_lock_diff_schema_version: "0.8"` and
+New diffs use `capability_lock_diff_schema_version: "0.9"` and
 `experimental: false`. The v0.5 lock and v0.6 diff schemas remain frozen
 references for archived artifacts; regenerate both sides with 0.16 before a
 current identity-aware semantic comparison. The older combined
