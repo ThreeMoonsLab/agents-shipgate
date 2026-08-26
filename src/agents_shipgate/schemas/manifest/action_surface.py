@@ -5,6 +5,10 @@ from typing import Any, Literal, get_args
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from agents_shipgate.schemas.common import Severity
+from agents_shipgate.schemas.manifest._authority import (
+    validate_authority_co_requirements,
+    validate_authority_scopes,
+)
 from agents_shipgate.schemas.manifest._common import STRICT_MODEL_CONFIG
 from agents_shipgate.schemas.text import (
     VISIBLE_CONTENT_PATTERN,
@@ -129,6 +133,10 @@ class ActionEvidenceConfig(BaseModel):
     approval_ticket: str | None = None
 
 
+#: The reviewed modes an action row may declare. The same vocabulary the
+#: shared validator advertises as ``AUTHORITY_MODE_VALUES``; pinned equal by
+#: ``test_both_authority_sites_share_one_vocabulary`` so a mode added to one
+#: spelling is added to both.
 ActionAuthorityMode = Literal["none", "scoped", "unscoped", "ambient"]
 
 
@@ -236,15 +244,7 @@ class ActionDeclarationConfig(BaseModel):
     @field_validator("scopes")
     @classmethod
     def validate_concrete_scopes(cls, scopes: list[str]) -> list[str]:
-        normalized: list[str] = []
-        for scope in scopes:
-            value = scope.strip()
-            if not value:
-                raise ValueError(
-                    "action_surface.actions[].scopes must contain concrete, non-blank scope strings"
-                )
-            normalized.append(value)
-        return normalized
+        return validate_authority_scopes(scopes, label="action_surface.actions[].scopes")
 
     @model_validator(mode="after")
     def validate_override(self) -> ActionDeclarationConfig:
@@ -262,49 +262,17 @@ class ActionDeclarationConfig(BaseModel):
         authority = self.authority
         if authority is None:
             return self
-
-        auth_type = (authority.auth_type or "").strip()
-        reason = (authority.reason or "").strip()
-        if authority.mode == "none":
-            if self.scopes:
-                raise ValueError(
-                    "action_surface.actions[].authority.mode 'none' requires empty scopes"
-                )
-            if auth_type:
-                raise ValueError(
-                    "action_surface.actions[].authority.mode 'none' requires no auth_type"
-                )
-        elif authority.mode == "scoped":
-            if not auth_type:
-                raise ValueError(
-                    "action_surface.actions[].authority.mode 'scoped' requires auth_type"
-                )
-            if not self.scopes:
-                raise ValueError(
-                    "action_surface.actions[].authority.mode 'scoped' requires non-empty scopes"
-                )
-        elif authority.mode == "unscoped":
-            if not auth_type:
-                raise ValueError(
-                    "action_surface.actions[].authority.mode 'unscoped' requires auth_type"
-                )
-            if self.scopes:
-                raise ValueError(
-                    "action_surface.actions[].authority.mode 'unscoped' requires empty scopes"
-                )
-            if not reason:
-                raise ValueError(
-                    "action_surface.actions[].authority.mode 'unscoped' requires reason"
-                )
-        elif authority.mode == "ambient":
-            if self.scopes:
-                raise ValueError(
-                    "action_surface.actions[].authority.mode 'ambient' requires empty scopes"
-                )
-            if not reason:
-                raise ValueError(
-                    "action_surface.actions[].authority.mode 'ambient' requires reason"
-                )
+        # ``scopes`` is the action row's sibling field, not part of the
+        # authority mapping, so it is passed in rather than read from the
+        # block. The rule is the same one ``tool_sources[].authority`` obeys.
+        validate_authority_co_requirements(
+            mode=authority.mode,
+            auth_type=authority.auth_type,
+            scopes=self.scopes,
+            reason=authority.reason,
+            mode_label="action_surface.actions[].authority.mode",
+            credential_mode=authority.credential_mode,
+        )
         return self
 
 

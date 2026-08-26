@@ -152,6 +152,7 @@ def _build_tools_and_agent(
     tools = attach_semantic_assessments(
         tools,
         declarations,
+        tool_sources={source.id: source for source in manifest.tool_sources},
         copy_tools=False,
     )
     logger.debug(

@@ -1974,6 +1974,70 @@
       "title": "SeverityOverrideEntry",
       "type": "object"
     },
+    "SourceAuthorityConfig": {
+      "additionalProperties": false,
+      "description": "Reviewed authority for every action a tool source contributes (#410).\n\nAuthority is a fact about a *deployment*, not about a function: the six\nSalesforce tools behind one OAuth client share one answer, and asking for\nit once per tool asks the same infrastructure question six times. That is\nnot merely tedious \u2014 it is what breeds the copy-paste that breeds wrong\nanswers, and a wrong authority declaration is the one that makes an\nunscoped production credential read as ``mode: none``.\n\nDeclared here, it applies to every action of the source. An\n``action_surface.actions[]`` row that declares its own ``authority``\noverrides it for that action, and the resolver treats both spellings\nidentically: same conflict rule against the source's own published\nevidence, same refusal to stand in for authority the source itself\npublishes ambiguously.\n\n``scopes`` lives inside this block rather than beside it, because unlike an\naction row there is no sibling permission list for a source to own.",
+      "properties": {
+        "auth_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Auth Type"
+        },
+        "credential_mode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credential Mode"
+        },
+        "mode": {
+          "enum": [
+            "none",
+            "scoped",
+            "unscoped",
+            "ambient"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "title": "SourceAuthorityConfig",
+      "type": "object"
+    },
     "SuppressionConfig": {
       "additionalProperties": false,
       "properties": {
@@ -2300,6 +2364,17 @@
     "ToolSourceConfig": {
       "additionalProperties": false,
       "properties": {
+        "authority": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceAuthorityConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "id": {
           "pattern": "\\S",
           "title": "Id",

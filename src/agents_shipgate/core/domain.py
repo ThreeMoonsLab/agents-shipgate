@@ -56,6 +56,22 @@ DECLARATION_CLAIM_SOURCES = frozenset(
     }
 )
 
+#: Claim source for ``tool_sources[].authority`` — one reviewed authority for
+#: every action a source contributes (#410 increment 3). A separate spelling
+#: from ``DECLARED_EFFECT_SOURCE`` because an audit reading the claims has to
+#: be able to say *where* the answer was written; the resolver treats the two
+#: identically in every other respect.
+DECLARED_SOURCE_AUTHORITY_SOURCE = "tool_source_authority_declaration"
+
+#: Every claim source that restates something a human wrote in the manifest.
+#: ``DECLARATION_CLAIM_SOURCES`` is the *effect*-dimension set — the one the
+#: resolver excludes from source-evidence comparison — so it cannot simply be
+#: widened; this is the union both dimensions need, for the one question
+#: "did a reviewed declaration produce this claim?".
+REVIEWED_DECLARATION_CLAIM_SOURCES = DECLARATION_CLAIM_SOURCES | {
+    DECLARED_SOURCE_AUTHORITY_SOURCE
+}
+
 
 def provenance_for_evidence_basis(
     basis: EvidenceBasis,
@@ -202,6 +218,18 @@ class AuthoritySemanticAssessment(BaseModel):
     scopes: list[str] = Field(default_factory=list)
     claims: list[SemanticClaim] = Field(default_factory=list)
     issues: list[SemanticIssue] = Field(default_factory=list)
+    #: The ``tool_sources[].id`` whose ``authority`` block is where this
+    #: action's authority answer belongs, or ``None`` when it belongs on the
+    #: action row — because a per-action declaration already claims it, or
+    #: because the action came from a surface no ``tool_sources`` entry
+    #: configures (#410 increment 3).
+    #:
+    #: Routing, not evidence: it says where a blank is filled, never what is
+    #: true about the action. Excluded from every dump for exactly that reason
+    #: — ``AuthoritySemanticEvidence`` is the published projection and it
+    #: forbids extras, so a routing hint leaking into it would both widen the
+    #: wire and invite a consumer to read it as a claim.
+    answerable_source_id: str | None = Field(default=None, exclude=True)
 
 
 class ToolIdentityAssessment(BaseModel):
@@ -416,6 +444,14 @@ class Tool(BaseModel):
         exclude=True,
     )
     resolved_controls: list[str] = Field(default_factory=list, exclude=True)
+    # The ``tool_sources[].id`` values whose loaded results contributed an
+    # observation to this canonical action — a *list* because a reviewed
+    # ``tool_identity`` binding can merge observations from several configured
+    # sources, and a declaration on one of them does not speak for the others.
+    #
+    # In-memory, like the assessments: it is a join between the manifest and
+    # the catalog, not a fact about the tool that any report publishes.
+    configured_source_ids: list[str] = Field(default_factory=list, exclude=True)
 
     @model_validator(mode="after")
     def normalize_extraction_confidence(self) -> Tool:
@@ -538,6 +574,18 @@ class SourceSurfaceOmission(BaseModel):
 class LoadedToolSource(BaseModel):
     source_id: str
     source_type: str
+    # The ``tool_sources[].id`` this result was produced *for*, when the
+    # dispatcher can prove one. **Not** ``source_id``: that is minted by the
+    # adapter, and the two namespaces overlap. A per-scan adapter with no
+    # configured entry at all mints a fixed id (``openai_api``), which a
+    # configured MCP row is free to reuse as its own ``id`` — and a
+    # ``codex_config`` entry emits ids like ``codex_config_mcp:<path>`` that
+    # match no configured row. Joining declarations on ``source_id`` therefore
+    # applied one source's reviewed authority to another's actions, and failed
+    # to apply it to the source it was written for (#410 review).
+    #
+    # ``None`` when nothing in ``tool_sources`` configures this result.
+    configured_source_id: str | None = None
     tools: list[Tool] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     # Entries this source dropped. Empty for every adapter that has not been

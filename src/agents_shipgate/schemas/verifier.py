@@ -640,7 +640,7 @@ class VerifierArtifact(BaseModel):
         },
     )
 
-    verifier_schema_version: Literal["0.11"] = "0.11"
+    verifier_schema_version: Literal["0.12"] = "0.12"
     static_analysis_only: Literal[True] = True
     runtime_behavior_verified: Literal[False] = False
     static_verdict_disclaimer: str = STATIC_VERDICT_DISCLAIMER
@@ -724,6 +724,12 @@ class VerifierArtifact(BaseModel):
             # questions, so "0 of 0 answered" is what it knew rather than a
             # claim that nothing was owed.
             "0.10",
+            # v0.11 froze without ``subject_kind``/``answer_path`` on
+            # declaration questions and evidence gaps. Both default to the
+            # action-scoped reading, which is exactly what a v0.11 build could
+            # produce: it had no way to route a question to a ``tool_sources``
+            # block, so every row it wrote was about one action.
+            "0.11",
         }
         if not legacy:
             # Current artifacts must already carry the authoritative control
@@ -731,7 +737,7 @@ class VerifierArtifact(BaseModel):
             # control would turn an internal consistency failure into a trusted
             # handoff.  Only frozen prior readers are normalized.
             return normalized
-        normalized["verifier_schema_version"] = "0.11"
+        normalized["verifier_schema_version"] = "0.12"
         # A pre-v0.7 artifact recorded nothing about whether its diff was
         # readable. Defaulting that to ``complete`` would manufacture the one
         # claim the whole field exists to stop.

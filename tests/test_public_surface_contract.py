@@ -58,6 +58,7 @@ from agents_shipgate.schemas.org_evidence_bundle import ORG_EVIDENCE_BUNDLE_SCHE
 from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.registry import REGISTRY_SCHEMA_VERSION
 from agents_shipgate.schemas.report import ReadinessReport
+from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.triggers import (
     VALID_SURFACE_CLASSES,
     evaluate,
@@ -3638,6 +3639,128 @@ CURRENT_SCHEMA_PROSE_PATTERN = re.compile(
     r"schema\s+v(\d+\.\d+)\s*,?\s*current",
     re.IGNORECASE,
 )
+
+
+# ---------------------------------------------------------------------------
+# Version *labels* beside the current schema link (#410 review)
+# ---------------------------------------------------------------------------
+#
+# Every surface below was bumped by rewriting schema *filenames*, which left
+# the numbers stated in prose and in table cells behind: a row reading
+# ``| Report schema (current) | [v0.38 link] | `0.37` |``, a sentence saying
+# "The packet schema is `0.14`" directly above a v0.15 link, and a
+# `| Report | `0.37` | …frozen… | [v0.38 link] |` row that also never gained
+# the newly frozen version. Strict consumers read these as the integration
+# contract, so the label and the link have to move together.
+#
+# The rule is presence, not exclusivity: a line may legitimately list every
+# frozen version alongside the current one, and demanding that *all* literals
+# match would make the frozen-reference tables unwritable. What must never
+# happen is a line that links the current schema without naming it.
+_SCHEMA_LINK_PATTERN = re.compile(r"(report|packet|verifier)-schema\.v(\d+\.\d+)\.json")
+_VERSION_LITERAL_PATTERN = re.compile(r"\b\d+\.\d+\b")
+
+#: Docs that state schema versions in prose or tables. A superset of
+#: ``PUBLIC_SURFACES`` for the files that carry version tables.
+SCHEMA_LABEL_SURFACES = (
+    *PUBLIC_SURFACES,
+    "STABILITY.md",
+    "docs/overview.md",
+    "docs/report-reading-for-agents.md",
+    "docs/passed-verdict-contract.md",
+    "docs/INDEX.md",
+)
+
+
+def _current_schema_version(kind: str) -> str:
+    if kind == "report":
+        return CURRENT_REPORT_SCHEMA_VERSION
+    if kind == "packet":
+        return CURRENT_PACKET_SCHEMA_VERSION
+    return str(VerifierArtifact.model_fields["verifier_schema_version"].default)
+
+
+@pytest.mark.parametrize("relpath", SCHEMA_LABEL_SURFACES)
+def test_a_line_linking_the_current_schema_also_names_its_version(relpath):
+    """Label and link move together, or a reader is told two versions."""
+
+    for number, line in enumerate(_read(relpath).splitlines(), start=1):
+        linked = {
+            kind: version
+            for kind, version in _SCHEMA_LINK_PATTERN.findall(line)
+        }
+        current_kinds = [
+            kind
+            for kind, version in linked.items()
+            if version == _current_schema_version(kind)
+        ]
+        if not current_kinds:
+            continue
+        # The filenames themselves carry a version; strip them so the check
+        # reads what the *prose* says rather than what the href spells.
+        prose = _SCHEMA_LINK_PATTERN.sub(" ", line)
+        literals = set(_VERSION_LITERAL_PATTERN.findall(prose))
+        for kind in current_kinds:
+            expected = _current_schema_version(kind)
+            assert expected in literals or not literals, (
+                f"{relpath}:{number} links the current {kind} schema "
+                f"(v{expected}) but the line states {sorted(literals)}. "
+                "Update the label with the link."
+            )
+
+
+#: ``<name>_schema_version`` followed closely by a quoted or backticked value.
+#: Unquoted mentions ("added at report_schema_version 0.14") are history and
+#: never match.
+_SCHEMA_VERSION_STATEMENT = re.compile(
+    r"(report|packet|verifier)_schema_version[^\n]{0,24}?[\"`](\d+\.\d+)[\"`]"
+)
+
+#: Words that mark a version statement as deliberately *not* about this build.
+#: Drawn from the vocabulary these documents already use, so a genuinely
+#: historical sentence reads as one to a human before it does to this test.
+_NOT_CURRENT_MARKERS = (
+    "older",
+    "pre-v",
+    "or higher",
+    "frozen",
+    "legacy",
+    "prior",
+    ".get(",
+)
+
+#: Whole sections that are history by definition. A migration note records
+#: what a past release did; demanding that its numbers track the current build
+#: would make it impossible to write one truthfully.
+_HISTORICAL_SECTION = re.compile(r"^#+\s*Migration Note", re.IGNORECASE)
+
+
+@pytest.mark.parametrize("relpath", SCHEMA_LABEL_SURFACES)
+def test_a_stated_schema_version_matches_what_the_engine_emits(relpath):
+    """A quoted `<kind>_schema_version` is a claim about this build.
+
+    The partial bump this catches is the one that keeps happening: a version
+    bump rewrites schema *filenames* and leaves the numbers stated beside them
+    behind. Strict consumers read these statements as the integration
+    contract, so a stale one is a wrong contract, not a typo.
+    """
+
+    historical_section = False
+    for number, line in enumerate(_read(relpath).splitlines(), start=1):
+        if line.startswith("#"):
+            historical_section = bool(_HISTORICAL_SECTION.match(line))
+        if historical_section:
+            continue
+        lowered = line.lower()
+        if any(marker in lowered for marker in _NOT_CURRENT_MARKERS):
+            continue
+        for kind, version in _SCHEMA_VERSION_STATEMENT.findall(line):
+            expected = _current_schema_version(kind)
+            assert version == expected, (
+                f"{relpath}:{number} states {kind}_schema_version {version!r}; "
+                f"the engine emits {expected!r}. Mark it as historical, or "
+                "move it with the bump."
+            )
 
 
 @pytest.mark.parametrize("relpath", PUBLIC_SURFACES)

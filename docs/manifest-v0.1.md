@@ -617,6 +617,69 @@ Authority modes are:
 authority produces `insufficient_evidence`. Global `permissions.scopes` proves
 manifest coverage only; it does not fill missing per-action authority.
 
+### Authority declared once per source
+
+Authority is a fact about a deployment, not about a function: every action a
+tool source contributes normally runs with the same credential. Declare it once
+on the source instead of repeating it per action:
+
+```yaml
+tool_sources:
+  - id: salesforce
+    type: mcp
+    path: tools.json
+    authority:
+      mode: scoped
+      auth_type: oauth2
+      credential_mode: service_account
+      scopes: [api, refresh_token]
+```
+
+The modes and their co-requirements are exactly the ones listed above; the only
+difference is where `scopes` lives. (`authority.mode` is unrelated to the
+source's own `mode:` field, which selects the packaging shape of a
+`codex_plugin` source and means nothing for any other type.) An action row keeps its permission list in
+the sibling `actions[].scopes` field so the manifest has one canonical list per
+action; a source has no such sibling, so its scopes go inside the `authority`
+block.
+
+Precedence is most-specific-first, and both spellings are held to the same
+rules:
+
+- an `action_surface.actions[]` row that declares its own `authority` overrides
+  the source block for that action;
+- otherwise the source block applies to every action the source contributes;
+- otherwise the action's own published authority evidence stands.
+
+The two sites are alternatives, not a mixture: whichever one is operative
+supplies the **whole** authority record — mode, type, credential mode, and the
+permission list. An action that needs a list different from the rest of its
+source declares its own `authority` block alongside its `scopes`; a bare
+`scopes` list does not by itself make the action row operative.
+
+That one list is what every surface reports and judges: the action's
+`required_scopes`, the authority dimension's `scopes`, and the capability
+fact's — the capability standard requires them to agree — and it is the list
+the effect evidence reads, so a write-verb permission the manifest says an
+action requires still bounds that action's effect, whichever site asserted it.
+A source whose grant is wider than some of its actions need should say so per
+action; declaring the wider grant for all of them is the conservative reading
+and is treated as one.
+
+A reviewed declaration at either site may resolve missing source metadata and
+may broaden a scope set, but it may not replace a concrete published auth type
+or narrow a published scope set — that raises
+`conflicting_authority_evidence` on each action that disagrees, naming the
+block to correct. Neither site can stand in for authority a source publishes
+*ambiguously*: `partial_authority_evidence` is preserved whatever the manifest
+declares, and the repair is in the source.
+
+Because one block answers for every action of its source, the declaration
+questionnaire asks it once. `report.json` carries the block that answers each
+question as `declaration_questions.open_questions[].answer_path`, and the
+matching `evidence_gaps[]` row is emitted once for the source with
+`subject_kind: tool_source`, naming how many actions are waiting on it.
+
 Explicit declarations enrich operation, scopes, approval, safeguards, and
 evidence. Effect resolution remains monotonic across source and declaration
 claims: a declared effect may conservatively strengthen structural evidence,

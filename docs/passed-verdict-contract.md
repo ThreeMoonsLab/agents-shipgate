@@ -1,6 +1,6 @@
 # Evidence-backed `passed` verdict
 
-In the Agents Shipgate `0.16.0b7` runtime (contract v20, report schema v0.37),
+In the Agents Shipgate `0.16.0b7` runtime (contract v24, report schema v0.38),
 `release_decision.decision: passed` means the configured root
 agent and its complete reachable tool/handoff graph were statically proven,
 and every reachable capability has complete, conflict-free static identity,
@@ -39,7 +39,7 @@ to known evidence by `--no-heuristics` or `human_ack`.
 Machine consumers should inspect
 `release_decision.evidence_coverage.semantic_coverage`, `binding_coverage`,
 `identity_coverage`, and `policy_gap_count`, then work `evidence_gaps[]` in
-order. Current packet schema v0.12 mirrors this contract and binds the
+order. Current packet schema v0.15 mirrors this contract and binds the
 verification request and decision, while capability standard
 v0.5 carries the same normalized assessment and binding hash in capability
 lock v0.6 and lock-diff v0.7 artifacts.
@@ -97,6 +97,27 @@ When two providers export the same display name, qualify the selector with
 `tool_id`, `provider`, `source_type`, or `source_id`. A bare ambiguous name
 applies nowhere. Use `tool_identity.bindings[]` only for reviewed equivalence
 between observations; equal names never merge automatically.
+
+Authority may also be declared once for a whole source, because every action a
+source contributes normally runs with one credential:
+
+```yaml
+tool_sources:
+  - id: crm
+    type: mcp
+    path: tools.json
+    authority:
+      mode: scoped
+      auth_type: oauth2
+      scopes: [crm.read]
+```
+
+An `action_surface.actions[]` row that declares its own `authority` overrides
+it for that action. The resolver holds both spellings to the same rules — the
+same mode co-requirements, the same refusal to weaken concrete published
+evidence, and the same refusal to stand in for authority a source publishes
+ambiguously — so writing the claim once is a convenience, never a weaker
+statement.
 
 Authority modes are:
 

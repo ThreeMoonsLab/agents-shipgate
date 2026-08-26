@@ -546,6 +546,9 @@ _FROZEN_AND_CURRENT_SCHEMAS = [
     ("report-schema.v0.36.json", "report-schema.v0.37.json", "DeclarationQuestionCoverage"),
     ("packet-schema.v0.13.json", "packet-schema.v0.14.json", "DeclarationQuestionCoverage"),
     ("verifier-schema.v0.10.json", "verifier-schema.v0.11.json", "DeclarationQuestionCoverage"),
+    ("report-schema.v0.37.json", "report-schema.v0.38.json", "tool_source"),
+    ("packet-schema.v0.14.json", "packet-schema.v0.15.json", "tool_source"),
+    ("verifier-schema.v0.11.json", "verifier-schema.v0.12.json", "tool_source"),
 ]
 
 
@@ -594,6 +597,15 @@ _PUBLISHED_SCHEMA_SHA256 = {
     "verifier-schema.v0.10.json": (
         "c582772273cadcb8abd2137b03486528d681093e088a7284e754a8c75f92e727"
     ),
+    "report-schema.v0.37.json": (
+        "c5a8551abfab7a95f3c40b2470eb687a2fc95f4c572da318d5a38cfc91933b43"
+    ),
+    "packet-schema.v0.14.json": (
+        "7bb394413688adcdbbc7f4c599fd361d0c1280c3bf7a049a72d782a7852b85f8"
+    ),
+    "verifier-schema.v0.11.json": (
+        "adbbcd85f870b8f12f060c02b090395a34ffec4f660f1994d6001a2728397090"
+    ),
 }
 
 
@@ -637,8 +649,8 @@ def test_every_emitted_artifact_validates_against_its_own_current_schema(tmp_pat
     )
 
     for artifact, schema_name in (
-        ("report.json", "report-schema.v0.37.json"),
-        ("packet.json", "packet-schema.v0.14.json"),
+        ("report.json", "report-schema.v0.38.json"),
+        ("packet.json", "packet-schema.v0.15.json"),
     ):
         payload = json.loads((tmp_path / artifact).read_text(encoding="utf-8"))
         schema = json.loads((_DOCS / schema_name).read_text(encoding="utf-8"))

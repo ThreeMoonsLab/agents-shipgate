@@ -353,10 +353,26 @@ def primary_evidence_gap(evidence: EvidenceCoverageDecision) -> EvidenceGap | No
     return evidence.evidence_gaps[0] if evidence.evidence_gaps else None
 
 
+# The same fact, said about the subject a source-scoped row actually names.
+#
+# A row whose subject is a ``tool_sources`` entry is about the source, and a
+# phrase written for one action reads as a mismatch beside it — "an action has
+# no declared authority (crm [tool_source])" describes neither the subject nor
+# the edit. Keyed by kind like ``_GAP_PHRASE`` and pinned by
+# ``test_every_gap_kind_a_source_can_own_has_its_own_phrase`` to the kinds that
+# can carry ``subject_kind: tool_source``, so a kind that starts being routed
+# to a source cannot keep an action's copy.
+_SOURCE_SCOPED_GAP_PHRASE: dict[str, str] = {
+    "missing_authority_evidence": "a tool source has no declared authority",
+}
+
+
 def evidence_gap_headline(gap: EvidenceGap) -> str:
     """Name the gap in one clause: what is unproven, and about what."""
 
     phrase = _GAP_PHRASE.get(gap.kind, gap.kind.replace("_", " "))
+    if gap.subject_kind == "tool_source":
+        phrase = _SOURCE_SCOPED_GAP_PHRASE.get(gap.kind, phrase)
     subject = one_line(gap.subject)
     if len(subject) > _MAX_SUBJECT_CHARS:
         subject = f"{subject[: _MAX_SUBJECT_CHARS - 1].rstrip()}…"

@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, cast
@@ -38,6 +38,7 @@ from agents_shipgate.schemas.manifest import (
     ToolIdentityBindingConfig,
     ToolIdentityConfig,
     ToolObservationSelectorConfig,
+    ToolSourceConfig,
 )
 from agents_shipgate.schemas.manifest._artifacts import _normalized_declared_path
 
@@ -265,6 +266,38 @@ class ToolSelectorIndex:
         )
 
 
+def configured_tool_source(
+    tool: Tool,
+    by_configured_id: Mapping[str, ToolSourceConfig],
+) -> ToolSourceConfig | None:
+    """The one ``tool_sources`` entry that speaks for this action, or ``None``.
+
+    ``None`` covers three situations that all mean "no source-wide declaration
+    applies here", and each is a deliberate refusal rather than a gap:
+
+    * nothing in ``tool_sources`` configures the surface this action came from
+      — a per-scan adapter reading a top-level manifest section, say — so there
+      is no entry whose declaration could be about it;
+    * a reviewed ``tool_identity`` binding merged observations from **several**
+      configured sources. Their credentials are not the same fact, and picking
+      one would apply a declaration written about one deployment to another;
+    * the action carries no configured provenance at all.
+
+    Never falls back to ``tool.source_id``. That id is minted by the adapter
+    and shares a namespace with configured ids, so the fallback is exactly the
+    join that applied an MCP row's reviewed authority to OpenAI API actions.
+    """
+
+    configured = {
+        source_id
+        for source_id in tool.configured_source_ids
+        if source_id in by_configured_id
+    }
+    if len(configured) != 1:
+        return None
+    return by_configured_id[configured.pop()]
+
+
 def build_tool_identity_catalog(
     loaded_sources: list[LoadedToolSource],
     config: ToolIdentityConfig,
@@ -296,13 +329,17 @@ def build_tool_identity_catalog(
     # over that source can ever resolve, so the arithmetic ("matched 0
     # observations") is not the answer the reader needs.
     #
-    # And "produced nothing" splits again. A *configured* source the loader
-    # read but that yielded no tools is repaired at `agent_bindings`. A
+    # And "produced nothing" splits again. A source the loader actually read
+    # but that yielded no tools is repaired at `agent_bindings`. A
     # source id that is not configured at all — a typo — is repaired by
     # correcting the selector, and no binding declaration can help it. The
     # two sets are what tell them apart; deriving both from observations
     # alone conflated them.
-    configured_source_ids = {loaded.source_id.strip() for loaded in loaded_sources}
+    # The ids adapters *minted*, which is what a binding member selector names.
+    # Deliberately not ``configured_source_ids``: since #410 that spelling means
+    # the ``tool_sources`` entry a result was produced *for*, and the two sets
+    # differ wherever an adapter derives its own ids.
+    loaded_source_ids = {loaded.source_id.strip() for loaded in loaded_sources}
     observed_source_ids = {tool.source_id for tool in observations if tool.source_id}
 
     selected_by_binding: dict[str, list[Tool]] = {}
@@ -327,7 +364,7 @@ def build_tool_identity_catalog(
                             member.source_id, member.tool, len(matches)
                         )
                     )
-                elif member.source_id in configured_source_ids:
+                elif member.source_id in loaded_source_ids:
                     invalid_messages.append(
                         zero_observation_binding_member(member.source_id, member.tool)
                     )
@@ -400,6 +437,16 @@ def build_tool_identity_catalog(
         merged.id = tool_id
         merged.provider = binding.provider
         merged.observation_ids = observation_ids
+        # The union, not the primary's. A reviewed binding may join
+        # observations from several configured sources, and an authority
+        # declared on one of them does not speak for the others.
+        merged.configured_source_ids = sorted(
+            {
+                configured
+                for member in members
+                for configured in member.configured_source_ids
+            }
+        )
         merged.identity_assessment = _assessment(
             tool_id=tool_id,
             provider=binding.provider,
@@ -542,7 +589,7 @@ def _inventory_completion_bindings(
     # name, and grown as bindings are synthesized so two entries can never
     # collide into one key in ``bindings_by_id`` and silently drop a merge.
     claimed_ids = {binding.id for binding in config.bindings}
-    configured_source_ids = {loaded.source_id.strip() for loaded in loaded_sources}
+    loaded_source_ids = {loaded.source_id.strip() for loaded in loaded_sources}
     by_source_name: dict[tuple[str, str], list[Tool]] = defaultdict(list)
     for tool in observations:
         by_source_name[(tool.source_id or "", tool.name)].append(tool)
@@ -563,12 +610,12 @@ def _inventory_completion_bindings(
         if target == inventory_id:
             warnings.append(self_referential_inventory_warning(inventory_id))
             continue
-        if target not in configured_source_ids:
+        if target not in loaded_source_ids:
             warnings.append(
                 unknown_inventory_source_warning(
                     inventory_id,
                     target,
-                    sorted(configured_source_ids - {inventory_id}),
+                    sorted(loaded_source_ids - {inventory_id}),
                 )
             )
             continue
@@ -758,6 +805,12 @@ def _observations(
             tool.native_locator = locator
             tool.observation_id = observation_id
             tool.observation_ids = [observation_id]
+            # Which configured ``tool_sources`` entry produced this
+            # observation, carried from the dispatcher rather than re-derived
+            # from ``source_id`` — the two namespaces overlap (#410 review).
+            tool.configured_source_ids = (
+                [loaded.configured_source_id] if loaded.configured_source_id else []
+            )
             tool.provider = source_id
             observations.append(tool)
     return observations

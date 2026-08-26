@@ -110,6 +110,7 @@ from agents_shipgate.schemas.manifest.tool_identity import (
 from agents_shipgate.schemas.manifest.tool_sources import (
     BUILTIN_PER_SCAN_ONLY_TOOL_SOURCE_TYPES,
     BUILTIN_TOOL_SOURCE_TYPES,
+    SourceAuthorityConfig,
     ToolSourceConfig,
 )
 from agents_shipgate.schemas.manifest.validation import (
@@ -205,6 +206,7 @@ __all__ = [
     # checks (suppression)
     "SuppressionConfig",
     # tool_sources
+    "SourceAuthorityConfig",
     "ToolSourceConfig",
     "repeated_declared_artifacts",
     # tool_identity

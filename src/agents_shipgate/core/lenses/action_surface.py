@@ -32,6 +32,7 @@ from agents_shipgate.core.semantic_assessment import (
     acknowledged_effect_claim_ids,
     assess_tool_semantics,
     declaration_covers,
+    reviewed_authority,
 )
 from agents_shipgate.core.surface_exclusions import (
     catalog_label_index,
@@ -40,6 +41,7 @@ from agents_shipgate.core.surface_exclusions import (
 from agents_shipgate.core.tool_identity import (
     ToolSelectorIndex,
     action_identity_aliases,
+    configured_tool_source,
 )
 from agents_shipgate.schemas.common import (
     Severity,
@@ -50,6 +52,7 @@ from agents_shipgate.schemas.manifest import (
     ActionDeclarationConfig,
     ActionPolicyConfig,
     AgentsShipgateManifest,
+    ToolSourceConfig,
 )
 from agents_shipgate.schemas.report import (
     EvidenceGap,
@@ -493,6 +496,47 @@ def action_reference_from_scan_reference(
     )
 
 
+def _tool_source_for(
+    manifest: AgentsShipgateManifest,
+    tool: Tool,
+) -> ToolSourceConfig | None:
+    """The configured ``tool_sources`` entry this action came from, if exactly one did.
+
+    The same join the resolver uses, for the same reason: ``tool.source_id`` is
+    minted by the adapter and is not a foreign key into ``tool_sources``.
+    """
+
+    return configured_tool_source(
+        tool, {source.id: source for source in manifest.tool_sources}
+    )
+
+
+def _declared_scope_strings(
+    tool: Tool,
+    declaration: ActionDeclarationConfig | None,
+    source: ToolSourceConfig | None,
+) -> list[str]:
+    """The permission list this action is judged on, from the one resolver.
+
+    Not a second derivation: ``CapabilityFactV1`` *requires*
+    ``authority.scopes`` to equal the semantic authority's, and one of its two
+    builders reconstructs the fact from this list — so deciding it separately
+    here does not merely risk two answers, it raises a validation error on the
+    base-vs-head path the moment the two disagree. That is exactly what a draft
+    that kept a source's grant off the action did.
+
+    With no reviewed authority at either site the behaviour is unchanged: a
+    declared ``scopes`` list, else what the source published for this tool.
+    """
+
+    reviewed = reviewed_authority(tool, declaration, source)
+    if reviewed is not None:
+        return list(reviewed.scopes)
+    if declaration is not None and declaration.scopes:
+        return list(declaration.scopes)
+    return list(tool.auth.scopes)
+
+
 def build_action(
     manifest: AgentsShipgateManifest,
     *,
@@ -519,20 +563,23 @@ def build_action(
         provider=provider,
         operation=operation,
     )
+    source = _tool_source_for(manifest, tool)
     # Live scans resolve semantics exactly once after extraction and manifest
     # enrichment. Direct unit callers may still provide an unattached Tool,
     # so retain a compatibility fallback without creating a second live path.
-    semantic_assessment = tool.semantic_assessment or assess_tool_semantics(tool, declaration)
+    semantic_assessment = tool.semantic_assessment or assess_tool_semantics(
+        tool,
+        declaration,
+        tool_source=source,
+    )
     inferred_tags = _normalized_risk_tags(tool)
     declared_tags = (
         _normalize_risk_tag_values(declaration.risk_tags) if declaration is not None else []
     )
     risk_tag_values = sorted(set(inferred_tags) | set(declared_tags))
-    scope_strings = (
-        _normalize_strings(declaration.scopes)
-        if declaration and declaration.scopes
-        else _normalize_strings(tool.auth.scopes)
-    )
+    # In the resolver's own precedence, because the capability standard binds
+    # this list to the semantic authority's (#410 increment 3).
+    scope_strings = _normalize_strings(_declared_scope_strings(tool, declaration, source))
     effect = semantic_assessment.conservative_effect
     semantic_effects = {
         claim.value
