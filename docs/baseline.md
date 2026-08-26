@@ -70,7 +70,7 @@ fail CI.
 
 Reports keep the v0.1 payload contract and add baseline fields:
 
-- `report_schema_version: "0.39"` in current reports
+- `report_schema_version: "0.40"` in current reports
 - `baseline.path`
 - `baseline.matched_count`
 - `baseline.new_count`
@@ -109,7 +109,7 @@ agents-shipgate baseline save -c shipgate.yaml \
   --owner <human> --reason "<reviewed reason>" --expires <YYYY-MM-DD>
 ```
 
-Report schema v0.18 computes public fingerprints after the default privacy
+Report schema v0.18 or higher computes public fingerprints after the default privacy
 redaction pass. Findings whose evidence contains a recognized secret-like value
 therefore get a new public fingerprint. To avoid surprise CI failures during
 upgrade, `scan --baseline` also compares the pre-v0.18 raw fingerprint in memory

@@ -3657,8 +3657,26 @@ CURRENT_SCHEMA_PROSE_PATTERN = re.compile(
 # frozen version alongside the current one, and demanding that *all* literals
 # match would make the frozen-reference tables unwritable. What must never
 # happen is a line that links the current schema without naming it.
-_SCHEMA_LINK_PATTERN = re.compile(r"(report|packet|verifier)-schema\.v(\d+\.\d+)\.json")
-_VERSION_LITERAL_PATTERN = re.compile(r"\b\d+\.\d+\b")
+#: Longest alternative first, so ``capability-lock-diff-schema`` is not read
+#: as ``capability-lock`` with a stray suffix.
+_SCHEMA_LINK_PATTERN = re.compile(
+    r"(capability-lock-diff|capability-lock|report|packet|verifier)"
+    r"-schema\.v(\d+\.\d+)\.json"
+)
+#: A version as these documents write one, which is **both** ``0.16`` and
+#: ``v0.16``. The ``\b\d`` form missed every ``v``-prefixed mention — ``v`` is a
+#: word character, so there is no boundary before the digit — which is exactly
+#: how "Packet v0.15" survived beside a link to ``packet-schema.v0.16.json``:
+#: the line looked to this test like it stated no version at all, and the
+#: "no literals" escape hatch passed it.
+_VERSION_LITERAL_PATTERN = re.compile(r"\bv?(\d+\.\d+)\b")
+
+#: Phrases that introduce a version as *the* superseded one. A line carrying
+#: one is making a claim about which version this build replaced, and that
+#: claim moves with every bump.
+_PREDECESSOR_PHRASE = re.compile(
+    r"frozen|compatibility reference|predecessor|immediately prior", re.IGNORECASE
+)
 
 #: Docs that state schema versions in prose or tables. A superset of
 #: ``PUBLIC_SURFACES`` for the files that carry version tables.
@@ -3669,15 +3687,40 @@ SCHEMA_LABEL_SURFACES = (
     "docs/report-reading-for-agents.md",
     "docs/passed-verdict-contract.md",
     "docs/INDEX.md",
+    # Carries the lock and lock-diff numbers in prose, which the report/packet
+    # bump used to leave behind: "New exports use 0.7" survived a 0.7 → 0.8
+    # bump because nothing read this file.
+    "docs/capability-standard.md",
 )
 
 
+def _published_schema_versions(kind: str) -> list[str]:
+    """Every ``docs/<kind>-schema.v*.json`` this repository ships, in order."""
+
+    versions = [
+        path.name.removeprefix(f"{kind}-schema.v").removesuffix(".json")
+        for path in (REPO_ROOT / "docs").glob(f"{kind}-schema.v*.json")
+    ]
+    return sorted(versions, key=lambda value: tuple(int(part) for part in value.split(".")))
+
+
 def _current_schema_version(kind: str) -> str:
-    if kind == "report":
-        return CURRENT_REPORT_SCHEMA_VERSION
-    if kind == "packet":
-        return CURRENT_PACKET_SCHEMA_VERSION
-    return str(VerifierArtifact.model_fields["verifier_schema_version"].default)
+    from agents_shipgate.schemas.capabilities import (  # noqa: PLC0415
+        CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
+        CAPABILITY_LOCK_SCHEMA_VERSION,
+    )
+
+    return {
+        "report": CURRENT_REPORT_SCHEMA_VERSION,
+        "packet": CURRENT_PACKET_SCHEMA_VERSION,
+        "capability-lock": CAPABILITY_LOCK_SCHEMA_VERSION,
+        "capability_lock": CAPABILITY_LOCK_SCHEMA_VERSION,
+        "capability-lock-diff": CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
+        "capability_lock_diff": CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
+    }.get(
+        kind,
+        str(VerifierArtifact.model_fields["verifier_schema_version"].default),
+    )
 
 
 @pytest.mark.parametrize("relpath", SCHEMA_LABEL_SURFACES)
@@ -3707,13 +3750,31 @@ def test_a_line_linking_the_current_schema_also_names_its_version(relpath):
                 f"(v{expected}) but the line states {sorted(literals)}. "
                 "Update the label with the link."
             )
+            # And when the line goes on to name which version this one
+            # superseded, that has to be the version it actually superseded.
+            # "v0.37 is a frozen compatibility reference" passed the rule above
+            # — the current number was present too — while telling every agent
+            # reading the skill to fall back to the wrong schema.
+            if not _PREDECESSOR_PHRASE.search(prose):
+                continue
+            published = _published_schema_versions(kind)
+            if expected not in published or published.index(expected) == 0:
+                continue
+            predecessor = published[published.index(expected) - 1]
+            assert predecessor in literals, (
+                f"{relpath}:{number} links the current {kind} schema "
+                f"(v{expected}) and names a superseded version, but not "
+                f"v{predecessor} — the one it actually supersedes. Line "
+                f"states {sorted(literals)}."
+            )
 
 
 #: ``<name>_schema_version`` followed closely by a quoted or backticked value.
 #: Unquoted mentions ("added at report_schema_version 0.14") are history and
 #: never match.
 _SCHEMA_VERSION_STATEMENT = re.compile(
-    r"(report|packet|verifier)_schema_version[^\n]{0,24}?[\"`](\d+\.\d+)[\"`]"
+    r"(capability_lock_diff|capability_lock|report|packet|verifier)"
+    r"_schema_version[^\n]{0,24}?[\"`](\d+\.\d+)[\"`]"
 )
 
 #: Words that mark a version statement as deliberately *not* about this build.
@@ -3746,13 +3807,21 @@ def test_a_stated_schema_version_matches_what_the_engine_emits(relpath):
     """
 
     historical_section = False
-    for number, line in enumerate(_read(relpath).splitlines(), start=1):
+    lines = _read(relpath).splitlines()
+    for number, line in enumerate(lines, start=1):
         if line.startswith("#"):
             historical_section = bool(_HISTORICAL_SECTION.match(line))
         if historical_section:
             continue
-        lowered = line.lower()
-        if any(marker in lowered for marker in _NOT_CURRENT_MARKERS):
+        # The marker and the value it qualifies belong to one *sentence*, and
+        # these documents wrap: "Old experimental" sat on the line above
+        # `capability_lock_schema_version: "0.1"`, so a per-line test read a
+        # plainly historical statement as a claim about this build. One line of
+        # lookback is enough for the wrapping these files use, and keeps the
+        # markers themselves narrow — widening them to catch "old" would match
+        # "threshold" and "golden".
+        window = " ".join(lines[max(0, number - 2) : number]).lower()
+        if any(marker in window for marker in _NOT_CURRENT_MARKERS):
             continue
         for kind, version in _SCHEMA_VERSION_STATEMENT.findall(line):
             expected = _current_schema_version(kind)
@@ -3761,6 +3830,82 @@ def test_a_stated_schema_version_matches_what_the_engine_emits(relpath):
                 f"the engine emits {expected!r}. Mark it as historical, or "
                 "move it with the bump."
             )
+
+
+#: Natural-language claims about a *current* schema version, in the forms these
+#: documents actually use. The two rules above read a same-line link or a quoted
+#: ``<kind>_schema_version`` field; none of these is either, which is how
+#: "report schema v0.38", "Current packet schema v0.15", and "new exports use
+#: v0.7" all survived a bump that rewrote every filename around them.
+#:
+#: Each pattern captures the version, and the trailing ``kind`` says which
+#: runtime constant it is a claim about.
+_PROSE_VERSION_CLAIMS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\breport schema v?(\d+\.\d+)", re.IGNORECASE), "report"),
+    (re.compile(r"\bpacket schema v?(\d+\.\d+)", re.IGNORECASE), "packet"),
+    (re.compile(r"\bverifier schema v?(\d+\.\d+)", re.IGNORECASE), "verifier"),
+    (
+        re.compile(r"\bnew exports use v?(\d+\.\d+)", re.IGNORECASE),
+        "capability-lock",
+    ),
+    (re.compile(r"\bnew diffs use v?(\d+\.\d+)", re.IGNORECASE), "capability-lock-diff"),
+)
+
+#: Documents whose prose states current versions. A superset of the label
+#: surfaces: these two carry the claims in sentences rather than in tables.
+PROSE_VERSION_SURFACES = (
+    *SCHEMA_LABEL_SURFACES,
+    "docs/passed-verdict-contract.md",
+    "docs/report-reading-for-agents.md",
+    "docs/examples.md",
+    "docs/baseline.md",
+    "docs/overview.md",
+)
+
+
+@pytest.mark.parametrize("relpath", sorted(set(PROSE_VERSION_SURFACES)))
+def test_a_prose_version_claim_matches_what_the_engine_emits(relpath):
+    """A sentence naming a current schema version is a claim, like a field is.
+
+    The two rules above catch a stale *label beside a link* and a stale *quoted
+    field*. Neither sees a sentence — "Current packet schema v0.15", "report
+    schema v0.38", "new exports use v0.7" — and all three survived a bump that
+    rewrote every filename around them, in the documents an agent is pointed at
+    as authoritative.
+    """
+
+    historical_section = False
+    lines = _read(relpath).splitlines()
+    for number, line in enumerate(lines, start=1):
+        if line.startswith("#"):
+            historical_section = bool(_HISTORICAL_SECTION.match(line))
+        if historical_section:
+            continue
+        # Markers are read on the matched line only, deliberately unlike the
+        # quoted-field rule above. These phrases are self-describing — "new
+        # exports use vX" and "Current packet schema vX" declare themselves to
+        # be about this build — so a historical clause in the *previous*
+        # sentence must not exempt them. It did: "…a lock declaring any prior
+        # schema this runtime still normalizes; new exports use v0.7…" went
+        # unread for a whole bump because `prior` sat one line above.
+        if any(marker in line.lower() for marker in _NOT_CURRENT_MARKERS):
+            continue
+        # A version that is also the version of a schema file linked on this
+        # line is that link's *label*, not an independent claim — a
+        # frozen-reference list reads "[JSON report schema v0.38](…v0.38.json)"
+        # and means exactly what it links. Those lines are already governed by
+        # the label/predecessor rule above.
+        linked = {version for _kind, version in _SCHEMA_LINK_PATTERN.findall(line)}
+        for pattern, kind in _PROSE_VERSION_CLAIMS:
+            for stated in pattern.findall(line):
+                if stated in linked:
+                    continue
+                expected = _current_schema_version(kind)
+                assert stated == expected, (
+                    f"{relpath}:{number} states {kind} schema v{stated}; the "
+                    f"engine emits v{expected}. Mark it as historical, or move "
+                    "it with the bump."
+                )
 
 
 @pytest.mark.parametrize("relpath", PUBLIC_SURFACES)

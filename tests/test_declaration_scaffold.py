@@ -229,6 +229,74 @@ def test_authority_template_is_fillable_against_the_manifest_schema() -> None:
     assert minimal.authority is not None
 
 
+def test_a_merged_block_reads_in_manifest_field_order() -> None:
+    """Blocks accrete fields in whatever order the rows arrived.
+
+    Two rows on one action are merged into one block to paste, and the merge
+    keeps the first row's field order. A `declaration_drift` row folded into a
+    `declaration_below_inferred_evidence` row therefore put `basis` in the
+    middle and the declared `effect` underneath it — YAML for a file whose
+    fields have a canonical order, handed over in an order that file never
+    uses. Asserted on the rendered text, because that is the only place the
+    defect is visible.
+    """
+
+    from agents_shipgate.cli.scan.declarations import build_declaration_scaffold
+
+    rendered = build_declaration_scaffold(
+        [
+            _gap_for("declaration_drift"),
+            _gap_for("declaration_below_inferred_evidence"),
+        ],
+        agents=[],
+    )
+    assert rendered is not None
+    positions = {
+        field: rendered.index(f"\n{field}:")
+        for field in ("tool", "effect", "risk_tags", "basis")
+        if f"\n{field}:" in rendered
+    }
+    assert set(positions) == {"tool", "effect", "risk_tags", "basis"}, positions
+    assert (
+        positions["tool"] < positions["effect"] < positions["risk_tags"] < positions["basis"]
+    ), positions
+
+
+def _gap_for(kind: str):
+    """One evidence-gap row of ``kind`` for an action with two readings."""
+
+    import agents_shipgate.ci.release_decision as rd
+    from agents_shipgate.core.domain import Tool, ToolRiskHint
+    from agents_shipgate.core.semantic_assessment import assess_tool_semantics
+    from agents_shipgate.schemas.manifest import ActionDeclarationConfig
+
+    tool = Tool.model_validate(
+        {
+            "id": "t1",
+            "name": "send_email",
+            "source_type": "mcp",
+            "source_id": "srv",
+            "extraction_confidence": "high",
+            "extraction": {"surface": "enumerated"},
+            "risk_hints": [
+                ToolRiskHint(
+                    tag=tag, source=f"h{index}", confidence="medium", basis="inferred_keyword"
+                )
+                for index, tag in enumerate(("external_write", "destructive"))
+            ],
+        }
+    )
+    tool.semantic_assessment = assess_tool_semantics(
+        tool,
+        ActionDeclarationConfig(
+            tool="send_email", effect="external_communication", basis="confirmed:0"
+        ),
+    )
+    return rd._semantic_gap(
+        tool, kind=kind, why="test", issue_source="action_surface_declaration"
+    )
+
+
 def test_no_shipped_template_asserts_on_a_humans_behalf() -> None:
     """A template must ask, never answer — and where it answers, say what from.
 
@@ -244,13 +312,23 @@ def test_no_shipped_template_asserts_on_a_humans_behalf() -> None:
     the closed `ActionEffect` vocabulary — never from source content — and must
     arrive beside the `observed_readings` that justify it. A proposal with no
     readings under it is a guess wearing the same clothes.
+
+    `basis` is a third exception of a different kind (#410 §E), and the reason
+    it is safe is that it makes no claim about the action at all. It records
+    *which evidence the answer was written beside*, so it is a fact about this
+    scan rather than a judgement the reviewer owns — the same category as the
+    selector fields. The guard is correspondingly exact: the value must be the
+    pin this row's own readings derive, so nothing else can travel through a
+    template wearing the name.
     """
 
     from agents_shipgate.ci.release_decision import REVIEW_REQUIRED_SENTINEL
+    from agents_shipgate.core.semantic_assessment import EffectReading, confirmed_basis
     from agents_shipgate.schemas.surfaces import ActionEffect
 
     vocabulary = set(get_args(ActionEffect))
     proposals = 0
+    row_pin = ""
 
     def assert_no_assertion(node, path: str = "") -> None:
         if isinstance(node, dict):
@@ -277,6 +355,13 @@ def test_no_shipped_template_asserts_on_a_humans_behalf() -> None:
             "handoffs",
         }:
             return
+        if leaf == "basis":
+            assert node == row_pin, (
+                f"{path} = {node!r} is not the pin this row's readings derive "
+                f"({row_pin!r}); only a value the scan itself computed may be "
+                "pre-filled"
+            )
+            return
         if leaf in {"effect", "risk_tags"} and node != REVIEW_REQUIRED_SENTINEL:
             nonlocal proposals
             proposals += 1
@@ -290,8 +375,20 @@ def test_no_shipped_template_asserts_on_a_humans_behalf() -> None:
         )
 
     proposing = 0
+    pinned = 0
     for template, readings in _shipped_templates():
         before = proposals
+        row_pin = confirmed_basis(
+            [
+                EffectReading(
+                    effect=reading.effect,
+                    sources=tuple(reading.sources),
+                    observed=reading.observed,
+                )
+                for reading in readings
+            ]
+        )
+        pinned += "basis" in template
         assert_no_assertion(template)
         if proposals > before:
             proposing += 1
@@ -303,6 +400,7 @@ def test_no_shipped_template_asserts_on_a_humans_behalf() -> None:
     # assessment, every effect template keeps its sentinel and this test would
     # pass while testing nothing (PR #413 review 3).
     assert proposing, "no shipped template exercised the proposal path"
+    assert pinned, "no shipped template exercised the evidence-pin path"
 
 
 def _shipped_templates() -> list[tuple[dict, list]]:

@@ -560,6 +560,7 @@ def build_action(
         tool,
         declaration,
         tool_source=source,
+        environment_target=manifest.environment.target,
     )
     inferred_tags = _normalized_risk_tags(tool)
     declared_tags = (
@@ -570,7 +571,17 @@ def build_action(
     # because the capability standard binds this list to the semantic
     # authority's (#410 increment 3) — including the no-reviewed-record case,
     # where a bare ``scopes:`` list used to reach only this side.
-    scope_strings = resolve_action_scopes(tool, declaration, source)
+    # ``environment.target`` is the third manifest site a reviewed authority
+    # can be written at (#410 §G). Omitting it here would give this surface a
+    # permission list resolved without it while the semantic assessment used
+    # one resolved with it — the same two-derivations defect the reviewed
+    # record was introduced to close, reachable only in template manifests.
+    scope_strings = resolve_action_scopes(
+        tool,
+        declaration,
+        source,
+        environment_target=manifest.environment.target,
+    )
     effect = semantic_assessment.conservative_effect
     semantic_effects = {
         claim.value

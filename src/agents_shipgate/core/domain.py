@@ -63,13 +63,22 @@ DECLARATION_CLAIM_SOURCES = frozenset(
 #: identically in every other respect.
 DECLARED_SOURCE_AUTHORITY_SOURCE = "tool_source_authority_declaration"
 
+#: Claim source for the authority ``environment.target: template`` supplies to
+#: every action that declares none of its own (#410 §G). A reviewed claim like
+#: the other two — a human wrote the line, in the trust root — and spelled
+#: separately for the same reason: an audit reading the claims has to be able
+#: to say *where* the answer came from, and this one came from a statement
+#: about the repository rather than about the action or its source.
+ENVIRONMENT_TEMPLATE_AUTHORITY_SOURCE = "environment_template_authority"
+
 #: Every claim source that restates something a human wrote in the manifest.
 #: ``DECLARATION_CLAIM_SOURCES`` is the *effect*-dimension set — the one the
 #: resolver excludes from source-evidence comparison — so it cannot simply be
 #: widened; this is the union both dimensions need, for the one question
 #: "did a reviewed declaration produce this claim?".
 REVIEWED_DECLARATION_CLAIM_SOURCES = DECLARATION_CLAIM_SOURCES | {
-    DECLARED_SOURCE_AUTHORITY_SOURCE
+    DECLARED_SOURCE_AUTHORITY_SOURCE,
+    ENVIRONMENT_TEMPLATE_AUTHORITY_SOURCE,
 }
 
 
@@ -121,6 +130,7 @@ SemanticIssueKind = Literal[
     "inferred_effect_only",
     "conflicting_effect_evidence",
     "declaration_below_inferred_evidence",
+    "declaration_drift",
     "missing_authority_evidence",
     "partial_authority_evidence",
     "conflicting_authority_evidence",

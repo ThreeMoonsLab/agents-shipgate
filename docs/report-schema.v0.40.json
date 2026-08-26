@@ -3166,7 +3166,7 @@
     },
     "EffectivePolicy": {
       "additionalProperties": false,
-      "description": "Normalized effective-policy snapshot block (roadmap \u00a75.3).\n\nA semantic \u2014 not text \u2014 view of the release policy surface, so the\nbase-vs-head comparator can answer \"was the gate weakened?\" without a\ntext diff. Every field is derived deterministically from the manifest\n(plus, for ``baseline_fingerprints``, the accepted-debt findings), and\nevery list/dict is emitted in sorted order so two builds of the same\nmanifest serialize byte-identically.\n\nFields are chosen so the weakening / expansion classifiers can answer\nthe \u00a75.3 questions by set/rank comparison rather than counting:\n\n- ``ci_mode`` \u2014 was the CI gate weakened (strict -> advisory)?\n- ``fail_on`` \u2014 was the fail-on severity set loosened (head \u2282 base)?\n- ``severity_overrides`` \u2014 was a check's severity lowered across a tier?\n- ``suppressed_check_ids`` \u2014 was a blocking check newly suppressed?\n- ``waiver_scopes`` \u2014 was a waiver scope expanded (head \u228b base)?\n- ``baseline_fingerprints`` \u2014 was the accepted-debt baseline expanded?\n- ``baseline_integrity_mode`` \u2014 was baseline tamper-checking weakened?\n- ``ci_gate_present`` \u2014 was Shipgate CI removed from an opted-in repo?",
+      "description": "Normalized effective-policy snapshot block (roadmap \u00a75.3).\n\nA semantic \u2014 not text \u2014 view of the release policy surface, so the\nbase-vs-head comparator can answer \"was the gate weakened?\" without a\ntext diff. Every field is derived deterministically from the manifest\n(plus, for ``baseline_fingerprints``, the accepted-debt findings), and\nevery list/dict is emitted in sorted order so two builds of the same\nmanifest serialize byte-identically.\n\nFields are chosen so the weakening / expansion classifiers can answer\nthe \u00a75.3 questions by set/rank comparison rather than counting:\n\n- ``ci_mode`` \u2014 was the CI gate weakened (strict -> advisory)?\n- ``fail_on`` \u2014 was the fail-on severity set loosened (head \u2282 base)?\n- ``severity_overrides`` \u2014 was a check's severity lowered across a tier?\n- ``suppressed_check_ids`` \u2014 was a blocking check newly suppressed?\n- ``waiver_scopes`` \u2014 was a waiver scope expanded (head \u228b base)?\n- ``baseline_fingerprints`` \u2014 was the accepted-debt baseline expanded?\n- ``baseline_integrity_mode`` \u2014 was baseline tamper-checking weakened?\n- ``ci_gate_present`` \u2014 was Shipgate CI removed from an opted-in repo?\n- ``control_pack`` \u2014 was the control pack moved to one that requires\n  less (#410 \u00a7F)? Every other field here answers \"does the same finding\n  still block?\"; this one answers \"does the same action still produce\n  the finding?\", which is the other way a gate gets weaker.",
       "properties": {
         "baseline_fingerprints": {
           "items": {
@@ -3204,6 +3204,18 @@
           "default": null,
           "title": "Ci Mode"
         },
+        "control_pack": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Control Pack"
+        },
         "fail_on": {
           "items": {
             "type": "string"
@@ -3238,6 +3250,7 @@
         "baseline_integrity_mode",
         "ci_gate_present",
         "ci_mode",
+        "control_pack",
         "fail_on",
         "severity_overrides",
         "suppressed_check_ids",
@@ -7312,7 +7325,7 @@
       "type": "object"
     }
   },
-  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.39.json",
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.40.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": true,
   "description": "JSON Schema for the Agents Shipgate Tool-Use Readiness Report. Generated from agents_shipgate.schemas.report.ReadinessReport with post-processing to preserve the v0.5 public contract. Do not edit by hand.",
@@ -7647,7 +7660,7 @@
       "$ref": "#/$defs/ReleaseDecision"
     },
     "report_schema_version": {
-      "const": "0.39"
+      "const": "0.40"
     },
     "request_id": {
       "anyOf": [
@@ -7782,6 +7795,6 @@
     "tool_surface_facts",
     "verifier_summary"
   ],
-  "title": "Agents Shipgate Readiness Report v0.39",
+  "title": "Agents Shipgate Readiness Report v0.40",
   "type": "object"
 }

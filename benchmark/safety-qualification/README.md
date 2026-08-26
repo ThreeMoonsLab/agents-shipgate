@@ -25,7 +25,7 @@ The runner consumes four independently content-addressed inputs:
 
 Receipt entries must point to real `verify` artifacts. Each receipt needs
 successful base and head tree-bound runs plus content-addressed
-`verifier_json` and `report_json` artifacts. The report must use schema `0.39`,
+`verifier_json` and `report_json` artifacts. The report must use schema `0.40`,
 contain binding and semantic coverage, and agree with the verifier receipt. Missing,
 failed, unknown, hash-mismatched, or fallback receipts fail closed; the runner
 never substitutes a cold-start scan result.

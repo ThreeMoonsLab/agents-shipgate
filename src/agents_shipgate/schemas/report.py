@@ -373,6 +373,15 @@ class EvidenceReading(BaseModel):
     ``write`` reading from the protocol default — worth showing, never worth
     pre-filling, because it is a statement about the protocol rather than an
     observation of the tool.
+
+    v0.39: ``policy_eligible`` is the reading's *strength* — true when at least
+    one claim behind it is evidence the scanner may act on (a reviewed
+    declaration, protocol structure, a typed provider fact, a structural scope)
+    rather than a heuristic that may only challenge. It is the strongest class
+    among the claims, never a per-producer flag. Published because it is half of
+    what ``action_surface.actions[].basis`` pins: without it, a reading whose
+    authoritative half was deleted is indistinguishable from one that never had
+    it, and a consumer cannot reproduce the pin from the row it is printed on.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -380,6 +389,7 @@ class EvidenceReading(BaseModel):
     effect: str
     sources: list[str] = Field(default_factory=list)
     observed: bool = True
+    policy_eligible: bool = False
 
 
 class EvidenceGapAction(BaseModel):
@@ -456,6 +466,7 @@ class EvidenceGap(BaseModel):
         "inferred_effect_only",
         "conflicting_effect_evidence",
         "declaration_below_inferred_evidence",
+        "declaration_drift",
         "missing_authority_evidence",
         "partial_authority_evidence",
         "conflicting_authority_evidence",
@@ -1191,7 +1202,7 @@ class ReadinessReport(BaseModel):
     # manifest block that answers it (``answer_path``), so the actions one
     # ``tool_sources[].authority`` block covers are one question and one
     # evidence-gap row rather than N of each (#410 increment 3).
-    report_schema_version: str = "0.39"
+    report_schema_version: str = "0.40"
     run_id: str
     request_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
     subject_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)

@@ -75,6 +75,7 @@ from agents_shipgate.core.evidence_actions import (
     yaml_scalar,
 )
 from agents_shipgate.schemas.bindings import AgentBindingNode
+from agents_shipgate.schemas.manifest import ActionDeclarationConfig
 from agents_shipgate.schemas.report import (
     DeclarationQuestionCoverage,
     DeclarationQuestionRow,
@@ -145,6 +146,12 @@ _FIELD_HINTS: dict[str, str] = {
         "for the observation and makes each category's built-in controls apply "
         "to this action — the obligation the row is missing. Delete any you "
         "reject, and record that judgement in `override:` instead."
+    ),
+    "basis": (
+        "which evidence this answer was given against, derived by the scan — "
+        "keep it as written. It records what was readable here, not that "
+        "anyone read it; when the evidence above changes, this question comes "
+        "back instead of the answer quietly outliving it."
     ),
     "root.object": (
         "the agent's declared name — what `Agent(name=…)` was given, not the "
@@ -565,10 +572,11 @@ def _emit_block(
                 entry["dimensions"],
             )
         )
+    template = _in_manifest_field_order(entry["template"])
     out.extend(
         _reading_lines(
             entry["readings"],
-            entry["template"],
+            template,
             asks_effect=any(
                 DIMENSION_BY_GAP_KIND.get(kind) == "effect" for kind in entry["kinds"]
             ),
@@ -579,14 +587,48 @@ def _emit_block(
     out.append(f"# closes: {', '.join(entry['kinds'])}")
     out.append(f"# merge into: {entry['path']}")
     _emit_mapping(
-        entry["template"],
+        template,
         path="",
         depth=0,
         vocabulary=entry["vocabulary"],
         agents=agents,
-        proposed=_proposed_fields(entry["template"]),
+        proposed=_proposed_fields(template),
         out=out,
     )
+
+
+#: Manifest field order for an ``action_surface.actions`` row, taken from the
+#: model rather than restated. Blocks accrete their fields in the order the
+#: gaps arrive, so a merged block used to read in whatever order the decision
+#: engine happened to emit its rows: a drift row folded into a below-evidence
+#: row put ``basis`` in the middle and the declared ``effect`` underneath it.
+#: The reviewer is being handed YAML to paste into a file whose fields have a
+#: canonical order; it should arrive in that order.
+_MANIFEST_FIELD_ORDER: dict[str, int] = {
+    field: index for index, field in enumerate(ActionDeclarationConfig.model_fields)
+}
+
+
+def _in_manifest_field_order(template: dict[str, Any]) -> dict[str, Any]:
+    """``template`` with its known fields in manifest order, others untouched.
+
+    Fields the action-row model does not name — a ``tool_inventories``
+    skeleton, an ``agent_bindings`` root — keep their original relative
+    positions at the end, because nothing here knows what order they belong
+    in and inventing one would be worse than the one the builder chose.
+    """
+
+    original = {key: index for index, key in enumerate(template)}
+    return {
+        key: template[key]
+        for key in sorted(
+            original,
+            key=lambda item: (
+                _MANIFEST_FIELD_ORDER.get(item, len(_MANIFEST_FIELD_ORDER)),
+                original[item],
+            ),
+        )
+    }
 
 
 def _emit_unfillable(
@@ -729,6 +771,12 @@ def _reading_rows(readings: Sequence[EvidenceReading]) -> list[str]:
     return [
         f"#   {display_literal(reading.effect)} — "
         f"{', '.join(display_literal(source) for source in reading.sources)}"
+        # Strength, where it is not the default. A reader deciding whether to
+        # keep a proposal needs to know whether anything here is evidence the
+        # gate may act on, or only a heuristic that may challenge — and it is
+        # half of what `basis` pins, so a row that hides it hides why the
+        # question can come back.
+        + ("" if reading.policy_eligible else "  (heuristic only)")
         for reading in readings
     ]
 

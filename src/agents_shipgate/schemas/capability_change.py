@@ -286,7 +286,7 @@ class EffectivePolicy(BaseModel):
     # manifest-derived fields.
     baseline_fingerprints: list[str] = Field(default_factory=list)
     ci_gate_present: bool = True
-    # v0.39: the ``policies.control_pack`` in force — which controls each
+    # v0.40: the ``policies.control_pack`` in force — which controls each
     # action effect requires. ``None`` on a snapshot written before the field
     # existed, which is by construction the ``default`` rule set: that build
     # could not load a manifest naming a pack at all.

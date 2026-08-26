@@ -231,11 +231,19 @@ def _lock_ref(lock: CapabilityLockFileV1, *, path: Path | None) -> CapabilityLoc
 #: Prior lock schemas whose payload shape is identical to the current one, so a
 #: lock written under them is readable as-is once its version identifier is
 #: advanced. A version lands here when the only delta was additive inside an
-#: embedded union — v0.6 → v0.7 widened the evidence-gap enum and changed no
-#: field. Without it, bumping the lock schema makes every committed
-#: ``capabilities.lock.json`` unloadable, which is a far larger break than the
-#: bump itself repairs.
-_STRUCTURALLY_CURRENT_LOCK_SCHEMAS = frozenset({"0.6"})
+#: embedded union — v0.6 → v0.7 and v0.7 → v0.8 each widened the semantic-issue
+#: enum and changed no field. Without it, bumping the lock schema makes every
+#: committed ``capabilities.lock.json`` unloadable, which is a far larger break
+#: than the bump itself repairs.
+#:
+#: **Every bump has to add the version it just froze.** v0.7 was readable only
+#: because it *was* the current constant; the moment v0.8 shipped, every
+#: committed v0.7 lock started failing to load. The guard is
+#: ``test_every_lock_schema_of_the_current_standard_still_loads``, which walks
+#: the published ``docs/capability-lock-schema.v*.json`` set rather than a
+#: hardcoded version, so it cannot be left behind by the next bump the way the
+#: previous test — pinned to ``0.6`` — was.
+_STRUCTURALLY_CURRENT_LOCK_SCHEMAS = frozenset({"0.6", "0.7"})
 
 
 def _normalize_capability_lock_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -279,6 +287,12 @@ _CAPABILITY_STANDARD_BY_LOCK_SCHEMA = {
     # lets it be compared instead of re-exported — the exact opposite of what
     # this table exists to prevent (PR #413 review 5).
     "0.6": "0.5",
+    # Same rule, same reason: pinned to the literal standard v0.7 shipped
+    # under. It was covered by the constant key below until v0.8 took that
+    # key, at which point a v0.7 lock fell through to the *default* — which
+    # returns the current standard and would have relabelled a historical lock
+    # as comparable.
+    "0.7": "0.5",
     CAPABILITY_LOCK_SCHEMA_VERSION: CAPABILITY_STANDARD_VERSION,
 }
 

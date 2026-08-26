@@ -33,6 +33,17 @@ _LEGACY_TRUST_ROOT_SURFACES: tuple[tuple[str, str], ...] = (
     ("prompts", "**/prompts/**"),
     ("ci_gate", "**/.github/workflows/agents-shipgate.yml"),
     ("ci_gate", "**/.github/workflows/agents-shipgate.yaml"),
+    # CODEOWNERS decides whether a change to any of the surfaces above needs a
+    # named human's approval, which makes it the trust root behind the trust
+    # roots — and `SHIP-TRUST-MANIFEST-UNPROTECTED` now credits protection from
+    # it. Without a row here, a pull request could delete the rule that governs
+    # the manifest without ever being classified as touching the trust root.
+    # The three locations are the ones GitHub reads, in its precedence order;
+    # ``core.manifest_protection.CODEOWNERS_LOCATIONS`` is the same list, pinned
+    # equal by ``test_every_codeowners_location_is_a_trust_root``.
+    ("codeowners", "**/.github/CODEOWNERS"),
+    ("codeowners", "**/CODEOWNERS"),
+    ("codeowners", "**/docs/CODEOWNERS"),
     ("agent_instructions", "**/AGENTS.md"),
     ("agent_instructions", "**/AGENTS.override.md"),
     ("agent_instructions", "**/CLAUDE.md"),

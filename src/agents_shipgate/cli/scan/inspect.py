@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from agents_shipgate.config.loader import load_manifest_text, manifest_read_error
+from agents_shipgate.core.adoption_ladder import adoption_rung
 from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
     CodexPluginArtifacts,
@@ -16,6 +17,7 @@ from agents_shipgate.core.artifact_models import (
 )
 from agents_shipgate.core.control_packs import resolve_control_pack
 from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.manifest_protection import manifest_protection
 from agents_shipgate.core.privacy import RedactionStats, redact_data
 from agents_shipgate.inputs.policy_packs import load_policy_packs
 from agents_shipgate.inputs.protocol import REGISTRY
@@ -88,6 +90,13 @@ def inspect_sources(
             # with the wrong shape (#384); the errno is only in hand here.
             raise manifest_read_error(config_path, exc) from exc
     manifest = load_manifest_text(decode_manifest(manifest_bytes, config_path), source=config_path)
+    # The manifest as written, kept before the filtering below removes sources
+    # that could not be loaded. Adoption is a statement about what a human
+    # declared, so it has to read the declared file: a source whose path is
+    # broken still carries its reviewed ``authority`` answer, and reading the
+    # filtered copy reported such a repository as rung 1 while its manifest
+    # plainly held a rung-2 answer.
+    declared_manifest = manifest
     base_dir = config_path.resolve().parent
     unresolved_sources = _resolve_source_paths(manifest, base_dir, config_path)
     if unresolved_sources:
@@ -147,6 +156,7 @@ def inspect_sources(
     # and the artifact bag; keep doctor warning output stable and unique.
     warnings = list(dict.fromkeys(warnings))
     control_pack = resolve_control_pack(manifest)
+    rung = adoption_rung(declared_manifest, manifest_protection(config_path))
     payload = {
         "project": manifest.project.name,
         "agent": manifest.agent.name,
@@ -195,6 +205,17 @@ def inspect_sources(
         "baseline": _default_baseline_status(base_dir),
         "warnings": warnings,
         "unresolved_sources": unresolved_sources,
+        # Where this adoption stands, and the one thing that moves it up
+        # (#410 §G). Derived from the manifest and the checkout only, because
+        # `doctor` answers before any report exists — see
+        # ``core.adoption_ladder``.
+        "adoption": {
+            "rung": rung.number,
+            "name": rung.name,
+            "you_get": rung.you_get,
+            "exit_criterion": rung.exit_criterion,
+            "blocking": list(rung.blocking),
+        },
         "manifest_summary": {
             "environment_target": manifest.environment.target,
             "has_permissions": bool(

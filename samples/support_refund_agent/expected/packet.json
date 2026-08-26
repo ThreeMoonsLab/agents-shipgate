@@ -1714,7 +1714,7 @@
       }
     ]
   },
-  "packet_schema_version": "0.15",
+  "packet_schema_version": "0.16",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",

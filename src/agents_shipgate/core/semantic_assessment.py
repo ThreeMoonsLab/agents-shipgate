@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ from agents_shipgate.core.domain import (
     DECLARATION_OVERRIDE_SOURCE,
     DECLARED_EFFECT_SOURCE,
     DECLARED_SOURCE_AUTHORITY_SOURCE,
+    ENVIRONMENT_TEMPLATE_AUTHORITY_SOURCE,
     SURFACE_ENUMERATED,
     AuthorityMode,
     AuthoritySemanticAssessment,
@@ -36,6 +38,7 @@ from agents_shipgate.schemas.manifest import (
     ActionRiskTag,
     ToolSourceConfig,
 )
+from agents_shipgate.schemas.manifest.action_surface import CONFIRMED_BASIS_PREFIX
 from agents_shipgate.schemas.surfaces import ActionEffect
 
 _EFFECT_RANK: dict[ActionEffect, int] = {
@@ -123,6 +126,7 @@ def assess_tool_semantics(
     declaration: ActionDeclarationConfig | None = None,
     *,
     tool_source: ToolSourceConfig | None = None,
+    environment_target: str | None = None,
 ) -> ToolSemanticAssessment:
     """Resolve one tool's static effect and authority evidence.
 
@@ -137,15 +141,26 @@ def assess_tool_semantics(
     Omitting it resolves exactly as before — which is what makes the
     counterfactual in ``declaration_questions`` mean "with no reviewed
     declaration at all", covering both sites in one call.
+
+    ``environment_target`` is ``environment.target``. The one value it changes
+    anything for is ``template``, which answers the authority dimension for
+    actions that declare none of their own (#410 §G). It is omitted by the
+    counterfactual for the same reason ``declaration`` and ``tool_source``
+    are: it is a third site the same reviewed claim can be written at, and the
+    counterfactual has to mean "with no reviewed declaration anywhere".
     """
 
-    # Resolved once and read by both dimensions: which of the two manifest
+    # Resolved once and read by both dimensions: which of the three manifest
     # sites is operative decides the permission list an action is judged on,
     # and the effect evidence drawn from it has to be the same list the
     # authority dimension reports. Two derivations meant two answers.
-    reviewed = reviewed_authority(tool, declaration, tool_source)
+    reviewed = reviewed_authority(
+        tool, declaration, tool_source, environment_target=environment_target
+    )
     effect, conservative_effect = _assess_effect(tool, declaration, reviewed)
-    authority = _assess_authority(tool, declaration, tool_source, reviewed)
+    authority = _assess_authority(
+        tool, declaration, tool_source, reviewed, environment_target
+    )
     identity = tool.identity_assessment or _compat_identity_assessment(tool)
     binding = tool.binding_assessment or _compat_binding_assessment(tool)
     surface_complete = _surface_is_complete(tool)
@@ -203,6 +218,7 @@ def attach_semantic_assessments(
     declarations: Mapping[str, ActionDeclarationConfig] | None = None,
     *,
     tool_sources: Mapping[str, ToolSourceConfig] | None = None,
+    environment_target: str | None = None,
     copy_tools: bool = True,
 ) -> list[Tool]:
     """Attach one declaration-aware assessment keyed strictly by tool ID.
@@ -232,6 +248,7 @@ def attach_semantic_assessments(
             tool,
             declaration,
             tool_source=tool_source,
+            environment_target=environment_target,
         )
         assessed.append(tool)
     return assessed
@@ -624,6 +641,39 @@ def _assess_effect(
     claims = _sorted_claims(claims)
     all_effects = [_as_effect(claim.value) for claim in claims if claim.value in _EFFECT_VALUES]
     conservative = _strongest_effect(all_effects) if all_effects else "write"
+
+    # #410 §E — drift pinning. Declarations are matched by name and nothing
+    # ever re-opened one, so a green gate at month twelve could rest on a
+    # description of a function that no longer does what it did. A pinned
+    # declaration says which evidence it was answered against; when that
+    # evidence moves, the question comes back.
+    #
+    # Complementary to the monotone rule rather than a second copy of it: #409
+    # asks whether the declaration is *weaker than* today's evidence, which
+    # only fires when the movement was upward past the declared value. This
+    # asks whether today's evidence is the evidence that was answered at all,
+    # which is also true when a reading disappears or when a stronger
+    # declaration stops matching what the code does. Unpinned declarations —
+    # every one written before this field existed — are untouched.
+    if declaration is not None and declaration.basis is not None:
+        readings = _readings_from_claims(claims)
+        if declaration.basis != confirmed_basis(readings):
+            observed = render_effect_readings(readings)
+            issues.append(
+                _issue(
+                    "declaration_drift",
+                    "effect",
+                    "the effect evidence for this action is not the evidence this "
+                    "declaration was confirmed against; "
+                    + (
+                        f"it now reads {observed}"
+                        if observed
+                        else "nothing is observed about it any more"
+                    ),
+                    DECLARED_EFFECT_SOURCE,
+                    f"action_surface.actions[tool={tool.name!r}].basis",
+                )
+            )
 
     if declaration is not None and declaration.effect is not None:
         declared_effect = declaration.effect
@@ -1064,11 +1114,20 @@ class EffectReading:
     standing in for the absence of any — see
     :data:`NON_OBSERVATIONAL_EFFECT_BASES`. Both are shown to a reviewer; only
     an observation may seed a proposal.
+
+    ``policy_eligible`` is the *strength* of the reading: true when at least one
+    claim behind it is evidence this scanner may act on — a reviewed
+    declaration, protocol structure, a typed provider fact, a structural scope —
+    rather than a heuristic that may only challenge. It is the strongest class
+    among the claims, not a per-producer flag, because that is what makes it
+    stable: a second heuristic agreeing with an annotation changes nothing about
+    what the reading is worth.
     """
 
     effect: ActionEffect
     sources: tuple[str, ...]
     observed: bool
+    policy_eligible: bool = False
 
 
 @dataclass(frozen=True)
@@ -1195,8 +1254,20 @@ def effect_readings(effect: EffectSemanticAssessment) -> list[EffectReading]:
     the strongest one.
     """
 
+    return _readings_from_claims(effect.claims)
+
+
+def _readings_from_claims(claims: Sequence[SemanticClaim]) -> list[EffectReading]:
+    """:func:`effect_readings` over a claim list still being assembled.
+
+    Split out so the resolver can compare a declaration's pin against the same
+    readings the questionnaire will publish, without either side re-deriving
+    the grouping.
+    """
+
     sources: dict[tuple[ActionEffect, bool], set[str]] = {}
-    for claim in effect.claims:
+    eligible: set[tuple[ActionEffect, bool]] = set()
+    for claim in claims:
         if claim.source in DECLARATION_CLAIM_SOURCES:
             continue
         if claim.value not in _EFFECT_VALUES:
@@ -1210,8 +1281,15 @@ def effect_readings(effect: EffectSemanticAssessment) -> list[EffectReading]:
         # what a default is not.
         key = (_as_effect(claim.value), claim.basis not in NON_OBSERVATIONAL_EFFECT_BASES)
         sources.setdefault(key, set()).add(claim.source)
+        if claim.policy_eligible:
+            eligible.add(key)
     return [
-        EffectReading(effect=value, sources=tuple(sorted(sources[key])), observed=observed)
+        EffectReading(
+            effect=value,
+            sources=tuple(sorted(sources[key])),
+            observed=observed,
+            policy_eligible=key in eligible,
+        )
         for key in sorted(
             sources,
             # Weakest reading first, and an observation ahead of a default that
@@ -1220,6 +1298,106 @@ def effect_readings(effect: EffectSemanticAssessment) -> list[EffectReading]:
         )
         for value, observed in (key,)
     ]
+
+
+def effect_derivation_id(readings: Sequence[EffectReading]) -> str:
+    """A stable digest of the source evidence an effect answer rests on.
+
+    The pin behind ``action_surface.actions[].basis``. It answers one question
+    on every later scan — *is this still the evidence that was answered?* — so
+    what it digests is chosen for two properties, and both are tested:
+
+    * **It is exactly what the reviewer was shown.** The questionnaire prints
+      :func:`effect_readings` under "what this scan read this action's effect
+      as"; this digests the observed ones. "Every answer is pinned to the
+      evidence that justified it" is then literal rather than approximate.
+    * **It does not move when the answer arrives.** The readings are the same
+      set before and after the declaration is written, because declaration
+      claims are excluded by :func:`effect_readings` and the one claim whose
+      *presence* depends on a declaration — the MCP protocol default, emitted
+      only when nothing is declared — is not an observation and is filtered
+      here. Without that a reviewer would confirm a proposal and get a drift
+      row back on the very next scan, which is the one thing a pin may not do.
+
+    What is digested is the reading **and its strength**, and both halves are
+    load-bearing.
+
+    Individual producers are not digested: a second source corroborating a
+    reading the reviewer already answered is not new information about the
+    action, and a shipgate release that adds a heuristic would otherwise
+    re-open every pinned declaration on every adopter at once.
+
+    But the *class* of the strongest producer is, because dropping it made the
+    pin blind to a replacement. A tool published with ``readOnlyHint: true``
+    beside a ``read_only`` keyword hint reads ``read`` twice over; delete the
+    annotation and it still reads ``read``, from the heuristic alone. Digesting
+    only the effect string held the pin steady while the evidence a reviewer
+    actually leaned on disappeared — and ``read`` is the one classification
+    where losing the authoritative half matters most, because a heuristic may
+    never establish it (#357). Strength is taken as the strongest class per
+    reading rather than per producer, so corroboration stays quiet and
+    replacement does not.
+    """
+
+    observed = sorted(
+        (reading.effect, reading.policy_eligible)
+        for reading in readings
+        if reading.observed
+    )
+    rendered = json.dumps(observed, separators=(",", ":"))
+    return hashlib.sha256(rendered.encode()).hexdigest()[:12]
+
+
+def confirmed_basis(readings: Sequence[EffectReading]) -> str:
+    """The ``basis`` value that pins an answer to ``readings``."""
+
+    return f"{CONFIRMED_BASIS_PREFIX}{effect_derivation_id(readings)}"
+
+
+def risk_tag_answers_effect(tag: str) -> bool:
+    """Whether declaring ``tag`` produces a reviewed effect claim.
+
+    The action row's ``risk_tags`` is the second route out of a
+    ``declaration_below_inferred_evidence`` row, but only for tags this
+    resolver maps to a non-``read`` effect: ``_TAG_EFFECTS`` has no entry for
+    ``network_access`` or ``customer_data``, and a ``read`` mapping is
+    deliberately dropped because a positive risk tag may never establish
+    read-only safety.
+
+    Exported because "has this action's effect been answered?" is asked outside
+    this module — the adoption ladder counted *any* non-empty ``risk_tags`` as
+    an answer, so a manifest carrying only ``risk_tags: [network_access]``
+    advanced a rung while the action still reported ``missing_effect_evidence``.
+    """
+
+    return _TAG_EFFECTS.get(cast(ActionRiskTag, tag)) not in (None, "read")
+
+
+def declared_effect_of(effect: EffectSemanticAssessment) -> ActionEffect | None:
+    """The effect this action's manifest row declares, read off the claims.
+
+    Read from the resolved claims rather than from the manifest a second time:
+    which declaration keyed onto which tool is a join the resolver already
+    made, and re-deriving it here is the second implementation of it.
+    """
+
+    for claim in effect.claims:
+        if claim.source == DECLARED_EFFECT_SOURCE and claim.value in _EFFECT_VALUES:
+            return _as_effect(claim.value)
+    return None
+
+
+def render_effect_readings(readings: Sequence[EffectReading]) -> str:
+    """The observed readings as one comma-separated phrase, strongest last.
+
+    One rendering, because two surfaces state the same set: the drift issue's
+    message and anything that echoes it. Empty when nothing was observed —
+    callers phrase that case themselves rather than printing "()".
+    """
+
+    return ", ".join(
+        dict.fromkeys(reading.effect for reading in readings if reading.observed)
+    )
 
 
 def propose_effect_declaration(
@@ -1417,10 +1595,16 @@ class ReviewedAuthority:
     pointer: str
 
 
+#: The ``environment.target`` that answers the authority dimension by itself.
+TEMPLATE_ENVIRONMENT_TARGET = "template"
+
+
 def reviewed_authority(
     tool: Tool,
     declaration: ActionDeclarationConfig | None,
     tool_source: ToolSourceConfig | None,
+    *,
+    environment_target: str | None = None,
 ) -> ReviewedAuthority | None:
     """The reviewed authority that governs this action, and where it was written.
 
@@ -1466,7 +1650,63 @@ def reviewed_authority(
             claim_source=DECLARED_SOURCE_AUTHORITY_SOURCE,
             pointer=f"tool_sources[id={tool_source.id!r}].authority",
         )
+    if _template_authority_applies(tool, declaration, environment_target):
+        return ReviewedAuthority(
+            mode="none",
+            auth_type=None,
+            credential_mode=None,
+            scopes=[],
+            claim_source=ENVIRONMENT_TEMPLATE_AUTHORITY_SOURCE,
+            pointer="environment.target",
+        )
     return None
+
+
+def _template_authority_applies(
+    tool: Tool,
+    declaration: ActionDeclarationConfig | None,
+    environment_target: str | None,
+) -> bool:
+    """Whether ``environment.target: template`` answers *this* action.
+
+    A template has no deployment, so nothing in it holds a credential — but
+    that is a statement about the absence of evidence, and it may only stand
+    where there is no evidence. Anything more specific wins, and "more
+    specific" is not only what a reviewer wrote:
+
+    * an action row's own ``authority``, and a ``tool_sources[].authority``
+      block, are handled before this is reached — they return their own record;
+    * an action row's bare ``scopes:`` list is a reviewed statement that this
+      action *is* granted something;
+    * and so is anything the **source** publishes. This is the one that is easy
+      to get wrong, and getting it wrong is a fail-open rather than a nuisance:
+      the record supplies the whole permission list, so applying it over a tool
+      that publishes ``oauth2 + docs:read`` empties that action's
+      ``required_scopes`` and ``SHIP-AUTH-SCOPE-COVERAGE-MISSING`` silently
+      stops seeing anything to cover. A repository-wide claim about deployment
+      may not subtract evidence a source proved.
+
+    The test for that last one is **every field the record would replace**, not
+    every field one grader happens to read. :class:`ReviewedAuthority` carries
+    four — mode, auth type, credential mode, and scopes — and installing it
+    overwrites all four. ``_source_authority`` grades three of them (reporting
+    ``"unknown"`` status exactly when the source published nothing usable, and
+    something else for the ambiguous and invalid cases, which are *something
+    published*, badly, and equally not this claim's to overwrite). It never
+    reads ``credential_mode``, so a tool publishing ``service_account`` and
+    nothing else graded ``unknown``, took ``mode: none``, and had its credential
+    mode cleared — with ``credential_modes`` policy selectors silently ceasing
+    to match it. ``test_the_template_fallback_yields_to_every_field_it_would_replace``
+    is keyed off the record's own fields so a fifth one cannot be forgotten.
+    """
+
+    if environment_target != TEMPLATE_ENVIRONMENT_TARGET:
+        return False
+    if _reviewed_scopes(declaration, None):
+        return False
+    if tool.auth.credential_mode:
+        return False
+    return _source_authority(tool)[1] == "unknown"
 
 
 def _reviewed_scopes(
@@ -1510,6 +1750,8 @@ def resolve_action_scopes(
     declaration: ActionDeclarationConfig | None,
     tool_source: ToolSourceConfig | None = None,
     reviewed: ReviewedAuthority | None = None,
+    *,
+    environment_target: str | None = None,
 ) -> list[str]:
     """The one permission list this action publishes, normalized and sorted.
 
@@ -1533,10 +1775,20 @@ def resolve_action_scopes(
     ``ActionFact`` — raises ``internal_error`` on a legal manifest. The
     reviewed half of that was closed with the normalized record; the bare
     ``scopes:`` half is closed by this being the only derivation.
+
+    ``environment_target`` is the third site the reviewed record can come from
+    (#410 §G), and it has to reach the fallback re-derivation for the same
+    reason: a caller that resolves the record with the target and a caller that
+    re-derives it without one are two spellings again, and this time the two
+    would disagree only in the manifests that declare ``template`` — the
+    hardest kind of divergence to notice. Live callers pass ``reviewed`` and
+    never reach the fallback at all.
     """
 
     if reviewed is None:
-        reviewed = reviewed_authority(tool, declaration, tool_source)
+        reviewed = reviewed_authority(
+            tool, declaration, tool_source, environment_target=environment_target
+        )
     if reviewed is not None:
         return normalize_declared_strings(reviewed.scopes)
     declared = normalize_declared_strings(declaration.scopes if declaration is not None else [])
@@ -1548,11 +1800,22 @@ def _assess_authority(
     declaration: ActionDeclarationConfig | None,
     tool_source: ToolSourceConfig | None = None,
     reviewed: ReviewedAuthority | None = None,
+    environment_target: str | None = None,
 ) -> AuthoritySemanticAssessment:
     claims: list[SemanticClaim] = []
     issues: list[SemanticIssue] = []
     pointer = tool.source_pointer
     source_mode, source_status = _source_authority(tool)
+    if reviewed is None:
+        reviewed = reviewed_authority(
+            tool, declaration, tool_source, environment_target=environment_target
+        )
+    # One list, resolved once from the record this function judges on. The
+    # narrowing check below and the published ``scopes`` both read it, so a
+    # branch cannot compare one permission list and publish another.
+    scopes = resolve_action_scopes(
+        tool, declaration, tool_source, reviewed, environment_target=environment_target
+    )
 
     for message in tool.auth.invalid_annotations:
         issues.append(
@@ -1601,8 +1864,6 @@ def _assess_authority(
             )
         )
 
-    if reviewed is None:
-        reviewed = reviewed_authority(tool, declaration, tool_source)
     if reviewed is not None:
         claims.append(
             _claim(
@@ -1693,11 +1954,7 @@ def _assess_authority(
         if (
             status == "structural"
             and declaration is not None
-            and _scopes_narrow_source(
-                tool,
-                resolve_action_scopes(tool, declaration),
-                source_mode=source_mode,
-            )
+            and _scopes_narrow_source(tool, scopes, source_mode=source_mode)
         ):
             status = "conflicting"
             mode = "unknown"
@@ -1736,7 +1993,7 @@ def _assess_authority(
         mode=mode,
         auth_type=auth_type,
         credential_mode=credential_mode,
-        scopes=resolve_action_scopes(tool, declaration, tool_source, reviewed),
+        scopes=scopes,
         claims=_sorted_claims(claims),
         issues=_sorted_issues(issues),
         answerable_source_id=_answerable_source_id(declaration, tool_source),
@@ -2023,6 +2280,11 @@ __all__ = [
     "assess_tool_semantics",
     "ReviewedAuthority",
     "attach_semantic_assessments",
+    "confirmed_basis",
+    "declared_effect_of",
+    "risk_tag_answers_effect",
+    "effect_derivation_id",
+    "render_effect_readings",
     "reviewed_authority",
     "claims_above_declared_effect",
     "EffectRepair",

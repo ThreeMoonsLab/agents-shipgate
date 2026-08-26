@@ -549,10 +549,23 @@ _FROZEN_AND_CURRENT_SCHEMAS = [
     ("report-schema.v0.37.json", "report-schema.v0.38.json", "tool_source"),
     ("packet-schema.v0.14.json", "packet-schema.v0.15.json", "tool_source"),
     ("verifier-schema.v0.11.json", "verifier-schema.v0.12.json", "tool_source"),
+    ("report-schema.v0.38.json", "report-schema.v0.39.json", "declaration_drift"),
+    ("packet-schema.v0.15.json", "packet-schema.v0.16.json", "declaration_drift"),
+    ("verifier-schema.v0.12.json", "verifier-schema.v0.13.json", "declaration_drift"),
+    (
+        "capability-lock-schema.v0.7.json",
+        "capability-lock-schema.v0.8.json",
+        "declaration_drift",
+    ),
+    (
+        "capability-lock-diff-schema.v0.8.json",
+        "capability-lock-diff-schema.v0.9.json",
+        "declaration_drift",
+    ),
     # #410 §F: the effective-policy snapshot gained the control pack in force,
     # so a base-vs-head comparison can see a pack moved to one that requires
     # less. Only the report schema embeds ``EffectivePolicy``.
-    ("report-schema.v0.38.json", "report-schema.v0.39.json", "control_pack"),
+    ("report-schema.v0.39.json", "report-schema.v0.40.json", "control_pack"),
 ]
 
 
@@ -613,6 +626,21 @@ _PUBLISHED_SCHEMA_SHA256 = {
     "report-schema.v0.38.json": (
         "df00a7abfbd59fa3274caacd78acf5960f8c754fab2d6e1a62840b7997ca8d24"
     ),
+    "packet-schema.v0.15.json": (
+        "b6a47a71482592732c2cac0120a154ce39a6830ed06cc457f6c1fdbb842bdead"
+    ),
+    "verifier-schema.v0.12.json": (
+        "fae9348ede7e04cd786f2104c55b80b4a9c623c69af1351dc6bca15af2037736"
+    ),
+    "capability-lock-schema.v0.7.json": (
+        "a90789c318f4a4c19347be9fc440d32322f9befa0c94461d10fb718f5a276704"
+    ),
+    "capability-lock-diff-schema.v0.8.json": (
+        "c872af71d41a445d1e28065704e034b2a0a32c88a5ec9e767ad8853f4373ac20"
+    ),
+    "report-schema.v0.39.json": (
+        "9a150c97a13c59b4f1ba68d86d4393be1c799e6c84d1638acee825e28646dab9"
+    ),
 }
 
 
@@ -656,20 +684,27 @@ def test_every_emitted_artifact_validates_against_its_own_current_schema(tmp_pat
     )
 
     for artifact, schema_name in (
-        ("report.json", "report-schema.v0.39.json"),
-        ("packet.json", "packet-schema.v0.15.json"),
+        ("report.json", "report-schema.v0.40.json"),
+        ("packet.json", "packet-schema.v0.16.json"),
     ):
         payload = json.loads((tmp_path / artifact).read_text(encoding="utf-8"))
         schema = json.loads((_DOCS / schema_name).read_text(encoding="utf-8"))
         Draft202012Validator(schema).validate(payload)
 
 
-def test_a_lock_written_under_the_prior_schema_still_loads(tmp_path) -> None:
+def test_every_lock_schema_of_the_current_standard_still_loads(tmp_path) -> None:
     """Bumping the lock schema must not orphan every committed lock file.
 
-    The normalizer only handled `0.1`–`0.4`, so advancing `0.6` → `0.7` would
-    have made every checked-in `capabilities.lock.json` unloadable — a larger
-    break than the bump repairs.
+    The previous version of this test pinned `0.6`, so it kept passing while
+    the `0.7` → `0.8` bump made every committed v0.7 lock unloadable: v0.7 was
+    readable only because it *was* the current constant, and nothing put it in
+    `_STRUCTURALLY_CURRENT_LOCK_SCHEMAS` when it stopped being one.
+
+    So this walks the **published** schema set instead of a version literal,
+    and asks the question that actually matters: a lock describing the current
+    capability standard is one somebody can still diff, so it has to load.
+    Older standards are a different case — they are not comparable and must be
+    re-exported — and this deliberately says nothing about them.
     """
 
     import sys
@@ -679,21 +714,48 @@ def test_a_lock_written_under_the_prior_schema_still_loads(tmp_path) -> None:
     from test_capability_lock import _tool as _lock_tool
 
     from agents_shipgate.core.capability_lock import (
+        _CAPABILITY_STANDARD_BY_LOCK_SCHEMA,
         load_capability_lock,
         render_capability_lock_json,
     )
-    from agents_shipgate.schemas.capabilities import CAPABILITY_LOCK_SCHEMA_VERSION
+    from agents_shipgate.schemas.capabilities import (
+        CAPABILITY_LOCK_SCHEMA_VERSION,
+        CAPABILITY_STANDARD_VERSION,
+    )
+
+    published = sorted(
+        path.name.removeprefix("capability-lock-schema.v").removesuffix(".json")
+        for path in _DOCS.glob("capability-lock-schema.v*.json")
+    )
+    assert CAPABILITY_LOCK_SCHEMA_VERSION in published
+
+    # Every published version needs an explicit row. The lookup defaults to the
+    # *current* standard, so a missing one silently claims a historical lock is
+    # comparable — which is what a version stops being covered by the constant
+    # key the moment the next bump takes it (PR #413 review 5).
+    assert set(published) <= set(_CAPABILITY_STANDARD_BY_LOCK_SCHEMA), sorted(
+        set(published) - set(_CAPABILITY_STANDARD_BY_LOCK_SCHEMA)
+    )
 
     payload = json.loads(
         render_capability_lock_json(_lock([_lock_tool("alpha.read", scopes=["alpha:read"])]))
     )
-    payload["capability_lock_schema_version"] = "0.6"
-    path = tmp_path / "legacy.v06.lock.json"
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-
-    loaded = load_capability_lock(path)
-
-    assert loaded.capability_lock_schema_version == CAPABILITY_LOCK_SCHEMA_VERSION
+    checked = 0
+    for version in published:
+        if _CAPABILITY_STANDARD_BY_LOCK_SCHEMA[version] != CAPABILITY_STANDARD_VERSION:
+            continue
+        checked += 1
+        path = tmp_path / f"lock.v{version}.json"
+        path.write_text(
+            json.dumps({**payload, "capability_lock_schema_version": version}, indent=2),
+            encoding="utf-8",
+        )
+        loaded = load_capability_lock(path)
+        assert loaded.capability_lock_schema_version == CAPABILITY_LOCK_SCHEMA_VERSION, version
+    assert checked > 1, (
+        "only the current schema describes this standard; the test cannot see "
+        "an orphaned prior version"
+    )
 
 
 def test_the_published_examples_are_artifacts_this_runtime_could_emit() -> None:

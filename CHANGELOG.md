@@ -182,6 +182,136 @@
   so it and `docs/agent-contract-current.md` now describe the ranking above and
   say plainly that position is not severity: the action at the top is the one
   *least* is known about. Field shapes are unchanged.
+- **A confirmed declaration is pinned to the evidence behind it.** Declarations
+  matched by name and nothing ever re-opened one, so a green gate at month
+  twelve could rest on a description of a function that no longer does what it
+  did. `action_surface.actions[].basis` records which evidence an effect answer
+  was given against, as `confirmed:<digest>`; every scan re-derives it and
+  compares. Equal is complete silence. Different re-opens the question as a
+  `declaration_drift` evidence gap that names what the action reads as now,
+  hands over the new pin, and is closed by re-reading and re-confirming.
+
+  The digest is what the questionnaire already showed the reviewer — the
+  effects the scan *observed* — so "every answer is pinned to the evidence that
+  justified it" is literal rather than approximate. It deliberately does not
+  digest the producers: a second heuristic reading an effect somebody already
+  answered is not new information about the action, and digesting it would let
+  a shipgate release re-open every pinned declaration on every adopter at once.
+  It is also stable across the arrival of the answer itself, which is the one
+  property that would otherwise make pinning worse than not pinning: confirm a
+  proposal, paste the `basis` line the scaffold stamped, rescan, and nothing is
+  raised.
+
+  Additive and unpinned-by-default: every manifest written before this field
+  existed behaves exactly as it did. `suggested-declarations.yaml` stamps the
+  pin on every effect answer it offers, so new answers arrive pinned; to pin an
+  existing declaration, write any short placeholder (`basis: confirmed:0`) and
+  rescan — the drift row names the value. A pin is a fact about the scan rather
+  than a judgement, so it may be pre-filled and can never make an action
+  pass-eligible on its own.
+
+  `declaration_drift` is a different statement from
+  `declaration_below_inferred_evidence`, and a change that adds a stronger
+  reading raises both: one asks whether the declaration is *weaker than*
+  today's evidence, the other whether today's evidence is what was answered at
+  all. Each is closed by a different edit.
+
+- **`environment.target: template`, for a repository that ships to be copied.**
+  A sample has no deployment, so it has no credentials, and asking each of its
+  actions which credential it runs with asks a question the repository cannot
+  answer in principle — both repositories the adoption walks used were of
+  exactly this kind, and `authority: {mode: none}` written twelve times is the
+  same claim spelled at cost. Declaring `template` answers the authority
+  dimension once, for every action that does not say otherwise.
+
+  A default, never an override, and it applies only where nothing else answers
+  the question: an action row's `authority`, a `tool_sources[].authority`
+  block, an action's own `scopes:` list, and **anything the source publishes**
+  all win over it. That last one is the whole safety argument — the reviewed
+  record supplies mode, auth type, credential mode, and permission list
+  together, so applying it over a source that published any of the four erases
+  what that source proved. And never silent: every action it answers for is one
+  semantic review concern, so a template repository can reach `review_required`
+  and never `passed`. Stating real authority stays the price of a green gate.
+
+- **`SHIP-TRUST-MANIFEST-UNPROTECTED` reads the file GitHub would read.**
+  Protection is credited only from a CODEOWNERS that covers the manifest **and
+  covers itself** — a rule set owning `shipgate.yaml` but not `CODEOWNERS`
+  describes a protection one edit deep — and it fails closed everywhere the
+  forge would not honour the rule: outside a git checkout, on a file of 3 MB or
+  more (which GitHub ignores entirely, with no fallback to a lower-precedence
+  location), and on tokens GitHub does not accept as owners. `docs/*` no longer
+  matches further-nested files, which GitHub documents and gitignore does not.
+  The three CODEOWNERS locations are now trust roots themselves, so a change to
+  the file that decides protection is classified as one.
+
+- **`SHIP-TRUST-MANIFEST-UNPROTECTED` — who may change the gate.** Every verdict
+  rests on the manifest, so a repository that lets it change unreviewed has a
+  gate the gated work can turn off. Attestation is the PR review of a protected
+  file rather than a separate ceremony, and CODEOWNERS is the half of that a
+  checkout can prove. The finding fires only where the manifest is load-bearing
+  — the manifest's own `ci.mode: strict` — and it never moves a verdict:
+  `low`, never a review item, because branch protection lives in repository
+  settings no file here can read and deciding on the visible half alone would
+  be the pretending it exists to avoid.
+
+- **`doctor` says which rung of the adoption ladder you are on.** Every
+  intermediate state of an adoption reads like a failure: a manifest with no
+  declarations reports `insufficient_evidence`, which is accurate and sounds
+  broken. `doctor` now names the rung — 0 Audit, 1 Gate the delta, 2 Answer on
+  touch, 3 Strict — says what it is worth on its own, and names only the
+  conditions that are actually unmet to reach the next one. Published on
+  `doctor --json` as `adoption`. A workspace with no manifest is told it is on
+  rung 0 rather than only that a file is missing, with the exact
+  `init --workspace … --write` invocation that leaves it.
+
+  A rung describes what a repository has **declared**, and says so. It does not
+  predict a verdict — a fully structural surface owes no declaration questions
+  and can pass from rung 1 — and it does not claim enforcement. `ci.mode:
+  strict` is the manifest's own statement, while the workflow that runs
+  Shipgate passes its own `ci_mode` (the generated one ships `advisory`), and
+  branch protection is a repository setting no file in a checkout can read;
+  rung 3 names both limits. Nor is a manifest a workflow: `init` installs one
+  only with `--ci`, so rung 1 describes a gate that *can run here* rather than
+  one running on every pull request, and points at `--ci` for that. The rungs
+  are also not a cumulative chain: a repository whose surface resolves
+  structurally may never be asked a declaration question, and would otherwise
+  be stranded at rung 1 forever.
+
+- **A pin re-opens when authoritative evidence is replaced, not only when a
+  reading appears.** The digest covered the effects a scan observed but not
+  their *strength*, so a tool published with `readOnlyHint: true` beside a
+  `read_only` keyword hint kept the same pin after the annotation was deleted:
+  it still read `read`, from the heuristic alone. `read` is the worst
+  classification to lose it on — a heuristic may never establish read-only
+  (#357) — so a safety-sensitive answer survived on evidence that could not
+  have produced it. The digest now covers `(reading, strongest evidence class)`,
+  which keeps corroboration quiet (a second heuristic agreeing with an
+  annotation changes nothing) while a replacement moves the pin.
+  `evidence_gaps[].next_action.observed_readings[].policy_eligible` publishes
+  that half, so a consumer can reproduce the pin from the row it is printed on,
+  and the questionnaire marks a heuristic-only reading as such.
+
+- **Existing `capabilities.lock.json` files keep loading.** The lock schema bump
+  froze `0.7` without teaching the reader about it, so every committed v0.7 lock
+  started failing to load — v0.7 had been readable only because it *was* the
+  current constant, and nothing moved it into the compatibility set when the
+  next bump took that constant. It is there now, with its historical capability
+  standard pinned literally rather than defaulting to the current one. The guard
+  walks the published `docs/capability-lock-schema.v*.json` set instead of a
+  hardcoded version, so the next bump cannot repeat it: the old test pinned
+  `0.6` and kept passing throughout.
+
+- **A merged declaration block reads in manifest field order.** Two evidence-gap
+  rows about one action are merged into one block to paste, and the merge kept
+  whichever order the rows arrived in — a drift row folded into a
+  below-evidence row put `basis` in the middle and the declared `effect`
+  underneath it. Blocks now render in the order the manifest itself uses, taken
+  from the model rather than restated.
+
+  Report schema 0.38 → 0.39, packet 0.15 → 0.16, verifier 0.12 → 0.13,
+  capability lock 0.7 → 0.8, capability-lock diff 0.8 → 0.9; all additive, all
+  prior versions frozen, hash-pinned, and read forward.
 
 - **One action, one permission list, with no reviewed authority either.** A
   manifest row that listed `scopes:` and declared no `authority:` block at
