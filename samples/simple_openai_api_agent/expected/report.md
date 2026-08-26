@@ -49,7 +49,6 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
 
 - create\_refund \[openai\_api\] \(at tools/openai-tools.json\#/tools/0\) — BLOCKS RELEASE \(1 critical, 5 high, 1 medium\)
   - critical SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING \(blocks release\) — missing: approval.required, safeguards.audit\_log, safeguards.idempotency
-    - Declare approval.required, safeguards.audit\_log, and safeguards.idempotency for this financial write action.
   - high SHIP-API-FUNCTION-SCHEMA-STRICTNESS — create\_refund function schema is not strict enough
     - Make create\_refund a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
   - high SHIP-API-RETRY-WITHOUT-IDEMPOTENCY — create\_refund may be retried without idempotency evidence
@@ -61,7 +60,6 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
   - … and 2 more findings for this subject
 - send\_customer\_email \[openai\_api\] \(at tools/openai-tools.json\#/tools/1\) — BLOCKS RELEASE \(5 high\)
   - high SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING \(blocks release\) — missing: safeguards.audit\_log, confirmation.required
-    - Declare confirmation policy and safeguards.audit\_log for this external communication action.
   - high SHIP-API-FUNCTION-SCHEMA-STRICTNESS — send\_customer\_email function schema is not strict enough
     - Make send\_customer\_email a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
   - high SHIP-API-RETRY-WITHOUT-IDEMPOTENCY — send\_customer\_email may be retried without idempotency evidence

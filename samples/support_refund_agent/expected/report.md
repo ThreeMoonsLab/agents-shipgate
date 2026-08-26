@@ -49,18 +49,15 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
 
 - stripe.create\_refund \[support\_openapi\] \(at specs/support-tools.openapi.yaml\#/paths/~1refunds/post\) — BLOCKS RELEASE \(3 critical, 2 high\)
   - critical SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING \(blocks release\) — missing: approval.required, safeguards.audit\_log, safeguards.idempotency
-    - Declare approval.required, safeguards.audit\_log, and safeguards.idempotency for this financial write action.
   - critical SHIP-POLICY-APPROVAL-MISSING \(blocks release\) — stripe.create\_refund lacks a declared approval policy
     - Declare an approval policy for stripe.create\_refund or remove this tool from the release.
   - critical SHIP-SIDEFX-IDEMPOTENCY-MISSING \(blocks release\) — stripe.create\_refund lacks idempotency evidence
     - Add an idempotency key, idempotent annotation, or declared idempotency policy for stripe.create\_refund.
   - high SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING \(blocks release\) — missing: safeguards.audit\_log, confirmation.required
-    - Declare confirmation policy and safeguards.audit\_log for this external communication action.
   - high SHIP-POLICY-CONFIRMATION-MISSING — stripe.create\_refund lacks a declared confirmation policy
     - Declare a user confirmation policy for stripe.create\_refund or remove this action from the release.
 - gmail.send\_customer\_email \[support\_mcp\_tools\] \(at .agents-shipgate/mcp-tools.json\#/tools/1\) — BLOCKS RELEASE \(3 high\)
   - high SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING \(blocks release\) — missing: safeguards.audit\_log, confirmation.required
-    - Declare confirmation policy and safeguards.audit\_log for this external communication action.
   - high SHIP-AUTH-SCOPE-COVERAGE-MISSING — gmail.send\_customer\_email requires scopes not declared in the manifest
     - Add the required scopes for gmail.send\_customer\_email to permissions.scopes or narrow the tool's declared auth requirements.
   - high SHIP-POLICY-CONFIRMATION-MISSING — gmail.send\_customer\_email lacks a declared confirmation policy

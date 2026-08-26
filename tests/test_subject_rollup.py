@@ -25,8 +25,13 @@ import json
 from pathlib import Path
 
 from agents_shipgate.ci.release_decision import _to_item
-from agents_shipgate.cli._helpers import _print_cli_summary
+from agents_shipgate.cli._helpers import (
+    _CLI_ROW_LIMIT,
+    _CLI_SUBJECT_LIMIT,
+    _print_cli_summary,
+)
 from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.cli.verify.orchestrator import _derive_verifier_control
 from agents_shipgate.core.action_semantics import (
     BUILTIN_EFFECT_OBLIGATIONS,
     missing_control_recommendation,
@@ -48,8 +53,15 @@ from agents_shipgate.core.findings.summaries import (
     summarize_tool_surface,
 )
 from agents_shipgate.core.surface_exclusions import derived_id_kind
-from agents_shipgate.report.markdown import _safe_markdown_text, render_markdown_report
+from agents_shipgate.report.markdown import (
+    _MARKDOWN_SUBJECT_LIMIT,
+    _safe_markdown_text,
+    render_markdown_report,
+)
+from agents_shipgate.report.pr_comment import _COMMENT_SUBJECT_LIMIT, render_pr_comment
+from agents_shipgate.report.pr_comment import _escape as _pr_escape
 from agents_shipgate.schemas.common import SourceReference
+from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
 from agents_shipgate.schemas.report import (
     BaselineDelta,
     EvidenceCoverageDecision,
@@ -57,6 +69,11 @@ from agents_shipgate.schemas.report import (
     Finding,
     ReadinessReport,
     ReleaseDecision,
+)
+from agents_shipgate.schemas.verifier import (
+    VerifierArtifact,
+    VerifierCapabilityReview,
+    VerifierDiffStatus,
 )
 
 SAMPLES = Path(__file__).resolve().parents[1] / "samples"
@@ -163,6 +180,47 @@ def _manifest(*, approval_declared: bool) -> str:
         "action_surface:\n"
         "  actions:\n" + actions
     )
+
+
+def _pr_comment(report) -> str:
+    """The findings-style PR comment for a scanned report.
+
+    Assembled here rather than mocked: the comment is a surface a reviewer
+    reads, and the point of the assertion it serves is that it renders the
+    same groups the other two do.
+    """
+
+    review = VerifierCapabilityReview()
+    control = _derive_verifier_control(
+        execution="succeeded",
+        merge_verdict="blocked",
+        release_decision=report.release_decision,
+        fix_task=None,
+        capability_review=review,
+        headline="h",
+        first_next_action_override=None,
+        base_status="not_requested",
+        base_ref=None,
+        diff_status=VerifierDiffStatus(completeness="complete"),
+    )
+    verifier = VerifierArtifact(
+        workspace=".",
+        diff_status=VerifierDiffStatus(),
+        config="shipgate.yaml",
+        authorization=AuthorizationEvaluationV1.not_requested(),
+        trigger={"rationale": "1 rule matched."},
+        execution="succeeded",
+        head_status="succeeded",
+        release_decision=report.release_decision,
+        decision=report.release_decision.decision,
+        merge_verdict="blocked",
+        applicability="verified",
+        headline="h",
+        control=control,
+        capability_review=review,
+        artifacts={"report_json": "agents-shipgate-reports/report.json"},
+    )
+    return render_pr_comment(verifier, report=report, style="findings")
 
 
 def _block_after(lines: list[str], header: str) -> list[str]:
@@ -516,19 +574,32 @@ def test_all_three_human_surfaces_read_the_same_groups(tmp_path):
     """One projection, or the surfaces drift back apart.
 
     Each renders its own escaping and its own budget; none of them recomputes
-    which findings belong to which subject.
+    which findings belong to which subject.  All three are exercised, because
+    a test that names three and checks two is how the third one drifts.
     """
 
     report, _out = _scan(tmp_path)
     groups = roll_up_findings(report)
-    markdown = render_markdown_report(report)
-    block = top_findings_block(groups, group_limit=99, row_limit=99)
+    assert len(groups) > 1
 
-    for group in groups:
-        assert group.subject in "\n".join(block)
-    # `report.md` carries the same subjects, through its own escaper.
-    for group in groups:
-        assert _safe_markdown_text(group.subject) in markdown
+    console = "\n".join(
+        top_findings_block(
+            groups, group_limit=_CLI_SUBJECT_LIMIT, row_limit=_CLI_ROW_LIMIT
+        )
+    )
+    surfaces = (
+        (console, _CLI_SUBJECT_LIMIT, str),
+        (render_markdown_report(report), _MARKDOWN_SUBJECT_LIMIT, _safe_markdown_text),
+        (_pr_comment(report), _COMMENT_SUBJECT_LIMIT, _pr_escape),
+    )
+    # The budgets differ on purpose — a PR comment is not a report — so what
+    # has to agree is *which* subjects each surface shows, in what order: the
+    # first N of one projection, never a different N.
+    for rendered, limit, escape in surfaces:
+        for group in groups[:limit]:
+            assert escape(group.subject) in rendered, group.subject
+        for group in groups[limit:]:
+            assert escape(group.subject) not in rendered, group.subject
 
 
 def test_truncation_says_how_much_it_hid(tmp_path):
@@ -908,3 +979,95 @@ def test_an_empty_missing_list_never_renders_a_hole():
     sentence = missing_control_recommendation(["financial_write"], [])
     assert "Declare  " not in sentence
     assert _named_controls(sentence) == BUILTIN_EFFECT_OBLIGATIONS["financial_write"]
+
+
+def test_a_finding_carrying_only_a_name_joins_that_tools_group():
+    """``checks.baseline_integrity`` emits ``tool_id=None`` with a name.
+
+    Keyed on the name, that finding opened a *second* heading beside the
+    tool's own — ``create_refund`` and ``create_refund [stripe]`` — which is
+    the second-spelling failure ``catalog_label_index`` exists to prevent,
+    arrived at from the other side.
+    """
+
+    scoped = Finding(
+        check_id="SHIP-AUTH-MISSING-SCOPE",
+        title="create_refund lacks declared auth scopes",
+        severity="high",
+        category="auth",
+        recommendation="declare them",
+        tool_id="tool_v2_aaaa",
+        tool_name="create_refund",
+        agent_id="agent:p/a",
+    )
+    unkeyed = Finding(
+        check_id="SHIP-BASELINE-INTEGRITY-MISMATCH",
+        title="create_refund baseline entry does not match",
+        severity="high",
+        category="baseline",
+        recommendation="re-save the baseline",
+        tool_id=None,
+        tool_name="create_refund",
+        agent_id="agent:p/a",
+    )
+    report = _report_with(
+        [scoped, unkeyed],
+        catalog=[{"tool_id": "tool_v2_aaaa", "name": "create_refund", "provider": "stripe"}],
+        agent={"id": "agent:p/a", "name": "a"},
+    )
+
+    (group,) = roll_up_findings(report)
+    assert group.subject == "create_refund [stripe]"
+    assert {finding.check_id for finding in group.findings} == {
+        "SHIP-AUTH-MISSING-SCOPE",
+        "SHIP-BASELINE-INTEGRITY-MISMATCH",
+    }
+
+
+def test_an_ambiguous_name_is_left_unresolved_rather_than_guessed():
+    """Two tools can share a name across sources.
+
+    Picking one would file a finding under a tool it is not about, which is
+    worse than a heading the reader has to reconcile.
+    """
+
+    unkeyed = Finding(
+        check_id="SHIP-BASELINE-INTEGRITY-MISMATCH",
+        title="create_refund baseline entry does not match",
+        severity="high",
+        category="baseline",
+        recommendation="re-save the baseline",
+        tool_id=None,
+        tool_name="create_refund",
+        agent_id="agent:p/a",
+    )
+    report = _report_with(
+        [unkeyed],
+        catalog=[
+            {"tool_id": "tool_v2_aaaa", "name": "create_refund", "provider": "stripe"},
+            {"tool_id": "tool_v2_bbbb", "name": "create_refund", "provider": "adyen"},
+        ],
+        agent={"id": "agent:p/a", "name": "a"},
+    )
+
+    (group,) = roll_up_findings(report)
+    assert group.subject == "create_refund"
+
+
+def test_the_report_never_prints_the_missing_list_twice(tmp_path):
+    """``report.md`` annotates a row with its recommendation — except where
+    the row already *is* the missing list the recommendation is derived from.
+
+    The reason the compact surfaces skip the sentence is that it repeats the
+    row in different words; that reason does not stop applying inside a
+    report.
+    """
+
+    report, out = _scan(tmp_path)
+    markdown = (out / "report.md").read_text(encoding="utf-8")
+    section = markdown.split("## Top Findings")[1].split("## Finding Provenance")[0]
+
+    assert "missing: safeguards.audit\\_log, safeguards.idempotency" in section
+    assert "Declare safeguards.audit\\_log and safeguards.idempotency" not in section
+    # A row with no missing list keeps its sentence.
+    assert "Declare an owner for each high-risk production tool" in section

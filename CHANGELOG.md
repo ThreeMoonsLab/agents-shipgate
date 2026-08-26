@@ -30,6 +30,15 @@
   `report.json` stays the flat per-finding record automation consumes, and the
   sample `report.json` goldens are byte-identical.
 
+  Two joins had to get stricter to make the grouping honest. A group blocks
+  when the *release decision* names one of its findings as a blocker, not when
+  a finding carries `blocks_release` — a baseline separates those, filing
+  accepted debt as a review item while the flag stays true. And a finding is
+  matched to a decision item by id, then by fingerprint for an item with no
+  id, then by check id and title for an item with neither, each tier holding
+  only what the tier above could not: two findings can share a fingerprint,
+  and `samples/conductor_agent` ships two that share a check id and a title.
+
 - **One action, one permission list, with no reviewed authority either.** A
   manifest row that listed `scopes:` and declared no `authority:` block at
   either site turned `verify --base` into `Internal error` (exit 4) on a legal

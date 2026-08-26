@@ -11,6 +11,7 @@ from agents_shipgate.core.findings import (
     provenance_kind_counts,
 )
 from agents_shipgate.core.findings.subject_rollup import (
+    missing_controls,
     roll_up_findings,
     rollup_headline,
     top_findings_block,
@@ -305,11 +306,17 @@ def _recommendation_note(finding: Finding) -> tuple[str, ...]:
 
     ``report.md`` is the long-form artifact, so a grouped row keeps the
     sentence that used to sit under the flat one.  The console and the PR
-    comment do not: since #364 the sentence is derived from the same
-    ``evidence.missing`` the row already prints, and repeating a fact in
-    different words is what a compact summary can least afford.
+    comment do not — they stay at one line per finding and point here.
+
+    A row whose detail is already the missing-control list gets no sentence,
+    on any surface.  Since #364 the recommendation is *derived from that
+    list*, so printing both says one fact twice in different words — and the
+    reason the compact surfaces skip it applies just as well to a row in a
+    report.
     """
 
+    if missing_controls(finding):
+        return ()
     recommendation = (finding.recommendation or "").strip()
     return (recommendation,) if recommendation else ()
 

@@ -179,6 +179,7 @@ def roll_up_findings(report: ReadinessReport) -> list[SubjectGroup]:
         [*decision.blockers, *decision.review_items] if decision else []
     )
     tool_labels = _tool_label_index(report)
+    tool_ids_by_name = _tool_id_by_name(report)
     agent_labels = _agent_label_index(report)
 
     subjects: dict[tuple[str, str], str] = {}
@@ -190,7 +191,9 @@ def roll_up_findings(report: ReadinessReport) -> list[SubjectGroup]:
             finding
         ):
             continue
-        group_key, subject = _subject(finding, tool_labels, agent_labels)
+        group_key, subject = _subject(
+            finding, tool_labels, tool_ids_by_name, agent_labels
+        )
         # The release decision is the authority on what blocks, and
         # `finding.blocks_release` is not the same claim: a policy finding
         # whose debt a baseline has accepted keeps the flag and is filed as a
@@ -327,6 +330,34 @@ def _tool_label_index(report: ReadinessReport) -> dict[str, str]:
     return labels
 
 
+def _tool_id_by_name(report: ReadinessReport) -> dict[str, str]:
+    """Tool name to canonical id, for the names that resolve to exactly one.
+
+    Not every finding about a tool carries its id: ``checks.baseline_integrity``
+    emits ``tool_id=None`` with a name, so a tool with one of those and one
+    ordinary finding produced *two* headings for one tool — ``create_refund``
+    and ``create_refund [stripe]`` — which is the second-spelling failure
+    ``catalog_label_index`` exists to prevent, arrived at from the other side.
+
+    An ambiguous name is left unresolved rather than guessed.  Two tools can
+    share a name across sources; picking one would file a finding under a tool
+    it is not about, and that is worse than a heading the reader has to
+    reconcile.
+    """
+
+    seen: dict[str, str | None] = {}
+    for row in report.tool_catalog:
+        if not isinstance(row, Mapping):
+            continue
+        tool_id = row.get("tool_id") or row.get("id")
+        name = str(row.get("name") or "").strip()
+        if not tool_id or not name:
+            continue
+        # None marks a name that more than one tool answers to.
+        seen[name] = None if name in seen else str(tool_id)
+    return {name: tool_id for name, tool_id in seen.items() if tool_id}
+
+
 def _agent_label_index(report: ReadinessReport) -> dict[str, str]:
     """The one agent a report is about, keyed by the id its findings carry.
 
@@ -352,6 +383,7 @@ def _agent_label_index(report: ReadinessReport) -> dict[str, str]:
 def _subject(
     finding: Finding,
     tool_labels: Mapping[str, str],
+    tool_ids_by_name: Mapping[str, str],
     agent_labels: Mapping[str, str],
 ) -> tuple[tuple[str, str], str]:
     """This finding's group key and the label that names it.
@@ -378,6 +410,12 @@ def _subject(
         if label:
             return ("tool", finding.tool_id), label
     if finding.tool_name:
+        # A finding that carries only a name is still about a catalog tool
+        # where the name resolves to exactly one, and keying it on the name
+        # would give that tool a second heading beside its own.
+        resolved = tool_ids_by_name.get(finding.tool_name)
+        if resolved and resolved in tool_labels:
+            return ("tool", resolved), tool_labels[resolved]
         return ("tool", f"name:{finding.tool_name}"), finding.tool_name
     name = agent_labels.get(finding.agent_id or "")
     label = f"{name} ({AGENT_WIDE_SUBJECT})" if name else AGENT_WIDE_SUBJECT
