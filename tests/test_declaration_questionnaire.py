@@ -35,6 +35,7 @@ from agents_shipgate.core.declaration_questions import (
 from agents_shipgate.core.domain import Tool, ToolRiskHint
 from agents_shipgate.core.semantic_assessment import (
     assess_tool_semantics,
+    confirmed_basis,
     declaration_covers,
     effect_readings,
     propose_effect_declaration,
@@ -475,6 +476,11 @@ def test_the_answerable_kinds_are_real_gap_kinds_and_belong_to_one_dimension() -
     assert set(DIMENSION_BY_GAP_KIND) == seen
 
 
+#: Stands in for "the pin this scan derives for that tool", which cannot be
+#: written into a static table. Substituted for the real value below.
+_PIN = "<CURRENT_PIN>"
+
+
 #: One reachable configuration per answerable kind, with the declaration that
 #: is supposed to close it. `conflicting_effect_evidence` appears twice on
 #: purpose: it is raised about two different surfaces, and only one of them is
@@ -514,7 +520,22 @@ _ROUND_TRIP_CASES: dict[str, tuple[dict, dict, dict]] = {
             "authority": {"mode": "scoped", "auth_type": "oauth2"},
         },
     ),
+    # A pinned declaration whose pin names evidence this scan does not read.
+    # The answer is the same declaration re-confirmed against what it reads
+    # now — the one-line edit the row asks for (#410 §E).
+    "declaration_drift": (
+        {"risk_hints": "external_communication"},
+        {"effect": "external_communication", "basis": "confirmed:0"},
+        {"effect": "external_communication", "basis": _PIN},
+    ),
 }
+
+
+def _with_pin(values: dict, tool) -> dict:
+    """Resolve the ``_PIN`` sentinel against what this scan reads for ``tool``."""
+
+    pin = confirmed_basis(effect_readings(assess_tool_semantics(tool, None).effect))
+    return {key: (pin if value == _PIN else value) for key, value in values.items()}
 
 
 def test_every_answerable_kind_has_an_answer_that_closes_it() -> None:
@@ -553,7 +574,9 @@ def test_every_answerable_kind_has_an_answer_that_closes_it() -> None:
 
         answered = assess_tool_semantics(
             tool,
-            ActionDeclarationConfig.model_validate({"tool": "send_email", **answer}),
+            ActionDeclarationConfig.model_validate(
+                {"tool": "send_email", **_with_pin(answer, tool)}
+            ),
         )
         tool.semantic_assessment = answered
         questions = {

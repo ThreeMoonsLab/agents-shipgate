@@ -244,13 +244,23 @@ def test_no_shipped_template_asserts_on_a_humans_behalf() -> None:
     the closed `ActionEffect` vocabulary — never from source content — and must
     arrive beside the `observed_readings` that justify it. A proposal with no
     readings under it is a guess wearing the same clothes.
+
+    `basis` is a third exception of a different kind (#410 §E), and the reason
+    it is safe is that it makes no claim about the action at all. It records
+    *which evidence the answer was written beside*, so it is a fact about this
+    scan rather than a judgement the reviewer owns — the same category as the
+    selector fields. The guard is correspondingly exact: the value must be the
+    pin this row's own readings derive, so nothing else can travel through a
+    template wearing the name.
     """
 
     from agents_shipgate.ci.release_decision import REVIEW_REQUIRED_SENTINEL
+    from agents_shipgate.core.semantic_assessment import EffectReading, confirmed_basis
     from agents_shipgate.schemas.surfaces import ActionEffect
 
     vocabulary = set(get_args(ActionEffect))
     proposals = 0
+    row_pin = ""
 
     def assert_no_assertion(node, path: str = "") -> None:
         if isinstance(node, dict):
@@ -277,6 +287,13 @@ def test_no_shipped_template_asserts_on_a_humans_behalf() -> None:
             "handoffs",
         }:
             return
+        if leaf == "basis":
+            assert node == row_pin, (
+                f"{path} = {node!r} is not the pin this row's readings derive "
+                f"({row_pin!r}); only a value the scan itself computed may be "
+                "pre-filled"
+            )
+            return
         if leaf in {"effect", "risk_tags"} and node != REVIEW_REQUIRED_SENTINEL:
             nonlocal proposals
             proposals += 1
@@ -290,8 +307,20 @@ def test_no_shipped_template_asserts_on_a_humans_behalf() -> None:
         )
 
     proposing = 0
+    pinned = 0
     for template, readings in _shipped_templates():
         before = proposals
+        row_pin = confirmed_basis(
+            [
+                EffectReading(
+                    effect=reading.effect,
+                    sources=tuple(reading.sources),
+                    observed=reading.observed,
+                )
+                for reading in readings
+            ]
+        )
+        pinned += "basis" in template
         assert_no_assertion(template)
         if proposals > before:
             proposing += 1
@@ -303,6 +332,7 @@ def test_no_shipped_template_asserts_on_a_humans_behalf() -> None:
     # assessment, every effect template keeps its sentinel and this test would
     # pass while testing nothing (PR #413 review 3).
     assert proposing, "no shipped template exercised the proposal path"
+    assert pinned, "no shipped template exercised the evidence-pin path"
 
 
 def _shipped_templates() -> list[tuple[dict, list]]:

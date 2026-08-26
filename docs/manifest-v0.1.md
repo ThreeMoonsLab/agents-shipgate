@@ -63,6 +63,34 @@ openai_api:
     - path: policies/openai-api-policy.yaml
 ```
 
+## Environment target
+
+`environment.target` says where the agent this manifest describes actually
+runs: `local`, `staging`, `production_like`, `production`, or `template`.
+
+`template` is not a deployment. It is the honest answer for a sample, an
+example, or a scaffold that ships to be copied: there is no environment, so
+there are no credentials, and asking each action which credential it runs with
+asks a question the repository cannot answer in principle. Declaring it answers
+the authority dimension once, for every action that does not say otherwise:
+
+```yaml
+environment:
+  target: template
+```
+
+It is a default, never an override. An action row's own `authority`, a
+`tool_sources[].authority` block, and an action's own `scopes:` list all win
+over it — each is the more specific statement — and a source that publishes a
+real credential is *challenged* by it exactly as a hand-written
+`authority: {mode: none}` would be, with `conflicting_authority_evidence` on
+every action that disagrees.
+
+And it is never silent. Every action it answers for is one semantic review
+concern, so a `template` repository can reach `review_required` and never
+`passed`: adopters have to state their real authority before a green gate is
+available at all.
+
 ## Supported Tool Sources
 
 - `openapi`: local OpenAPI 3.0/3.1 YAML or JSON.
@@ -736,6 +764,50 @@ never count as agreeing evidence for itself. Manual positive risk tags may escal
 but cannot prove read-only safety or independently close an effect gap. Setting
 inherited approval or safeguards from `true` to `false` emits
 `SHIP-ACTION-CONTROL-DOWNGRADE`.
+### Pinning an answer to its evidence
+
+Declarations are matched by name, so without a pin a year-old `effect: write`
+keeps passing after the function stops writing — nothing ever re-opens a
+declaration. `basis` records **which evidence this row's effect answer was
+given against**:
+
+```yaml
+action_surface:
+  actions:
+    - tool: send_email
+      effect: external_communication
+      basis: confirmed:5c6cee20f81b
+```
+
+Every scan re-derives the value from what it reads about that action and
+compares. Equal is complete silence. Different re-opens the question as a
+`declaration_drift` evidence gap that names what the action reads as *now*,
+carries the new pin, and is closed by re-reading the evidence and writing it.
+
+The pin is a fact about the scan, not a judgement you own, so
+`suggested-declarations.yaml` fills it in beside any effect answer it offers —
+keep it as written. It records what was readable, never that anyone read it,
+and it can never make an action pass-eligible by itself.
+
+The digest covers the effects the scan **observed** for the action, not the
+producers that observed them: a second heuristic reading an effect you already
+answered is not new information, so shipgate releases that add one do not
+re-open every pinned declaration at once. A reading appearing or disappearing
+does move it.
+
+`basis` requires an `effect` or non-empty `risk_tags` to pin — the two routes
+that answer the effect dimension — and takes the shape `confirmed:<hex>`. To
+pin a declaration that predates the field, write any short placeholder
+(`basis: confirmed:0`) and rescan: the `declaration_drift` row it raises names
+the exact value to write. Omitting `basis` is always legal and behaves exactly
+as manifests did before it existed.
+
+`declaration_drift` is a different statement from
+`declaration_below_inferred_evidence`. That one asks whether the declaration is
+*weaker than* today's evidence; this one asks whether today's evidence is the
+evidence that was answered at all. A change that adds a stronger reading raises
+both, and each is closed by a different edit.
+
 Agents Shipgate still creates an action fact for every loaded tool when no
 declaration is present; set
 `require_explicit_actions: true` to emit `SHIP-ACTION-UNDECLARED` for tools

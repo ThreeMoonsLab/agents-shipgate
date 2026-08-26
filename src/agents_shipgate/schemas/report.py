@@ -456,6 +456,7 @@ class EvidenceGap(BaseModel):
         "inferred_effect_only",
         "conflicting_effect_evidence",
         "declaration_below_inferred_evidence",
+        "declaration_drift",
         "missing_authority_evidence",
         "partial_authority_evidence",
         "conflicting_authority_evidence",
@@ -1181,7 +1182,7 @@ class ReadinessReport(BaseModel):
     # manifest block that answers it (``answer_path``), so the actions one
     # ``tool_sources[].authority`` block covers are one question and one
     # evidence-gap row rather than N of each (#410 increment 3).
-    report_schema_version: str = "0.38"
+    report_schema_version: str = "0.39"
     run_id: str
     request_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
     subject_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)

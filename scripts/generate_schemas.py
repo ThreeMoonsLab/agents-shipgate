@@ -58,10 +58,10 @@ Writes / verifies:
                                 (from HostGrantsBaselineArtifactV2)
 - docs/host-grants-drift-schema.v0.2.json
                                 (from HostGrantsDriftArtifactV2)
-- docs/capability-lock-schema.v0.7.json
+- docs/capability-lock-schema.v0.8.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockFileArtifactV1)
-- docs/capability-lock-diff-schema.v0.8.json
+- docs/capability-lock-diff-schema.v0.9.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockDiffArtifactV1)
 - docs/governance-benchmark-catalog-schema.v0.2.json

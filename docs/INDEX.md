@@ -38,7 +38,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.38.json`](report-schema.v0.38.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.38"`, and a declaration question carries the manifest block that answers it, so the actions one `tool_sources[].authority` block covers are one question rather than N)
+- [`report-schema.v0.39.json`](report-schema.v0.39.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.39"`, and a confirmed declaration whose evidence has since moved re-opens as a `declaration_drift` gap)
+- [`report-schema.v0.38.json`](report-schema.v0.38.json) — frozen v0.38 reference; pre-v0.39 reports validate against this
 - [`report-schema.v0.37.json`](report-schema.v0.37.json) — frozen reference (added `semantic_coverage.declaration_questions`, the questionnaire projection that says how many declarations a repository still owes)
 - [`report-schema.v0.36.json`](report-schema.v0.36.json) — frozen reference (added the `declaration_below_inferred_evidence` gap kind that records a declaration weaker than the evidence observed for it)
 - [`report-schema.v0.35.json`](report-schema.v0.35.json) — frozen v0.35 surface-exclusion-ledger reference; pre-v0.36 reports validate against this
@@ -51,7 +52,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.27.json`](report-schema.v0.27.json) — frozen v0.27 reference schema; pre-v0.28 reports validate against this
 - [`report-schema.v0.26.json`](report-schema.v0.26.json) — frozen v0.26 reference schema; pre-v0.27 reports validate against this
 - [`report-schema.v0.25.json`](report-schema.v0.25.json) — frozen v0.25 reference schema; pre-v0.26 reports validate against this
-- [`verifier-schema.v0.12.json`](verifier-schema.v0.12.json) — current JSON Schema for `verifier.json`, including the fail-closed signed authorization evaluation, the `diff_status` input-health block, and `capability_review.policy_weakening_proven`
+- [`verifier-schema.v0.13.json`](verifier-schema.v0.13.json) — current JSON Schema for `verifier.json`, including the fail-closed signed authorization evaluation, the `diff_status` input-health block, and `capability_review.policy_weakening_proven`
+- [`verifier-schema.v0.12.json`](verifier-schema.v0.12.json) — frozen v0.12 reference; pre-v0.13 verifier artifacts validate against this
 - [`verifier-schema.v0.11.json`](verifier-schema.v0.11.json) — frozen v0.11 reference; pre-v0.12 verifier artifacts validate against this
 - [`verifier-schema.v0.8.json`](verifier-schema.v0.8.json) — frozen prior JSON Schema for `verifier.json`
 - [`verifier-schema.v0.6.json`](verifier-schema.v0.6.json) — frozen v0.6 reference schema
@@ -100,9 +102,11 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`attestation-schema.v0.2.json`](attestation-schema.v0.2.json) — frozen v0.2 attestation reference
 - [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json) — frozen v0.1 attestation reference
 - [`registry-schema.v0.2.json`](registry-schema.v0.2.json) — frozen v0.2 registry reference
-- [`capability-lock-schema.v0.7.json`](capability-lock-schema.v0.7.json) — current JSON Schema for `capabilities.lock.json`; carries typed semantic evidence and remains non-gating
+- [`capability-lock-schema.v0.8.json`](capability-lock-schema.v0.8.json) — current JSON Schema for `capabilities.lock.json`; carries typed semantic evidence and remains non-gating
+- [`capability-lock-schema.v0.7.json`](capability-lock-schema.v0.7.json) — frozen v0.7 reference
 - [`capability-lock-schema.v0.6.json`](capability-lock-schema.v0.6.json) — frozen v0.6 reference; a v0.6 lock still loads and is advanced on read
-- [`capability-lock-diff-schema.v0.8.json`](capability-lock-diff-schema.v0.8.json) — current JSON Schema for semantic capability-lock diff artifacts; remains non-gating
+- [`capability-lock-diff-schema.v0.9.json`](capability-lock-diff-schema.v0.9.json) — current JSON Schema for semantic capability-lock diff artifacts; remains non-gating
+- [`capability-lock-diff-schema.v0.8.json`](capability-lock-diff-schema.v0.8.json) — frozen v0.8 reference
 - [`capability-lock-diff-schema.v0.7.json`](capability-lock-diff-schema.v0.7.json) — frozen v0.7 reference
 - [`capability-lock-schema.v0.5.json`](capability-lock-schema.v0.5.json) — frozen v0.5 binding-hash reference
 - [`capability-lock-diff-schema.v0.6.json`](capability-lock-diff-schema.v0.6.json) — frozen v0.6 diff reference
@@ -137,7 +141,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.8.json`](report-schema.v0.8.json) — frozen v0.8 reference schema; pre-v0.9 reports validate against this
 - [`report-schema.v0.7.json`](report-schema.v0.7.json) — frozen v0.7 reference schema; pre-v0.8 reports validate against this
 - [`report-schema.v0.6.json`](report-schema.v0.6.json) — frozen v0.6 reference schema; pre-v0.7 reports validate against this
-- [`packet-schema.v0.15.json`](packet-schema.v0.15.json) — JSON Schema for the Release Evidence Packet (current; emitted packets project typed policy support, evidence gaps, semantic coverage, and the static-only verdict boundary in §1)
+- [`packet-schema.v0.16.json`](packet-schema.v0.16.json) — JSON Schema for the Release Evidence Packet (current; emitted packets project typed policy support, evidence gaps, semantic coverage, and the static-only verdict boundary in §1)
+- [`packet-schema.v0.15.json`](packet-schema.v0.15.json) — frozen v0.15 reference; pre-v0.16 packets validate against this
 - [`packet-schema.v0.14.json`](packet-schema.v0.14.json) — frozen v0.14 declaration-questionnaire packet reference; pre-v0.15 packets validate against this
 - [`packet-schema.v0.11.json`](packet-schema.v0.11.json) — frozen v0.11 typed policy-evidence packet reference
 - [`packet-schema.v0.10.json`](packet-schema.v0.10.json) — frozen v0.10 binding-aware packet reference

@@ -549,6 +549,19 @@ _FROZEN_AND_CURRENT_SCHEMAS = [
     ("report-schema.v0.37.json", "report-schema.v0.38.json", "tool_source"),
     ("packet-schema.v0.14.json", "packet-schema.v0.15.json", "tool_source"),
     ("verifier-schema.v0.11.json", "verifier-schema.v0.12.json", "tool_source"),
+    ("report-schema.v0.38.json", "report-schema.v0.39.json", "declaration_drift"),
+    ("packet-schema.v0.15.json", "packet-schema.v0.16.json", "declaration_drift"),
+    ("verifier-schema.v0.12.json", "verifier-schema.v0.13.json", "declaration_drift"),
+    (
+        "capability-lock-schema.v0.7.json",
+        "capability-lock-schema.v0.8.json",
+        "declaration_drift",
+    ),
+    (
+        "capability-lock-diff-schema.v0.8.json",
+        "capability-lock-diff-schema.v0.9.json",
+        "declaration_drift",
+    ),
 ]
 
 
@@ -606,6 +619,21 @@ _PUBLISHED_SCHEMA_SHA256 = {
     "verifier-schema.v0.11.json": (
         "adbbcd85f870b8f12f060c02b090395a34ffec4f660f1994d6001a2728397090"
     ),
+    "report-schema.v0.38.json": (
+        "d3fe4fec4d5982cd9e7468b27ffb99f3b49186ecec5fd42b359f854258419b23"
+    ),
+    "packet-schema.v0.15.json": (
+        "df248acdf3e625c0d63a95cedb68229c126424729955ea147db15312589b0be3"
+    ),
+    "verifier-schema.v0.12.json": (
+        "e22d5e006cc18e6d49e6845946b89b1afe286850e2549f3848a751187e151d5d"
+    ),
+    "capability-lock-schema.v0.7.json": (
+        "a90789c318f4a4c19347be9fc440d32322f9befa0c94461d10fb718f5a276704"
+    ),
+    "capability-lock-diff-schema.v0.8.json": (
+        "c872af71d41a445d1e28065704e034b2a0a32c88a5ec9e767ad8853f4373ac20"
+    ),
 }
 
 
@@ -649,8 +677,8 @@ def test_every_emitted_artifact_validates_against_its_own_current_schema(tmp_pat
     )
 
     for artifact, schema_name in (
-        ("report.json", "report-schema.v0.38.json"),
-        ("packet.json", "packet-schema.v0.15.json"),
+        ("report.json", "report-schema.v0.39.json"),
+        ("packet.json", "packet-schema.v0.16.json"),
     ):
         payload = json.loads((tmp_path / artifact).read_text(encoding="utf-8"))
         schema = json.loads((_DOCS / schema_name).read_text(encoding="utf-8"))

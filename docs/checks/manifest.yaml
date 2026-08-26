@@ -14,6 +14,26 @@
 # docs/checks.md is human-maintained — update it by hand when the
 # user-facing prose (description/rationale/recommendation) changes.
 checks:
+- id: SHIP-TRUST-MANIFEST-UNPROTECTED
+  default_severity: low
+  mvp_tier: hygiene
+  description: No CODEOWNERS rule requires a human to approve manifest changes.
+  rationale: Every verdict rests on the manifest, so a repository that lets it change
+    unreviewed has a gate the gated work can turn off. CODEOWNERS plus branch protection
+    is what makes attestation the PR review of a protected file rather than a separate
+    ceremony.
+  fires_when: The manifest declares ci.mode strict and no CODEOWNERS file assigns an
+    owner to the manifest path, in any of the three locations GitHub reads.
+  evidence_fields:
+  - ci_mode
+  - manifest_path
+  - codeowners_path
+  - searched
+  - branch_protection
+  recommendation: Add a CODEOWNERS rule for the manifest and require review on the branch
+    it merges to. Branch protection is not statically verifiable, so this check reports
+    only the CODEOWNERS half and never moves a verdict.
+  requires_human_review: false
 - id: SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING
   default_severity: high
   mvp_tier: core

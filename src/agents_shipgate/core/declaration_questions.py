@@ -100,6 +100,12 @@ ANSWERABLE_ISSUE_KINDS: dict[DeclarationDimension, frozenset[str]] = {
             "inferred_effect_only",
             "conflicting_effect_evidence",
             "declaration_below_inferred_evidence",
+            # A pin that no longer matches its evidence is a blank again: the
+            # answer stands, and the reviewer owes a re-read of the readings
+            # this scan now publishes plus a one-line ``basis`` update (#410
+            # §E). Counted for the same reason the others are — it is work a
+            # reviewed declaration, and only a reviewed declaration, closes.
+            "declaration_drift",
         }
     ),
     "authority": frozenset(

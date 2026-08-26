@@ -125,7 +125,7 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     ]
     assert payload["verifier_read_order"][-2:] == ["request_id", "decision_id"]
     assert payload["gating_signal"] == GATING_SIGNAL
-    assert payload["verifier_schema_version"] == "0.12"
+    assert payload["verifier_schema_version"] == "0.13"
     assert payload["verify_run_schema_version"] == "shipgate.verify_run/v4"
     assert payload["human_authorization_request_schema_version"] == (
         "shipgate.human_authorization_request/v1"

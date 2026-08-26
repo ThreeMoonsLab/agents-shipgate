@@ -843,6 +843,20 @@ LLM tool advertisement, runtime-generated task, or unresolved sub-workflow.
 Make the target static and locally reviewable before release. The adapter does
 not connect to Conductor, MCP servers, or model providers to fill the gap.
 
+### SHIP-TRUST-MANIFEST-UNPROTECTED
+
+The manifest declares `ci.mode: strict`, so this repository's gate is enforced —
+and no CODEOWNERS rule assigns an owner to the manifest that decides it. Add a
+rule covering the manifest path and require review on the branch it merges to,
+so changing what the gate enforces takes a named human's approval.
+
+Guidance only: it never becomes a blocker or a review item, and it never moves a
+verdict. Branch protection lives in repository settings that no file in a
+checkout can read, so this check reports the CODEOWNERS half and says so rather
+than inferring the rest. Silent on `ci.mode: advisory`, where the manifest is not
+yet enforcing anything — `agents-shipgate doctor` names manifest protection as a
+step from adoption rung 2 to rung 3.
+
 ### SHIP-MANIFEST-STALE-SUPPRESSION
 
 A suppression references an unknown check ID or a tool that is not loaded in the

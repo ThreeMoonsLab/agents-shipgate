@@ -158,6 +158,23 @@ class ActionAuthorityConfig(BaseModel):
     reason: str | None = None
 
 
+#: Prefix of ``action_surface.actions[].basis``. A pin, not a claim: it
+#: records *which evidence* an effect answer was given against, so that when
+#: the evidence moves the question re-opens instead of the answer quietly
+#: outliving what justified it (#410 §E). Matching is by name today
+#: (``tool_id`` is optional), so without this a year-old ``effect: write``
+#: keeps passing after the function stops writing.
+CONFIRMED_BASIS_PREFIX = "confirmed:"
+
+#: Shape of the pin. Lowercase hex of any length rather than the exact width
+#: this build emits: an adopter retrofitting a pin onto an existing
+#: declaration has no way to know the digest before a scan tells them, and
+#: writing a short placeholder has to be a *drift row* naming the value —
+#: which re-opens the question, the safe outcome — rather than a config error
+#: that stops the scan. A truncated or mistyped pin lands in the same place.
+CONFIRMED_BASIS_PATTERN = r"^confirmed:[0-9a-f]{1,64}$"
+
+
 class ActionEffectOverrideConfig(BaseModel):
     """Reviewed acknowledgement that a declared effect sits below evidence.
 
@@ -223,7 +240,30 @@ class ActionDeclarationConfig(BaseModel):
                         "required": ["effect"],
                         "properties": {"effect": {"not": {"type": "null"}}},
                     },
-                }
+                },
+                {
+                    # A pin with nothing pinned. ``basis`` records the evidence
+                    # an *answer* was given against, and this row answers the
+                    # effect dimension with ``effect`` or with ``risk_tags``
+                    # (the two routes ``effect_repair`` publishes), so a pin
+                    # beside neither records a confirmation of nothing.
+                    "if": {
+                        "required": ["basis"],
+                        "properties": {"basis": {"not": {"type": "null"}}},
+                    },
+                    "then": {
+                        "anyOf": [
+                            {
+                                "required": ["effect"],
+                                "properties": {"effect": {"not": {"type": "null"}}},
+                            },
+                            {
+                                "required": ["risk_tags"],
+                                "properties": {"risk_tags": {"minItems": 1}},
+                            },
+                        ]
+                    },
+                },
             ]
         },
     }
@@ -240,6 +280,13 @@ class ActionDeclarationConfig(BaseModel):
     scopes: list[str] = Field(default_factory=list)
     authority: ActionAuthorityConfig | None = None
     override: ActionEffectOverrideConfig | None = None
+    #: The evidence this row's effect answer was given against, as
+    #: ``confirmed:<derivation id>``. Every scan re-derives the id from what it
+    #: reads about this action and compares; equal is silence, different
+    #: re-opens the question as ``declaration_drift`` (#410 §E). Optional, and
+    #: absent means unpinned — which is every manifest written before this
+    #: field existed, and which behaves exactly as it did.
+    basis: str | None = Field(default=None, pattern=CONFIRMED_BASIS_PATTERN)
     approval: ActionApprovalConfig | None = None
     safeguards: ActionSafeguardsConfig | None = None
     evidence: ActionEvidenceConfig | None = None
@@ -248,6 +295,17 @@ class ActionDeclarationConfig(BaseModel):
     @classmethod
     def validate_concrete_scopes(cls, scopes: list[str]) -> list[str]:
         return validate_authority_scopes(scopes, label="action_surface.actions[].scopes")
+
+    @model_validator(mode="after")
+    def validate_basis(self) -> ActionDeclarationConfig:
+        # Same rule the published JSON Schema states above, so an editor
+        # validating live and the CLI give one answer.
+        if self.basis is not None and self.effect is None and not self.risk_tags:
+            raise ValueError(
+                "action_surface.actions[].basis requires a declared effect or "
+                "risk_tags to pin"
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_override(self) -> ActionDeclarationConfig:

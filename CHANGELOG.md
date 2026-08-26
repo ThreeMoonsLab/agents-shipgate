@@ -2,6 +2,79 @@
 
 ## Unreleased
 
+- **A confirmed declaration is pinned to the evidence behind it.** Declarations
+  matched by name and nothing ever re-opened one, so a green gate at month
+  twelve could rest on a description of a function that no longer does what it
+  did. `action_surface.actions[].basis` records which evidence an effect answer
+  was given against, as `confirmed:<digest>`; every scan re-derives it and
+  compares. Equal is complete silence. Different re-opens the question as a
+  `declaration_drift` evidence gap that names what the action reads as now,
+  hands over the new pin, and is closed by re-reading and re-confirming.
+
+  The digest is what the questionnaire already showed the reviewer — the
+  effects the scan *observed* — so "every answer is pinned to the evidence that
+  justified it" is literal rather than approximate. It deliberately does not
+  digest the producers: a second heuristic reading an effect somebody already
+  answered is not new information about the action, and digesting it would let
+  a shipgate release re-open every pinned declaration on every adopter at once.
+  It is also stable across the arrival of the answer itself, which is the one
+  property that would otherwise make pinning worse than not pinning: confirm a
+  proposal, paste the `basis` line the scaffold stamped, rescan, and nothing is
+  raised.
+
+  Additive and unpinned-by-default: every manifest written before this field
+  existed behaves exactly as it did. `suggested-declarations.yaml` stamps the
+  pin on every effect answer it offers, so new answers arrive pinned; to pin an
+  existing declaration, write any short placeholder (`basis: confirmed:0`) and
+  rescan — the drift row names the value. A pin is a fact about the scan rather
+  than a judgement, so it may be pre-filled and can never make an action
+  pass-eligible on its own.
+
+  `declaration_drift` is a different statement from
+  `declaration_below_inferred_evidence`, and a change that adds a stronger
+  reading raises both: one asks whether the declaration is *weaker than*
+  today's evidence, the other whether today's evidence is what was answered at
+  all. Each is closed by a different edit.
+
+- **`environment.target: template`, for a repository that ships to be copied.**
+  A sample has no deployment, so it has no credentials, and asking each of its
+  actions which credential it runs with asks a question the repository cannot
+  answer in principle — both repositories the adoption walks used were of
+  exactly this kind, and `authority: {mode: none}` written twelve times is the
+  same claim spelled at cost. Declaring `template` answers the authority
+  dimension once, for every action that does not say otherwise.
+
+  A default, never an override: an action row's `authority`, a
+  `tool_sources[].authority` block, and an action's own `scopes:` list each win
+  over it, and a source that publishes a real credential is challenged by it
+  exactly as a hand-written `mode: none` would be. And never silent: every
+  action it answers for is one semantic review concern, so a template
+  repository can reach `review_required` and never `passed`. Stating real
+  authority stays the price of a green gate.
+
+- **`SHIP-TRUST-MANIFEST-UNPROTECTED` — who may change the gate.** Every verdict
+  rests on the manifest, so a repository that lets it change unreviewed has a
+  gate the gated work can turn off. Attestation is the PR review of a protected
+  file rather than a separate ceremony, and CODEOWNERS is the half of that a
+  checkout can prove. The finding fires only where the manifest is load-bearing
+  — the manifest's own `ci.mode: strict` — and it never moves a verdict:
+  `low`, never a review item, because branch protection lives in repository
+  settings no file here can read and deciding on the visible half alone would
+  be the pretending it exists to avoid.
+
+- **`doctor` says which rung of the adoption ladder you are on.** Every
+  intermediate state of an adoption reads like a failure: a manifest with no
+  declarations reports `insufficient_evidence`, which is accurate and sounds
+  broken. `doctor` now names the rung — 0 Audit, 1 Gate the delta, 2 Answer on
+  touch, 3 Strict — says what it is worth on its own, and names only the
+  conditions that are actually unmet to reach the next one. Published on
+  `doctor --json` as `adoption`. A workspace with no manifest is told it is on
+  rung 0 rather than only that a file is missing.
+
+  Report schema 0.38 → 0.39, packet 0.15 → 0.16, verifier 0.12 → 0.13,
+  capability lock 0.7 → 0.8, capability-lock diff 0.8 → 0.9; all additive, all
+  prior versions frozen, hash-pinned, and read forward.
+
 - **One action, one permission list, with no reviewed authority either.** A
   manifest row that listed `scopes:` and declared no `authority:` block at
   either site turned `verify --base` into `Internal error` (exit 4) on a legal

@@ -257,6 +257,9 @@ _GAP_PHRASE: dict[str, str] = {
     "declaration_below_inferred_evidence": (
         "a declared effect does not account for the evidence inferred for it"
     ),
+    "declaration_drift": (
+        "a confirmed declaration no longer matches the evidence behind it"
+    ),
     "missing_authority_evidence": "an action has no declared authority",
     "partial_authority_evidence": "an action's authority is only partly declared",
     "conflicting_authority_evidence": "an action carries conflicting authority evidence",

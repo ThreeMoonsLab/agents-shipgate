@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from agents_shipgate.config.loader import load_manifest_text, manifest_read_error
+from agents_shipgate.core.adoption_ladder import adoption_rung
 from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
     CodexPluginArtifacts,
@@ -15,6 +16,7 @@ from agents_shipgate.core.artifact_models import (
     OpenAIApiArtifacts,
 )
 from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.manifest_protection import manifest_protection
 from agents_shipgate.core.privacy import RedactionStats, redact_data
 from agents_shipgate.inputs.policy_packs import load_policy_packs
 from agents_shipgate.inputs.protocol import REGISTRY
@@ -145,6 +147,7 @@ def inspect_sources(
     # Some adapters expose the same warnings through both LoadedToolSource
     # and the artifact bag; keep doctor warning output stable and unique.
     warnings = list(dict.fromkeys(warnings))
+    rung = adoption_rung(manifest, manifest_protection(config_path))
     payload = {
         "project": manifest.project.name,
         "agent": manifest.agent.name,
@@ -185,6 +188,17 @@ def inspect_sources(
         "baseline": _default_baseline_status(base_dir),
         "warnings": warnings,
         "unresolved_sources": unresolved_sources,
+        # Where this adoption stands, and the one thing that moves it up
+        # (#410 §G). Derived from the manifest and the checkout only, because
+        # `doctor` answers before any report exists — see
+        # ``core.adoption_ladder``.
+        "adoption": {
+            "rung": rung.number,
+            "name": rung.name,
+            "you_get": rung.you_get,
+            "exit_criterion": rung.exit_criterion,
+            "blocking": list(rung.blocking),
+        },
         "manifest_summary": {
             "environment_target": manifest.environment.target,
             "has_permissions": bool(

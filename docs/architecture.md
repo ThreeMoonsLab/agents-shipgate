@@ -3,7 +3,7 @@
 A single-page summary of the `agents-shipgate` codebase for new
 contributors and AI coding agents extending the project. Current as of
 2026-07-13; auto-checked against `agents-shipgate contract --json`:
-runtime contract `24`, report schema `v0.38`, packet schema `v0.15`.
+runtime contract `24`, report schema `v0.39`, packet schema `v0.16`.
 
 For the per-field stability contract, see
 [`../STABILITY.md`](../STABILITY.md). For the agent-facing field index,
@@ -327,9 +327,9 @@ bounds parsed from factories are counted in `source.toolkit_bound_count`
 but are not yet emitted as capability facts, so widening a dynamic
 factory's authority bound is a known limitation until a later phase
 adds non-enumerable authority facts. The current schema is
-[`capability-lock-schema.v0.7.json`](capability-lock-schema.v0.7.json);
+[`capability-lock-schema.v0.8.json`](capability-lock-schema.v0.8.json);
 diff artifacts use
-[`capability-lock-diff-schema.v0.8.json`](capability-lock-diff-schema.v0.8.json).
+[`capability-lock-diff-schema.v0.9.json`](capability-lock-diff-schema.v0.9.json).
 Both carry `experimental: false`. Old experimental v0.1 lock inputs
 remain readable by `capability diff`, and so is a lock declaring any prior
 schema this runtime still normalizes; new exports use v0.7 and carry the
@@ -521,7 +521,7 @@ containment); files larger than 10 MB rejected.
 
 `scan` emits a reviewer-shaped artifact alongside `report.{md,json,sarif}`
 whenever `output.packet.enabled` is true (default). The packet has its
-own JSON contract ([`packet-schema.v0.15.json`](packet-schema.v0.15.json))
+own JSON contract ([`packet-schema.v0.16.json`](packet-schema.v0.16.json))
 so the report schema stays minimal.
 
 The packet is derived from the in-memory scan (manifest, tools,
@@ -665,10 +665,10 @@ contract. Headlines:
 
 - **Manifest schema** stable across `0.x` (`version: "0.1"`).
 - **Report JSON shape** is additive across the `0.x` line. Current
-  `report_schema_version: "0.38"`; older schemas frozen as
+  `report_schema_version: "0.39"`; older schemas frozen as
   `docs/report-schema.v0.N.json`.
 - **Packet JSON shape** is additive across the `0.x` line. Current
-  `packet_schema_version: "0.15"`; older schemas frozen.
+  `packet_schema_version: "0.16"`; older schemas frozen.
 - **Exit codes**: `0` pass, `2` manifest config error, `3` input
   parse error, `4` other error, `6` baseline integrity failure (strict
   `baseline verify` only), `20` strict-mode gate failure.

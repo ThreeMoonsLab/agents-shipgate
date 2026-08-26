@@ -6,7 +6,7 @@ This document is the contract. If the runtime ever diverges from what's document
 
 Shipgate is pre-1.0. The CLI surface, exit codes, and `contract_version`
 described here are stable within the `0.x` line, but the `report.json` schema
-(`report_schema_version`, currently `0.38`) is still additive-versioned and
+(`report_schema_version`, currently `0.39`) is still additive-versioned and
 not yet frozen. A `1.0` line will not begin until the report schema reaches
 `1.0` and holds without a breaking change. Pin a version (or the Action tag)
 for reproducible CI.
@@ -2160,7 +2160,7 @@ release decision. That action may be `detect`/`initialize` for
 relevant unconfigured repos, or `verify` for configured repos. Use it as the
 first touch on a repo or PR before committing to a full scan.
 
-`verifier.json` is governed by [`docs/verifier-schema.v0.12.json`](docs/verifier-schema.v0.12.json).
+`verifier.json` is governed by [`docs/verifier-schema.v0.13.json`](docs/verifier-schema.v0.13.json).
 Verifier v0.1 through v0.8 remain frozen references — a published schema
 identifier never gains an emitted field, so `0.9` carries
 `capability_review.policy_weakening_proven` and `0.8` keeps the bytes every
@@ -2360,10 +2360,10 @@ infer runtime routing, or execute tools. Action Surface Diff policy findings
 can affect release gating through `findings[].blocks_release`; Tool Surface
 Diff remains explanatory only.
 
-### Release Evidence Packet (v0.15)
+### Release Evidence Packet (v0.16)
 
 `agents-shipgate-reports/packet.json` is a supporting/provisional reviewer
-artifact governed by [`docs/packet-schema.v0.15.json`](docs/packet-schema.v0.15.json).
+artifact governed by [`docs/packet-schema.v0.16.json`](docs/packet-schema.v0.16.json).
 v0.12 adds request, subject, input-set, engine-requirement, and decision IDs
 while preserving the report release decision as the only gate. v0.11 and
 earlier packets validate against their matching frozen schemas. v0.11 added
@@ -2499,7 +2499,7 @@ those identities should not be recorded.
 envelope to `.agents-shipgate/capabilities.lock.json` and, by default, a
 byte-identical generated mirror at
 `agents-shipgate-reports/capabilities.lock.json`. The current lock schema is
-[`docs/capability-lock-schema.v0.7.json`](docs/capability-lock-schema.v0.7.json)
+[`docs/capability-lock-schema.v0.8.json`](docs/capability-lock-schema.v0.8.json)
 and emitted locks carry `capability_lock_schema_version: "0.7"` plus
 `experimental: false`. Prior schemas stay frozen; a lock declaring `0.6` is
 advanced to `0.7` on read, so nothing needs regenerating.
@@ -2507,7 +2507,7 @@ advanced to `0.7` on read, so nothing needs regenerating.
 `agents-shipgate capability diff` compares two lockfiles and emits added,
 removed, `reidentified`, semantic `changed`, and `evidence_changed` rows. The
 current diff schema is
-[`docs/capability-lock-diff-schema.v0.8.json`](docs/capability-lock-diff-schema.v0.8.json)
+[`docs/capability-lock-diff-schema.v0.9.json`](docs/capability-lock-diff-schema.v0.9.json)
 and emitted diffs carry `capability_lock_diff_schema_version: "0.8"` plus
 `experimental: false`. `reidentified` is the scope/resource case: scope is part
 of capability identity, so a scope escalation changes the id and is paired by

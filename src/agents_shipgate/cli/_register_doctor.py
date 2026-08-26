@@ -25,6 +25,7 @@ from agents_shipgate.cli.setup_control import (
 )
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.config.loader import manifest_read_error
+from agents_shipgate.core.adoption_ladder import AUDIT_RUNG
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.environment import environment_report
@@ -203,6 +204,11 @@ def register(app: typer.Typer) -> None:
             # counterexample that promise cannot survive. Nothing was inspected,
             # so it is `setup_incomplete` with no artifact and no authority.
             typer.echo(f"Config error: {exc}", err=True)
+            # No manifest is a rung, not only a failure (#410 §G). A repository
+            # with none still gets the audit — the state both adoption-walk
+            # targets were actually in — so say where that leaves the adopter
+            # before sending them to write one.
+            typer.echo(f"Adoption: {AUDIT_RUNG.summary()}", err=True)
             diagnostics = _diagnose_config_error(
                 config=config, workspace=workspace, exc=exc
             )
@@ -275,6 +281,12 @@ def register(app: typer.Typer) -> None:
                     # install/enable diagnostic instead of the generic
                     # INVALID-MANIFEST "edit shipgate.yaml" recovery.
                     typer.echo(f"Config error: {exc}", err=True)
+                    # Absent, not broken. A manifest that does not exist is
+                    # rung 0 and the adopter is not stuck; a manifest that
+                    # exists and fails to load is a defect and this line would
+                    # be the wrong answer to it (#410 §G).
+                    if not path.is_file():
+                        typer.echo(f"Adoption: {AUDIT_RUNG.summary()}", err=True)
                     diagnostics = _diagnose_config_error(
                         config=str(path), workspace=None, exc=exc
                     )
@@ -417,6 +429,18 @@ def register(app: typer.Typer) -> None:
             typer.echo(f"Project: {payload['project']}")
             typer.echo(f"Agent: {payload['agent']}")
             typer.echo(f"Total tools: {payload['total_tools']}")
+            adoption = payload.get("adoption")
+            if isinstance(adoption, dict):
+                # Where this adoption stands and what moves it up (#410 §G).
+                # Printed beside the manifest facts rather than at the end: an
+                # adopter reading `doctor` is asking "am I set up?", and the
+                # rung is the answer to that question.
+                typer.echo(
+                    f"Adoption: rung {adoption['rung']} · {adoption['name']} — "
+                    f"{adoption['you_get']}"
+                )
+                if adoption.get("exit_criterion"):
+                    typer.echo(f"  Next rung: {adoption['exit_criterion']}")
             for source in payload["sources"]:
                 typer.echo(
                     f"- {source['id']} ({source['type']}): {source['tool_count']} tools"

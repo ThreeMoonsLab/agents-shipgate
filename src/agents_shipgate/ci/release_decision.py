@@ -24,6 +24,7 @@ from agents_shipgate.core.declaration_questions import (
 from agents_shipgate.core.domain import (
     DECLARATION_OVERRIDE_SOURCE,
     DECLARED_SOURCE_AUTHORITY_SOURCE,
+    ENVIRONMENT_TEMPLATE_AUTHORITY_SOURCE,
     SemanticIssueKind,
     Tool,
     ToolSemanticAssessment,
@@ -37,9 +38,14 @@ from agents_shipgate.core.evidence_actions import (
     yaml_scalar,
 )
 from agents_shipgate.core.semantic_assessment import (
+    EffectReading,
+    confirmed_basis,
+    declared_effect_of,
+    declared_risk_tags_of,
     effect_readings,
     effect_repair,
     propose_effect_declaration,
+    render_effect_readings,
 )
 from agents_shipgate.core.source_warnings import unresolved_adk_tool_symbols
 from agents_shipgate.core.surface_exclusions import (
@@ -1133,6 +1139,19 @@ def _semantic_coverage(
             review_concern_count += 1
             _increment(reason_counts, f"{mode}_authority")
 
+        # An authority nobody stated about this action, supplied by the
+        # repository-wide ``environment.target: template`` claim (#410 §G).
+        # Accepted — a template genuinely has no credentials — and never
+        # silent: a review concern is the tier that cannot reach ``passed``
+        # and cannot block, which is exactly the standing of a repository
+        # that has not yet said what it will run as.
+        if any(
+            claim.source == ENVIRONMENT_TEMPLATE_AUTHORITY_SOURCE
+            for claim in assessment.authority.claims
+        ):
+            review_concern_count += 1
+            _increment(reason_counts, "template_environment_authority")
+
         # An acknowledged effect override is accepted — the declaration stands
         # and the action stays pass-eligible — but it is never silent (#409).
         # A review concern is exactly that tier: it cannot reach ``passed`` and
@@ -1600,11 +1619,13 @@ def _semantic_gap(
             declaration_template = {
                 **_action_selector(tool),
                 "effect": REVIEW_REQUIRED_SENTINEL,
+                **_evidence_pin(tool, observed_readings),
             }
         else:
             declaration_template = {
                 **_action_selector(tool),
                 "effect": proposal.effect,
+                **_evidence_pin(tool, observed_readings),
             }
             tags = ""
             if proposal.risk_tags:
@@ -1612,7 +1633,10 @@ def _semantic_gap(
                 # named as reviewed risk tags — which both accounts for them
                 # and makes each category's built-in controls apply. Same route
                 # ``effect_repair`` publishes for the post-declaration case.
+                basis = declaration_template.pop("basis", None)
                 declaration_template["risk_tags"] = list(proposal.risk_tags)
+                if basis is not None:
+                    declaration_template["basis"] = basis
                 tags = f" with risk_tags: [{', '.join(proposal.risk_tags)}]"
             expects = (
                 f"Confirm effect: {proposal.effect}{tags} — the conservative "
@@ -1651,12 +1675,14 @@ def _semantic_gap(
                 **_action_selector(tool),
                 "risk_tags": list(repair.risk_tags),
                 "override": override_block,
+                **_evidence_pin(tool, observed_readings),
             }
         else:
             accepted_values = list(_ACTION_EFFECT_VALUES)
             declaration_template = {
                 **_action_selector(tool),
                 "override": override_block,
+                **_evidence_pin(tool, observed_readings),
             }
         first_route = (
             repair.instruction
@@ -1667,6 +1693,54 @@ def _semantic_gap(
             f"{first_route}, or acknowledge the difference with an override "
             "naming the evidence you checked and why it does not apply, then "
             "rerun verification."
+        )
+    elif kind == "declaration_drift":
+        # The answer is not in question — the pin is. A declaration this scan
+        # disagrees with in *substance* raises its own row
+        # (``declaration_below_inferred_evidence`` when it is now too weak, a
+        # conflict when policy-eligible evidence outranks it), so this row is
+        # the one edit those do not cover: the evidence behind the answer moved
+        # and nobody has looked since.
+        #
+        # It stays ``declare_action_effect`` because that is the claim being
+        # asked for, and the contract's ``do_not_auto_assert`` list is keyed on
+        # the claim, not on the file.
+        action_kind = "declare_action_effect"
+        accepted_values = list(_ACTION_EFFECT_VALUES)
+        action_why = (
+            "A confirmed declaration is pinned to the evidence that justified "
+            "it, and that evidence has changed."
+        )
+        assessment = tool.semantic_assessment
+        declared = declared_effect_of(assessment.effect) if assessment is not None else None
+        declared_tags = (
+            list(declared_risk_tags_of(assessment.effect)) if assessment is not None else []
+        )
+        pin = _evidence_pin(tool, observed_readings)
+        declaration_template = {
+            **_action_selector(tool),
+            # The answer as it stands. Carried so the block is a faithful
+            # replacement for the row it re-confirms rather than a lossy one:
+            # a reviewer who keeps their answer pastes this unchanged.
+            **({"effect": declared} if declared is not None else {}),
+            **({"risk_tags": declared_tags} if declared_tags else {}),
+            **pin,
+        }
+        now_reads = render_effect_readings(observed_readings)
+        reading_clause = (
+            f"This action now reads {now_reads}."
+            if now_reads
+            else "Nothing is observed about this action's effect any more."
+        )
+        pin_clause = (
+            f"set basis: {pin['basis']}"
+            if pin
+            else "re-confirm the declaration"
+        )
+        expects = (
+            f"{reading_clause} Re-read the evidence this row lists, keep or "
+            f"correct the declared effect, and {pin_clause} under "
+            "action_surface.actions in shipgate.yaml, then rerun verification."
         )
     elif kind == "partial_authority_evidence":
         # Not a declaration question, and the row must not pretend otherwise.
@@ -1993,6 +2067,31 @@ def _semantic_gap_path(kind: str, tool: Tool, issue_source: str | None = None) -
     # One derivation of where a declaration answer goes, so a row can never
     # publish a route the questionnaire numbers under a different block.
     return declaration_answer_target(tool, kind).path
+
+
+def _evidence_pin(tool: Tool, readings: Sequence[EffectReading]) -> dict[str, object]:
+    """The ``basis`` line that pins an effect answer to what this scan read.
+
+    Emitted on every effect-answer template, including the blank one and the
+    one where nothing was observed: the pin records *which evidence the answer
+    was given against*, and "none" is an evidence state that can change. An
+    action a reviewer declared out of their own knowledge, with nothing in the
+    repository to derive it from, is precisely the one that should re-open the
+    day the scanner starts seeing something.
+
+    Not an assertion about the reviewer. It does not claim anyone read the
+    readings — only that the answer was written while they were what they were.
+    That is what makes it safe to pre-fill beside a proposal, and it is why
+    ``basis`` alone can never make an action pass-eligible.
+
+    ``{}`` when the tool has no assessment: there is then no evidence set to
+    name, and an empty digest would read as "nothing observed" rather than
+    "nothing resolved".
+    """
+
+    if tool.semantic_assessment is None:
+        return {}
+    return {"basis": confirmed_basis(readings)}
 
 
 def _action_selector(tool: Tool) -> dict[str, object]:
@@ -2574,7 +2673,14 @@ def _decision_reason(
             authority = (
                 counts.get("unscoped_authority", 0) + counts.get("ambient_authority", 0)
             )
+            template = counts.get("template_environment_authority", 0)
             phrases: list[str] = []
+            if template:
+                noun, verb = ("action", "takes") if template == 1 else ("actions", "take")
+                phrases.append(
+                    f"{template} {noun} {verb} authority from "
+                    "environment.target: template, which declares none"
+                )
             if authority:
                 noun, verb = ("action", "uses") if authority == 1 else ("actions", "use")
                 phrases.append(
@@ -2590,7 +2696,10 @@ def _decision_reason(
             # appear: the sentence claims to explain why review is required,
             # so a concern it cannot name must still be counted.
             remainder = (
-                evidence.semantic_coverage.review_concern_count - authority - overrides
+                evidence.semantic_coverage.review_concern_count
+                - authority
+                - overrides
+                - template
             )
             if remainder > 0:
                 noun = "concern" if remainder == 1 else "concerns"
