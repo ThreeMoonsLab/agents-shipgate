@@ -79,12 +79,15 @@ environment:
   target: template
 ```
 
-It is a default, never an override. An action row's own `authority`, a
-`tool_sources[].authority` block, and an action's own `scopes:` list all win
-over it — each is the more specific statement — and a source that publishes a
-real credential is *challenged* by it exactly as a hand-written
-`authority: {mode: none}` would be, with `conflicting_authority_evidence` on
-every action that disagrees.
+It is a default, never an override, and it applies only where nothing else
+answers the question. An action row's own `authority`, a
+`tool_sources[].authority` block, an action's own `scopes:` list, and anything
+the tool **source** publishes all win over it — each is the more specific
+statement. That last one is not a nicety: the reviewed record supplies the
+whole permission list, so applying it over a tool that publishes
+`oauth2 + docs:read` would empty that action's `required_scopes` and
+`SHIP-AUTH-SCOPE-COVERAGE-MISSING` would stop seeing anything to cover.
+Declaring `template` may add rows; it never removes one.
 
 And it is never silent. Every action it answers for is one semantic review
 concern, so a `template` repository can reach `review_required` and never

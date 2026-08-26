@@ -380,6 +380,12 @@ def register(app: typer.Typer) -> None:
                         payload.get("codex_plugin_surface"),
                         payload.get("frameworks"),
                         payload.get("manifest_summary"),
+                        # The adoption rung is not a route, but it is published
+                        # and it can move without the manifest text moving —
+                        # a CODEOWNERS rule is one of its inputs. Naming it
+                        # keeps the identity a boundary for the whole answer
+                        # rather than for most of it.
+                        payload.get("adoption"),
                         placeholders,
                     ),
                 ),

@@ -52,17 +52,20 @@ class ManifestProtection:
     #: The CODEOWNERS file that was read, or ``None`` when there is none.
     codeowners_path: str | None
     #: True when a rule in that file assigns an owner to the manifest.
+    #:
+    #: Named for what it establishes and not for what it suggests. "Reviewed"
+    #: would be the second half of the property — CODEOWNERS *plus* branch
+    #: protection — and this checkout cannot see the second half, so a field
+    #: called ``reviewed`` would claim it. Callers that want the stronger
+    #: statement have to say so themselves.
     covered: bool
     #: The rule that decided it — the last one to match. ``None`` when none did.
+    #: Repository-controlled text, like ``owners``: carried for a caller that
+    #: needs to explain the decision, and deliberately not published in any
+    #: finding, where source content has no business being.
     matching_pattern: str | None
     #: The owners that rule names, in file order.
     owners: tuple[str, ...]
-
-    @property
-    def reviewed(self) -> bool:
-        """True when changing the manifest requires a named owner's review."""
-
-        return self.covered
 
 
 def manifest_protection(config_path: Path) -> ManifestProtection:

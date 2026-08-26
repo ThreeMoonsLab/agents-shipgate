@@ -598,14 +598,14 @@ def _in_manifest_field_order(template: dict[str, Any]) -> dict[str, Any]:
     in and inventing one would be worse than the one the builder chose.
     """
 
-    keys = list(template)
+    original = {key: index for index, key in enumerate(template)}
     return {
         key: template[key]
         for key in sorted(
-            keys,
+            original,
             key=lambda item: (
                 _MANIFEST_FIELD_ORDER.get(item, len(_MANIFEST_FIELD_ORDER)),
-                keys.index(item),
+                original[item],
             ),
         )
     }

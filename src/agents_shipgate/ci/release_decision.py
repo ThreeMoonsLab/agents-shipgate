@@ -41,7 +41,6 @@ from agents_shipgate.core.semantic_assessment import (
     EffectReading,
     confirmed_basis,
     declared_effect_of,
-    declared_risk_tags_of,
     effect_readings,
     effect_repair,
     propose_effect_declaration,
@@ -1145,7 +1144,7 @@ def _semantic_coverage(
         # silent: a review concern is the tier that cannot reach ``passed``
         # and cannot block, which is exactly the standing of a repository
         # that has not yet said what it will run as.
-        if any(
+        if assessment.authority.status == "declared" and any(
             claim.source == ENVIRONMENT_TEMPLATE_AUTHORITY_SOURCE
             for claim in assessment.authority.claims
         ):
@@ -1633,10 +1632,7 @@ def _semantic_gap(
                 # named as reviewed risk tags — which both accounts for them
                 # and makes each category's built-in controls apply. Same route
                 # ``effect_repair`` publishes for the post-declaration case.
-                basis = declaration_template.pop("basis", None)
                 declaration_template["risk_tags"] = list(proposal.risk_tags)
-                if basis is not None:
-                    declaration_template["basis"] = basis
                 tags = f" with risk_tags: [{', '.join(proposal.risk_tags)}]"
             expects = (
                 f"Confirm effect: {proposal.effect}{tags} — the conservative "
@@ -1713,17 +1709,17 @@ def _semantic_gap(
         )
         assessment = tool.semantic_assessment
         declared = declared_effect_of(assessment.effect) if assessment is not None else None
-        declared_tags = (
-            list(declared_risk_tags_of(assessment.effect)) if assessment is not None else []
-        )
         pin = _evidence_pin(tool, observed_readings)
         declaration_template = {
             **_action_selector(tool),
-            # The answer as it stands. Carried so the block is a faithful
-            # replacement for the row it re-confirms rather than a lossy one:
-            # a reviewer who keeps their answer pastes this unchanged.
+            # The answer as it stands, so the reviewer can see what they are
+            # re-confirming beside the readings it is being re-confirmed
+            # against. Deliberately only the declared effect: this block is a
+            # merge instruction, and the reviewed ``risk_tags`` a row may also
+            # carry are not fully recoverable from the resolved claims — only
+            # the tags that map to an effect produce one — so offering a
+            # partial list would present a lossy replacement as a faithful one.
             **({"effect": declared} if declared is not None else {}),
-            **({"risk_tags": declared_tags} if declared_tags else {}),
             **pin,
         }
         now_reads = render_effect_readings(observed_readings)
@@ -2675,12 +2671,6 @@ def _decision_reason(
             )
             template = counts.get("template_environment_authority", 0)
             phrases: list[str] = []
-            if template:
-                noun, verb = ("action", "takes") if template == 1 else ("actions", "take")
-                phrases.append(
-                    f"{template} {noun} {verb} authority from "
-                    "environment.target: template, which declares none"
-                )
             if authority:
                 noun, verb = ("action", "uses") if authority == 1 else ("actions", "use")
                 phrases.append(
@@ -2691,6 +2681,12 @@ def _decision_reason(
                 verb = "sits" if overrides == 1 else "sit"
                 phrases.append(
                     f"{overrides} acknowledged {noun} {verb} below inferred effect evidence"
+                )
+            if template:
+                noun, verb = ("action", "takes") if template == 1 else ("actions", "take")
+                phrases.append(
+                    f"{template} {noun} {verb} authority from "
+                    "environment.target: template, which declares none"
                 )
             # Anything this function does not have a phrase for still has to
             # appear: the sentence claims to explain why review is required,

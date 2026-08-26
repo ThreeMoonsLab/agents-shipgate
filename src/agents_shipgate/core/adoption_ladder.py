@@ -87,7 +87,7 @@ def adoption_rung(
     strict = manifest.ci.mode == "strict"
     answered = _has_reviewed_declaration(manifest)
 
-    if answered and strict and protection.reviewed:
+    if answered and strict and protection.covered:
         return AdoptionRung(
             number=3,
             name="Strict",
@@ -147,7 +147,7 @@ def _blocking(*, strict: bool, protection: ManifestProtection) -> tuple[str, ...
     reasons: list[str] = []
     if not strict:
         reasons.append("ci_mode_not_strict")
-    if not protection.reviewed:
+    if not protection.covered:
         reasons.append("manifest_unprotected")
     return tuple(reasons)
 

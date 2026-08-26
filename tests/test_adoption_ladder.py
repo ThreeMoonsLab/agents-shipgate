@@ -32,7 +32,10 @@ from agents_shipgate.core.manifest_protection import (
     manifest_protection,
 )
 from agents_shipgate.core.semantic_assessment import assess_tool_semantics
-from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.manifest import (
+    ActionDeclarationConfig,
+    AgentsShipgateManifest,
+)
 
 # --------------------------------------------------------------------------
 # environment.target: template
@@ -186,19 +189,152 @@ def test_a_template_never_empties_a_declared_permission_list(tmp_path: Path) -> 
     assert facts[0].required_scopes == ["crm:delete"]
 
 
-def test_a_template_that_publishes_a_credential_is_challenged(tmp_path: Path) -> None:
-    """A "template" whose source publishes an OAuth scope is a manifest
-    disagreeing with itself. The claim is normalized like every other reviewed
-    authority, so it is held to the same conflict rule.
+def test_a_template_never_subtracts_what_a_source_published(tmp_path: Path) -> None:
+    """The fail-open this claim is one line away from.
+
+    The reviewed record supplies the *whole* permission list, so applying a
+    repository-wide "nothing here holds a credential" over a tool that
+    publishes `oauth2 + docs:read` would empty that action's
+    `required_scopes` — and `SHIP-AUTH-SCOPE-COVERAGE-MISSING` would silently
+    stop seeing anything to cover. A statement about deployment may not
+    subtract evidence a source proved, so the claim simply does not apply to
+    an action whose source published one.
     """
 
     tool = dict(_READ_ONLY_TOOL)
     tool["auth"] = {"type": "oauth2", "scopes": ["docs:read"]}
-    decision = _scan(tmp_path, _workspace(_mk(tmp_path), tools=[tool]))
 
-    assert decision.evidence_coverage.semantic_coverage.reason_counts.get(
-        "conflicting_authority_evidence"
+    def findings_and_scopes(target: str) -> tuple[set[str], list[str]]:
+        root = _mk(tmp_path / target)
+        config = _workspace(root, tools=[tool], target=target)
+        report, _ = run_scan(
+            config_path=config,
+            output_dir=root / "out",
+            formats=["json"],
+            ci_mode="advisory",
+            packet_enabled=False,
+        )
+        return (
+            {finding.check_id for finding in report.findings},
+            list(report.action_surface_facts.actions[0].required_scopes),
+        )
+
+    local_findings, local_scopes = findings_and_scopes("local")
+    template_findings, template_scopes = findings_and_scopes("template")
+
+    assert "SHIP-AUTH-SCOPE-COVERAGE-MISSING" in local_findings
+    assert local_scopes == ["docs:read"]
+    # Declaring `template` may add rows; it may never remove one.
+    assert local_findings <= template_findings
+    assert template_scopes == local_scopes
+
+
+_AUTH_SHAPES: tuple[dict, ...] = (
+    {},
+    {"type": "oauth2", "scopes": ["a:read"]},
+    {"type": "api_key"},
+    {"scopes": ["a:read"]},
+    {"mode": "none"},
+    {"mode": "ambient"},
+    {"mode": "unscoped"},
+    {"explicit": True},
+    {"invalid_annotations": ["not a boolean"]},
+    {"alternatives": [{"anonymous": True, "schemes": []}]},
+    {
+        "alternatives": [
+            {
+                "anonymous": False,
+                "schemes": [{"name": "o", "type": "oauth2", "scopes": ["a:read"]}],
+            },
+            {"anonymous": False, "schemes": [{"name": "k", "type": "apiKey", "scopes": []}]},
+        ]
+    },
+)
+
+_DECLARATION_SHAPES: tuple[dict | None, ...] = (
+    None,
+    {"effect": "read"},
+    {"effect": "read", "scopes": ["a:read"]},
+    {"effect": "read", "authority": {"mode": "scoped", "auth_type": "oauth2"},
+     "scopes": ["a:read"]},
+)
+
+
+def test_the_template_claim_only_ever_stands_where_it_is_the_answer() -> None:
+    """Why counting it needs no case analysis, pinned rather than assumed.
+
+    The concern counter guards on `status == "declared"` so it can never
+    describe a contested authority as one taken from the template. That guard
+    is a no-op today *because* the claim is only built where nothing else
+    published anything — and this sweep is what makes that an invariant rather
+    than a coincidence. If a future change let the claim apply over ambiguous
+    or invalid source evidence, this fails and the guard starts earning its
+    keep instead of quietly becoming a lie.
+    """
+
+    from agents_shipgate.core.domain import Tool
+
+    standing = 0
+    for auth in _AUTH_SHAPES:
+        for shape in _DECLARATION_SHAPES:
+            tool = Tool.model_validate(
+                {
+                    "id": "t",
+                    "name": "t",
+                    "source_type": "mcp",
+                    "source_id": "s",
+                    "extraction_confidence": "high",
+                    "extraction": {"surface": "enumerated"},
+                    "auth": auth,
+                }
+            )
+            declaration = (
+                ActionDeclarationConfig.model_validate({"tool": "t", **shape})
+                if shape
+                else None
+            )
+            assessment = assess_tool_semantics(
+                tool, declaration, environment_target="template"
+            )
+            if not any(
+                claim.source == "environment_template_authority"
+                for claim in assessment.authority.claims
+            ):
+                continue
+            standing += 1
+            assert assessment.authority.status == "declared", (
+                f"auth={auth} declaration={shape}: the template claim stands "
+                "beside a status it did not decide"
+            )
+            assert assessment.authority.mode == "none"
+    assert standing, "no shape reached the template claim; the sweep proves nothing"
+
+
+def test_the_reason_names_the_stronger_concern_first(tmp_path: Path) -> None:
+    """Both concerns share the review tier, and the sentence has to lead with
+    the sharper one: an action running on a known unscoped credential is a more
+    specific thing to look at than a repository that is not deployed at all.
+    """
+
+    from agents_shipgate.ci.release_decision import _decision_reason
+    from agents_shipgate.schemas.report import (
+        EvidenceCoverageDecision,
+        SemanticCoverageDecision,
     )
+
+    evidence = EvidenceCoverageDecision(
+        level="static",
+        human_review_recommended=False,
+        source_warning_count=0,
+        low_confidence_tool_count=0,
+        semantic_coverage=SemanticCoverageDecision(
+            review_concern_count=2,
+            reason_counts={"unscoped_authority": 1, "template_environment_authority": 1},
+        ),
+    )
+    reason = _decision_reason("review_required", [], [], evidence)
+
+    assert reason.index("unscoped or ambient") < reason.index("environment.target")
 
 
 def test_the_template_default_is_a_reviewed_claim_with_its_own_source() -> None:

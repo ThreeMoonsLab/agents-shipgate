@@ -663,16 +663,12 @@ def _assess_effect(
                 _issue(
                     "declaration_drift",
                     "effect",
-                    (
-                        "the effect evidence for this action is not the evidence "
-                        "this declaration was confirmed against; it now reads "
-                        f"{observed}"
+                    "the effect evidence for this action is not the evidence this "
+                    "declaration was confirmed against; "
+                    + (
+                        f"it now reads {observed}"
                         if observed
-                        else (
-                            "the effect evidence for this action is not the "
-                            "evidence this declaration was confirmed against; "
-                            "nothing is observed about it any more"
-                        )
+                        else "nothing is observed about it any more"
                     ),
                     DECLARED_EFFECT_SOURCE,
                     f"action_surface.actions[tool={tool.name!r}].basis",
@@ -1250,22 +1246,6 @@ def declared_effect_of(effect: EffectSemanticAssessment) -> ActionEffect | None:
     return None
 
 
-def declared_risk_tags_of(effect: EffectSemanticAssessment) -> tuple[str, ...]:
-    """The reviewed ``risk_tags`` this action's manifest row declares.
-
-    Read off the claims for the reason :func:`declared_effect_of` is: the join
-    from a manifest row to a tool was already made once.
-    """
-
-    return tuple(
-        dict.fromkeys(
-            str(claim.evidence.get("tag"))
-            for claim in effect.claims
-            if claim.source == "action_risk_tag_declaration" and claim.evidence.get("tag")
-        )
-    )
-
-
 def render_effect_readings(readings: Sequence[EffectReading]) -> str:
     """The observed readings as one comma-separated phrase, strongest last.
 
@@ -1528,20 +1508,7 @@ def reviewed_authority(
             claim_source=DECLARED_SOURCE_AUTHORITY_SOURCE,
             pointer=f"tool_sources[id={tool_source.id!r}].authority",
         )
-    if environment_target == TEMPLATE_ENVIRONMENT_TARGET and not _reviewed_scopes(
-        declaration, None
-    ):
-        # A template has no deployment, so nothing in it holds a credential.
-        # The claim is normalized like the other two, which is the point: a
-        # "template" whose source publishes an OAuth scope is a manifest
-        # disagreeing with itself, and it raises ``conflicting_authority_
-        # evidence`` exactly as a hand-written ``mode: none`` would.
-        #
-        # An action row carrying its own ``scopes`` is excluded rather than
-        # overridden. That list is a reviewed statement that this action *is*
-        # granted something, and it is the more specific one; letting the
-        # repository-wide claim win would both contradict it and quietly empty
-        # the permission list every surface judges the action on.
+    if _template_authority_applies(tool, declaration, environment_target):
         return ReviewedAuthority(
             mode="none",
             auth_type=None,
@@ -1551,6 +1518,42 @@ def reviewed_authority(
             pointer="environment.target",
         )
     return None
+
+
+def _template_authority_applies(
+    tool: Tool,
+    declaration: ActionDeclarationConfig | None,
+    environment_target: str | None,
+) -> bool:
+    """Whether ``environment.target: template`` answers *this* action.
+
+    A template has no deployment, so nothing in it holds a credential — but
+    that is a statement about the absence of evidence, and it may only stand
+    where there is no evidence. Anything more specific wins, and "more
+    specific" is not only what a reviewer wrote:
+
+    * an action row's own ``authority``, and a ``tool_sources[].authority``
+      block, are handled before this is reached — they return their own record;
+    * an action row's bare ``scopes:`` list is a reviewed statement that this
+      action *is* granted something;
+    * and so is anything the **source** publishes. This is the one that is easy
+      to get wrong, and getting it wrong is a fail-open rather than a nuisance:
+      the record supplies the whole permission list, so applying it over a tool
+      that publishes ``oauth2 + docs:read`` empties that action's
+      ``required_scopes`` and ``SHIP-AUTH-SCOPE-COVERAGE-MISSING`` silently
+      stops seeing anything to cover. A repository-wide claim about deployment
+      may not subtract evidence a source proved.
+
+    ``_source_authority`` reports ``"unknown"`` status exactly when the source
+    published nothing usable — including the ambiguous and invalid cases, which
+    are *something published*, badly, and equally not this claim's to overwrite.
+    """
+
+    if environment_target != TEMPLATE_ENVIRONMENT_TARGET:
+        return False
+    if _reviewed_scopes(declaration, None):
+        return False
+    return _source_authority(tool)[1] == "unknown"
 
 
 def _reviewed_scopes(
@@ -1657,7 +1660,9 @@ def _assess_authority(
     # One list, resolved once from the record this function judges on. The
     # narrowing check below and the published ``scopes`` both read it, so a
     # branch cannot compare one permission list and publish another.
-    scopes = resolve_action_scopes(tool, declaration, tool_source, reviewed)
+    scopes = resolve_action_scopes(
+        tool, declaration, tool_source, reviewed, environment_target=environment_target
+    )
 
     for message in tool.auth.invalid_annotations:
         issues.append(
@@ -2124,7 +2129,6 @@ __all__ = [
     "attach_semantic_assessments",
     "confirmed_basis",
     "declared_effect_of",
-    "declared_risk_tags_of",
     "effect_derivation_id",
     "render_effect_readings",
     "reviewed_authority",

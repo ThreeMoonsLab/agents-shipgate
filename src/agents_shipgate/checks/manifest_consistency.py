@@ -57,7 +57,7 @@ def _unprotected_manifest(context: ScanContext) -> list:
     if declared_ci.mode != "strict":
         return []
     protection = manifest_protection(context.config_path)
-    if protection.reviewed:
+    if protection.covered:
         return []
     where = (
         f"{protection.codeowners_path} has no rule covering it"

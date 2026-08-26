@@ -18,12 +18,18 @@ class EnvironmentConfig(BaseModel):
     kind, and ``authority: {mode: none}`` written twelve times is the same
     claim spelled at cost.
 
-    Declaring it answers the authority dimension once, for every action that
-    does not say otherwise, and never quietly: every action it answers for is a
-    review concern, so a ``template`` repository can reach ``review_required``
-    and never ``passed``. That is the property that keeps it from being the
-    cheap way out — an adopter must state their real authority before a green
-    gate is available at all.
+    Declaring it answers the authority dimension once, and only where nothing
+    else answers it: an action row's ``authority``, a ``tool_sources[]``
+    block, a bare ``scopes:`` list, and anything the **source** publishes all
+    win over it. A statement about the absence of a deployment may add an
+    answer where there is none; it may never subtract evidence something else
+    proved.
+
+    It is never quiet either: every action it answers for is a review concern,
+    so a ``template`` repository can reach ``review_required`` and never
+    ``passed``. That is the property that keeps it from being the cheap way
+    out — an adopter must state their real authority before a green gate is
+    available at all.
     """
 
     model_config = STRICT_MODEL_CONFIG
