@@ -1095,10 +1095,10 @@ def effect_evidence_rank(effect: str) -> int:
     return _EFFECT_RANK.get(cast(ActionEffect, effect), 0)
 
 
-#: Where an action this scan never measured sorts on that table.
+#: Where an action nothing has bounded sorts on that table.
 #:
-#: Above every effect in it, deliberately. An action with no observation is not
-#: a low-risk action, it is an unmeasured one: the strongest thing its answer
+#: Above every effect in it, deliberately. An action nothing established is not
+#: a low-risk action, it is an unbounded one: the strongest thing its answer
 #: could turn out to be is the top of the vocabulary, and that is the quantity
 #: a questionnaire ordered by "how much can answering this move the verdict"
 #: has to rank by (#419). Ranking it by the inferred floor instead put every
@@ -1106,7 +1106,7 @@ def effect_evidence_rank(effect: str) -> int:
 #:
 #: Not an ``ActionEffect`` and never converted to one. Nothing but display
 #: order reads it, and :func:`effect_evidence_rank` cannot return it.
-UNMEASURED_EFFECT_RANK = max(_EFFECT_RANK.values()) + 1
+UNBOUNDED_EFFECT_RANK = max(_EFFECT_RANK.values()) + 1
 
 
 def effect_is_measured(readings: Sequence[EffectReading]) -> bool:
@@ -1123,11 +1123,64 @@ def effect_is_measured(readings: Sequence[EffectReading]) -> bool:
 
     ``read`` alone is **not** a measurement here. This resolver refuses to
     establish a read-only action from a heuristic (#357), so an action whose
-    only reading is ``read`` is exactly as unproven as one with no reading at
-    all, and its answer can still be anything.
+    only *heuristic* reading is ``read`` is exactly as unproven as one with no
+    reading at all, and its answer can still be anything.
+
+    That last rule is about heuristics, and it makes this predicate wrong for
+    any question other than "may a value be pre-filled" — an OpenAPI ``GET``
+    and a trusted ``readOnlyHint`` are read-only and *proven*, and this still
+    returns ``False`` for them. :func:`effect_is_bounded` is the one to ask
+    about what the scan established.
     """
 
     return any(reading.observed and reading.effect != "read" for reading in readings)
+
+
+#: Effect statuses that hold an action down without a human answering anything.
+#:
+#: ``declared`` is a reviewed declaration and ``structural`` is policy-eligible
+#: source evidence; both establish the effect, ``read`` included.
+#: ``conflicting`` is evidence disagreeing with itself, which is still
+#: evidence — the conservative reading is a real bound, and the reviewer is
+#: being asked to reconcile a known disagreement rather than to name an
+#: unknown.
+#:
+#: Deliberately not ``protocol_default``, which is what the protocol assumes
+#: when a server publishes nothing, and not ``inferred``, which is a heuristic
+#: this resolver will not let establish a read-only action at all (#357). Both
+#: leave the answer unbounded.
+_BOUNDED_EFFECT_STATUSES: frozenset[str] = frozenset(
+    {"declared", "structural", "conflicting"}
+)
+
+
+def effect_is_bounded(effect: EffectSemanticAssessment) -> bool:
+    """Is anything other than a human's answer already holding this effect down?
+
+    The **ordering** question, and deliberately not
+    :func:`effect_is_measured`. That one answers "may a non-read effect be
+    pre-filled here", which is a proposal-safety rule: it returns ``False`` for
+    every read-only reading however authoritative, because a pre-filled
+    ``effect: read`` is the one direction where a confirmed guess loses safety.
+
+    Reusing it to rank questions put a structurally proven read at the *top* of
+    the questionnaire — an OpenAPI ``GET`` named ``delete_account`` outranking a
+    genuinely unknown effect, with a repository-chosen name breaking the tie.
+    That is the defect #419 exists to fix, wearing the other hat: something the
+    scan established being ordered as though it had not been.
+
+    Two ways to be bounded, because the resolver records them differently. A
+    status in :data:`_BOUNDED_EFFECT_STATUSES` means the resolver established
+    the effect, and it holds for a bounded ``read`` that has no reading at all
+    behind it — a reviewed ``effect: read`` is the manifest speaking, and
+    declaration claims are excluded from readings on purpose. Otherwise, an
+    observed side effect is a bound even where nothing established it: that is
+    the ``inferred`` action whose keyword hint reads ``external_communication``.
+    """
+
+    if effect.status in _BOUNDED_EFFECT_STATUSES:
+        return True
+    return effect_is_measured(effect_readings(effect))
 
 
 def effect_readings(effect: EffectSemanticAssessment) -> list[EffectReading]:

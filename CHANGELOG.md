@@ -16,13 +16,23 @@
 
   *Rank by the ceiling, not by the floor.* Observed risk and "how much can
   answering this move the verdict" are not the same quantity, and the header
-  claimed the second. An action nothing was observed about is not a low-risk
-  action; it is an unmeasured one, its answer can still turn out to be
-  `destructive`, and it is exactly where a human answer carries new
-  information. A question about an unmeasured action now sorts above every
-  measured one, and the measured ones keep their old order among themselves —
-  strongest first. On the same walk the financial write moves from Q6 to Q3 and
-  all three drafts move to the end.
+  claimed the second. An action nothing has bounded is not a low-risk action;
+  it is an unmeasured one, its answer can still turn out to be `destructive`,
+  and it is exactly where a human answer carries new information. A question
+  about an unbounded action now sorts above every bounded one, and the bounded
+  ones keep their old order among themselves — strongest first. On the same
+  walk the financial write moves from Q6 to Q3 and all three drafts move to the
+  end.
+
+  *Bounded is not the same test as draftable.* A reviewed declaration and
+  policy-eligible source evidence bound an action even when what they establish
+  is `read`, and the rule that decides whether to pre-fill a value cannot say
+  so: it refuses to draft `effect: read` from anything, because a confirmed
+  guess of `read` is the one direction that loses safety. Ranking on that rule
+  would send an OpenAPI `GET` named `delete_account` to the top of the file
+  with its name breaking the tie — the same defect inverted — so ordering asks
+  its own question. A heuristic reading of `read` still bounds nothing: this
+  resolver may not act on it, so the answer remains open.
 
   *And a name breaks the tie among blanks.* Where nothing was observed there is
   nothing to rank by, so the questionnaire falls back to the shape of the
@@ -33,8 +43,20 @@
   or a verdict. Getting it wrong costs a reader one place in a list they have
   to finish either way.
 
-  The header sentence now states the order the file actually uses, and a test
-  renders the file and checks the two against each other.
+  The header sentence now states the order the file actually uses — including
+  the heuristic-read case, where a block prints a reading and is still
+  unbounded — and a test renders the file and checks the two against each
+  other. A blank with no reading at all now says so at the block, since the
+  header explains that the top of the file is the unbounded half and silence
+  read as "nothing to see here".
+
+  *Published contract.* `report.json` /
+  `semantic_coverage.declaration_questions.open_questions[]` documented itself
+  as "highest-acting action first", which is no longer what it is. The model
+  docstring is emitted verbatim into the report, packet, and verifier schemas,
+  so it and `docs/agent-contract-current.md` now describe the ranking above and
+  say plainly that position is not severity: the action at the top is the one
+  *least* is known about. Field shapes are unchanged.
 
 - **One action, one permission list, with no reviewed authority either.** A
   manifest row that listed `scopes:` and declared no `authority:` block at

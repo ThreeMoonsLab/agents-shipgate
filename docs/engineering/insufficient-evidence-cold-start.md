@@ -574,18 +574,50 @@ action; it is an unmeasured one. Its answer can still turn out to be
 ### Rank by the ceiling
 
 A question is now ranked by the *ceiling* of what its answer can establish
-rather than by the floor the scan already inferred. Where the scan measured a
-side effect, that measurement bounds the answer from below and the old rank
-still applies. Where it measured nothing, there is no bound at all, so the
-question sorts above every measured one (`UNMEASURED_EFFECT_RANK`). On the same
-walk the financial write moves Q6 → Q3, and all three drafts move to the end.
+rather than by the floor the scan already inferred. Where something already
+bounds the effect, the answer cannot go below it and the old rank still
+applies. Where nothing does, there is no bound at all, so the question sorts
+above every bounded one (`UNBOUNDED_EFFECT_RANK`). On the same walk the
+financial write moves Q6 → Q3, and all three drafts move to the end.
 
-"Measured" and "could be drafted" are one fact, so they are one predicate:
-`effect_is_measured` is the gate `propose_effect_declaration` already applied,
-now read from both ends. A heuristic reading of `read` is deliberately *not* a
-measurement — this resolver refuses to establish a read-only action from a
-heuristic, so such an action is exactly as unproven as one with no reading at
-all.
+### "Bounded" is not "draftable", and the difference is a whole class of bug
+
+The first draft of this used `effect_is_measured` — the gate
+`propose_effect_declaration` already applies — on the reasoning that "measured"
+and "could be drafted" are one fact. They are, and that is exactly why it was
+the wrong predicate to rank with.
+
+`effect_is_measured` is a **proposal-safety** rule. It returns `False` for every
+read-only reading, however authoritative, because a pre-filled `effect: read`
+is the one direction where a reviewer confirming without thinking loses safety.
+An OpenAPI `GET`, an MCP `readOnlyHint: true` the manifest trusts, and a
+reviewed `effect: read` are all *proven* reads — and all three read as "nothing
+to propose".
+
+Ranked with it, they went to the **ceiling**, and the name band then broke the
+tie among them. A structural `GET` named `delete_account` led the questionnaire,
+ahead of a genuinely unknown effect — this round's own defect inverted, with a
+repository-chosen name ordering something the scan had established. Found in
+review, not by the tests, because every fixture had been built from the walk,
+where nothing is a proven read.
+
+`effect_is_bounded` is the ordering question, and it is two clauses because the
+resolver records the two cases differently:
+
+- an effect status of `declared`, `structural`, or `conflicting` — the resolver
+  established it (or established that its sources disagree, which is still a
+  bound). This clause is what catches a reviewed `effect: read`, which leaves
+  *no reading at all* behind: declaration claims are excluded from readings on
+  purpose, because a row is not evidence about itself;
+- otherwise, an observed side effect — the `inferred` action whose keyword hint
+  reads `external_communication`.
+
+A heuristic reading of `read` is deliberately in neither: this resolver refuses
+to establish a read-only action from a heuristic, so such an action is exactly
+as unproven as one with no reading at all. It is the one tier member that
+*prints* a reading above its block, which is why the header describes the tier
+as what nothing has pinned down rather than as what the scan "read nothing
+about".
 
 ### A name may order what it may not judge
 
@@ -609,6 +641,11 @@ trust, and is given none:
   against is a *future* one: the moment a name-shaped reading is consulted
   where a claim, an issue, or a verdict can see it, an unreviewed reading of a
   repository-chosen string has become evidence.
+
+The `delete_account` GET above is what that second point is worth. The band was
+correctly scoped to one tier the whole time; what put a name in charge of a
+proven action was the *tier* being wrong, one predicate away. A guard on the
+band alone would not have caught it.
 
 Getting a band wrong costs a reader one place in a list they must finish
 either way.
@@ -635,3 +672,10 @@ what the header now says.
 you already inferred.* Where those two differ, the second one ranks a
 questionnaire by how much it already knows, which is the reverse of what the
 reader is there to do.
+
+**And the one it adds twice:** *a safety rule is not a general-purpose
+predicate.* `effect_is_measured` is exactly right for deciding what may be
+pre-filled and exactly wrong for deciding what is known, and the two read as
+the same sentence right up until an OpenAPI `GET` sorts above an unknown. When
+a predicate's name describes its answer rather than its question, borrowing it
+is how the borrower inherits a rule it never wanted.

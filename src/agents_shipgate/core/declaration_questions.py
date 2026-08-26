@@ -44,11 +44,19 @@ same number, and ranking by the second inverted the promise: a proposal is
 offered only where something was observed, so ranking by the observation put
 every question that arrives with a proposed answer above every question that
 arrives blank — the cheapest questions first and the most valuable ones last.
-An action nothing was observed about is not a low-risk action; it is an
-unmeasured one, its answer can still turn out to be anything in the
-vocabulary, and it is exactly where a human answer carries new information.
-So an unmeasured action outranks every measured one, and among the measured
-the strongest reading leads.
+An action nothing has bounded is not a low-risk action; it is an unmeasured
+one, its answer can still turn out to be anything in the vocabulary, and it is
+exactly where a human answer carries new information. So an unbounded action
+outranks every bounded one, and among the bounded the strongest reading leads.
+
+*Bounded* is :func:`effect_is_bounded`, and it is deliberately not the gate
+that decides whether a value may be pre-filled. That one refuses to draft
+``effect: read`` from anything, however authoritative, because a confirmed
+guess of ``read`` is the one direction that loses safety (#357) — so an
+OpenAPI ``GET`` reads as "nothing to propose" while being entirely proven.
+Ranking on it sent a structural ``GET`` named ``delete_account`` to the top of
+the file with its name breaking the tie, which is this issue's own defect
+inverted.
 
 Ordering is *ranking only*: it decides what to read first, never what the
 verdict is.
@@ -69,11 +77,10 @@ from agents_shipgate.core.domain import (
 )
 from agents_shipgate.core.risk_hints import name_shape_band
 from agents_shipgate.core.semantic_assessment import (
-    UNMEASURED_EFFECT_RANK,
+    UNBOUNDED_EFFECT_RANK,
     assess_tool_semantics,
     effect_evidence_rank,
-    effect_is_measured,
-    effect_readings,
+    effect_is_bounded,
 )
 from agents_shipgate.schemas.report import DeclarationQuestionCoverage
 
@@ -300,15 +307,19 @@ class DeclarationQuestion:
 class _PendingQuestion:
     """One question under construction, folding in every action that asks it."""
 
-    def __init__(self, target: DeclarationTarget, dimension: DeclarationDimension) -> None:
+    def __init__(
+        self,
+        target: DeclarationTarget,
+        dimension: DeclarationDimension,
+        reach: tuple[int, int],
+    ) -> None:
         self.target = target
         self.dimension = dimension
         self.answered = True
-        # A floor no real reach ties with: a measured action ranks at least
-        # ``write`` and an unmeasured one ranks at the ceiling, so the first
-        # ``absorb`` always replaces this.
-        self.rank = 0
-        self.shape = 0
+        # Seeded from the first action rather than from a zero floor. A bounded
+        # ``read`` reaches ``(0, 0)`` exactly, so a floor would have tied with a
+        # real value instead of losing to it.
+        self.rank, self.shape = reach
 
     def absorb(self, *, answered: bool, rank: int, shape: int) -> None:
         # Open wins. A block that answers eleven of its twelve actions and
@@ -375,7 +386,7 @@ def declaration_questions(tools: Iterable[Tool]) -> list[DeclarationQuestion]:
             key = (target.kind, target.id, dimension)
             slot = pending.get(key)
             if slot is None:
-                slot = _PendingQuestion(target, dimension)
+                slot = _PendingQuestion(target, dimension, (rank, shape))
                 pending[key] = slot
             slot.absorb(answered=answered, rank=rank, shape=shape)
     questions = [slot.build() for slot in pending.values()]
@@ -386,22 +397,27 @@ def declaration_questions(tools: Iterable[Tool]) -> list[DeclarationQuestion]:
 def _reach(tool: Tool, assessment: ToolSemanticAssessment) -> tuple[int, int]:
     """``(rank, name band)`` — how far an answer about this action can reach.
 
-    The ceiling, not the floor (#419). Where the scan measured a side effect it
-    ranks the action by what it read, and the questionnaire's own proposal
-    machinery is offered on exactly the same condition, so those questions
-    arrive with a draft answer and cost a reader a glance. Where nothing was
-    measured the scan holds no bound at all: the answer can still be
-    ``destructive``, so the question sorts above every measured one.
+    The ceiling, not the floor (#419). Where something already bounds the
+    effect — a reviewed declaration, policy-eligible structural evidence, or an
+    observed side effect — the answer cannot go below that, so the action keeps
+    its evidence rank. Where nothing does, the scan holds no bound at all: the
+    answer can still turn out to be ``destructive``, so the question sorts
+    above every bounded one.
 
-    The band is the tiebreaker among those, and it is ``0`` — inert — for every
-    measured action, so a name can never reorder an action the scan actually
-    read. See :func:`name_shape_band` for why an unmeasured action may be
+    :func:`effect_is_bounded`, not :func:`effect_is_measured`. The second is a
+    proposal-safety rule and reads ``False`` for a proven read-only action; it
+    ranked an OpenAPI ``GET`` at the ceiling and then let its name break the
+    tie, which is this issue's own defect inverted.
+
+    The band is the tiebreaker among the unbounded, and it is ``0`` — inert —
+    for every bounded action, so a name can never reorder an action the scan
+    established. See :func:`name_shape_band` for why an unbounded action may be
     ordered by something no verdict is allowed to touch.
     """
 
-    if effect_is_measured(effect_readings(assessment.effect)):
+    if effect_is_bounded(assessment.effect):
         return effect_evidence_rank(assessment.conservative_effect), 0
-    return UNMEASURED_EFFECT_RANK, name_shape_band(tool)
+    return UNBOUNDED_EFFECT_RANK, name_shape_band(tool)
 
 
 def _target_for(
@@ -552,10 +568,10 @@ def _ordering(question: DeclarationQuestion) -> tuple[int, int, str, str, str, i
     """Reach, then name band, then subject, then **subject id**, then dimension.
 
     Reach is the ceiling of what an answer can establish — see
-    :func:`_reach` — so the questions the scan could not read at all lead,
-    and the band orders those among themselves. The band is ``0`` for every
-    measured action, so that second component only ever separates questions the
-    first one has already tied.
+    :func:`_reach` — so the questions nothing has bounded lead, and the band
+    orders those among themselves. The band is ``0`` for every bounded action,
+    so that second component only ever separates questions the first one has
+    already tied.
 
     Subject id before dimension is what keeps one subject's questions
     contiguous. Two canonical tools can render the same display subject, and

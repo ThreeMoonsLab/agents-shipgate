@@ -36,6 +36,7 @@ from agents_shipgate.core.domain import Tool, ToolRiskHint
 from agents_shipgate.core.semantic_assessment import (
     assess_tool_semantics,
     declaration_covers,
+    effect_is_bounded,
     effect_is_measured,
     effect_readings,
     propose_effect_declaration,
@@ -327,9 +328,15 @@ def test_a_manifest_cannot_be_the_source_that_contradicts_itself() -> None:
 # --------------------------------------------------------------------------
 
 
-def _mcp_workspace(tmp_path: Path, *, tools: list[dict], actions: list[dict]) -> Path:
+def _mcp_workspace(
+    tmp_path: Path,
+    *,
+    tools: list[dict],
+    actions: list[dict],
+    risk_overrides: dict | None = None,
+) -> Path:
     (tmp_path / "tools.json").write_text(json.dumps({"tools": tools}), encoding="utf-8")
-    manifest = {
+    manifest: dict = {
         "version": "0.1",
         "project": {"name": "questionnaire"},
         "agent": {"name": "asst", "declared_purpose": ["test the questionnaire"]},
@@ -351,6 +358,8 @@ def _mcp_workspace(tmp_path: Path, *, tools: list[dict], actions: list[dict]) ->
     }
     if actions:
         manifest["action_surface"] = {"actions": actions}
+    if risk_overrides:
+        manifest["risk_overrides"] = risk_overrides
     config = tmp_path / "shipgate.yaml"
     config.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
     return config
@@ -870,13 +879,13 @@ def test_the_first_effect_question_is_one_the_scan_could_not_draft() -> None:
     )
 
 
-def test_a_drafted_question_never_precedes_an_unmeasured_one() -> None:
+def test_a_drafted_question_never_precedes_an_unbounded_one() -> None:
     """The invariant, stated on the mechanism rather than on the symptom.
 
-    "Carries a proposed answer" and "the scan measured this action" are one
-    fact — :func:`effect_is_measured` is the single gate both read — so the
-    ordering rule is that every question the scan could draft an answer for
-    sorts after every question about an action it measured nothing about.
+    Ordering asks :func:`effect_is_bounded` — has anything other than a human's
+    answer already held this effect down. Where nothing has, the question sorts
+    first, and on a catalog like this one that half is also exactly the half no
+    proposal is offered for, which is the correlation the issue reported.
 
     Note what is deliberately *not* asserted: that a blank question precedes a
     drafted one full stop. An action's own authority question arrives blank and
@@ -885,40 +894,41 @@ def test_a_drafted_question_never_precedes_an_unmeasured_one() -> None:
     """
 
     tools = _walk_shaped_catalog()
-    measured = {tool.id: effect_is_measured(_readings(tool)) for tool in tools}
+    bounded = {
+        tool.id: effect_is_bounded(tool.semantic_assessment.effect)  # type: ignore[union-attr]
+        for tool in tools
+    }
     questions = declaration_questions(tools)
     # Every question here is about one action, so ``subject_id`` is a tool id.
     assert {question.subject_kind for question in questions} == {"action"}
 
-    last_unmeasured = max(
+    last_unbounded = max(
         index
         for index, question in enumerate(questions)
-        if not measured[question.subject_id]
+        if not bounded[question.subject_id]
     )
-    first_measured = min(
-        index
-        for index, question in enumerate(questions)
-        if measured[question.subject_id]
+    first_bounded = min(
+        index for index, question in enumerate(questions) if bounded[question.subject_id]
     )
-    assert last_unmeasured < first_measured, [
-        (question.subject, question.dimension, measured[question.subject_id])
+    assert last_unbounded < first_bounded, [
+        (question.subject, question.dimension, bounded[question.subject_id])
         for question in questions
     ]
-    # The half that carries drafts is exactly the measured half, which is what
-    # makes the statement above about proposals at all.
+    # On this catalog the bounded half is exactly the drafted half, which is
+    # what makes the statement above about proposals at all.
     for question in questions:
         if question.dimension != "effect":
             continue
         tool = next(item for item in tools if item.id == question.subject_id)
-        assert _has_proposal(tool) is measured[question.subject_id]
+        assert _has_proposal(tool) is bounded[question.subject_id]
 
 
-def test_an_unmeasured_action_outranks_every_measured_one() -> None:
+def test_an_unbounded_action_outranks_every_bounded_one() -> None:
     """Even a measured ``destructive``: the ceiling is above the whole table.
 
-    The unmeasured action is named as harmlessly as the vocabulary allows — it
-    lands in the band's *lowest* tier — so nothing but "nothing was observed"
-    can be putting it first.
+    The unbounded action is named as harmlessly as the vocabulary allows — it
+    lands in the band's *lowest* tier — so nothing but "nothing bounds it" can
+    be putting it first.
     """
 
     razed = _observing("destructive", id="t_razed", name="drop_all_tables")
@@ -934,10 +944,10 @@ def test_an_unmeasured_action_outranks_every_measured_one() -> None:
     ]
 
 
-def test_unmeasured_questions_are_ordered_by_what_their_names_suggest() -> None:
+def test_unbounded_questions_are_ordered_by_what_their_names_suggest() -> None:
     """The tiebreaker, and the only place a name is allowed to decide anything.
 
-    Every action here is equally unmeasured, so without the band the order is
+    Every action here is equally unbounded, so without the band the order is
     alphabetical — which is no order at all for a reader with limited
     attention. The band never establishes an effect; it decides which blank a
     reader sees first among blanks they have to fill either way.
@@ -1004,13 +1014,12 @@ def test_the_band_reaches_nothing_but_the_questionnaire_order() -> None:
     )
 
 
-def test_the_proposal_gate_and_the_ordering_gate_are_one_predicate() -> None:
+def test_the_proposal_gate_says_exactly_what_is_drafted() -> None:
     """Exhaustive: ``effect_is_measured`` agrees with what is actually drafted.
 
-    Two surfaces read this fact for opposite purposes — what the scan measured
-    is what it may propose, and what it did not measure is what it most needs a
-    human for. A second spelling is how they would start disagreeing about
-    which questions are the cheap ones.
+    It is the proposal gate and nothing else. Ordering asks
+    :func:`effect_is_bounded` instead — see the test below for the shapes where
+    the two deliberately disagree.
     """
 
     checked = 0
@@ -1020,8 +1029,90 @@ def test_the_proposal_gate_and_the_ordering_gate_are_one_predicate() -> None:
             checked += 1
             assert effect_is_measured(readings) is (
                 propose_effect_declaration(readings) is not None
-            ), f"{effects}: the two gates disagree"
-    assert checked > 40, "the sweep stopped exercising both gates"
+            ), f"{effects}: the proposal gate disagrees with the proposal"
+    assert checked > 40, "the sweep stopped exercising the gate"
+
+
+#: The three ways an action's effect can be **read** and still be *proven*.
+#:
+#: Each is bounded — the answer cannot come out anything but ``read`` — and
+#: each is invisible to :func:`effect_is_measured`, which returns ``False`` for
+#: every read-only reading so that ``effect: read`` is never pre-filled from a
+#: heuristic (#357). Every one is named to look as mutating as the name band
+#: can score, so a test that passes cannot be passing by accident.
+_BOUNDED_READS: dict[str, dict[str, object]] = {
+    "openapi_get": {
+        "name": "delete_account",
+        "source_type": "openapi",
+        "annotations": {"httpMethod": "GET"},
+    },
+    "mcp_read_only_hint": {
+        "name": "drop_everything",
+        "source_type": "mcp",
+        "annotations": {"mcp_server": True, "readOnlyHint": True},
+    },
+}
+
+
+@pytest.mark.parametrize("shape", sorted(_BOUNDED_READS))
+def test_a_proven_read_is_not_treated_as_unread(shape: str) -> None:
+    """A structural ``read`` is bounded, however mutating its name looks.
+
+    ``effect_is_measured`` is a proposal-safety rule: it says ``False`` for an
+    OpenAPI ``GET`` and a trusted ``readOnlyHint`` because a pre-filled
+    ``effect: read`` is the one direction a confirmed guess loses safety in.
+    Ranking questions with it put those actions at the *ceiling* and then let a
+    repository-chosen name break the tie — this issue's own defect inverted.
+    """
+
+    proven = _tool(id="t_proven", **_BOUNDED_READS[shape])
+    unknown = _tool(id="t_unknown", name="get_status")
+    for tool in (proven, unknown):
+        tool.semantic_assessment = assess_tool_semantics(tool, None)
+    # The premise: the scan established one and knows nothing about the other,
+    # and neither can be drafted from.
+    assert effect_is_bounded(proven.semantic_assessment.effect)  # type: ignore[union-attr]
+    assert not effect_is_bounded(unknown.semantic_assessment.effect)  # type: ignore[union-attr]
+    assert not _has_proposal(proven) and not _has_proposal(unknown)
+
+    questions = declaration_questions([proven, unknown])
+
+    assert questions[0].subject_id == "t_unknown", [
+        (question.subject, question.dimension, question.rank, question.shape)
+        for question in questions
+    ]
+    # And nothing about the proven action is ordered by its name.
+    assert [question.shape for question in questions if question.subject_id == "t_proven"] == [0]
+
+
+def test_a_partly_answered_action_keeps_the_rank_its_answer_gave_it() -> None:
+    """A reviewed ``effect: read`` bounds the action; its authority still gaps.
+
+    The declaration leaves no reading behind — declaration claims are excluded
+    from readings on purpose, a row is not evidence about itself — so a rule
+    written on readings alone reads this action as unread and floats its
+    remaining authority question to the top of the file, above questions nobody
+    has answered anything about.
+    """
+
+    declared = _tool(id="t_declared", name="purge_records")
+    declared.semantic_assessment = assess_tool_semantics(
+        declared, ActionDeclarationConfig(tool="purge_records", effect="read")
+    )
+    unknown = _tool(id="t_unknown", name="get_status")
+    unknown.semantic_assessment = assess_tool_semantics(unknown, None)
+
+    questions = declaration_questions([declared, unknown])
+    still_open = [question for question in questions if not question.answered]
+
+    # The effect question was answered; the authority question was not.
+    assert {(q.dimension, q.subject_id) for q in still_open} == {
+        ("authority", "t_declared"),
+        ("effect", "t_unknown"),
+        ("authority", "t_unknown"),
+    }
+    assert [question.subject_id for question in still_open][0] == "t_unknown"
+    assert [q.shape for q in questions if q.subject_id == "t_declared"] == [0, 0]
 
 
 # --------------------------------------------------------------------------
@@ -1264,14 +1355,70 @@ def test_a_blank_the_scan_read_nothing_for_says_so() -> None:
     assert note not in " ".join(authority.split())
 
 
+def test_the_note_claims_a_position_only_when_it_has_one() -> None:
+    """``questions=None`` is supported, and it numbers nothing (#419 review).
+
+    A report written before ``declaration_questions`` existed carries no
+    coverage, so the blocks keep gap emission order and a blank can follow a
+    bounded question. "It is asked before the ones the scan could read for
+    itself" is then a sentence the file itself disproves two lines up.
+    """
+
+    placement = "It is asked before the ones the scan could read for itself."
+    gaps = [
+        _gap(
+            "inferred_effect_only",
+            subject_id="t1",
+            name="send_email",
+            template={"tool": "send_email", "effect": "external_communication"},
+            readings=[
+                EvidenceReading(
+                    effect="external_communication", sources=["risk_hint:keyword"]
+                )
+            ],
+        ),
+        _gap(
+            "missing_effect_evidence",
+            subject_id="t2",
+            name="create_order",
+            template={"tool": "create_order", "effect": REVIEW_REQUIRED_SENTINEL},
+        ),
+    ]
+
+    unnumbered = build_declaration_scaffold(gaps)
+    assert unnumbered is not None
+    unnumbered_prose = " ".join(unnumbered.split())
+    # The blank still says what it is; it just does not claim a place in a
+    # queue that was never built.
+    assert "This scan read nothing about this action's effect" in unnumbered_prose
+    assert placement not in unnumbered_prose
+    # The premise: emission order really does put the drafted block first here.
+    assert unnumbered.index("create_order") > unnumbered.index("send_email")
+
+    numbered = build_declaration_scaffold(
+        gaps, questions=_coverage_rows(("t2", "effect"), ("t1", "effect"))
+    )
+    assert numbered is not None
+    assert placement in " ".join(numbered.split())
+
+
 def test_the_header_sentence_and_the_realised_order_agree(tmp_path: Path) -> None:
     """The file's own promise, checked against the file (#419).
 
     Rendered end to end, because the defect this closes was precisely a header
     describing an order the questionnaire did not use: it claimed to lead with
     what could move the verdict while leading with what the scan had already
-    read for itself. Both kinds are present, so the claim has something to be
-    wrong about.
+    read for itself.
+
+    All three shapes the header has to describe are present, because the
+    unbounded half is not only the actions with nothing printed above them:
+
+    * ``create_sap_sales_order`` — nothing read at all;
+    * ``fetch_thing`` — only the MCP protocol default, an absence of evidence;
+    * ``sync_ledger`` — a heuristic reading of ``read``, printed above the
+      block, which this resolver may not act on (#357) and which therefore
+      bounds nothing. A header saying the top of the file is what the scan
+      "could read nothing about" was false for exactly this one.
     """
 
     config = _mcp_workspace(
@@ -1284,8 +1431,12 @@ def test_the_header_sentence_and_the_realised_order_agree(tmp_path: Path) -> Non
             },
             {"name": "create_sap_sales_order", "description": "Create the order in SAP."},
             {"name": "fetch_thing", "description": "A tool."},
+            {"name": "sync_ledger", "description": "A tool."},
         ],
         actions=[],
+        risk_overrides={
+            "tools": {"sync_ledger": {"tags": ["read_only"], "reason": "reviewed"}}
+        },
     )
     run_scan(
         config_path=config,
@@ -1308,8 +1459,8 @@ def test_the_header_sentence_and_the_realised_order_agree(tmp_path: Path) -> Non
             if line.startswith("#")
         ).split()
     )
-    assert "The actions this scan could read nothing about come first" in prose
-    assert "The actions it did read follow, strongest first" in prose
+    assert "the actions nothing has pinned down" in prose
+    assert "Then the ones the scan did establish, strongest first" in prose
 
     # Every blank effect block precedes every drafted one, in the file itself.
     drafted: list[int] = []
@@ -1323,6 +1474,15 @@ def test_the_header_sentence_and_the_realised_order_agree(tmp_path: Path) -> Non
 
     assert blank and drafted, "the fixture stopped carrying both kinds"
     assert max(blank) < min(drafted), scaffold
+
+    # The third shape specifically: a heuristic ``read`` is printed, and the
+    # block still sits in the half the header says comes first.
+    heuristic_read = next(
+        index
+        for index, line in enumerate(scaffold.splitlines())
+        if "read — risk_hint:manual" in line
+    )
+    assert heuristic_read < min(drafted), scaffold
 
 
 def test_repository_controlled_text_cannot_forge_a_reading_line() -> None:

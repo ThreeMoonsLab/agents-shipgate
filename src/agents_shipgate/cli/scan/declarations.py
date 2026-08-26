@@ -28,10 +28,12 @@ how much answering them can move the verdict. Both numbers come from
 ``semantic_coverage.declaration_questions``, so the file and the report cannot
 disagree about how much work is left.
 
-That order leads with the actions the scan could read *nothing* about, not
-with the ones it read as risky (#419) — see ``core.declaration_questions``.
-The header says so, and a block with no reading to print says so too: a blank
-that printed nothing at all let its silence read as "nothing to see here".
+That order leads with the actions nothing has *bounded* — no evidence, a
+protocol default standing in for its absence, or only a heuristic reading the
+scan may not act on — rather than with the ones it read as risky (#419); see
+``core.declaration_questions``. The header says so, and a block with no
+reading at all to print says so too, because a blank that printed nothing let
+its silence read as "nothing to see here".
 
 **Where evidence supports one conservative answer, it is filled in.** The scan
 already read ``request_refund_approval`` as a financial write; asking a human
@@ -438,11 +440,12 @@ def _header(questions: DeclarationQuestionCoverage | None) -> list[str]:
         lines.append("#")
         lines.extend(
             _wrapped_comment(
-                "Ordered by how much answering can move the verdict. The "
-                "actions this scan could read nothing about come first — an "
-                "unread action is not a safe one, it is an unmeasured one, and "
-                "its answer can still turn out to be anything. The actions it "
-                "did read follow, strongest first: money, outward "
+                "Ordered by how much answering can move the verdict. First, "
+                "the actions nothing has pinned down: no effect evidence at "
+                "all, or only a reading this scan is not allowed to act on. An "
+                "action nothing has bounded is unmeasured, not safe, and its "
+                "answer can still turn out to be anything. Then the ones the "
+                "scan did establish, strongest first: money, outward "
                 "communication, destruction.",
                 "",
             )
@@ -569,6 +572,7 @@ def _emit_block(
             asks_effect=any(
                 DIMENSION_BY_GAP_KIND.get(kind) == "effect" for kind in entry["kinds"]
             ),
+            ordered=bool(entry["numbers"]),
         )
     )
     out.append("---")
@@ -650,6 +654,7 @@ def _reading_lines(
     template: dict[str, Any],
     *,
     asks_effect: bool = False,
+    ordered: bool = False,
 ) -> list[str]:
     """What the scan read this action's effect as, above the value it proposes.
 
@@ -660,23 +665,28 @@ def _reading_lines(
     reading nothing is ever proposed from.
 
     An effect question with *no* readings at all says so (#419). The header
-    explains why the top of the file is the unread half; a block that printed
-    nothing left a reader to read the silence as "nothing to see here", which
-    is the reading this whole ordering exists to correct.
+    explains why the top of the file is the unbounded half; a block that
+    printed nothing left a reader to read the silence as "nothing to see
+    here", which is the reading this whole ordering exists to correct.
+
+    ``ordered`` gates the half of that note which claims a *position*. A report
+    written before ``declaration_questions`` existed carries no coverage to
+    number the blocks from, so they keep gap emission order and a blank can
+    follow a bounded question — where "it is asked before" would be a sentence
+    the file itself disproves two lines up.
     """
 
     if not readings:
-        return (
-            _wrapped_comment(
-                "This scan read nothing about this action's effect — an "
-                "absence of evidence, not evidence that it is safe. That is "
-                "why this question comes before the ones the scan could read "
-                "for itself: your answer is the only thing that bounds it.",
-                "",
-            )
-            if asks_effect
-            else []
+        if not asks_effect:
+            return []
+        note = (
+            "This scan read nothing about this action's effect — an absence of "
+            "evidence, not evidence that it is safe. Your answer is the only "
+            "thing that bounds it."
         )
+        if ordered:
+            note += " It is asked before the ones the scan could read for itself."
+        return _wrapped_comment(note, "")
     observed = [reading for reading in readings if reading.observed]
     defaults = [reading for reading in readings if not reading.observed]
     lines: list[str] = []
