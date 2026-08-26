@@ -2,6 +2,125 @@
 
 ## Unreleased
 
+- **Human-facing findings are grouped by subject, and a recommendation names
+  only what is missing.** (#364) A scan of four money-moving tools produced
+  seventeen findings across five check families. The summary showed three of
+  them, and all three were the *same* check on sibling tools — so scopes,
+  idempotency, owners and guardrails were never mentioned at all. Severity is
+  not the axis a reader acts along: they open one tool, fix what is wrong with
+  it, and move on. The subject is now the group key on all three human
+  surfaces (`scan` stdout, `report.md`, the PR comment), with severity and
+  blocking status as attributes of each row, a location hoisted to the heading
+  when every row shares one, and every truncation stating what it hid.
+
+  Separately, the finding a reader would open first told them to declare a
+  control the same finding's `evidence.missing` says they had already
+  declared: the sentence was a per-check literal naming every control the
+  effect obliges, while the evidence named the subset actually absent.
+  Following it costs a round and returns the reader to the same finding. The
+  three built-in control checks now build the evidence, the sentence, and the
+  predicate row from **one** `missing` list at one call site, so they agree by
+  construction rather than by review; `SHIP-ACTION-POLICY-VIOLATION` stops
+  naming both high-impact effects on an action that has one. Where nothing is
+  declared the sentence is unchanged, which is why no shipped sample's
+  `recommendation` moved.
+
+  Presentation only. `findings[]`, fingerprints, counts, severities,
+  `blocks_release`, SARIF, and the release decision are untouched —
+  `report.json` stays the flat per-finding record automation consumes, and the
+  sample `report.json` goldens are byte-identical.
+
+  Both PR-comment styles carry the block. `capability-review` is the default
+  and `findings` is the legacy style being retired, so wiring it only into the
+  latter would have shipped the change to nobody — the comment a reviewer
+  actually gets said what *moved* and nothing about what is wrong per tool.
+
+  Three rules keep a row honest about what it is saying. A row only renders
+  `missing: …` when the check wrote that list as plain strings; the
+  action-policy checks write `{"path", "expected"}` rows for *both* an absent
+  path and a present-but-wrong value, so flattening them said
+  `missing: safeguards.dry_run` about an action that declares `dry_run` and
+  collapsed two policies requiring one path into one indistinguishable row —
+  those keep their own title and their adopter-authored recommendation. A
+  location falls back to `location` before `ref`, because most adapters
+  populate `ref="agent.py"` + `location="agent.py:5"` and leave `path` unset;
+  without it four findings on four functions rendered one suffix and then
+  shared it. And a path is escaped, never trimmed, so a filename with a
+  leading space stays that filename.
+
+  A finding carrying a tool *name* and no id — `SHIP-BASELINE-INTEGRITY-*`,
+  copied from a historical baseline entry — is not resolved through the
+  current catalog. Uniqueness today cannot establish identity then, and the
+  missing `[provider]` qualifier is the signal that the two are not known to
+  be the same tool.
+
+  Two joins had to get stricter to make the grouping honest. A group blocks
+  when the *release decision* names one of its findings as a blocker, not when
+  a finding carries `blocks_release` — a baseline separates those, filing
+  accepted debt as a review item while the flag stays true. And a finding is
+  matched to a decision item by id, then by fingerprint for an item with no
+  id, then by check id and title for an item with neither, each tier holding
+  only what the tier above could not: two findings can share a fingerprint,
+  and `samples/conductor_agent` ships two that share a check id and a title.
+  Within a group, blocking rows sort ahead of severity: a subject whose only
+  blocker sorted last by check id showed BLOCKS RELEASE above three rows that
+  do not block, with the one that does hidden under "and 2 more findings".
+
+- **The questionnaire asks the unread questions first.** The declaration
+  questionnaire promised an order — "by how much answering can move the
+  verdict" — and delivered the opposite of it. It ranked each question by the
+  effect the scan had *already inferred* for the action, and a pre-filled
+  proposal is offered on exactly the same condition, so the two mechanisms ran
+  off one signal: **every question that arrived with a draft answer outranked
+  every question that arrived blank.** On the fifth `adk-samples#1745` walk
+  that put three already-drafted mail tools at Q2–Q4 and the financial write —
+  the single question that produces both `critical` blockers once answered — at
+  Q6, behind three drafts a reader had to confirm first
+  ([#419](https://github.com/ThreeMoonsLab/agents-shipgate/issues/419)).
+
+  *Rank by the ceiling, not by the floor.* Observed risk and "how much can
+  answering this move the verdict" are not the same quantity, and the header
+  claimed the second. An action nothing has bounded is not a low-risk action;
+  it is an unmeasured one, its answer can still turn out to be `destructive`,
+  and it is exactly where a human answer carries new information. A question
+  about an unbounded action now sorts above every bounded one, and the bounded
+  ones keep their old order among themselves — strongest first. On the same
+  walk the financial write moves from Q6 to Q3 and all three drafts move to the
+  end.
+
+  *Bounded is not the same test as draftable.* A reviewed declaration and
+  policy-eligible source evidence bound an action even when what they establish
+  is `read`, and the rule that decides whether to pre-fill a value cannot say
+  so: it refuses to draft `effect: read` from anything, because a confirmed
+  guess of `read` is the one direction that loses safety. Ranking on that rule
+  would send an OpenAPI `GET` named `delete_account` to the top of the file
+  with its name breaking the tie — the same defect inverted — so ordering asks
+  its own question. A heuristic reading of `read` still bounds nothing: this
+  resolver may not act on it, so the answer remains open.
+
+  *And a name breaks the tie among blanks.* Where nothing was observed there is
+  nothing to rank by, so the questionnaire falls back to the shape of the
+  action's name — mutating, neutral, retrieving — using the keyword vocabulary
+  the scanner already owns. This needs no trust and is given none: it is
+  consulted only among actions the scan measured nothing about, it cannot
+  reorder an action the scan did read, and it never reaches a claim, an issue,
+  or a verdict. Getting it wrong costs a reader one place in a list they have
+  to finish either way.
+
+  The header sentence now states the order the file actually uses — including
+  the heuristic-read case, where a block prints a reading and is still
+  unbounded — and a test renders the file and checks the two against each
+  other. A blank with no reading at all now says so at the block, since the
+  header explains that the top of the file is the unbounded half and silence
+  read as "nothing to see here".
+
+  *Published contract.* `report.json` /
+  `semantic_coverage.declaration_questions.open_questions[]` documented itself
+  as "highest-acting action first", which is no longer what it is. The model
+  docstring is emitted verbatim into the report, packet, and verifier schemas,
+  so it and `docs/agent-contract-current.md` now describe the ranking above and
+  say plainly that position is not severity: the action at the top is the one
+  *least* is known about. Field shapes are unchanged.
 - **A confirmed declaration is pinned to the evidence behind it.** Declarations
   matched by name and nothing ever re-opened one, so a green gate at month
   twelve could rest on a description of a function that no longer does what it
@@ -273,9 +392,9 @@
   would let the scanner establish what only a human may (#357, #268).
 
   *The file is numbered and counted.* Blocks carry `Question 3 of 5` banners
-  ordered by how much answering them can move the verdict — money, outward
-  communication, and destruction first, which is what reached a verdict in two
-  answers on the walk — and both the file header and the CLI print
+  ordered by how much answering them can move the verdict — two answers were
+  enough to reach one on the walk, and the entry above says which two the
+  order now leads with — and both the file header and the CLI print
   `Declaration questions: 1 of 2 answered; 1 open (1 authority).` from one
   rendering, so they cannot describe the same state two ways. An open question
   with no blank to fill (a conflict whose repair is in the source) is still

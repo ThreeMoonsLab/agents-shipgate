@@ -536,17 +536,27 @@ class AcknowledgedEffectOverride(BaseModel):
 class DeclarationQuestionRow(BaseModel):
     """v0.37: one open declaration question, in the order to answer it.
 
-    Ordered strongest-acting action first. Answering the two that move money
-    and communicate outward is what reached a verdict on the fourth
-    ``adk-samples#1745`` walk, so the list leads with them rather than with
-    whatever sorts first alphabetically. Ordering is ranking only — it decides
-    what to read first and can never change a verdict.
+    Ordered by how much answering can move the verdict, rather than by what
+    sorts first alphabetically. Answering the two actions that moved money and
+    communicated outward is what reached a verdict on the fourth
+    ``adk-samples#1745`` walk. Ordering is ranking only — it decides what to
+    read first and can never change a verdict.
 
     v0.38: a question is one blank a reviewer fills, so ``answer_path`` — the
     manifest block that blank lives in — is its identity. Actions answered by
     the same block are one question: a source of 117 actions with no authority
     evidence owes one ``tool_sources[].authority`` block, and counting that as
     117 questions describes one edit as a backlog (#410 increment 3).
+
+    v0.38 also ranks by the **ceiling** of what an answer can establish rather
+    than by the effect already inferred. The actions nothing has bounded lead —
+    no effect evidence at all, a protocol default standing in for its absence,
+    or only a heuristic reading this scan may not act on — because an unbounded
+    action is unmeasured rather than safe, and its answer can still turn out to
+    be anything. Actions whose effect a reviewed declaration or policy-eligible
+    source evidence established keep their evidence rank behind them, strongest
+    first. Position is not severity: the action at the top is the one *least*
+    is known about.
     """
 
     model_config = ConfigDict(extra="forbid")

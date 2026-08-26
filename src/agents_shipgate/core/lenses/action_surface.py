@@ -10,6 +10,7 @@ from urllib.parse import unquote
 
 from agents_shipgate.core.action_semantics import (
     ACTION_EFFECT_RANK,
+    missing_control_recommendation,
     normalize_declared_strings,
 )
 from agents_shipgate.core.domain import (
@@ -1546,23 +1547,14 @@ def _current_action_policy_findings(
         )
         if missing:
             findings.append(
-                _finding(
+                _builtin_control_finding(
                     check_id="SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
                     title=f"{action.tool_name} has financial write capability without required controls",
                     severity="critical",
                     action=action,
                     agent_id=agent_id,
-                    evidence={"action_id": action.action_id, "missing": missing},
-                    recommendation=(
-                        "Declare approval.required, safeguards.audit_log, and "
-                        "safeguards.idempotency for this financial write action."
-                    ),
-                    blocks_release=True,
-                    support=_builtin_control_support(
-                        action,
-                        effects={"financial_write"},
-                        missing=missing,
-                    ),
+                    effect="financial_write",
+                    missing=missing,
                 )
             )
     if "external_communication" in control_effects:
@@ -1577,7 +1569,7 @@ def _current_action_policy_findings(
             missing.append("confirmation.required")
         if missing:
             findings.append(
-                _finding(
+                _builtin_control_finding(
                     check_id="SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
                     title=(
                         f"{action.tool_name} has external communication capability "
@@ -1586,17 +1578,8 @@ def _current_action_policy_findings(
                     severity="high",
                     action=action,
                     agent_id=agent_id,
-                    evidence={"action_id": action.action_id, "missing": missing},
-                    recommendation=(
-                        "Declare confirmation policy and safeguards.audit_log for "
-                        "this external communication action."
-                    ),
-                    blocks_release=True,
-                    support=_builtin_control_support(
-                        action,
-                        effects={"external_communication"},
-                        missing=missing,
-                    ),
+                    effect="external_communication",
+                    missing=missing,
                 )
             )
     if "destructive" in control_effects:
@@ -1614,23 +1597,14 @@ def _current_action_policy_findings(
             missing.append("confirmation.required")
         if missing:
             findings.append(
-                _finding(
+                _builtin_control_finding(
                     check_id="SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING",
                     title=f"{action.tool_name} has destructive capability without required controls",
                     severity="critical",
                     action=action,
                     agent_id=agent_id,
-                    evidence={"action_id": action.action_id, "missing": missing},
-                    recommendation=(
-                        "Declare approval.required, confirmation policy, and "
-                        "safeguards.rollback for this destructive action."
-                    ),
-                    blocks_release=True,
-                    support=_builtin_control_support(
-                        action,
-                        effects={"destructive"},
-                        missing=missing,
-                    ),
+                    effect="destructive",
+                    missing=missing,
                 )
             )
     high_impact_effects = control_effects.intersection({"production_operation", "code_execution"})
@@ -1662,9 +1636,14 @@ def _current_action_policy_findings(
                             for path in missing
                         ],
                     },
-                    recommendation=(
-                        "Declare approval.required for production-operation and "
-                        "code-execution actions."
+                    # One obligation, so this sentence cannot name a
+                    # control the reader already declared — but it used to
+                    # name *both* high-impact effects on an action that has
+                    # one of them. Same rule as the three branches above
+                    # (#364): say what this finding is about, nothing else.
+                    recommendation=missing_control_recommendation(
+                        sorted(high_impact_effects),
+                        missing,
                     ),
                     blocks_release=True,
                     support=_builtin_control_support(
@@ -1823,6 +1802,47 @@ def _non_authoritative_effect_escalation_support(
             ),
         ],
         status="indeterminate",
+    )
+
+
+def _builtin_control_finding(
+    *,
+    check_id: str,
+    title: str,
+    severity: Severity,
+    action: ActionFact,
+    agent_id: str,
+    effect: str,
+    missing: list[str],
+) -> Finding:
+    """One built-in-control finding, built from one ``missing`` list.
+
+    Issue #364.  ``evidence.missing``, the sentence telling the reader what to
+    declare, and the predicate row recording what the rule observed are three
+    renderings of the same fact, and they disagreed: the sentence was a
+    per-check literal naming every control the effect obliges, while the other
+    two named the subset actually absent.  An action that had already declared
+    ``approval.required`` was told to declare it again.
+
+    Taking one ``missing`` argument and deriving all three here is the part
+    that keeps them agreeing.  Passing the list to each of three keyword
+    arguments at the call site would read the same and drift the same way.
+    """
+
+    return _finding(
+        check_id=check_id,
+        title=title,
+        severity=severity,
+        action=action,
+        agent_id=agent_id,
+        evidence={"action_id": action.action_id, "missing": missing},
+        recommendation=missing_control_recommendation([effect], missing),
+        blocks_release=True,
+        support=_builtin_control_support(
+            action,
+            effects={effect},
+            missing=missing,
+        ),
     )
 
 

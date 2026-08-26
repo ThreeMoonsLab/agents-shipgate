@@ -620,13 +620,13 @@ _PUBLISHED_SCHEMA_SHA256 = {
         "adbbcd85f870b8f12f060c02b090395a34ffec4f660f1994d6001a2728397090"
     ),
     "report-schema.v0.38.json": (
-        "d3fe4fec4d5982cd9e7468b27ffb99f3b49186ecec5fd42b359f854258419b23"
+        "df00a7abfbd59fa3274caacd78acf5960f8c754fab2d6e1a62840b7997ca8d24"
     ),
     "packet-schema.v0.15.json": (
-        "df248acdf3e625c0d63a95cedb68229c126424729955ea147db15312589b0be3"
+        "b6a47a71482592732c2cac0120a154ce39a6830ed06cc457f6c1fdbb842bdead"
     ),
     "verifier-schema.v0.12.json": (
-        "e22d5e006cc18e6d49e6845946b89b1afe286850e2549f3848a751187e151d5d"
+        "fae9348ede7e04cd786f2104c55b80b4a9c623c69af1351dc6bca15af2037736"
     ),
     "capability-lock-schema.v0.7.json": (
         "a90789c318f4a4c19347be9fc440d32322f9befa0c94461d10fb718f5a276704"

@@ -18,7 +18,10 @@ from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.declaration_questions import progress_sentence
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
-from agents_shipgate.core.findings.constants import SEVERITY_ORDER
+from agents_shipgate.core.findings.subject_rollup import (
+    roll_up_findings,
+    top_findings_block,
+)
 from agents_shipgate.core.source_warnings import group_source_warnings
 from agents_shipgate.report.summary_text import (
     evidence_coverage_text,
@@ -33,6 +36,13 @@ logger = logging.getLogger(__name__)
 # stable exit-code surface stays narrow — strict-plugins is plugin
 # infrastructure failure, not gate failure.
 _STRICT_PLUGINS_EXIT_CODE = 4
+
+# Console budget for the grouped summary. Five subjects covers the shape #364
+# reported — four sibling tools plus the one aggregate finding over them — and
+# four rows covers a tool that trips every built-in control family at once.
+# Both truncate with a count, so a wider repo says how much it is not showing.
+_CLI_SUBJECT_LIMIT = 5
+_CLI_ROW_LIMIT = 4
 
 
 def _apply_strict_plugins(
@@ -531,14 +541,16 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
             distinct = f" ({len(warning_groups)} distinct {noun})"
         typer.echo(f"Source warnings: {len(report.source_warnings)}{distinct}")
     typer.echo("")
-    top = _top_cli_findings(report, limit=3)
-    typer.echo("Top findings:")
-    if top:
-        for finding in top:
-            target = f": {finding.tool_name}" if finding.tool_name else ""
-            typer.echo(f"- {finding.check_id}{target} - {finding.title}")
-    else:
-        typer.echo("- none")
+    # Grouped by subject, not by severity (#364). Five subjects with their
+    # rows beats three rows of one check family repeated over sibling tools:
+    # the reader picks a tool to open, and severity is what it says about that
+    # tool rather than what orders the list.
+    for line in top_findings_block(
+        roll_up_findings(report),
+        group_limit=_CLI_SUBJECT_LIMIT,
+        row_limit=_CLI_ROW_LIMIT,
+    ):
+        typer.echo(line)
     typer.echo("")
     typer.echo("Reports:")
     for path in report.generated_reports.values():
@@ -552,60 +564,6 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
     typer.echo("")
     typer.echo(f"CI mode: {ci_mode}")
     typer.echo(f"Exit code: {exit_code}")
-
-
-def _top_cli_findings(report, *, limit: int):
-    active = [finding for finding in report.findings if not finding.suppressed]
-    by_id = {finding.id: finding for finding in active if finding.id}
-    by_fingerprint = {
-        finding.fingerprint: finding for finding in active if finding.fingerprint
-    }
-    selected = []
-    seen: set[str] = set()
-
-    def add_finding(finding) -> None:
-        key = finding.id or finding.fingerprint or f"{finding.check_id}:{finding.title}"
-        if key in seen:
-            return
-        selected.append(finding)
-        seen.add(key)
-
-    if report.release_decision is not None:
-        for item in [
-            *report.release_decision.blockers,
-            *report.release_decision.review_items,
-        ]:
-            finding = (
-                by_id.get(item.id)
-                or by_fingerprint.get(item.fingerprint)
-                or _active_finding_for_item(active, item)
-            )
-            if finding is not None:
-                add_finding(finding)
-            if len(selected) >= limit:
-                return selected
-
-    severity_top = [
-        finding
-        for finding in active
-        if finding.severity in {"critical", "high"}
-    ]
-    severity_top = sorted(
-        severity_top,
-        key=lambda finding: (SEVERITY_ORDER[finding.severity], finding.check_id),
-    )
-    for finding in severity_top:
-        add_finding(finding)
-        if len(selected) >= limit:
-            break
-    return selected
-
-
-def _active_finding_for_item(active_findings, item):
-    for finding in active_findings:
-        if finding.check_id == item.check_id and finding.title == item.title:
-            return finding
-    return None
 
 
 def _tool_surface_diff_has_changes(summary) -> bool:

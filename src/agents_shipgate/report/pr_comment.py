@@ -5,11 +5,15 @@ import re
 
 from agents_shipgate.core.declaration_questions import progress_sentence
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
+from agents_shipgate.core.findings.subject_rollup import (
+    roll_up_findings,
+    top_findings_block,
+)
 from agents_shipgate.report.capability_lock_diff_markdown import (
     render_capability_lock_diff_markdown,
 )
 from agents_shipgate.schemas.capabilities import CapabilityLockDiffV1
-from agents_shipgate.schemas.report import Finding, ReadinessReport
+from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verifier import (
     VerifierArtifact,
     VerifierCapabilityChange,
@@ -28,6 +32,14 @@ _IMPACT_LABELS = {
     "none": "none",
 }
 _COMMENT_MAX_CHARS = 6000
+
+# Budget for the grouped summary inside a comment that is truncated at
+# ``_COMMENT_MAX_CHARS``. Narrower than ``report.md`` on purpose: this block
+# exists to tell a reviewer which subjects to open, and the report it links to
+# carries the rest. One budget for both comment styles — a PR comment is one
+# surface however it is laid out.
+_COMMENT_SUBJECT_LIMIT = 4
+_COMMENT_ROW_LIMIT = 3
 
 
 def render_pr_comment(
@@ -159,6 +171,7 @@ def _human_summary_lines(
             )
     elif review.notes:
         lines.append(f"- Capability delta note: {_escape(review.notes[0])}")
+    lines.extend(_subject_rollup_lines(report))
     if review.trust_root_touched or review.policy_weakened:
         if review.trust_root_touched:
             lines.append("- Trust root touched: `true`")
@@ -167,6 +180,37 @@ def _human_summary_lines(
     lines.extend(_trigger_and_base_summary(verifier))
     lines.extend(_artifact_summary_lines(verifier))
     return lines
+
+
+def _subject_rollup_lines(report: ReadinessReport) -> list[str]:
+    """The grouped findings block, for the renderer a reviewer actually gets.
+
+    ``capability-review`` is the default style and ``findings`` is the legacy
+    one being retired, so putting the #364 rollup only in the latter would
+    have shipped the change to nobody: what this comment told a reviewer was
+    what *moved*, with no view of what is wrong per tool.  Both styles render
+    the same projection at the same budget now — a PR comment is one surface
+    however it is laid out.
+
+    Nested one level, because everything in this comment is a bullet under
+    "Human summary", and omitted entirely when nothing is selected: a
+    repository with no critical or high finding and nothing named by the
+    decision gains no line.
+    """
+
+    groups = roll_up_findings(report)
+    if not groups:
+        return []
+    block = top_findings_block(
+        groups,
+        group_limit=_COMMENT_SUBJECT_LIMIT,
+        row_limit=_COMMENT_ROW_LIMIT,
+        escape=_escape,
+        heading="Findings by subject",
+        bullet="  - ",
+        row_prefix="    - ",
+    )
+    return [f"- {block[0]}", *block[1:]]
 
 
 def _next_actor_lines(verifier: VerifierArtifact) -> list[str]:
@@ -344,12 +388,22 @@ def _render_findings_comment(
         lines.append(f"Reviewer start: `{surface.name}` - {_escape(surface.why)}")
 
     lines.extend(_diff_lines(report))
-    top = _top_findings(report.findings)
+    groups = roll_up_findings(report)
     lines.append("")
-    if top:
-        lines.append("Top findings:")
-        for index, finding in enumerate(top, start=1):
-            lines.append(f"{index}. {_escape(finding.title or finding.check_id)}")
+    if groups:
+        # Grouped by subject (#364). A reviewer reads this comment to decide
+        # what to look at, and three rows of one check family on three sibling
+        # tools names one thing to look at while the other four go unmentioned.
+        lines.extend(
+            top_findings_block(
+                groups,
+                group_limit=_COMMENT_SUBJECT_LIMIT,
+                row_limit=_COMMENT_ROW_LIMIT,
+                escape=_escape,
+                bullet="- ",
+                row_prefix="  - ",
+            )
+        )
     else:
         lines.append("No critical or high findings.")
     lines.extend(_artifact_lines(verifier, links=False))
@@ -576,14 +630,6 @@ def _diff_lines(report: ReadinessReport) -> list[str]:
     elif tool_diff.notes:
         lines.append(f"Tool-surface diff: {_escape(tool_diff.notes[0])}")
     return lines
-
-
-def _top_findings(findings: list[Finding]) -> list[Finding]:
-    severities = {"critical": 0, "high": 1}
-    active = [
-        finding for finding in findings if not finding.suppressed and finding.severity in severities
-    ]
-    return sorted(active, key=lambda item: (severities[item.severity], item.check_id))[:3]
 
 
 def _artifact_lines(verifier: VerifierArtifact, *, links: bool = True) -> list[str]:

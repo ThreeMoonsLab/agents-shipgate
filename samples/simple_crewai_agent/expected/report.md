@@ -31,9 +31,11 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
 
 ## Top Findings
 
-1. FileReadTool lacks declared auth scopes
-   Evidence: risk\_tags=\['read\_only'\]
-   Recommendation: Declare operation-specific auth scopes for FileReadTool, or explicitly declare anonymous authority when the operation requires no credentials.
+1 finding across 1 subject, most urgent first.
+
+- FileReadTool \[crewai\_agent\] \(at inventories/tools.json\#/tools/2\) — review \(1 high\)
+  - high SHIP-AUTH-MISSING-SCOPE — FileReadTool lacks declared auth scopes
+    - Declare operation-specific auth scopes for FileReadTool, or explicitly declare anonymous authority when the operation requires no credentials.
 
 ## Finding Provenance
 
