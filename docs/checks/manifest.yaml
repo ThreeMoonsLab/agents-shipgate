@@ -22,12 +22,13 @@ checks:
     unreviewed has a gate the gated work can turn off. CODEOWNERS plus branch protection
     is what makes attestation the PR review of a protected file rather than a separate
     ceremony.
-  fires_when: The manifest declares ci.mode strict and no CODEOWNERS file assigns an
-    owner to the manifest path, in any of the three locations GitHub reads.
+  fires_when: The manifest declares ci.mode strict and no CODEOWNERS file GitHub would
+    read assigns an owner to both the manifest path and to CODEOWNERS itself.
   evidence_fields:
   - ci_mode
   - manifest_path
   - codeowners_path
+  - codeowners_self_owned
   - searched
   - branch_protection
   recommendation: Add a CODEOWNERS rule for the manifest and require review on the branch

@@ -771,6 +771,12 @@ def _reading_rows(readings: Sequence[EvidenceReading]) -> list[str]:
     return [
         f"#   {display_literal(reading.effect)} — "
         f"{', '.join(display_literal(source) for source in reading.sources)}"
+        # Strength, where it is not the default. A reader deciding whether to
+        # keep a proposal needs to know whether anything here is evidence the
+        # gate may act on, or only a heuristic that may challenge — and it is
+        # half of what `basis` pins, so a row that hides it hides why the
+        # question can come back.
+        + ("" if reading.policy_eligible else "  (heuristic only)")
         for reading in readings
     ]
 

@@ -1947,6 +1947,7 @@ def _semantic_gap(
                     effect=reading.effect,
                     sources=list(reading.sources),
                     observed=reading.observed,
+                    policy_eligible=reading.policy_eligible,
                 )
                 for reading in observed_readings
             ],

@@ -1114,11 +1114,20 @@ class EffectReading:
     standing in for the absence of any — see
     :data:`NON_OBSERVATIONAL_EFFECT_BASES`. Both are shown to a reviewer; only
     an observation may seed a proposal.
+
+    ``policy_eligible`` is the *strength* of the reading: true when at least one
+    claim behind it is evidence this scanner may act on — a reviewed
+    declaration, protocol structure, a typed provider fact, a structural scope —
+    rather than a heuristic that may only challenge. It is the strongest class
+    among the claims, not a per-producer flag, because that is what makes it
+    stable: a second heuristic agreeing with an annotation changes nothing about
+    what the reading is worth.
     """
 
     effect: ActionEffect
     sources: tuple[str, ...]
     observed: bool
+    policy_eligible: bool = False
 
 
 @dataclass(frozen=True)
@@ -1257,6 +1266,7 @@ def _readings_from_claims(claims: Sequence[SemanticClaim]) -> list[EffectReading
     """
 
     sources: dict[tuple[ActionEffect, bool], set[str]] = {}
+    eligible: set[tuple[ActionEffect, bool]] = set()
     for claim in claims:
         if claim.source in DECLARATION_CLAIM_SOURCES:
             continue
@@ -1271,8 +1281,15 @@ def _readings_from_claims(claims: Sequence[SemanticClaim]) -> list[EffectReading
         # what a default is not.
         key = (_as_effect(claim.value), claim.basis not in NON_OBSERVATIONAL_EFFECT_BASES)
         sources.setdefault(key, set()).add(claim.source)
+        if claim.policy_eligible:
+            eligible.add(key)
     return [
-        EffectReading(effect=value, sources=tuple(sorted(sources[key])), observed=observed)
+        EffectReading(
+            effect=value,
+            sources=tuple(sorted(sources[key])),
+            observed=observed,
+            policy_eligible=key in eligible,
+        )
         for key in sorted(
             sources,
             # Weakest reading first, and an observation ahead of a default that
@@ -1302,14 +1319,31 @@ def effect_derivation_id(readings: Sequence[EffectReading]) -> str:
       here. Without that a reviewer would confirm a proposal and get a drift
       row back on the very next scan, which is the one thing a pin may not do.
 
-    Producers are deliberately **not** digested, only the readings themselves.
-    A second source corroborating a reading the reviewer already answered is
-    not new information about the action, and a shipgate release that adds a
-    heuristic would otherwise re-open every pinned declaration on every
-    adopter at once.
+    What is digested is the reading **and its strength**, and both halves are
+    load-bearing.
+
+    Individual producers are not digested: a second source corroborating a
+    reading the reviewer already answered is not new information about the
+    action, and a shipgate release that adds a heuristic would otherwise
+    re-open every pinned declaration on every adopter at once.
+
+    But the *class* of the strongest producer is, because dropping it made the
+    pin blind to a replacement. A tool published with ``readOnlyHint: true``
+    beside a ``read_only`` keyword hint reads ``read`` twice over; delete the
+    annotation and it still reads ``read``, from the heuristic alone. Digesting
+    only the effect string held the pin steady while the evidence a reviewer
+    actually leaned on disappeared — and ``read`` is the one classification
+    where losing the authoritative half matters most, because a heuristic may
+    never establish it (#357). Strength is taken as the strongest class per
+    reading rather than per producer, so corroboration stays quiet and
+    replacement does not.
     """
 
-    observed = sorted({reading.effect for reading in readings if reading.observed})
+    observed = sorted(
+        (reading.effect, reading.policy_eligible)
+        for reading in readings
+        if reading.observed
+    )
     rendered = json.dumps(observed, separators=(",", ":"))
     return hashlib.sha256(rendered.encode()).hexdigest()[:12]
 
@@ -1318,6 +1352,25 @@ def confirmed_basis(readings: Sequence[EffectReading]) -> str:
     """The ``basis`` value that pins an answer to ``readings``."""
 
     return f"{CONFIRMED_BASIS_PREFIX}{effect_derivation_id(readings)}"
+
+
+def risk_tag_answers_effect(tag: str) -> bool:
+    """Whether declaring ``tag`` produces a reviewed effect claim.
+
+    The action row's ``risk_tags`` is the second route out of a
+    ``declaration_below_inferred_evidence`` row, but only for tags this
+    resolver maps to a non-``read`` effect: ``_TAG_EFFECTS`` has no entry for
+    ``network_access`` or ``customer_data``, and a ``read`` mapping is
+    deliberately dropped because a positive risk tag may never establish
+    read-only safety.
+
+    Exported because "has this action's effect been answered?" is asked outside
+    this module — the adoption ladder counted *any* non-empty ``risk_tags`` as
+    an answer, so a manifest carrying only ``risk_tags: [network_access]``
+    advanced a rung while the action still reported ``missing_effect_evidence``.
+    """
+
+    return _TAG_EFFECTS.get(cast(ActionRiskTag, tag)) not in (None, "read")
 
 
 def declared_effect_of(effect: EffectSemanticAssessment) -> ActionEffect | None:
@@ -2229,6 +2282,7 @@ __all__ = [
     "attach_semantic_assessments",
     "confirmed_basis",
     "declared_effect_of",
+    "risk_tag_answers_effect",
     "effect_derivation_id",
     "render_effect_readings",
     "reviewed_authority",

@@ -173,6 +173,17 @@
   semantic review concern, so a template repository can reach `review_required`
   and never `passed`. Stating real authority stays the price of a green gate.
 
+- **`SHIP-TRUST-MANIFEST-UNPROTECTED` reads the file GitHub would read.**
+  Protection is credited only from a CODEOWNERS that covers the manifest **and
+  covers itself** — a rule set owning `shipgate.yaml` but not `CODEOWNERS`
+  describes a protection one edit deep — and it fails closed everywhere the
+  forge would not honour the rule: outside a git checkout, on a file of 3 MB or
+  more (which GitHub ignores entirely, with no fallback to a lower-precedence
+  location), and on tokens GitHub does not accept as owners. `docs/*` no longer
+  matches further-nested files, which GitHub documents and gitignore does not.
+  The three CODEOWNERS locations are now trust roots themselves, so a change to
+  the file that decides protection is classified as one.
+
 - **`SHIP-TRUST-MANIFEST-UNPROTECTED` — who may change the gate.** Every verdict
   rests on the manifest, so a repository that lets it change unreviewed has a
   gate the gated work can turn off. Attestation is the PR review of a protected
@@ -195,14 +206,30 @@
 
   A rung describes what a repository has **declared**, and says so. It does not
   predict a verdict — a fully structural surface owes no declaration questions
-  and can pass from rung 1 — and it does not claim enforcement: `ci.mode:
+  and can pass from rung 1 — and it does not claim enforcement. `ci.mode:
   strict` is the manifest's own statement, while the workflow that runs
   Shipgate passes its own `ci_mode` (the generated one ships `advisory`), and
-  branch protection is a repository setting no file in a checkout can read.
-  Rung 3 names both limits rather than implying neither. The rungs are also not
-  a cumulative chain: a repository whose surface resolves structurally may never
-  be asked a declaration question, and would otherwise be stranded at rung 1
-  forever.
+  branch protection is a repository setting no file in a checkout can read;
+  rung 3 names both limits. Nor is a manifest a workflow: `init` installs one
+  only with `--ci`, so rung 1 describes a gate that *can run here* rather than
+  one running on every pull request, and points at `--ci` for that. The rungs
+  are also not a cumulative chain: a repository whose surface resolves
+  structurally may never be asked a declaration question, and would otherwise
+  be stranded at rung 1 forever.
+
+- **A pin re-opens when authoritative evidence is replaced, not only when a
+  reading appears.** The digest covered the effects a scan observed but not
+  their *strength*, so a tool published with `readOnlyHint: true` beside a
+  `read_only` keyword hint kept the same pin after the annotation was deleted:
+  it still read `read`, from the heuristic alone. `read` is the worst
+  classification to lose it on — a heuristic may never establish read-only
+  (#357) — so a safety-sensitive answer survived on evidence that could not
+  have produced it. The digest now covers `(reading, strongest evidence class)`,
+  which keeps corroboration quiet (a second heuristic agreeing with an
+  annotation changes nothing) while a replacement moves the pin.
+  `evidence_gaps[].next_action.observed_readings[].policy_eligible` publishes
+  that half, so a consumer can reproduce the pin from the row it is printed on,
+  and the questionnaire marks a heuristic-only reading as such.
 
 - **Existing `capabilities.lock.json` files keep loading.** The lock schema bump
   froze `0.7` without teaching the reader about it, so every committed v0.7 lock

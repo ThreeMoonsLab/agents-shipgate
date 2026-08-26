@@ -109,7 +109,7 @@ agents-shipgate baseline save -c shipgate.yaml \
   --owner <human> --reason "<reviewed reason>" --expires <YYYY-MM-DD>
 ```
 
-Report schema v0.18 computes public fingerprints after the default privacy
+Report schema v0.18 or higher computes public fingerprints after the default privacy
 redaction pass. Findings whose evidence contains a recognized secret-like value
 therefore get a new public fingerprint. To avoid surprise CI failures during
 upgrade, `scan --baseline` also compares the pre-v0.18 raw fingerprint in memory

@@ -332,7 +332,7 @@ diff artifacts use
 [`capability-lock-diff-schema.v0.9.json`](capability-lock-diff-schema.v0.9.json).
 Both carry `experimental: false`. Old experimental v0.1 lock inputs
 remain readable by `capability diff`, and so is a lock declaring any prior
-schema this runtime still normalizes; new exports use v0.7 and carry the
+schema this runtime still normalizes; new exports use v0.8 and carry the
 normalized semantic assessment beside each capability fact.
 Capability locks are not part of `report.json`, do not include runtime
 trace evidence, and do not gate. The committed lock is deterministic for

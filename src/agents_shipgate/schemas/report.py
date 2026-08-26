@@ -373,6 +373,15 @@ class EvidenceReading(BaseModel):
     ``write`` reading from the protocol default — worth showing, never worth
     pre-filling, because it is a statement about the protocol rather than an
     observation of the tool.
+
+    v0.39: ``policy_eligible`` is the reading's *strength* — true when at least
+    one claim behind it is evidence the scanner may act on (a reviewed
+    declaration, protocol structure, a typed provider fact, a structural scope)
+    rather than a heuristic that may only challenge. It is the strongest class
+    among the claims, never a per-producer flag. Published because it is half of
+    what ``action_surface.actions[].basis`` pins: without it, a reading whose
+    authoritative half was deleted is indistinguishable from one that never had
+    it, and a consumer cannot reproduce the pin from the row it is printed on.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -380,6 +389,7 @@ class EvidenceReading(BaseModel):
     effect: str
     sources: list[str] = Field(default_factory=list)
     observed: bool = True
+    policy_eligible: bool = False
 
 
 class EvidenceGapAction(BaseModel):

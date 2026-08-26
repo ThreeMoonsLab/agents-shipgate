@@ -2883,10 +2883,11 @@
         "ci_mode",
         "manifest_path",
         "codeowners_path",
+        "codeowners_self_owned",
         "searched",
         "branch_protection"
       ],
-      "fires_when": "The manifest declares ci.mode strict and no CODEOWNERS file assigns an owner to the manifest path, in any of the three locations GitHub reads.",
+      "fires_when": "The manifest declares ci.mode strict and no CODEOWNERS file GitHub would read assigns an owner to both the manifest path and to CODEOWNERS itself.",
       "floor_severity": null,
       "id": "SHIP-TRUST-MANIFEST-UNPROTECTED",
       "mvp_tier": "hygiene",

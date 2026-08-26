@@ -3832,6 +3832,82 @@ def test_a_stated_schema_version_matches_what_the_engine_emits(relpath):
             )
 
 
+#: Natural-language claims about a *current* schema version, in the forms these
+#: documents actually use. The two rules above read a same-line link or a quoted
+#: ``<kind>_schema_version`` field; none of these is either, which is how
+#: "report schema v0.38", "Current packet schema v0.15", and "new exports use
+#: v0.7" all survived a bump that rewrote every filename around them.
+#:
+#: Each pattern captures the version, and the trailing ``kind`` says which
+#: runtime constant it is a claim about.
+_PROSE_VERSION_CLAIMS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\breport schema v?(\d+\.\d+)", re.IGNORECASE), "report"),
+    (re.compile(r"\bpacket schema v?(\d+\.\d+)", re.IGNORECASE), "packet"),
+    (re.compile(r"\bverifier schema v?(\d+\.\d+)", re.IGNORECASE), "verifier"),
+    (
+        re.compile(r"\bnew exports use v?(\d+\.\d+)", re.IGNORECASE),
+        "capability-lock",
+    ),
+    (re.compile(r"\bnew diffs use v?(\d+\.\d+)", re.IGNORECASE), "capability-lock-diff"),
+)
+
+#: Documents whose prose states current versions. A superset of the label
+#: surfaces: these two carry the claims in sentences rather than in tables.
+PROSE_VERSION_SURFACES = (
+    *SCHEMA_LABEL_SURFACES,
+    "docs/passed-verdict-contract.md",
+    "docs/report-reading-for-agents.md",
+    "docs/examples.md",
+    "docs/baseline.md",
+    "docs/overview.md",
+)
+
+
+@pytest.mark.parametrize("relpath", sorted(set(PROSE_VERSION_SURFACES)))
+def test_a_prose_version_claim_matches_what_the_engine_emits(relpath):
+    """A sentence naming a current schema version is a claim, like a field is.
+
+    The two rules above catch a stale *label beside a link* and a stale *quoted
+    field*. Neither sees a sentence — "Current packet schema v0.15", "report
+    schema v0.38", "new exports use v0.7" — and all three survived a bump that
+    rewrote every filename around them, in the documents an agent is pointed at
+    as authoritative.
+    """
+
+    historical_section = False
+    lines = _read(relpath).splitlines()
+    for number, line in enumerate(lines, start=1):
+        if line.startswith("#"):
+            historical_section = bool(_HISTORICAL_SECTION.match(line))
+        if historical_section:
+            continue
+        # Markers are read on the matched line only, deliberately unlike the
+        # quoted-field rule above. These phrases are self-describing — "new
+        # exports use vX" and "Current packet schema vX" declare themselves to
+        # be about this build — so a historical clause in the *previous*
+        # sentence must not exempt them. It did: "…a lock declaring any prior
+        # schema this runtime still normalizes; new exports use v0.7…" went
+        # unread for a whole bump because `prior` sat one line above.
+        if any(marker in line.lower() for marker in _NOT_CURRENT_MARKERS):
+            continue
+        # A version that is also the version of a schema file linked on this
+        # line is that link's *label*, not an independent claim — a
+        # frozen-reference list reads "[JSON report schema v0.38](…v0.38.json)"
+        # and means exactly what it links. Those lines are already governed by
+        # the label/predecessor rule above.
+        linked = {version for _kind, version in _SCHEMA_LINK_PATTERN.findall(line)}
+        for pattern, kind in _PROSE_VERSION_CLAIMS:
+            for stated in pattern.findall(line):
+                if stated in linked:
+                    continue
+                expected = _current_schema_version(kind)
+                assert stated == expected, (
+                    f"{relpath}:{number} states {kind} schema v{stated}; the "
+                    f"engine emits v{expected}. Mark it as historical, or move "
+                    "it with the bump."
+                )
+
+
 @pytest.mark.parametrize("relpath", PUBLIC_SURFACES)
 def test_prose_current_schema_references_match_runtime(relpath):
     """Any prose phrase like 'schema v0.X, current' must match the

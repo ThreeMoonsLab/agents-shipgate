@@ -13,8 +13,8 @@ useful without the next**:
 * **0 · Audit** needs no manifest at all. What is in a repository is worth
   knowing before deciding whether to gate it, and both repositories the
   adoption walks used were samples someone was evaluating rather than shipping.
-* **1 · Gate the delta** is the first verdict: a manifest exists, so a pull
-  request gets an answer.
+* **1 · Configured** is the first verdict: a manifest exists, so running the
+  gate answers about this repository.
 * **2 · Answer on touch** is the working state. Questions arrive with the pull
   requests that raise them, and the backlog shrinks.
 * **3 · Strict** is the strongest posture the manifest can state, with a named
@@ -42,6 +42,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from agents_shipgate.core.manifest_protection import ManifestProtection
+from agents_shipgate.core.semantic_assessment import risk_tag_answers_effect
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 
 
@@ -88,8 +89,9 @@ def audit_rung(init_command: str) -> AdoptionRung:
             "`shipgate audit --host` for the host grants."
         ),
         exit_criterion=(
-            f"run `{init_command}` to write a manifest, and the next pull "
-            "request gets a verdict."
+            f"run `{init_command}` to write a manifest. Add `--ci` to install "
+            "the workflow as well — without it the gate exists but nothing "
+            "runs it on a pull request."
         ),
         blocking=("manifest_absent",),
     )
@@ -145,22 +147,31 @@ def adoption_rung(
         )
     return AdoptionRung(
         number=1,
-        name="Gate the delta",
-        # Deliberately silent about the verdict. A fully structural tool
-        # surface can owe no declaration questions at all and scan
-        # `review_required` or `passed` from here, so naming
-        # `insufficient_evidence` — or promising a `suggested-declarations.yaml`
-        # that would have nothing to list — states a scan result from manifest
-        # shape alone.
+        name="Configured",
+        # Two things this must not say, and both were said.
+        #
+        # It cannot promise a *verdict*: a fully structural tool surface owes no
+        # declaration questions at all and can scan `review_required` or
+        # `passed` from here, so naming `insufficient_evidence` states a scan
+        # result from manifest shape alone.
+        #
+        # And it cannot promise *pull-request gating*. A manifest is not a
+        # workflow — `init` installs one only with `--ci`, which is a separate
+        # flag — and nothing at this layer inspects `.github/workflows` or a
+        # trigger. "The gate running on every pull request" was a claim about
+        # infrastructure this module never looked at, from a repository that
+        # may have none. What a manifest establishes is that *running* the gate
+        # here answers about this repository, which is what the rung now says.
         you_get=(
-            "the gate running on every pull request. `scan` reports what, if "
-            "anything, this repository still owes before its verdict can be "
-            "evidence-backed."
+            "a gate that can run here: `agents-shipgate verify` answers about "
+            "this repository, and `scan` reports what, if anything, it still "
+            "owes before that answer can be evidence-backed."
         ),
         exit_criterion=(
-            "run `scan` and answer any declaration questions it reports — they "
-            "are written out as `suggested-declarations.yaml` beside the "
-            "report, highest-risk first."
+            "run `scan` and answer any declaration questions it reports — "
+            "written out as `suggested-declarations.yaml` beside the report, "
+            "highest-risk first. To have that answer arrive on every pull "
+            "request, install the workflow too: `agents-shipgate init --ci`."
         ),
         blocking=("no_reviewed_declaration",),
     )
@@ -175,9 +186,15 @@ def _has_reviewed_declaration(manifest: AgentsShipgateManifest) -> bool:
     neither, and treating it as semantic evidence advanced ``doctor`` to rung 2
     while the questionnaire stayed exactly as open as before.
 
-    ``risk_tags`` counts because it is the second of the two routes out of a
-    ``declaration_below_inferred_evidence`` row — declaring the category is an
-    answer about the effect, made without raising the headline value.
+    ``risk_tags`` counts only where a tag actually resolves an effect. It is
+    the second of the two routes out of a ``declaration_below_inferred_evidence``
+    row — declaring the category is an answer about the effect, made without
+    raising the headline value — but the vocabulary is wider than the effects
+    it maps to: ``network_access`` and ``customer_data`` produce no claim at
+    all, and a manifest carrying only those advanced a rung while the action
+    still reported both ``missing_effect_evidence`` and
+    ``missing_authority_evidence``. ``risk_tag_answers_effect`` is the
+    resolver's own answer, not a second copy of the mapping.
 
     ``environment.target: template`` counts, and counts once for the whole
     repository: it is a reviewed statement that nothing here holds a
@@ -187,7 +204,9 @@ def _has_reviewed_declaration(manifest: AgentsShipgateManifest) -> bool:
 
     return bool(
         any(
-            action.effect is not None or action.risk_tags or action.authority is not None
+            action.effect is not None
+            or any(risk_tag_answers_effect(tag) for tag in action.risk_tags)
+            or action.authority is not None
             for action in manifest.action_surface.actions
         )
         or any(source.authority is not None for source in manifest.tool_sources)

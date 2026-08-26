@@ -27,6 +27,7 @@ import yaml
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core.adoption_ladder import adoption_rung, audit_rung
 from agents_shipgate.core.manifest_protection import (
+    CODEOWNERS_LOCATIONS,
     ManifestProtection,
     _matches,
     manifest_protection,
@@ -613,6 +614,91 @@ def test_a_rule_that_names_nobody_owns_nothing(tmp_path: Path) -> None:
     assert protection.owners == ()
 
 
+def test_a_rule_set_that_does_not_own_itself_protects_nothing(tmp_path: Path) -> None:
+    """Protection one edit deep is not protection.
+
+    A rule that names an owner for the manifest but none for CODEOWNERS leaves
+    the same pull request able to delete that rule. `* @team` satisfies both;
+    a manifest-only rule does not, and the finding says which half is missing
+    rather than repeating "no rule covers it".
+    """
+
+    root = _checkout(_mk(tmp_path))
+    config = _workspace(
+        root, tools=[_READ_ONLY_TOOL], target="local", ci={"mode": "strict"}
+    )
+    (root / ".github").mkdir()
+    codeowners = root / ".github" / "CODEOWNERS"
+    codeowners.write_text("/shipgate.yaml @security\n", encoding="utf-8")
+
+    protection = manifest_protection(config)
+    assert protection.owners == ("@security",)
+    assert not protection.self_owned
+    assert not protection.covered
+
+    found = _unprotected(_findings(root, config))
+    assert len(found) == 1
+    assert "assigns no owner to itself" in found[0].recommendation
+    assert found[0].evidence["codeowners_self_owned"] is False
+
+    codeowners.write_text(
+        "/shipgate.yaml @security\n/.github/CODEOWNERS @security\n", encoding="utf-8"
+    )
+    assert manifest_protection(config).covered
+
+
+def test_a_file_github_will_not_load_is_not_protection(tmp_path: Path) -> None:
+    """GitHub ignores a CODEOWNERS of 3 MB or more — it loads no rules at all.
+
+    Parsing one anyway credits protection from a file the forge never read,
+    and there is no fallback to the next location either: the first file that
+    exists is the one GitHub picks, so an oversized one means *no* CODEOWNERS
+    rather than "try `docs/` instead".
+    """
+
+    from agents_shipgate.core.manifest_protection import CODEOWNERS_SIZE_LIMIT_BYTES
+
+    root = _checkout(_mk(tmp_path))
+    config = _workspace(root, tools=[_READ_ONLY_TOOL], target="local")
+    (root / ".github").mkdir()
+    primary = root / ".github" / "CODEOWNERS"
+    rule = "* @platform-team\n"
+
+    def write(size: int) -> None:
+        padding = "#" * max(0, size - len(rule) - 1) + "\n"
+        primary.write_text(padding + rule, encoding="utf-8")
+        assert primary.stat().st_size == size
+
+    write(CODEOWNERS_SIZE_LIMIT_BYTES - 1)
+    assert manifest_protection(config).covered, "just under the limit still loads"
+
+    write(CODEOWNERS_SIZE_LIMIT_BYTES)
+    at_limit = manifest_protection(config)
+    assert not at_limit.covered
+    # Named, not silently skipped: the file exists and is the one GitHub picked.
+    assert at_limit.codeowners_path == ".github/CODEOWNERS"
+
+    # And no falling through to a lower-precedence file.
+    (root / "CODEOWNERS").write_text(rule, encoding="utf-8")
+    assert not manifest_protection(config).covered
+
+
+def test_every_codeowners_location_is_a_trust_root() -> None:
+    """The input that decides protection has to be protected itself.
+
+    `SHIP-TRUST-MANIFEST-UNPROTECTED` credits protection from these files, so a
+    pull request that rewrites one is changing what the gate enforces. Without
+    a trust-root row, that change is classified as ordinary and neither
+    `SHIP-VERIFY-TRUST-ROOT-TOUCHED` nor host-boundary routing sees it.
+    """
+
+    from agents_shipgate.core.trust_roots import trust_root_class_for
+
+    for location in CODEOWNERS_LOCATIONS:
+        assert trust_root_class_for(location) == "codeowners", location
+        assert trust_root_class_for(f"apps/api/{location}") == "codeowners", location
+
+
 @pytest.mark.parametrize(
     ("pattern", "path", "covered"),
     [
@@ -635,6 +721,15 @@ def test_a_rule_that_names_nobody_owns_nothing(tmp_path: Path) -> None:
         # entirely and nothing would notice.
         ("docs/", "docs/shipgate.yaml", True),
         ("docs/", "docs", False),
+        # GitHub documents `docs/*` as *not* matching further-nested files —
+        # unlike gitignore, and unlike the unconditional descendant tail this
+        # matcher first had. A false positive here credits protection for a
+        # review no owner was asked for.
+        ("/docs/*", "docs/shipgate.yaml", True),
+        ("/docs/*", "docs/sub/shipgate.yaml", False),
+        ("docs/*", "docs/sub/shipgate.yaml", False),
+        # `**` is recursive by definition and stays so.
+        ("apps/**", "apps/api/deep/shipgate.yaml", True),
     ],
 )
 def test_the_codeowners_pattern_subset(pattern: str, path: str, covered: bool) -> None:
@@ -676,6 +771,18 @@ _CONTROLS_ONLY = {
         "actions": [{"tool": "docs.lookup", "approval": {"required": True}}]
     }
 }
+#: A legal `risk_tags` value that resolves to no effect at all — the tag
+#: vocabulary is wider than the effects it maps to.
+_NON_EFFECT_TAGS = {
+    "action_surface": {
+        "actions": [{"tool": "docs.lookup", "risk_tags": ["network_access"]}]
+    }
+}
+_EFFECT_TAG = {
+    "action_surface": {
+        "actions": [{"tool": "docs.lookup", "risk_tags": ["destructive"]}]
+    }
+}
 _STRICT = {"ci": {"mode": "strict"}}
 
 
@@ -686,6 +793,9 @@ _STRICT = {"ci": {"mode": "strict"}}
         ({}, True, 1),
         # A control declaration is not a semantic answer.
         (_CONTROLS_ONLY, False, 1),
+        # Nor is a risk tag that resolves no effect.
+        (_NON_EFFECT_TAGS, False, 1),
+        (_EFFECT_TAG, False, 2),
         (_ANSWERED, False, 2),
         ({**_ANSWERED, **_STRICT}, False, 2),
         (_ANSWERED | {"environment": {"target": "template"}}, True, 2),
@@ -727,6 +837,72 @@ def test_no_rung_claims_a_verdict_or_an_enforcement(tmp_path: Path) -> None:
     assert "ci_mode: strict" in top.exit_criterion
 
 
+def test_a_tag_that_resolves_no_effect_answers_nothing(tmp_path: Path) -> None:
+    """The rung and the questionnaire have to agree about what an answer is.
+
+    `risk_tags` is a real route to an effect answer, but the vocabulary is
+    wider than the effects it maps to: `network_access` and `customer_data`
+    produce no reviewed claim. A manifest carrying only one of those advanced
+    to "Answer on touch" while the action still reported both
+    `missing_effect_evidence` and `missing_authority_evidence`.
+    """
+
+    from agents_shipgate.core.semantic_assessment import risk_tag_answers_effect
+
+    assert not risk_tag_answers_effect("network_access")
+    assert not risk_tag_answers_effect("customer_data")
+    assert not risk_tag_answers_effect("read_only")
+    assert risk_tag_answers_effect("destructive")
+
+    root = _mk(tmp_path)
+    config = _workspace(
+        root,
+        tools=[_READ_ONLY_TOOL],
+        target="local",
+        actions=[{"tool": "docs.lookup", "risk_tags": ["network_access"]}],
+    )
+    manifest = AgentsShipgateManifest.model_validate(
+        yaml.safe_load(config.read_text(encoding="utf-8"))
+    )
+
+    assert adoption_rung(manifest, _protection(False)).number == 1
+    coverage = _scan(root, config).evidence_coverage.semantic_coverage
+    assert coverage.declaration_questions.open, (
+        "the fixture no longer leaves a question open; the rung claim is untested"
+    )
+
+
+def test_no_rung_promises_pull_request_gating(tmp_path: Path) -> None:
+    """A manifest is not a workflow.
+
+    `init` installs `.github/workflows/agents-shipgate.yml` only with `--ci`,
+    and nothing in this module inspects a workflow or a trigger. Rung 1 said
+    "the gate running on every pull request" for a repository that may have no
+    workflow at all — a claim about infrastructure it never looked at. The
+    regression is a real `doctor` run in a workspace with no workflow.
+    """
+
+    import json
+
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+
+    root = _mk(tmp_path)
+    config = _workspace(root, tools=[_READ_ONLY_TOOL], target="local")
+    assert not (root / ".github" / "workflows").exists()
+
+    result = CliRunner().invoke(app, ["doctor", "--config", str(config), "--json"])
+
+    assert result.exit_code == 0, result.output
+    adoption = json.loads(result.output)[0]["adoption"]
+    assert adoption["rung"] == 1
+    said = f"{adoption['you_get']} {adoption['exit_criterion']}".lower()
+    assert "on every pull request" not in adoption["you_get"].lower()
+    # It may still tell the adopter how to get there.
+    assert "--ci" in said
+
+
 def test_a_rung_names_only_the_conditions_that_are_actually_unmet() -> None:
     """Telling an adopter who already set `ci.mode: strict` to set it again is
     how a next step stops being read at all.
@@ -766,6 +942,8 @@ def test_the_audit_rung_carries_a_next_step_that_would_work() -> None:
     assert "shipgate detect" in rung.you_get
     assert "audit --host" in rung.you_get
     assert "shipgate init --workspace /repo --write" in rung.exit_criterion
+    # And the manifest alone does not make anything run on a pull request.
+    assert "--ci" in rung.exit_criterion
 
 
 def test_the_audit_rungs_command_routes_to_the_right_workspace(tmp_path: Path) -> None:

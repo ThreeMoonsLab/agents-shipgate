@@ -59,11 +59,18 @@ def _unprotected_manifest(context: ScanContext) -> list:
     protection = manifest_protection(context.config_path)
     if protection.covered:
         return []
-    where = (
-        f"{protection.codeowners_path} has no rule covering it"
-        if protection.codeowners_path
-        else "this repository has no CODEOWNERS file"
-    )
+    if protection.codeowners_path is None:
+        where = "this repository has no CODEOWNERS file GitHub would read"
+    elif protection.owners and not protection.self_owned:
+        # Both halves matter and they want different fixes. A rule set that
+        # owns the manifest but not itself describes a protection one edit
+        # deep: the same pull request can delete the rule.
+        where = (
+            f"{protection.codeowners_path} covers it but assigns no owner to "
+            "itself, so the rule can be removed in the same change"
+        )
+    else:
+        where = f"{protection.codeowners_path} has no rule covering it"
     return [
         agent_finding(
             check_id="SHIP-TRUST-MANIFEST-UNPROTECTED",
@@ -74,6 +81,7 @@ def _unprotected_manifest(context: ScanContext) -> list:
                 "ci_mode": declared_ci.mode,
                 "manifest_path": protection.manifest_path,
                 "codeowners_path": protection.codeowners_path,
+                "codeowners_self_owned": protection.self_owned,
                 "searched": list(CODEOWNERS_LOCATIONS),
                 # Named so the finding says what it did *not* establish. A
                 # repository can require review without CODEOWNERS, and can

@@ -1023,7 +1023,7 @@
     },
     "EvidenceReading": {
       "additionalProperties": false,
-      "description": "v0.37: one effect the evidence for an action can be read as.\n\nA blank asking for an action's effect is only answerable in place if the\nreader can see what the scan actually saw. These rows are that: the\ndistinct readings the non-declaration effect claims support, each with the\nproducers that support it.\n\n``observed`` separates evidence *about this action* from a default standing\nin for the absence of any. An MCP tool with no annotations gets a\n``write`` reading from the protocol default \u2014 worth showing, never worth\npre-filling, because it is a statement about the protocol rather than an\nobservation of the tool.",
+      "description": "v0.37: one effect the evidence for an action can be read as.\n\nA blank asking for an action's effect is only answerable in place if the\nreader can see what the scan actually saw. These rows are that: the\ndistinct readings the non-declaration effect claims support, each with the\nproducers that support it.\n\n``observed`` separates evidence *about this action* from a default standing\nin for the absence of any. An MCP tool with no annotations gets a\n``write`` reading from the protocol default \u2014 worth showing, never worth\npre-filling, because it is a statement about the protocol rather than an\nobservation of the tool.\n\nv0.39: ``policy_eligible`` is the reading's *strength* \u2014 true when at least\none claim behind it is evidence the scanner may act on (a reviewed\ndeclaration, protocol structure, a typed provider fact, a structural scope)\nrather than a heuristic that may only challenge. It is the strongest class\namong the claims, never a per-producer flag. Published because it is half of\nwhat ``action_surface.actions[].basis`` pins: without it, a reading whose\nauthoritative half was deleted is indistinguishable from one that never had\nit, and a consumer cannot reproduce the pin from the row it is printed on.",
       "properties": {
         "effect": {
           "title": "Effect",
@@ -1032,6 +1032,11 @@
         "observed": {
           "default": true,
           "title": "Observed",
+          "type": "boolean"
+        },
+        "policy_eligible": {
+          "default": false,
+          "title": "Policy Eligible",
           "type": "boolean"
         },
         "sources": {

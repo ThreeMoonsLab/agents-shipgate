@@ -36,6 +36,7 @@ from agents_shipgate.core.declaration_questions import (
 )
 from agents_shipgate.core.domain import SemanticClaim, Tool, ToolRiskHint
 from agents_shipgate.core.semantic_assessment import (
+    EffectReading,
     _readings_from_claims,
     assess_tool_semantics,
     confirmed_basis,
@@ -177,6 +178,94 @@ def test_a_second_producer_for_a_known_reading_does_not_move_the_pin() -> None:
     )
 
     assert _pin(one) == _pin(two)
+
+
+def test_replacing_authoritative_evidence_with_a_heuristic_moves_the_pin() -> None:
+    """The blind spot a digest of effect *strings* alone had.
+
+    A tool published with `readOnlyHint: true` beside a `read_only` keyword
+    hint reads `read` twice over. Delete the annotation and it still reads
+    `read` — from the heuristic alone — so a digest over the effect string held
+    the pin steady while the evidence the reviewer actually leaned on
+    disappeared. `read` is the worst classification to lose it on: a heuristic
+    may never establish read-only on its own (#357), so the safety-sensitive
+    answer survived on evidence that could not have produced it.
+    """
+
+    def tool(annotated: bool, extra_hint: bool = False) -> Tool:
+        annotations = {"mcp_server": True}
+        if annotated:
+            annotations["readOnlyHint"] = True
+        hints = [
+            ToolRiskHint(
+                tag="read_only", source="keyword", confidence="medium", basis="inferred_keyword"
+            )
+        ]
+        if extra_hint:
+            hints.append(
+                ToolRiskHint(
+                    tag="read_only", source="regex", confidence="medium", basis="inferred_regex"
+                )
+            )
+        return _tool(source_type="mcp", annotations=annotations, risk_hints=hints)
+
+    authoritative = _pin(tool(annotated=True))
+
+    # Replacement moves it …
+    assert _pin(tool(annotated=False)) != authoritative
+    # … and a stale pin now says so, where it used to stay silent.
+    stale = ActionDeclarationConfig(
+        tool="send_email", effect="read", basis=authoritative
+    )
+    assert "declaration_drift" in _issue_kinds(tool(annotated=False), stale)
+
+    # … while corroboration is still quiet: strength is the strongest class per
+    # reading, not a per-producer flag, so a second heuristic agreeing with an
+    # annotation changes nothing.
+    assert _pin(tool(annotated=True, extra_hint=True)) == authoritative
+
+
+def test_a_published_reading_carries_what_the_pin_digests() -> None:
+    """A consumer has to be able to reproduce the pin from the row it is on.
+
+    The pin is over `(effect, strength)` for the observed readings, and the
+    strength half was not published: a reading whose authoritative claim had
+    been deleted looked identical on the wire to one that never had it.
+    """
+
+    tool = _tool(
+        source_type="mcp",
+        annotations={"mcp_server": True, "readOnlyHint": True},
+        risk_hints=[
+            ToolRiskHint(
+                tag="external_write",
+                source="keyword",
+                confidence="medium",
+                basis="inferred_keyword",
+            )
+        ],
+    )
+    tool.semantic_assessment = assess_tool_semantics(tool, None)
+    gap = _semantic_gap(tool, kind="inferred_effect_only", why="test")
+    published = gap.next_action.observed_readings
+
+    assert published, "the fixture publishes no readings"
+    assert {row.effect: row.policy_eligible for row in published} == {
+        "read": True,
+        "external_communication": False,
+    }
+    reproduced = confirmed_basis(
+        [
+            EffectReading(
+                effect=row.effect,
+                sources=tuple(row.sources),
+                observed=row.observed,
+                policy_eligible=row.policy_eligible,
+            )
+            for row in published
+        ]
+    )
+    assert reproduced == (gap.next_action.declaration_template or {}).get("basis")
 
 
 def test_a_new_or_removed_reading_moves_the_pin() -> None:
