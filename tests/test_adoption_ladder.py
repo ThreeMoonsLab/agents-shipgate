@@ -768,6 +768,28 @@ def test_the_audit_rung_carries_a_next_step_that_would_work() -> None:
     assert "shipgate init --workspace /repo --write" in rung.exit_criterion
 
 
+def test_the_audit_rungs_command_routes_to_the_right_workspace(tmp_path: Path) -> None:
+    """Rung 0's next step has to point at the directory `doctor` was aimed at.
+
+    `Path(config).parent` gets the glob form wrong — `-c '/repo/*/shipgate.yaml'`
+    resolves to a literal `*` directory — so the command is routed through the
+    same helper the missing-manifest diagnostic already uses.
+    """
+
+    root = _mk(tmp_path / "repo")
+    (root / "nested").mkdir()
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+
+    result = CliRunner().invoke(app, ["doctor", "--config", str(root / "*" / "shipgate.yaml")])
+
+    assert "Adoption: rung 0" in result.output
+    assert f"--workspace {root}" in result.output
+    assert "--write" in result.output
+    assert "*" not in result.output.split("--workspace ", 1)[1].split()[0]
+
+
 def test_adoption_reads_the_manifest_the_user_wrote(tmp_path: Path) -> None:
     """`doctor` drops unresolved sources before loading, and that copy is not
     the adoption answer.

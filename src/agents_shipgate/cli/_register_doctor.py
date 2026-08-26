@@ -8,6 +8,7 @@ import typer
 from agents_shipgate.cli._helpers import (
     _diagnose_config_error,
     _echo_next_action_hint,
+    _missing_manifest_workspace,
     _resolve_config_paths,
 )
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
@@ -184,10 +185,12 @@ def _init_command(config: str, workspace: Path | None) -> str:
     last one.
     """
 
-    target = workspace if workspace is not None else Path(config).parent
-    return render_command(
-        ["init", "--workspace", str(target.resolve()), "--write"]
-    )
+    # The same routing the missing-manifest diagnostic already uses: it is
+    # glob-aware (``-c /repo/*/shipgate.yaml`` routes to ``/repo``) and falls
+    # back to the cwd, where ``Path(config).parent`` would have produced a
+    # literal ``*`` directory for the glob form.
+    target = _missing_manifest_workspace(config=config, workspace=workspace)
+    return render_command(["init", "--workspace", str(target), "--write"])
 
 
 def register(app: typer.Typer) -> None:
