@@ -43,6 +43,7 @@ from agents_shipgate.core.semantic_assessment import (
 )
 from agents_shipgate.core.source_warnings import unresolved_adk_tool_symbols
 from agents_shipgate.core.surface_exclusions import (
+    agent_label_index,
     catalog_subject,
     unavailable_base_subject,
 )
@@ -666,6 +667,22 @@ _MANDATORY_CURRENT_CONTROL_CHECKS = frozenset(
 )
 
 
+#: Binding-issue kinds where something *referenced* did not resolve. The agent
+#: on these issues is the one doing the referencing — a handoff target that
+#: names nothing is attached to the perfectly healthy agent that declared it,
+#: and a declaration whose target is ambiguous carries that agent's id
+#: outright. Labelling the gap with it names the one agent that is not the
+#: problem and carries that name into the verdict and the fix task (#329
+#: review), so for these the pointer at the unresolved reference wins.
+_UNRESOLVED_TARGET_KINDS = frozenset(
+    {
+        "unresolved_agent_binding",
+        "unresolved_bound_tool",
+        "incomplete_handoff_graph",
+    }
+)
+
+
 def _binding_coverage(
     report: ReadinessReport,
     tool_catalog: Sequence[Tool] = (),
@@ -688,6 +705,40 @@ def _binding_coverage(
         if not tool_id:
             return fallback
         return catalog_subject(catalog_rows.get(tool_id) or {"tool_id": tool_id})
+
+    # The same rule for the other subject this loop can name. An issue that
+    # names no tool falls back to the agent, and the agent used to be spelled
+    # by its derived id — so the sentence under the verdict read "the agent's
+    # tool binding graph is incomplete (agent_v1:7205d836…)", naming something
+    # that appears in no file the reader has (#329). Resolved through one
+    # index, and chaining to the source pointer rather than back to the id:
+    # a fallback that returns the unreadable value defeats itself.
+    agent_labels = agent_label_index(graph.agents)
+
+    def _agent_subject(issue: AgentBindingIssue) -> str:
+        # Three answers, in the order they are true.
+        #
+        # For an unresolved *reference*, the pointer names what failed and the
+        # agent id names who referenced it, so the pointer wins outright — an
+        # `agent_id` present on these kinds is the healthy referrer, not the
+        # subject (#329 review).
+        #
+        # Otherwise the issue's own agent is the subject. A kind that names
+        # none is a statement about the whole extraction — "this entrypoint
+        # builds its tools dynamically" — where the root is the agent the
+        # reader is being told about, and naming it is the improvement.
+        #
+        # `source` is never a subject: it is `framework_extraction` or a bare
+        # `shipgate.yaml`, which names no agent and reads as jargon.
+        unresolved_reference = issue.kind in _UNRESOLVED_TARGET_KINDS
+        if unresolved_reference and issue.source_pointer:
+            return issue.source_pointer
+        agent_id = issue.agent_id or (
+            None if unresolved_reference else graph.root_agent_id
+        )
+        label = agent_labels.get(agent_id or "")
+        return label or issue.source_pointer or "agent binding graph"
+
     for issue in graph.issues:
         _increment(reason_counts, issue.kind)
         if issue.kind == "ambiguous_root_agent":
@@ -724,10 +775,7 @@ def _binding_coverage(
         gaps.append(
             EvidenceGap(
                 kind=issue.kind,
-                subject=_gap_subject(
-                    issue.tool_id,
-                    issue.agent_id or graph.root_agent_id or "agent_binding_graph",
-                ),
+                subject=_gap_subject(issue.tool_id, _agent_subject(issue)),
                 subject_id=issue.tool_id,
                 source_ref=issue.source_pointer or issue.source,
                 why=issue.message,
@@ -1423,9 +1471,19 @@ def _semantic_gap(
     name_scaffold = True
     if kind in {"incomplete_tool_identity"}:
         action_kind = "declare_source_identity"
-        accepted_values = ["unique_source_id", "stable_native_locator"]
-        action_why = "A stable source-scoped identity is required for every observation."
-        expects = "Declare a unique source identity and regenerate the report."
+        # `stable_native_locator` named a field that exists in no file the
+        # adopter has (#329). Both values now name what they actually ask for:
+        # a unique id per tool source, and a source whose file path does not
+        # move between runs.
+        accepted_values = ["unique_source_id", "stable_source_path"]
+        action_why = (
+            "Every tool needs a stable identity scoped to the source it was "
+            "read from."
+        )
+        expects = (
+            "Give each entry under shipgate.yaml#tool_sources a unique id and a "
+            "path that does not move between runs, then regenerate the report."
+        )
     elif kind in {"unresolved_tool_selector", "ambiguous_tool_selector", "ambiguous_legacy_tool_identity"}:
         action_kind = "qualify_tool_selector"
         accepted_values = ["tool_id", "provider", "source_type", "source_id"]
@@ -1445,7 +1503,10 @@ def _semantic_gap(
     elif kind == "conflicting_tool_identity":
         action_kind = "resolve_tool_identity_conflict"
         accepted_values = ["split_binding", "align_schema", "align_authority", "align_annotations"]
-        action_why = "Conflicting bound observations cannot share one canonical capability."
+        action_why = (
+            "Tools joined into one capability must agree about what that "
+            "capability does."
+        )
         expects = "Split the binding or reconcile its structural evidence, then rerun verification."
     elif kind == "invalid_evidence_provenance":
         action_kind = "provide_policy_evidence"
@@ -1918,6 +1979,13 @@ def _semantic_gap_path(kind: str, tool: Tool, issue_source: str | None = None) -
         return "shipgate.yaml#tool_sources"
     if kind in _SELECTOR_KINDS:
         return action_row
+    if kind == "incomplete_tool_identity":
+        # Not `tool_identity`: the repair this kind prescribes is a unique id
+        # and a stable path per configured source, and both live under
+        # `tool_sources`. An agent routes on `path` while a human reads
+        # `expects`, so the two disagreeing sent them to different sections of
+        # the same file (#329 review).
+        return "shipgate.yaml#tool_sources"
     if kind in _TOOL_IDENTITY_KINDS:
         return "shipgate.yaml#tool_identity"
     if kind in _AGENT_BINDING_KINDS:

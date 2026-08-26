@@ -18,9 +18,16 @@ blocking *condition*; the caller decides what to do.
 from __future__ import annotations
 
 import shlex
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from agents_shipgate.core.adopter_text import (
+    DUPLICATE_TOOL_IN_SOURCE,
+    REPEATED_SOURCE_ENTRY,
+    source_label,
+)
+from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.schemas.detect import DetectResult
 from agents_shipgate.schemas.diagnostics import (
     DIAG_CHANGE_ME_PLACEHOLDERS,
@@ -167,7 +174,8 @@ def diagnose_unknown_adapter_source_type(
                 why=(
                     "Enable third-party adapter discovery and re-run "
                     "the scan. If the adapter package is also "
-                    "installed, this resolves the source_type."
+                    "installed, this resolves the shipgate.yaml "
+                    "tool_sources[].type."
                 ),
                 expects=(
                     f"Scan completes; `report.loaded_adapters[]` "
@@ -210,13 +218,155 @@ def diagnose_unknown_adapter_source_type(
         Diagnostic(
             id=DIAG_UNKNOWN_ADAPTER_SOURCE_TYPE,
             title=(
-                f"Unknown adapter source_type {source_type!r} "
-                "(install/enable the adapter, or fix a typo)"
+                f"No adapter handles tool_sources[].type {source_type!r} "
+                "in shipgate.yaml (install/enable the adapter, or fix a typo)"
             ),
             severity="block",
             next_actions=next_actions,
         )
     ]
+
+
+def input_parse_recovery(
+    exc: InputParseError, *, manifest_path: Path | None = None
+) -> list[NextAction]:
+    """The ranked recovery for an ``input_parse_error``, for every command.
+
+    ``scan``, ``verify``, and the verifier assembly path each caught this
+    exception and each wrote its own recovery, so a failure that had a precise
+    route on one command got "inspect the file referenced in the error" on the
+    next — the second-implementation bug class (#322). One resolver, three
+    call sites.
+
+    Routing is on the exception's typed ``details["failure"]`` where it has
+    one. That is what lets the *message* be rewritten for a human without
+    breaking the route (#329): prose is for the reader, ``details`` is for the
+    caller, and neither is parsed to derive the other. The ``CHANGE_ME`` branch
+    predates typed details and still sniffs the text, because the placeholder
+    is genuinely a property of the manifest's contents rather than of a failure
+    site.
+    """
+
+    details = exc.details
+    # The manifest the run actually read, which is not always the one the CLI
+    # was spelled with: `--workspace` discovery can select a sole nested
+    # `services/billing/shipgate.yaml`, and `verify` may be invoked with no
+    # `--config` at all. `run_scan` records the resolved path on the way out,
+    # so an `edit` action cannot name an unrelated trust root in the caller's
+    # working directory (#329 review). The argument is the fallback for the
+    # failures raised before a scan started.
+    manifest = str(details.get("manifest_path") or manifest_path or "shipgate.yaml")
+    # A failure evaluated against a ref that is not the checked-out tree has no
+    # file the reader can open: the archive is gone and the working tree may
+    # already hold the fix. Say which commit and which path within it, and
+    # publish no `path` at all (#329 review 3).
+    evaluated_ref = details.get("evaluated_ref")
+    manifest_in_ref = details.get("manifest_in_ref")
+    if evaluated_ref and manifest_in_ref:
+        return [
+            NextAction(
+                kind="review",
+                why=(
+                    f"This failure is in {manifest_in_ref} as of {evaluated_ref}, "
+                    "which is not the tree you have checked out. Inspect that "
+                    "commit — the working copy may already differ."
+                ),
+                expects=(
+                    f"{manifest_in_ref} at {evaluated_ref} no longer produces "
+                    "this failure."
+                ),
+            )
+        ]
+    if details.get("failure") == DUPLICATE_TOOL_IN_SOURCE:
+        return [_duplicate_tool_action(details, manifest=manifest)]
+    # `init --write` on a workspace where detect found no sources leaves
+    # CHANGE_ME placeholders; scanning then fails here. Route to the
+    # placeholder fix, not the generic missing-file advice.
+    #
+    # Decided on typed manifest state, not on a substring of the failure text:
+    # a filled-in manifest pointing at a missing file named
+    # `CHANGE_ME-tools.json` matched the old search and was told it still held
+    # template placeholders (#329 review 3). A caller that recorded nothing
+    # gets the generic route — "we did not look" is not "there are none".
+    placeholders = details.get("manifest_placeholders")
+    if placeholders:
+        fields = ", ".join(str(field) for field in list(placeholders)[:4])
+        return [
+            NextAction(
+                kind="edit",
+                # The manifest the run read: `--workspace` can select a nested
+                # one, and this branch discarding it sent the reader to a
+                # different file than the one holding the placeholders.
+                path=manifest,
+                why=(
+                    f"{manifest} still declares CHANGE_ME at {fields}. Edit "
+                    "those fields to point at real artifacts, or run "
+                    "`agents-shipgate doctor` to list every placeholder."
+                ),
+                expects=(
+                    "tool_sources entries reference files that exist in this "
+                    "workspace."
+                ),
+            )
+        ]
+    return [
+        NextAction(
+            kind="review",
+            why=(
+                "Inspect the file referenced in the error; ensure it exists, is "
+                "valid, and resolves under the manifest directory."
+            ),
+            expects=(
+                "Referenced file is present, parseable, and inside the manifest "
+                "directory."
+            ),
+        )
+    ]
+
+
+def _duplicate_tool_action(
+    details: Mapping[str, Any], *, manifest: str
+) -> NextAction:
+    """One target, chosen from the cause the duplicate check reported.
+
+    A repeated entry is repaired in the manifest and a duplicate definition is
+    repaired in the artifact, so naming both would leave a consumer routing on
+    ``path`` free to delete a source declaration when the file was the problem.
+    Only the manifest is ever an ``edit`` target. A declared artifact path has
+    no single base — the manifest's for most sources, the *entrypoint's* for an
+    inventory a framework file mounts — so publishing one as a routable path
+    named a file that did not exist (#329 review 3). The artifact still
+    appears in the sentence, where it is a name to grep for rather than a path
+    to open, and the duplicate-inside-an-artifact case routes to review.
+    """
+
+    tool_name = str(details.get("tool_name") or "")
+    source_id = str(details.get("source_id") or "")
+    source_file = details.get("source_file")
+    where = source_label(
+        file_path=source_file if isinstance(source_file, str) else None,
+        source_id=source_id,
+    )
+    if details.get("cause") == REPEATED_SOURCE_ENTRY:
+        return NextAction(
+            kind="edit",
+            path=manifest,
+            why=(
+                f"{manifest} reads {where} twice as one tool source, so the "
+                f"tool {tool_name!r} arrived twice. Remove the repeated entry."
+            ),
+            expects="Each tool source names its artifact exactly once.",
+        )
+    return NextAction(
+        kind="review",
+        why=(
+            f"{where} produced the tool {tool_name!r} twice, so one artifact "
+            f"defines it more than once. Find it under the tool source "
+            f"{source_id!r} declared in {manifest} and remove the duplicate "
+            "definition; the manifest entry itself is correct."
+        ),
+        expects=f"The artifact behind {source_id!r} defines each tool once.",
+    )
 
 
 def diagnose_invalid_manifest(

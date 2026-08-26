@@ -42,6 +42,10 @@ from agents_shipgate.schemas.exclusions import (
 #: id this fixture used before did not exercise the real thing.
 TOOL_ID = "tool_v2_f8e7804c48c4ce36de4c20c96f8143721961b2d79a0522532b269fdd6cb527bb"
 
+#: The agent equivalent — ``core.agent_bindings`` builds every agent id as
+#: ``agent_v1:`` plus the first 24 hex of a sha256.
+AGENT_ID = "agent_v1:7205d836e4b3fee257d90695"
+
 _MANIFEST = """
 version: "0.1"
 project: {{name: mcp-server}}
@@ -1175,7 +1179,38 @@ def test_a_raw_id_is_refused_for_a_gap_kind_the_ledger_never_joins():
         )
     )
 
-    with pytest.raises(SemanticConsistencyError, match="canonical id"):
+    with pytest.raises(SemanticConsistencyError, match="a tool .* with a derived id"):
+        _validate_exclusion_ledger(report)
+
+
+@pytest.mark.parametrize(
+    "subject",
+    [
+        pytest.param(AGENT_ID, id="bare"),
+        pytest.param(f"closer_agent [{AGENT_ID}]", id="wrapped-in-a-label"),
+        pytest.param("agent_v1:" + "a" * 24, id="not-in-this-graph"),
+    ],
+)
+def test_an_agent_id_is_refused_the_same_way_a_tool_id_is(subject):
+    """The other negative control: one shape is not the property (#329).
+
+    Scoping the rule to ``tool_v…`` left the identical defect standing one
+    subject kind over. A binding issue that names no tool falls back to the
+    agent, and ``samples/conductor_agent`` shipped
+    ``(agent_v1:7205d836…)`` in ``subject`` and in the decision ``reason``
+    printed under it — the exact reader-facing failure this invariant exists
+    to prevent, on a bundled sample, while the whole suite stayed green.
+    """
+
+    report = _report_with_one_possible_tool()
+    gaps = report.release_decision.evidence_coverage.evidence_gaps
+    gaps.append(
+        gaps[0].model_copy(
+            update={"kind": "missing_binding_evidence", "subject": subject}
+        )
+    )
+
+    with pytest.raises(SemanticConsistencyError, match="an agent .* with a derived id"):
         _validate_exclusion_ledger(report)
 
 
@@ -1206,5 +1241,5 @@ def test_a_canonical_id_is_refused_wherever_it_sits_in_the_label(subject):
         )
     )
 
-    with pytest.raises(SemanticConsistencyError, match="canonical id"):
+    with pytest.raises(SemanticConsistencyError, match="a tool .* with a derived id"):
         _validate_exclusion_ledger(report)

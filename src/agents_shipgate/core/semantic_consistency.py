@@ -5,7 +5,7 @@ from agents_shipgate.core.domain import Tool, ToolSemanticAssessment
 from agents_shipgate.core.surface_exclusions import (
     BINDING_GAP_KINDS,
     catalog_subject,
-    contains_tool_id,
+    derived_id_kind,
     unavailable_base_subject,
 )
 from agents_shipgate.schemas.report import ReadinessReport
@@ -318,12 +318,32 @@ def _validate_exclusion_ledger(report: ReadinessReport) -> None:
     # finding carrying a stale or invented id that is in no catalog to compare
     # against. Both are exactly as unreadable as the bare form (PR #408
     # review), and neither is recognisable to a membership test.
+    #
+    # Every derived id, not only a tool's. Scoping the rule to `tool_v…` left
+    # the identical defect standing one subject kind over: a binding issue
+    # naming no tool fell back to `agent_v1:7205d836…`, and
+    # `samples/conductor_agent` shipped that digest in `subject` and in the
+    # decision `reason` under it (#329). A guard scoped to one shape passes
+    # vacuously for every other shape — scope it to the property.
+    #
+    # Position is not quite enough on its own: a *bare* subject that is exactly
+    # an id shape is refused, and an adopter may legally name a tool
+    # `tool_v2_deadbeef`. So the run's own names exonerate it — structured
+    # provenance where there is some, shape where there is none, which is what
+    # keeps the plugin-supplied id in no catalog refused (#329 review 3).
+    adopter_names = {
+        str(row.get("name") or "") for row in report.tool_catalog if isinstance(row, dict)
+    } | {node.name for node in report.binding_surface_facts.agents}
     for gap in gaps:
-        if contains_tool_id(gap.subject):
+        noun = derived_id_kind(gap.subject)
+        if noun is not None and gap.subject.strip() in adopter_names:
+            continue
+        if noun is not None:
+            article = "an" if noun[0] in "aeiou" else "a"
             raise SemanticConsistencyError(
-                f"evidence gap labels a tool {gap.subject!r} with a canonical "
-                "id rather than its catalog subject; the id belongs in "
-                "subject_id, and this string is what a reader is shown"
+                f"evidence gap labels {article} {noun} {gap.subject!r} with a "
+                "derived id rather than its display subject; the id belongs "
+                "in subject_id, and this string is what a reader is shown"
             )
     gated_binding_subjects = {
         entry.accounted_by

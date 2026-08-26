@@ -75,6 +75,7 @@ def emit_agent_mode_error_action(
     message: object,
     exit_code: int,
     action: Any,
+    details: object | None = None,
     **fields: object,
 ) -> None:
     """Emit a structured error whose recovery is one ranked ``NextAction``.
@@ -92,6 +93,7 @@ def emit_agent_mode_error_action(
         exit_code=exit_code,
         next_action=action.to_legacy_string(),
         next_actions=[action.model_dump(mode="json")],
+        details=details,
         **fields,
     )
 
@@ -106,9 +108,17 @@ def emit_agent_mode_error(
     next_actions: object | None = None,
     diagnostics: object | None = None,
     artifacts: object | None = None,
+    details: object | None = None,
     **fields: object,
 ) -> None:
-    """Emit a structured one-line error for coding-agent callers."""
+    """Emit a structured one-line error for coding-agent callers.
+
+    ``details`` is the diagnostic payload a failure carries in
+    ``AgentsShipgateError.details`` — the internal identity fields that used to
+    be printed at the reader (#329). Named explicitly rather than passed
+    through ``**fields`` so it is omitted when empty instead of publishing
+    ``"details": null``, and so ``docs/errors.json`` has one place to point at.
+    """
     if not is_agent_mode():
         return
     payload: dict[str, object] = {"error": error_kind}
@@ -122,6 +132,8 @@ def emit_agent_mode_error(
         payload["next_action"] = _legacy_action(next_action, normalized_actions)
     if normalized_actions is not None:
         payload["next_actions"] = normalized_actions
+    if details is not None:
+        payload["details"] = details
     if diagnostics is not None:
         payload["diagnostics"] = diagnostics
     if artifacts is not None:

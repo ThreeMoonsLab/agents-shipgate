@@ -131,6 +131,34 @@ tagged release (a check ID, a stable JSON field, a CLI flag) still follows the
 compatibility and deprecation rules in [`STABILITY.md`](STABILITY.md): a shipped
 check ID is deprecated for at least one minor cycle, never hard-removed.
 
+## Adopter-facing copy
+
+A separate rule from surface discipline, and easier to break by accident:
+**a string an adopter is expected to act on must name something they can
+open.** A file, a symbol, an agent, or a manifest key.
+
+Internal identity vocabulary — `source_type`, `source_id`, `native_locator`,
+observation ids, fingerprints, and derived `tool_v…` / `agent_v…` identifiers —
+belongs in `report.json` evidence blocks, the tool catalog, and the
+verification artifacts, where tooling reads it and precision is the point. It
+does not belong in console output, the agent-mode `message` / `next_action` /
+`next_actions[]`, `agent-handoff.json` prose, `fix_task.instructions[]`, or PR
+comment text. Where an internal identifier is load-bearing for diagnosis, keep
+it in the structured payload (`AgentsShipgateError.details`, the envelope's
+`details` object, `EvidenceGap.subject_id`) and write the sentence in the
+adopter's terms.
+
+`source_id` and `source_type` are the awkward pair: both are real manifest
+keys under `tool_identity.bindings[].members[]`, and `source_id` is one under
+`tool_inventories[]` and `agent_bindings.root` too. Spelled with the surface
+they belong to they are locatable; spelled bare they are the model leaking.
+
+The rule and its two categories live in
+[`core/adopter_text.py`](src/agents_shipgate/core/adopter_text.py);
+[`tests/test_adopter_vocabulary.py`](tests/test_adopter_vocabulary.py) enforces
+it. If you add a message builder to `core/source_warnings.py`, that test's
+sweep table will tell you.
+
 ## Schema Changes
 
 The JSON Schemas under `docs/` (`manifest-v0.1.json`, `checks.json`,

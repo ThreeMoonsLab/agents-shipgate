@@ -3,6 +3,10 @@ from __future__ import annotations
 import pytest
 
 from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.core.adopter_text import (
+    DUPLICATE_TOOL_IN_SOURCE,
+    internal_vocabulary,
+)
 from agents_shipgate.core.baseline import apply_baseline
 from agents_shipgate.core.domain import AuthInfo, LoadedToolSource, Tool
 from agents_shipgate.core.errors import InputParseError
@@ -123,6 +127,55 @@ def test_bare_name_selector_applies_nowhere_and_prevents_pass() -> None:
     )
 
 
+def test_a_tool_in_two_bindings_is_named_by_tool_and_file() -> None:
+    """One observation, two bindings: neither binding can be applied.
+
+    The warning used to open ``Tool observation obs_v1_<64 hex> appears in
+    multiple bindings`` — an identifier that is in no file the reader has,
+    naming a tool they could have opened instead (#329).
+    """
+
+    config = ToolIdentityConfig(
+        bindings=[
+            ToolIdentityBindingConfig(
+                id="orders_process",
+                provider="orders_runtime",
+                reason="same underlying order write",
+                primary={"source_id": "orders_a", "tool": "process_order"},
+                members=[
+                    {"source_id": "orders_a", "tool": "process_order"},
+                    {"source_id": "orders_b", "tool": "process_order"},
+                ],
+            ),
+            ToolIdentityBindingConfig(
+                id="orders_legacy",
+                provider="orders_legacy",
+                reason="the same observation, claimed twice",
+                primary={"source_id": "orders_a", "tool": "process_order"},
+                members=[
+                    {"source_id": "orders_a", "tool": "process_order"},
+                    {"source_id": "orders_c", "tool": "process_order"},
+                ],
+            ),
+        ]
+    )
+    _tools, warnings = build_tool_identity_catalog(
+        [
+            _source("orders_a", scope="orders:read", effect="read"),
+            _source("orders_b", scope="orders:read", effect="read"),
+            _source("orders_c", scope="orders:read", effect="read"),
+        ],
+        config,
+    )
+
+    overlap = [w for w in warnings if "claimed by more than one" in w]
+    assert len(overlap) == 1, warnings
+    assert "process_order" in overlap[0]
+    assert "'orders_legacy', 'orders_process'" in overlap[0]
+    assert "shipgate.yaml" in overlap[0] or "tool_identity.bindings" in overlap[0]
+    assert not internal_vocabulary(overlap[0]), overlap[0]
+
+
 def test_qualified_selector_resolves_exactly_one_provider() -> None:
     tools, _ = build_tool_identity_catalog(
         [
@@ -175,9 +228,49 @@ def test_duplicate_observation_tuple_is_rejected() -> None:
     try:
         build_tool_identity_catalog([duplicate], ToolIdentityConfig())
     except InputParseError as exc:
-        assert "Duplicate tool observation identity" in str(exc)
+        # The rejection is unchanged; what it says is not (#329). One read of
+        # one source produced the tool twice, so the repair is in the artifact
+        # rather than the manifest — and this fixture records no path, so the
+        # label falls back to the `tool_sources[].id` the adopter wrote.
+        assert "process_order" in str(exc)
+        assert "'orders'" in str(exc)
+        assert not internal_vocabulary(str(exc)), str(exc)
+        assert exc.details["failure"] == DUPLICATE_TOOL_IN_SOURCE
+        assert exc.details["cause"] == "duplicate_in_source_artifact"
+        assert exc.details["source_id"] == "orders"
     else:  # pragma: no cover - explicit safety assertion
         raise AssertionError("duplicate observation tuple was accepted")
+
+
+def test_only_a_field_that_names_a_file_can_name_a_file() -> None:
+    """An edit action must name a file, and most provenance fields do not.
+
+    `source_path` is the structured one. `source_ref` is accepted only when it
+    carries no `#`, because several adapters write a *locator* there
+    (`spec.yaml#/paths/~1orders/get`, `file#index`) and a filename may legally
+    contain one. `source_location` and `source_pointer` are separate optional
+    fields a third-party adapter may set without a path at all, and
+    `agent.py:12` and `/tools/0` both reached an edit action as if they were
+    files (#329 review 3).
+    """
+
+    from agents_shipgate.core.tool_identity import _source_file
+
+    def tool(**fields) -> Tool:
+        return Tool(id="t", name="x", source_type="mcp", source_id="s", **fields)
+
+    assert (
+        _source_file(tool(source_path="services/tools.json", source_ref="other#0"))
+        == "services/tools.json"
+    )
+    assert _source_file(tool(source_ref="agent.py")) == "agent.py"
+    assert (
+        _source_file(tool(source_ref="specs/orders.yaml#/paths/~1orders/post")) is None
+    )
+    assert _source_file(tool(source_ref="tools#prod.json")) is None
+    assert _source_file(tool(source_location="agent.py:12")) is None
+    assert _source_file(tool(source_pointer="/tools/0")) is None
+    assert _source_file(tool()) is None
 
 
 def test_fingerprint_v2_and_legacy_baseline_do_not_cross_providers() -> None:

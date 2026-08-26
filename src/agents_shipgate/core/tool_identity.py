@@ -8,6 +8,13 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, cast
 
+from agents_shipgate.core.adopter_text import (
+    DUPLICATE_IN_SOURCE_ARTIFACT,
+    DUPLICATE_TOOL_IN_SOURCE,
+    REPEATED_SOURCE_ENTRY,
+    duplicate_tool_observation_message,
+    overlapping_binding_message,
+)
 from agents_shipgate.core.domain import (
     SURFACE_PARTIAL,
     LoadedToolSource,
@@ -33,6 +40,7 @@ from agents_shipgate.schemas.manifest import (
     ToolObservationSelectorConfig,
     ToolSourceConfig,
 )
+from agents_shipgate.schemas.manifest._artifacts import _normalized_declared_path
 
 _MCP_LIKE = {
     "mcp",
@@ -293,6 +301,7 @@ def configured_tool_source(
 def build_tool_identity_catalog(
     loaded_sources: list[LoadedToolSource],
     config: ToolIdentityConfig,
+    repeated_artifacts: frozenset[str] = frozenset(),
 ) -> tuple[list[Tool], list[str]]:
     """Build canonical tools without ever joining observations by name.
 
@@ -307,7 +316,7 @@ def build_tool_identity_catalog(
     inventory file never joins itself to anything by name.
     """
 
-    observations = _observations(loaded_sources)
+    observations = _observations(loaded_sources, repeated_artifacts)
     synthesized, warnings = _inventory_completion_bindings(
         loaded_sources, observations, config
     )
@@ -376,12 +385,23 @@ def build_tool_identity_catalog(
             assert tool.observation_id is not None
             observation_bindings[tool.observation_id].append(binding.id)
 
+    observations_by_id = {
+        tool.observation_id: tool for tool in observations if tool.observation_id
+    }
     for observation_id, binding_ids in observation_bindings.items():
         if len(binding_ids) <= 1:
             continue
-        message = (
-            f"Tool observation {observation_id} appears in multiple bindings: "
-            + ", ".join(sorted(binding_ids))
+        # The observation id detected the overlap; it is not what the reader
+        # opens. Name the tool and the file it came from (#329) — the id is
+        # already on the row this issue is attached to. Indexed directly:
+        # every key here came from an observation, and a KeyError is a better
+        # answer to that invariant breaking than a message naming ''.
+        overlapping = observations_by_id[observation_id]
+        message = overlapping_binding_message(
+            tool_name=overlapping.name,
+            file_path=_source_file(overlapping),
+            source_id=overlapping.source_id or "",
+            binding_ids=binding_ids,
         )
         warnings.append(message)
         binding_issues[observation_id].append(
@@ -681,18 +701,44 @@ def _unbound_inventory_warnings(
     ]
 
 
-def _observations(loaded_sources: list[LoadedToolSource]) -> list[Tool]:
+def _observations(
+    loaded_sources: list[LoadedToolSource],
+    repeated_artifacts: frozenset[str] = frozenset(),
+) -> list[Tool]:
     observations: list[Tool] = []
-    seen: set[tuple[str, str, str]] = set()
-    for loaded in loaded_sources:
+    # Which *read* first produced each identity, not merely that something did.
+    # A repeated manifest entry and a duplicate definition inside one artifact
+    # both land here, and they are repaired in different files — the reader
+    # gets one structured action, so the check has to know which (#329 review).
+    seen: dict[tuple[str, str, str], int] = {}
+    for read_index, loaded in enumerate(loaded_sources):
         source_id = loaded.source_id.strip()
         if not source_id:
-            raise InputParseError("loaded tool source has a blank source_id")
+            # Ours, not theirs — and only since `tool_sources[].id` became
+            # non-blank at manifest load (#329 review). A blank id used to be
+            # reachable from a valid manifest, which made this sentence false
+            # for the case that actually produced it. What remains is a loader
+            # contract violation: no manifest edit can cause or repair it.
+            raise InputParseError(
+                "A tool source loader returned tools without naming the source "
+                "they came from. That is a defect in the loader, not in this "
+                "repository's configuration — check report.json "
+                "loaded_adapters[] if a third-party adapter is installed.",
+                details={"source_id": loaded.source_id},
+            )
         for original in loaded.tools:
             if original.source_id is not None and original.source_id != source_id:
                 raise InputParseError(
-                    f"Tool {original.name!r} source_id {original.source_id!r} does not match "
-                    f"loaded source {source_id!r}"
+                    f"A tool source loader reported tool {original.name!r} as "
+                    "belonging to a different source than the one it was read "
+                    "from. That is a defect in the loader, not in this "
+                    "repository's configuration — check report.json "
+                    "loaded_adapters[] if a third-party adapter is installed.",
+                    details={
+                        "tool_name": original.name,
+                        "tool_source_id": original.source_id,
+                        "loaded_source_id": source_id,
+                    },
                 )
             # The extraction graph is no longer consumed after catalog
             # construction.  A shallow copy isolates identity fields while
@@ -701,13 +747,49 @@ def _observations(loaded_sources: list[LoadedToolSource]) -> list[Tool]:
             tool.source_id = source_id
             locator = _native_locator(tool)
             key = (tool.source_type, source_id, locator)
-            if key in seen:
-                raise InputParseError(
-                    "Duplicate tool observation identity: "
-                    f"source_type={tool.source_type!r}, source_id={source_id!r}, "
-                    f"native_locator={locator!r}"
+            first_read = seen.get(key)
+            if first_read is not None:
+                # Theirs, and repairable — but only if the message names what
+                # to open. The identity triple that detected the collision is
+                # kept in ``details`` for machine consumers and bug reports
+                # (#329); the sentence names the tool and the one file to edit.
+                source_file = _source_file(tool)
+                # Two reads of one source id is always a repeated entry. One
+                # read is *not* always a duplicate definition: the OpenAI and
+                # Anthropic loaders aggregate every configured artifact into a
+                # single ``LoadedToolSource``, so listing one file twice under
+                # ``openai_api.tools`` collides inside one read and used to be
+                # reported as a defect in a perfectly valid file (#329
+                # review). The manifest settles it — a path it declares twice
+                # in one list is a repeated entry whatever the loader did with
+                # it — and it is read from the config rather than inferred
+                # from the observations, which cannot tell the two apart.
+                declared_twice = source_file is not None and (
+                    _normalized_declared_path(source_file) in repeated_artifacts
                 )
-            seen.add(key)
+                cause = (
+                    REPEATED_SOURCE_ENTRY
+                    if first_read != read_index or declared_twice
+                    else DUPLICATE_IN_SOURCE_ARTIFACT
+                )
+                raise InputParseError(
+                    duplicate_tool_observation_message(
+                        tool_name=tool.name,
+                        file_path=source_file,
+                        source_id=source_id,
+                        cause=cause,
+                    ),
+                    details={
+                        "failure": DUPLICATE_TOOL_IN_SOURCE,
+                        "cause": cause,
+                        "source_type": tool.source_type,
+                        "source_id": source_id,
+                        "native_locator": locator,
+                        "tool_name": tool.name,
+                        "source_file": source_file,
+                    },
+                )
+            seen[key] = read_index
             observation_id = _stable_id(
                 "obs_v1",
                 {
@@ -728,6 +810,30 @@ def _observations(loaded_sources: list[LoadedToolSource]) -> list[Tool]:
             tool.provider = source_id
             observations.append(tool)
     return observations
+
+
+def _source_file(tool: Tool) -> str | None:
+    """The file this tool was read from, when the loader recorded one.
+
+    Only two fields can answer this, and only one of them structurally.
+    ``source_path`` is the typed field: the adapters that set it set a path and
+    nothing else. ``source_ref`` is accepted as a fallback *only* when it
+    carries no ``#``, because that is the shape the plain-path producers write
+    (Google ADK, MCP) and any other shape is a locator we would be guessing at.
+
+    ``source_location`` and ``source_pointer`` are deliberately absent.
+    They are separate optional provenance fields and a third-party adapter may
+    legally set either without a path at all — ``agent.py:12`` and
+    ``/tools/0`` both reached an edit action as if they were files (#329
+    review 3). A value that names no file is worth less than no value: the
+    caller has a review route for exactly that case.
+    """
+
+    if tool.source_path:
+        return tool.source_path
+    if tool.source_ref and "#" not in tool.source_ref:
+        return tool.source_ref.strip() or None
+    return None
 
 
 def _native_locator(tool: Tool) -> str:

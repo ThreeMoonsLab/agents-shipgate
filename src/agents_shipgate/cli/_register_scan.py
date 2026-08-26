@@ -19,7 +19,7 @@ from agents_shipgate.cli._helpers import (
     _run_multi_scan,
 )
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
-from agents_shipgate.cli.diagnostics import top_next_actions
+from agents_shipgate.cli.diagnostics import input_parse_recovery, top_next_actions
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_controls import git_root_for
@@ -453,50 +453,20 @@ def register(app: typer.Typer) -> None:
             raise typer.Exit(2) from exc
         except InputParseError as exc:
             typer.echo(f"Input parsing error: {exc}", err=True)
-            if "CHANGE_ME" in str(exc):
-                # `init --write` on a workspace where detect found no
-                # sources leaves CHANGE_ME placeholders; scanning then
-                # fails here. Route to the placeholder fix, not the
-                # generic missing-file advice.
-                guidance = (
-                    "shipgate.yaml still contains CHANGE_ME placeholders. "
-                    "Edit shipgate.yaml to point tool_sources at real "
-                    "artifacts, or run `agents-shipgate doctor` to list "
-                    "every placeholder."
-                )
-                actions = [
-                    NextAction(
-                        kind="edit",
-                        path="shipgate.yaml",
-                        why=guidance,
-                        expects=(
-                            "tool_sources entries reference files that exist "
-                            "in this workspace."
-                        ),
-                    )
-                ]
-            else:
-                guidance = (
-                    "Inspect the file referenced in the error; ensure it "
-                    "exists, is valid, and resolves under the manifest "
-                    "directory."
-                )
-                actions = [
-                    NextAction(
-                        kind="review",
-                        why=guidance,
-                        expects=(
-                            "Referenced file is present, parseable, and inside "
-                            "the manifest directory."
-                        ),
-                    )
-                ]
+            actions = input_parse_recovery(exc, manifest_path=config)
             _echo_next_action_hint(actions)
             _emit_agent_mode_error(
                 "input_parse_error",
                 message=str(exc),
-                next_action=guidance,
+                # The prose form, not `to_legacy_string()`: this surface has
+                # always published the sentence here, and `Edit <path>` drops
+                # the half that says what to change.
+                next_action=actions[0].why,
                 next_actions=[a.model_dump(mode="json") for a in actions],
+                # The identity model stays available to machine consumers and
+                # bug reports even though it left the sentence (#329). Absent
+                # for the failures that carry no structured payload.
+                details=exc.details or None,
             )
             raise typer.Exit(3) from exc
         except ArtifactLifecycleError as exc:

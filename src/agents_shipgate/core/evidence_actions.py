@@ -262,7 +262,7 @@ _GAP_PHRASE: dict[str, str] = {
     "conflicting_authority_evidence": "an action carries conflicting authority evidence",
     "invalid_semantic_annotation": "a semantic annotation is invalid",
     "incomplete_tool_identity": "a tool identity is incomplete",
-    "conflicting_tool_identity": "bound observations disagree about one tool identity",
+    "conflicting_tool_identity": "tools joined as one capability disagree about it",
     "unresolved_tool_selector": "a manifest tool selector resolves to nothing",
     "ambiguous_tool_selector": "a manifest tool selector resolves to several tools",
     "ambiguous_legacy_tool_identity": "a legacy tool identity is ambiguous",

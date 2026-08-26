@@ -5,6 +5,10 @@ import yaml
 
 from agents_shipgate.checks.adk import _has_long_running_contract
 from agents_shipgate.cli.scan import inspect_sources, run_scan
+from agents_shipgate.core.adopter_text import (
+    DUPLICATE_TOOL_IN_SOURCE,
+    internal_vocabulary,
+)
 from agents_shipgate.core.artifact_models import GoogleAdkArtifacts
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.google_adk import (
@@ -445,7 +449,18 @@ google_adk:
             ci_mode="advisory",
         )
 
-    assert "Duplicate tool observation identity" in str(excinfo.value)
+    # Still fails closed — and now says so in the adopter's terms (#329): the
+    # tool, the file it came from, and the two places a duplicate can be
+    # declared. The identity triple that detected it stays in `details`.
+    message = str(excinfo.value)
+    assert "map_salesforce_account_to_sap_bp" in message
+    assert "agent.py" in message
+    assert "shipgate.yaml" in message
+    assert not internal_vocabulary(message), message
+    assert excinfo.value.details["failure"] == DUPLICATE_TOOL_IN_SOURCE
+    assert excinfo.value.details["native_locator"] == (
+        "agent.py#map_salesforce_account_to_sap_bp"
+    )
 
 
 def test_google_adk_agent_config_dynamic_toolset_findings(tmp_path):

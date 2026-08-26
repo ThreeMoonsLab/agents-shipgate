@@ -270,8 +270,14 @@ class FingerprintNotFound(LookupError):
     def __init__(self, fingerprint: str, *, suggestion: str | None) -> None:
         self.fingerprint = fingerprint
         self.suggestion = suggestion
+        # Name where the value comes from, not just that it did not match:
+        # the reader supplied an identifier and has to be told which field to
+        # copy the right one from (#329).
         suffix = f" Did you mean {suggestion}?" if suggestion else ""
-        super().__init__(f"Unknown fingerprint: {fingerprint}.{suffix}")
+        super().__init__(
+            f"Unknown fingerprint: {fingerprint}.{suffix} No entry in "
+            "findings[].fingerprint matches it."
+        )
 
 
 def explain_finding(
@@ -320,7 +326,9 @@ def explain_finding(
     except FingerprintNotFound as exc:
         suffix = f" Did you mean {exc.suggestion}?" if exc.suggestion else ""
         typer.echo(
-            f"Unknown fingerprint: {exc.fingerprint}.{suffix}", err=True
+            f"Unknown fingerprint: {exc.fingerprint}.{suffix} No entry in "
+            f"findings[].fingerprint in {source} matches it.",
+            err=True,
         )
         emit_agent_mode_error(
             "unknown_fingerprint",

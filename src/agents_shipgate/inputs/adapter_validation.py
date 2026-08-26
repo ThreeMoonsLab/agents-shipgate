@@ -140,14 +140,18 @@ def validate_adapter_entry_point(
         return _fail(
             info,
             SOURCE_TYPE_COLLISION,
-            f"source_type {source_type!r} is reserved by a built-in adapter",
+            # Rendered into `report.md` under Loaded Adapters, so it is read
+            # by the adopter as well as by the adapter's author (#329
+            # review 3): name the manifest key, not the class attribute.
+            f"shipgate.yaml#tool_sources[].type {source_type!r} is reserved "
+            "by a built-in adapter",
         )
     if source_type in already_registered_source_types:
         return _fail(
             info,
             SOURCE_TYPE_COLLISION,
-            f"source_type {source_type!r} is already registered by another "
-            "third-party adapter",
+            f"shipgate.yaml#tool_sources[].type {source_type!r} is already "
+            "registered by another third-party adapter",
         )
 
     # All gates pass.
@@ -299,8 +303,8 @@ def _protocol_error(adapter: Any) -> str | None:
     source_type = getattr(adapter, "source_type", None)
     if not isinstance(source_type, str) or not source_type:
         return (
-            "adapter source_type must be a non-empty string; got "
-            f"{source_type!r}"
+            "the adapter declares no shipgate.yaml#tool_sources[].type to "
+            f"register itself under; got {source_type!r}"
         )
 
     load_method = getattr(adapter, "load", None)

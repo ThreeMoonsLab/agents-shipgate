@@ -2056,7 +2056,7 @@
           },
           "source_ref": "/agent_bindings/declarations/0",
           "source_type": null,
-          "subject": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "subject": "refund_agent [openai_sdk_static]",
           "subject_id": null,
           "subject_kind": "action",
           "why": "Closed-world declaration for 'root' does not match the complete structural tool set."

@@ -1307,15 +1307,23 @@ def test_configured_but_empty_source_still_gets_the_agent_bindings_rule():
     assert "shipgate.yaml#agent_bindings.declarations" in warning
 
 
-def test_member_naming_a_live_source_without_that_tool_keeps_plain_arithmetic():
-    """A source that produced *other* tools is neither of the two cases."""
+def test_member_naming_a_live_source_without_that_tool_repairs_the_selector():
+    """A source that produced *other* tools is neither of the two cases.
+
+    Its repair is the selector itself, so the warning says so and names where
+    the selector lives — the arithmetic alone ("matched 0 observations") named
+    an internal noun and no surface (#329).
+    """
 
     (warning,) = _catalog_warnings(
         member_source="orders_b",
         configured=[("orders_a", ["process_order"]), ("orders_b", ["ship_order"])],
     )
 
-    assert "matched 0 observations" in warning
+    # Zero matches cannot be repaired by narrowing (#329 review 2).
+    assert "matched no tool in that source" in warning
+    assert "name a tool that source exposes" in warning
+    assert "shipgate.yaml#tool_identity.bindings[].members" in warning
     assert "produced no tool observations" not in warning
     assert "no tool source with id" not in warning
 

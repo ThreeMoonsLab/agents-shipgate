@@ -28,6 +28,7 @@ from agents_shipgate.schemas.manifest._artifacts import (
     ArtifactPathConfig,
     NamedArtifactPathConfig,
     ToolInventoryConfig,
+    repeated_declared_artifacts,
 )
 from agents_shipgate.schemas.manifest._common import STRICT_MODEL_CONFIG
 from agents_shipgate.schemas.manifest.action_surface import (
@@ -207,6 +208,7 @@ __all__ = [
     # tool_sources
     "SourceAuthorityConfig",
     "ToolSourceConfig",
+    "repeated_declared_artifacts",
     # tool_identity
     "ToolIdentityBindingConfig",
     "ToolIdentityConfig",

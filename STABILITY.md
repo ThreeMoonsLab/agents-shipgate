@@ -13,6 +13,135 @@ for reproducible CI.
 
 ---
 
+<a id="migration-note-unreleased-adopter-vocabulary"></a>
+
+## Migration Note: unreleased — adopter-facing output stops naming internal fields
+
+No version moves: `contract_version`, `report_schema_version`,
+`minimum_control_contract_version`, and every published schema document are
+unchanged. No field is removed or retyped and no error kind is added. What
+changes is the *wording* of strings a person is expected to read and act on,
+three published field values, one additive field on the agent-mode error
+envelope, and one narrowed manifest value — each detailed below.
+
+**The rule.** Internal identity vocabulary — `source_type`, `source_id`,
+`native_locator`, observation ids, fingerprints, and derived `tool_v…` /
+`agent_v…` identifiers — may appear as evidence in machine-read artifacts. It
+may not appear in anything whose purpose is to tell a person what to do next:
+console output, the agent-mode `next_action` / `next_actions[]` / `message`,
+`agent-handoff.json` prose, `fix_task.instructions[]`, and PR comment text.
+`report.json` evidence blocks, `tool_catalog`, `identity_assessment`, and the
+verification artifacts are unchanged — they are the identity model and are
+supposed to be precise. `tests/test_adopter_vocabulary.py` enforces the rule.
+
+**Messages that changed.** All are prose; none is a documented identifier.
+
+| Where | Before | After |
+|---|---|---|
+| `input_parse_error`, one artifact read twice for a source | `Duplicate tool observation identity: source_type='google_adk_function', source_id='google_adk:agent.py', native_locator='agent.py#map_account'` | `'agent.py' was read twice as one tool source, so the tool 'map_account' arrived twice. Remove the repeated shipgate.yaml entry naming 'agent.py', then re-run the scan.` |
+| `input_parse_error`, one artifact defining a tool twice | *(the same message — the two causes were indistinguishable)* | `'tools.json' defines the tool 'pay' more than once, so one tool source produced it twice. Remove the duplicate definition from 'tools.json', then re-run the scan.` |
+| source warning, one tool in several bindings | `Tool observation obs_v1_3f9a1c2b… appears in multiple bindings: b1, b2` | `Tool 'process_order' from 'agent.py' is claimed by more than one tool_identity.bindings entry: 'b1', 'b2'. …` |
+| source warning, binding member that resolves to the wrong count | `member source_id='orders_b', tool='process_order' matched 0 observations` | `… matched 0 tools in that source, not exactly one — correct the member at shipgate.yaml#tool_identity.bindings so it names one tool` |
+| `SHIP-DIAG-UNKNOWN-ADAPTER-SOURCE-TYPE` title | `Unknown adapter source_type 'acme' …` | `No adapter handles tool_sources[].type 'acme' in shipgate.yaml …` |
+| `incomplete_tool_identity` gap `accepted_values` | `["unique_source_id", "stable_native_locator"]` | `["unique_source_id", "stable_source_path"]` |
+
+**One gap subject changes value.** A binding gap whose issue names no tool
+falls back to the agent, and the fallback was the derived agent id. It is now
+the same kind of label a tool subject already is:
+
+| Report | `evidence_gaps[].subject` before | after |
+|---|---|---|
+| `samples/conductor_agent` | `agent_v1:7205d836e4b3fee257d90695` | `durable_order_agent [conductor_workflows]` |
+| `samples/support_refund_agent` | `agent_v1:7cb237a00d64b7400f4adc3b` | `refund_agent [openai_sdk_static]` |
+
+`release_decision.reason`, `agent_summary.first_recommended_action.why`, the
+CLI `Improve evidence:` line, and the GitHub step summary all print that
+subject, so they change with it. **A consumer that joined on
+`evidence_gaps[].subject` for these rows should read the agent id from
+`binding_surface_facts.agents[].agent_id` instead** — `subject` is documented
+as a display label, and this was the last kind of id still in it. The
+report's conservation invariant now refuses *any* derived id in a gap subject,
+matched by shape, so neither kind can return.
+
+**One field is added.** The agent-mode `input_parse_error` envelope may carry
+`details`, an object holding the diagnostic identifiers that left the message —
+for the duplicate-tool failure: `failure`, `cause`, `source_type`, `source_id`,
+`native_locator`, `tool_name`, `source_file`, and `manifest_path`; plus
+`manifest_placeholders` (the manifest fields still holding `CHANGE_ME`, which
+is what the placeholder recovery now routes on instead of searching the failure
+text) and `evaluated_ref` / `manifest_in_ref` for a failure evaluated against a
+ref. It is absent when a failure carries no such payload, and it is never
+required to act on the error. Route on `details.failure` and `details.cause`
+rather than on message text; `docs/errors.json` documents them.
+
+`details.manifest_path` is the manifest the run actually read. It matters
+because the emitted `edit` action names it: a `scan --workspace <repo>` that
+discovers a sole nested `services/billing/shipgate.yaml`, or a `verify` with no
+`--config`, previously published `path: "shipgate.yaml"` — a different file in
+the caller's working directory. A consumer reconstructing the manifest from the
+invocation should read this field instead.
+
+**Two published values move.** The `incomplete_tool_identity` gap's
+`next_action.path` is now `shipgate.yaml#tool_sources`, matching the repair its
+`expects` and `accepted_values` describe; it was `shipgate.yaml#tool_identity`,
+which sent an agent routing on `path` to a different section than the sentence
+beside it. And the gap kinds where a *reference* failed to resolve —
+`unresolved_agent_binding`, `unresolved_bound_tool`, `incomplete_handoff_graph`
+— are now subjected by their `source_pointer` rather than by the agent that
+made the reference, which is the healthy one: a handoff to a missing worker
+was subjected `root [sdk]` and carried that name into the verdict and the fix
+task.
+
+**`next_actions[].path` is the one field a caller may open verbatim, and it
+now always is.** An `edit` action names the manifest the run actually read:
+`--workspace` discovery can select a nested `services/billing/shipgate.yaml`,
+`verify` and `verification prepare` default `--config`, and an archived
+`verify --base/--head` reads a temporary tree that is deleted before the error
+is handled. The `CHANGE_ME` placeholder recovery, whose `path` was previously
+the literal string `shipgate.yaml`, is included.
+
+Two consequences follow from that rule rather than from any single fix.
+A **declared artifact** is never published as a `path` at all — it has no one
+base (the manifest's for most sources, the *entrypoint's* for an inventory a
+framework file mounts), so the duplicate-inside-an-artifact recovery is a
+`review` action that names the artifact in its sentence. And a failure
+**evaluated against a ref that is not checked out** publishes no `path`
+either: the archive is gone and the working tree may already hold the fix, so
+the action names the commit and the path within it (`details.evaluated_ref`,
+`details.manifest_in_ref`). Paths inside `details` are recorded as the loader
+saw them and are *not* verbatim-openable; `docs/errors.json` says so.
+
+**One manifest value is canonicalized.** `ArtifactPathConfig.path` — every
+declared artifact under a framework block — is normalized, so `./tools.json`
+and `tools.json` are one declaration. Declaring both used to read one file
+twice and produce *two* canonical tools, with no duplicate detected and no
+warning. A path containing a backslash is left exactly as written, and `..`
+segments are preserved so the containment checks downstream still see what the
+author wrote.
+
+**One manifest value is narrowed.** `tool_sources[].id` is stripped, and a
+blank id is now a `config_error` (exit 2) at manifest load instead of an
+`input_parse_error` (exit 3) during the scan. The id is the key
+`tool_inventories[].source_id` and `tool_identity.bindings[].members[].source_id`
+join on, and both of those were already stripped where they are declared — so
+`id: " orders "` matched neither and silently completed nothing. A manifest with
+a blank or padded id was already not doing what it looked like it was doing;
+now it says so at the point the value is read.
+
+`docs/manifest-v0.1.json` carries the rule too, as `"pattern": "\\S"` on
+`ToolSourceConfig.id`: the published schema is part of the manifest contract,
+and a consumer validating against it would otherwise accept an id the runtime
+refuses. A parity test asserts the two agree on empty, whitespace-only, and
+padded ids.
+
+**`verify` now routes this failure the way `scan` does.** Both commands, and
+the verifier assembly path, share one recovery resolver, so a duplicate tool
+source yields an `edit` action naming the manifest instead of the generic
+"inspect the file referenced in the error" review action. The error kind and
+exit code (3) are unchanged.
+
+---
+
 <a id="migration-note-unreleased-effect-coverage"></a>
 
 ## Migration Note: unreleased — effect coverage, and the schemas that stayed frozen
