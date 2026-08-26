@@ -440,6 +440,73 @@ def _gap_kinds(tmp_path: Path, config: Path) -> list[str]:
     return [gap.kind for gap in report.release_decision.evidence_coverage.evidence_gaps]
 
 
+def test_the_loop_closes_through_real_scans(tmp_path: Path) -> None:
+    """Pin, move the code, re-confirm — the whole point, end to end.
+
+    Every other test here checks one hop. This walks the loop the feature
+    exists for: a declaration confirmed against what the scan read is silent,
+    the day the code stops matching it the question comes back, and the value
+    the row hands over closes it. Through real scans, because the pin is
+    stamped by one surface (the gap's template) and compared by another (the
+    resolver), and a unit test holds both ends itself.
+    """
+
+    def scan(step: str, annotated: bool, basis: str | None):
+        root = tmp_path / step
+        root.mkdir()
+        tool = {
+            "name": "docs.lookup",
+            "description": "Look up an internal documentation article by its id.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"id": {"type": "string"}},
+                "required": ["id"],
+                "additionalProperties": False,
+            },
+        }
+        if annotated:
+            tool["annotations"] = {"readOnlyHint": True}
+        action = {"tool": "docs.lookup", "source_id": "src", "effect": "write"}
+        if basis:
+            action["basis"] = basis
+        report, _ = run_scan(
+            config_path=_workspace(root, tools=[tool], actions=[action]),
+            output_dir=root / "out",
+            formats=["json"],
+            ci_mode="advisory",
+            packet_enabled=False,
+        )
+        assert report.release_decision is not None
+        gaps = report.release_decision.evidence_coverage.evidence_gaps
+        drift = [gap for gap in gaps if gap.kind == "declaration_drift"]
+        return report, drift
+
+    # 1. Unpinned: whatever the scan read, and no pin to compare.
+    first, drift = scan("first", annotated=True, basis=None)
+    assert not drift
+    pinned_against = (
+        first.action_surface_facts.actions[0].semantic_assessment.effect.claims
+    )
+    assert any(claim.source == "mcp_annotation" for claim in pinned_against)
+    pin = _pin(_tool(annotations={"readOnlyHint": True}, source_type="mcp"))
+
+    # 2. Pinned against exactly that: silent.
+    _, drift = scan("pinned", annotated=True, basis=pin)
+    assert not drift, "a matching pin must change nothing"
+
+    # 3. The annotation goes away. The question comes back, and the row hands
+    #    over the value that closes it.
+    _, drift = scan("moved", annotated=False, basis=pin)
+    assert len(drift) == 1
+    new_pin = (drift[0].next_action.declaration_template or {}).get("basis")
+    assert new_pin and new_pin != pin
+    assert str(new_pin) in drift[0].next_action.expects
+
+    # 4. Re-confirmed with it: silent again.
+    _, drift = scan("reconfirmed", annotated=False, basis=str(new_pin))
+    assert not drift, "the value the row published did not close the row"
+
+
 def test_a_scan_publishes_the_drift_row_the_resolver_raised(tmp_path: Path) -> None:
     tools = [{"name": "send_email", "description": "Send an email to a customer."}]
     config = _workspace(

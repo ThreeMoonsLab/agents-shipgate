@@ -71,6 +71,13 @@
   `doctor --json` as `adoption`. A workspace with no manifest is told it is on
   rung 0 rather than only that a file is missing.
 
+- **A merged declaration block reads in manifest field order.** Two evidence-gap
+  rows about one action are merged into one block to paste, and the merge kept
+  whichever order the rows arrived in — a drift row folded into a
+  below-evidence row put `basis` in the middle and the declared `effect`
+  underneath it. Blocks now render in the order the manifest itself uses, taken
+  from the model rather than restated.
+
   Report schema 0.38 → 0.39, packet 0.15 → 0.16, verifier 0.12 → 0.13,
   capability lock 0.7 → 0.8, capability-lock diff 0.8 → 0.9; all additive, all
   prior versions frozen, hash-pinned, and read forward.

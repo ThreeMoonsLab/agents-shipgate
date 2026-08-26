@@ -229,6 +229,74 @@ def test_authority_template_is_fillable_against_the_manifest_schema() -> None:
     assert minimal.authority is not None
 
 
+def test_a_merged_block_reads_in_manifest_field_order() -> None:
+    """Blocks accrete fields in whatever order the rows arrived.
+
+    Two rows on one action are merged into one block to paste, and the merge
+    keeps the first row's field order. A `declaration_drift` row folded into a
+    `declaration_below_inferred_evidence` row therefore put `basis` in the
+    middle and the declared `effect` underneath it — YAML for a file whose
+    fields have a canonical order, handed over in an order that file never
+    uses. Asserted on the rendered text, because that is the only place the
+    defect is visible.
+    """
+
+    from agents_shipgate.cli.scan.declarations import build_declaration_scaffold
+
+    rendered = build_declaration_scaffold(
+        [
+            _gap_for("declaration_drift"),
+            _gap_for("declaration_below_inferred_evidence"),
+        ],
+        agents=[],
+    )
+    assert rendered is not None
+    positions = {
+        field: rendered.index(f"\n{field}:")
+        for field in ("tool", "effect", "risk_tags", "basis")
+        if f"\n{field}:" in rendered
+    }
+    assert set(positions) == {"tool", "effect", "risk_tags", "basis"}, positions
+    assert (
+        positions["tool"] < positions["effect"] < positions["risk_tags"] < positions["basis"]
+    ), positions
+
+
+def _gap_for(kind: str):
+    """One evidence-gap row of ``kind`` for an action with two readings."""
+
+    import agents_shipgate.ci.release_decision as rd
+    from agents_shipgate.core.domain import Tool, ToolRiskHint
+    from agents_shipgate.core.semantic_assessment import assess_tool_semantics
+    from agents_shipgate.schemas.manifest import ActionDeclarationConfig
+
+    tool = Tool.model_validate(
+        {
+            "id": "t1",
+            "name": "send_email",
+            "source_type": "mcp",
+            "source_id": "srv",
+            "extraction_confidence": "high",
+            "extraction": {"surface": "enumerated"},
+            "risk_hints": [
+                ToolRiskHint(
+                    tag=tag, source=f"h{index}", confidence="medium", basis="inferred_keyword"
+                )
+                for index, tag in enumerate(("external_write", "destructive"))
+            ],
+        }
+    )
+    tool.semantic_assessment = assess_tool_semantics(
+        tool,
+        ActionDeclarationConfig(
+            tool="send_email", effect="external_communication", basis="confirmed:0"
+        ),
+    )
+    return rd._semantic_gap(
+        tool, kind=kind, why="test", issue_source="action_surface_declaration"
+    )
+
+
 def test_no_shipped_template_asserts_on_a_humans_behalf() -> None:
     """A template must ask, never answer — and where it answers, say what from.
 

@@ -476,6 +476,12 @@ def test_protection_is_absent_rather_than_failing_without_codeowners(
         ("apps/**", "other/shipgate.yaml", False),
         ("shipgate.yml", "shipgate.yaml", False),
         ("docs/", "shipgate.yaml", False),
+        # A trailing slash restricts to a directory's *contents*. A manifest
+        # path is always a file, so this pair is about the matcher rather than
+        # about any caller — and without it the trailing slash could be dropped
+        # entirely and nothing would notice.
+        ("docs/", "docs/shipgate.yaml", True),
+        ("docs/", "docs", False),
     ],
 )
 def test_the_codeowners_pattern_subset(pattern: str, path: str, covered: bool) -> None:
