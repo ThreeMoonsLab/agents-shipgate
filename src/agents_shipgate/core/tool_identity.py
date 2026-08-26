@@ -329,13 +329,17 @@ def build_tool_identity_catalog(
     # over that source can ever resolve, so the arithmetic ("matched 0
     # observations") is not the answer the reader needs.
     #
-    # And "produced nothing" splits again. A *configured* source the loader
-    # read but that yielded no tools is repaired at `agent_bindings`. A
+    # And "produced nothing" splits again. A source the loader actually read
+    # but that yielded no tools is repaired at `agent_bindings`. A
     # source id that is not configured at all — a typo — is repaired by
     # correcting the selector, and no binding declaration can help it. The
     # two sets are what tell them apart; deriving both from observations
     # alone conflated them.
-    configured_source_ids = {loaded.source_id.strip() for loaded in loaded_sources}
+    # The ids adapters *minted*, which is what a binding member selector names.
+    # Deliberately not ``configured_source_ids``: since #410 that spelling means
+    # the ``tool_sources`` entry a result was produced *for*, and the two sets
+    # differ wherever an adapter derives its own ids.
+    loaded_source_ids = {loaded.source_id.strip() for loaded in loaded_sources}
     observed_source_ids = {tool.source_id for tool in observations if tool.source_id}
 
     selected_by_binding: dict[str, list[Tool]] = {}
@@ -360,7 +364,7 @@ def build_tool_identity_catalog(
                             member.source_id, member.tool, len(matches)
                         )
                     )
-                elif member.source_id in configured_source_ids:
+                elif member.source_id in loaded_source_ids:
                     invalid_messages.append(
                         zero_observation_binding_member(member.source_id, member.tool)
                     )
@@ -585,7 +589,7 @@ def _inventory_completion_bindings(
     # name, and grown as bindings are synthesized so two entries can never
     # collide into one key in ``bindings_by_id`` and silently drop a merge.
     claimed_ids = {binding.id for binding in config.bindings}
-    configured_source_ids = {loaded.source_id.strip() for loaded in loaded_sources}
+    loaded_source_ids = {loaded.source_id.strip() for loaded in loaded_sources}
     by_source_name: dict[tuple[str, str], list[Tool]] = defaultdict(list)
     for tool in observations:
         by_source_name[(tool.source_id or "", tool.name)].append(tool)
@@ -606,12 +610,12 @@ def _inventory_completion_bindings(
         if target == inventory_id:
             warnings.append(self_referential_inventory_warning(inventory_id))
             continue
-        if target not in configured_source_ids:
+        if target not in loaded_source_ids:
             warnings.append(
                 unknown_inventory_source_warning(
                     inventory_id,
                     target,
-                    sorted(configured_source_ids - {inventory_id}),
+                    sorted(loaded_source_ids - {inventory_id}),
                 )
             )
             continue
