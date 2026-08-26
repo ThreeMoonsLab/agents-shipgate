@@ -756,6 +756,43 @@ def test_a_base_that_predates_the_field_is_compared_as_default() -> None:
     assert _weakenings(DEFAULT_CONTROL_PACK_ID, "read-only-agent")
 
 
+def test_comparing_a_missing_base_as_default_is_not_the_same_as_skipping_it() -> None:
+    """The three assertions above cannot tell the two apart, and neither can
+    any pair of today's packs: every one of them requires at least what
+    ``default`` does, so a ``None`` base yields nothing either way. A
+    perturbation replacing the resolution with an early ``return []`` broke
+    nothing.
+
+    What the branch is *for* is the case ``_assert_packs_extend_default``
+    forbids from existing. Register a weaker pack, keep the base ``None``, and
+    the comparison has to report it — that is the difference between an
+    invariant enforced twice and an invariant assumed once.
+    """
+
+    from agents_shipgate.checks.verify_policy import _weakened_pack_rules
+
+    weaker = ControlPack(
+        id="weaker-than-default",
+        name="Weaker",
+        version="1",
+        summary="requires less than default",
+        obligations={"financial_write": frozenset({"approval.required"})},
+    )
+    BUILTIN_CONTROL_PACKS[weaker.id] = weaker
+    try:
+        # Base is `None` — a snapshot from a build that predates the field,
+        # which ran `default`. Head requires less, and the comparison says so.
+        removed = dict(_weakened_pack_rules(None, weaker.id))
+    finally:
+        del BUILTIN_CONTROL_PACKS[weaker.id]
+    assert "financial_write" in removed
+    assert set(removed["financial_write"]) == {
+        "safeguards.audit_log",
+        "safeguards.idempotency",
+    }
+    assert "destructive" in removed
+
+
 def test_the_snapshot_publishes_the_pack_in_force(tmp_path: Path) -> None:
     """A comparison needs the base side to have been recorded at all."""
 
