@@ -59,11 +59,6 @@ def _no_annotations(_finding: Finding) -> Sequence[str]:
     return ()
 
 
-#: Indent for a line that continues the row above it, on top of ``row_prefix``.
-#: Two spaces: enough to read as subordinate, and in a markdown list it lands
-#: inside the row's own item rather than opening a third level.
-_CONTINUATION = "  "
-
 #: What a finding that names no tool is about, when the binding graph cannot
 #: name the agent.  Never a derived agent id: that is the spelling #329 took
 #: out of adopter-facing subjects, and a digest names nothing the reader can
@@ -160,11 +155,7 @@ def rollup_detail(finding: Finding) -> str:
     return finding.title
 
 
-def roll_up_findings(
-    report: ReadinessReport,
-    *,
-    findings: Sequence[Finding] | None = None,
-) -> list[SubjectGroup]:
+def roll_up_findings(report: ReadinessReport) -> list[SubjectGroup]:
     """Selected findings grouped by subject, most-urgent group first.
 
     Selection is one rule for all three surfaces: an active finding that is
@@ -182,7 +173,6 @@ def roll_up_findings(
     unchanged summary.
     """
 
-    rows = list(report.findings if findings is None else findings)
     decision = report.release_decision
     blocking = _decision_index(decision.blockers if decision else [])
     named = _decision_index(
@@ -193,7 +183,7 @@ def roll_up_findings(
 
     subjects: dict[tuple[str, str], str] = {}
     members: dict[tuple[str, str], list[tuple[Finding, bool]]] = {}
-    for finding in rows:
+    for finding in report.findings:
         if finding.suppressed:
             continue
         if finding.severity not in _ALWAYS_SHOWN_SEVERITIES and not named.names(
@@ -261,24 +251,30 @@ def _group_sort_key(group: SubjectGroup) -> tuple[Any, ...]:
 class _DecisionIndex:
     """Which findings a list of release-decision items names.
 
-    Two sets, because one would be wrong in both directions.  ``precise``
-    holds the ids and fingerprints, which identify a finding exactly.
-    ``unkeyed`` holds ``check_id`` + ``title`` for items that carry *neither*
-    — the only case where guessing is better than not matching, and the case
-    a report predating id assignment is in.
+    Three tiers, in descending precision, and each one holds only the items
+    that could not supply the tier above it.  That "only" is the whole design:
+    a weaker key is a *fallback for items that have no better one*, never a
+    second chance for an item that does.
 
-    Applying the title fallback to every item is what makes it a bug rather
-    than a fallback: ``samples/conductor_agent`` emits the same check twice
-    with the same title, so a decision naming one of them would mark both.
+    ``ids`` — ``Finding.id``, the one value that identifies a finding
+    uniquely.  ``fingerprints`` — for an item with no id; a fingerprint hashes
+    check id, tool id and evidence, so two findings can share one, which is
+    exactly why ``assign_finding_ids`` appends a discriminator when they do.
+    Consulting it for an item that *has* an id would mark the collision
+    partner as blocking too.  ``unkeyed`` — ``check_id`` + ``title``, for an
+    item with neither, the shape a report predating id assignment is in.
+    ``samples/conductor_agent`` ships two findings with one check id and one
+    title, so applying that tier more widely marks both when one is named.
     """
 
-    precise: frozenset[str]
+    ids: frozenset[str]
+    fingerprints: frozenset[str]
     unkeyed: frozenset[str]
 
     def names(self, finding: Finding) -> bool:
-        if finding.id and finding.id in self.precise:
+        if finding.id and finding.id in self.ids:
             return True
-        if finding.fingerprint and finding.fingerprint in self.precise:
+        if finding.fingerprint and finding.fingerprint in self.fingerprints:
             return True
         if not self.unkeyed:
             return False
@@ -286,19 +282,23 @@ class _DecisionIndex:
 
 
 def _decision_index(items: Sequence[Any]) -> _DecisionIndex:
-    precise: set[str] = set()
+    ids: set[str] = set()
+    fingerprints: set[str] = set()
     unkeyed: set[str] = set()
     for item in items:
-        keys = {
-            value
-            for value in (getattr(item, "id", None), getattr(item, "fingerprint", None))
-            if value
-        }
-        if keys:
-            precise |= keys
+        item_id = getattr(item, "id", None)
+        fingerprint = getattr(item, "fingerprint", None)
+        if item_id:
+            ids.add(item_id)
+        elif fingerprint:
+            fingerprints.add(fingerprint)
         else:
             unkeyed.add(f"{item.check_id}{_KEY_SEPARATOR}{item.title}")
-    return _DecisionIndex(precise=frozenset(precise), unkeyed=frozenset(unkeyed))
+    return _DecisionIndex(
+        ids=frozenset(ids),
+        fingerprints=frozenset(fingerprints),
+        unkeyed=frozenset(unkeyed),
+    )
 
 
 def _tool_label_index(report: ReadinessReport) -> dict[str, str]:

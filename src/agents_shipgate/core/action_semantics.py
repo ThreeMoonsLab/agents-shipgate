@@ -77,6 +77,12 @@ _CONTROL_ORDER: tuple[str, ...] = (
 )
 
 
+def builtin_obligations(effect: ActionEffect) -> frozenset[str]:
+    """The built-in controls ``effect`` obliges — empty for effects with none."""
+
+    return BUILTIN_EFFECT_OBLIGATIONS.get(effect, frozenset())
+
+
 def effect_phrase(effect: str) -> str:
     """``financial_write`` as a reader says it: ``financial write``."""
 
@@ -118,10 +124,19 @@ def missing_control_recommendation(
     learned to spell is still a control the reader has to declare, and
     dropping it silently would put the sentence back in the business of
     disagreeing with the evidence.
+
+    An empty ``missing`` cannot happen — every branch that calls this is
+    inside ``if missing:`` — so it is a wiring mistake rather than a state,
+    and the answer to it is the pre-#364 sentence rather than ``Declare  for
+    this … action.``  A hole in a sentence is the one outcome that helps
+    nobody, and raising here would abort a scan over a rendering detail.
     """
 
-    known = [path for path in _CONTROL_ORDER if path in set(missing)]
-    unknown = sorted(set(missing) - set(_CONTROL_ORDER))
+    wanted = set(missing) or set().union(
+        *(builtin_obligations(effect) for effect in effects), set()
+    )
+    known = [path for path in _CONTROL_ORDER if path in wanted]
+    unknown = sorted(wanted - set(_CONTROL_ORDER))
     phrases = [_CONTROL_PHRASES[path] for path in known] + unknown
     subject = join_phrases([effect_phrase(effect) for effect in effects])
     return f"Declare {join_phrases(phrases)} for this {subject} action."
@@ -136,12 +151,6 @@ def normalize_declared_strings(values: Iterable[str]) -> list[str]:
     """
 
     return sorted({str(value).strip() for value in values if str(value).strip()})
-
-
-def builtin_obligations(effect: ActionEffect) -> frozenset[str]:
-    """The built-in controls ``effect`` obliges — empty for effects with none."""
-
-    return BUILTIN_EFFECT_OBLIGATIONS.get(effect, frozenset())
 
 
 __all__ = [

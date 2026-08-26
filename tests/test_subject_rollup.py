@@ -836,3 +836,75 @@ def test_an_item_with_no_id_still_matches_by_check_and_title():
     # marked blocking through the same fallback.
     assert group.findings == (finding,)
     assert group.blocks_release
+
+
+def test_a_shared_fingerprint_does_not_borrow_another_findings_verdict():
+    """A fingerprint is not an identity.
+
+    It hashes check id, tool id and evidence, so two findings can share one —
+    which is precisely why ``assign_finding_ids`` appends a discriminator when
+    they do, and ``_to_item`` copies both values onto the decision item.
+    Consulting the fingerprint for an item that carries an id marks the
+    collision partner as blocking too.
+    """
+
+    def _finding(finding_id: str) -> Finding:
+        return Finding(
+            id=finding_id,
+            fingerprint="fp_shared",
+            check_id="SHIP-EXAMPLE",
+            title=f"about {finding_id}",
+            severity="high",
+            category="example",
+            recommendation="do the thing",
+            agent_id="agent:p/a",
+        )
+
+    blocking, quiet = _finding("fp_shared_a"), _finding("fp_shared_b")
+    report = _report_with(
+        [blocking, quiet], catalog=[], agent={"id": "agent:p/a", "name": "a"}
+    )
+    report.release_decision = _decision(blockers=[blocking], review_items=[quiet])
+
+    (group,) = roll_up_findings(report)
+    assert dict(zip([f.id for f in group.findings], group.blocking, strict=True)) == {
+        "fp_shared_a": True,
+        "fp_shared_b": False,
+    }
+
+
+def test_an_item_with_only_a_fingerprint_still_matches():
+    """Dropping the collision must not drop the tier.
+
+    A decision item that carries a fingerprint and no id has nothing more
+    precise to offer, so the fingerprint is the right key for it.
+    """
+
+    finding = Finding(
+        fingerprint="fp_only",
+        check_id="SHIP-EXAMPLE",
+        title="one thing",
+        severity="medium",
+        category="example",
+        recommendation="do the thing",
+        agent_id="agent:p/a",
+    )
+    report = _report_with(
+        [finding], catalog=[], agent={"id": "agent:p/a", "name": "a"}
+    )
+    report.release_decision = _decision(blockers=[finding], review_items=[])
+    report.release_decision.blockers[0].id = None
+
+    (group,) = roll_up_findings(report)
+    assert group.findings == (finding,)
+    assert group.blocks_release
+
+
+def test_an_empty_missing_list_never_renders_a_hole():
+    """Unreachable through the checks — every branch is inside ``if missing:``
+    — so it is a wiring mistake, and the useful answer to one is the sentence
+    that was correct before #364, not ``Declare  for this … action.``"""
+
+    sentence = missing_control_recommendation(["financial_write"], [])
+    assert "Declare  " not in sentence
+    assert _named_controls(sentence) == BUILTIN_EFFECT_OBLIGATIONS["financial_write"]
