@@ -228,6 +228,42 @@ def test_a_stricter_pack_never_drops_a_finding(
     assert _non_control_fingerprints(base) <= _non_control_fingerprints(strict)
 
 
+@pytest.mark.parametrize("pack_id", CONTROL_PACK_IDS)
+@pytest.mark.parametrize("effect", sorted(ACTION_EFFECT_RANK))
+def test_declaring_exactly_what_a_pack_asks_for_closes_every_control_finding(
+    tmp_path: Path, pack_id: str, effect: str
+) -> None:
+    """A rule nobody can satisfy is a trap, not a gate.
+
+    Every control finding tells the reader to declare a specific list. This
+    walks that instruction for all 27 (pack × effect) pairs: declare exactly
+    the pack's list, and every control family — the four action ones *and*
+    the two tool-level ``SHIP-POLICY-*`` ones — has to go quiet. A published
+    next step that cannot change the answer is the #399 defect, and a
+    ``confirmation.required`` that is not writable on the action row is
+    exactly where it would hide.
+    """
+
+    controls = BUILTIN_CONTROL_PACKS[pack_id].obligations_for(effect)
+    report = _scan_effect(
+        tmp_path / f"{pack_id}-{effect}",
+        effect,
+        pack_id=pack_id,
+        declared_controls=controls,
+    )
+    remaining = sorted(
+        {
+            finding.check_id
+            for finding in report.findings
+            if finding.check_id in _CONTROL_CHECKS
+            or finding.check_id.startswith("SHIP-POLICY-")
+        }
+    )
+    assert remaining == [], (
+        f"{pack_id}/{effect}: declaring {sorted(controls)} left {remaining}"
+    )
+
+
 def test_writing_default_explicitly_scans_exactly_like_omitting_it(
     tmp_path: Path,
 ) -> None:
@@ -366,11 +402,26 @@ def test_only_ids_this_engine_minted_are_read_as_pack_rules(
     assert is_control_pack_policy_id(policy_id) is recognised
 
 
-def test_a_tool_level_policy_finding_is_not_counted_as_a_rule_of_its_own() -> None:
+@pytest.mark.parametrize(
+    "tool_level_evidence",
+    [
+        # As emitted today.
+        {"control_pack": "default", "policy_match": None},
+        # And with a policy_id, because excluding this finding by naming its
+        # check id would be unreachable *today* and vacuous tomorrow: the
+        # reason it is not a rule row is that it is not about an action.
+        {
+            "control_pack": "default",
+            "policy_id": "control-pack:default:financial_write",
+        },
+    ],
+)
+def test_a_finding_about_a_tool_is_not_a_rule_row(tool_level_evidence: dict) -> None:
     """``SHIP-POLICY-APPROVAL-MISSING`` carries the pack but is not a rule row.
 
-    It is the same missing approval the effect rule already counts. Counting
-    both would tell a reader two actions are short where one is.
+    It is the same missing approval the effect rule already counts, said about
+    the whole tool. Counting it too would tell a reader two actions are short
+    where one is.
     """
 
     findings = [
@@ -392,7 +443,7 @@ def test_a_tool_level_policy_finding_is_not_counted_as_a_rule_of_its_own() -> No
             title="t",
             severity="critical",
             category="policy",
-            evidence={"control_pack": "default", "policy_match": None},
+            evidence=tool_level_evidence,
             recommendation="r",
             tool_id="tool-1",
         ),
@@ -402,12 +453,40 @@ def test_a_tool_level_policy_finding_is_not_counted_as_a_rule_of_its_own() -> No
     assert summaries[0].action_count == 1
 
 
+@pytest.mark.parametrize("pack_id", CONTROL_PACK_IDS)
+@pytest.mark.parametrize("effect", sorted(ACTION_EFFECT_RANK))
+def test_the_tool_level_policy_checks_read_the_same_pack(
+    tmp_path: Path, pack_id: str, effect: str
+) -> None:
+    """`SHIP-POLICY-APPROVAL-MISSING` / `-CONFIRMATION-MISSING`, per pack.
+
+    These two carried their own effect sets — ``{financial_write, destructive,
+    production_operation, code_execution}`` and ``{destructive,
+    external_communication}`` — which were exactly the projections
+    ``effects_obliging`` computes, maintained by hand beside the table. A
+    perturbation reverting them to the literals broke **nothing**, so the
+    mechanism was working and completely unguarded.
+    """
+
+    pack = BUILTIN_CONTROL_PACKS[pack_id]
+    report = _scan_effect(tmp_path / f"{pack_id}-{effect}", effect, pack_id=pack_id)
+    fired = {finding.check_id for finding in report.findings}
+    assert ("SHIP-POLICY-APPROVAL-MISSING" in fired) is (
+        effect in pack.effects_obliging("approval.required")
+    )
+    assert ("SHIP-POLICY-CONFIRMATION-MISSING" in fired) is (
+        effect in pack.effects_obliging("confirmation.required")
+    )
+
+
 def test_the_report_and_the_console_name_the_same_rules(tmp_path: Path) -> None:
     """One projection, two surfaces — the #403 value-join rule.
 
-    ``report.md`` and the console line are rendered from
+    ``report.md`` and the console line both render
     ``control_rule_summaries``; a scan whose report names a rule the console
-    does not would mean two readings of one report.
+    does not would mean two readings of one report. The console half is
+    asserted through the real command, because removing that line broke no
+    test at all when it was only asserted through the projection.
     """
 
     workspace = tmp_path / "render"
@@ -420,6 +499,59 @@ def test_the_report_and_the_console_name_the_same_rules(tmp_path: Path) -> None:
     assert "financial write requires" in text
     assert "1 action short" in text
 
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            "-c",
+            str(workspace / "shipgate.yaml"),
+            "--out",
+            str(workspace / "console-out"),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    console = [
+        line for line in result.output.splitlines() if line.startswith("Control pack:")
+    ]
+    assert console == ["Control pack: default — actions short of: financial write (1)"]
+
+
+def test_the_console_line_names_every_rule_it_can_and_counts_the_rest(
+    tmp_path: Path,
+) -> None:
+    """A truncated console line states how much it is not showing (#364)."""
+
+    from agents_shipgate.cli._helpers import _CLI_CONTROL_RULE_LIMIT
+
+    workspace = tmp_path / "many"
+    _scan_effect(
+        workspace,
+        "destructive",
+        pack_id="read-only-agent",
+        declared_risk_tags=[
+            "financial_write",
+            "external_communication",
+            "production_operation",
+            "privileged_data_access",
+        ],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            "-c",
+            str(workspace / "shipgate.yaml"),
+            "--out",
+            str(workspace / "console-out"),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    line = next(
+        line for line in result.output.splitlines() if line.startswith("Control pack:")
+    )
+    assert line.count("(") == _CLI_CONTROL_RULE_LIMIT
+    assert "more rule" in line
+
 
 def test_a_clean_control_surface_renders_no_control_pack_section(
     tmp_path: Path,
@@ -430,6 +562,41 @@ def test_a_clean_control_surface_renders_no_control_pack_section(
     assert control_rule_summaries(report.findings) == []
     text = (tmp_path / "clean" / "out" / "report.md").read_text(encoding="utf-8")
     assert "## Control Pack" not in text
+
+
+def test_the_documented_pack_matrix_matches_the_packs() -> None:
+    """The reference table is the table, not a description of it.
+
+    A pack is chosen by reading the docs, so a doc row that drifts from the
+    engine is a wrong answer given confidently. Rebuilt here from the pack
+    objects and compared to the committed rows — the same shape as the schema
+    doc-parity rules, and the reason the doc says which test holds it.
+    """
+
+    from agents_shipgate.core.action_semantics import (
+        control_phrase,
+        ordered_controls,
+    )
+
+    doc = (
+        Path(__file__).resolve().parent.parent / "docs" / "manifest-v0.1.md"
+    ).read_text(encoding="utf-8")
+    header = "| Effect | " + " | ".join(f"`{p}`" for p in CONTROL_PACK_IDS) + " |"
+    assert header in doc, "the pack matrix header does not name today's packs"
+    for effect in sorted(ACTION_EFFECT_RANK):
+        cells = []
+        for pack_id in CONTROL_PACK_IDS:
+            obligations = BUILTIN_CONTROL_PACKS[pack_id].obligations_for(effect)
+            cells.append(
+                ", ".join(
+                    f"`{control_phrase(path)}`"
+                    for path in ordered_controls(obligations)
+                )
+                if obligations
+                else "\u2014"
+            )
+        row = f"| `{effect}` | " + " | ".join(cells) + " |"
+        assert row in doc, f"docs/manifest-v0.1.md is missing or wrong for:\n{row}"
 
 
 # --------------------------------------------------------------------------
@@ -488,6 +655,32 @@ def test_init_writes_the_selected_pack(tmp_path: Path, pack_id: str) -> None:
         yaml.safe_load(manifest_text)
     )
     assert resolve_control_pack(manifest).id == pack_id
+
+
+def test_init_reports_the_choice_even_when_it_writes_nothing(tmp_path: Path) -> None:
+    """A caller about to re-run `init` needs to know what it may pass.
+
+    `skipped_existing` is the common second run: the manifest is already
+    there, so nothing is written, and the answer list is the only way the
+    caller learns the flag exists.
+    """
+
+    workspace = tmp_path / "existing"
+    workspace.mkdir()
+    (workspace / "tools.json").write_text(
+        json.dumps({"tools": [{"name": "act", "description": "An action."}]}),
+        encoding="utf-8",
+    )
+    (workspace / "shipgate.yaml").write_text("version: \"0.1\"\n", encoding="utf-8")
+    result = runner.invoke(
+        app, ["init", "--workspace", str(workspace), "--write", "--json"]
+    )
+    payload = json.loads(result.stdout)
+    assert payload["manifest_status"] == "skipped_existing"
+    assert payload["control_pack"]["selected"] == DEFAULT_CONTROL_PACK_ID
+    assert [entry["id"] for entry in payload["control_pack"]["available"]] == list(
+        CONTROL_PACK_IDS
+    )
 
 
 def test_init_refuses_an_unknown_pack_before_writing_anything(tmp_path: Path) -> None:
@@ -599,6 +792,7 @@ def _scan_effect(
     pack_id: str | None = None,
     extra: str = "",
     declared_risk_tags: list[str] | None = None,
+    declared_controls: frozenset[str] | None = None,
 ):
     """Scan a one-action workspace declaring ``effect`` and no controls."""
 
@@ -616,6 +810,24 @@ def _scan_effect(
     if declared_risk_tags:
         rendered = ", ".join(declared_risk_tags)
         risk_tags = f"      risk_tags: [{rendered}]\n"
+    # The three places a control can be declared, which is the point: five of
+    # the six are fields on the action row and ``confirmation.required`` is
+    # not writable there at all.
+    controls = declared_controls or frozenset()
+    approval = "      approval:\n        required: true\n" if (
+        "approval.required" in controls
+    ) else ""
+    safeguards = sorted(
+        path.split(".", 1)[1] for path in controls if path.startswith("safeguards.")
+    )
+    safeguard_block = ""
+    if safeguards:
+        safeguard_block = "      safeguards:\n" + "".join(
+            f"        {name}: true\n" for name in safeguards
+        )
+    if "confirmation.required" in controls:
+        policies = policies or "policies:\n"
+        policies += "  require_confirmation_for_tools:\n    - tool: act\n"
     (workspace / "shipgate.yaml").write_text(
         f"""
 version: "0.1"
@@ -642,7 +854,7 @@ action_surface:
       effect: {effect}
 {risk_tags}      authority:
         mode: none
-{policies}{extra}
+{approval}{safeguard_block}{policies}{extra}
 """,
         encoding="utf-8",
     )

@@ -1065,13 +1065,34 @@ policies:
   control_pack: default   # default | financial-strict | read-only-agent
 ```
 
-| Pack | What it requires |
+| Pack | The posture it encodes |
 |---|---|
 | `default` | Shipgate's built-in requirements. Money, destruction, production operations, code execution, and outbound communication carry controls; a plain write or a privileged read carries none. |
-| `financial-strict` | `default`, plus an audit log and idempotency on every write, an audit trail on privileged reads, approval on identity access, confirmation on financial writes, and rollback on production operations. |
-| `read-only-agent` | `default`, plus approval and an audit log on every state change, outbound message, privileged read, and identity access. Nothing is forbidden — a static scanner cannot forbid — but every non-read becomes an exception someone has to have signed for. |
+| `financial-strict` | **Recoverability and record.** Every state change is logged and retry-safe, production operations are reversible, financial writes are confirmed, and privileged reads leave a trail. |
+| `read-only-agent` | **Permission.** This agent reads; any state change, outbound message, or privileged read is an exception carrying approval and an audit trail. Nothing is forbidden — a static scanner cannot forbid — but every non-read has to have been signed for. |
 
 Omitting the key means `default`; every existing manifest keeps its verdict.
+
+Row by row, with `—` meaning the pack requires no control for that effect
+(`test_the_documented_pack_matrix_matches_the_packs` keeps this table equal to
+the tables in `core/control_packs.py`):
+
+| Effect | `default` | `financial-strict` | `read-only-agent` |
+|---|---|---|---|
+| `read` | — | — | — |
+| `privileged_data_access` | — | `safeguards.audit_log` | `approval.required`, `safeguards.audit_log` |
+| `write` | — | `safeguards.audit_log`, `safeguards.idempotency` | `approval.required`, `safeguards.audit_log` |
+| `external_communication` | `confirmation policy`, `safeguards.audit_log` | `approval.required`, `confirmation policy`, `safeguards.audit_log` | `approval.required`, `confirmation policy`, `safeguards.audit_log` |
+| `code_execution` | `approval.required` | `approval.required`, `safeguards.audit_log` | `approval.required`, `safeguards.audit_log` |
+| `financial_write` | `approval.required`, `safeguards.audit_log`, `safeguards.idempotency` | `approval.required`, `confirmation policy`, `safeguards.audit_log`, `safeguards.idempotency` | `approval.required`, `confirmation policy`, `safeguards.audit_log`, `safeguards.idempotency` |
+| `identity_access` | — | `approval.required`, `safeguards.audit_log` | `approval.required`, `safeguards.audit_log` |
+| `production_operation` | `approval.required` | `approval.required`, `safeguards.audit_log`, `safeguards.rollback` | `approval.required`, `safeguards.audit_log` |
+| `destructive` | `approval.required`, `confirmation policy`, `safeguards.rollback` | `approval.required`, `confirmation policy`, `safeguards.audit_log`, `safeguards.rollback` | `approval.required`, `confirmation policy`, `safeguards.audit_log`, `safeguards.rollback` |
+
+`confirmation policy` is the one row-level control that is not an
+`action_surface.actions[]` field: it is satisfied from
+`policies.require_confirmation_for_tools`, which is why the finding names the
+policy rather than a key nobody can write.
 
 **A pack can only tighten the gate.** Every built-in pack requires at least
 what `default` requires, checked at import and pinned by a test, so choosing

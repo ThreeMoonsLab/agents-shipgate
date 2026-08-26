@@ -2031,6 +2031,32 @@ for that action. Both sites share one set of mode co-requirements and one
 conflict rule against published source evidence, and existing manifests are
 unaffected — a source with no `authority` block resolves exactly as before.
 
+`policies.control_pack` (`default` | `financial-strict` | `read-only-agent`)
+is additive and requires no report-schema change. It selects which controls
+each action effect requires. Omitting it means `default`, which is exactly the
+rule set every prior release applied, so existing manifests keep their
+verdicts. Every built-in pack requires at least what `default` requires — a
+pack can add obligations and can never drop one — so a report that passes
+under any pack would also have passed under `default`. Selecting a pack does
+not change what a *declaration* means: the obligation lattice deciding whether
+a declared effect covers an inferred one stays the built-in table.
+
+Obligations for effects with no dedicated control check (`write`,
+`privileged_data_access`, `identity_access`) are reported through
+`SHIP-ACTION-POLICY-VIOLATION` at `high`, with the rule named in
+`findings[].evidence.policy_id` as `control-pack:<pack>:<effects>` (effects
+joined by `+` where one rule covers several). Like the four dedicated control
+families, they are mandatory current-surface controls: a `checks.ignore` entry
+records the exception without waiving the blocker.
+
+Control findings carry `findings[].evidence.control_pack`. It is excluded from
+the finding fingerprint, so a baseline recorded before the field keeps
+matching; it *is* part of `run_id`, because which rules produced a report is
+part of what that report is. Moving to a stricter pack changes the `missing`
+list of a control finding whose requirements grew, and therefore its
+fingerprint — a baseline entry that accepted the narrower gap stops matching
+and the finding re-opens.
+
 ### Baseline Integrity (v0.5)
 
 Baseline schema bumps to `0.5`. The wire shape adds an optional

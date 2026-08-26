@@ -626,6 +626,11 @@ def _append_control_pack(lines: list[str], report: ReadinessReport) -> None:
     Rendered from the findings, so it appears only where a control is
     actually missing — the pack a clean scan ran under is recorded in
     ``shipgate.yaml`` rather than repeated here.
+
+    One report is one manifest is one pack, so the heading names the pack of
+    any row. Writing a loop over packs would be handling a state the engine
+    cannot produce, which reads as a fix and is never exercised; stating the
+    assumption is the honest version of the same thing.
     """
 
     summaries = control_rule_summaries(report.findings)

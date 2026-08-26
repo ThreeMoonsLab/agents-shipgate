@@ -800,7 +800,15 @@ local tool-inventory inputs. Framework-by-framework minimal manifests, with
 runnable sample repos for each adapter, live in
 [`docs/minimal-real-configs.md`](docs/minimal-real-configs.md).
 
-Organization-specific release rules ship as local declarative YAML
+Which controls each action effect requires is one repository-wide answer, not
+one per tool: `policies.control_pack` selects a built-in
+[control pack](docs/manifest-v0.1.md#control-packs) — `default`,
+`financial-strict`, or `read-only-agent` — written by
+`agents-shipgate init --control-pack <id>`. Every pack requires at least what
+`default` requires, so the choice can only tighten the gate; omitting it means
+`default`.
+
+Organization-specific release rules ship separately as local declarative YAML
 [policy packs](docs/policy-packs.md) (`checks.policy_packs` in the manifest, or
 `--policy-pack` on the CLI) — static data, no code import.
 

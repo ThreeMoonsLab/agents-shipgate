@@ -522,8 +522,8 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
             noun = "rule" if hidden == 1 else "rules"
             parts.append(f"and {hidden} more {noun}")
         typer.echo(
-            f"Control pack: {control_rules[0].pack.id} — actions short of "
-            f"{', '.join(parts)}"
+            f"Control pack: {control_rules[0].pack.id} — actions short of: "
+            f"{'; '.join(parts)}"
         )
     action_diff = report.action_surface_diff
     if action_diff.enabled:

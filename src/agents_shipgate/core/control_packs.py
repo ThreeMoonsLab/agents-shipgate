@@ -110,8 +110,9 @@ FINANCIAL_STRICT_CONTROL_PACK = ControlPack(
     name="Financial strict controls",
     version="1",
     summary=(
-        "Money and identity move under review: every state change is recorded, "
-        "financial writes are confirmed, and privileged reads leave a trail."
+        "Recoverability and record: every state change is logged and "
+        "retry-safe, production operations are reversible, financial writes "
+        "are confirmed, and privileged reads leave a trail."
     ),
     obligations={
         "write": frozenset({"safeguards.audit_log", "safeguards.idempotency"}),
@@ -336,35 +337,46 @@ def is_control_pack_policy_id(policy_id: object) -> bool:
     )
 
 
-def finding_control_rule(finding) -> tuple[str, tuple[str, ...]] | None:
-    """``(pack_id, effects)`` for a built-in control finding, else ``None``.
+def finding_control_rule(finding) -> tuple[str, str, tuple[str, ...]] | None:
+    """``(pack_id, action_id, effects)`` for one control-rule row, else ``None``.
 
     The pack id is stamped on the finding rather than looked up from the
     manifest because the only caller that needs it — the human report — is
     handed a report, not a workspace. Effects come from the *shipped* check
     id, or from the pack rule named in ``evidence.policy_id`` where the id is
     the generic action-policy one.
+
+    A rule row is about an **action**, so the discriminator is an
+    ``action_id`` rather than a list of check ids that are allowed in. The
+    tool-level ``SHIP-POLICY-APPROVAL-MISSING`` carries the pack and speaks
+    about the same missing approval, but about a whole tool: counting it too
+    would report two actions short where one is. Excluding it by naming its
+    check id would be a guard scoped to one id shape — vacuous for the next
+    check that carries a pack — and, as it happens, unreachable today, since
+    that finding has no ``policy_id`` either. The structural test is the one
+    that stays true.
     """
 
     evidence = getattr(finding, "evidence", None) or {}
     pack_id = evidence.get("control_pack")
     if not isinstance(pack_id, str) or pack_id not in BUILTIN_CONTROL_PACKS:
         return None
+    action_id = evidence.get("action_id")
+    if not isinstance(action_id, str) or not action_id:
+        return None
     effects = _CHECK_ID_EFFECTS.get(finding.check_id)
     if effects is not None:
-        return pack_id, effects
-    if finding.check_id != "SHIP-ACTION-POLICY-VIOLATION":
-        # The tool-level ``SHIP-POLICY-*`` checks carry the pack but speak
-        # about a whole tool rather than one effect family. They are counted
-        # by the rule they enforce, not by a rule of their own, so a reader
-        # is not shown "approval" twice for the same missing approval.
-        return None
+        return pack_id, action_id, effects
     policy_id = evidence.get("policy_id")
     if policy_id == HIGH_IMPACT_APPROVAL_POLICY_ID:
-        return pack_id, tuple(sorted(HIGH_IMPACT_EFFECTS))
+        return pack_id, action_id, tuple(sorted(HIGH_IMPACT_EFFECTS))
     if is_control_pack_policy_id(policy_id):
         joined = str(policy_id).rsplit(":", 1)[-1]
-        return pack_id, tuple(sorted(joined.split(CONTROL_PACK_EFFECT_SEPARATOR)))
+        return (
+            pack_id,
+            action_id,
+            tuple(sorted(joined.split(CONTROL_PACK_EFFECT_SEPARATOR))),
+        )
     return None
 
 
@@ -387,13 +399,8 @@ def control_rule_summaries(findings) -> list[ControlRuleSummary]:
         rule = finding_control_rule(finding)
         if rule is None:
             continue
-        subject = (
-            (getattr(finding, "evidence", None) or {}).get("action_id")
-            or finding.tool_id
-            or finding.tool_name
-            or ""
-        )
-        counted.setdefault(rule, set()).add(str(subject))
+        pack_id, action_id, effects = rule
+        counted.setdefault((pack_id, effects), set()).add(action_id)
     summaries: list[ControlRuleSummary] = []
     for (pack_id, effects), subjects in counted.items():
         pack = BUILTIN_CONTROL_PACKS[pack_id]
