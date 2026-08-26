@@ -153,6 +153,7 @@ def _build_tools_and_agent(
         tools,
         declarations,
         tool_sources={source.id: source for source in manifest.tool_sources},
+        environment_target=manifest.environment.target,
         copy_tools=False,
     )
     logger.debug(

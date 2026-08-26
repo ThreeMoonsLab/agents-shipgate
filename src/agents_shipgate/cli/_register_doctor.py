@@ -8,6 +8,7 @@ import typer
 from agents_shipgate.cli._helpers import (
     _diagnose_config_error,
     _echo_next_action_hint,
+    _missing_manifest_workspace,
     _resolve_config_paths,
 )
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
@@ -25,6 +26,7 @@ from agents_shipgate.cli.setup_control import (
 )
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.config.loader import manifest_read_error
+from agents_shipgate.core.adoption_ladder import audit_rung
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.environment import environment_report
@@ -172,6 +174,25 @@ def _doctor_failure_routing(
     )
 
 
+def _init_command(config: str, workspace: Path | None) -> str:
+    """The invocation that actually writes a manifest for this call.
+
+    Three things a fixed string gets wrong, and each of them makes the next
+    step unable to advance the rung it is printed on: bare ``init`` is a dry
+    run that writes nothing, it defaults to the process's cwd rather than the
+    workspace this ``doctor`` was pointed at, and it names a console script the
+    caller may not have entered through (#322). ``render_command`` settles the
+    last one.
+    """
+
+    # The same routing the missing-manifest diagnostic already uses: it is
+    # glob-aware (``-c /repo/*/shipgate.yaml`` routes to ``/repo``) and falls
+    # back to the cwd, where ``Path(config).parent`` would have produced a
+    # literal ``*`` directory for the glob form.
+    target = _missing_manifest_workspace(config=config, workspace=workspace)
+    return render_command(["init", "--workspace", str(target), "--write"])
+
+
 def register(app: typer.Typer) -> None:
     @app.command(hidden=True)
     def doctor(
@@ -203,6 +224,14 @@ def register(app: typer.Typer) -> None:
             # counterexample that promise cannot survive. Nothing was inspected,
             # so it is `setup_incomplete` with no artifact and no authority.
             typer.echo(f"Config error: {exc}", err=True)
+            # No manifest is a rung, not only a failure (#410 §G). A repository
+            # with none still gets the audit — the state both adoption-walk
+            # targets were actually in — so say where that leaves the adopter
+            # before sending them to write one.
+            typer.echo(
+                f"Adoption: {audit_rung(_init_command(config, workspace)).summary()}",
+                err=True,
+            )
             diagnostics = _diagnose_config_error(
                 config=config, workspace=workspace, exc=exc
             )
@@ -275,6 +304,16 @@ def register(app: typer.Typer) -> None:
                     # install/enable diagnostic instead of the generic
                     # INVALID-MANIFEST "edit shipgate.yaml" recovery.
                     typer.echo(f"Config error: {exc}", err=True)
+                    # Absent, not broken. A manifest that does not exist is
+                    # rung 0 and the adopter is not stuck; a manifest that
+                    # exists and fails to load is a defect and this line would
+                    # be the wrong answer to it (#410 §G).
+                    if not path.is_file():
+                        typer.echo(
+                            "Adoption: "
+                            + audit_rung(_init_command(str(path), workspace)).summary(),
+                            err=True,
+                        )
                     diagnostics = _diagnose_config_error(
                         config=str(path), workspace=None, exc=exc
                     )
@@ -368,6 +407,12 @@ def register(app: typer.Typer) -> None:
                         payload.get("codex_plugin_surface"),
                         payload.get("frameworks"),
                         payload.get("manifest_summary"),
+                        # The adoption rung is not a route, but it is published
+                        # and it can move without the manifest text moving —
+                        # a CODEOWNERS rule is one of its inputs. Naming it
+                        # keeps the identity a boundary for the whole answer
+                        # rather than for most of it.
+                        payload.get("adoption"),
                         placeholders,
                     ),
                 ),
@@ -417,6 +462,18 @@ def register(app: typer.Typer) -> None:
             typer.echo(f"Project: {payload['project']}")
             typer.echo(f"Agent: {payload['agent']}")
             typer.echo(f"Total tools: {payload['total_tools']}")
+            adoption = payload.get("adoption")
+            if isinstance(adoption, dict):
+                # Where this adoption stands and what moves it up (#410 §G).
+                # Printed beside the manifest facts rather than at the end: an
+                # adopter reading `doctor` is asking "am I set up?", and the
+                # rung is the answer to that question.
+                typer.echo(
+                    f"Adoption: rung {adoption['rung']} · {adoption['name']} — "
+                    f"{adoption['you_get']}"
+                )
+                if adoption.get("exit_criterion"):
+                    typer.echo(f"  Next rung: {adoption['exit_criterion']}")
             for source in payload["sources"]:
                 typer.echo(
                     f"- {source['id']} ({source['type']}): {source['tool_count']} tools"

@@ -248,6 +248,29 @@ interactive users.
 or escaped required sources regardless of `--json`, because once an
 agent moves past doctor, those are real scan failures.
 
+## Adoption rung
+
+Every `doctor --json` payload also carries `adoption`, a projection of where
+this repository stands on the adoption ladder and the one thing that moves it
+up:
+
+```json
+"adoption": {
+  "rung": 2,
+  "name": "Answer on touch",
+  "you_get": "per-pull-request verdicts and a shrinking question backlog; ...",
+  "exit_criterion": "clear the remaining declaration questions, then ...",
+  "blocking": ["ci_mode_not_strict", "manifest_unprotected"]
+}
+```
+
+`blocking` names only the conditions that are actually unmet, so a consumer can
+act on them one at a time instead of parsing the sentence. It is derived from
+the manifest and the checkout alone — never from a report — because `doctor`
+answers before any scan has run. A workspace with no manifest is not on the
+ladder yet: the human output says so (rung 0, Audit) and there is no payload
+to carry it.
+
 ## Which Shipgate answered: the `environment` block
 
 Every `doctor --json` payload carries an `environment` block, and so does every

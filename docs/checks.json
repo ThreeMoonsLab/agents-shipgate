@@ -2874,6 +2874,31 @@
     },
     {
       "autofix_safe": false,
+      "category": "manifest",
+      "default_severity": "low",
+      "description": "No CODEOWNERS rule requires a human to approve manifest changes.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-trust-manifest-unprotected",
+      "dynamic_default": false,
+      "evidence_fields": [
+        "ci_mode",
+        "manifest_path",
+        "codeowners_path",
+        "codeowners_self_owned",
+        "searched",
+        "branch_protection"
+      ],
+      "fires_when": "The manifest declares ci.mode strict and no CODEOWNERS file GitHub would read assigns an owner to both the manifest path and to CODEOWNERS itself.",
+      "floor_severity": null,
+      "id": "SHIP-TRUST-MANIFEST-UNPROTECTED",
+      "mvp_tier": "hygiene",
+      "rationale": "Every verdict rests on the manifest, so a repository that lets it change unreviewed has a gate the gated work can turn off. CODEOWNERS plus branch protection is what makes attestation the PR review of a protected file rather than a separate ceremony.",
+      "recommendation": "Add a CODEOWNERS rule for the manifest and require review on the branch it merges to. Branch protection is not statically verifiable, so this check reports only the CODEOWNERS half and never moves a verdict.",
+      "requires_human_review": false,
+      "requires_human_review_regardless_of_patch": false,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
       "category": "verify",
       "default_severity": "medium",
       "description": "The PR edits agent-instruction trust roots (AGENTS.md, CLAUDE.md, .cursor/rules, skills, etc.) and Shipgate cannot statically prove the instructions were not weakened.",

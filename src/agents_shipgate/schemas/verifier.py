@@ -640,7 +640,7 @@ class VerifierArtifact(BaseModel):
         },
     )
 
-    verifier_schema_version: Literal["0.12"] = "0.12"
+    verifier_schema_version: Literal["0.13"] = "0.13"
     static_analysis_only: Literal[True] = True
     runtime_behavior_verified: Literal[False] = False
     static_verdict_disclaimer: str = STATIC_VERDICT_DISCLAIMER
@@ -730,6 +730,11 @@ class VerifierArtifact(BaseModel):
             # produce: it had no way to route a question to a ``tool_sources``
             # block, so every row it wrote was about one action.
             "0.11",
+            # v0.12 froze without ``declaration_drift`` in the evidence-gap
+            # and semantic-issue vocabularies. A v0.12 build had no ``basis``
+            # to compare against, so it could not have raised one; the absence
+            # is what that build knew.
+            "0.12",
         }
         if not legacy:
             # Current artifacts must already carry the authoritative control
@@ -737,7 +742,7 @@ class VerifierArtifact(BaseModel):
             # control would turn an internal consistency failure into a trusted
             # handoff.  Only frozen prior readers are normalized.
             return normalized
-        normalized["verifier_schema_version"] = "0.12"
+        normalized["verifier_schema_version"] = "0.13"
         # A pre-v0.7 artifact recorded nothing about whether its diff was
         # readable. Defaulting that to ``complete`` would manufacture the one
         # claim the whole field exists to stop.
