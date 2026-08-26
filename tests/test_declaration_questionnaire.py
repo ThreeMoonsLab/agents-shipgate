@@ -36,6 +36,7 @@ from agents_shipgate.core.domain import Tool, ToolRiskHint
 from agents_shipgate.core.semantic_assessment import (
     assess_tool_semantics,
     declaration_covers,
+    effect_is_measured,
     effect_readings,
     propose_effect_declaration,
 )
@@ -801,6 +802,229 @@ def test_questions_lead_with_the_action_that_can_move_the_verdict() -> None:
 
 
 # --------------------------------------------------------------------------
+# 4. The order ranks by the ceiling, not by what was already inferred (#419)
+# --------------------------------------------------------------------------
+#
+# A proposal is offered only where something was observed, and the order used
+# to be the strength of that same observation — so the questions that arrived
+# with a draft answer systematically outranked the questions that arrived
+# blank. On the reference walk that put three already-drafted mail tools at
+# Q2-Q4 and the financial write, the single question that produced both
+# ``critical`` blockers, at Q6.
+
+
+def _walk_shaped_catalog() -> list[Tool]:
+    """The fifth ``adk-samples#1745`` walk in miniature.
+
+    Three tools the scan read as outward communication — the ones that arrive
+    with a proposed answer — and four it read nothing about at all, including
+    the financial write that produces every blocker once it is answered.
+    """
+
+    tools = [
+        _observing("external_communication", id="t_send", name="send_email"),
+        _observing("external_communication", id="t_list", name="list_messages"),
+        _observing("external_communication", id="t_mgr", name="get_manager_email"),
+        _tool(id="t_order", name="create_sap_sales_order"),
+        _tool(id="t_status", name="update_opportunity_status"),
+        _tool(id="t_map", name="map_salesforce_account_to_sap_bp"),
+        _tool(id="t_items", name="get_opportunity_line_items"),
+    ]
+    for tool in tools:
+        tool.semantic_assessment = assess_tool_semantics(tool, None)
+    return tools
+
+
+def _has_proposal(tool: Tool) -> bool:
+    assert tool.semantic_assessment is not None
+    return propose_effect_declaration(_readings(tool)) is not None
+
+
+def test_the_first_effect_question_is_one_the_scan_could_not_draft() -> None:
+    """The reference walk's headline symptom, asserted (#419).
+
+    An action nothing was observed about is not a low-risk action; it is an
+    unmeasured one, and it is exactly where a human answer carries the most new
+    information. A reader working top to bottom must not have to confirm three
+    drafts before reaching it.
+    """
+
+    tools = _walk_shaped_catalog()
+    by_id = {tool.id: tool for tool in tools}
+
+    effect_questions = [
+        question
+        for question in declaration_questions(tools)
+        if question.dimension == "effect"
+    ]
+
+    first = effect_questions[0]
+    assert not _has_proposal(by_id[first.subject_id]), (
+        f"the questionnaire leads with {first.subject!r}, which already carries "
+        "a proposed answer"
+    )
+    # And the money question is reached before any of the drafted ones.
+    order = [question.subject_id for question in effect_questions]
+    assert order.index("t_order") < min(
+        order.index(subject_id) for subject_id in ("t_send", "t_list", "t_mgr")
+    )
+
+
+def test_a_drafted_question_never_precedes_an_unmeasured_one() -> None:
+    """The invariant, stated on the mechanism rather than on the symptom.
+
+    "Carries a proposed answer" and "the scan measured this action" are one
+    fact — :func:`effect_is_measured` is the single gate both read — so the
+    ordering rule is that every question the scan could draft an answer for
+    sorts after every question about an action it measured nothing about.
+
+    Note what is deliberately *not* asserted: that a blank question precedes a
+    drafted one full stop. An action's own authority question arrives blank and
+    still follows its effect question — they are one manifest row and one
+    block, and separating them would number that block "Questions 1 and 7".
+    """
+
+    tools = _walk_shaped_catalog()
+    measured = {tool.id: effect_is_measured(_readings(tool)) for tool in tools}
+    questions = declaration_questions(tools)
+    # Every question here is about one action, so ``subject_id`` is a tool id.
+    assert {question.subject_kind for question in questions} == {"action"}
+
+    last_unmeasured = max(
+        index
+        for index, question in enumerate(questions)
+        if not measured[question.subject_id]
+    )
+    first_measured = min(
+        index
+        for index, question in enumerate(questions)
+        if measured[question.subject_id]
+    )
+    assert last_unmeasured < first_measured, [
+        (question.subject, question.dimension, measured[question.subject_id])
+        for question in questions
+    ]
+    # The half that carries drafts is exactly the measured half, which is what
+    # makes the statement above about proposals at all.
+    for question in questions:
+        if question.dimension != "effect":
+            continue
+        tool = next(item for item in tools if item.id == question.subject_id)
+        assert _has_proposal(tool) is measured[question.subject_id]
+
+
+def test_an_unmeasured_action_outranks_every_measured_one() -> None:
+    """Even a measured ``destructive``: the ceiling is above the whole table.
+
+    The unmeasured action is named as harmlessly as the vocabulary allows — it
+    lands in the band's *lowest* tier — so nothing but "nothing was observed"
+    can be putting it first.
+    """
+
+    razed = _observing("destructive", id="t_razed", name="drop_all_tables")
+    unread = _tool(id="t_unread", name="get_status")
+    for tool in (razed, unread):
+        tool.semantic_assessment = assess_tool_semantics(tool, None)
+
+    questions = declaration_questions([razed, unread])
+
+    assert [question.subject_id for question in questions][:2] == [
+        "t_unread",
+        "t_unread",
+    ]
+
+
+def test_unmeasured_questions_are_ordered_by_what_their_names_suggest() -> None:
+    """The tiebreaker, and the only place a name is allowed to decide anything.
+
+    Every action here is equally unmeasured, so without the band the order is
+    alphabetical — which is no order at all for a reader with limited
+    attention. The band never establishes an effect; it decides which blank a
+    reader sees first among blanks they have to fill either way.
+    """
+
+    tools = [
+        _tool(id="t_get", name="get_account"),
+        _tool(id="t_handle", name="handle_account"),
+        _tool(id="t_delete", name="delete_account"),
+    ]
+    for tool in tools:
+        tool.semantic_assessment = assess_tool_semantics(tool, None)
+
+    ordered = [
+        question.subject_id
+        for question in declaration_questions(tools)
+        if question.dimension == "effect"
+    ]
+
+    assert ordered == ["t_delete", "t_handle", "t_get"]
+
+
+def test_a_name_cannot_reorder_an_action_the_scan_actually_read() -> None:
+    """The negative control for the band.
+
+    A repository names its own tools. If the band applied to measured actions,
+    calling a financial write ``get_status`` would push the question that fires
+    both blockers below one the scan read as a plain write.
+    """
+
+    money = _observing("financial_write", id="t_money", name="get_status")
+    plain = _observing("write", id="t_plain", name="create_everything")
+    for tool in (money, plain):
+        tool.semantic_assessment = assess_tool_semantics(tool, None)
+
+    ordered = [
+        question.subject_id
+        for question in declaration_questions([money, plain])
+        if question.dimension == "effect"
+    ]
+
+    assert ordered == ["t_money", "t_plain"]
+
+
+def test_the_band_reaches_nothing_but_the_questionnaire_order() -> None:
+    """A name-shaped hint may order questions and nothing else (#419).
+
+    Stated as a source fact rather than a behavioural one, because the failure
+    it guards against is a *future* call site: the moment this is read
+    somewhere a claim, an issue, or a verdict can see, an unreviewed reading of
+    a repository-chosen string becomes evidence.
+    """
+
+    root = Path(__file__).resolve().parents[1] / "src" / "agents_shipgate"
+    callers = {
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*.py")
+        if "name_shape_band" in path.read_text(encoding="utf-8")
+    }
+
+    assert callers == {"core/risk_hints.py", "core/declaration_questions.py"}, (
+        "a name-shaped reading reached a new module; it may order questions and "
+        "nothing else"
+    )
+
+
+def test_the_proposal_gate_and_the_ordering_gate_are_one_predicate() -> None:
+    """Exhaustive: ``effect_is_measured`` agrees with what is actually drafted.
+
+    Two surfaces read this fact for opposite purposes — what the scan measured
+    is what it may propose, and what it did not measure is what it most needs a
+    human for. A second spelling is how they would start disagreeing about
+    which questions are the cheap ones.
+    """
+
+    checked = 0
+    for count in (0, 1, 2):
+        for effects in itertools.combinations(sorted(_TAG_FOR_EFFECT), count):
+            readings = _readings(_observing(*effects))
+            checked += 1
+            assert effect_is_measured(readings) is (
+                propose_effect_declaration(readings) is not None
+            ), f"{effects}: the two gates disagree"
+    assert checked > 40, "the sweep stopped exercising both gates"
+
+
+# --------------------------------------------------------------------------
 # The rendered questionnaire
 # --------------------------------------------------------------------------
 
@@ -955,6 +1179,150 @@ def test_a_default_reading_is_shown_but_marked_as_not_evidence() -> None:
     assert "write — mcp_protocol_default" in scaffold
     assert "Proposed below:" not in scaffold
     assert yaml.safe_load(scaffold)["effect"] == REVIEW_REQUIRED_SENTINEL
+
+
+def test_a_blank_the_scan_read_nothing_for_says_so() -> None:
+    """Silence at the block is what the header exists to correct (#419).
+
+    The header explains that the top of the file is the unread half. A block
+    that printed nothing at all left the reader to read that silence as
+    "nothing to see here" — the reading the whole ordering exists to correct.
+    """
+
+    note = "This scan read nothing about this action's effect"
+
+    blank = build_declaration_scaffold(
+        [
+            _gap(
+                "missing_effect_evidence",
+                subject_id="t1",
+                template={"tool": "send_email", "effect": REVIEW_REQUIRED_SENTINEL},
+            )
+        ],
+        questions=_coverage_rows(("t1", "effect")),
+    )
+    assert blank is not None
+    assert note in " ".join(blank.split())
+
+    # Not where the scan did read something, however weak the reading.
+    drafted = build_declaration_scaffold(
+        [
+            _gap(
+                "inferred_effect_only",
+                subject_id="t1",
+                template={"tool": "send_email", "effect": "external_communication"},
+                readings=[
+                    EvidenceReading(
+                        effect="external_communication", sources=["risk_hint:keyword"]
+                    )
+                ],
+            )
+        ],
+        questions=_coverage_rows(("t1", "effect")),
+    )
+    assert drafted is not None
+    assert note not in " ".join(drafted.split())
+
+    # And not on a block that never asked about an effect at all.
+    authority = build_declaration_scaffold(
+        [
+            EvidenceGap(
+                kind="missing_authority_evidence",
+                subject="src [tool_source]",
+                subject_id="src",
+                subject_kind="tool_source",
+                source_type="mcp",
+                why="test",
+                next_action=EvidenceGapAction(
+                    kind="declare_action_authority",
+                    path="shipgate.yaml#tool_sources[id='src'].authority",
+                    why="test",
+                    expects="Declare reviewed authority, then rerun verification.",
+                    declaration_template={
+                        "id": "src",
+                        "authority": {"mode": REVIEW_REQUIRED_SENTINEL},
+                    },
+                ),
+            )
+        ],
+        questions=DeclarationQuestionCoverage(
+            total=1,
+            answered=0,
+            open=1,
+            open_by_dimension={"authority": 1},
+            open_questions=[
+                DeclarationQuestionRow(
+                    subject="src [tool_source]",
+                    subject_id="src",
+                    subject_kind="tool_source",
+                    dimension="authority",
+                )
+            ],
+        ),
+    )
+    assert authority is not None
+    assert note not in " ".join(authority.split())
+
+
+def test_the_header_sentence_and_the_realised_order_agree(tmp_path: Path) -> None:
+    """The file's own promise, checked against the file (#419).
+
+    Rendered end to end, because the defect this closes was precisely a header
+    describing an order the questionnaire did not use: it claimed to lead with
+    what could move the verdict while leading with what the scan had already
+    read for itself. Both kinds are present, so the claim has something to be
+    wrong about.
+    """
+
+    config = _mcp_workspace(
+        tmp_path,
+        tools=[
+            {
+                "name": "send_email",
+                "description": "Send an email to the customer.",
+                "auth": {"type": "oauth2", "scopes": ["mail:send"]},
+            },
+            {"name": "create_sap_sales_order", "description": "Create the order in SAP."},
+            {"name": "fetch_thing", "description": "A tool."},
+        ],
+        actions=[],
+    )
+    run_scan(
+        config_path=config,
+        output_dir=tmp_path / "out",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+
+    scaffold = (tmp_path / "out" / "suggested-declarations.yaml").read_text(
+        encoding="utf-8"
+    )
+
+    # Unwrapped: the header is prose wrapped into comment lines, and asserting
+    # on the wrapping instead of the sentence is a test that fails on a rename.
+    prose = " ".join(
+        " ".join(
+            line.lstrip("#").strip()
+            for line in scaffold.splitlines()
+            if line.startswith("#")
+        ).split()
+    )
+    assert "The actions this scan could read nothing about come first" in prose
+    assert "The actions it did read follow, strongest first" in prose
+
+    # Every blank effect block precedes every drafted one, in the file itself.
+    drafted: list[int] = []
+    blank: list[int] = []
+    for index, line in enumerate(scaffold.splitlines()):
+        stripped = line.strip()
+        if not stripped.startswith("effect:"):
+            continue
+        value = stripped.split(":", 1)[1].strip()
+        (blank if value == REVIEW_REQUIRED_SENTINEL else drafted).append(index)
+
+    assert blank and drafted, "the fixture stopped carrying both kinds"
+    assert max(blank) < min(drafted), scaffold
 
 
 def test_repository_controlled_text_cannot_forge_a_reading_line() -> None:

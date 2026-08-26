@@ -33,12 +33,25 @@ prove*:
   repaired by a tool inventory, and ``invalid_semantic_annotation`` is a defect
   in the source, not a blank in the manifest.
 
-Ordering is by how much answering can move the verdict, strongest action
-first. The fourth adoption walk of ``adk-samples#1745`` reached ``blocked``
-after declaring 2 of 12 tools — the two that moved money and communicated
-outward — so a questionnaire that leads with them reaches the same verdict in
-two answers instead of twelve. Ordering is *ranking only*: it decides what to
-read first, never what the verdict is.
+Ordering is by how much answering can move the verdict. The fourth adoption
+walk of ``adk-samples#1745`` reached ``blocked`` after declaring 2 of 12 tools
+— the two that moved money and communicated outward — so a questionnaire that
+leads with them reaches the same verdict in two answers instead of twelve.
+
+The quantity that ranks a question is the **ceiling** of what its answer can
+establish, not the floor the scan already inferred (#419). Those are not the
+same number, and ranking by the second inverted the promise: a proposal is
+offered only where something was observed, so ranking by the observation put
+every question that arrives with a proposed answer above every question that
+arrives blank — the cheapest questions first and the most valuable ones last.
+An action nothing was observed about is not a low-risk action; it is an
+unmeasured one, its answer can still turn out to be anything in the
+vocabulary, and it is exactly where a human answer carries new information.
+So an unmeasured action outranks every measured one, and among the measured
+the strongest reading leads.
+
+Ordering is *ranking only*: it decides what to read first, never what the
+verdict is.
 """
 
 from __future__ import annotations
@@ -54,9 +67,13 @@ from agents_shipgate.core.domain import (
     Tool,
     ToolSemanticAssessment,
 )
+from agents_shipgate.core.risk_hints import name_shape_band
 from agents_shipgate.core.semantic_assessment import (
+    UNMEASURED_EFFECT_RANK,
     assess_tool_semantics,
     effect_evidence_rank,
+    effect_is_measured,
+    effect_readings,
 )
 from agents_shipgate.schemas.report import DeclarationQuestionCoverage
 
@@ -277,6 +294,7 @@ class DeclarationQuestion:
     dimension: DeclarationDimension
     answered: bool
     rank: int
+    shape: int
 
 
 class _PendingQuestion:
@@ -286,17 +304,25 @@ class _PendingQuestion:
         self.target = target
         self.dimension = dimension
         self.answered = True
+        # A floor no real reach ties with: a measured action ranks at least
+        # ``write`` and an unmeasured one ranks at the ceiling, so the first
+        # ``absorb`` always replaces this.
         self.rank = 0
+        self.shape = 0
 
-    def absorb(self, *, answered: bool, rank: int) -> None:
+    def absorb(self, *, answered: bool, rank: int, shape: int) -> None:
         # Open wins. A block that answers eleven of its twelve actions and
         # leaves the twelfth gapping is not an answered question: the reviewer
         # still has an edit to make, and a counter that said otherwise would
         # report a finish line the scan does not agree has been reached.
         self.answered = self.answered and answered
         # Ranked by the strongest action it covers, so a source carrying one
-        # financial write is asked about before a source of readers.
-        self.rank = max(self.rank, rank)
+        # action nothing was read about is asked before a source the scan read
+        # end to end. The band travels with the rank rather than being
+        # maximised on its own: it describes the same action the rank came
+        # from, and taking the two from different actions would order a
+        # question by a name nothing else about it refers to.
+        self.rank, self.shape = max((self.rank, self.shape), (rank, shape))
 
     def build(self) -> DeclarationQuestion:
         return DeclarationQuestion(
@@ -307,16 +333,18 @@ class _PendingQuestion:
             dimension=self.dimension,
             answered=self.answered,
             rank=self.rank,
+            shape=self.shape,
         )
 
 
 def declaration_questions(tools: Iterable[Tool]) -> list[DeclarationQuestion]:
     """Every declaration question this scan asks, answered ones included.
 
-    Deterministic and total over the catalog: highest-risk action first, then
-    by subject, then effect before authority. A tool with no semantic
-    assessment contributes nothing — it has not been resolved, so nothing is
-    known about what it owes.
+    Deterministic and total over the catalog: the actions nothing was read
+    about first, then the ones that were read, strongest first — see
+    :func:`_reach` — then by subject, then effect before authority. A tool
+    with no semantic assessment contributes nothing: it has not been resolved,
+    so nothing is known about what it owes.
 
     Actions asking the same question are folded together. That is not a
     display convenience: the unit of the counter is the unit of the work, and
@@ -337,7 +365,7 @@ def declaration_questions(tools: Iterable[Tool]) -> list[DeclarationQuestion]:
         undeclared = (
             assess_tool_semantics(tool, None) if _has_declaration(assessment) else assessment
         )
-        rank = effect_evidence_rank(assessment.conservative_effect)
+        rank, shape = _reach(tool, assessment)
         for dimension in DECLARATION_DIMENSIONS:
             asked = _asked(dimension, assessment, undeclared)
             if asked is None:
@@ -349,10 +377,31 @@ def declaration_questions(tools: Iterable[Tool]) -> list[DeclarationQuestion]:
             if slot is None:
                 slot = _PendingQuestion(target, dimension)
                 pending[key] = slot
-            slot.absorb(answered=answered, rank=rank)
+            slot.absorb(answered=answered, rank=rank, shape=shape)
     questions = [slot.build() for slot in pending.values()]
     questions.sort(key=_ordering)
     return questions
+
+
+def _reach(tool: Tool, assessment: ToolSemanticAssessment) -> tuple[int, int]:
+    """``(rank, name band)`` — how far an answer about this action can reach.
+
+    The ceiling, not the floor (#419). Where the scan measured a side effect it
+    ranks the action by what it read, and the questionnaire's own proposal
+    machinery is offered on exactly the same condition, so those questions
+    arrive with a draft answer and cost a reader a glance. Where nothing was
+    measured the scan holds no bound at all: the answer can still be
+    ``destructive``, so the question sorts above every measured one.
+
+    The band is the tiebreaker among those, and it is ``0`` — inert — for every
+    measured action, so a name can never reorder an action the scan actually
+    read. See :func:`name_shape_band` for why an unmeasured action may be
+    ordered by something no verdict is allowed to touch.
+    """
+
+    if effect_is_measured(effect_readings(assessment.effect)):
+        return effect_evidence_rank(assessment.conservative_effect), 0
+    return UNMEASURED_EFFECT_RANK, name_shape_band(tool)
 
 
 def _target_for(
@@ -499,8 +548,14 @@ def _subject(tool: Tool) -> str:
     return f"{tool.name} [{tool.provider or tool.source_id or tool.source_type}]"
 
 
-def _ordering(question: DeclarationQuestion) -> tuple[int, str, str, str, int]:
-    """Risk, then subject, then **subject id**, then dimension.
+def _ordering(question: DeclarationQuestion) -> tuple[int, int, str, str, str, int]:
+    """Reach, then name band, then subject, then **subject id**, then dimension.
+
+    Reach is the ceiling of what an answer can establish — see
+    :func:`_reach` — so the questions the scan could not read at all lead,
+    and the band orders those among themselves. The band is ``0`` for every
+    measured action, so that second component only ever separates questions the
+    first one has already tied.
 
     Subject id before dimension is what keeps one subject's questions
     contiguous. Two canonical tools can render the same display subject, and
@@ -517,6 +572,7 @@ def _ordering(question: DeclarationQuestion) -> tuple[int, str, str, str, int]:
 
     return (
         -question.rank,
+        -question.shape,
         question.subject,
         question.subject_kind,
         question.subject_id,

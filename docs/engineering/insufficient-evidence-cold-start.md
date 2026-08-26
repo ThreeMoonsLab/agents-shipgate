@@ -536,3 +536,102 @@ deliberately outside the denominator — there is no counterfactual for them,
 because removing an inventory does not re-run extraction. Counting what can
 only be measured on one side is how a progress bar starts lying, and a lying
 finish line is worse than none.
+
+## Fourth round (2026-08-25): the order was ranking the wrong quantity
+
+The questionnaire told the reader what its order meant — "ordered by how much
+answering can move the verdict, so the first questions are the ones about
+money, outward communication, and destruction" — and then delivered the inverse
+of it.
+
+The fifth `adk-samples#1745` walk asked 13 questions. Three already-drafted mail
+tools sat at Q2–Q4. `create_sap_sales_order`, the one question that produces
+both `critical` blockers the moment it is answered `financial_write`, sat at
+**Q6**, behind three drafts a reader working top to bottom confirms first.
+
+### One signal, two mechanisms, opposite directions
+
+Each question was ranked by `effect_evidence_rank(conservative_effect)` — the
+effect the scan had already inferred for the action. A pre-filled proposal is
+offered *only where something was observed*, which is the right rule for a
+proposal and was settled in the round above. But the two mechanisms then ran
+off one signal, and nothing said so:
+
+| action | evidence | old rank | proposal |
+|---|---|---|---|
+| `send_email` | `risk_hint:keyword` → external_communication | 6 | offered |
+| `create_sap_sales_order` | none | 1 (the `write` fallback) | blank |
+
+So the questions that arrived with a draft answer systematically outranked the
+questions that arrived blank: the cheapest questions first, the most valuable
+ones last, and a header sentence promising the reverse.
+
+The ranking was faithful to observed risk. **Observed risk is not the quantity
+the header names.** An action nothing was observed about is not a low-risk
+action; it is an unmeasured one. Its answer can still turn out to be
+`destructive`, and it is exactly where a human answer carries new information.
+
+### Rank by the ceiling
+
+A question is now ranked by the *ceiling* of what its answer can establish
+rather than by the floor the scan already inferred. Where the scan measured a
+side effect, that measurement bounds the answer from below and the old rank
+still applies. Where it measured nothing, there is no bound at all, so the
+question sorts above every measured one (`UNMEASURED_EFFECT_RANK`). On the same
+walk the financial write moves Q6 → Q3, and all three drafts move to the end.
+
+"Measured" and "could be drafted" are one fact, so they are one predicate:
+`effect_is_measured` is the gate `propose_effect_declaration` already applied,
+now read from both ends. A heuristic reading of `read` is deliberately *not* a
+measurement — this resolver refuses to establish a read-only action from a
+heuristic, so such an action is exactly as unproven as one with no reading at
+all.
+
+### A name may order what it may not judge
+
+Within the unmeasured group nothing was observed, so alphabetical order is no
+order at all — and that group is the whole questionnaire on a repository that
+has just adopted. The tiebreaker is the shape of the action's *name*, in three
+coarse bands (mutating, neutral, retrieving), read with the keyword vocabulary
+the scanner already owns rather than a second one.
+
+The scanner deliberately does **not** consult those keywords for evidence on
+most source types: a Python function called `create_sap_sales_order` is not
+proof that it writes anything, and `google_adk` is not in
+`_KEYWORD_GATED_SOURCE_TYPES` for precisely that reason. Ordering needs no such
+trust, and is given none:
+
+- it is consulted only among actions the scan measured nothing about — never to
+  reorder an action it did read;
+- the band is inert (`0`) for every measured action, so it cannot cross the
+  boundary even by accident;
+- a source-level test pins the call sites, because the failure worth guarding
+  against is a *future* one: the moment a name-shaped reading is consulted
+  where a claim, an issue, or a verdict can see it, an unreviewed reading of a
+  repository-chosen string has become evidence.
+
+Getting a band wrong costs a reader one place in a list they must finish
+either way.
+
+### What "never precedes" can and cannot mean
+
+The obvious statement of the fix — *a question carrying a proposal never
+precedes a blank one* — is not quite the property to enforce, and enforcing it
+literally would break two things worth more.
+
+An action's own `authority` question always arrives blank, and it follows that
+action's `effect` question by design: they are one `action_surface.actions` row
+and one block in the generated file. Sorting every blank first would separate
+them, and the block that answers both would be announced as "Questions 1 and 7"
+with no block numbered 7 anywhere in the flow.
+
+The property that *is* enforced is the one the mechanism actually has: **every
+question the scan could draft an answer for sorts after every question about an
+action it measured nothing about.** Since drafting and measuring are one
+condition, that is the same statement with the ambiguity removed — and it is
+what the header now says.
+
+**The rule this adds:** *rank by what an answer can still establish, not by what
+you already inferred.* Where those two differ, the second one ranks a
+questionnaire by how much it already knows, which is the reverse of what the
+reader is there to do.

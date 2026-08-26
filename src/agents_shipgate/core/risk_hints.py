@@ -233,6 +233,42 @@ def is_policy_eligible_write_tool(tool: Tool) -> bool:
     return bool(policy_eligible_effects(tool) - {"read"})
 
 
+def name_shape_band(tool: Tool) -> int:
+    """A **display-order** hint read off an action's name. Never an effect.
+
+    ``1`` mutating, ``0`` neither, ``-1`` retrieving. Deliberately three coarse
+    bands: this is a tiebreaker, and a finer scale would invite reading it as a
+    measurement.
+
+    The keyword classifier above is gated: ``WRITE_KEYWORDS`` are consulted
+    only for the source types in :data:`_KEYWORD_GATED_SOURCE_TYPES`, because a
+    Python function called ``create_sap_sales_order`` is not evidence that it
+    writes anything — the name is the author's, and this scanner will not put a
+    verdict on it.
+
+    Ordering needs no such trust (#419). A questionnaire has to ask its
+    questions in *some* order, and where the scan observed nothing at all the
+    name is the only thing left to prefer one blank over another; getting it
+    wrong costs a reader one place in a list they must finish either way. So
+    this reuses the classifier's own vocabulary rather than inventing a second
+    one, and it is consulted **only** among actions whose effect nothing
+    measured — never to reorder actions the scan did read, and never on any
+    path that can reach a claim, an issue, or a verdict.
+
+    The name alone, not the description the classifier also tokenizes. Three
+    bands is a coarse signal and a paragraph of repository prose dilutes it:
+    one sentence of a docstring warning against deleting anything would band a
+    ``get_`` tool as mutating.
+    """
+
+    tokens = _tokenize(tool.name)
+    if tokens & (WRITE_KEYWORDS | DESTRUCTIVE_KEYWORDS | FINANCIAL_KEYWORDS):
+        return 1
+    if tokens & READ_ONLY_KEYWORDS:
+        return -1
+    return 0
+
+
 def _tokenize(text: str) -> set[str]:
     return set(re.findall(r"[a-z]+", text.lower()))
 

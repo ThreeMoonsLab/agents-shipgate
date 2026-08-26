@@ -28,6 +28,11 @@ how much answering them can move the verdict. Both numbers come from
 ``semantic_coverage.declaration_questions``, so the file and the report cannot
 disagree about how much work is left.
 
+That order leads with the actions the scan could read *nothing* about, not
+with the ones it read as risky (#419) — see ``core.declaration_questions``.
+The header says so, and a block with no reading to print says so too: a blank
+that printed nothing at all let its silence read as "nothing to see here".
+
 **Where evidence supports one conservative answer, it is filled in.** The scan
 already read ``request_refund_approval`` as a financial write; asking a human
 to retype that is the cost that stalls adoption, and the readings behind it are
@@ -433,9 +438,12 @@ def _header(questions: DeclarationQuestionCoverage | None) -> list[str]:
         lines.append("#")
         lines.extend(
             _wrapped_comment(
-                "Ordered by how much answering can move the verdict, so the "
-                "first questions are the ones about money, outward "
-                "communication, and destruction.",
+                "Ordered by how much answering can move the verdict. The "
+                "actions this scan could read nothing about come first — an "
+                "unread action is not a safe one, it is an unmeasured one, and "
+                "its answer can still turn out to be anything. The actions it "
+                "did read follow, strongest first: money, outward "
+                "communication, destruction.",
                 "",
             )
         )
@@ -554,7 +562,15 @@ def _emit_block(
                 entry["dimensions"],
             )
         )
-    out.extend(_reading_lines(entry["readings"], entry["template"]))
+    out.extend(
+        _reading_lines(
+            entry["readings"],
+            entry["template"],
+            asks_effect=any(
+                DIMENSION_BY_GAP_KIND.get(kind) == "effect" for kind in entry["kinds"]
+            ),
+        )
+    )
     out.append("---")
     out.append(f"# closes: {', '.join(entry['kinds'])}")
     out.append(f"# merge into: {entry['path']}")
@@ -593,7 +609,15 @@ def _emit_unfillable(
     # The readings too. This row has no blank to fill precisely *because* its
     # sources disagree, so what they each say is the thing the reviewer has to
     # go and reconcile.
-    out.extend(_reading_lines(getattr(gap.next_action, "observed_readings", ()) or (), {}))
+    # Never the "nothing was read" note: this row has no blank to fill, and
+    # its silence is a conflict between sources rather than an absence.
+    out.extend(
+        _reading_lines(
+            getattr(gap.next_action, "observed_readings", ()) or (),
+            {},
+            asks_effect=False,
+        )
+    )
     out.extend(_wrapped_comment(one_line(gap.why), ""))
     out.append("#")
     out.extend(
@@ -624,6 +648,8 @@ def _proposed_fields(template: dict[str, Any]) -> frozenset[str]:
 def _reading_lines(
     readings: Sequence[EvidenceReading],
     template: dict[str, Any],
+    *,
+    asks_effect: bool = False,
 ) -> list[str]:
     """What the scan read this action's effect as, above the value it proposes.
 
@@ -632,10 +658,25 @@ def _reading_lines(
     presenting it beside a keyword match as though both were evidence about
     this action would misrepresent the weaker one — and it is exactly the
     reading nothing is ever proposed from.
+
+    An effect question with *no* readings at all says so (#419). The header
+    explains why the top of the file is the unread half; a block that printed
+    nothing left a reader to read the silence as "nothing to see here", which
+    is the reading this whole ordering exists to correct.
     """
 
     if not readings:
-        return []
+        return (
+            _wrapped_comment(
+                "This scan read nothing about this action's effect — an "
+                "absence of evidence, not evidence that it is safe. That is "
+                "why this question comes before the ones the scan could read "
+                "for itself: your answer is the only thing that bounds it.",
+                "",
+            )
+            if asks_effect
+            else []
+        )
     observed = [reading for reading in readings if reading.observed]
     defaults = [reading for reading in readings if not reading.observed]
     lines: list[str] = []

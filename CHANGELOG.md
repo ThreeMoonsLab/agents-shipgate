@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+- **The questionnaire asks the unread questions first.** The declaration
+  questionnaire promised an order — "by how much answering can move the
+  verdict" — and delivered the opposite of it. It ranked each question by the
+  effect the scan had *already inferred* for the action, and a pre-filled
+  proposal is offered on exactly the same condition, so the two mechanisms ran
+  off one signal: **every question that arrived with a draft answer outranked
+  every question that arrived blank.** On the fifth `adk-samples#1745` walk
+  that put three already-drafted mail tools at Q2–Q4 and the financial write —
+  the single question that produces both `critical` blockers once answered — at
+  Q6, behind three drafts a reader had to confirm first
+  ([#419](https://github.com/ThreeMoonsLab/agents-shipgate/issues/419)).
+
+  *Rank by the ceiling, not by the floor.* Observed risk and "how much can
+  answering this move the verdict" are not the same quantity, and the header
+  claimed the second. An action nothing was observed about is not a low-risk
+  action; it is an unmeasured one, its answer can still turn out to be
+  `destructive`, and it is exactly where a human answer carries new
+  information. A question about an unmeasured action now sorts above every
+  measured one, and the measured ones keep their old order among themselves —
+  strongest first. On the same walk the financial write moves from Q6 to Q3 and
+  all three drafts move to the end.
+
+  *And a name breaks the tie among blanks.* Where nothing was observed there is
+  nothing to rank by, so the questionnaire falls back to the shape of the
+  action's name — mutating, neutral, retrieving — using the keyword vocabulary
+  the scanner already owns. This needs no trust and is given none: it is
+  consulted only among actions the scan measured nothing about, it cannot
+  reorder an action the scan did read, and it never reaches a claim, an issue,
+  or a verdict. Getting it wrong costs a reader one place in a list they have
+  to finish either way.
+
+  The header sentence now states the order the file actually uses, and a test
+  renders the file and checks the two against each other.
+
 - **One action, one permission list, with no reviewed authority either.** A
   manifest row that listed `scopes:` and declared no `authority:` block at
   either site turned `verify --base` into `Internal error` (exit 4) on a legal
@@ -169,9 +203,9 @@
   would let the scanner establish what only a human may (#357, #268).
 
   *The file is numbered and counted.* Blocks carry `Question 3 of 5` banners
-  ordered by how much answering them can move the verdict — money, outward
-  communication, and destruction first, which is what reached a verdict in two
-  answers on the walk — and both the file header and the CLI print
+  ordered by how much answering them can move the verdict — two answers were
+  enough to reach one on the walk, and the entry above says which two the
+  order now leads with — and both the file header and the CLI print
   `Declaration questions: 1 of 2 answered; 1 open (1 authority).` from one
   rendering, so they cannot describe the same state two ways. An open question
   with no blank to fill (a conflict whose repair is in the source) is still

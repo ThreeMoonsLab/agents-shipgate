@@ -1095,6 +1095,41 @@ def effect_evidence_rank(effect: str) -> int:
     return _EFFECT_RANK.get(cast(ActionEffect, effect), 0)
 
 
+#: Where an action this scan never measured sorts on that table.
+#:
+#: Above every effect in it, deliberately. An action with no observation is not
+#: a low-risk action, it is an unmeasured one: the strongest thing its answer
+#: could turn out to be is the top of the vocabulary, and that is the quantity
+#: a questionnaire ordered by "how much can answering this move the verdict"
+#: has to rank by (#419). Ranking it by the inferred floor instead put every
+#: unread action below every action the scan had already read for itself.
+#:
+#: Not an ``ActionEffect`` and never converted to one. Nothing but display
+#: order reads it, and :func:`effect_evidence_rank` cannot return it.
+UNMEASURED_EFFECT_RANK = max(_EFFECT_RANK.values()) + 1
+
+
+def effect_is_measured(readings: Sequence[EffectReading]) -> bool:
+    """Did this scan observe a side effect for this action at all?
+
+    The one gate, asked by two surfaces for opposite purposes and therefore
+    spelled once. :func:`propose_effect_declaration` asks it to decide whether
+    a pre-filled answer may be offered at all; the questionnaire asks it to
+    decide where the question sorts. They are the same fact read from both
+    ends — what the scan measured is what it may propose, and what it did not
+    measure is what it most needs a human for — and a second spelling is how
+    the two would start disagreeing about which questions are the cheap ones
+    (#419).
+
+    ``read`` alone is **not** a measurement here. This resolver refuses to
+    establish a read-only action from a heuristic (#357), so an action whose
+    only reading is ``read`` is exactly as unproven as one with no reading at
+    all, and its answer can still be anything.
+    """
+
+    return any(reading.observed and reading.effect != "read" for reading in readings)
+
+
 def effect_readings(effect: EffectSemanticAssessment) -> list[EffectReading]:
     """Group this action's non-declaration effect claims into readings.
 
@@ -1139,8 +1174,9 @@ def propose_effect_declaration(
 ) -> EffectProposal | None:
     """The weakest declaration that accounts for every reading, or ``None``.
 
-    ``None`` — keep the blank — in exactly two cases, and both are the point of
-    an evidence-first proposal rather than a guess:
+    ``None`` — keep the blank — in exactly the two cases
+    :func:`effect_is_measured` rules out, and both are the point of an
+    evidence-first proposal rather than a guess:
 
     * **Nothing was observed.** Only a protocol default stands here, and a
       default is an absence of evidence (see
@@ -1160,7 +1196,7 @@ def propose_effect_declaration(
     The gate above only decides whether to propose at all.
     """
 
-    if not any(reading.observed and reading.effect != "read" for reading in readings):
+    if not effect_is_measured(readings):
         return None
     values = sorted(
         {reading.effect for reading in readings},
