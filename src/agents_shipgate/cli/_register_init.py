@@ -31,6 +31,10 @@ from agents_shipgate.cli.discovery.gitignore_block import (
     ensure_reports_gitignore,
 )
 from agents_shipgate.cli.discovery.local_contract import LOCAL_CONTRACT_RELATIVE_PATH
+from agents_shipgate.cli.discovery.manifest_scaffold import (
+    SCAFFOLD_SUMMARY,
+    ToolSurfaceOrigin,
+)
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
 from agents_shipgate.cli.discovery.scope import repository_root
 from agents_shipgate.cli.scope_routing import (
@@ -575,13 +579,63 @@ def _manifest_defect(text: str) -> str | None:
     return None
 
 
-def _init_reason(manifest_status: str, *, target: Path, write: bool) -> str:
+def _scaffold_next_action(target: Path) -> NextAction:
+    """The step that follows a manifest whose tool surface is a placeholder.
+
+    Not ``scan``. The published advance has to be able to change the answer
+    (#399 review), and a scan of the scaffold cannot: the adapter registry has
+    nothing to dispatch ``type: CHANGE_ME`` to, and even with a type filled in
+    the path names no file. Naming the edit instead keeps the route honest
+    about what the manifest still owes.
+    """
+
+    return NextAction(
+        kind="edit",
+        path=str(target),
+        why=(
+            f"{SCAFFOLD_SUMMARY} Name the source this repository publishes — "
+            "its type and the path to it — before scanning; until then a scan "
+            "has nothing to read and reports nothing about this repository."
+        ),
+        expects=(
+            "tool_sources[0].type names one of the values listed in the "
+            "manifest comment, and tool_sources[0].path resolves to a file in "
+            "this workspace."
+        ),
+    )
+
+
+def _init_reason(
+    manifest_status: str,
+    *,
+    target: Path,
+    write: bool,
+    tool_surface_origin: ToolSurfaceOrigin = "detected",
+) -> str:
+    """One sentence stating what this run did to the manifest.
+
+    A scaffolded tool surface is part of that sentence, not a footnote below
+    it. ``detect`` on the same workspace says "not a Shipgate target", and the
+    reader of ``init`` never runs ``detect`` — the control loop routes here
+    from ``verify --preview``. Saying it in ``control.reason`` is what puts the
+    disagreement where that reader is (#441). It is withheld on
+    ``skipped_existing``, where this run rendered nothing that reached disk and
+    the manifest on disk is somebody else's work.
+    """
+
+    # Leading, not trailing. `control.reason` is capped at
+    # `MAX_ENVELOPE_PROSE_BYTES` and the rest of every sentence below carries an
+    # absolute path, so a scaffold clause appended after it is the clause that
+    # disappears on a deep tree — which is to say on someone else's repository.
+    prefix = f"{SCAFFOLD_SUMMARY} " if tool_surface_origin == "scaffold" else ""
     if manifest_status == "written":
-        return f"Wrote {target}."
+        return f"{prefix}Wrote {target}."
     if manifest_status == "skipped_existing":
+        # This run rendered nothing that reached disk, so it has nothing to say
+        # about the tool surface of a manifest somebody else wrote.
         return f"{target} already exists and was left untouched."
     if not write:
-        return f"Rendered a manifest for {target} without writing it."
+        return f"{prefix}Rendered a manifest for {target} without writing it."
     return "init made no manifest change."
 
 
@@ -598,6 +652,7 @@ def _init_advance(
     manifest_defect: str | None = None,
     setup_flags: Sequence[str] = (),
     workflow_status: str | None = None,
+    tool_surface_origin: ToolSurfaceOrigin = "detected",
 ) -> tuple[NextAction, AgentActionKind, str, bool]:
     """The step init already names, typed for the control envelope.
 
@@ -729,6 +784,22 @@ def _init_advance(
             SETUP_INCOMPLETE,
             False,
         )
+    if tool_surface_origin == "scaffold":
+        # A manifest whose only tool source is a placeholder has finished
+        # nothing, whatever else this run did, and `next_action_create` names a
+        # `scan` — a step that cannot change the answer, because the adapter
+        # registry has nothing to dispatch `type: CHANGE_ME` to. Both halves of
+        # the answer are wrong for a scaffold, so both are replaced here rather
+        # than one of them at the call site: this function is what selects the
+        # route, and a caller that overrode its action while leaving its
+        # decision is two answers to one question.
+        #
+        # Today the human-owned `declared_purpose` placeholder outranks this
+        # route on every freshly written manifest, so nothing publishes it. It
+        # is still the right answer for the question this function was asked,
+        # and it is the answer that becomes visible the moment that precedence
+        # changes (#441).
+        return (_scaffold_next_action(target), "configure", SETUP_INCOMPLETE, False)
     return (next_action_create, "rerun", SETUP_COMPLETE, False)
 
 
@@ -959,9 +1030,11 @@ def register(app: typer.Typer) -> None:
         scope_project_roots = 0
         scope_python_files = 0
         if minimal:
-            template = render_manifest_template(
+            rendered = render_manifest_template(
                 workspace_resolved, control_pack=control_pack
             )
+            template = rendered.text
+            tool_surface_origin = rendered.tool_surface_origin
             placeholders = collect_placeholders(template)
             auto_detected: dict[str, object] = {}
             next_action_create = NextAction(
@@ -1001,9 +1074,11 @@ def register(app: typer.Typer) -> None:
                     next_actions=[action.model_dump(mode="json")],
                 )
                 raise typer.Exit(4) from exc
-            template = render_auto_manifest(
+            rendered = render_auto_manifest(
                 workspace_resolved, detect_result, control_pack=control_pack
             )
+            template = rendered.text
+            tool_surface_origin = rendered.tool_surface_origin
             # Validation gate: refuse to emit a manifest the schema would reject.
             try:
                 _validate_manifest_text(template)
@@ -1180,6 +1255,16 @@ def register(app: typer.Typer) -> None:
                 target.write_text(template, encoding="utf-8")
                 manifest_status = "written"
                 manifest_message = f"Wrote {target}"
+                if tool_surface_origin == "scaffold":
+                    # Said in `manifest_message` rather than only in
+                    # `control.reason`, because on a freshly written manifest
+                    # the human-owned `declared_purpose` placeholder always
+                    # outranks the advance — and on that route the envelope's
+                    # reason *is* the review's why, so a scaffold clause added
+                    # to `_init_reason` alone would never be read on the path
+                    # that writes the file (#441). This field reaches both
+                    # stdout and the JSON payload, unconditionally.
+                    manifest_message = f"{manifest_message}\n{SCAFFOLD_SUMMARY}"
 
         # Workflow action — independent of manifest action.
         workflow_outcome: dict[str, object] | None = None
@@ -1364,6 +1449,7 @@ def register(app: typer.Typer) -> None:
             workflow_status=(
                 str(workflow_outcome["status"]) if workflow_outcome is not None else None
             ),
+            tool_surface_origin=tool_surface_origin,
         )
         routing = setup_control_envelope(
             operation="init",
@@ -1397,7 +1483,12 @@ def register(app: typer.Typer) -> None:
                     [action.model_dump(mode="json") for action in scope_actions],
                 ),
             ),
-            reason=_init_reason(manifest_status, target=target, write=write),
+            reason=_init_reason(
+                manifest_status,
+                target=target,
+                write=write,
+                tool_surface_origin=tool_surface_origin,
+            ),
             advance=advance,
             advance_kind=advance_kind,
             advance_decision=advance_decision,
@@ -1457,6 +1548,25 @@ def register(app: typer.Typer) -> None:
                 # written — so a caller resolving them edited the wrong lines.
                 # For the common `written` case the two are identical.
                 "placeholders": control_placeholders if write or target.exists() else placeholders,
+                # Whether the tool surface in this manifest was read out of the
+                # workspace or scaffolded because nothing was. `detect` declines
+                # a workspace like this outright, and `init` — the command the
+                # control loop routes to from `verify --preview` — used to write
+                # a manifest that looked exactly like a detected one, so a caller
+                # following `control.allowed_next_commands` never saw the
+                # disagreement (#441). The answer comes from the renderer, which
+                # is the only thing that knows.
+                #
+                # `null` when this run's render reached neither disk nor this
+                # payload — the same authority rule `placeholders` follows. On
+                # `skipped_existing` the template was discarded and the manifest
+                # at `path` is somebody else's; describing its tool surface from
+                # a render nobody kept is the defect #399 fixed one field over.
+                "tool_surface_origin": (
+                    tool_surface_origin
+                    if manifest_status == "written" or not write
+                    else None
+                ),
             }
             if manifest_message:
                 payload["manifest_message"] = manifest_message

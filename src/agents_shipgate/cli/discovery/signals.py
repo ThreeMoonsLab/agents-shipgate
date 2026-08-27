@@ -24,7 +24,11 @@ Scoring (per plan §1, post-review v4):
   (``*mcp*.json``, ``*openapi*.yaml``, ``openai-config.json``,
   ``*anthropic*tools*.json``, ``*anthropic*policy*.yaml``).
 - Weak  (+0.5 each): conventional directory layout
-  (``prompts/``, ``tools/``, ``.agents-shipgate/``).
+  (``prompts/``, ``tools/``, ``.agents-shipgate/``), wherever in the tree it
+  sits — a Python distribution puts its tools under the import package
+  (``awslabs/billing_cost_management_mcp_server/tools/``), and reading only
+  the workspace root missed the one structural signal such a repository
+  offers (#441).
 
 A framework is *detected* when its score ≥ 2.0 AND it accumulated at
 least one strong signal.
@@ -281,7 +285,8 @@ def detect_workspace(
 
     pkg_tokens = _collect_package_tokens(workspace)
     glob_hits = _collect_glob_hits(workspace, files=inventory)
-    dir_hits = _collect_dir_hits(workspace)
+    conventional_locations = _conventional_dir_locations(workspace, files=inventory)
+    dir_hits = _collect_dir_hits(conventional_locations)
 
     scores = _initial_framework_scores()
 
@@ -403,7 +408,7 @@ def detect_workspace(
     else:
         next_action = "Workspace does not appear to be an agent project. No action."
 
-    present_dirs = [d for d in CONVENTIONAL_DIRS if (workspace / d).is_dir()]
+    present_dirs = [d for d in CONVENTIONAL_DIRS if d in conventional_locations]
     workspace_signals = WorkspaceSignals(
         python_file_count=len(py_facts),
         python_file_total=python_file_total,
@@ -1677,8 +1682,53 @@ def _collect_glob_hits(
     return hits
 
 
-def _collect_dir_hits(workspace: Path) -> dict[str, list[str]]:
-    present = [d for d in CONVENTIONAL_DIRS if (workspace / d).is_dir()]
+def _conventional_dir_locations(
+    workspace: Path, *, files: Sequence[Path]
+) -> dict[str, str]:
+    """Where each conventional directory lives, as a workspace-relative path.
+
+    Keyed by the *name* — ``prompts``, ``tools``, ``.agents-shipgate`` — so a
+    repository with thirty ``tools/`` directories still contributes one weak
+    signal for ``tools``, exactly as the root-only check did. The value is the
+    shallowest occurrence, which is the one a reader would have looked for.
+
+    Looking below the root is the whole point (#441): a Python distribution
+    puts its tools inside the import package, so
+    ``awslabs/billing_cost_management_mcp_server/tools/`` reported
+    ``has_tools_dir: false`` and the one structural signal that repository
+    offers went unread. The root is still checked separately because the
+    inventory is a list of *files*: an empty ``prompts/`` has no entry in it,
+    and it was a signal before this looked deeper.
+
+    Bounded by the inventory walk, which already drops ``.git``, ``node_modules``,
+    virtualenvs, and everything else in ``SKIP_DIRS``.
+    """
+
+    located: dict[str, str] = {
+        name: name for name in CONVENTIONAL_DIRS if (workspace / name).is_dir()
+    }
+    wanted = {name for name in CONVENTIONAL_DIRS if name not in located}
+    if not wanted:
+        return located
+    shallowest: dict[str, tuple[int, str]] = {}
+    for path in files:
+        try:
+            parents = path.relative_to(workspace).parts[:-1]
+        except ValueError:
+            continue
+        for depth, part in enumerate(parents):
+            if part not in wanted:
+                continue
+            candidate = (depth, "/".join(parents[: depth + 1]))
+            current = shallowest.get(part)
+            if current is None or candidate < current:
+                shallowest[part] = candidate
+    located.update({name: rel for name, (_, rel) in shallowest.items()})
+    return located
+
+
+def _collect_dir_hits(locations: dict[str, str]) -> dict[str, list[str]]:
+    present = [locations[d] for d in CONVENTIONAL_DIRS if d in locations]
     if not present:
         return {f: [] for f in (
             "langchain", "crewai", "google_adk", "anthropic", "openai_agents_sdk",

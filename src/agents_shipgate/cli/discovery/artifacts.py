@@ -7,6 +7,11 @@ import subprocess
 import threading
 from pathlib import Path
 
+from agents_shipgate.cli.discovery.manifest_scaffold import (
+    RenderedManifest,
+    ToolSurfaceOrigin,
+    scaffold_tool_sources_block,
+)
 from agents_shipgate.cli.discovery.source_ids import assign_source_ids
 from agents_shipgate.core.control_packs import (
     DEFAULT_CONTROL_PACK_ID,
@@ -119,6 +124,22 @@ SKIP_DIRS = {
     "venv",
 }
 SKIP_DIR_PREFIXES = (".venv",)
+#: The keys that anchor an ``openai_api:`` block. A bare ``prompts/`` directory
+#: does not: an Anthropic-only project has one too, so emitting the block on it
+#: would declare a framework nobody uses. The auto renderer has always gated on
+#: exactly these four; the ``--minimal`` renderer now asks the same question
+#: through the same tuple instead of testing the artifact *dict*, which has
+#: fixed keys and is therefore always truthy — so its ``CHANGE_ME`` fallback
+#: was unreachable and every source-less workspace got an empty ``openai_api:``
+#: block, producing a manifest the schema rejects (found by #441's scaffold
+#: tests).
+OPENAI_API_ANCHOR_KEYS: tuple[str, ...] = (
+    "tools",
+    "model_config",
+    "test_cases",
+    "policy_rules",
+)
+
 
 
 def discover_manifest_paths(workspace: Path) -> list[Path]:
@@ -244,9 +265,22 @@ def render_manifest_template(
     workspace: Path,
     *,
     control_pack: str = DEFAULT_CONTROL_PACK_ID,
-) -> str:
+) -> RenderedManifest:
+    """The pre-v0.6 ``--minimal`` template, and the provenance of its sources.
+
+    Same contract as ``template.render_auto_manifest``: the caller is told
+    whether the tool surface was read or scaffolded, because this renderer has
+    the same fallback and had the same unflagged ``type: openapi`` in it. It is
+    also the route ``init`` publishes when the auto render fails validation, so
+    leaving the guess here would have handed the recovery path the very defect
+    #441 reported.
+    """
+
     sources = discover_tool_sources(workspace)
     api_artifacts = discover_openai_api_artifacts(workspace)
+    has_api_artifacts = any(
+        api_artifacts[key] for key in OPENAI_API_ANCHOR_KEYS
+    )
     lines = [
         "# yaml-language-server: $schema=https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json",
         "# Agents Shipgate starter manifest.",
@@ -266,6 +300,7 @@ def render_manifest_template(
         "  target: local",
         "",
     ]
+    tool_surface_origin: ToolSurfaceOrigin = "detected"
     if sources:
         lines.append("# Detected local MCP/OpenAPI sources:")
         lines.append("tool_sources:")
@@ -277,16 +312,10 @@ def render_manifest_template(
                     f"    path: {source['path']}",
                 ]
             )
-    elif not api_artifacts:
-        lines.append("tool_sources:")
-        lines.extend(
-            [
-                "  - id: CHANGE_ME",
-                "    type: openapi",
-                "    path: CHANGE_ME.yaml",
-            ]
-        )
-    if api_artifacts:
+    elif not has_api_artifacts:
+        tool_surface_origin = "scaffold"
+        lines.extend(scaffold_tool_sources_block())
+    if has_api_artifacts:
         lines.extend(["", "# Detected simple OpenAI API artifacts:", "openai_api:"])
         if api_artifacts["prompt_files"]:
             lines.append("  prompt_files:")
@@ -350,7 +379,8 @@ def render_manifest_template(
             "",
         ]
     )
-    return "\n".join(lines)
+    return RenderedManifest(text="\n".join(lines), tool_surface_origin=tool_surface_origin)
+
 
 
 def discover_openai_api_artifacts(workspace: Path) -> dict[str, list[str]]:

@@ -28,7 +28,8 @@ from agents_shipgate.core.adopter_text import (
     source_label,
 )
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.schemas.detect import DetectResult
+from agents_shipgate.invocation import render_command
+from agents_shipgate.schemas.detect import DetectResult, WorkspaceSignals
 from agents_shipgate.schemas.diagnostics import (
     DIAG_CHANGE_ME_PLACEHOLDERS,
     DIAG_CODEX_PLUGIN_PACKAGE_DETECTED,
@@ -45,6 +46,10 @@ from agents_shipgate.schemas.diagnostics import (
     DIAG_ZERO_TOOLS,
     Diagnostic,
     NextAction,
+)
+from agents_shipgate.schemas.manifest import (
+    MANIFEST_PLACEHOLDER_VALUE,
+    builtin_tool_source_types_text,
 )
 
 
@@ -127,9 +132,48 @@ def diagnose_unknown_adapter_source_type(
     The "edit shipgate.yaml" path that ``diagnose_invalid_manifest``
     emits would be misleading here — the manifest itself is valid;
     the user just needs to install/enable the matching adapter.
+
+    Unless the type is the manifest placeholder, in which case the edit *is*
+    the answer and both other routes are wrong: there is no package to install
+    for ``CHANGE_ME`` and no typo to fix. It is the value ``init`` writes when
+    discovery found no tool surface, and it is the first failure a scaffolded
+    manifest hits — ahead of the missing ``path``, which ``input_parse_recovery``
+    has always routed as a placeholder (#441).
     """
 
-    if plugins_enabled:
+    if source_type == MANIFEST_PLACEHOLDER_VALUE:
+        next_actions = [
+            NextAction(
+                kind="edit",
+                path=str(manifest_path),
+                why=(
+                    f"tool_sources[].type is still {source_type!r} — the "
+                    "placeholder `agents-shipgate init` writes when it finds "
+                    "no tool surface to read. Nothing was inferred here: name "
+                    "the source this repository publishes and the path to it. "
+                    f"Accepted types: {builtin_tool_source_types_text()}."
+                ),
+                expects=(
+                    "tool_sources[].type names an accepted source type and "
+                    "tool_sources[].path resolves to a file in this workspace."
+                ),
+            ),
+            NextAction(
+                kind="command",
+                command=render_command(
+                    ["doctor", "--config", str(manifest_path), "--json"]
+                ),
+                why=(
+                    "List every field this manifest still leaves unresolved, "
+                    "not only the one the scan stopped on."
+                ),
+                expects=(
+                    "A doctor payload whose placeholders[] is empty for this "
+                    "manifest."
+                ),
+            ),
+        ]
+    elif plugins_enabled:
         next_actions = [
             NextAction(
                 kind="command",
@@ -153,8 +197,7 @@ def diagnose_unknown_adapter_source_type(
                 path=str(manifest_path),
                 why=(
                     f"If {source_type!r} is a typo, fix it. Built-in "
-                    "source types: mcp, openapi, openai_agents_sdk, "
-                    "google_adk, langchain, crewai, codex_plugin."
+                    f"source types: {builtin_tool_source_types_text()}."
                 ),
                 expects=(
                     "Manifest references only built-in source types or "
@@ -203,8 +246,7 @@ def diagnose_unknown_adapter_source_type(
                 path=str(manifest_path),
                 why=(
                     f"If {source_type!r} is a typo, fix it. Built-in "
-                    "source types: mcp, openapi, openai_agents_sdk, "
-                    "google_adk, langchain, crewai, codex_plugin."
+                    f"source types: {builtin_tool_source_types_text()}."
                 ),
                 expects=(
                     "Manifest references only built-in source types or "
@@ -419,6 +461,39 @@ def diagnose_invalid_manifest(
     ]
 
 
+def _no_agent_surface_why(signals: WorkspaceSignals) -> str:
+    """Why nothing here is a Shipgate target, naming what *was* found.
+
+    The flat "no framework imports, no tool artifacts, and no prompt directory"
+    is a list of absences, and it stopped being the whole truth once the
+    conventional-dir signal started reading below the workspace root (#441): a
+    repository whose tools live at
+    ``awslabs/billing_cost_management_mcp_server/tools/`` was told nothing
+    tool-shaped was found, while ``workspace_signals.has_tools_dir`` in the
+    same payload said otherwise. A reader deciding whether to trust the verdict
+    needs the signal that was seen and *not* found sufficient, because that is
+    the one they would otherwise go looking for.
+    """
+
+    found = [f"{name}/" for name in signals.conventional_dirs]
+    if not found:
+        return (
+            "Workspace has no framework imports, no tool artifacts, and no "
+            "prompt directory."
+        )
+    return (
+        f"Workspace has {_join_and(found)} but no framework imports and no "
+        "parseable tool artifact, so there is no declared surface to gate. "
+        "A conventional directory alone is not one."
+    )
+
+
+def _join_and(items: list[str]) -> str:
+    if len(items) == 1:
+        return items[0]
+    return f"{', '.join(items[:-1])} and {items[-1]}"
+
+
 def diagnose_detect(
     result: DetectResult, *, has_manifest: bool, workspace: Path
 ) -> list[Diagnostic]:
@@ -513,10 +588,7 @@ def diagnose_detect(
                         next_actions=[
                             NextAction(
                                 kind="stop",
-                                why=(
-                                    "Workspace has no framework imports, no "
-                                    "tool artifacts, and no prompt directory."
-                                ),
+                                why=_no_agent_surface_why(signals),
                             )
                         ],
                     )

@@ -215,7 +215,16 @@ Key response fields:
 - `placeholders[]` — entries the template intentionally leaves as
   `CHANGE_ME` because no high-confidence signal was available. Each has
   a `path` (YAML-pointer-ish location) and `current` value. Replace
-  these before scanning.
+  these before scanning. Every field the template chose without evidence is
+  in here, `tool_sources[].type` included (#441).
+- `tool_surface_origin`: `"detected"` | `"scaffold"`. `"scaffold"` means
+  discovery read no tool surface at all and the `tool_sources` block is a
+  placeholder — `id`, `type`, and `path` are all `CHANGE_ME` and all three
+  are in `placeholders[]`. `detect` on the same workspace reports
+  `is_agent_project: false` with no suggested sources, and it is not wrong:
+  nothing here was inferred. `manifest_message` states the same fact in
+  prose. Do **not** run `scan` on a scaffold — fill in the block first;
+  until then there is nothing for the gate to read.
 - `auto_detected.agent_name` — the value the manifest carries
   (`null` when the template fell back to `CHANGE_ME`; matches the YAML
   exactly).

@@ -15,6 +15,14 @@ from __future__ import annotations
 
 from pydantic import ConfigDict
 
+#: The sentinel ``init`` writes for a value it could not read out of the
+#: repository. It lives here rather than beside the renderer because two
+#: layers below the CLI have to recognize it: the placeholder collector that
+#: reports what a manifest still owes, and the adapter registry, whose
+#: "no adapter registered for source type" message is addressed to someone
+#: holding a template rather than to someone who mistyped an adapter name.
+MANIFEST_PLACEHOLDER_VALUE = "CHANGE_ME"
+
 # Every manifest section uses ``extra="forbid"`` so typos at any level
 # raise a Pydantic validation error rather than silently no-op'ing. The
 # config loader translates those errors into ``ConfigError`` (exit 2)

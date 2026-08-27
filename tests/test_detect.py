@@ -101,7 +101,7 @@ def test_detect_deduplicates_marketplace_covered_package(
     assert [(item.mode, item.path) for item in result.codex_plugin_candidates] == [
         ("marketplace", ".agents/plugins/marketplace.json")
     ]
-    rendered = render_auto_manifest(workspace, result)
+    rendered = render_auto_manifest(workspace, result).text
     assert rendered.count("type: codex_plugin") == 1
     assert "path: plugins/reviewer" not in rendered
 
@@ -601,8 +601,9 @@ def test_adk_root_name_resolves_one_hop_through_adjacent_config(
     assert root.value == "SmartCloserAgent"
     assert any("config.py" in reason for reason in root.rationale)
     assert any("overridable at runtime" in reason for reason in root.rationale)
-    assert "agent:\n  name: SmartCloserAgent" in render_auto_manifest(
-        tmp_path / "smart_closer", result
+    assert (
+        "agent:\n  name: SmartCloserAgent"
+        in render_auto_manifest(tmp_path / "smart_closer", result).text
     )
 
 
@@ -641,7 +642,7 @@ def test_unresolvable_root_name_blocks_selection_entirely(tmp_path: Path) -> Non
     worker = next(c for c in result.agent_name_candidates if c.value == "WorkerAgent")
     assert worker.selectable is False
     assert any("application root" in reason for reason in worker.rationale)
-    assert "name: CHANGE_ME" in render_auto_manifest(project, result)
+    assert "name: CHANGE_ME" in render_auto_manifest(project, result).text
 
 
 def test_root_reference_resolves_to_the_reaching_assignment(tmp_path: Path) -> None:
@@ -917,7 +918,7 @@ def test_generic_placeholder_name_fails_closed_to_change_me(tmp_path: Path) -> N
     result = detect_workspace(project)
     assert select_agent_name(result.agent_name_candidates) is None
     assert all(not c.selectable for c in result.agent_name_candidates)
-    assert "name: CHANGE_ME" in render_auto_manifest(project, result)
+    assert "name: CHANGE_ME" in render_auto_manifest(project, result).text
 
 
 def test_test_declared_name_ranks_below_product_declared_name(tmp_path: Path) -> None:

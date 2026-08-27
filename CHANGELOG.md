@@ -2,6 +2,62 @@
 
 ## Unreleased
 
+- **`init` no longer writes a source type it guessed, and says when the block
+  it wrote is a scaffold.** (#441) `detect` on
+  `awslabs/mcp`'s `src/billing-cost-management-mcp-server` — a FastMCP Python
+  MCP server — reports `is_agent_project: false` and
+  `"not a Shipgate target"`. `init`, the command the control loop routes to
+  from `verify --preview`, wrote a manifest for it anyway, and the manifest
+  declared `type: openapi` for a repository containing no OpenAPI spec. `id`
+  and `path` were flagged in `placeholders[]`; `type` was in neither
+  `placeholders[]` nor a comment, so filling in the two flagged blanks yielded
+  a schema-valid manifest describing a source that does not exist.
+
+  Three changes, one per defect:
+
+  - The fallback `tool_sources` block is now `id`/`type`/`path` all
+    `CHANGE_ME`, all three in `placeholders[]`, under a comment that lists
+    every accepted `type` (rendered from `BUILTIN_TOOL_SOURCE_TYPES`, so it
+    cannot drift) and states that discovery had no evidence for any of them.
+    `path` also loses its `.yaml` suffix, which belonged to the guessed type.
+  - `init --json` gains `tool_surface_origin`: `"detected"` when every source
+    was read out of the workspace, `"scaffold"` when none was. The same fact
+    is stated in prose in `manifest_message`, on stdout, and in
+    `control.reason`. The renderer decides it — no caller re-derives it — and
+    the published next step for a scaffold is the edit that completes it, not
+    a `scan` that cannot resolve an adapter for `CHANGE_ME`.
+  - Conventional-directory discovery (`prompts/`, `tools/`,
+    `.agents-shipgate/`) now reads the whole tree, not just the workspace
+    root. A Python distribution puts its tools under the import package —
+    `awslabs/billing_cost_management_mcp_server/tools/` — and reading only the
+    root reported `has_tools_dir: false` for the one structural signal that
+    repository offers. Deduplicated by directory *name*, so a monorepo with
+    thirty `tools/` directories contributes the one weak signal a single root
+    `tools/` does; the credit can never flip `is_agent_project`, because every
+    strong signal is already worth the full detection threshold on its own.
+    `SHIP-DIAG-NO-AGENT-SURFACE` now names the conventional directories it
+    found instead of asserting a flat list of absences.
+
+  Two defects found while fixing those:
+
+  - `AdapterRegistry.require('CHANGE_ME')` told the reader to enable
+    third-party adapter discovery and install a package — for a value
+    Shipgate itself wrote. Both the message and
+    `SHIP-DIAG-UNKNOWN-ADAPTER-SOURCE-TYPE` now route the placeholder to an
+    edit. Both prose copies of the built-in type list had also dropped
+    `codex_config` and `conductor`; all three copies now render from the
+    schema's own tuple.
+  - `init --minimal` on a workspace with no MCP/OpenAPI sources emitted an
+    empty `openai_api:` block and no `tool_sources`, producing a manifest the
+    schema rejects. The guard selecting the fallback tested the artifact
+    *dict*, which has fixed keys and is therefore always truthy, so the
+    fallback was unreachable. Both renderers now ask the same question through
+    one shared tuple of anchor keys.
+
+  No verdict, finding, or version moves: `report_schema_version`,
+  `contract_version`, the verifier artifact version, and every published
+  schema document are unchanged.
+
 - **A new evidence gap now says which subject left the analysed surface.**
   (#433) The exclusion ledger from #403 records precisely which subject each
   stage removed — `("binding", "find_duplicate [github_mcp]", "evidence_gap")`

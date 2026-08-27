@@ -58,7 +58,7 @@ def _validates(text: str) -> AgentsShipgateManifest:
 def test_auto_init_langchain_emits_valid_manifest_with_python_source(tmp_path: Path) -> None:
     workspace = _copy_sample("simple_langchain_agent", tmp_path / "lc")
     detect = detect_workspace(workspace)
-    text = render_auto_manifest(workspace, detect)
+    text = render_auto_manifest(workspace, detect).text
     manifest = _validates(text)
     assert any(
         s.type == "langchain" and s.path == "agent.py"
@@ -71,7 +71,7 @@ def test_auto_init_anthropic_emits_artifact_block_not_tool_source(tmp_path: Path
     NOT as a tool_sources entry."""
     workspace = _copy_sample("simple_anthropic_agent", tmp_path / "anth")
     detect = detect_workspace(workspace)
-    text = render_auto_manifest(workspace, detect)
+    text = render_auto_manifest(workspace, detect).text
     manifest = _validates(text)
     # Must NOT have an "anthropic" tool source (no such type).
     assert not any(s.type == "anthropic" for s in manifest.tool_sources)
@@ -88,7 +88,7 @@ def test_auto_init_adk_extracts_agent_name_from_literal(tmp_path: Path) -> None:
     must use this for ``agent.name`` (not the dir name, not pyproject)."""
     workspace = _copy_sample("google_adk_agent", tmp_path / "adk")
     detect = detect_workspace(workspace)
-    text = render_auto_manifest(workspace, detect)
+    text = render_auto_manifest(workspace, detect).text
     manifest = _validates(text)
     assert manifest.agent.name == "adk_support_agent"
     assert any(s.type == "google_adk" for s in manifest.tool_sources)
@@ -97,7 +97,7 @@ def test_auto_init_adk_extracts_agent_name_from_literal(tmp_path: Path) -> None:
 def test_auto_init_openai_api_emits_full_artifact_block(tmp_path: Path) -> None:
     workspace = _copy_sample("simple_openai_api_agent", tmp_path / "openai")
     detect = detect_workspace(workspace)
-    text = render_auto_manifest(workspace, detect)
+    text = render_auto_manifest(workspace, detect).text
     manifest = _validates(text)
     assert manifest.openai_api is not None
     assert manifest.openai_api.prompt_files == ["prompts/support_refund.md"]
@@ -108,7 +108,7 @@ def test_auto_init_empty_workspace_falls_back_to_change_me_stub(tmp_path: Path) 
     """No detected framework → emit a CHANGE_ME tool_sources entry so the
     schema (which requires ≥ 1 source/config block) still passes."""
     detect = detect_workspace(tmp_path)
-    text = render_auto_manifest(tmp_path, detect)
+    text = render_auto_manifest(tmp_path, detect).text
     manifest = _validates(text)
     assert any(s.id == "CHANGE_ME" for s in manifest.tool_sources)
 
@@ -120,7 +120,7 @@ def test_minimal_template_byte_exact_to_legacy_output(tmp_path: Path) -> None:
         "openapi: 3.1.0\ninfo:\n  title: T\n  version: '1'\npaths: {}\n",
         encoding="utf-8",
     )
-    legacy = render_manifest_template(tmp_path.resolve())
+    legacy = render_manifest_template(tmp_path.resolve()).text
     runner = CliRunner()
     result = runner.invoke(
         app,
@@ -168,7 +168,7 @@ def test_artifact_only_openai_workspace_emits_openai_api_block(tmp_path: Path) -
     (workspace / "tools" / "openai-tools.json").write_text("[]", encoding="utf-8")
 
     detect = detect_workspace(workspace)
-    text = render_auto_manifest(workspace, detect)
+    text = render_auto_manifest(workspace, detect).text
     manifest = _validates(text)
     assert manifest.openai_api is not None
     assert manifest.openai_api.prompt_files == ["prompts/support.md"]
@@ -186,7 +186,7 @@ def test_artifact_only_openai_workspace_does_not_emit_anthropic_block(tmp_path: 
     (workspace / "tools" / "openai-tools.json").write_text("[]", encoding="utf-8")
 
     detect = detect_workspace(workspace)
-    text = render_auto_manifest(workspace, detect)
+    text = render_auto_manifest(workspace, detect).text
     assert "openai_api:" in text
     assert "anthropic:" not in text
 
@@ -352,7 +352,7 @@ def test_minimal_template_excludes_mcpservers_config(tmp_path: Path) -> None:
     """The legacy --minimal discovery path shares the parse probe: the host
     config must not appear as a tool source there either."""
     workspace = _cursor_config_workspace(tmp_path, with_export=True)
-    template = render_manifest_template(workspace.resolve())
+    template = render_manifest_template(workspace.resolve()).text
     assert "tools/payments-mcp.json" in template
     assert "providers/cursor/plugin/mcp.json" not in template
 
@@ -400,7 +400,7 @@ _REPEATED_BASENAMES = [
 def test_auto_init_repeated_basenames_emit_unique_source_ids(tmp_path: Path) -> None:
     workspace = _openai_sdk_workspace(tmp_path / "strixlike", _REPEATED_BASENAMES)
     detect = detect_workspace(workspace)
-    manifest = _validates(render_auto_manifest(workspace, detect))
+    manifest = _validates(render_auto_manifest(workspace, detect).text)
 
     declared = {s.path for s in manifest.tool_sources}
     assert declared == set(_REPEATED_BASENAMES)
@@ -497,7 +497,7 @@ def test_auto_init_source_ids_are_stable_when_a_sibling_appears(tmp_path: Path) 
 
     def ids_by_path(workspace: Path) -> dict[str, str]:
         manifest = _validates(
-            render_auto_manifest(workspace, detect_workspace(workspace))
+            render_auto_manifest(workspace, detect_workspace(workspace)).text
         )
         return {s.path: s.id for s in manifest.tool_sources}
 
@@ -523,7 +523,7 @@ def test_minimal_template_repeated_basenames_emit_unique_source_ids(
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(spec, encoding="utf-8")
 
-    manifest = _validates(render_manifest_template(workspace.resolve()))
+    manifest = _validates(render_manifest_template(workspace.resolve()).text)
     ids = [s.id for s in manifest.tool_sources]
     assert sorted(ids) == ["openapi_billing_openapi", "openapi_support_openapi"]
 

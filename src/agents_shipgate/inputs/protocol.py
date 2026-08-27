@@ -47,8 +47,10 @@ from typing import Any, ClassVar, Literal, Protocol, runtime_checkable
 from agents_shipgate.core.artifacts import ArtifactBag as ArtifactBag
 from agents_shipgate.core.domain import LoadedToolSource
 from agents_shipgate.schemas.manifest import (
+    MANIFEST_PLACEHOLDER_VALUE,
     AgentsShipgateManifest,
     ToolSourceConfig,
+    builtin_tool_source_types_text,
 )
 
 
@@ -206,7 +208,22 @@ class AdapterRegistry:
             # built by ``diagnose_unknown_adapter_source_type`` cover
             # the same paths in structured form.
             discovery_enabled = _adapter_plugins_enabled(plugins_enabled)
-            if discovery_enabled:
+            if source_type == MANIFEST_PLACEHOLDER_VALUE:
+                # Not a typo and not a missing package: this is the value
+                # `init` writes when discovery read no tool surface, so the
+                # manifest is a scaffold nobody has completed. Offering to
+                # install a third-party adapter for it sends the reader after
+                # a package that does not exist, and it is the *first* failure
+                # a scaffolded manifest hits — before the missing path, which
+                # has always been routed as a placeholder (#441).
+                remediation = (
+                    "That is the placeholder `agents-shipgate init` writes "
+                    "when it finds no tool surface to read. Replace it with "
+                    "the type of the source this repository publishes "
+                    f"(built-ins are: {builtin_tool_source_types_text()}), and set "
+                    "tool_sources[].path to that file."
+                )
+            elif discovery_enabled:
                 remediation = (
                     "Either (a) install the third-party adapter "
                     "package that registers this "
@@ -222,9 +239,8 @@ class AdapterRegistry:
                     "by setting `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` "
                     "(or removing `--no-plugins`) and ensure the "
                     "adapter package is installed, or (b) fix a typo "
-                    "of a built-in name (built-ins are: mcp, openapi, "
-                    "openai_agents_sdk, google_adk, langchain, crewai, "
-                    "codex_config, codex_plugin, conductor)."
+                    "of a built-in name (built-ins are: "
+                    f"{builtin_tool_source_types_text()})."
                 )
             raise ConfigError(
                 f"No adapter registered for source type "

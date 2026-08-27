@@ -30,7 +30,10 @@ from agents_shipgate.schemas.manifest._artifacts import (
     ToolInventoryConfig,
     repeated_declared_artifacts,
 )
-from agents_shipgate.schemas.manifest._common import STRICT_MODEL_CONFIG
+from agents_shipgate.schemas.manifest._common import (
+    MANIFEST_PLACEHOLDER_VALUE,
+    STRICT_MODEL_CONFIG,
+)
 from agents_shipgate.schemas.manifest.action_surface import (
     ActionApprovalConfig,
     ActionAuthorityConfig,
@@ -113,6 +116,7 @@ from agents_shipgate.schemas.manifest.tool_sources import (
     SourceAuthorityConfig,
     SourceBindingConfig,
     ToolSourceConfig,
+    builtin_tool_source_types_text,
 )
 from agents_shipgate.schemas.manifest.validation import (
     ValidationConfig,
@@ -124,6 +128,8 @@ __all__ = [
     # tool_sources constants
     "BUILTIN_PER_SCAN_ONLY_TOOL_SOURCE_TYPES",
     "BUILTIN_TOOL_SOURCE_TYPES",
+    "MANIFEST_PLACEHOLDER_VALUE",
+    "builtin_tool_source_types_text",
     # _common (re-exported for back-compat — was a non-underscore
     # module symbol of the legacy schemas.manifest module)
     "STRICT_MODEL_CONFIG",
