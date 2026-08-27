@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.41",
-  "run_id": "agents_shipgate_3e60204cc1f38768",
+  "report_schema_version": "0.42",
+  "run_id": "agents_shipgate_04bf80ddd3b94d21",
   "request_id": null,
   "subject_id": null,
   "input_set_id": null,
@@ -1198,11 +1198,15 @@
   },
   "binding_surface_facts": {
     "root_agent_id": "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+    "entry_point_agent_ids": [
+      "agent_v1:db222e5ee84f5d3b4a7f0ca1"
+    ],
     "status": "structural",
     "agents": [
       {
         "agent_id": "agent_v1:71a7997718e73610b0704464",
         "name": "researcher",
+        "kind": "agent",
         "source_id": "crewai_agent",
         "source_ref": "crew.py",
         "source_pointer": "crew.py:31"
@@ -1210,6 +1214,7 @@
       {
         "agent_id": "agent_v1:db222e5ee84f5d3b4a7f0ca1",
         "name": "crew",
+        "kind": "agent",
         "source_id": "crewai_agent",
         "source_ref": "crew.py",
         "source_pointer": "crew.py:38"

@@ -582,6 +582,35 @@ def test_an_unnameable_root_agent_never_falls_back_to_its_id(
     assert _markdown_vocabulary_offenders(markdown, where="report.md") == []
 
 
+def test_the_entry_points_line_never_falls_back_to_an_id_either() -> None:
+    """The second agent line in this section, added by #432.
+
+    It resolves through the same index, so a rooted graph prints one spelling
+    on both lines rather than a digest above a label. Its own fallback is the
+    same word: an entry point the index cannot name is `unresolved`, never the
+    ``agent_v1:`` id that fallback used to hand the reader.
+    """
+
+    named = AgentBindingNode(
+        agent_id=_ROOT_AGENT_ID, name="server_a", kind="tool_source"
+    )
+    markdown = _binding_surface_markdown(
+        AgentBindingGraphAssessment(
+            root_agent_id=None,
+            status="declared",
+            agents=[named],
+            entry_point_agent_ids=[_ROOT_AGENT_ID, "agent_v1:d1c2d1404233507abc674042"],
+            pass_eligible=True,
+        )
+    )
+
+    assert "Root agent: none (graph rooted by declared tool sources)" in (
+        unescape_markdown_text(markdown)
+    )
+    assert "Entry points: server_a, unresolved" in unescape_markdown_text(markdown)
+    assert _markdown_vocabulary_offenders(markdown, where="report.md") == []
+
+
 def test_an_unknown_agent_falls_back_to_something_readable() -> None:
     """A fallback that returns the unreadable value defeats itself.
 

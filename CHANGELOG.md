@@ -25,8 +25,15 @@
   `_safe_markdown_text`. The sweep now un-escapes each line first, against a
   `unescape_markdown_text` defined as the escaper's inverse beside it, with a
   negative control asserting the raw escaped spelling passes the matcher while
-  the sweep rejects it. Markdown-only: report, packet and verifier schemas are
-  unchanged, and the five sample `report.md` goldens are regenerated.
+  the sweep rejects it.
+
+  The `Entry points:` line beneath it (#432) resolves through the same index,
+  and its own fallback is now `unresolved` rather than the raw `agent_v1:` id.
+  The two lines had disagreed about the same agent one line apart — `Root
+  agent: agent_v1:7205d836…` above `Entry points: durable_order_agent
+  [conductor_workflows]` — which is the drift one shared index exists to
+  prevent. Markdown-only: report, packet and verifier schemas are unchanged,
+  and the five sample `report.md` goldens are regenerated.
 
 - **A new evidence gap now says which subject left the analysed surface.**
   (#433) The exclusion ledger from #403 records precisely which subject each
@@ -110,6 +117,62 @@
   `_verifier_headline` publishes every governance requirement as a reserved
   suffix, so the headline always states it, and the human-review reason can
   simply be the headline.
+- **A published tool surface is one reviewed declaration, not one row per
+  tool.** (#432) Binding an MCP server's own surface required naming every
+  tool individually under `agent_bindings.declarations[].tools` — 116 selector
+  rows for `github/github-mcp-server` to state a fact that is structurally
+  true of the source, and the point at which an adopter stops. The two shorter
+  spellings a reader reaches for both dead-ended: `agent_bindings.root` naming
+  the source reported `ambiguous_root_agent` as though a better selector
+  existed, and a `"*"` selector was matched as a literal tool name. Until one
+  of them was written `reachable_tools` was `0`, nothing downstream ran, and
+  the verdict was `insufficient_evidence` whatever the change did.
+
+  **`tool_sources[].binding`** — `{complete: true, reason}` — states once that
+  a source's published surface *is* the surface under review. It sits where
+  `tool_sources[].authority` sits and makes the same shape of argument:
+  binding, like authority, is a fact about the source rather than about each
+  function it exposes. For an agent that is not true — a catalog may hold 63
+  OpenAPI operations of which the agent wires 5, and #385 drew that boundary
+  deliberately — so the block is opt-in per source and changes nothing where
+  it is not written. It is additive and **widening**: it can only move tools
+  *into* the analysed surface, where every check then judges them.
+
+  **Both dead ends are routes.** When nothing observed an agent object, the root
+  gap no longer prescribes a selector that cannot exist, and a `tools:` selector
+  spelled as a pattern (`{tool: "*"}`) is told that selectors name one tool
+  exactly and which statement that spelling was reaching for. It says so, routes to
+  `shipgate.yaml#tool_sources[].binding`, and the declaration scaffold writes
+  one block per configured source carrying the ids read off the surface and
+  `<REVIEW_REQUIRED>` for both halves of the judgement. A catalog whose tools
+  come from a per-scan adapter has no row to declare on, so it keeps the
+  closed-world `agent_bindings.declarations` route instead of being handed a
+  remedy the schema rejects. Once a source is declared, `root: {object: <id>,
+  source_id: <id>}` resolves to it.
+
+  **It stays a human declaration.** Inferring "this source binds everything"
+  from the source's own content is the #268 attack; the block is refused in
+  agent-authored `tool_sources` proposals and is a human-owned placeholder, so
+  `doctor` will not publish an executable edit for it. A reviewed declaration
+  that binds no tool fails closed rather than proving a graph over an empty
+  surface, and two reviewed closed-world statements about one node — a
+  declared surface selected as the root, plus an `agent: root` declaration
+  listing something else — raise `conflicting_binding_evidence` instead of
+  being silently unioned into a proven graph.
+
+  **A graph can now be rooted by something that is not an agent, and says so.**
+  A repository publishing two servers has two entry points and no root agent,
+  which is not the same fact as "the root could not be identified".
+  `binding_surface_facts.entry_point_agent_ids` is every node the reachability
+  walk started from — empty exactly when nothing rooted the graph, and equal to
+  `[root_agent_id]` for every graph a prior release could produce — and
+  `agents[].kind` (`agent` | `tool_source`) says what each node in that array
+  is. The Markdown report stops calling the deliberate state `unresolved`.
+
+  Report schema `0.41 → 0.42`; both fields are additive, v0.41 is frozen and
+  hash-pinned, and every prior version is read forward. The manifest field is
+  additive too, and a CLI that predates it rejects the key with a routable
+  `ConfigError` (exit 2) rather than ignoring a reviewed claim.
 
 - **A coding agent can now answer the declaration questions the scanner
   already knows the answers to.** (#410 §D) The questionnaire (#410 increment

@@ -271,7 +271,7 @@ Downstream repos generated with
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b7` — see [pyproject.toml](../pyproject.toml)
 - Runtime contract: `25` (minimum control contract: `21`)
-- Current report schema: `0.41` — [`docs/report-schema.v0.41.json`](report-schema.v0.41.json)
+- Current report schema: `0.42` — [`docs/report-schema.v0.42.json`](report-schema.v0.42.json)
 - Current packet schema: `0.17` — [`docs/packet-schema.v0.17.json`](packet-schema.v0.17.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
 - Current verifier schema: `0.14` — [`docs/verifier-schema.v0.14.json`](verifier-schema.v0.14.json) (v0.13 and earlier stay frozen; `0.14` adds `authorable_by` to declaration questions and `fix_task.declaration_confirmation`)
@@ -1065,7 +1065,7 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full alpha stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.41.json`](report-schema.v0.41.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.42.json`](report-schema.v0.42.json) — machine-validatable JSON Schema for the current report.
 - [`docs/privacy.md`](privacy.md) and [`docs/report-sensitive-fields.json`](report-sensitive-fields.json) — default redaction behavior and sensitive-field inventory.
 - [`docs/packet-schema.v0.17.json`](packet-schema.v0.17.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog, including `mvp_tier` for MVP/readiness triage.

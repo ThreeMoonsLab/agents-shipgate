@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from collections.abc import Mapping
 from pathlib import Path
 
 from agents_shipgate.core.action_semantics import (
@@ -1084,11 +1085,61 @@ def _append_inventory(lines: list[str], report: ReadinessReport) -> None:
     lines.append("")
 
 
+def _agent_display(agent_id: str, labels: Mapping[str, str]) -> str:
+    """The one label naming an agent on the binding surface. Never its id.
+
+    Both agent lines in this section resolve through
+    :func:`agent_label_index`, for the reason that index exists: an emitter
+    that spells a label from a node's own fields produces a second spelling of
+    the same subject.
+
+    ``unresolved`` where the index cannot name one. Chaining to ``agent_id``
+    puts a derived digest in front of the reader — ``Root agent:
+    agent_v1:7205d836…``, which is in no file they have and which #329 forbids
+    of any adopter-facing sentence. The ids stay in
+    ``binding_surface_facts`` in ``report.json`` for a bug report. The index
+    is built from every node the walk recorded and the entry points are
+    exactly its seeds, so this fallback is a fail-safe rather than a state
+    the scanner can reach.
+    """
+
+    return labels.get(agent_id) or "unresolved"
+
+
+def _root_agent_line(graph: AgentBindingGraphAssessment) -> str:
+    """What to print where a root agent's identity goes.
+
+    ``unresolved`` is the right word for a graph nothing rooted. It is the
+    wrong word for a repository that publishes tool surfaces and has no agent
+    object to name — that graph is rooted, deliberately, by the reviewed
+    ``tool_sources[].binding`` entries listed on the next line, and calling it
+    unresolved reads as the failure it is not (#432 review).
+
+    A root the graph *did* name is printed as its label, never as
+    ``root_agent_id`` (see :func:`_agent_display`).
+    """
+
+    if graph.root_agent_id:
+        return _agent_display(graph.root_agent_id, agent_label_index(graph.agents))
+    if graph.entry_point_agent_ids:
+        return "none (graph rooted by declared tool sources)"
+    return "unresolved"
+
+
 def _append_binding_surface(lines: list[str], report: ReadinessReport) -> None:
     graph = report.binding_surface_facts
     lines.extend(["## Agent Binding Surface", ""])
     lines.append(f"Status: {_safe_markdown_text(graph.status)}")
-    lines.append(f"Root agent: {_safe_markdown_text(_root_agent_label(graph))}")
+    lines.append(f"Root agent: {_safe_markdown_text(_root_agent_line(graph))}")
+    if graph.entry_point_agent_ids:
+        labels = agent_label_index(graph.agents)
+        lines.append(
+            "Entry points: "
+            + ", ".join(
+                _safe_markdown_text(_agent_display(agent_id, labels))
+                for agent_id in graph.entry_point_agent_ids
+            )
+        )
     lines.append(f"Pass eligible: {str(graph.pass_eligible).lower()}")
     lines.append(
         "Catalog partition: "
@@ -1117,31 +1168,6 @@ def _append_binding_surface(lines: list[str], report: ReadinessReport) -> None:
                 f"({_safe_markdown_text(tool.get('source_type') or '-')})"
             )
         lines.append("")
-
-
-def _root_agent_label(graph: AgentBindingGraphAssessment) -> str:
-    """Name the root agent the way a reader can find it.
-
-    ``root_agent_id`` is a derived digest. Printing it read ``Root agent:
-    agent_v1:7205d836…`` on every shipped sample, naming something that
-    appears in no file the adopter has — the #329 rule, that proceeding must
-    not require understanding the internal identity model.
-
-    Resolved through :func:`agent_label_index` rather than from the node's own
-    fields, for the reason that index exists: an emitter that spells a label
-    itself produces a second spelling of the same subject.
-
-    ``unresolved`` covers both ways the graph can fail to name a root — no
-    root at all, and a root id no node carries (the ``legacy_direct``
-    sentinel, or a graph whose nodes and root disagree). Chaining to the id
-    would put the digest straight back, and the reader can do nothing with it;
-    ``binding_surface_facts.root_agent_id`` in ``report.json`` still carries
-    the identity for a bug report.
-    """
-
-    if graph.root_agent_id is None:
-        return "unresolved"
-    return agent_label_index(graph.agents).get(graph.root_agent_id, "unresolved")
 
 
 def _human_status(status: str) -> str:

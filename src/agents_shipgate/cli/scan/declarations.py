@@ -175,6 +175,19 @@ _FIELD_HINTS: dict[str, str] = {
         "every agent this one can hand off to, by name. Covered by "
         "`complete:` above, so an agent missing here is asserted unreachable."
     ),
+    "binding.complete": (
+        "`true`, and only once you have checked that every tool this source "
+        "publishes belongs to the surface under review — that is what this one "
+        "word closes the world over. It is the answer for a tool server, whose "
+        "published tools are callable by any client that connects. It is the "
+        "wrong answer for a source an agent wires only part of; declare that "
+        "per agent under `agent_bindings.declarations` instead."
+    ),
+    "binding.reason": (
+        "how you checked that this source's published tools are the surface "
+        "under review — what publishes them, and what makes every one of them "
+        "reachable — so the next reviewer can re-check it."
+    ),
     "tool_inventories.path": (
         "repo-relative path where you saved the reviewed inventory (for "
         "example `inventories/tools.json`). Start from the skeleton written "

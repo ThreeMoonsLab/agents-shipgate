@@ -2111,6 +2111,28 @@
       "title": "SourceAuthorityConfig",
       "type": "object"
     },
+    "SourceBindingConfig": {
+      "additionalProperties": false,
+      "description": "Reviewed statement that this source's published surface *is* the surface under review.\n\nBinding is real information for an **agent**: a catalog may hold 63 OpenAPI\noperations of which the agent wires 5, and #385 drew that boundary\ndeliberately \u2014 catalog membership is never evidence of capability.\n\nFor a **tool server** there is no such gap. The repository under review is\nthe tool surface: anything in its published ``tools/list`` is callable by\nany client that connects to it, there is no root agent, and there is\nnothing to select between. Stating that one structural fact used to cost\none ``agent_bindings.declarations[].tools`` row per tool \u2014 116 of them for\n``github/github-mcp-server`` \u2014 which is what breeds the copy-paste that\nbreeds wrong answers, and is where an adopter stops (#432).\n\nDeclared here it applies to every tool the source contributes, exactly as\n``authority`` applies to every action it contributes. It is **additive and\nwidening**: it can only move tools *into* the analysed surface, where every\ncheck then judges them. A source with no ``binding`` block behaves exactly\nas before.\n\nIt stays a human declaration. Inferring \"this source binds everything\" from\nthe source's own content is the #268 attack, and the point of this block is\nto make the statement one line, not to remove it.",
+      "properties": {
+        "complete": {
+          "const": true,
+          "default": true,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "reason": {
+          "pattern": "[^\\s\\u0000-\\u001f\\u007f-\\u009f\\u00ad\\u034f\\u061c\\u115f-\\u1160\\u17b4-\\u17b5\\u180b-\\u180f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\u3164\\ufe00-\\ufe0f\\ufeff\\uffa0\\ufff0-\\ufff8\ud82f\udca0-\ud82f\udca3\ud834\udd73-\ud834\udd7a\udb40\udc00-\udb43\udfff]",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "SourceBindingConfig",
+      "type": "object"
+    },
     "SuppressionConfig": {
       "additionalProperties": false,
       "properties": {
@@ -2441,6 +2463,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/SourceAuthorityConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "binding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceBindingConfig"
             },
             {
               "type": "null"

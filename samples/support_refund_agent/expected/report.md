@@ -233,6 +233,7 @@ No local runtime trace artifacts were declared for capability evidence.
 
 Status: conflicting
 Root agent: refund\_agent \[openai\_sdk\_static\]
+Entry points: refund\_agent \[openai\_sdk\_static\]
 Pass eligible: false
 Catalog partition: 7 reachable, 0 possible, 1 unbound
 

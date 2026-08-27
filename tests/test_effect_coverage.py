@@ -569,6 +569,14 @@ _FROZEN_AND_CURRENT_SCHEMAS = [
     ("report-schema.v0.40.json", "report-schema.v0.41.json", "authorable_by"),
     ("packet-schema.v0.16.json", "packet-schema.v0.17.json", "authorable_by"),
     ("verifier-schema.v0.13.json", "verifier-schema.v0.14.json", "authorable_by"),
+    # #432: the binding graph gained the entry points the reachability walk
+    # started from, and every node gained the kind it is. Only the report
+    # schema embeds ``AgentBindingGraphAssessment``.
+    (
+        "report-schema.v0.41.json",
+        "report-schema.v0.42.json",
+        "entry_point_agent_ids",
+    ),
 ]
 
 
@@ -644,6 +652,9 @@ _PUBLISHED_SCHEMA_SHA256 = {
     "report-schema.v0.39.json": (
         "9a150c97a13c59b4f1ba68d86d4393be1c799e6c84d1638acee825e28646dab9"
     ),
+    "report-schema.v0.41.json": (
+        "2d201cc9767ae8707c1c14dc9a56d49b65429d5d7c32ad6afc30b2c4d66f879b"
+    ),
     "report-schema.v0.40.json": (
         "eee3c02e3bdb25d12c2e3ec46a2c72407f735252f1e6d0804e23c43cf5e86aff"
     ),
@@ -696,7 +707,7 @@ def test_every_emitted_artifact_validates_against_its_own_current_schema(tmp_pat
     )
 
     for artifact, schema_name in (
-        ("report.json", "report-schema.v0.41.json"),
+        ("report.json", "report-schema.v0.42.json"),
         ("packet.json", "packet-schema.v0.17.json"),
     ):
         payload = json.loads((tmp_path / artifact).read_text(encoding="utf-8"))

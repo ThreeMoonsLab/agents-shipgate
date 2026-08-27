@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.41",
-  "run_id": "agents_shipgate_1be92682021df486",
+  "report_schema_version": "0.42",
+  "run_id": "agents_shipgate_aa4dd3174f262a9c",
   "request_id": null,
   "subject_id": null,
   "input_set_id": null,
@@ -5584,11 +5584,15 @@
   },
   "binding_surface_facts": {
     "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+    "entry_point_agent_ids": [
+      "agent_v1:7cb237a00d64b7400f4adc3b"
+    ],
     "status": "conflicting",
     "agents": [
       {
         "agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
         "name": "refund_agent",
+        "kind": "agent",
         "source_id": "openai_sdk_static",
         "source_ref": "agents/refund_agent.py",
         "source_pointer": "agents/refund_agent.py:10"

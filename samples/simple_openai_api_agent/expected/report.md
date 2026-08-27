@@ -232,6 +232,7 @@ Matched trace rows:
 
 Status: declared
 Root agent: root
+Entry points: root
 Pass eligible: true
 Catalog partition: 2 reachable, 0 possible, 0 unbound
 
