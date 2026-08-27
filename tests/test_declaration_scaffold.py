@@ -121,6 +121,7 @@ def test_gap_provenance_distinguishes_inherited_from_introduced(tmp_path) -> Non
         _evidence_gap_identities,
         _gap_provenance_note,
     )
+    from agents_shipgate.schemas.exclusions import SurfaceExclusionLedger
     from agents_shipgate.schemas.report import (
         EvidenceCoverageDecision,
         ReleaseDecision,
@@ -135,6 +136,10 @@ def test_gap_provenance_distinguishes_inherited_from_introduced(tmp_path) -> Non
                     level="mixed", evidence_gaps=gaps
                 ),
             )
+            # No stage narrowed the surface, so the note carries the count and
+            # nothing else. The named-subject half of the note is exercised
+            # against real ledgers in ``tests/test_surface_exclusions.py``.
+            surface_exclusions = SurfaceExclusionLedger()
 
         return _R()
 

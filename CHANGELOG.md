@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+- **A new evidence gap now says which subject left the analysed surface.**
+  (#433) The exclusion ledger from #403 records precisely which subject each
+  stage removed — `("binding", "find_duplicate [github_mcp]", "evidence_gap")`
+  — and no human-facing surface carried it. A reviewer of
+  `github/github-mcp-server#3020`, a PR adding exactly one tool, was told
+  "1 of 83 evidence gap(s) are new in this diff" and never *what* the one was;
+  the blockers were pre-existing debt about the other 115 tools, so the
+  `Most severe:` clause that had been carrying the subject in other cases was
+  about something unrelated to the change. That was #403's own thesis — a
+  stage computed the right signal, stored it, and did not connect it to the
+  decision — standing at the ledger's own output, and it is the epic's last
+  open box.
+
+  `verify`'s headline, and therefore `control.reason`, `control.next_action.why`
+  and the PR comment's `Summary:` / `Next action:` lines, now continue:
+  `Excluded from analysis: find_duplicate [github_mcp] — added by this diff
+  and not bound to the root agent.` Rendering only: no verdict, count, gap,
+  finding, or permission moves, and no version does either
+  (`report_schema_version`, `contract_version`, the verifier artifact version
+  and every published schema document are unchanged).
+
+  **Selected by the ledger's own pointer, not by a second reading of the
+  facts.** A row is named when its `accounted_by` gap is one of the identities
+  the "N of M are new" count was computed from, so the clause and the number
+  in front of it can never describe different sets. `not_claimed` rows carry
+  no pointer at all, which is why a settled workspace gains no clause — the
+  clause appears exactly where a stage narrowed the surface *because of this
+  diff*. The subject printed is the ledger entry's own string, built by
+  `core.surface_exclusions.catalog_subject`, so it cannot drift from the gap
+  row it came from (the join defect #413 fixed one layer down).
+
+  **Bounded, because it shares a 400-byte envelope.** At most three subjects
+  are named, each capped on its own account as scanned input, grouped by
+  cause so a diff that adds six unwired tools reads as one list with one
+  reason and an `and 3 more` tail — the way `Most severe:` already handles the
+  findings side. The clause fits itself to its own byte budget by naming fewer
+  and counting more, rather than being cut mid-name by the envelope's tail
+  truncation. Reason tokens render through one table beside the builder that
+  emits them (`core.surface_exclusions.exclusion_phrase`), and a third-party
+  adapter's own token falls back to a phrase that claims nothing about a cause
+  nobody recorded.
+
 - **A coding agent can now answer the declaration questions the scanner
   already knows the answers to.** (#410 §D) The questionnaire (#410 increment
   2) told a person which blanks were owed; it had no way to say that most of

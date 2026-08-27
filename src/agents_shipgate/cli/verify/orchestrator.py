@@ -12,7 +12,7 @@ import stat
 import tempfile
 import unicodedata
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextvars import Token
 from datetime import date
 from pathlib import Path, PurePosixPath
@@ -65,6 +65,10 @@ from agents_shipgate.core.static_inputs import (
     active_static_input_snapshot,
     read_static_input_bytes,
     reset_static_input_snapshot,
+)
+from agents_shipgate.core.surface_exclusions import (
+    exclusion_phrase,
+    nameable_subject,
 )
 from agents_shipgate.core.trust_roots import (
     inspect_lexical_path_identity,
@@ -1905,10 +1909,15 @@ def _gap_provenance_note(
         return None
     # Multiset, not set: two gaps sharing a (kind, subject) are two gaps, and
     # collapsing them would report a genuinely new one as inherited.
-    introduced = sum((head - base).values())
+    new_identities = head - base
+    introduced = sum(new_identities.values())
     total = sum(head.values())
     if introduced:
-        return f"{introduced} of {total} evidence gap(s) are new in this diff."
+        note = f"{introduced} of {total} evidence gap(s) are new in this diff."
+        excluded = _excluded_subject_clause(
+            report, {subject for _kind, subject in new_identities}
+        )
+        return f"{note} {excluded}" if excluded else note
     # Name the scaffold only when one will exist, and only for the gaps it
     # actually covers. Low-confidence and source-warning gaps carry no
     # declaration template, so promising that "a declaration closes them" would
@@ -1930,6 +1939,112 @@ def _gap_provenance_note(
         f"This diff introduces no new evidence gap; all {total} are "
         f"pre-existing on the base.{remedy}"
     )
+
+
+# How much of an excluded subject the clause carries. The subject is scanned
+# input — a tool name read out of an MCP export or an OpenAPI spec — so it is
+# bounded on its own account, like the blocker title below it.
+_EXCLUSION_SUBJECT_MAX_CHARS = 60
+# How many subjects the clause names before it starts counting. The clause
+# shares the headline's 400-byte prose budget with the verdict, the worst
+# blocker, and the human-review requirement, and it is the part that yields
+# first (see ``_report_lead``) — so it names enough to act on and counts the
+# rest, the way ``Most severe:`` already handles the findings side.
+_EXCLUSION_SUBJECTS_NAMED = 3
+# The clause's own share of that budget. Bounding the count and each subject
+# separately is not enough: three subjects at their own cap, plus a phrase, is
+# most of the envelope on its own, and the composition that would have shrunk
+# it (``_report_lead``) is reached only on the adoption and self-approval
+# routes. So the clause fits itself, by naming fewer subjects and counting more
+# of them, rather than being cut mid-name by the envelope's tail truncation.
+_EXCLUSION_CLAUSE_MAX_BYTES = 200
+
+
+def _and_list(values: Sequence[str]) -> str:
+    """``a``, ``a and b``, ``a, b and c``."""
+
+    if len(values) == 1:
+        return values[0]
+    return f"{', '.join(values[:-1])} and {values[-1]}"
+
+
+def _excluded_subject_clause(
+    report: ReadinessReport, introduced_subjects: set[str]
+) -> str:
+    """Name what left the analysed surface, for the gaps this diff introduced.
+
+    The exclusion ledger records precisely which subject each stage removed,
+    and until #433 no human-facing surface carried it: a reviewer was told how
+    many gaps were new and never what they were about. That is the shape #403
+    exists to prevent — a stage computed the right signal, stored it, and did
+    not connect it to the decision — standing at the ledger's own output.
+
+    Selection is by the ledger's ``accounted_by`` pointer, joined against the
+    identities the count above was computed from, so the clause and the number
+    it follows can never describe different sets. The pointer's granularity is
+    the gap *subject*, which is why the clause claims only what is true of
+    every row it shows — these subjects were excluded from analysis — and
+    leaves "new" to the sentence in front of it. ``not_claimed`` rows carry no
+    pointer at all, so a settled workspace adds nothing.
+
+    The subject is the ledger's own string, which
+    :func:`~agents_shipgate.core.surface_exclusions.catalog_subject` built, so
+    it cannot drift from the gap row it came from (#413).
+    """
+
+    rows = [
+        row
+        for row in report.surface_exclusions.entries
+        if row.accounting == "evidence_gap"
+        and _stable_subject(row.accounted_by or "") in introduced_subjects
+    ]
+    if not rows:
+        return ""
+    # A subject that cannot be printed as a name is still counted in the tail
+    # beside the ones that can — it is a row the reader should know about, and
+    # dropping it from the total as well would undercount what they cannot see.
+    # ``nameable_subject`` is what refuses ``catalog_subject``'s tool-id
+    # fallback, which reads fine in a ledger joined by value and names nothing
+    # a reader can open.
+    labelled = [
+        (label, exclusion_phrase(row.reason))
+        for row, label in (
+            (row, _bounded(_one_clause(row.subject), _EXCLUSION_SUBJECT_MAX_CHARS))
+            for row in rows
+            if nameable_subject(row.subject)
+        )
+        if label
+    ]
+    for count in range(min(_EXCLUSION_SUBJECTS_NAMED, len(labelled)), 0, -1):
+        clause = _render_exclusion_clause(labelled[:count], len(rows) - count)
+        if len(clause.encode("utf-8")) <= _EXCLUSION_CLAUSE_MAX_BYTES:
+            return clause
+    # Nothing nameable, or nothing that fits: no clause. "Excluded from
+    # analysis: and 1 more" says nothing the count in front of it did not.
+    return ""
+
+
+def _render_exclusion_clause(
+    named: Sequence[tuple[str, str]], remainder: int
+) -> str:
+    """``Excluded from analysis: a, b — <phrase>; c — <phrase>; and 4 more.``
+
+    Grouped by phrase so the common case — a diff that adds several tools and
+    wires none of them — reads as one list with one cause rather than as the
+    same sentence repeated. The ``and N more`` tail is its own part rather than
+    a suffix of the last group, because the rows it counts need not share that
+    group's cause.
+    """
+
+    grouped: dict[str, list[str]] = {}
+    for label, phrase in named:
+        grouped.setdefault(phrase, []).append(label)
+    parts = [
+        f"{_and_list(subjects)} — {phrase}" for phrase, subjects in grouped.items()
+    ]
+    if remainder:
+        parts.append(f"and {remainder} more")
+    return "Excluded from analysis: " + "; ".join(parts) + "."
 
 
 # Severities that outrank a governance notice in the headline. The trust-root
