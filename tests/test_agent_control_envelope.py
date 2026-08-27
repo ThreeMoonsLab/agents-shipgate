@@ -469,6 +469,98 @@ def test_a_representative_envelope_fits_the_published_budget():
     assert len(rendered.encode("utf-8")) <= AGENT_CONTROL_ENVELOPE_BUDGET_BYTES
 
 
+def test_a_declaration_route_fits_the_published_budget():
+    """The route that carries a list is the one that re-derived the number.
+
+    Measured on the shape a repository with a hundred undeclared actions
+    actually produces: the full artifact map, the exact ``apply-patches``
+    command, and a full ``MAX_ENVELOPE_QUESTIONS`` prefix of rows whose answer
+    paths carry real tool names.
+    """
+
+    from agents_shipgate.schemas.agent_control_envelope import (
+        MAX_ENVELOPE_QUESTIONS,
+        ConfirmDeclarationsAction,
+        EnvelopeDeclarationQuestion,
+    )
+
+    artifacts = {
+        key: AgentControlArtifactRef(
+            path=f"agents-shipgate-reports/{key}.json", sha256=f"sha256:{'a' * 64}"
+        )
+        for key in (
+            "verification_receipt",
+            "verification_artifact_manifest",
+            "verification_plan",
+            "agent_handoff",
+            "verifier",
+            "verify_run",
+            "human_authorization",
+            "report",
+            "report_markdown",
+            "report_sarif",
+            "packet",
+            "pr_comment",
+        )
+    }
+    command = (
+        "agents-shipgate apply-patches --from agents-shipgate-reports/report.json "
+        "--kinds declare_action --confidence high --apply"
+    )
+    rows = [
+        EnvelopeDeclarationQuestion(
+            subject=f"request_refund_approval_{index} [salesforce_toolkit]",
+            dimension="effect",
+            answer_path=(
+                "shipgate.yaml#action_surface.actions"
+                f"[tool='request_refund_approval_{index}']"
+            ),
+            authorable_by="coding_agent" if index else "human",
+        )
+        for index in range(MAX_ENVELOPE_QUESTIONS)
+    ]
+    route = ConfirmDeclarationsAction(
+        kind="confirm_declarations",
+        command=command,
+        expects=(
+            "5 declaration(s) written into the manifest and committed to this "
+            "branch; 1 question(s) then remain for a human."
+        ),
+        why=(
+            "Apply the 5 declaration(s) this scan derived from its own evidence, "
+            "commit them to this branch, and re-run verification."
+        ),
+        questions=rows,
+        agent_authorable=99,
+        human_authorable=1,
+    )
+    control = derive_agent_control(
+        reason=(
+            "Insufficient evidence: an action's effect is inferred, not declared "
+            "(request_refund_approval_0 [salesforce_toolkit])."
+        ),
+        next_action=CodingAgentCommandAction(
+            kind="repair", command=command, why="Apply the derived declarations."
+        ),
+        verify_required=True,
+        allowed_next_commands=[command],
+        publication_allowed=True,
+    )
+
+    rendered = render_agent_control_envelope(
+        _envelope(
+            control,
+            decision="insufficient_evidence",
+            decision_source="release_decision",
+            artifacts=artifacts,
+            current_control_id=f"sha256:{'b' * 64}",
+            declaration_route=route,
+        )
+    )
+
+    assert len(rendered.encode("utf-8")) <= AGENT_CONTROL_ENVELOPE_BUDGET_BYTES
+
+
 # ---------------------------------------------------------------------------
 # Reconciliation with the current-control pointer.
 # ---------------------------------------------------------------------------

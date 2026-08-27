@@ -82,7 +82,7 @@ from agents_shipgate.core.semantic_assessment import (
     effect_evidence_rank,
     effect_is_bounded,
 )
-from agents_shipgate.schemas.report import DeclarationQuestionCoverage
+from agents_shipgate.schemas.report import DeclarationQuestionCoverage, EvidenceGap
 
 #: The two dimensions a reviewed declaration answers.
 #:
@@ -281,6 +281,51 @@ def _source_answering(tool: Tool, kind: str) -> str | None:
     if kind not in SOURCE_ANSWERABLE_AUTHORITY_KINDS or assessment is None:
         return None
     return assessment.authority.answerable_source_id
+
+
+#: One question's identity as both surfaces spell it: the id space, the id,
+#: and the dimension. The questionnaire builds it from
+#: :class:`DeclarationTarget`; the gap rows publish the same three values,
+#: because both are derived from :func:`declaration_answer_target`.
+QuestionKey = tuple[str, str, str]
+
+
+def question_authorship(gaps: Iterable[EvidenceGap]) -> dict[QuestionKey, str]:
+    """Who may draft each question's answer, folded from its published rows.
+
+    The tag is decided per *row* — that is where the template a scan either
+    filled or did not lives — and a question is one block a reviewer edits,
+    which several rows can ask for. So the fold is a conjunction, exactly like
+    ``answered``: a question is the agent's to draft only when every row it
+    absorbs is. A block whose effect the scan proposed and whose authority it
+    could not is not an agent's edit; sending an agent at it would have it
+    write half a block and report the question closed.
+
+    Read off the published rows rather than re-derived from the assessments,
+    so the questionnaire and the row a reader opens cannot disagree about who
+    owes the answer.
+
+    Rows the counter does not treat as questions — a
+    ``conflicting_effect_evidence`` the resolver blames on the *source* rather
+    than on the declaration — are folded in anyway, and deliberately. They can
+    only ever lower a tag, never raise one: a source that contradicts itself
+    about what an action does is the last place to let a scan draft the answer,
+    and a key nothing looks up costs nothing.
+    """
+
+    folded: dict[QuestionKey, str] = {}
+    for gap in gaps:
+        dimension = DIMENSION_BY_GAP_KIND.get(gap.kind)
+        if dimension is None or gap.subject_id is None:
+            continue
+        key: QuestionKey = (gap.subject_kind, gap.subject_id, dimension)
+        previous = folded.get(key, "coding_agent")
+        folded[key] = (
+            "coding_agent"
+            if previous == "coding_agent" and gap.next_action.authorable_by == "coding_agent"
+            else "human"
+        )
+    return folded
 
 
 @dataclass(frozen=True)

@@ -71,6 +71,7 @@ from pydantic import (
 from agents_shipgate.schemas.agent_control import (
     PERMISSION_FIELDS,
     CodingAgentAction,
+    ExactCommand,
     FullAgentPermissions,
     HumanControlAction,
     HumanReviewAction,
@@ -101,7 +102,21 @@ AGENT_CONTROL_ENVELOPE_SCHEMA_PATH = "docs/agent-control-schema.v1.json"
 # answer at the moment the caller most needs one. What *is* enforced is the
 # prose cap below; what is measured is representative output, pinned in
 # `tests/test_agent_control_envelope.py`.
-AGENT_CONTROL_ENVELOPE_BUDGET_BYTES = 4096
+#
+# Re-derived at contract v25, because a third variable component landed: a
+# `confirm_declarations` route carries up to `MAX_ENVELOPE_QUESTIONS` question
+# rows. Measured rather than estimated — a row is a subject, a dimension, and a
+# `shipgate.yaml#action_surface.actions[tool='…']` answer path built from a real
+# tool name, which renders at about 0.4 KiB. Six of those is 2.4 KiB on top of
+# the 2.3 KiB of fixed cost and the ~0.5 KiB of prose such a route carries, and
+# 6 KiB leaves it the same ~0.9 KiB of headroom 4 KiB gave the routes before it.
+#
+# The two variables were traded against each other rather than one being let
+# run. Six rows is already more than the measured worst case produces — per
+# *source* authority folding turned github-mcp-server's 117 tools into one
+# question — and holding the list there is what keeps this a half-step rather
+# than the near-double a ten-row list would have cost.
+AGENT_CONTROL_ENVELOPE_BUDGET_BYTES = 6144
 
 # Free-text cap applied by the projection before construction, counted in UTF-8
 # bytes rather than characters: the budget is a byte budget, and a character
@@ -111,6 +126,17 @@ AGENT_CONTROL_ENVELOPE_BUDGET_BYTES = 4096
 # truncated — those are executed or matched, not read.
 MAX_ENVELOPE_PROSE_BYTES = 400
 PROSE_TRUNCATION_MARKER = " […]"
+
+# How many declaration questions one ``confirm_declarations`` route prints.
+#
+# A *display* cap, and it is safe to be one only because it reaches no machine
+# route: the command applies every agent-authorable answer in the report
+# regardless of what is printed here, and ``agent_authorable`` /
+# ``human_authorable`` state how many there are of each. Ten keeps the route
+# inside the byte budget on a repository with a hundred undeclared actions
+# while still naming more than the measured worst case produces — per-source
+# authority folding turns a 117-tool repository into one question, not 117.
+MAX_ENVELOPE_QUESTIONS = 6
 
 # Which command produced this answer. ``check`` reaches no release decision and
 # publishes no pointer; ``verify``/``preview``/``scan`` do both; the three setup
@@ -244,6 +270,26 @@ _SETUP_EDIT_RULE = [
             "required": ["next_action"],
         },
         "then": {"properties": {"operation": {"enum": list(SETUP_OPERATIONS)}}},
+    }
+]
+
+
+# A declaration confirmation is the gate's route, never setup's: it is derived
+# from a release decision, and no setup command reaches one.
+_CONFIRM_DECLARATIONS_RULE = [
+    {
+        "if": {
+            "properties": {
+                "next_action": {"properties": {"kind": {"const": "confirm_declarations"}}}
+            },
+            "required": ["next_action"],
+        },
+        "then": {
+            "properties": {
+                "operation": {"enum": ["verify"]},
+                "decision_source": {"const": "release_decision"},
+            }
+        },
     }
 ]
 
@@ -490,11 +536,96 @@ class SetupEditAction(BaseModel):
     why: NonEmptyText
 
 
-# The action union this envelope publishes: the shared one, plus the setup edit
-# that only setup operations may carry. Kept as a separate alias so nothing can
-# reach ``SetupEditAction`` through ``AgentControl``.
+class EnvelopeDeclarationQuestion(BaseModel):
+    """One declaration question, as the confirmation route publishes it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Display label — the action, or the ``tool_sources`` entry whose
+    #: authority every action of that source inherits.
+    subject: NonEmptyText
+    #: ``effect`` or ``authority``.
+    dimension: NonEmptyText
+    #: The manifest block this question is answered in. Matched, not read, so
+    #: it is never normalized or capped.
+    answer_path: ExactPath
+    authorable_by: Literal["coding_agent", "human"]
+
+
+class ConfirmDeclarationsAction(BaseModel):
+    """Write the declarations the scan derived; name the ones it could not.
+
+    Declared **here** for the same reason :class:`SetupEditAction` is: the
+    shared action union in :mod:`agents_shipgate.schemas.agent_control` is
+    embedded by six durable published schemas, five of which record no
+    ``contract_version``, so widening it changes stored contracts a consumer
+    cannot disambiguate. This envelope is emitted on stdout and never written
+    as an artifact. The underlying control carries the same step as a
+    ``repair`` command — which it truthfully is — and the envelope publishes
+    the richer form.
+
+    The list is what makes this different from that ``repair``. An agent that
+    runs the command has answered the questions tagged ``coding_agent``; what
+    it then owes a human is the rest, **by name**. "Human review required" at
+    the end of a loop ends the turn without telling anyone what to do next,
+    and that dead end is what this route exists to replace (#410 §D).
+
+    ``questions`` is a prefix, not the authority. It is capped so one repository
+    with a hundred undeclared actions cannot turn a 4 KiB control surface into a
+    listing; ``agent_authorable`` and ``human_authorable`` are the real counts,
+    so a reader can always tell a complete list from a prefix without counting
+    it. The cap reaches no decision: ``command`` applies every agent-authorable
+    answer in the report, whether or not its question is printed here, and the
+    unabridged list is in the bound report artifact.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "required": [
+                "actor",
+                "kind",
+                "command",
+                "expects",
+                "why",
+                "questions",
+                "agent_authorable",
+                "human_authorable",
+            ]
+        },
+    )
+
+    actor: Literal["coding_agent"] = "coding_agent"
+    kind: Literal["confirm_declarations"]
+    command: ExactCommand
+    expects: NonEmptyText
+    why: NonEmptyText
+    #: The open questions, in the order the report ranks them — most able to
+    #: move the verdict first — truncated to :data:`MAX_ENVELOPE_QUESTIONS`.
+    questions: list[EnvelopeDeclarationQuestion] = Field(
+        min_length=1, max_length=MAX_ENVELOPE_QUESTIONS
+    )
+    #: How many open questions ``command`` answers. At least one, or this route
+    #: would be handing the agent a command with nothing to do.
+    agent_authorable: int = Field(ge=1)
+    #: How many it will not, and the agent must hand to a human afterwards.
+    human_authorable: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _the_list_is_a_prefix_of_the_counts(self) -> ConfirmDeclarationsAction:
+        if len(self.questions) > self.agent_authorable + self.human_authorable:
+            raise ValueError(
+                "questions is a prefix of the open questions, so it cannot be "
+                "longer than agent_authorable + human_authorable"
+            )
+        return self
+
+
+# The action union this envelope publishes: the shared one, plus the two typed
+# routes that only this surface carries. Kept as a separate alias so nothing can
+# reach them through ``AgentControl``.
 type EnvelopeCodingAgentAction = Annotated[
-    CodingAgentAction | SetupEditAction,
+    CodingAgentAction | SetupEditAction | ConfirmDeclarationsAction,
     Field(discriminator="kind"),
 ]
 
@@ -749,6 +880,7 @@ class AgentActionControlEnvelope(_AgentControlEnvelopeBase):
                 *_DECISION_VOCABULARY_RULE,
                 *_VERIFY_OBLIGATION_RULE,
                 *_SETUP_EDIT_RULE,
+                *_CONFIRM_DECLARATIONS_RULE,
             ],
         },
     )
@@ -776,6 +908,19 @@ class AgentActionControlEnvelope(_AgentControlEnvelopeBase):
             raise ValueError(
                 f"{self.operation!r} cannot publish an edit route; only "
                 f"{', '.join(SETUP_OPERATIONS)} can"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _a_declaration_route_comes_from_a_verdict(self) -> AgentActionControlEnvelope:
+        """Mirror ``_CONFIRM_DECLARATIONS_RULE`` in Pydantic as well as schema."""
+
+        if self.next_action.kind != "confirm_declarations":
+            return self
+        if self.operation != "verify" or self.decision_source != "release_decision":
+            raise ValueError(
+                "a confirm_declarations route is projected from a release "
+                "decision reached by verify"
             )
         return self
 
@@ -867,6 +1012,9 @@ __all__ = [
     "HumanReviewRequiredControlEnvelope",
     "ReviewPublishableControlEnvelope",
     "SetupEditAction",
+    "ConfirmDeclarationsAction",
+    "EnvelopeDeclarationQuestion",
+    "MAX_ENVELOPE_QUESTIONS",
     "truncate_prose",
     "validate_agent_control_envelope",
 ]

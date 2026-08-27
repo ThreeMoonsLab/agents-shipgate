@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.40",
+  "report_schema_version": "0.41",
   "run_id": "agents_shipgate_1be92682021df486",
   "request_id": null,
   "subject_id": null,
@@ -664,8 +664,10 @@
               "match_structural_graph",
               "correct_source_wiring"
             ],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -689,8 +691,10 @@
               "match_structural_graph",
               "correct_source_wiring"
             ],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -714,8 +718,10 @@
               "match_structural_graph",
               "correct_source_wiring"
             ],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -739,8 +745,10 @@
               "match_structural_graph",
               "correct_source_wiring"
             ],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -764,8 +772,10 @@
               "match_structural_graph",
               "correct_source_wiring"
             ],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -789,8 +799,10 @@
               "match_structural_graph",
               "correct_source_wiring"
             ],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -814,8 +826,10 @@
               "match_structural_graph",
               "correct_source_wiring"
             ],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -839,8 +853,10 @@
               "match_structural_graph",
               "correct_source_wiring"
             ],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -866,8 +882,10 @@
               "typed_provider_fact",
               "structural_scope"
             ],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -893,8 +911,10 @@
               "typed_provider_fact",
               "structural_scope"
             ],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -920,8 +940,10 @@
               "typed_provider_fact",
               "structural_scope"
             ],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -947,8 +969,10 @@
               "typed_provider_fact",
               "structural_scope"
             ],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -974,8 +998,10 @@
               "typed_provider_fact",
               "structural_scope"
             ],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -1001,8 +1027,10 @@
               "typed_provider_fact",
               "structural_scope"
             ],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -1028,8 +1056,10 @@
               "typed_provider_fact",
               "structural_scope"
             ],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -1050,8 +1080,10 @@
             "why": "The warning text names the degraded source.",
             "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan.",
             "accepted_values": [],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -10897,8 +10929,10 @@
           "typed_provider_fact",
           "structural_scope"
         ],
+        "authorable_by": "human",
         "suggested_patch_kind": "manual",
         "declaration_template": null,
+        "patch": null,
         "observed_readings": [],
         "auto_apply": false,
         "requires_human_review": true
@@ -10924,8 +10958,10 @@
           "typed_provider_fact",
           "structural_scope"
         ],
+        "authorable_by": "human",
         "suggested_patch_kind": "manual",
         "declaration_template": null,
+        "patch": null,
         "observed_readings": [],
         "auto_apply": false,
         "requires_human_review": true
@@ -10951,8 +10987,10 @@
           "typed_provider_fact",
           "structural_scope"
         ],
+        "authorable_by": "human",
         "suggested_patch_kind": "manual",
         "declaration_template": null,
+        "patch": null,
         "observed_readings": [],
         "auto_apply": false,
         "requires_human_review": true
@@ -10978,8 +11016,10 @@
           "typed_provider_fact",
           "structural_scope"
         ],
+        "authorable_by": "human",
         "suggested_patch_kind": "manual",
         "declaration_template": null,
+        "patch": null,
         "observed_readings": [],
         "auto_apply": false,
         "requires_human_review": true
@@ -11005,8 +11045,10 @@
           "typed_provider_fact",
           "structural_scope"
         ],
+        "authorable_by": "human",
         "suggested_patch_kind": "manual",
         "declaration_template": null,
+        "patch": null,
         "observed_readings": [],
         "auto_apply": false,
         "requires_human_review": true
@@ -11032,8 +11074,10 @@
           "typed_provider_fact",
           "structural_scope"
         ],
+        "authorable_by": "human",
         "suggested_patch_kind": "manual",
         "declaration_template": null,
+        "patch": null,
         "observed_readings": [],
         "auto_apply": false,
         "requires_human_review": true
@@ -11059,8 +11103,10 @@
           "typed_provider_fact",
           "structural_scope"
         ],
+        "authorable_by": "human",
         "suggested_patch_kind": "manual",
         "declaration_template": null,
+        "patch": null,
         "observed_readings": [],
         "auto_apply": false,
         "requires_human_review": true

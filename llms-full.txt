@@ -225,6 +225,18 @@ Contract v14 publishes these boundaries as `action_effect`, `action_authority`,
 and `agent_binding` in `do_not_auto_assert[]`; route binding and semantic next
 actions to a human and rerun verification after the reviewed declaration is supplied.
 
+There is exactly one exception, and it is narrow by construction (contract v25,
+report v0.41). When `control.next_action.kind` is `confirm_declarations`, run
+the command it names and nothing else. That command writes only the rows the
+report itself tags `next_action.authorable_by: "coding_agent"` — rows whose
+declaration the scan filled in completely from its own evidence, which today
+means an effect it read directly. Everything else stays exactly as above: a row
+tagged `"human"`, any authority or `agent_bindings` block, an `override`, and a
+`declaration_drift` row asking a person to re-confirm an answer are never yours
+to write, and you may never fill a blank the scan left or weaken a declaration
+the manifest already carries. Do not reconstruct the edit by hand if the route
+is absent — its absence is the answer.
+
 `action_surface.actions[].basis` is the one field in that block that is not a
 human assertion: it is a digest of the evidence the scan read for the action,
 published in the row's own `declaration_template`, and it re-opens the question
@@ -568,7 +580,7 @@ restate version archaeology here):
 - Audit envelopes: `release_decision.contribution_rules[]`, `policy_audit`,
   `privacy_audit`, `heuristics_filter` — explanatory, never a second gate
 
-The current schema is [`docs/report-schema.v0.40.json`](docs/report-schema.v0.40.json). Emitted reports carry `report_schema_version: "0.40"`; `surface_exclusions` records every subject a stage removed from the analysed surface and whether the release decision saw it, typed predicate support prevents heuristic evidence from being upgraded by policy severity or block metadata, and verify-native reports bind the content-addressed request and decision. A `passed` result requires a complete root-reachable static binding graph plus complete, conflict-free identity, effect, authority, and applicable-policy evidence for every reachable action. Every release decision explicitly carries `static_analysis_only: true`, `runtime_behavior_verified: false`, and `static_verdict_disclaimer`; packet §1 mirrors them. Binding, semantic, and policy-applicability gaps are not Findings and cannot be suppressed or baselined. See [`docs/passed-verdict-contract.md`](docs/passed-verdict-contract.md), [`docs/verification-reproducibility.md`](docs/verification-reproducibility.md), and [`docs/agent-contract-current.md`](docs/agent-contract-current.md). v0.39 remains frozen at [`docs/report-schema.v0.39.json`](docs/report-schema.v0.39.json).
+The current schema is [`docs/report-schema.v0.41.json`](docs/report-schema.v0.41.json). Emitted reports carry `report_schema_version: "0.41"`; `surface_exclusions` records every subject a stage removed from the analysed surface and whether the release decision saw it, typed predicate support prevents heuristic evidence from being upgraded by policy severity or block metadata, and verify-native reports bind the content-addressed request and decision. A `passed` result requires a complete root-reachable static binding graph plus complete, conflict-free identity, effect, authority, and applicable-policy evidence for every reachable action. Every release decision explicitly carries `static_analysis_only: true`, `runtime_behavior_verified: false`, and `static_verdict_disclaimer`; packet §1 mirrors them. Binding, semantic, and policy-applicability gaps are not Findings and cannot be suppressed or baselined. See [`docs/passed-verdict-contract.md`](docs/passed-verdict-contract.md), [`docs/verification-reproducibility.md`](docs/verification-reproducibility.md), and [`docs/agent-contract-current.md`](docs/agent-contract-current.md). v0.40 remains frozen at [`docs/report-schema.v0.40.json`](docs/report-schema.v0.40.json).
 
 **Release gating signal**: prefer `release_decision.decision` (`"blocked" | "review_required" | "insufficient_evidence" | "passed"`) over `summary.status`. The new field is **baseline-aware** — a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not `release_decision.blockers`. `summary.status` stays baseline-blind for v0.7 compatibility, so a baseline-matched-only critical produces both `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"` (intentional divergence — see [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus)). `insufficient_evidence` (added v0.14) signals that the scan saw too many low-confidence tools or source-loader warnings to be trustworthy; consumers that switch on the enum must fall back to `review_required` for unknown future values.
 
@@ -648,7 +660,7 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.40.json`](docs/report-schema.v0.40.json) (current).
+[`docs/report-schema.v0.41.json`](docs/report-schema.v0.41.json) (current).
 Older reports (`report_schema_version: "0.10"`) validate against the
 frozen [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json).
 Do not scrape Markdown when JSON is available.
@@ -686,7 +698,7 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.40.json`](docs/report-schema.v0.40.json) | `0.40` |
+| Report schema (current) | [`docs/report-schema.v0.41.json`](docs/report-schema.v0.41.json) | `0.41` |
 | Report schema (v0.38 frozen reference) | [`docs/report-schema.v0.38.json`](docs/report-schema.v0.38.json) | `0.38` |
 | Report schema (v0.37 frozen reference) | [`docs/report-schema.v0.37.json`](docs/report-schema.v0.37.json) | `0.37` |
 | Report schema (v0.34 frozen reference) | [`docs/report-schema.v0.34.json`](docs/report-schema.v0.34.json) | `0.34` |
@@ -726,7 +738,7 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Report schema (v0.8 frozen reference) | [`docs/report-schema.v0.8.json`](docs/report-schema.v0.8.json) | `0.8` |
 | Report schema (v0.7 frozen reference) | [`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json) | `0.7` |
 | Report schema (v0.6 frozen reference) | [`docs/report-schema.v0.6.json`](docs/report-schema.v0.6.json) | `0.6` |
-| Packet schema (Release Evidence Packet, latest) | [`docs/packet-schema.v0.16.json`](docs/packet-schema.v0.16.json) | `0.16` |
+| Packet schema (Release Evidence Packet, latest) | [`docs/packet-schema.v0.17.json`](docs/packet-schema.v0.17.json) | `0.17` |
 | Agent result schema (current) | [`docs/agent-result-schema.v2.json`](docs/agent-result-schema.v2.json) | `agent_result_v2` |
 | Verifier schema (current) | [`docs/verifier-schema.v0.5.json`](docs/verifier-schema.v0.5.json) | `0.5` |
 | Agent handoff schema (current) | [`docs/agent-handoff-schema.v5.json`](docs/agent-handoff-schema.v5.json) | `shipgate.agent_handoff/v5` |
@@ -796,7 +808,7 @@ NOT prove. Use `--no-packet` / `--packet-format` on `scan`, and
 `agents-shipgate evidence-packet --from <packet.json|report.json>` to
 re-render. The full packet contract (fixed sections, disclaimers,
 `evidence_matrix` rules) lives in
-[STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v016)
+[STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v017)
 and [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-for-release-review).
 
 Exit codes (stable):
@@ -1379,6 +1391,60 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
+Runtime contract v25 adds one route to the control envelope:
+`next_action.kind: "confirm_declarations"`, published by `verify` on a
+**working-tree** run whose verdict is `insufficient_evidence`, with no blockers
+and no proven policy weakening, when at least one open declaration question is
+one the scan can answer from its own evidence. It is not published on a
+ref-bound (`--base`/`--head`) run: `apply-patches` mutates the checkout, so the
+exact rerun would re-scan the commit the edit is not in yet — the same
+precondition every mechanical repair route carries. The PR flow is therefore
+local loop, then commit, then CI verifies the committed result.
+
+- **What it carries.** The exact `apply-patches` command that writes those
+  answers, plus `questions[]` — open declaration questions, each tagged
+  `authorable_by: "coding_agent" | "human"` — and the two counts
+  `agent_authorable` / `human_authorable`, which are the real totals. The list
+  is a prefix capped at six rows, ordered human-owned first (a drafted row is
+  answered by the command whether or not it is printed; a human-owned row is
+  what you have to hand a person), each half keeping the report's ranking. Read
+  `release_decision.evidence_coverage.semantic_coverage.declaration_questions.open_questions[]`
+  for the unabridged list.
+- **What it authorizes.** Exactly the named command, plus whatever
+  `permissions` says — publish-only on this route: `edit`, `commit`, `push`,
+  `update_pr` true; `merge` and `report_complete` false. Writing declarations
+  into `shipgate.yaml` touches the trust root, so the change still reaches the
+  gate only through a human merge. The route is a proposal step, never a
+  completion.
+- **The content rule.** A row is `authorable_by: "coding_agent"` only when the
+  scan filled every blank in its `declaration_template` — from the closed
+  effect vocabulary, never weaker than any reading it observed — *and* the
+  question is not one that asks a person to look again: a `declaration_drift`
+  row restates a confirmed answer beside a moved pin and stays `"human"`,
+  because an agent re-stamping the pin would close the very request the row is
+  for. A template still carrying a `<REVIEW_REQUIRED>` blank (every authority
+  block, every override) stays `"human"` too. Authorship is decided by content,
+  never by who is running: an agent may propose what the evidence supports, and
+  only a human may assert against it.
+- **What the patch may write.** `next_action.patch` is exactly
+  `declaration_template`, split into the keys that name the action and the
+  fields that are written — the schema rejects any other pairing, so a row
+  cannot advertise an evidence-derived tag beside a patch that writes something
+  else. Its `target_path` is relative to `manifest_dir`, so the row means the
+  same thing in the packet, the SARIF file, and a cached base scan.
+  `apply-patches` writes only into fields the manifest leaves silent, and
+  refuses — exit 5, nothing written — when a row already answers one
+  differently, when two equally compatible rows name the same tool, or when the
+  manifest has changed since the scan.
+- **After it.** Re-run verification. If questions remain, they are the ones
+  tagged `"human"`, and the human route names them rather than asking for
+  generic review.
+
+The `AgentControl` union is unchanged again, so
+`minimum_control_contract_version` stays at `21`: the control holds the step as
+the `repair` command it truthfully is, and the envelope publishes the richer
+form — the same split `SetupEditAction` uses.
+
 Runtime contract v24 rolls the control envelope across the setup commands.
 `detect --json`, `init --json`, and every `doctor --json` payload now carry a
 `control` field holding the same `shipgate.agent_control/v1` object that
@@ -1462,7 +1528,7 @@ publishes no pointer. It is emitted by
 `agents-shipgate verify --format control`, `agents-shipgate check --format
 agent-control-json`, and `agents-shipgate agent control` (now its default
 output; `--format pointer` returns the raw pointer). It publishes a size *budget*,
-`agent_control_budget_bytes` (4096), that representative output meets and that
+`agent_control_budget_bytes` (6144), that representative output meets and that
 is pinned by tests; it is not a hard maximum, because a long required-reviewer
 list or an unusually long exact command must never be truncated to hit a size
 target. Free-text fields are capped at 400 UTF-8 bytes; commands, paths, hashes,
@@ -1585,11 +1651,11 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b7` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `24` (minimum control contract: `21`)
-- Current report schema: `0.40` — [`docs/report-schema.v0.40.json`](report-schema.v0.40.json)
-- Current packet schema: `0.16` — [`docs/packet-schema.v0.16.json`](packet-schema.v0.16.json)
+- Runtime contract: `25` (minimum control contract: `21`)
+- Current report schema: `0.41` — [`docs/report-schema.v0.41.json`](report-schema.v0.41.json)
+- Current packet schema: `0.17` — [`docs/packet-schema.v0.17.json`](packet-schema.v0.17.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
-- Current verifier schema: `0.13` — [`docs/verifier-schema.v0.13.json`](verifier-schema.v0.13.json) (v0.12 and earlier stay frozen; `0.13` adds `declaration_drift` to the evidence-gap and semantic-issue vocabularies)
+- Current verifier schema: `0.14` — [`docs/verifier-schema.v0.14.json`](verifier-schema.v0.14.json) (v0.13 and earlier stay frozen; `0.14` adds `authorable_by` to declaration questions and `fix_task.declaration_confirmation`)
 - Current verify-run schema: `shipgate.verify_run/v4` — [`docs/verify-run-schema.v4.json`](verify-run-schema.v4.json)
 - Current verification identity schemas: [`plan v1`](verification-plan-schema.v1.json), [`unit result v1`](verification-unit-result-schema.v1.json), [`artifact manifest v1`](verification-artifact-manifest-schema.v1.json), and [`terminal receipt v1`](verification-receipt-schema.v1.json)
 - Current control pointer schema: `shipgate.current_control/v1` — [`docs/current-control-schema.v1.json`](current-control-schema.v1.json)
@@ -1787,7 +1853,7 @@ In `agents-shipgate-reports/report.json`:
 - `release_decision.evidence_coverage.semantic_coverage.declaration_questions` (v0.37+) — the same action surface counted as a questionnaire: `{total, answered, open, open_by_dimension, open_questions[]}`. A *question* is one `(action, dimension)` a reviewed `action_surface.actions` row has to answer, and only `effect` and `authority` are counted — an action whose effect the scan established by itself (an OpenAPI method, an MCP annotation) was never asked and is not in `total`, and an inventory or `agent_bindings` declaration has no per-action counterfactual to score against. `answered` is exact rather than optimistic: it counts dimensions that gap when the same action is re-resolved *without* its declaration. `total == answered + open`, and `open_by_dimension` sums to `open`. `open_questions[]` is the answer order and joins to `evidence_gaps[].subject_id`. v0.38 ranks it by the ceiling of what an answer can establish: the actions nothing has bounded first — no effect evidence, a protocol default standing in for its absence, or only a heuristic reading the scan may not act on — then the actions a reviewed declaration or policy-eligible source evidence established, strongest-acting first, with `effect` before `authority` within one action. Position is not severity: the action at the top is the one *least* is known about. Nothing here gates; it is a projection of counts the decision already made, published so a coding agent (and the generated questionnaire) can report progress instead of a gap tally.
 - `release_decision.evidence_coverage.policy_gap_count` and top-level `policy_evidence_gaps[]` (v0.33+) — policy applicability that is heuristic-only, mixed, unknown, or conflicting. These rows are outside Findings and cannot be suppressed, baselined, severity-overridden, acknowledged, or removed by `--no-heuristics`; any row prevents `passed`.
 - `release_decision.evidence_coverage.identity_coverage` (v0.30+) — `{total_observations, canonical_tools, bound_tools, pass_eligible_tools, ambiguous_name_count, gap_count, reason_counts}`. Provider-scoped observations remain separate unless an exact reviewed `tool_identity.bindings[]` entry joins them. Any ambiguous selector, invalid binding, or conflicting identity prevents `passed`.
-- `release_decision.evidence_coverage.evidence_gaps[]` (v0.26+; semantic kinds added v0.29) — one structured row per measurable gap: `{kind, subject, source_type, source_ref, why, next_action}`. In addition to `low_confidence_tool` and `source_warning`, v0.29 adds `incomplete_surface`, `missing_effect_evidence`, `inferred_effect_only`, `conflicting_effect_evidence`, `missing_authority_evidence`, `partial_authority_evidence`, `conflicting_authority_evidence`, and `invalid_semantic_annotation`. v0.36 adds `declaration_below_inferred_evidence`: the declared effect is weaker than evidence this scan inferred for the same action. The declaration still stands as the operative effect — heuristics never drive a verdict — but the action is not evidence-backed-pass until a reviewer raises the declared effect or adds `action_surface.actions[].override` with the `evidence` they checked and the `reason` it does not apply. An acknowledged override keeps the action pass-eligible and is reported as one semantic review concern, so the run can never read `passed`. Each acknowledgement is also emitted as a row in `release_decision.evidence_coverage.semantic_coverage.acknowledged_overrides[]` (v0.36+) naming the action, both readings, the hint source, any source evidence that agrees, and the reviewer's evidence and reason — the packet's §1 and the PR comment render it, because a count is not a review surface. The acknowledgement is consumed by policy applicability as well, so applying it reaches the review route rather than trading one gap for another. Semantic next actions use `declare_action_effect`, `declare_action_authority`, `declare_tool_inventory`, `provide_complete_inventory`, or `resolve_semantic_conflict`, include accepted values and exact source/manifest pointers, and are always human-routed. v0.37 adds `next_action.observed_readings[]` on effect rows — `{effect, sources[], observed}`, the distinct readings this scan's non-declaration evidence supports, so the row can be answered without opening `action_surface_facts`. Where those readings support one conservative answer, `next_action.declaration_template` carries it **pre-filled** instead of a `<REVIEW_REQUIRED>` blank. That value is a proposal, not an assertion: it is drawn from the closed `ActionEffect` vocabulary (never from source content), it is never weaker than any reading, and it is offered only where something was observed — a protocol default standing in for the absence of evidence, or a heuristic reading of `read`, keeps the blank. Their declaration placeholders carry `suggested_patch_kind="manual"`, `auto_apply=false`, and `requires_human_review=true`; they are not Patch objects, and a pre-filled template is still operative only once a human merges it into the manifest. v0.37 also re-routes `partial_authority_evidence`: it is raised when the *source's* authority evidence is ambiguous or incomplete, and the resolver preserves it whatever the manifest declares ("reviewed authority cannot replace ambiguous or incomplete source authority alternatives"). Its `next_action.kind` is therefore `provide_source` with no declaration template, rather than a `declare_action_authority` block that could not close the row it was printed on. It is excluded from `declaration_questions` for the same reason. Work the rows in order instead of guessing; Agents Shipgate never auto-asserts effect or authority.
+- `release_decision.evidence_coverage.evidence_gaps[]` (v0.26+; semantic kinds added v0.29) — one structured row per measurable gap: `{kind, subject, source_type, source_ref, why, next_action}`. In addition to `low_confidence_tool` and `source_warning`, v0.29 adds `incomplete_surface`, `missing_effect_evidence`, `inferred_effect_only`, `conflicting_effect_evidence`, `missing_authority_evidence`, `partial_authority_evidence`, `conflicting_authority_evidence`, and `invalid_semantic_annotation`. v0.36 adds `declaration_below_inferred_evidence`: the declared effect is weaker than evidence this scan inferred for the same action. The declaration still stands as the operative effect — heuristics never drive a verdict — but the action is not evidence-backed-pass until a reviewer raises the declared effect or adds `action_surface.actions[].override` with the `evidence` they checked and the `reason` it does not apply. An acknowledged override keeps the action pass-eligible and is reported as one semantic review concern, so the run can never read `passed`. Each acknowledgement is also emitted as a row in `release_decision.evidence_coverage.semantic_coverage.acknowledged_overrides[]` (v0.36+) naming the action, both readings, the hint source, any source evidence that agrees, and the reviewer's evidence and reason — the packet's §1 and the PR comment render it, because a count is not a review surface. The acknowledgement is consumed by policy applicability as well, so applying it reaches the review route rather than trading one gap for another. Semantic next actions use `declare_action_effect`, `declare_action_authority`, `declare_tool_inventory`, `provide_complete_inventory`, or `resolve_semantic_conflict`, include accepted values and exact source/manifest pointers, and are always human-routed. v0.37 adds `next_action.observed_readings[]` on effect rows — `{effect, sources[], observed}`, the distinct readings this scan's non-declaration evidence supports, so the row can be answered without opening `action_surface_facts`. Where those readings support one conservative answer, `next_action.declaration_template` carries it **pre-filled** instead of a `<REVIEW_REQUIRED>` blank. That value is a proposal, not an assertion: it is drawn from the closed `ActionEffect` vocabulary (never from source content), it is never weaker than any reading, and it is offered only where something was observed — a protocol default standing in for the absence of evidence, or a heuristic reading of `read`, keeps the blank. Their declaration placeholders carry `auto_apply=false` and `requires_human_review=true`, and a pre-filled template is still operative only once a human merges it into the manifest. **v0.41 adds `next_action.authorable_by`** (`coding_agent` | `human`, default `human`) — who may write the *first draft* of the answer. It is `coding_agent` only where the scan filled every blank in `declaration_template` **and** the gap kind is not one that asks a person to look again (`declaration_drift` restates a confirmed answer beside a moved pin and stays `human`, because an agent re-stamping the pin would close the request the row exists for). Such a row also carries `suggested_patch_kind: "declare_action"` and a `next_action.patch` that is *exactly* the template, split into the keys naming the action and the fields written — the schema rejects any other pairing, and `target_path` is relative to `manifest_dir` so the row reads the same in the packet, the SARIF file, and a cached base scan. `auto_apply` stays `false` and `requires_human_review` stays `true` on every row: the manifest is the trust root, so a declaration reaches the gate only through a human merge whoever typed it. The patch is outside `apply-patches --kinds` by default and is applied by the `confirm_declarations` control route that proposes it. v0.37 also re-routes `partial_authority_evidence`: it is raised when the *source's* authority evidence is ambiguous or incomplete, and the resolver preserves it whatever the manifest declares ("reviewed authority cannot replace ambiguous or incomplete source authority alternatives"). Its `next_action.kind` is therefore `provide_source` with no declaration template, rather than a `declare_action_authority` block that could not close the row it was printed on. It is excluded from `declaration_questions` for the same reason. Work the rows in order instead of guessing; Agents Shipgate never auto-asserts effect or authority.
 - `loaded_policy_packs[].{source,sha256,sha256_status,owner}` (v0.27+) — policy-pack distribution and ownership metadata for organization audit. `sha256_status` is `"verified"` only when the manifest pin matched; otherwise it is `"unpinned"`. This is report metadata; normal pack matching and release gating still come from deterministic rules and `release_decision.decision`.
 - `findings[].support` (v0.33+) — typed predicate support with status, effective confidence, policy/block eligibility, claim IDs, evidence bases, predicate rows, and `support_hash`. Rule confidence and `block: true` are ceilings/requests; they cannot upgrade the support. Baseline matching for supported findings requires the same support hash.
 - `findings[].policy_routing` (v0.28+) — optional policy-pack owner, reviewers, and approval-routing metadata. This is non-enforcing reviewer/audit metadata, not `Finding.evidence`; it does not affect fingerprints, suppressions, baselines, `blocks_release`, or `release_decision`.
@@ -1948,7 +2014,7 @@ agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --jso
 ```
 
 In `agents-shipgate-reports/verifier.json`, read the fields below (full
-schema [`docs/verifier-schema.v0.13.json`](verifier-schema.v0.13.json)). **Lead
+schema [`docs/verifier-schema.v0.14.json`](verifier-schema.v0.14.json)). **Lead
 with `control.state`.** Every release and merge field below is a mirror or
 deterministic projection of `report.json`; the authorization evaluation is an
 operational overlay and cannot change those fields.
@@ -2292,7 +2358,7 @@ Top-level `agent_summary` block (v0.12+), one-fetch summary shaped for direct ag
 
   **Rendering never rewrites what it renders.** Values reaching these one-line surfaces are repository-derived — a gap subject is a tool name, a policy pack authors `expects`, a semantic gap's `path` embeds a tool name — and they are made line-safe without being altered otherwise. Characters that could break a line or reorder it (controls, U+2028/U+2029, bidi marks) become a visible `<U+XXXX>` escape; **nothing is deleted**. Identity-bearing invisibles survive, so `agents/👩‍💻.yaml` and identifiers carrying ZWNJ are named as they actually are. Paths and commands are additionally never whitespace-folded — `configs/foo␣␣bar.yaml` keeps both spaces, and `python -c 'print("a␣␣b")'` stays the program that was written — while prose (subjects, `why`/`expects`, loader warnings) does fold whitespace, because there a stray newline is better read as a space. An affordance is published only when it exists: a suppressed or absent command produces no `Run:` line and a `null` repair command, and accepted values with nothing visible in them are dropped.
 
-  **Authority comes from the action's own fields, never from its `kind` or its path.** Every evidence-gap row published today is `requires_human_review: true`, `auto_apply: false`, `suggested_patch_kind: "manual"` — including the `provide_source` row that regenerates a stale `--diff-from` comparison base, for which `verify` emits `fix_task.actor: "human"` and `safe_to_attempt: false`. A `command` on such a row tells a human exactly what to run; it does not make the row agent-owned. A coding agent acts mechanically only where `fix_task.actor == "coding_agent"` and `safe_to_attempt` is true, and then only within `allowed_repairs[]`. Separately, `first_recommended_action.kind` stays `"info"` on the evidence-first actions — a statement about the summary projection, not a claim that no gap row ever carries a command, and not a promise about every `review_required` action (the auto-apply branch returns `kind: "command"`).
+  **Authority comes from the action's own fields, never from its `kind` or its path.** Every evidence-gap row published today is `requires_human_review: true` and `auto_apply: false` — including the `provide_source` row that regenerates a stale `--diff-from` comparison base, for which `verify` emits `fix_task.actor: "human"` and `safe_to_attempt: false`. Since v0.41 the one row that carries a machine-applicable patch says so in its own fields too: `authorable_by: "coding_agent"` with `suggested_patch_kind: "declare_action"`. That is still not a licence to apply it unasked — it is applied by the `confirm_declarations` route that proposes it, and the human merge it needs is unchanged. A `command` on such a row tells a human exactly what to run; it does not make the row agent-owned. A coding agent acts mechanically only where `fix_task.actor == "coding_agent"` and `safe_to_attempt` is true, and then only within `allowed_repairs[]`. Separately, `first_recommended_action.kind` stays `"info"` on the evidence-first actions — a statement about the summary projection, not a claim that no gap row ever carries a command, and not a promise about every `review_required` action (the auto-apply branch returns `kind: "command"`).
 
 Codex plugin surface block (v0.13+), explanatory only — never a release-gate
 input by itself:
@@ -2326,8 +2392,8 @@ For reviewer-shaped output, also read the **Release Evidence Packet** at
 `[pdf]` extras are installed). The packet is a supporting/provisional reviewer
 projection, not a second gate. Packet outputs are redacted by the same default
 privacy layer as the report. The packet has fixed reviewer sections governed by
-[`docs/packet-schema.v0.16.json`](packet-schema.v0.16.json) — see
-[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v016).
+[`docs/packet-schema.v0.17.json`](packet-schema.v0.17.json) — see
+[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v017).
 Packet schema `0.9` carries the report's evidence-backed semantic coverage and
 gap remediation contract. Packet §1 also mirrors
 `static_analysis_only=true`, `runtime_behavior_verified=false`, and
@@ -2380,9 +2446,9 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full alpha stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.40.json`](report-schema.v0.40.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.41.json`](report-schema.v0.41.json) — machine-validatable JSON Schema for the current report.
 - [`docs/privacy.md`](privacy.md) and [`docs/report-sensitive-fields.json`](report-sensitive-fields.json) — default redaction behavior and sensitive-field inventory.
-- [`docs/packet-schema.v0.16.json`](packet-schema.v0.16.json) — machine-validatable JSON Schema for the current packet.
+- [`docs/packet-schema.v0.17.json`](packet-schema.v0.17.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog, including `mvp_tier` for MVP/readiness triage.
 
 ## See also
@@ -4007,7 +4073,7 @@ from the hash so toggling `--suggest-patches` doesn't shift it.
 - [`checks.md`](checks.md) — full check catalog with rationale.
 - [`minimal-real-configs.md`](minimal-real-configs.md) — per-framework
   minimal manifests to build from.
-- [`report-schema.v0.40.json`](report-schema.v0.40.json) — current JSON
+- [`report-schema.v0.41.json`](report-schema.v0.41.json) — current JSON
   Schema for `report.json`.
 - [`AGENTS.md`](../AGENTS.md) — top-level agent instructions, install,
   trigger table.

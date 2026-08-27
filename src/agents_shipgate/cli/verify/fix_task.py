@@ -40,6 +40,8 @@ from agents_shipgate.schemas.report import (
 from agents_shipgate.schemas.verifier import (
     MergeVerdict,
     VerifierCapabilityReview,
+    VerifierDeclarationConfirmation,
+    VerifierDeclarationQuestion,
     VerifierFixTask,
     VerifierFixTaskPatch,
     VerifierRepair,
@@ -193,6 +195,68 @@ def build_fix_task(
         or evidence_degraded
         or not repair_subject_available
     )
+    # Before the human fallback and after the mechanical route, because it is
+    # neither. The declarations a scan can draft are not a *fix* — nothing is
+    # wrong — and they are not an authority decision either: every value comes
+    # from evidence this run already read, and the manifest they land in is the
+    # trust root, so the change still reaches the gate only through a human
+    # merge (#410 §D).
+    confirmation = _declaration_confirmation(
+        report,
+        capability_review=capability_review,
+        merge_verdict=merge_verdict,
+        report_path=report_path,
+        repair_subject_available=repair_subject_available,
+    )
+    if confirmation is not None:
+        return VerifierFixTask(
+            actor="coding_agent",
+            safe_to_attempt=True,
+            instructions=_declaration_instructions(confirmation),
+            allowed_repairs=_with_terminal_repair(
+                [
+                    VerifierRepair(
+                        id="confirm_declarations",
+                        actor="coding_agent",
+                        kind="confirm_declarations",
+                        target="shipgate.yaml#action_surface.actions",
+                        command=confirmation.command,
+                        reason=(
+                            "Writes the effect this scan read for each action, "
+                            "as a proposal the merging human reviews."
+                        ),
+                    )
+                ],
+                VerifierRepair(
+                    id="rerun_verify",
+                    actor="coding_agent",
+                    kind="verify",
+                    command=verification_command,
+                    reason=(
+                        "Re-run the verifier so the answers are scored and the "
+                        "remaining questions are re-counted."
+                    ),
+                ),
+            ),
+            forbidden_repairs=[
+                *_forbidden_repairs(gating),
+                VerifierRepair(
+                    id="answer_unevidenced_declaration",
+                    actor="coding_agent",
+                    kind="declaration_assertion",
+                    target="shipgate.yaml#action_surface.actions",
+                    reason=(
+                        "Do not fill a declaration blank this scan left empty, "
+                        "and do not weaken one it already carries. Propose what "
+                        "the evidence supports; only a human may assert against it."
+                    ),
+                ),
+            ],
+            forbidden_shortcuts=list(FORBIDDEN_SHORTCUTS),
+            verification_command=verification_command,
+            declaration_confirmation=confirmation,
+        )
+
     if mechanical and not authority_escalation:
         return VerifierFixTask(
             actor="coding_agent",
@@ -235,6 +299,154 @@ def build_fix_task(
         forbidden_shortcuts=list(FORBIDDEN_SHORTCUTS),
         verification_command=verification_command,
     )
+
+
+#: How many human-owned questions the instructions name before summarising.
+#: The point of naming them is that a person can act on the list; past a
+#: handful it stops being a list and starts being the backlog this design
+#: exists to replace.
+_MAX_NAMED_HUMAN_QUESTIONS = 3
+
+
+def _declaration_confirmation(
+    report: ReadinessReport,
+    *,
+    capability_review: VerifierCapabilityReview,
+    merge_verdict: MergeVerdict,
+    report_path: str,
+    repair_subject_available: bool,
+) -> VerifierDeclarationConfirmation | None:
+    """The declarations this run may hand to the coding agent, or ``None``.
+
+    Five conditions, each a separate way this could be the wrong route, and
+    all of them fail closed:
+
+    * **The verdict is ``insufficient_evidence``.** That is the verdict a
+      declaration moves, and it is the one that says nothing is *wrong* — only
+      that too little is known. A ``blocked`` or ``review_required`` run has a
+      finding a human is being asked about, and answering a questionnaire is
+      not a response to it.
+    * **Nothing is blocking.** Belt and braces beside the verdict: a blocker
+      is a human's call whatever verdict carried it. Review *items* are not
+      excluded, and that is the established reading rather than an oversight:
+      an agent route reports ``human_review.required: false`` because the route
+      is not the human's, not because no human is needed — the same thing the
+      mechanical repair route has always said on a ``review_required`` run.
+      What carries the obligation is that ``merge`` and ``report_complete``
+      stay denied and ``verify_required`` stays true, so the next run routes
+      the items to a person with nothing completed in between.
+    * **The comparison did not weaken policy.** A run whose own diff loosened
+      the gate is not one to hand an agent a manifest-writing command in.
+    * **A repair subject exists** — the same precondition every other
+      coding-agent route carries.
+    * **The report carries the patches the command would apply.** The route
+      names an exact command; if the report it points at has no
+      ``declare_action`` patch in it, the command would exit 0 having written
+      nothing and the agent would re-run verify into the identical route.
+      Naming a step that cannot change the answer is the dead end #397 closed,
+      and this is the same shape one surface over.
+
+    Three conditions the human fallback below *does* apply are deliberately
+    **not** among them, and each is a decision rather than an omission:
+
+    * ``trust_root_touched``. A PR that already edits the manifest is the
+      normal case for this route — an agent declaring the tool it just added
+      is exactly the #3076 pincer this dissolves — and the touch is what routes
+      the merge to a human either way.
+    * ``manifest_introduced``. Adopting a gate is the case with the most blanks
+      and the least reason to type them by hand. Authorship is not approval:
+      the agent proposes rows, the human merges the manifest, which is the
+      quickstart doctrine already applied to ``tool_sources`` entries.
+    * ``evidence_degraded``. Weak extraction is the condition the questionnaire
+      exists for, and it degrades the *catalog*, which a human answering the
+      same questions by hand is equally misled by. What it cannot do is make a
+      proposal weaker than a reading: every drafted value is at or above
+      everything observed, so a mis-read action is over-declared rather than
+      waved through, and the PR diff shows the reviewer exactly which rows.
+    """
+
+    decision = report.release_decision
+    if decision is None or merge_verdict != "insufficient_evidence":
+        return None
+    if decision.decision != "insufficient_evidence" or decision.blockers:
+        return None
+    if capability_review.policy_weakened or not repair_subject_available:
+        return None
+    coverage = decision.evidence_coverage
+    if coverage is None:
+        return None
+    if not any(
+        gap.next_action.patch is not None for gap in coverage.evidence_gaps
+    ):
+        return None
+    questions = coverage.semantic_coverage.declaration_questions.open_questions
+    if not any(question.authorable_by == "coding_agent" for question in questions):
+        return None
+    apply_command = retarget_command(
+        " ".join(
+            shlex.quote(part)
+            for part in (
+                "agents-shipgate",
+                "apply-patches",
+                "--from",
+                report_path,
+                "--kinds",
+                "declare_action",
+                "--confidence",
+                "high",
+                "--apply",
+            )
+        )
+    )
+    return VerifierDeclarationConfirmation(
+        command=apply_command,
+        questions=[
+            VerifierDeclarationQuestion(
+                subject=question.subject,
+                subject_id=question.subject_id,
+                subject_kind=question.subject_kind,
+                dimension=question.dimension,
+                answer_path=question.answer_path,
+                authorable_by=question.authorable_by,
+            )
+            for question in questions
+        ],
+    )
+
+
+def _declaration_instructions(
+    confirmation: VerifierDeclarationConfirmation,
+) -> list[str]:
+    """What to do, and — by name — what will still be owed afterwards.
+
+    The second half is the whole point of the route. "Human review required"
+    at the end of a loop tells the agent to stop without telling anyone what
+    to do next; naming the exact blocks means the agent can hand a person a
+    question instead of a verdict.
+    """
+
+    drafts = [
+        item for item in confirmation.questions if item.authorable_by == "coding_agent"
+    ]
+    human = [item for item in confirmation.questions if item.authorable_by == "human"]
+    out = [
+        f"Apply the {len(drafts)} declaration(s) this scan derived from its own "
+        "evidence, commit them to this branch, and re-run verification. Each "
+        "one restates an effect the scan already read; the merging human "
+        "reviews them as part of the manifest change.",
+    ]
+    if human:
+        named = ", ".join(
+            f"{item.subject} ({item.dimension}) at {item.answer_path}"
+            for item in human[:_MAX_NAMED_HUMAN_QUESTIONS]
+        )
+        remainder = len(human) - min(len(human), _MAX_NAMED_HUMAN_QUESTIONS)
+        tail = f", and {remainder} more" if remainder else ""
+        out.append(
+            f"{len(human)} question(s) remain that only a human can answer — "
+            f"{named}{tail}. Ask for those values; do not fill them in."
+        )
+    return out
 
 
 def _gating_findings(report: ReadinessReport) -> list[Finding]:

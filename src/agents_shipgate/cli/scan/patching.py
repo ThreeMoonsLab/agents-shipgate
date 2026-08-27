@@ -68,3 +68,35 @@ def _attach_patches(
         if finding.suppressed:
             continue
         finding.patches = generate_patches_for_finding(context, finding)
+
+
+def _attach_declaration_patches(report, *, config_path: Path) -> None:
+    """Attach the machine-applicable form of every agent-authorable gap row.
+
+    Two things set this apart from ``_attach_patches`` above, and both follow
+    from what it is attaching to.
+
+    It runs at the *end* of the scan, because the rows it writes onto are built
+    by the release decision and do not exist when findings get theirs.
+
+    And it runs unconditionally, not under ``--suggest-patches``. That flag
+    gates the patches on ``findings[]``, which is a large per-finding surface
+    a caller opts into. A declaration patch is the machine-applicable form of a
+    ``declaration_template`` the row already publishes on every scan — the same
+    answer, in the shape the published ``confirm_declarations`` route consumes.
+    Gating it would mean ``verify`` could name the route and not carry the step
+    it names, which is the one thing a published next step may never do.
+
+    Silent when the report reached no decision: a run that could not decide
+    published no gaps, so there is nothing to answer.
+    """
+
+    from agents_shipgate.checks.patches import attach_declaration_patches
+
+    decision = report.release_decision
+    if decision is None or decision.evidence_coverage is None:
+        return
+    attach_declaration_patches(
+        decision.evidence_coverage.evidence_gaps,
+        manifest_path=config_path,
+    )

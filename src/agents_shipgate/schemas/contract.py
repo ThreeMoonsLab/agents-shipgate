@@ -93,7 +93,17 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # on stdout and never written as an artifact. There are no stored envelopes to
 # disambiguate, and its new operations cannot appear in any artifact a v21
 # consumer holds.
-CONTRACT_VERSION: Literal["24"] = "24"
+#
+# v25 adds one route to that same envelope: ``next_action.kind:
+# confirm_declarations`` on ``verify``'s coding-agent route, carrying the
+# declaration questions this run can have an agent draft and the ones it
+# cannot, each tagged ``authorable_by`` (#410 §D). The underlying
+# ``AgentControl`` is again byte-identical — the control holds the step as the
+# ``repair`` command it truthfully is, and the envelope publishes the richer
+# form, exactly as ``edit`` does for setup — so
+# ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21 for the third time and for
+# the same reason.
+CONTRACT_VERSION: Literal["25"] = "25"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"

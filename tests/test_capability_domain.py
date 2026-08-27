@@ -387,4 +387,4 @@ def test_building_capability_facts_does_not_change_action_fact_output() -> None:
 
 
 def test_capability_substrate_uses_current_report_schema_version() -> None:
-    assert ReadinessReport.model_fields["report_schema_version"].default == "0.40"
+    assert ReadinessReport.model_fields["report_schema_version"].default == "0.41"

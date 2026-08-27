@@ -70,7 +70,19 @@ The Finding-backed rows carry `requires_human_review: true` and
 are absent — see [`autofix-policy.md`](autofix-policy.md) §"Three patch
 states"). Semantic effect/authority gaps instead carry
 `next_action.auto_apply: false` and `next_action.requires_human_review: true`;
-they never enter `apply-patches` at all.
+they never enter `apply-patches` through `findings[].patches`.
+
+One narrow exception, added in report v0.39 and scoped by content rather than
+by check ID: a row the scan filled in completely — an **effect** it read
+directly, from the closed vocabulary, never weaker than any reading it observed
+— carries `next_action.authorable_by: "coding_agent"` and a `declare_action`
+patch. That is a licence to draft, not to decide: the patch is outside the
+default `--kinds`, it only ever writes into fields the manifest leaves silent,
+`requires_human_review` stays `true`, and writing the manifest touches the trust
+root so a person still merges it. Authority, overrides, and inventories are
+never drafted — those templates keep their `<REVIEW_REQUIRED>` blanks and their
+`"human"` tag, and the "do not infer or auto-fill `authority`" rule in the table
+above is unchanged.
 
 The catalog enforces this boundary independently of the per-patch derivation: each check in the table above sets `requires_human_review_regardless_of_patch=True` in its `CheckMetadata` entry, so `annotate_remediation` forces `autofix_safe=False` even when a third-party patch generator emits a high-confidence non-manual patch for one of these check IDs. `agent_action` for such a finding lands at `propose_patch_for_review` (the patch is still surfaced for the human to apply) rather than `auto_apply`.
 

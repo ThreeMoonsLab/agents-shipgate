@@ -108,6 +108,7 @@ from agents_shipgate.schemas.report import (
     ReadinessReport,
     ReleaseDecision,
     ReleaseDecisionItem,
+    without_machine_patches,
 )
 from agents_shipgate.schemas.verification import VerificationContext
 from agents_shipgate.schemas.verification_identity import VerificationPlan, content_id
@@ -188,7 +189,15 @@ BASE_CACHE_KEEP_ENTRIES = 16
 #     than the base scan's forced ``ci_mode="advisory"`` (#298). Entries
 #     written before that read back as advisory for every base, which is
 #     exactly the state in which ``ci_mode_weakened`` cannot fire.
-BASE_CACHE_KEY_EPOCH = 3
+#
+# 4 — evidence-gap rows carry ``authorable_by`` and, on a drafted row, a
+#     machine-applicable ``patch`` (#410 §D). Entries written before this read
+#     back with the human default — harmless — but entries written by a build
+#     between the patch landing and it being stripped from base evidence carry
+#     a ``target_file`` naming a base archive that no longer exists. A cached
+#     report is admitted on its hash, so a poisoned entry would be served
+#     verbatim until its base tree changed.
+BASE_CACHE_KEY_EPOCH = 4
 MAX_HUMAN_AUTHORIZATION_BYTES = 1024 * 1024
 MAX_WORKTREE_MANIFEST_BYTES = 4 * 1024 * 1024
 MAX_WORKTREE_CHANGED_FILE_BYTES = 64 * 1024 * 1024
@@ -1316,6 +1325,14 @@ def _prepare_base_report(
         # across worktrees and clones.
         base_report_model.manifest_dir = None
         base_report_model.generated_reports = {}
+        # Including the declaration patches a base scan now attaches (#410 §D).
+        # They name the *base* archive, a directory deleted before anyone reads
+        # this file, and the sentence above has always said a base report is
+        # not something to apply.
+        if base_report_model.release_decision is not None:
+            base_report_model.release_decision.evidence_coverage = without_machine_patches(
+                base_report_model.release_decision.evidence_coverage
+            )
         source_report.write_text(
             json.dumps(report_json_payload(base_report_model), indent=2),
             encoding="utf-8",
@@ -3872,6 +3889,12 @@ def _project_archived_report_paths(
     Current machine patches are manifest-only. Any future patch against a
     different archived file must add an explicit portable mapping here rather
     than leaking a temporary path into receipt-bound evidence.
+
+    ``findings[].patches`` is the only surface that needs mapping, and that is
+    a property of how the other one is spelled rather than an oversight: a
+    ``declare_action`` patch on an evidence-gap row names its target *relative*
+    to ``manifest_dir`` (#410 §D), so the line above that corrects
+    ``manifest_dir`` corrects it too, and it reads the same on any machine.
     """
 
     archived_target = archived_config.resolve()

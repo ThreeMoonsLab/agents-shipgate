@@ -21,6 +21,7 @@ from agents_shipgate.core.declaration_questions import (
     is_declaration_answerable,
     open_counts_by_dimension,
     open_questions,
+    question_authorship,
 )
 from agents_shipgate.core.domain import (
     DECLARATION_OVERRIDE_SOURCE,
@@ -60,6 +61,8 @@ from agents_shipgate.schemas.bindings import (
 )
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.report import (
+    AGENT_AUTHORABLE_GAP_ACTION_KINDS,
+    HUMAN_ONLY_GAP_KINDS,
     AcknowledgedEffectOverride,
     BaselineDelta,
     BindingCoverageDecision,
@@ -79,6 +82,10 @@ from agents_shipgate.schemas.report import (
     ReleaseDecisionItem,
     ReleaseDecisionStatus,
     SemanticCoverageDecision,
+    template_is_complete,
+)
+from agents_shipgate.schemas.report import (
+    REVIEW_REQUIRED_SENTINEL as _REVIEW_REQUIRED_SENTINEL,
 )
 
 # Thresholds for the `insufficient_evidence` decision state. Private
@@ -464,7 +471,10 @@ SUGGESTED_INVENTORY_FILENAME = "suggested-inventory.json"
 # ``<REVIEW_REQUIRED>``: the tool must never guess an effect, an authority, or
 # a binding, and a placeholder can never satisfy a gap.
 SUGGESTED_DECLARATIONS_FILENAME = "suggested-declarations.yaml"
-REVIEW_REQUIRED_SENTINEL = "<REVIEW_REQUIRED>"
+# Re-exported under its historical name. The value itself now lives beside the
+# model whose ``authorable_by`` invariant is stated in terms of it (#410 §D):
+# "a row a scan may draft is a row whose template carries none of these".
+REVIEW_REQUIRED_SENTINEL = _REVIEW_REQUIRED_SENTINEL
 
 
 def _inventory_remediation(
@@ -1196,6 +1206,10 @@ def _semantic_coverage(
     questions = declaration_questions(tools)
     still_open = open_questions(questions)
     gaps = _in_question_order(gaps, still_open)
+    # Folded from the rows above, after the source-scoped merge, so the tag a
+    # question carries is the conjunction of the tags on the rows a reader can
+    # actually open (#410 §D).
+    authorship = question_authorship(gaps)
     return (
         SemanticCoverageDecision(
             total_actions=len(tools),
@@ -1216,6 +1230,14 @@ def _semantic_coverage(
                         subject_kind=question.subject_kind,
                         answer_path=question.answer_path,
                         dimension=question.dimension,
+                        authorable_by=authorship.get(
+                            (
+                                question.subject_kind,
+                                question.subject_id,
+                                question.dimension,
+                            ),
+                            "human",
+                        ),
                     )
                     for question in still_open
                 ],
@@ -1931,6 +1953,23 @@ def _semantic_gap(
             command=_SEMANTIC_RERUN_COMMAND,
             path=_semantic_gap_path(kind, tool, issue_source),
             why=action_why,
+            # Decided by what the template says, never by which branch above
+            # built it. The two are the same judgement — "did the scan fill
+            # every blank?" — and reading it off the finished template is what
+            # keeps a branch that starts pre-filling from silently keeping the
+            # human tag, or one that stops from silently losing it.
+            #
+            # ``kind`` — the *gap*, not the repair — gates it too, because two
+            # different questions ask for the same claim: a drift row is spelled
+            # ``declare_action_effect`` and carries a complete template, and it
+            # is still a request for a person to look again (#410 §E).
+            authorable_by=(
+                "coding_agent"
+                if action_kind in AGENT_AUTHORABLE_GAP_ACTION_KINDS
+                and kind not in HUMAN_ONLY_GAP_KINDS
+                and template_is_complete(declaration_template)
+                else "human"
+            ),
             expects=_with_scaffold_pointer(
                 expects, declaration_template if name_scaffold else None
             ),

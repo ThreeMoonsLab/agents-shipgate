@@ -227,6 +227,7 @@ def _run_scan(
             manifest=resolved.manifest,
             sanitized=sanitized,
             plan=plan,
+            config_path=config_path,
             declared_ci=resolved.declared_ci,
         )
     with _perf.phase("write_outputs"):

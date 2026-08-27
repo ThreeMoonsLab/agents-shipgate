@@ -6,6 +6,9 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .coverage
+# pytest-xdist writes one data file per worker; without the glob a
+# `git add -A` after a coverage run commits fifty binary blobs.
+.coverage.*
 htmlcov/
 
 .venv/

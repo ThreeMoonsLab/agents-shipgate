@@ -2,6 +2,104 @@
 
 ## Unreleased
 
+- **A coding agent can now answer the declaration questions the scanner
+  already knows the answers to.** (#410 §D) The questionnaire (#410 increment
+  2) told a person which blanks were owed; it had no way to say that most of
+  them were the scan restating what it had just read, and no way for the agent
+  already holding the branch to write those down. `verify` publishes one new
+  route — `control.next_action.kind: "confirm_declarations"` — carrying the
+  exact `apply-patches` command that writes those answers and the question
+  list, each row tagged `authorable_by: "coding_agent" | "human"`. An agent
+  applies what it may, commits it to the branch, and stops at the rest **by
+  name** instead of at "human review required". Report schema `0.40 → 0.41`,
+  packet `0.16 → 0.17`, verifier `0.13 → 0.14`, runtime contract `24 → 25`
+  (`minimum_control_contract_version` stays `21`: the shared `AgentControl`
+  union is unchanged, exactly as for the setup `edit` route).
+
+  **Authorship is decided by content, never by who is running.** A row is
+  `authorable_by: "coding_agent"` only where the scan filled every blank in its
+  `declaration_template` — an effect, drawn from the closed `ActionEffect`
+  vocabulary, never weaker than any reading it observed — *and* the question is
+  not one that asks a person to look again. Every authority block, override and
+  inventory keeps its `<REVIEW_REQUIRED>` blank and its `"human"` tag; so does
+  a `declaration_drift` row, whose template is complete because it restates a
+  confirmed answer beside the pin that moved (#410 §E) and whose whole purpose
+  an agent would close by re-stamping it. The rules are enforced on the models
+  rather than in the builders that set them, so a gap kind added later cannot
+  inherit a licence its author never considered.
+
+  **What the agent gains is a pen, not a decision.** The new `declare_action`
+  patch kind is outside the default `apply-patches --kinds`, so no existing
+  pipeline (`bootstrap` included) starts writing manifests. The schema binds it
+  to the row that published it: the patch is *exactly* the
+  `declaration_template`, split into the keys that name the action and the
+  fields that are written, at high confidence, from the closed effect
+  vocabulary — a row cannot advertise an evidence-derived tag beside a patch
+  that writes something else. It writes only into fields the manifest leaves
+  silent; a row that already answers one differently, two equally compatible
+  rows naming one tool, or a manifest that moved since the scan is refused
+  outright — exit 5, nothing written, because an agent that re-ran verify after
+  a silent no-op would loop against an unchanged file forever. Same-name tools
+  from two providers are supported rather than refused: rows are matched on the
+  qualifiers they actually share. `requires_human_review` stays `true` on every
+  evidence-gap row and the route's `permissions` are publish-only
+  (`edit`/`commit`/`push`/`update_pr`, never `merge` or `report_complete`):
+  writing a declaration touches the trust root, so a person still merges it. A
+  weakening written by hand is not blocked at the file — it is answered at the
+  next scan by `declaration_below_inferred_evidence` (#409).
+
+  The route fires only where a declaration is what the verdict is short of:
+  `insufficient_evidence`, no blockers, no proven policy weakening, a
+  working-tree run (a ref-bound rerun would re-scan the commit the edit is not
+  in yet — the same precondition the mechanical repair route has always
+  carried), and a report that actually carries the patches the command would
+  apply. That last one is why declaration patches are emitted on every scan
+  rather than under `--suggest-patches`: a route may not name a step the report
+  it points at does not contain.
+
+  `next_action.patch.target_path` is **relative to `manifest_dir`**, unlike the
+  absolute `target_file` the pointer patches carry. The row is embedded by the
+  evidence packet, the SARIF file and a cached base scan, all of which travel;
+  a `verify --base` run scans an archived checkout, so the absolute form named
+  a temporary directory that no longer existed when anyone read the artifact
+  and changed on every run, moving digests that are supposed to be
+  reproducible. Relative removes the class instead of asking each consumer to
+  strip it, and makes containment structural — `apply-patches` resolves it
+  under `manifest_dir` and can no longer be handed a path that escapes. Base
+  evidence additionally drops the patch outright (a base report describes a
+  commit nobody is editing), and `BASE_CACHE_KEY_EPOCH` moves to `4` so no
+  cached entry written mid-flight is served back.
+
+  The shipped agent instructions carry the exception, because without it they
+  said the opposite: `AGENTS.md` and all four copies of `fix-top-finding.md`
+  told an agent that every declaration row is a human's and that no
+  evidence-gap row ever reaches `fix_task.actor == "coding_agent"`. They now
+  state the one narrow case and keep every prohibition around it, and a test
+  pins the three shipped copies byte-identical to each other.
+
+  The control envelope's published size budget is re-derived, `4096 → 6144`
+  bytes: a route carrying a list is a third variable component the old number
+  was never derived against, and a question row measures about 0.4 KiB. The
+  list is capped at six rows — more than the measured worst case produces,
+  since per-*source* authority folding turns a 117-tool repository into one
+  question — and the printed prefix leads with the human-owned rows, because a
+  drafted row is answered by the command whether or not it is printed while a
+  human-owned row is what the agent has to hand a person.
+
+  Three fixes fell out of building it. `VerifierArtifact` demanded that an
+  `agent_action_required` repair route's command equal the fix task's *rerun*
+  command — which forbade the one thing such a route exists to publish, and
+  which `test_control_next_action_follows_agent_safe_fix_task` had always
+  asserted the opposite of. No verify run had reached the mechanical route and
+  built an artifact from it, so nothing caught the contradiction; the invariant
+  now says what it always meant, that a route may not name a command the fix
+  task does not authorize. `apply-patches` hashes the bytes on disk rather than
+  decoded text, because reading as text normalizes CRLF to LF and an untouched
+  CRLF manifest therefore reported drift for ever, and it re-emits the newline
+  style it found. And it pins YAML sequence indentation to the style `init`
+  writes, because round-tripping re-indented every unrelated list in the
+  manifest and buried a one-line declaration in whitespace.
+
 - **Control packs: the rules layer, chosen once at `init`.** (#410 §F) The rule
   that a financial write needs approval, an audit log, and idempotency was
   written four times in the engine, was not selectable, was not named, and was

@@ -44,12 +44,12 @@ ALL_RENDERERS = {
 }
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
-    ".claude/skills/agents-shipgate/SKILL.md": "f4195d431a8e966fe4489cd750ab29b9c65d21560b557ef6db71da7548e0938f",
+    ".claude/skills/agents-shipgate/SKILL.md": "23811d5ecf776897cda1202746d9bdd6400775e138390978afb35ca581a12ee0",
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": "1f6ef3e51a09e824a98d6e5b33f2bf61282c62e2ae859e234da9f56161fa4a87",
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "5c5eba31886aeabc902a97b53d00bfdd6ab15e1423574633060bbdfd8bbd8b25",
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": "4f92d6d0b254e602c993516e1dc5b77c64c87b3e7b5cb4967ddd5a140dd2d510",
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829",
-    ".claude/skills/agents-shipgate/prompts/fix-top-finding.md": "3745aebbf34a47c01b06e74e6d387080bbda9272f0aeec6998457cffa758fc54",
+    ".claude/skills/agents-shipgate/prompts/fix-top-finding.md": "32c7f3e9a515e9eff2e45599e38c534781dcd771a4b8a7f27b5efa92365c578c",
     ".claude/skills/agents-shipgate/prompts/recommend-fixes.md": "162aa2fb96066535425d9cf86a247a6782b8ec7cc661a18b42dbedf394779475",
     ".claude/skills/agents-shipgate/prompts/stabilize-strict-mode.md": "00da293e63792ccaf980f82d525ac12073807f41fd2d78c5a95498054053e364",
     ".claude/skills/agents-shipgate/prompts/triage-false-positive.md": "8cfbb0d4b6e2c36569d24260384d3a54165f966276112f4b143b4ac234b51ada",
@@ -173,13 +173,13 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
     assert payload["schema_version"] == "10"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "24"
+    assert payload["contract_version"] == "25"
     assert payload["minimum_control_contract_version"] == "21"
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
     assert "verify_local" not in payload["primary_commands"]
     assert payload["commands"]["verify_local"].startswith("agents-shipgate verify")
-    assert payload["verifier_schema_version"] == "0.13"
+    assert payload["verifier_schema_version"] == "0.14"
     assert payload["verify_run_schema_version"] == "shipgate.verify_run/v4"
     assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v7"
     assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v7.json"
@@ -232,7 +232,7 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     # validate what it is reading without fetching the full contract.
     assert payload["agent_control_schema_version"] == "shipgate.agent_control/v1"
     assert payload["agent_control_schema_path"] == "docs/agent-control-schema.v1.json"
-    assert payload["agent_control_budget_bytes"] == 4096
+    assert payload["agent_control_budget_bytes"] == 6144
     # The refresh obligation is contract data, not prose: a consumer must be
     # able to enumerate the boundaries at which a cached control state expires.
     assert "before enforcing a cached must_stop" in payload["agent_refresh_triggers"]
@@ -350,6 +350,61 @@ def test_claude_code_skill_render_hashes_change_intentionally() -> None:
     assert set(CLAUDE_CODE_SKILL_PRIOR_RENDER_SHA256).issubset(actual)
     for rel, prior_hashes in CLAUDE_CODE_SKILL_PRIOR_RENDER_SHA256.items():
         assert actual[rel] not in prior_hashes
+
+
+#: The three *rendered* copies of the prompt bundle an adopter or a plugin
+#: install actually receives. ``adoption-kits/`` is deliberately absent: it is
+#: the renderer's input and carries ``{{ … }}`` placeholders, so it is compared
+#: through ``render_claude_code_skill_files`` (see
+#: ``test_claude_code_skill_source_matches_renderer``) rather than byte for
+#: byte. A mirror that drifts from the others is worse than no mirror: it
+#: disagrees, silently, with whichever copy the reader happened to open.
+_SHIPPED_PROMPT_ROOTS = (
+    "skills/agents-shipgate/prompts",
+    "plugins/claude-code/skills/agents-shipgate/prompts",
+    "prompts",
+)
+
+
+def test_every_shipped_copy_of_the_instructions_is_the_same_bytes() -> None:
+    """A mirror that drifts is worse than no mirror: it disagrees, silently."""
+
+    for name in sorted(
+        path.name for path in (REPO_ROOT / _SHIPPED_PROMPT_ROOTS[0]).glob("*.md")
+    ):
+        rendered = {
+            root: (REPO_ROOT / root / name).read_text(encoding="utf-8")
+            for root in _SHIPPED_PROMPT_ROOTS
+            if (REPO_ROOT / root / name).is_file()
+        }
+        assert len(rendered) == len(_SHIPPED_PROMPT_ROOTS), (
+            f"{name} is missing from a shipped location: "
+            f"{sorted(set(_SHIPPED_PROMPT_ROOTS) - set(rendered))}"
+        )
+        assert len(set(rendered.values())) == 1, f"{name} differs between shipped copies"
+
+
+def test_the_shipped_instructions_state_the_one_agent_authorable_exception() -> None:
+    """The bundled prompts must not forbid the route the product publishes.
+
+    These files told an agent that *every* declaration row is a human's and
+    that no evidence-gap row ever reaches ``fix_task.actor == "coding_agent"``.
+    Both sentences became false with ``confirm_declarations`` (#410 §D), and an
+    agent following the authoritative copy would decline the route rather than
+    run it. This asserts the exception is stated *and* stays bounded — the
+    prohibitions it carves out of are what keep it narrow.
+    """
+
+    for root in (*_SHIPPED_PROMPT_ROOTS, "adoption-kits/claude-code-skill/prompts"):
+        text = (REPO_ROOT / root / "fix-top-finding.md").read_text(encoding="utf-8")
+        assert "confirm_declarations" in text, root
+        assert 'authorable_by: "coding_agent"' in text, root
+        for prohibition in ("declaration_drift", "authority", "agent_bindings", "override"):
+            assert prohibition in text, (root, prohibition)
+
+    agents_md = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "confirm_declarations" in agents_md
+    assert 'authorable_by: "coding_agent"' in agents_md
 
 
 def test_claude_code_skill_has_required_surfaces() -> None:
