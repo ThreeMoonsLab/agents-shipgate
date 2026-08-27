@@ -104,8 +104,8 @@ def render_auto_manifest(
 
     tool_surface_origin: ToolSurfaceOrigin = "detected"
     if not tool_source_lines and not anthropic_lines and not openai_lines and not n8n_lines:
-        # Schema requires ≥ 1 of tool_sources / openai_api / anthropic /
-        # google_adk / langchain / crewai. Nothing was read, so the manifest
+        # The schema requires at least one source block. Nothing was read, so
+        # the manifest
         # carries a scaffold — and says so, in the YAML and in the caller's
         # return value alike.
         tool_surface_origin = "scaffold"

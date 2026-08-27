@@ -57,10 +57,6 @@ class RenderedManifest:
     text: str
     tool_surface_origin: ToolSurfaceOrigin
 
-    @property
-    def is_scaffold(self) -> bool:
-        return self.tool_surface_origin == "scaffold"
-
 
 #: What ``init`` says about a scaffolded tool surface, wherever it says it:
 #: the manifest comment, ``manifest_message``, and ``control.reason``. One
@@ -88,9 +84,8 @@ SCAFFOLD_DETAIL = (
 def scaffold_tool_sources_block() -> list[str]:
     """The ``tool_sources`` block for a workspace discovery could not read.
 
-    The schema requires at least one of ``tool_sources`` / ``openai_api`` /
-    ``anthropic`` / ``google_adk`` / ``langchain`` / ``crewai``, so a manifest
-    has to carry *something*. What it must not carry is a value the tool chose
+    The schema requires at least one source block, so a manifest has to carry
+    *something*. What it must not carry is a value the tool chose
     and did not flag. ``id`` and ``path`` were flagged; ``type`` was the one
     field a reader had no reason to question.
 
