@@ -1872,11 +1872,22 @@ def _exclusion_identities(payload: object) -> Counter[tuple[str, str, str]] | No
     both sides: those are the rows ``SurfaceExclusionLedger.from_entries``
     never drops to the cap, whatever ``truncated`` says.
 
-    Subjects are compared raw, unlike ``_evidence_gap_identities``. A ledger
-    subject is a tool label, a JSON pointer into the artifact, or a workspace
-    path *relative* to the scan root — none of them carry the temporary-archive
-    prefix that made ``_stable_subject`` necessary for gap subjects, and
-    folding them would collide two pointers from different sources.
+    Subjects are compared raw, unlike ``_evidence_gap_identities``. Every
+    subject the *report* ledger emits is a tool label (``catalog_subject``) or
+    a JSON pointer into the artifact (``/tools/3``) — the path-bearing subjects
+    belong to ``build_detect_exclusions``, which builds a different ledger.
+    None of them carry the temporary-archive prefix that made
+    ``_stable_subject`` necessary for gap subjects, and folding them would
+    collide ``/tools/1`` with ``/other/1``. **A stage that starts emitting a
+    workspace path as a subject has to be considered here**, or the base and
+    head spellings will differ for reasons that have nothing to do with the
+    diff and every run will report the same row as new.
+
+    ``source_ref`` is deliberately not part of the identity, though it would
+    tell two sources' ``/tools/1`` apart. It carries adapter warning text and
+    manifest-relative paths, and one that varied between the two scans would
+    turn every row new on every run — a louder failure than counting the right
+    number of new exclusions and citing the wrong source of one.
     """
 
     if not isinstance(payload, dict):
