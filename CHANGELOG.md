@@ -40,9 +40,24 @@
   agent-authored `tool_sources` proposals and is a human-owned placeholder, so
   `doctor` will not publish an executable edit for it. A reviewed declaration
   that binds no tool fails closed rather than proving a graph over an empty
-  surface. No published schema changes: the manifest field is additive, and a
-  CLI that predates it rejects the key with a routable `ConfigError` (exit 2)
-  rather than ignoring a reviewed claim.
+  surface, and two reviewed closed-world statements about one node — a
+  declared surface selected as the root, plus an `agent: root` declaration
+  listing something else — raise `conflicting_binding_evidence` instead of
+  being silently unioned into a proven graph.
+
+  **A graph can now be rooted by something that is not an agent, and says so.**
+  A repository publishing two servers has two entry points and no root agent,
+  which is not the same fact as "the root could not be identified".
+  `binding_surface_facts.entry_point_agent_ids` is every node the reachability
+  walk started from — empty exactly when nothing rooted the graph, and equal to
+  `[root_agent_id]` for every graph a prior release could produce — and
+  `agents[].kind` (`agent` | `tool_source`) says what each node in that array
+  is. The Markdown report stops calling the deliberate state `unresolved`.
+
+  Report schema `0.41 → 0.42`; both fields are additive, v0.41 is frozen and
+  hash-pinned, and every prior version is read forward. The manifest field is
+  additive too, and a CLI that predates it rejects the key with a routable
+  `ConfigError` (exit 2) rather than ignoring a reviewed claim.
 
 - **A coding agent can now answer the declaration questions the scanner
   already knows the answers to.** (#410 §D) The questionnaire (#410 increment

@@ -30,6 +30,7 @@ would fail if it were lost:
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -48,6 +49,7 @@ from agents_shipgate.core.manifest_proposals import (
     _FILE_SOURCE_TYPES,
     assess_coverage_increasing_tool_source_proposal,
 )
+from agents_shipgate.report.markdown import render_markdown_report
 from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
     SourceBindingConfig,
@@ -171,12 +173,20 @@ def _binding_gaps(report: ReadinessReport) -> list[Any]:
 #: is pasted at the ``path`` beside it, so the two are one statement with two
 #: spellings — asserting either alone passes while the pair contradicts itself
 #: (#329 review).
+#:
+#: A path may name one row rather than the block — ``tool_sources[id='srv']``,
+#: spelled the way ``action_surface.actions[tool='…']`` already is — so the
+#: selector is stripped before the lookup.
 _BLOCK_BY_BINDING_PATH: dict[str, str] = {
     "shipgate.yaml#agent_bindings": "agent_bindings",
     "shipgate.yaml#agent_bindings.root": "agent_bindings",
     "shipgate.yaml#agent_bindings.declarations": "agent_bindings",
     "shipgate.yaml#tool_sources[].binding": "tool_sources",
 }
+
+
+def _block_for(path: str | None) -> str | None:
+    return _BLOCK_BY_BINDING_PATH.get(re.sub(r"\[[^\]]*\]", "[]", path or ""))
 
 
 def _binding_workspaces(tmp_path: Path) -> dict[str, Path]:
@@ -445,6 +455,21 @@ def test_declaring_a_source_only_ever_widens_the_analysed_surface(
     assert set(before.reachable_tool_ids) < set(after.reachable_tool_ids)
     assert set(after.unbound_tool_ids) < set(before.unbound_tool_ids)
 
+
+_ADK_ONE_TOOL = """\
+from google.adk.agents import Agent
+from google.adk.tools import FunctionTool
+
+
+def t_one() -> str:
+    \"\"\"Read a thing.\"\"\"
+    return "ok"
+
+
+root_agent = Agent(
+    name="root_adk", model="gemini-2.0-flash", tools=[FunctionTool(t_one)]
+)
+"""
 
 _ADK_UNREACHED_SUBAGENT = """\
 from google.adk.agents import Agent
@@ -972,7 +997,14 @@ def test_a_declaration_that_binds_nothing_fails_closed(tmp_path: Path) -> None:
     )
     assert gap.kind == "missing_binding_evidence"
     assert "empty_source" in gap.why
-    assert gap.next_action.path == "shipgate.yaml#tool_sources[].binding"
+    # The row the reader edits, not the block it lives in: this failure is
+    # about one declaration, and naming it is what makes the route safe to act
+    # on (#432 review).
+    assert gap.next_action.path == "shipgate.yaml#tool_sources[id='empty_source'].binding"
+    # Neither remediation value is a field of the failing declaration: telling
+    # a reader to reaffirm `complete: true` closes nothing, and `fix_task`
+    # renders these verbatim.
+    assert gap.next_action.accepted_values == ["correct_source_path", "remove_binding"]
     # `status` stays `declared` — a reviewed declaration does exist — and the
     # gate is carried by `pass_eligible`, exactly as it already is for an
     # `invalid_binding_annotation` on an otherwise declared graph. Pinned so
@@ -1117,12 +1149,13 @@ def test_every_binding_gap_scaffolds_a_block_for_the_path_it_names(
         assert gaps, name
         for gap in gaps:
             path = gap.next_action.path
-            assert path in _BLOCK_BY_BINDING_PATH, (name, gap.kind, path)
+            block = _block_for(path)
+            assert block is not None, (name, gap.kind, path)
             seen.add(f"{name}:{gap.kind}")
             template = gap.next_action.declaration_template
             if template is None:
                 continue
-            assert set(template) == {_BLOCK_BY_BINDING_PATH[path]}, (
+            assert set(template) == {block}, (
                 name,
                 gap.kind,
                 path,
@@ -1150,6 +1183,349 @@ def test_a_declared_source_that_binds_nothing_scaffolds_no_block(
     assert [gap.kind for gap in gaps] == ["missing_binding_evidence"]
     assert gaps[0].next_action.declaration_template is None
     assert "empty_source" in gaps[0].why
+
+
+#: Every built-in type that may appear in ``tool_sources[]``, with a minimal
+#: workspace for each. ``codex_config`` is absent: a row of that type whose
+#: ``.mcp.json`` is present raises ``InputParseError`` from
+#: ``tool_identity._observations`` — the loader reports its tools under a
+#: source id it did not mint them for — on ``main`` as well as here, so it
+#: cannot be scanned at all and there is nothing this block could change.
+_BINDABLE_SOURCE_BUILDERS = ("mcp", "openapi", "google_adk", "langchain", "crewai")
+
+
+def _typed_workspace(tmp_path: Path, source_type: str, *, declared: bool) -> Path:
+    """A minimal one-tool workspace for ``source_type``, with or without the block."""
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    if source_type == "mcp":
+        (tmp_path / "tools.json").write_text(
+            json.dumps({"tools": [_mcp_tool("t_one")]}), encoding="utf-8"
+        )
+        row: dict[str, Any] = {"type": "mcp", "path": "tools.json"}
+    elif source_type == "openapi":
+        (tmp_path / "spec.yaml").write_text(
+            "openapi: 3.0.0\n"
+            'info: {title: t, version: "1"}\n'
+            "paths:\n  /things:\n    get:\n      operationId: t_one\n"
+            "      summary: Read things.\n"
+            '      responses: {"200": {description: ok}}\n',
+            encoding="utf-8",
+        )
+        row = {"type": "openapi", "path": "spec.yaml"}
+    elif source_type == "google_adk":
+        (tmp_path / "agent.py").write_text(_ADK_ONE_TOOL, encoding="utf-8")
+        row = {"type": "google_adk", "path": "agent.py"}
+    elif source_type == "langchain":
+        (tmp_path / "lc.py").write_text(
+            "from langchain_core.tools import tool\n\n\n"
+            "@tool\n"
+            "def t_one(q: str) -> str:\n"
+            '    """Read a thing."""\n'
+            "    return q\n",
+            encoding="utf-8",
+        )
+        row = {"type": "langchain", "path": "lc.py", "mode": "static"}
+    else:
+        (tmp_path / "crew.py").write_text(
+            "from crewai.tools import tool\n\n\n"
+            '@tool("t_one")\n'
+            "def t_one(q: str) -> str:\n"
+            '    """Read a thing."""\n'
+            "    return q\n",
+            encoding="utf-8",
+        )
+        row = {"type": "crewai", "path": "crew.py", "mode": "static"}
+    source: dict[str, Any] = {"id": "src", **row}
+    if declared:
+        source["binding"] = {"complete": True, "reason": _REVIEWED_REASON}
+    config = tmp_path / "shipgate.yaml"
+    config.write_text(
+        yaml.safe_dump(_manifest_dict(sources=[source]), sort_keys=False),
+        encoding="utf-8",
+    )
+    return config
+
+
+@pytest.mark.parametrize("source_type", _BINDABLE_SOURCE_BUILDERS)
+def test_declaring_any_built_in_source_type_binds_its_tools(
+    tmp_path: Path, source_type: str
+) -> None:
+    """The additive guarantee, per source type rather than per example.
+
+    "A source with no ``binding`` block behaves exactly as before, and one that
+    has it can only widen" is a claim about *every* type a ``tool_sources`` row
+    may carry, so it is checked that way. A type whose tools carry no
+    configured provenance fails this loudly — the declaration reports that the
+    source contributed nothing while its tool sits in the catalog — which is
+    how the Codex-plugin defect below was found.
+    """
+
+    plain = _scan(_typed_workspace(tmp_path / "plain", source_type, declared=False))
+    declared = _scan(
+        _typed_workspace(tmp_path / "declared", source_type, declared=True)
+    )
+
+    assert _coverage(plain).total_catalog_tools == 1
+    assert _coverage(declared).reachable_tools >= _coverage(plain).reachable_tools
+    assert _coverage(declared).reachable_tools == 1
+    assert not any(
+        "binds no tool" in issue.message
+        for issue in declared.binding_surface_facts.issues
+    )
+
+
+def test_a_codex_plugin_inventory_carries_its_configured_source(
+    tmp_path: Path,
+) -> None:
+    """A per-scan adapter must record which configured row produced a result.
+
+    The dispatcher cannot pass a per-scan adapter the config object, so it
+    attributes pass-2 results by the ``(adapter source type, minted source
+    id)`` pair. A Codex plugin MCP inventory is minted as
+    ``codex_plugin:<plugin>/<server>:inventory`` with source type
+    ``codex_plugin_mcp_inventory`` — *neither* half of the pair — so its tools
+    carried no configured provenance and every source-wide declaration applied
+    to nothing. ``binding`` is what made it visible, because it says out loud
+    that the source contributed nothing when it plainly did.
+    """
+
+    from test_codex_plugin import _write_codex_plugin
+
+    def build(declared: bool) -> Path:
+        root = tmp_path / ("declared" if declared else "plain")
+        _write_codex_plugin(root / "plugins" / "browserish", include_app=False)
+        (root / "inventories").mkdir(parents=True, exist_ok=True)
+        (root / "inventories" / "browser-tools.json").write_text(
+            json.dumps({"tools": [_mcp_tool("open_page")]}), encoding="utf-8"
+        )
+        source: dict[str, Any] = {
+            "id": "browserish",
+            "type": "codex_plugin",
+            "mode": "package",
+            "path": "plugins/browserish",
+        }
+        if declared:
+            source["binding"] = {"complete": True, "reason": _REVIEWED_REASON}
+        config = root / "shipgate.yaml"
+        config.write_text(
+            yaml.safe_dump(
+                {
+                    **_manifest_dict(sources=[source]),
+                    "codex_plugins": {
+                        "mcp_tool_inventories": [
+                            {
+                                "plugin": "browserish",
+                                "server": "browser",
+                                "path": "inventories/browser-tools.json",
+                            }
+                        ]
+                    },
+                },
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+        return config
+
+    plain = _scan(build(False))
+    declared = _scan(build(True))
+
+    assert _coverage(plain).reachable_tools == 1
+    assert _coverage(plain).pass_eligible is True
+    # Adding the block may not take anything away.
+    assert _coverage(declared).reachable_tools == 1
+    assert _coverage(declared).pass_eligible is True
+    assert [gap.kind for gap in _binding_gaps(declared)] == []
+
+
+def test_two_reviewed_closed_world_statements_about_one_node_conflict(
+    tmp_path: Path,
+) -> None:
+    """A declared surface selected as the root answers to ``agent: root``.
+
+    Two reviewed closed-world statements can then be made about one node — "the
+    source publishes a and b" and "the root reaches only a" — and silently
+    unioning them produced a *proven* graph out of a contradiction. Which of
+    the two is wrong is a judgement only a reader of both can make, which is
+    what ``conflicting_binding_evidence`` says (#432 review).
+    """
+
+    def build(declared_tools: list[str]) -> Path:
+        return _workspace(
+            tmp_path / "-".join(declared_tools),
+            artifacts={"mcp/tools.json": [_mcp_tool("a"), _mcp_tool("b")]},
+            sources=[_binding_source("srv", "mcp/tools.json")],
+            agent_bindings={
+                "root": {"object": "srv"},
+                "declarations": [
+                    {
+                        "agent": "root",
+                        "complete": True,
+                        "tools": [
+                            {"tool": name, "source_id": "srv"}
+                            for name in declared_tools
+                        ],
+                        "handoffs": [],
+                        "reason": "reviewed fixture binding",
+                    }
+                ],
+            },
+        )
+
+    disagreeing = _scan(build(["a"])).binding_surface_facts
+    agreeing = _scan(build(["a", "b"])).binding_surface_facts
+
+    assert disagreeing.status == "conflicting"
+    assert disagreeing.pass_eligible is False
+    assert [issue.kind for issue in disagreeing.issues] == [
+        "conflicting_binding_evidence"
+    ]
+    # The negative control: two statements that agree are not a conflict, so
+    # the rule is about the disagreement and not about declaring both.
+    assert agreeing.status == "declared"
+    assert agreeing.pass_eligible is True
+    assert agreeing.issues == []
+
+
+def test_a_merged_tool_identity_is_declarable_by_every_contributor(
+    tmp_path: Path,
+) -> None:
+    """A tool two configured sources contribute is not undeclarable.
+
+    ``binding`` is a widening claim, so a merged identity is covered as soon as
+    any contributor declares. Treating the merge as undeclarable withheld the
+    route from a repository one two-line edit would have closed, and
+    contradicted the helper's own docstring (#432 review).
+    """
+
+    def build(declared: bool) -> Path:
+        sources: list[dict[str, Any]] = [
+            {"id": "east", "type": "mcp", "path": "east/tools.json"},
+            {"id": "west", "type": "mcp", "path": "west/tools.json"},
+        ]
+        if declared:
+            for source in sources:
+                source["binding"] = {"complete": True, "reason": _REVIEWED_REASON}
+        root = tmp_path / ("declared" if declared else "plain")
+        root.mkdir(parents=True, exist_ok=True)
+        for side in ("east", "west"):
+            (root / side).mkdir(parents=True, exist_ok=True)
+            (root / side / "tools.json").write_text(
+                json.dumps({"tools": [_mcp_tool("shared")]}), encoding="utf-8"
+            )
+        config = root / "shipgate.yaml"
+        config.write_text(
+            yaml.safe_dump(
+                {
+                    **_manifest_dict(sources=sources),
+                    "tool_identity": {
+                        "bindings": [
+                            {
+                                "id": "shared_tool",
+                                "provider": "east",
+                                "reason": "one deployed tool, exported twice",
+                                "primary": {"source_id": "east", "tool": "shared"},
+                                "members": [
+                                    {"source_id": "east", "tool": "shared"},
+                                    {"source_id": "west", "tool": "shared"},
+                                ],
+                            }
+                        ]
+                    },
+                },
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+        return config
+
+    undeclared = _scan(build(False))
+    gap = next(
+        gap
+        for gap in _binding_gaps(undeclared)
+        if gap.kind == "ambiguous_root_agent"
+    )
+    # The route is offered, and the block names both contributors.
+    assert gap.next_action.path == "shipgate.yaml#tool_sources[].binding"
+    template = gap.next_action.declaration_template
+    assert isinstance(template, dict)
+    assert [row["id"] for row in template["tool_sources"]] == ["east", "west"]
+
+    # And taking it closes the row.
+    declared = _scan(build(True))
+    assert _coverage(declared).reachable_tools == 1
+    assert _coverage(declared).unbound_tools == 0
+    assert [gap.kind for gap in _binding_gaps(declared)] == []
+
+
+def test_the_rootless_entry_point_state_is_published_as_itself(
+    tmp_path: Path,
+) -> None:
+    """A graph rooted by declared surfaces is not an unresolved graph.
+
+    ``pass_eligible: true`` beside ``root_agent_id: null`` is a new state, and
+    ``root_agent_id`` alone cannot tell it apart from the failure it looks
+    like. ``entry_point_agent_ids`` is the discriminator, ``agents[].kind``
+    says what each node is, and the Markdown report stops calling the
+    deliberate state ``unresolved`` (#432 review).
+    """
+
+    config = _workspace(
+        tmp_path / "two",
+        artifacts={
+            "a/tools.json": [_mcp_tool("a.one")],
+            "b/tools.json": [_mcp_tool("b.one")],
+        },
+        sources=[
+            _binding_source("server_a", "a/tools.json"),
+            _binding_source("server_b", "b/tools.json"),
+        ],
+    )
+
+    report = _scan(config)
+
+    graph = report.binding_surface_facts
+    assert graph.pass_eligible is True
+    assert graph.root_agent_id is None
+    assert len(graph.entry_point_agent_ids) == 2
+    assert sorted(graph.entry_point_agent_ids) == sorted(
+        node.agent_id for node in graph.agents
+    )
+    assert {node.name: node.kind for node in graph.agents} == {
+        "server_a": "tool_source",
+        "server_b": "tool_source",
+    }
+    rendered = render_markdown_report(report)
+    assert "Root agent: none \\(graph rooted by declared tool sources\\)" in rendered
+    assert "Entry points: server\\_a, server\\_b" in rendered
+
+
+def test_an_agent_graph_still_has_exactly_one_entry_point(tmp_path: Path) -> None:
+    """The compatibility half: every graph a prior release could produce.
+
+    ``entry_point_agent_ids`` must equal ``[root_agent_id]`` wherever a root
+    agent was selected, or a consumer adopting the new field would have to
+    special-case the old shape — and it must be *empty* exactly when nothing
+    rooted the graph, or it could not name the unresolved case at all.
+    """
+
+    rooted = _scan(
+        _adk_workspace(tmp_path / "rooted", _ADK_ROOT_WITH_SUBAGENT, declared=False)
+    ).binding_surface_facts
+    unrooted = _scan(
+        _workspace(
+            tmp_path / "unrooted",
+            artifacts={"mcp/tools.json": [_mcp_tool("a")]},
+            sources=[{"id": "srv", "type": "mcp", "path": "mcp/tools.json"}],
+        )
+    ).binding_surface_facts
+
+    assert rooted.root_agent_id is not None
+    assert rooted.entry_point_agent_ids == [rooted.root_agent_id]
+    assert {node.kind for node in rooted.agents} == {"agent"}
+    assert unrooted.root_agent_id is None
+    assert unrooted.entry_point_agent_ids == []
 
 
 # --------------------------------------------------------------------------

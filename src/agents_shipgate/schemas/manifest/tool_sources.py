@@ -9,6 +9,10 @@ from agents_shipgate.schemas.manifest._authority import (
     validate_authority_scopes,
 )
 from agents_shipgate.schemas.manifest._common import STRICT_MODEL_CONFIG
+from agents_shipgate.schemas.text import (
+    VISIBLE_CONTENT_PATTERN,
+    has_visible_content,
+)
 
 #: v0.20 (PR #111 review fix P1 #3): the curated set of built-in
 #: source types that may legitimately appear in ``tool_sources[].type``.
@@ -124,19 +128,49 @@ class SourceBindingConfig(BaseModel):
     #: the same reason: the closed-world assertion is the thing being reviewed,
     #: so there is no ``false`` to write. Presence of the block is the claim.
     complete: Literal[True] = True
-    reason: str
+    # ``pattern`` is carried for the reason ``action_surface.actions[].override``
+    # carries it: the *published* schema must reject what the runtime rejects.
+    # Without it the schema accepted ``reason: ''`` that the CLI refuses, which
+    # is worse than no schema. The validator below stays the authority.
+    reason: str = Field(pattern=VISIBLE_CONTENT_PATTERN)
+
+    @field_validator("complete", mode="before")
+    @classmethod
+    def require_literal_true(cls, value: Any) -> Any:
+        """Reject what the published schema rejects, in the same direction.
+
+        ``docs/manifest-v0.1.json`` says ``type: boolean`` and this file is
+        advertised for live editor validation, but the runtime coerced
+        ``complete: 1`` to ``True`` — so an editor refused a manifest the CLI
+        accepted, about a *reviewed assertion*. A ``strict`` constraint cannot
+        be applied to a ``Literal`` schema, so the rule is stated here instead;
+        the schema already carries it.
+
+        The older ``agent_bindings.declarations[].complete`` is deliberately
+        left as it is: tightening a field that has shipped is a compatibility
+        decision of its own, and this one has no history to break.
+        """
+
+        if value is not None and not isinstance(value, bool):
+            raise ValueError(
+                "tool_sources[].binding.complete is the reviewed closed-world "
+                "assertion and must be written as the boolean true"
+            )
+        return value
 
     @field_validator("reason")
     @classmethod
-    def require_non_blank_reason(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
+    def require_visible_reason(cls, value: str) -> str:
+        # ``strip()`` is not the question. A reason made only of U+200B renders
+        # as nothing to the reviewer this block exists for, and this field is
+        # the whole record that anyone reviewed the published surface.
+        if not has_visible_content(value):
             raise ValueError(
                 "tool_sources[].binding.reason must record how the published "
-                "surface was reviewed; a reviewed declaration with a blank "
-                "reason is not a reviewed declaration"
+                "surface was reviewed, with visible content; a reviewed "
+                "declaration with a blank reason is not a reviewed declaration"
             )
-        return normalized
+        return value.strip()
 
 
 class ToolSourceConfig(BaseModel):

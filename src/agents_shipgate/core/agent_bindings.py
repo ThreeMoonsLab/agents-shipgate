@@ -149,6 +149,15 @@ def resolve_agent_binding_graph(
         observation.agent_id for _, _, observation in surfaces
     )
     agent_observations.extend(observation for _, _, observation in surfaces)
+    # What each declared surface reviews, resolved once and read twice: by the
+    # declarations loop, which has to notice a reviewed statement that
+    # contradicts this one, and by the edge builder below.
+    surface_tools = {
+        observation.agent_id: [
+            tool for tool in tools if source.id in tool.configured_source_ids
+        ]
+        for source, _, observation in surfaces
+    }
 
     agents = _dedupe_agents(agent_observations)
     root, root_issues = _select_root(manifest, agents, raw_handoffs, surface_agent_ids)
@@ -359,6 +368,29 @@ def resolve_agent_binding_graph(
                     source_pointer=pointer,
                 )
             )
+        # The same rule, for the other thing a node can already have a reviewed
+        # closed-world tool set from. A declared surface selected as the root
+        # answers to ``agent: root``, so two reviewed statements can be made
+        # about one node — and silently unioning them lets a reviewer write
+        # "this agent reaches only a" beside "this surface publishes a and b"
+        # and get a proven graph out (#432 review). Which of the two is wrong
+        # is a judgement only a reader of both can make, which is what
+        # ``conflicting_binding_evidence`` says.
+        declared_surface_ids = {tool.id for tool in surface_tools.get(agent.agent_id, ())}
+        if declared_surface_ids and declared_ids != declared_surface_ids:
+            issues.append(
+                AgentBindingIssue(
+                    kind="conflicting_binding_evidence",
+                    message=(
+                        f"Closed-world declaration for {declaration.agent!r} does not "
+                        "match the published surface that entry reviews at "
+                        "tool_sources[].binding."
+                    ),
+                    agent_id=agent.agent_id,
+                    source="shipgate.yaml",
+                    source_pointer=pointer,
+                )
+            )
         declared_handoff_ids: set[str] = set()
         for handoff_index, target_name in enumerate(declaration.handoffs):
             target = _resolve_agent(target_name, None, by_agent_name)
@@ -410,7 +442,7 @@ def resolve_agent_binding_graph(
             )
 
     for source, pointer, observation in surfaces:
-        bound = [tool for tool in tools if source.id in tool.configured_source_ids]
+        bound = surface_tools[observation.agent_id]
         if not bound:
             # A reviewed declaration that binds nothing is not a no-op: with
             # the surface seeded as an entry point, staying silent would report
@@ -564,6 +596,11 @@ def resolve_agent_binding_graph(
 
     graph = AgentBindingGraphAssessment(
         root_agent_id=root.agent_id if root else None,
+        # Exactly the seeds ``_reachable_agents`` walked from, so the published
+        # value cannot describe a different graph than the one measured.
+        entry_point_agent_ids=sorted(
+            ({root.agent_id} if root is not None else set()) | set(surface_agent_ids)
+        ),
         status=status,
         agents=sorted(agents, key=lambda item: item.agent_id),
         tool_edges=tool_edges,
@@ -1046,6 +1083,7 @@ def _dedupe_agents(observations: list[_AgentObservation]) -> list[AgentBindingNo
         AgentBindingNode(
             agent_id=observation.agent_id,
             name=observation.name,
+            kind="tool_source" if observation.tool_source_surface else "agent",
             source_id=observation.source_id,
             source_ref=observation.source_ref,
             source_pointer=observation.source_pointer,

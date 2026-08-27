@@ -6,7 +6,7 @@ This document is the contract. If the runtime ever diverges from what's document
 
 Shipgate is pre-1.0. The CLI surface, exit codes, and `contract_version`
 described here are stable within the `0.x` line, but the `report.json` schema
-(`report_schema_version`, currently `0.41`) is still additive-versioned and
+(`report_schema_version`, currently `0.42`) is still additive-versioned and
 not yet frozen. A `1.0` line will not begin until the report schema reaches
 `1.0` and holds without a breaking change. Pin a version (or the Action tag)
 for reproducible CI.
@@ -148,7 +148,7 @@ exit code (3) are unchanged.
 
 Two capability schemas move: `capability_lock_schema_version` `0.6` → `0.7` and
 `capability_lock_diff_schema_version` `0.7` → `0.8`. `report_schema_version`
-(`0.41`), `packet_schema_version` (`0.17`), `verifier_schema_version` (`0.14`),
+(`0.42`), `packet_schema_version` (`0.17`), `verifier_schema_version` (`0.14`),
 `contract_version`, and the manifest `version: "0.1"` are unchanged.
 
 **Four published documents are restored to the bytes they were published with.**

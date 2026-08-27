@@ -553,18 +553,38 @@ def _inventory_declaration_template(
     }
 
 
+#: Where the reader edits a source-wide binding declaration. The generic form
+#: names the block; the row form names the one entry at fault, spelled the way
+#: ``action_surface.actions[tool='…']`` already is.
+TOOL_SOURCE_BINDING_PATH = "shipgate.yaml#tool_sources[].binding"
+
+
+def _tool_source_binding_path(source_id: str | None) -> str:
+    if not source_id:
+        return TOOL_SOURCE_BINDING_PATH
+    return f"shipgate.yaml#tool_sources[id={source_id!r}].binding"
+
+
 def _declarable_source_ids(tool_catalog: Sequence[Tool]) -> list[str] | None:
     """The ``tool_sources`` ids a ``binding`` declaration could cover, or ``None``.
 
     ``None`` means the route is not writable for this catalog, and the two
     readers below — the gap's ``path``/``expects`` and the scaffolded block —
     must agree about that, because a prescribed remedy the schema rejects is
-    worse than a vague one (#329). It is ``None`` unless *every* catalog entry
-    came from exactly one configured ``tool_sources`` row: a tool from a
-    per-scan adapter (``openai_api``, ``anthropic_api``, ``n8n``) has no row to
-    declare on and the schema rejects one, and a tool a reviewed
-    ``tool_identity`` binding merged across two configured sources is only
-    fully covered when both of them declare.
+    worse than a vague one (#329). It is ``None`` when any catalog entry has no
+    configured ``tool_sources`` row behind it: a tool from a per-scan adapter
+    (``openai_api``, ``anthropic_api``, ``n8n``) has no row to declare on and
+    the schema rejects one.
+
+    Every contributing row is returned, including all of them for a tool a
+    reviewed ``tool_identity`` binding merged across several configured
+    sources. That case is declarable — ``binding`` is a widening claim, so a
+    merged tool is covered as soon as *any* of its contributors declares — and
+    treating it as undeclarable withheld the route from a repository one
+    two-line edit would have closed (#432 review). It is not the rule
+    ``authority`` obeys, and deliberately so: authority *replaces* published
+    evidence, so applying one source's credential to a tool another source also
+    contributes would be a claim about the wrong deployment.
     """
 
     if not tool_catalog:
@@ -572,9 +592,9 @@ def _declarable_source_ids(tool_catalog: Sequence[Tool]) -> list[str] | None:
     ids: set[str] = set()
     for tool in tool_catalog:
         configured = set(tool.configured_source_ids)
-        if len(configured) != 1:
+        if not configured:
             return None
-        ids.add(configured.pop())
+        ids |= configured
     return sorted(ids)
 
 
@@ -826,7 +846,7 @@ def _binding_coverage(
                 # reported: two adoption walks reached for ``root.object``
                 # first and were sent looking for a value that cannot exist.
                 action_kind = "declare_agent_bindings"
-                path = "shipgate.yaml#tool_sources[].binding"
+                path = TOOL_SOURCE_BINDING_PATH
                 accepted_values = ["complete:true", "reason"]
                 expects = (
                     "No agent object was observed, so no root selector can match "
@@ -845,12 +865,16 @@ def _binding_coverage(
                     "then rerun verification."
                 )
         elif issue.source == TOOL_SOURCE_BINDING_DECLARATION:
-            # A reviewed source binding that binds nothing. The block is where
-            # the reader starts either way — the declaration is wrong about
-            # what the source publishes, or the source is not reading it.
+            # A reviewed source binding that binds nothing. Two repairs, and
+            # neither of them is a value of this block: the source is not
+            # reading what it was meant to, or the declaration should not be
+            # there. Publishing ``complete:true`` / ``reason`` here named the
+            # fields the failing declaration already carries, and ``fix_task``
+            # renders those verbatim — a machine-readable instruction to
+            # reaffirm a declaration that still binds no tool (#432 review).
             action_kind = "declare_agent_bindings"
-            path = "shipgate.yaml#tool_sources[].binding"
-            accepted_values = ["complete:true", "reason"]
+            path = _tool_source_binding_path(agent_names.get(issue.agent_id or ""))
+            accepted_values = ["correct_source_path", "remove_binding"]
             expects = (
                 "Point the declared source at the artifact that publishes its "
                 "tools, or remove the binding declaration, then rerun "
