@@ -78,7 +78,7 @@ The JSON output is the stable contract for tools and coding agents. See
 carry `report_schema_version: "0.42"`, the surface-exclusion ledger, binding
 verify-native request and
 decision identities while retaining typed policy-evidence support over the
-root-reachable binding graph and normalized semantic assessments
+binding graph from its entry points and normalized semantic assessments
 and evidence-backed pass coverage while preserving policy-pack routing metadata
 in `findings[].policy_routing`; v0.33 is frozen at
 [report-schema.v0.33.json](report-schema.v0.33.json)).

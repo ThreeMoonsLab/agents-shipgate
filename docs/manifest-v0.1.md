@@ -600,8 +600,10 @@ means the same thing: the block's presence is the closed-world claim, so `true`
 is the only value. `reason` records how the published surface was reviewed, and
 must not be blank.
 
-Every tool the source contributes becomes root-reachable — it is judged by every
-check, exactly as a tool an agent wires is. The block is **additive and
+Every tool the source contributes enters the analysed surface — it is judged by
+every check, exactly as a tool an agent wires is. The source is an *entry point*
+of the binding graph rather than something a root agent reaches, which is what
+`binding_surface_facts.entry_point_agent_ids` names. The block is **additive and
 widening**: it can only move tools *into* the analysed surface, never out of it.
 It is per source, so a source without it resolves exactly as before, and an
 agent that wires a subset of some other catalog still reports the unbound
