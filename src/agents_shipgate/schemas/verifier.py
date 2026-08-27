@@ -203,6 +203,54 @@ class VerifierFixTaskPatch(BaseModel):
     patch: dict[str, Any] = Field(default_factory=dict)
 
 
+class VerifierDeclarationQuestion(BaseModel):
+    """One declaration question, as the coding-agent route publishes it.
+
+    The same row ``semantic_coverage.declaration_questions.open_questions[]``
+    carries, restated here because the route has to be readable on its own: an
+    agent holding only the control envelope has no report to join against, and
+    "some questions remain" is the generic stop this design exists to replace.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    subject: str
+    subject_id: str | None = None
+    subject_kind: Literal["action", "tool_source"] = "action"
+    dimension: str
+    answer_path: str
+    authorable_by: Literal["coding_agent", "human"]
+
+
+class VerifierDeclarationConfirmation(BaseModel):
+    """The declarations this run can have an agent write, and what is left.
+
+    Present only when at least one open question is the agent's to draft, and
+    only beside a published patch that writes it — a route naming a step the
+    report does not carry would loop the agent against an unchanged manifest.
+
+    ``questions`` carries *every* open question, not only the agent-authorable
+    ones. The agent needs both halves in one payload: what to write now, and
+    what to hand to a human when it has, with the exact blocks named rather
+    than a count (#410 §D).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: The exact ``apply-patches`` invocation that writes the drafts.
+    command: str = Field(min_length=1)
+    questions: list[VerifierDeclarationQuestion] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _has_something_for_the_agent(self) -> VerifierDeclarationConfirmation:
+        if not any(item.authorable_by == "coding_agent" for item in self.questions):
+            raise ValueError(
+                "a declaration confirmation routes to the coding agent, so at "
+                "least one question must be one it may draft"
+            )
+        return self
+
+
 class VerifierFixTask(BaseModel):
     """The single repair task a verify run hands to whoever acts next.
 
@@ -261,6 +309,29 @@ class VerifierFixTask(BaseModel):
     forbidden_shortcuts: list[str] = Field(default_factory=list)
     verification_command: str | None = None
     patches: list[VerifierFixTaskPatch] = Field(default_factory=list)
+    # v0.14: the declaration questions this run can have the agent answer, and
+    # the ones it cannot. Set only on the coding-agent route that proposes
+    # them; ``None`` everywhere else, including on a human task that happens to
+    # owe declarations — a human reads the questionnaire, not a patch command.
+    declaration_confirmation: VerifierDeclarationConfirmation | None = None
+
+    @model_validator(mode="after")
+    def _a_confirmation_belongs_to_the_agent_route(self) -> VerifierFixTask:
+        """Only the route that proposes the drafts may carry them.
+
+        A human reads the questionnaire, not a patch command, so a human task
+        holding a confirmation block would be advertising a step to an actor
+        the same object says must not take it.
+        """
+
+        if self.declaration_confirmation is None:
+            return self
+        if self.actor != "coding_agent" or not self.safe_to_attempt:
+            raise ValueError(
+                "a declaration confirmation is published only on the "
+                "agent-safe coding-agent route"
+            )
+        return self
 
     @model_validator(mode="after")
     def _routing_is_consistent(self) -> VerifierFixTask:
@@ -640,7 +711,7 @@ class VerifierArtifact(BaseModel):
         },
     )
 
-    verifier_schema_version: Literal["0.13"] = "0.13"
+    verifier_schema_version: Literal["0.14"] = "0.14"
     static_analysis_only: Literal[True] = True
     runtime_behavior_verified: Literal[False] = False
     static_verdict_disclaimer: str = STATIC_VERDICT_DISCLAIMER
@@ -735,6 +806,12 @@ class VerifierArtifact(BaseModel):
             # to compare against, so it could not have raised one; the absence
             # is what that build knew.
             "0.12",
+            # v0.13 froze without ``authorable_by`` on declaration questions and
+            # evidence gaps, and without ``fix_task.declaration_confirmation``.
+            # All three default to the human reading, which is exactly what a
+            # v0.13 build could produce: it had no way to tell an agent it may
+            # draft an answer, so every question it wrote was one a human owed.
+            "0.13",
         }
         if not legacy:
             # Current artifacts must already carry the authoritative control
@@ -742,7 +819,7 @@ class VerifierArtifact(BaseModel):
             # control would turn an internal consistency failure into a trusted
             # handoff.  Only frozen prior readers are normalized.
             return normalized
-        normalized["verifier_schema_version"] = "0.13"
+        normalized["verifier_schema_version"] = "0.14"
         # A pre-v0.7 artifact recorded nothing about whether its diff was
         # readable. Defaulting that to ``complete`` would manufacture the one
         # claim the whole field exists to stop.
@@ -976,12 +1053,11 @@ class VerifierArtifact(BaseModel):
                     and (self.fix_task.actor != "coding_agent" or not self.fix_task.safe_to_attempt)
                 ):
                     raise ValueError("agent repair control requires an agent-safe fix task")
-                if (
-                    self.fix_task is not None
-                    and getattr(action, "command", None) != self.fix_task.verification_command
-                ):
+                if self.fix_task is not None and getattr(
+                    action, "command", None
+                ) not in self._authorized_repair_commands():
                     raise ValueError(
-                        "agent repair control command must equal the exact fix-task rerun command"
+                        "agent repair control command must be one the fix task authorizes"
                     )
             elif self.fix_task is not None:
                 raise ValueError("non-repair agent control cannot carry a pending fix task")
@@ -1009,6 +1085,35 @@ class VerifierArtifact(BaseModel):
         self._assert_publication_rests_on_an_evaluated_change()
         self._assert_passed_substrate_is_consistent()
         return self
+
+    def _authorized_repair_commands(self) -> set[str]:
+        """Every command a repair route may name: the task's own, and no others.
+
+        The rule this replaces demanded equality with ``verification_command``
+        alone — the *rerun*, not the repair. Read literally it forbade the one
+        thing an agent route exists to publish: ``_verifier_control`` routes the
+        first ``allowed_repairs[].command`` (the ``apply-patches`` invocation),
+        and ``test_control_next_action_follows_agent_safe_fix_task`` has always
+        asserted that it differs from the rerun. Nothing caught the
+        contradiction because no verify run had yet reached the mechanical route
+        and built an artifact from it; the declaration route (#410 §D) is the
+        first that does, and it failed validation on a payload the control layer
+        had produced correctly.
+
+        What the invariant is actually for is unchanged and still enforced: a
+        control route may not invent a command the fix task does not authorize.
+        """
+
+        if self.fix_task is None:
+            return set()
+        commands = {
+            repair.command
+            for repair in self.fix_task.allowed_repairs
+            if repair.command
+        }
+        if self.fix_task.verification_command:
+            commands.add(self.fix_task.verification_command)
+        return commands
 
     def _assert_publication_rests_on_an_evaluated_change(self) -> None:
         """Bind progress authority to the substrate, on every state.

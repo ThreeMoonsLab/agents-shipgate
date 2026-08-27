@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from agents_shipgate.core.findings.report_builder import build_report
@@ -21,6 +22,7 @@ from agents_shipgate.schemas.manifest import AgentsShipgateManifest, CiConfig
 from agents_shipgate.schemas.report import ReadinessReport
 
 from .models import _OutputPlan, _SanitizedSurfaces
+from .patching import _attach_declaration_patches
 from .run_identity import _run_id
 
 
@@ -29,6 +31,7 @@ def _build_final_report(
     manifest: AgentsShipgateManifest,
     sanitized: _SanitizedSurfaces,
     plan: _OutputPlan,
+    config_path: Path,
     declared_ci: CiConfig | None = None,
 ) -> tuple[ReadinessReport, Any]:
     """Phase 8: hash the run_id, build the ``ReadinessReport`` from the
@@ -42,6 +45,11 @@ def _build_final_report(
     ``declared_ci`` is the pre-override ``ci`` block; only
     ``effective_policy`` uses it. Everything else here — ``run_id``,
     ``report.ci_mode``, ``report.fail_on`` — keeps describing the run.
+
+    ``config_path`` reaches this phase for one reason: a declaration patch
+    answers an ``evidence_gaps[]`` row, and those rows do not exist until the
+    release decision is built. Findings get theirs three phases earlier, where
+    the finding list is final and the decision has not been reached yet.
     """
     report = build_report(
         run_id=_run_id(
@@ -96,6 +104,7 @@ def _build_final_report(
         policy_evidence_gaps=sanitized.policy_evidence_gaps,
         source_omissions=sanitized.source_omissions,
     )
+    _attach_declaration_patches(report, config_path=config_path)
     apply_capability_diff(report, sanitized.tools)
     # v0.20: reviewer_summary is built HERE — after apply_capability_diff
     # has populated misalignments / release_consequence / suggested_scenarios.

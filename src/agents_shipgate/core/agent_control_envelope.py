@@ -49,6 +49,7 @@ from agents_shipgate.schemas.agent_control import (
     RequiredHumanReview,
 )
 from agents_shipgate.schemas.agent_control_envelope import (
+    MAX_ENVELOPE_QUESTIONS,
     SETUP_DECISIONS,
     SETUP_OPERATIONS,
     AgentActionControlEnvelope,
@@ -60,7 +61,9 @@ from agents_shipgate.schemas.agent_control_envelope import (
     AgentControlPendingReview,
     AgentControlSource,
     CompleteControlEnvelope,
+    ConfirmDeclarationsAction,
     EnvelopeCodingAgentAction,
+    EnvelopeDeclarationQuestion,
     HumanReviewRequiredControlEnvelope,
     ReviewPublishableControlEnvelope,
     SetupEditAction,
@@ -90,6 +93,7 @@ def project_agent_control_envelope(
     current_control_id: str | None = None,
     artifacts: Mapping[str, AgentControlArtifactRef] | None = None,
     setup_edit: SetupEditAction | None = None,
+    declaration_route: ConfirmDeclarationsAction | None = None,
 ) -> AgentControlEnvelope:
     """Project one authoritative control object onto the compact envelope.
 
@@ -104,13 +108,31 @@ def project_agent_control_envelope(
     authority moves: the state, the permission vector, and the human-review
     shape all still come from ``control``, and the substitution is refused
     outside a setup operation on an agent route.
+
+    ``declaration_route`` is the same substitution one surface over, and for
+    the same reason. Here the underlying control does hold a real command — the
+    step *is* an ``apply-patches`` invocation — so what the envelope adds is the
+    question list that command does not answer. The caller builds it only after
+    checking that this control's route is that exact command; see
+    :func:`envelope_from_verifier`. The two substitutions are mutually
+    exclusive: one action is published, and a caller supplying both has not
+    decided which route this is.
     """
 
+    if setup_edit is not None and declaration_route is not None:
+        raise ValueError("an envelope publishes one next action, not two")
     if setup_edit is not None and (
         operation not in SETUP_OPERATIONS or control.state != "agent_action_required"
     ):
         raise ValueError(
             "a typed edit route is only publishable on a setup operation's "
+            "coding-agent route"
+        )
+    if declaration_route is not None and (
+        operation != "verify" or control.state != "agent_action_required"
+    ):
+        raise ValueError(
+            "a declaration confirmation is only publishable on verify's "
             "coding-agent route"
         )
 
@@ -128,7 +150,7 @@ def project_agent_control_envelope(
         "current_control_id": current_control_id,
         "artifacts": dict(artifacts or {}),
     }
-    action = _bounded_action(setup_edit or control.next_action)
+    action = _bounded_action(setup_edit or declaration_route or control.next_action)
     review = _bounded_human_review(control.human_review)
 
     # One variant per control state, selected from the tag the union already
@@ -199,6 +221,87 @@ def envelope_from_verifier(
         input_id=verifier.request_id,
         current_control_id=pointer.current_control_id if pointer is not None else None,
         artifacts=_artifact_refs(pointer, artifact_root),
+        declaration_route=(
+            _declaration_route(control, verifier)
+            if operation == "verify" and decision is not None
+            else None
+        ),
+    )
+
+
+def _declaration_route(
+    control: AgentControl,
+    verifier: VerifierArtifact,
+) -> ConfirmDeclarationsAction | None:
+    """The typed declaration route, when this control's step is that one.
+
+    The join is a command comparison, and it is deliberately the strictest one
+    available. ``fix_task.declaration_confirmation`` says a declaration route
+    was *built*; ``control.next_action`` says which step was actually
+    *selected*. Those can differ — the pointer reconciliation above can drop a
+    run's route entirely, and a later branch of the control derivation can win
+    — and publishing the richer form off the first alone would describe a step
+    the control is not asking for.
+
+    Returns ``None`` on every mismatch rather than raising: an envelope that
+    falls back to the plain ``repair`` action is still correct and still
+    runnable. It just says less.
+    """
+
+    fix_task = verifier.fix_task
+    confirmation = fix_task.declaration_confirmation if fix_task is not None else None
+    if confirmation is None or control.state != "agent_action_required":
+        return None
+    action = control.next_action
+    if not isinstance(action, CodingAgentCommandAction):
+        return None
+    if action.command != confirmation.command:
+        return None
+    drafts = [
+        item for item in confirmation.questions if item.authorable_by == "coding_agent"
+    ]
+    human = [item for item in confirmation.questions if item.authorable_by == "human"]
+    if not drafts:
+        return None
+    return ConfirmDeclarationsAction(
+        kind="confirm_declarations",
+        command=action.command,
+        expects=(
+            f"{len(drafts)} declaration(s) written into the manifest"
+            # Only where this control actually grants it. A route says what
+            # its own permission vector allows, and promising a commit beside
+            # ``commit: false`` would be the envelope contradicting itself in
+            # the same object.
+            + (
+                " and committed to this branch"
+                if control.permissions.publishes
+                else " (this run authorizes the named command only)"
+            )
+            + (
+                f"; {len(human)} question(s) then remain for a human."
+                if human
+                else "; no question then remains."
+            )
+        ),
+        why=action.why,
+        questions=[
+            EnvelopeDeclarationQuestion(
+                subject=item.subject,
+                dimension=item.dimension,
+                answer_path=item.answer_path,
+                authorable_by=item.authorable_by,
+            )
+            # Human-owned rows first, then the drafted ones, each half keeping
+            # the report's own ranking. Not a re-ranking of the questionnaire —
+            # it decides only which rows survive the cap, and the two halves are
+            # not equally droppable: a drafted row is answered by the command
+            # whether or not it is printed, while a human-owned row is the thing
+            # the agent has to hand a person. Truncating in report order would
+            # cut exactly the rows the route exists to name.
+            for item in (*human, *drafts)[:MAX_ENVELOPE_QUESTIONS]
+        ],
+        agent_authorable=len(drafts),
+        human_authorable=len(human),
     )
 
 
@@ -576,7 +679,13 @@ def _bounded_action(
     if why == action.why:
         return action
     if isinstance(
-        action, (CodingAgentCommandAction, SetupEditAction, *COMMANDLESS_CODING_AGENT_ACTIONS)
+        action,
+        (
+            CodingAgentCommandAction,
+            SetupEditAction,
+            ConfirmDeclarationsAction,
+            *COMMANDLESS_CODING_AGENT_ACTIONS,
+        ),
     ):
         # ``command``, ``path`` and ``expects`` are executed, opened and checked,
         # not read, so the cap applies to ``why`` alone. The setup edit is in

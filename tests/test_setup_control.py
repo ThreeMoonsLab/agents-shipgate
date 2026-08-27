@@ -1586,7 +1586,7 @@ def test_a_completion_cannot_rest_on_a_negative_verdict(source: str, decision: s
     check = source == "agent_boundary"
     payload = {
         "schema_version": "shipgate.agent_control/v1",
-        "contract_version": "24",
+        "contract_version": "25",
         "operation": "check" if check else "verify",
         "source": "run",
         "execution": "succeeded",

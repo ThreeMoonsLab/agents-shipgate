@@ -23,17 +23,19 @@ would be ambiguous.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.patches import (
+    ACTION_SELECTOR_KEYS,
     AppendPointerPatch,
+    DeclareActionPatch,
     ManualPatch,
     Patch,
     RemovePointerPatch,
 )
-from agents_shipgate.schemas.report import Finding
+from agents_shipgate.schemas.report import EvidenceGap, EvidenceGapAction, Finding
 
 GeneratorFn = Callable[
     ["PatchContext", Finding],
@@ -226,6 +228,87 @@ def _default_manual(context: PatchContext, finding: Finding) -> ManualPatch:
     else:
         instructions = recommendation or finding.recommendation
     return ManualPatch(instructions=instructions)
+
+
+# ---------------------------------------------------------------------------
+# Declaration answers (#410 §D).
+# ---------------------------------------------------------------------------
+
+
+def attach_declaration_patches(
+    gaps: Iterable[EvidenceGap],
+    *,
+    manifest_path: Path,
+) -> int:
+    """Give every agent-authorable evidence-gap row its machine-applicable form.
+
+    Returns how many rows were given one.
+
+    The decision is not made here. ``authorable_by`` was already settled on the
+    row, by the rule that a scan may draft only an answer it filled every blank
+    of; this walks the rows carrying that tag and writes down the edit the
+    template already describes. Splitting the two is the point — whether an
+    agent *may* answer is a judgement about evidence and belongs beside the
+    evidence, while *how* to write the answer is a file operation and belongs
+    beside the other patch generators.
+
+    Confidence is ``high``, and it is the same claim every other high-confidence
+    patch makes: applying it cleanly resolves the row it is attached to. It is
+    not a claim that the value is beyond review — the manifest is the trust
+    root, so the row still reaches the gate only through a human merge, and
+    ``requires_human_review`` on the row still says so.
+    """
+
+    resolved = manifest_path.resolve()
+    manifest_sha = _sha256(resolved)
+    # Relative to ``manifest_dir``, which is this file's own directory. See
+    # ``DeclareActionPatch.target_path``: the absolute form is a fact about
+    # this machine, and these rows are embedded by artifacts that travel.
+    target = resolved.name
+    attached = 0
+    for gap in gaps:
+        action = gap.next_action
+        if action.authorable_by != "coding_agent" or action.patch is not None:
+            continue
+        template = dict(action.declaration_template or {})
+        selector = {
+            key: template.pop(key)
+            for key in ACTION_SELECTOR_KEYS
+            if key in template
+        }
+        if not selector.get("tool") or not template:
+            # Defensive, and it should be unreachable: the row model refuses an
+            # agent-authorable tag on a template that names no action or
+            # declares nothing beyond one. Kept because the alternative to
+            # skipping here is emitting a patch that writes no field, which
+            # would report a question answered by an edit that changed nothing.
+            continue
+        # Re-validated rather than assigned field by field. Pydantic does not
+        # run validators on assignment, so mutating the two in place would let
+        # a half-state — a patch beside a ``manual`` kind, or a patch on a row
+        # this module misjudged — reach ``report.json`` unchecked. Round-
+        # tripping through the model means the row's own authorship invariant
+        # is what admits the patch, at the moment it is attached.
+        gap.next_action = EvidenceGapAction.model_validate(
+            {
+                **action.model_dump(mode="python"),
+                "suggested_patch_kind": "declare_action",
+                "patch": DeclareActionPatch(
+                    target_path=target,
+                    selector=selector,
+                    declaration=template,
+                    confidence="high",
+                    rationale=(
+                        f"Declares {selector['tool']} as "
+                        f"{template.get('effect', 'declared')} — the conservative "
+                        "reading of the evidence this scan observed for it."
+                    ),
+                    target_sha256=manifest_sha,
+                ),
+            }
+        )
+        attached += 1
+    return attached
 
 
 # ---------------------------------------------------------------------------

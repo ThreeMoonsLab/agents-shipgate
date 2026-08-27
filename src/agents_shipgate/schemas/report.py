@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from collections.abc import Mapping
+from typing import Any, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agents_shipgate.schemas.bindings import (
     AgentBindingGraphAssessment,
@@ -27,7 +28,11 @@ from agents_shipgate.schemas.common import (
 )
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.exclusions import SurfaceExclusionLedger
-from agents_shipgate.schemas.patches import Patch
+from agents_shipgate.schemas.patches import (
+    ACTION_SELECTOR_KEYS,
+    DeclareActionPatch,
+    Patch,
+)
 from agents_shipgate.schemas.semantic import ToolSemanticEvidence
 from agents_shipgate.schemas.surfaces import (
     ActionEffect,
@@ -392,6 +397,68 @@ class EvidenceReading(BaseModel):
     policy_eligible: bool = False
 
 
+#: The reserved value a ``declaration_template`` carries where the scan has
+#: nothing to propose and a human must answer.
+#:
+#: Defined here, beside the model whose invariant is stated in terms of it: an
+#: agent-authorable row is exactly one whose template carries none of these,
+#: and a rule enforced by a constant imported from the module that *emits*
+#: templates would be checkable only by that module. ``ci.release_decision``
+#: re-exports it under its historical name.
+REVIEW_REQUIRED_SENTINEL = "<REVIEW_REQUIRED>"
+
+#: Gap-action kinds whose answer a scan can draft in full.
+#:
+#: One kind, and it is a claim about the *vocabulary*, not about the row: an
+#: effect is a fact about code, drawn from a closed enum, that the scan reads
+#: directly. Authority is a fact about a deployment (which credential the
+#: process runs with), an override is a reviewer's judgement, and a tool
+#: inventory is a completeness claim — none of the three is in the repository
+#: for a scanner to read, so none of them may ever be drafted by one (#410).
+AGENT_AUTHORABLE_GAP_ACTION_KINDS: frozenset[str] = frozenset({"declare_action_effect"})
+
+#: Gap *kinds* whose answer is a person's however answerable it looks.
+#:
+#: ``declaration_drift`` asks a reviewer to look again at an answer they already
+#: gave, because the evidence behind it moved (#410 §E). Its repair is spelled
+#: ``declare_action_effect`` and its template is complete — it restates the
+#: declared effect beside the new pin — so the content rule alone would read it
+#: as an agent's to draft. Letting one write it would re-stamp the pin and
+#: close the request to look, which is the only thing the row is for. Keyed on
+#: the gap kind rather than the action kind for exactly that reason: the action
+#: names the claim, and two different questions can ask for the same claim.
+HUMAN_ONLY_GAP_KINDS: frozenset[str] = frozenset({"declaration_drift"})
+
+_ACTION_EFFECT_VALUES: frozenset[str] = frozenset(get_args(ActionEffect))
+
+
+def template_is_complete(template: Mapping[str, Any] | None) -> bool:
+    """Did the scan fill every blank in this declaration template?
+
+    Recursive, and deliberately over-strict: any ``<REVIEW_REQUIRED>`` anywhere
+    inside — at any depth, inside a list, as a mapping key — means a human
+    still owes an answer here, so the whole template is not the scan's to
+    write. An empty template is not complete either; it proposes nothing.
+    """
+
+    if not template:
+        return False
+    return not _carries_sentinel(template)
+
+
+def _carries_sentinel(value: Any) -> bool:
+    if isinstance(value, str):
+        return value == REVIEW_REQUIRED_SENTINEL
+    if isinstance(value, Mapping):
+        return any(
+            _carries_sentinel(key) or _carries_sentinel(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return any(_carries_sentinel(item) for item in value)
+    return False
+
+
 class EvidenceGapAction(BaseModel):
     """One concrete, mechanically-executable step that closes a gap.
 
@@ -431,12 +498,39 @@ class EvidenceGapAction(BaseModel):
     # auto-applied patches. These fields make the required declaration
     # mechanically discoverable without asking an agent to infer authority.
     accepted_values: list[str] = Field(default_factory=list)
-    # Human-reviewed declaration skeleton only. It is deliberately not a
-    # machine-applicable Patch object and is never consumed by apply-patches.
-    # The explicit kind keeps agent consumers from mistaking structured YAML
-    # guidance for authorization to write it.
-    suggested_patch_kind: Literal["manual"] = "manual"
+    # v0.41: who may write the first draft of this answer.
+    #
+    # A separate question from ``requires_human_review`` below, which stays
+    # pinned ``true``: the manifest is the trust root, so *every* declaration
+    # reaches the gate through a human merge, whoever typed it. What this
+    # field adds is whether the scan already knows the answer well enough for
+    # an agent to propose it — "an agent may propose what evidence supports;
+    # only a human may assert against it" (#410 §D).
+    #
+    # It is decided by content, never by authorship: ``coding_agent`` exactly
+    # where the scan filled every blank in ``declaration_template`` from its
+    # own observations, using the closed effect vocabulary and a value never
+    # weaker than any reading it saw. A template still carrying a
+    # ``<REVIEW_REQUIRED>`` blank — every authority block, every override —
+    # is an assertion an agent would have to invent, so it stays ``human``.
+    authorable_by: Literal["coding_agent", "human"] = "human"
+    # Declaration skeleton for a human to complete, and — since v0.41, and
+    # only where ``authorable_by`` is ``coding_agent`` — the exact patch that
+    # writes it. ``manual`` still means what it always meant: no
+    # machine-applicable change is published for this row.
+    #
+    # ``declare_action`` does not make the row auto-applicable. It is outside
+    # ``apply-patches --kinds`` by default, it is applied only by the route
+    # that proposes it, and it never overwrites an answer the manifest
+    # already carries.
+    suggested_patch_kind: Literal["manual", "declare_action"] = "manual"
     declaration_template: dict[str, Any] | None = None
+    # v0.41: the machine-applicable form of ``declaration_template`` — the same
+    # answer, split into the row it identifies and the fields it writes,
+    # because those are the two halves ``apply-patches`` treats differently.
+    # The split is exact and the validator below proves it: this patch can
+    # never write a field the template does not carry.
+    patch: DeclareActionPatch | None = None
     # v0.37: what the scan read this action's effect as, so the row can be
     # answered without opening ``action_surface_facts`` to find out. Populated
     # for effect gaps; empty everywhere else. Where the readings support one
@@ -447,6 +541,108 @@ class EvidenceGapAction(BaseModel):
     observed_readings: list[EvidenceReading] = Field(default_factory=list)
     auto_apply: Literal[False] = False
     requires_human_review: Literal[True] = True
+
+    @model_validator(mode="after")
+    def _authorship_matches_the_template(self) -> EvidenceGapAction:
+        """An agent-authorable row is one whose answer the scan actually wrote.
+
+        Enforced on the model rather than trusted to the one builder that sets
+        it today. ``authorable_by`` is what decides whether a coding agent may
+        write into the trust root, and ``patch`` is what it would write, so
+        both rules have to hold for every row this type can express —
+        including one a consumer assembles from a stored payload, and
+        including a gap kind added later whose builder forgets to think about
+        authorship.
+
+        The binding between the two is exact: ``patch`` is the template, split
+        into the half that names the action and the half that is written. A
+        row therefore cannot publish a tag that says "evidence-derived" beside
+        a patch that writes something else — an authority block, an effect
+        outside the vocabulary, or a field the template never mentioned.
+
+        One thing this layer cannot check, and it is stated rather than
+        implied: whether the *template* is itself consistent with
+        ``observed_readings`` needs the effect-covering relation, which lives
+        in ``core.semantic_assessment`` and may not be imported here. What is
+        checked instead is the one direction where accepting a weaker answer
+        loses safety rather than over-declaring — a declared ``read`` against
+        an observation that is not ``read`` (#357). The full covering property
+        is proven where it is produced, and swept over every published row by
+        ``test_declaration_authoring``.
+        """
+
+        if self.authorable_by == "coding_agent":
+            if self.kind not in AGENT_AUTHORABLE_GAP_ACTION_KINDS:
+                raise ValueError(
+                    f"{self.kind!r} is not an answer a scan may draft; "
+                    "authorable_by must be 'human'"
+                )
+            if not template_is_complete(self.declaration_template):
+                raise ValueError(
+                    "authorable_by='coding_agent' requires a declaration_template "
+                    "with no <REVIEW_REQUIRED> blank left in it"
+                )
+            # A template that is only a selector names an action and declares
+            # nothing about it. It is "complete" in the sense that no blank is
+            # left, and it is still not an answer: the patch built from it
+            # would write no field, and the question would be counted as one
+            # an agent can close while nothing closes it.
+            if set(self.declaration_template or {}) <= set(ACTION_SELECTOR_KEYS):
+                raise ValueError(
+                    "authorable_by='coding_agent' requires a declaration_template "
+                    "that declares something beyond the action it names"
+                )
+        elif self.patch is not None or self.suggested_patch_kind != "manual":
+            raise ValueError(
+                "a row only a human may author publishes no machine-applicable patch"
+            )
+        if self.patch is None:
+            if self.suggested_patch_kind != "manual":
+                raise ValueError(
+                    "suggested_patch_kind names a patch this row does not publish"
+                )
+            return self
+        if self.suggested_patch_kind != "declare_action":
+            raise ValueError("suggested_patch_kind must name the patch this row publishes")
+        self._patch_writes_exactly_the_template()
+        return self
+
+    def _patch_writes_exactly_the_template(self) -> None:
+        patch = self.patch
+        assert patch is not None  # guarded by the caller
+        if patch.confidence != "high":
+            raise ValueError(
+                "a declaration patch is published only at high confidence; "
+                "the route that applies it filters on nothing else"
+            )
+        selector, declaration = patch.selector, patch.declaration
+        if not set(selector) <= set(ACTION_SELECTOR_KEYS):
+            raise ValueError("a declaration patch selector names only the action")
+        if set(declaration) & set(ACTION_SELECTOR_KEYS):
+            raise ValueError(
+                "a declaration patch writes declared fields, never the keys that "
+                "identify the row"
+            )
+        if {**selector, **declaration} != (self.declaration_template or {}):
+            raise ValueError(
+                "a declaration patch writes exactly the declaration_template this "
+                "row publishes, split into the action it names and the fields it "
+                "declares"
+            )
+        effect = declaration.get("effect")
+        if effect is not None and effect not in _ACTION_EFFECT_VALUES:
+            raise ValueError(
+                f"{effect!r} is not an effect; a drafted declaration comes from "
+                "the closed vocabulary, never from source content"
+            )
+        if effect == "read" and any(
+            reading.observed and reading.effect != "read"
+            for reading in self.observed_readings
+        ):
+            raise ValueError(
+                "a drafted declaration is never weaker than what was observed; "
+                "read-only is the one reading a scan may not assert"
+            )
 
 
 class EvidenceGap(BaseModel):
@@ -511,6 +707,31 @@ class EvidenceGap(BaseModel):
     source_ref: str | None = None
     why: str
     next_action: EvidenceGapAction
+
+    @model_validator(mode="after")
+    def _a_human_only_question_is_never_drafted(self) -> EvidenceGap:
+        """Some questions are a person's however answerable the answer looks.
+
+        ``authorable_by`` is decided from the *action* — its kind and its
+        template — and that is right for every row whose question is "what is
+        this effect?". A drift row asks a different question with the same
+        repair spelled on it: "you answered this once, and the evidence has
+        moved; look again." Its template is complete because it restates the
+        answer beside the new pin, so the content rule alone would hand it to
+        an agent, which would re-stamp the pin and close the request to look.
+        The gap kind is the only place that distinction exists, so the rule
+        lives here rather than one model down.
+        """
+
+        if (
+            self.kind in HUMAN_ONLY_GAP_KINDS
+            and self.next_action.authorable_by == "coding_agent"
+        ):
+            raise ValueError(
+                f"a {self.kind!r} row asks a person to look again, so it is "
+                "never one a scan may draft"
+            )
+        return self
 
 
 class AcknowledgedEffectOverride(BaseModel):
@@ -584,6 +805,12 @@ class DeclarationQuestionRow(BaseModel):
     # row's own ``next_action.path`` so the two cannot name different blocks.
     answer_path: str = ""
     dimension: str
+    # v0.41: who may write the first draft of this answer — the fold of the
+    # same tag on every evidence-gap row this question absorbs. Open wins, the
+    # way ``answered`` does: a block whose effect the scan can propose but
+    # whose authority it cannot is a question a human still has to finish, and
+    # a counter that said otherwise would name a finish line no agent reaches.
+    authorable_by: Literal["coding_agent", "human"] = "human"
 
 
 class DeclarationQuestionCoverage(BaseModel):
@@ -689,6 +916,34 @@ class EvidenceCoverageDecision(BaseModel):
     identity_coverage: IdentityCoverageDecision = Field(default_factory=IdentityCoverageDecision)
     binding_coverage: BindingCoverageDecision = Field(default_factory=BindingCoverageDecision)
     policy_gap_count: int = 0
+
+
+def without_machine_patches(coverage: EvidenceCoverageDecision) -> EvidenceCoverageDecision:
+    """A copy of ``coverage`` carrying no machine-applicable patch on any row.
+
+    Exactly one artifact is meant to carry a ``declare_action`` patch: the
+    ``report.json`` an agent points ``apply-patches`` at. Everything else that
+    embeds the same coverage block is evidence *about* a run — a reviewer
+    packet, a cached base scan — and a patch on those rows is wrong twice
+    over. It is unexecutable (a base report describes a commit nobody is
+    editing), and it carries an absolute ``target_file`` that, for a run
+    against an archived checkout, names a temporary directory which will not
+    exist when anyone reads it. Two identical runs then differ only by that
+    directory name, which is enough to move a packet digest and the receipt's
+    artifact set with it.
+
+    Returns a copy on purpose. Stripping in place would take the patch off the
+    report the route depends on, one caller away from the artifact it meant to
+    clean.
+    """
+
+    cleaned = coverage.model_copy(deep=True)
+    for gap in cleaned.evidence_gaps:
+        if gap.next_action.patch is None:
+            continue
+        gap.next_action.patch = None
+        gap.next_action.suggested_patch_kind = "manual"
+    return cleaned
 
 
 class BaselineDelta(BaseModel):
@@ -1202,7 +1457,7 @@ class ReadinessReport(BaseModel):
     # manifest block that answers it (``answer_path``), so the actions one
     # ``tool_sources[].authority`` block covers are one question and one
     # evidence-gap row rather than N of each (#410 increment 3).
-    report_schema_version: str = "0.40"
+    report_schema_version: str = "0.41"
     run_id: str
     request_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
     subject_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)

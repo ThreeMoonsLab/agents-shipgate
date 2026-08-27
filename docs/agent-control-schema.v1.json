@@ -434,6 +434,34 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "next_action": {
+                "properties": {
+                  "kind": {
+                    "const": "confirm_declarations"
+                  }
+                }
+              }
+            },
+            "required": [
+              "next_action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "const": "release_decision"
+              },
+              "operation": {
+                "enum": [
+                  "verify"
+                ]
+              }
+            }
+          }
         }
       ],
       "description": "One exact coding-agent-owned step remains.\n\n``permissions`` admits two vectors because the route decides: a step that\nruns before any diff was read authorizes nothing beyond itself, while a step\ntaken on an evaluated change keeps publication authority. Both deny merge.",
@@ -1422,10 +1450,76 @@
       "title": "CompleteControlEnvelope",
       "type": "object"
     },
+    "ConfirmDeclarationsAction": {
+      "additionalProperties": false,
+      "description": "Write the declarations the scan derived; name the ones it could not.\n\nDeclared **here** for the same reason :class:`SetupEditAction` is: the\nshared action union in :mod:`agents_shipgate.schemas.agent_control` is\nembedded by six durable published schemas, five of which record no\n``contract_version``, so widening it changes stored contracts a consumer\ncannot disambiguate. This envelope is emitted on stdout and never written\nas an artifact. The underlying control carries the same step as a\n``repair`` command \u2014 which it truthfully is \u2014 and the envelope publishes\nthe richer form.\n\nThe list is what makes this different from that ``repair``. An agent that\nruns the command has answered the questions tagged ``coding_agent``; what\nit then owes a human is the rest, **by name**. \"Human review required\" at\nthe end of a loop ends the turn without telling anyone what to do next,\nand that dead end is what this route exists to replace (#410 \u00a7D).\n\n``questions`` is a prefix, not the authority. It is capped so one repository\nwith a hundred undeclared actions cannot turn a 4 KiB control surface into a\nlisting; ``agent_authorable`` and ``human_authorable`` are the real counts,\nso a reader can always tell a complete list from a prefix without counting\nit. The cap reaches no decision: ``command`` applies every agent-authorable\nanswer in the report, whether or not its question is printed here, and the\nunabridged list is in the bound report artifact.",
+      "properties": {
+        "actor": {
+          "const": "coding_agent",
+          "default": "coding_agent",
+          "title": "Actor",
+          "type": "string"
+        },
+        "agent_authorable": {
+          "minimum": 1,
+          "title": "Agent Authorable",
+          "type": "integer"
+        },
+        "command": {
+          "minLength": 1,
+          "title": "Command",
+          "type": "string"
+        },
+        "expects": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Expects",
+          "type": "string"
+        },
+        "human_authorable": {
+          "minimum": 0,
+          "title": "Human Authorable",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "confirm_declarations",
+          "title": "Kind",
+          "type": "string"
+        },
+        "questions": {
+          "items": {
+            "$ref": "#/$defs/EnvelopeDeclarationQuestion"
+          },
+          "maxItems": 6,
+          "minItems": 1,
+          "title": "Questions",
+          "type": "array"
+        },
+        "why": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "command",
+        "expects",
+        "why",
+        "questions",
+        "agent_authorable",
+        "human_authorable"
+      ],
+      "title": "ConfirmDeclarationsAction",
+      "type": "object"
+    },
     "EnvelopeCodingAgentAction": {
       "discriminator": {
         "mapping": {
           "configure": "#/$defs/CodingAgentAction",
+          "confirm_declarations": "#/$defs/ConfirmDeclarationsAction",
           "discover": "#/$defs/CodingAgentAction",
           "edit": "#/$defs/SetupEditAction",
           "fetch_base": "#/$defs/CodingAgentAction",
@@ -1443,8 +1537,51 @@
         },
         {
           "$ref": "#/$defs/SetupEditAction"
+        },
+        {
+          "$ref": "#/$defs/ConfirmDeclarationsAction"
         }
       ]
+    },
+    "EnvelopeDeclarationQuestion": {
+      "additionalProperties": false,
+      "description": "One declaration question, as the confirmation route publishes it.",
+      "properties": {
+        "answer_path": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Answer Path",
+          "type": "string"
+        },
+        "authorable_by": {
+          "enum": [
+            "coding_agent",
+            "human"
+          ],
+          "title": "Authorable By",
+          "type": "string"
+        },
+        "dimension": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Dimension",
+          "type": "string"
+        },
+        "subject": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Subject",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject",
+        "dimension",
+        "answer_path",
+        "authorable_by"
+      ],
+      "title": "EnvelopeDeclarationQuestion",
+      "type": "object"
     },
     "FullAgentPermissions": {
       "additionalProperties": false,

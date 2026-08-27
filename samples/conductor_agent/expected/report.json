@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.40",
+  "report_schema_version": "0.41",
   "run_id": "agents_shipgate_6b754fc4cc793df7",
   "request_id": null,
   "subject_id": null,
@@ -139,8 +139,10 @@
               "literal_handoffs",
               "complete:true"
             ],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -165,8 +167,10 @@
               "openapi_spec",
               "reviewed_explicit_inventory"
             ],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -187,8 +191,10 @@
             "why": "conductor_mcp_call extraction could not fully enumerate this tool surface.",
             "expects": "Provide a complete MCP export, OpenAPI spec, or explicit local tool inventory for this source, then rerun the scan.",
             "accepted_values": [],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -209,8 +215,10 @@
             "why": "The warning text names the degraded source.",
             "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan.",
             "accepted_values": [],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -231,8 +239,10 @@
             "why": "The warning text names the degraded source.",
             "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan.",
             "accepted_values": [],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -253,8 +263,10 @@
             "why": "The warning text names the degraded source.",
             "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan.",
             "accepted_values": [],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
@@ -275,8 +287,10 @@
             "why": "The warning text names the degraded source.",
             "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan.",
             "accepted_values": [],
+            "authorable_by": "human",
             "suggested_patch_kind": "manual",
             "declaration_template": null,
+            "patch": null,
             "observed_readings": [],
             "auto_apply": false,
             "requires_human_review": true
