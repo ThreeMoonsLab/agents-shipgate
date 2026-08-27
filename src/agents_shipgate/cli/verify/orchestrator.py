@@ -1877,7 +1877,7 @@ def _gap_provenance_note(
     *,
     report: ReadinessReport | None,
     base_report: Path | None,
-) -> str | None:
+) -> list[str]:
     """Say whether THIS diff introduced the evidence gaps, or inherited them.
 
     An abstention earned by a repository's pre-existing state reads, on a
@@ -1886,38 +1886,47 @@ def _gap_provenance_note(
     and a diff that appears to touch nothing is exactly what an unseeable
     capability change looks like, so the diff can never argue the abstention
     away. What it can do is stop misattributing it.
+
+    Returned as whole sentences, most load-bearing first, because the caller
+    has to fit them into a shared byte budget. A mid-sentence cut turns a tool
+    name into a different tool name — ``delete_repo…`` for
+    ``delete_repository`` — and ``Excluded from analysis: find_dup…`` names
+    nothing at all; composing the string here and letting the composition
+    slice it is what made that reachable (#433).
     """
 
     if report is None or report.release_decision is None:
-        return None
+        return []
     coverage = report.release_decision.evidence_coverage
     if coverage is None or not coverage.evidence_gaps:
-        return None
+        return []
     head = Counter(
         (str(gap.kind), _stable_subject(str(gap.subject or "")))
         for gap in coverage.evidence_gaps
     )
     if base_report is None or not base_report.is_file():
-        return None
+        return []
     try:
         base = _evidence_gap_identities(
             json.loads(base_report.read_text(encoding="utf-8"))
         )
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return None
+        return []
     if base is None:
-        return None
+        return []
     # Multiset, not set: two gaps sharing a (kind, subject) are two gaps, and
     # collapsing them would report a genuinely new one as inherited.
     new_identities = head - base
     introduced = sum(new_identities.values())
     total = sum(head.values())
     if introduced:
-        note = f"{introduced} of {total} evidence gap(s) are new in this diff."
+        sentences = [f"{introduced} of {total} evidence gap(s) are new in this diff."]
         excluded = _excluded_subject_clause(
             report, {subject for _kind, subject in new_identities}
         )
-        return f"{note} {excluded}" if excluded else note
+        if excluded:
+            sentences.append(excluded)
+        return sentences
     # Name the scaffold only when one will exist, and only for the gaps it
     # actually covers. Low-confidence and source-warning gaps carry no
     # declaration template, so promising that "a declaration closes them" would
@@ -1927,18 +1936,19 @@ def _gap_provenance_note(
         for gap in coverage.evidence_gaps
         if getattr(gap.next_action, "declaration_template", None)
     )
+    # Two sentences, not one string: the remedy is the less load-bearing half,
+    # so a tight budget should be able to drop it and keep the fact.
+    sentences = [
+        f"This diff introduces no new evidence gap; all {total} are "
+        "pre-existing on the base."
+    ]
     if scaffolded:
         subset = "all of them" if scaffolded == total else f"{scaffolded} of them"
-        remedy = (
-            f" A one-time human declaration closes {subset} "
+        sentences.append(
+            f"A one-time human declaration closes {subset} "
             f"({SUGGESTED_DECLARATIONS_FILENAME})."
         )
-    else:
-        remedy = ""
-    return (
-        f"This diff introduces no new evidence gap; all {total} are "
-        f"pre-existing on the base.{remedy}"
-    )
+    return sentences
 
 
 # How much of an excluded subject the clause carries. The subject is scanned
@@ -2157,6 +2167,34 @@ def _bounded_bytes(value: str, max_bytes: int) -> str:
     return kept.rstrip() + _ELLIPSIS
 
 
+def _fit_sentences(sentences: Sequence[str], budget: int) -> str:
+    """As much of the context as fits, in whole sentences.
+
+    Every other budgeting primitive here cuts bytes and marks the cut, which
+    is right for a value that is one unbroken run of untrusted text — a
+    blocker title, a manifest path. It is wrong for context that *names
+    subjects*: ``delete_repo…`` is not a shortening of ``delete_repository``
+    a reader can act on, it is a different tool that may well exist, and
+    ``Excluded from analysis: find_dup…`` names nothing at all (#433).
+
+    So the context is built as complete sentences ordered most load-bearing
+    first, and a tight budget takes whole sentences off the end. The reader
+    keeps true statements or gets none — never half of one.
+    """
+
+    kept: list[str] = []
+    used = 0
+    for sentence in sentences:
+        if not sentence:
+            continue
+        size = len(sentence.encode("utf-8")) + (1 if kept else 0)
+        if used + size > budget:
+            break
+        kept.append(sentence)
+        used += size
+    return " ".join(kept)
+
+
 def _compose_with_reserved_suffix(lead: str, suffix: str) -> str:
     """Put ``lead`` first while guaranteeing ``suffix`` survives the budget.
 
@@ -2258,7 +2296,7 @@ def _verifier_headline(
     manifest_introduced: bool = False,
     pure_adoption_review: bool = False,
     configured_manifest: str | None = None,
-    context_note: str | None = None,
+    context_note: Sequence[str] = (),
 ) -> str | None:
     """The whole headline, composed once.
 
@@ -2270,12 +2308,32 @@ def _verifier_headline(
     the requirement past the compact control projection's limit and delete it
     from ``reason`` and ``human_review.why``. Context belongs in the lead; the
     requirement stays last and whole.
+
+    It arrives as whole sentences, most load-bearing first, and every route
+    below fits it with :func:`_fit_sentences` rather than by slicing bytes off
+    a composed string — see that function for why.
     """
 
-    lead_context = _one_clause(context_note) if context_note else ""
+    # A ``str`` satisfies ``Sequence[str]``, and iterating one yields
+    # characters — which ``_fit_sentences`` would faithfully join back with a
+    # space between every letter. A type checker cannot see it, so the check
+    # is here.
+    if isinstance(context_note, str):
+        raise TypeError("context_note is a sequence of whole sentences, not a string")
+    sentences = [_one_clause(sentence) for sentence in context_note]
 
     def _lead(primary: str) -> str:
-        return f"{primary} {lead_context}" if lead_context else primary
+        """A fixed primary plus as much context as the envelope has room for.
+
+        Bounded here rather than left to the envelope's own tail truncation:
+        this is the route a blocked repository takes, so it is the route that
+        carries the excluded subjects, and ``truncate_prose`` cuts bytes.
+        """
+
+        context = _fit_sentences(
+            sentences, MAX_ENVELOPE_PROSE_BYTES - len(primary.encode("utf-8")) - 1
+        )
+        return f"{primary} {context}" if context else primary
 
     def _report_lead(source: ReadinessReport, suffix: str) -> str:
         """Build the lead in priority order, so the least load-bearing part yields.
@@ -2283,18 +2341,15 @@ def _verifier_headline(
         The verdict and the named blocking cause are why the headline was
         reordered in the first place; the evidence-gap provenance note is
         context about where the gaps came from. So the note is what shrinks
-        when the budget is tight, and it is dropped rather than reduced to a
-        stub. The reserved suffix is never touched by any of this.
+        when the budget is tight, one whole sentence at a time. The reserved
+        suffix is never touched by any of this.
         """
 
         primary = _report_primary_headline(source)
-        if not lead_context:
-            return primary
         room = MAX_ENVELOPE_PROSE_BYTES - len(suffix.encode("utf-8")) - 1
-        budget = room - len(primary.encode("utf-8")) - 1
-        # Below this there is no room for a sentence, only for an ellipsis
-        # pretending to be one.
-        context = _bounded_bytes(lead_context, budget) if budget >= 24 else ""
+        context = _fit_sentences(
+            sentences, room - len(primary.encode("utf-8")) - 1
+        )
         return f"{primary} {context}" if context else primary
 
     # A failed scan has no adoption evidence to act on. Lead with the failure,
@@ -2330,14 +2385,19 @@ def _verifier_headline(
             report.release_decision
         ):
             return _compose_with_reserved_suffix(_report_lead(report, note), note)
-        return _compose_with_reserved_suffix(lead_context, note)
+        return _compose_with_reserved_suffix(
+            _fit_sentences(
+                sentences, MAX_ENVELOPE_PROSE_BYTES - len(note.encode("utf-8")) - 1
+            ),
+            note,
+        )
     if report is not None and report.agent_summary is not None:
         return _lead(_one_clause(report.agent_summary.headline))
     if head_status == "skipped":
         return _lead(
             "No agent-capability changes detected; Shipgate did not need to run."
         )
-    return lead_context or None
+    return _fit_sentences(sentences, MAX_ENVELOPE_PROSE_BYTES) or None
 
 
 def _verifier_mode(

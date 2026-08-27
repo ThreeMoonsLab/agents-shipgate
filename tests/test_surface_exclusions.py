@@ -1303,23 +1303,31 @@ def _verify_two_commits(repo: Path, tools_at_head: list[dict[str, object]], decl
     )
 
 
-def _note(tmp_path: Path, base_tools, head_tools, declared) -> str | None:
-    """The provenance note for a base/head pair, through the real scan."""
+def _note(
+    tmp_path: Path, base_tools, head_tools, declared, head_declared=None
+) -> tuple[str, object]:
+    """The provenance note for a base/head pair, through the real scan.
+
+    Returned joined, as the headline composition renders it when the whole
+    note fits, plus the report so a caller can state its own preconditions.
+    """
 
     from agents_shipgate.cli.verify.orchestrator import _gap_provenance_note
 
     base_config = _write_tree(tmp_path / "base", base_tools, declared)
-    head_config = _write_tree(tmp_path / "head", head_tools, declared)
+    head_config = _write_tree(
+        tmp_path / "head", head_tools, head_declared if head_declared else declared
+    )
     _scan(base_config, tmp_path / "base" / "reports")
     report, _ = _scan(
         head_config,
         tmp_path / "head" / "reports",
         diff_from=tmp_path / "base" / "reports" / "report.json",
     )
-    note = _gap_provenance_note(
+    sentences = _gap_provenance_note(
         report=report, base_report=tmp_path / "base" / "reports" / "report.json"
     )
-    return note
+    return " ".join(sentences), report
 
 
 def test_a_new_gap_names_the_subject_that_left_the_analysed_surface(tmp_path):
@@ -1372,14 +1380,19 @@ def test_the_named_subject_is_the_ledger_spelling(tmp_path):
     """
 
     declared = ["list_issues"]
-    note = _note(
+    note, report = _note(
         tmp_path,
         [_tool("list_issues")],
         [_tool("list_issues"), _tool("find_duplicate")],
         declared,
     )
-    assert note is not None
     report_ledger_subject = "find_duplicate [server_mcp]"
+    (row,) = [
+        entry
+        for entry in report.surface_exclusions.entries
+        if entry.accounting == "evidence_gap"
+    ]
+    assert row.subject == report_ledger_subject
     assert (
         catalog_subject({"name": "find_duplicate", "provider": "server_mcp"})
         == report_ledger_subject
@@ -1394,9 +1407,10 @@ def test_many_new_exclusions_name_a_bounded_subset_and_count_the_rest(tmp_path):
 
     declared = ["list_issues"]
     added = [_tool(f"added_{index}") for index in range(6)]
-    note = _note(tmp_path, [_tool("list_issues")], [_tool("list_issues"), *added], declared)
+    note, _report = _note(
+        tmp_path, [_tool("list_issues")], [_tool("list_issues"), *added], declared
+    )
 
-    assert note is not None
     assert note.startswith("6 of 7 evidence gap(s) are new in this diff.")
     named = [tool["name"] for tool in added if f"{tool['name']} [server_mcp]" in note]
     assert len(named) == 3
@@ -1406,37 +1420,62 @@ def test_many_new_exclusions_name_a_bounded_subset_and_count_the_rest(tmp_path):
 
 
 def test_a_settled_workspace_adds_no_exclusion_clause(tmp_path):
-    """No noise where nothing left the surface because of this diff.
+    """No noise where nothing left the surface *because of this diff*.
 
-    The tool is unbound on both sides, so its exclusion is `not_claimed` and
-    carries no gap pointer at all — the ledger-side guard is
+    `delete_repository` is unbound on both sides, so its exclusion is
+    `not_claimed` and carries no gap pointer at all — the ledger-side guard is
     `test_a_pre_existing_unbound_tool_is_recorded_and_not_gated`; this is the
-    same claim one surface up.
+    same claim one surface up. The diff declares a new tool, so there *is* a
+    new gap to report and the clause's absence is a decision rather than an
+    empty precondition.
     """
 
-    declared = ["list_issues"]
-    tools = [_tool("list_issues"), _tool("delete_repository", destructive=True)]
-    # A source warning the head introduces, so there *is* a new gap to report
-    # and the clause's absence is a decision rather than an empty precondition.
-    base_config = _write_tree(tmp_path / "base", tools, declared)
-    head_config = _write_tree(tmp_path / "head", [*tools, {"description": "no name"}], declared)
-    _scan(base_config, tmp_path / "base" / "reports")
-    from agents_shipgate.cli.verify.orchestrator import _gap_provenance_note
+    pre_existing = [_tool("list_issues"), _tool("delete_repository", destructive=True)]
+    note, report = _note(
+        tmp_path,
+        pre_existing,
+        [*pre_existing, _tool("charge_card", destructive=True)],
+        ["list_issues"],
+        # Declared at head, so the new tool is inside the analysed surface and
+        # the only exclusion left is the pre-existing, unclaimed one.
+        head_declared=["list_issues", "charge_card"],
+    )
 
-    report, _ = _scan(
-        head_config,
-        tmp_path / "head" / "reports",
-        diff_from=tmp_path / "base" / "reports" / "report.json",
-    )
-    assert [row.accounting for row in report.surface_exclusions.entries if row.stage == "binding"] == [
-        "not_claimed"
-    ]
-    note = _gap_provenance_note(
-        report=report, base_report=tmp_path / "base" / "reports" / "report.json"
-    )
-    assert note is not None
+    ledger = report.surface_exclusions
+    assert [row.accounting for row in ledger.entries] == ["not_claimed"]
+    assert ledger.gated == 0
     assert "are new in this diff" in note
-    assert "delete_repository" not in note
+    assert "Excluded from analysis" not in note
+
+
+def test_an_adapter_omission_is_named_like_any_other_exclusion(tmp_path):
+    """The clause is not binding-only: any stage that points at a gap is named.
+
+    An MCP entry with no name never enters the catalog, and the loader records
+    that as a typed omission joined to the `source_warning` gap it raised
+    (PR #404 review 2). It is a subject that left the analysed surface for a
+    reason of its own, and the reader is told which one.
+    """
+
+    tools = [_tool("list_issues")]
+    note, report = _note(
+        tmp_path, tools, [*tools, {"description": "no name"}], ["list_issues"]
+    )
+
+    (row,) = [
+        entry
+        for entry in report.surface_exclusions.entries
+        if entry.stage == "adapter_parse"
+    ]
+    assert (row.subject, row.reason, row.accounting) == (
+        "/tools/1",
+        "unnamed_entry",
+        "evidence_gap",
+    )
+    assert (
+        "Excluded from analysis: /tools/1 — an entry with no name, "
+        "so no tool was read from it." in note
+    )
 
 
 def test_every_reason_the_ledger_owns_renders_a_phrase():

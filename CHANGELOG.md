@@ -44,6 +44,18 @@
   adapter's own token falls back to a phrase that claims nothing about a cause
   nobody recorded.
 
+  **And the headline's own budget now yields whole sentences.** The
+  evidence-gap context was composed into one string and sliced to fit — right
+  for one unbroken run of untrusted text, wrong the moment that text *names
+  subjects*: `delete_repo…` is not a shortening of `delete_repository` a
+  reader can act on, it is a plausible other tool, and `Excluded from
+  analysis: find_dup…` names nothing at all. The context is built as ordered
+  sentences, most load-bearing first, and every composition route fits it by
+  dropping whole sentences from the end. The pre-existing "no new evidence
+  gap" note is split the same way, so a tight budget drops the declaration
+  remedy and keeps the fact instead of losing both. Byte-identical wherever
+  the whole note already fitted, which is every case the suite covers.
+
 - **A coding agent can now answer the declaration questions the scanner
   already knows the answers to.** (#410 §D) The questionnaire (#410 increment
   2) told a person which blanks were owed; it had no way to say that most of

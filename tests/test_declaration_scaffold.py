@@ -172,34 +172,38 @@ def test_gap_provenance_distinguishes_inherited_from_introduced(tmp_path) -> Non
         )
         return path
 
-    # Same gap set on both sides: inherited.
+    # Same gap set on both sides: inherited. One whole sentence, because the
+    # caller fits the note by dropping sentences rather than slicing bytes.
     inherited = _gap_provenance_note(
         report=_report_with([effect]), base_report=_base_file([effect])
     )
-    assert inherited is not None
-    assert "no new evidence gap" in inherited
-    assert "suggested-declarations.yaml" in inherited
+    assert "no new evidence gap" in inherited[0]
+    # Its own sentence, so a tight headline budget drops the remedy and keeps
+    # the fact rather than losing both.
+    assert "suggested-declarations.yaml" in inherited[1]
+    assert " ".join(inherited) == (
+        "This diff introduces no new evidence gap; all 1 are pre-existing on "
+        "the base. A one-time human declaration closes all of them "
+        "(suggested-declarations.yaml)."
+    )
 
     # A gap absent from the base is introduced by this diff.
-    introduced = _gap_provenance_note(
+    (introduced,) = _gap_provenance_note(
         report=_report_with([effect, authority]), base_report=_base_file([effect])
     )
-    assert introduced is not None
     assert "1 of 2 evidence gap(s) are new" in introduced
 
     # Without a readable base there is no basis to claim anything.
-    assert (
-        _gap_provenance_note(report=_report_with([effect]), base_report=None) is None
-    )
+    assert _gap_provenance_note(report=_report_with([effect]), base_report=None) == []
     missing = tmp_path / "nope.json"
     assert (
-        _gap_provenance_note(report=_report_with([effect]), base_report=missing) is None
+        _gap_provenance_note(report=_report_with([effect]), base_report=missing) == []
     )
     unreadable = tmp_path / "bad.json"
     unreadable.write_text("not json{", encoding="utf-8")
     assert (
         _gap_provenance_note(report=_report_with([effect]), base_report=unreadable)
-        is None
+        == []
     )
     assert _evidence_gap_identities("nonsense") is None
 
