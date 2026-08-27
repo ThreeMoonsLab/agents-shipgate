@@ -67,14 +67,23 @@ def catalog_subject(row: Mapping[str, Any]) -> str:
 #: adapter's own token falls back, because there is nothing to look it up in.
 #:
 #: Written to follow a subject after an em dash, so no phrase carries number
-#: agreement of its own: ``find_duplicate [github_mcp] — added by this diff and
-#: not bound to the root agent`` reads the same for one subject or five.
+#: agreement of its own: ``'find_duplicate [github_mcp]' — not bound to the
+#: root agent`` reads the same for one subject or five.
+#:
+#: Every phrase states a *cause* and no phrase states provenance. The renderer
+#: says "new in this diff" once, from the ledger diff that proves it, and a
+#: phrase that repeated the claim got it wrong: ``newly_unbound_tool`` fires
+#: for a tool this change added **and** for one that was reachable at the base
+#: and lost the edge that bound it (``BindingSurfaceDiff.added_unbound_tool_ids``
+#: is head-minus-base, and the #403 discriminator is deliberately both), so
+#: "added by this diff" was false for a diff that only removed a declaration
+#: (#433 review).
 EXCLUSION_REASON_PHRASES: dict[str, str] = {
     # binding
     "incomplete_binding_edge": (
         "bound by an edge that does not prove the binding complete"
     ),
-    "newly_unbound_tool": "added by this diff and not bound to the root agent",
+    "newly_unbound_tool": "not bound to the root agent",
     "unbound_tool": "in the catalog and not bound to the root agent",
     "unverified_unbound_tool": (
         "not bound to the root agent, with no usable base to compare against"
@@ -449,8 +458,13 @@ def _binding_exclusions(
                 source_ref=_row_ref(row),
                 detail=(
                     (
-                        "This change put the tool in the catalog and left it "
-                        "unbound from the root agent, so no check judged it."
+                        # Not "this change added the tool": the same set also
+                        # holds a tool that was reachable at the base and lost
+                        # the edge that bound it, and naming one cause states a
+                        # fact the comparison did not establish (#433 review).
+                        "This change left the tool outside the root agent's "
+                        "bound surface — newly in the catalog, or bound at the "
+                        "base and no longer — so no check judged it."
                     )
                     if introduced
                     else (

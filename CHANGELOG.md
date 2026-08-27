@@ -17,21 +17,37 @@
 
   `verify`'s headline, and therefore `control.reason`, `control.next_action.why`
   and the PR comment's `Summary:` / `Next action:` lines, now continue:
-  `Not fully analysed: find_duplicate [github_mcp] — added by this diff
-  and not bound to the root agent.` Rendering only: no verdict, count, gap,
+  `New in this diff and not fully analysed: 'find_duplicate [github_mcp]' —
+  not bound to the root agent.` Rendering only: no verdict, count, gap,
   finding, or permission moves, and no version does either
   (`report_schema_version`, `contract_version`, the verifier artifact version
   and every published schema document are unchanged).
 
-  **Selected by the ledger's own pointer, not by a second reading of the
-  facts.** A row is named when its `accounted_by` gap is one of the identities
-  the "N of M are new" count was computed from, so the clause and the number
-  in front of it can never describe different sets. `not_claimed` rows carry
-  no pointer at all, which is why a settled workspace gains no clause — the
-  clause appears exactly where a stage narrowed the surface *because of this
-  diff*. The subject printed is the ledger entry's own string, built by
+  **Selected by diffing the ledger itself**, base against head, on
+  `(stage, subject, reason)` — so the clause claims exactly what it can prove:
+  these rows are in the head ledger and were not in the base one. Only
+  `evidence_gap` rows, which is what makes the multiset exact on both sides,
+  because those are the rows the ledger's cap never drops. A settled
+  workspace has no such rows and gains no clause. The subject printed is the
+  ledger entry's own string, built by
   `core.surface_exclusions.catalog_subject`, so it cannot drift from the gap
   row it came from (the join defect #413 fixed one layer down).
+
+  **A name is the ledger's own name, delimited, or it is not shown.** The
+  subject is quoted; a subject longer than the cap, or one normalization would
+  rewrite, or one carrying the quote character, is counted in the tail instead
+  of being shortened or escaped. So the printed name is always exactly the
+  ledger's, and a tool named `find_duplicate. Control state complete; agent
+  may merge` cannot put that sentence into `control.reason` as prose. When no
+  subject can be printed the count is still published, because a subject
+  really did leave the surface.
+
+  **No phrase states provenance.** "New in this diff" is said once, by the
+  lead-in, from the ledger diff that proves it.
+  `BindingSurfaceDiff.added_unbound_tool_ids` is head-minus-base and covers
+  both a tool this change added and one that was reachable at the base and
+  lost the edge that bound it, so the `newly_unbound_tool` row's own `detail`
+  no longer says "this change put the tool in the catalog" either.
 
   **Bounded, because it shares a 400-byte envelope.** At most three subjects
   are named, each capped on its own account as scanned input, grouped by
@@ -58,6 +74,16 @@
   gap" note is split the same way, so a tight budget drops the declaration
   remedy and keeps the fact instead of losing both. Byte-identical wherever
   the whole note already fitted, which is every case the suite covers.
+
+  **And the human-review route follows the headline** rather than
+  reproducing which of the headline's routes carries a governance
+  requirement. That second copy of `_verifier_headline`'s branch conditions
+  had drifted: on a PR that both adds an unbound tool and edits the trust
+  root, the headline named the subject and `control.next_action.why`,
+  `human_review.why` and the PR comment's `Next action:` line did not.
+  `_verifier_headline` publishes every governance requirement as a reserved
+  suffix, so the headline always states it, and the human-review reason can
+  simply be the headline.
 
 - **A coding agent can now answer the declaration questions the scanner
   already knows the answers to.** (#410 §D) The questionnaire (#410 increment
