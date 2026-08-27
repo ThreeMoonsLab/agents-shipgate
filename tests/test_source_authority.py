@@ -884,16 +884,23 @@ def test_every_gap_kind_a_source_can_own_has_its_own_phrase() -> None:
     ``_GAP_PHRASE`` is keyed by kind alone, so a source-scoped row inherited
     "an action has no declared authority (crm [tool_source])" — a sentence
     describing neither the subject nor the edit. The override table has to
-    cover every kind that can carry ``subject_kind: tool_source``, which is
-    exactly the set the questionnaire routes to a source block.
+    cover every kind that can carry ``subject_kind: tool_source``.
+
+    That set is no longer the questionnaire's alone: a reviewed
+    ``tool_sources[].binding`` that reaches no tool is a second, independent
+    producer of a source-scoped row (#432). ``SOURCE_SCOPED_GAP_KINDS`` is
+    where it is stated, beside the table it governs, and the questionnaire's
+    kinds have to be inside it rather than equal to it.
     """
 
     from agents_shipgate.core.evidence_actions import (
         _GAP_PHRASE,
         _SOURCE_SCOPED_GAP_PHRASE,
+        SOURCE_SCOPED_GAP_KINDS,
     )
 
-    assert set(_SOURCE_SCOPED_GAP_PHRASE) == set(SOURCE_ANSWERABLE_AUTHORITY_KINDS)
+    assert set(_SOURCE_SCOPED_GAP_PHRASE) == set(SOURCE_SCOPED_GAP_KINDS)
+    assert set(SOURCE_ANSWERABLE_AUTHORITY_KINDS) <= SOURCE_SCOPED_GAP_KINDS
     for kind, phrase in _SOURCE_SCOPED_GAP_PHRASE.items():
         assert phrase != _GAP_PHRASE[kind]
         assert "action" not in phrase.split(" ")[1]

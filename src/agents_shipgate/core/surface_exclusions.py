@@ -156,12 +156,20 @@ def agent_subject(node: AgentBindingNode) -> str:
     not merely be unreadable: :func:`derived_id_kind` refuses a derived id in
     any gap subject, so the fallback would abort the scan it was written to
     describe.
+
+    A qualifier equal to the name is dropped. The qualifier exists to separate
+    two sources defining an agent of the same name, and it separates nothing
+    when it *is* the name — a ``tool_sources[].binding`` surface is named by
+    its own source id, so it read as ``github_mcp [github_mcp]`` in the
+    sentence under the verdict.
     """
 
     name = node.name.strip()
     if not name:
         return node.source_ref or node.source_pointer or node.source_id or "unnamed agent"
-    return f"{name} [{node.source_id}]" if node.source_id else name
+    if not node.source_id or node.source_id == name:
+        return name
+    return f"{name} [{node.source_id}]"
 
 
 def agent_label_index(agents: Iterable[AgentBindingNode]) -> dict[str, str]:
@@ -282,10 +290,17 @@ def build_surface_exclusions(
     gaps: Sequence[EvidenceGap] = (
         decision.evidence_coverage.evidence_gaps if decision is not None else ()
     )
+    # ``subject_kind`` is what tells the two id spaces apart, and this join is
+    # in the tool-id one. A binding gap raised about a ``tool_sources`` entry
+    # carries a *source* id, and the schema says a consumer joining one against
+    # the other must be able to distinguish them rather than discover the
+    # difference on a collision (#432).
     binding_gap_subject_by_id = {
         gap.subject_id: gap.subject
         for gap in gaps
-        if gap.kind in BINDING_GAP_KINDS and gap.subject_id
+        if gap.kind in BINDING_GAP_KINDS
+        and gap.subject_id
+        and gap.subject_kind == "action"
     }
 
     entries: list[SurfaceExclusion] = []

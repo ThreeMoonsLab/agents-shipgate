@@ -43,6 +43,7 @@ from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.cli.scan.declarations import scaffold_for_report
 from agents_shipgate.core.agent_bindings import TOOL_SOURCE_BINDING_DECLARATION
 from agents_shipgate.core.boundary_diff import DiffFile, ResolvedFileText
+from agents_shipgate.core.evidence_actions import evidence_gap_headline
 from agents_shipgate.core.manifest_proposals import (
     assess_coverage_increasing_tool_source_proposal,
 )
@@ -908,6 +909,78 @@ def test_a_declaration_that_binds_nothing_fails_closed(tmp_path: Path) -> None:
     assert gap.kind == "missing_binding_evidence"
     assert "empty_source" in gap.why
     assert gap.next_action.path == "shipgate.yaml#tool_sources[].binding"
+
+
+def test_a_row_about_a_source_is_named_and_described_as_a_source(
+    tmp_path: Path,
+) -> None:
+    """The sentence under the verdict, checked where a reader reads it.
+
+    Three separate things were wrong at once in the first draft, and each is a
+    class this repository has been bitten by before: the headline was keyed by
+    kind alone so it spoke in the voice of an action about a subject that has
+    no agent; the subject repeated its own qualifier (``empty_source
+    [empty_source]``) because the qualifier is the source id and the node is
+    named by it; and ``subject_id`` published a *source* id in the field two
+    downstream joins read as a canonical tool id.
+    """
+
+    config = _binding_workspaces(tmp_path)["declared_binds_nothing"]
+
+    report = _scan(config)
+
+    gap = next(
+        gap
+        for gap in _binding_gaps(report)
+        if gap.kind == "missing_binding_evidence"
+    )
+    assert gap.subject == "empty_source"
+    assert gap.subject_kind == "tool_source"
+    assert gap.subject_id == "empty_source"
+    headline = evidence_gap_headline(gap)
+    assert headline == "a tool source's reviewed binding reaches no tool (empty_source)"
+    assert "agent" not in headline
+
+
+def test_a_source_id_shaped_like_a_tool_id_cannot_forge_an_accounted_exclusion(
+    tmp_path: Path,
+) -> None:
+    """Tool ids and source ids are independent repository-chosen namespaces.
+
+    The exclusion ledger joins a binding gap's ``subject_id`` against canonical
+    tool ids to decide whether an excluded subject is accounted for. A
+    source-scoped row publishes a *source* id in that field, and the schema's
+    own rule is that a consumer joining one namespace against the other must be
+    able to tell them apart rather than discover the difference on a collision.
+
+    So the collision is constructed rather than argued about: the declared
+    source is named after the canonical id of the tool that is genuinely
+    excluded. Without the namespace guard the ledger reports that tool as
+    ``evidence_gap``-accounted, gated by a row about an entirely different
+    subject — which is the ledger claiming gating it does not have (#404).
+    """
+
+    def build(source_id: str) -> Path:
+        return _workspace(
+            tmp_path / source_id[:24],
+            artifacts={"empty/tools.json": [], "other/tools.json": [_mcp_tool("b")]},
+            sources=[
+                _binding_source(source_id, "empty/tools.json"),
+                {"id": "other", "type": "mcp", "path": "other/tools.json"},
+            ],
+        )
+
+    probe = _scan(build("placeholder"))
+    excluded_id = probe.binding_surface_facts.unbound_tool_ids[0]
+
+    report = _scan(build(excluded_id))
+
+    assert report.surface_exclusions.total == 1
+    entry = report.surface_exclusions.entries[0]
+    assert entry.subject == "b [other]"
+    assert entry.accounting == "not_claimed"
+    assert entry.accounted_by is None
+    assert report.surface_exclusions.gated == 0
 
 
 def test_a_catalog_with_no_declarable_source_is_not_sent_to_the_new_block(

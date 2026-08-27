@@ -781,6 +781,7 @@ def _binding_coverage(
     # index, and chaining to the source pointer rather than back to the id:
     # a fallback that returns the unreadable value defeats itself.
     agent_labels = agent_label_index(graph.agents)
+    agent_names = {node.agent_id: node.name for node in graph.agents}
 
     def _agent_subject(issue: AgentBindingIssue) -> str:
         # Three answers, in the order they are true.
@@ -881,11 +882,26 @@ def _binding_coverage(
             accepted_values = ["literal_binding", "reviewed_declaration"]
             expects = "Correct the binding annotation or provide an exact reviewed declaration."
         template = _binding_declaration_template(graph, issue, tool_catalog)
+        # A row raised by a ``tool_sources[].binding`` declaration is about the
+        # source, not about one action: the subject is the source, and so is
+        # the id space ``subject_id`` names. Saying so is what keeps the
+        # headline out of the voice of an action ("the agent's tool bindings
+        # are unproven" describes neither the subject nor the edit) and what
+        # keeps a source id out of the tool-id joins downstream (#432).
+        source_scoped = issue.source == TOOL_SOURCE_BINDING_DECLARATION
         gaps.append(
             EvidenceGap(
                 kind=issue.kind,
                 subject=_gap_subject(issue.tool_id, _agent_subject(issue)),
-                subject_id=issue.tool_id,
+                subject_id=(
+                    # The surface node is named by the configured source id and
+                    # by nothing else, so the graph answers this without
+                    # parsing the manifest pointer back out of the issue.
+                    agent_names.get(issue.agent_id or "")
+                    if source_scoped
+                    else issue.tool_id
+                ),
+                subject_kind="tool_source" if source_scoped else "action",
                 source_ref=issue.source_pointer or issue.source,
                 why=issue.message,
                 next_action=EvidenceGapAction(

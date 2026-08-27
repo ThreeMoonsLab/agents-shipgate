@@ -431,6 +431,7 @@ def resolve_agent_binding_graph(
                 )
             )
             continue
+
         for tool in bound:
             tool_edges.append(
                 AgentToolBindingEdge(

@@ -350,10 +350,13 @@ def _validate_exclusion_ledger(report: ReadinessReport) -> None:
         for entry in ledger.entries
         if entry.stage == "binding" and entry.accounting == "evidence_gap"
     }
+    # Tool-id namespace, like the ledger join it checks: a binding gap about a
+    # ``tool_sources`` entry carries a source id (#432).
     unrecorded = {
         gap.subject_id
         for gap in gaps
         if gap.kind in BINDING_GAP_KINDS
+        and gap.subject_kind == "action"
         and gap.subject_id in excluded_tools
     } - {
         gap.subject_id
