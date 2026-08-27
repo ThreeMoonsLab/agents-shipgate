@@ -37,10 +37,13 @@
   are named, each capped on its own account as scanned input, grouped by
   cause so a diff that adds six unwired tools reads as one list with one
   reason and an `and 3 more` tail — the way `Most severe:` already handles the
-  findings side. The clause fits itself to its own byte budget by naming fewer
-  and counting more, rather than being cut mid-name by the envelope's tail
-  truncation. Reason tokens render through one table beside the builder that
-  emits them (`core.surface_exclusions.exclusion_phrase`), and a third-party
+  findings side. The clause shrinks itself by naming fewer and counting more,
+  because a clause that does not fit is dropped whole. One lead-in covers a
+  grouped list, so it says "Not fully analysed" rather than the ledger's own
+  "excluded from analysis": a `surface_not_enumerated` row is a tool that
+  *was* analysed as far as its surface could be read, and the excluded subject
+  is the unread remainder. Reason tokens render through one table beside the
+  builder that emits them (`core.surface_exclusions.exclusion_phrase`), and a third-party
   adapter's own token falls back to a phrase that claims nothing about a cause
   nobody recorded.
 
@@ -48,8 +51,8 @@
   evidence-gap context was composed into one string and sliced to fit — right
   for one unbroken run of untrusted text, wrong the moment that text *names
   subjects*: `delete_repo…` is not a shortening of `delete_repository` a
-  reader can act on, it is a plausible other tool, and `Excluded from
-  analysis: find_dup…` names nothing at all. The context is built as ordered
+  reader can act on, it is a plausible other tool, and `Not fully analysed:
+  find_dup…` names nothing at all. The context is built as ordered
   sentences, most load-bearing first, and every composition route fits it by
   dropping whole sentences from the end. The pre-existing "no new evidence
   gap" note is split the same way, so a tight budget drops the declaration
