@@ -587,7 +587,7 @@ is the copy-paste that breeds wrong answers. Declare it once on the source:
 tool_sources:
   - id: github_mcp
     type: mcp
-    path: __toolsnaps__
+    path: mcp/tools.json
     binding:
       complete: true
       reason: >-

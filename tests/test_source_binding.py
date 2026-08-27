@@ -30,7 +30,7 @@ would fail if it were lost:
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import pytest
@@ -45,6 +45,7 @@ from agents_shipgate.core.agent_bindings import TOOL_SOURCE_BINDING_DECLARATION
 from agents_shipgate.core.boundary_diff import DiffFile, ResolvedFileText
 from agents_shipgate.core.evidence_actions import evidence_gap_headline
 from agents_shipgate.core.manifest_proposals import (
+    _FILE_SOURCE_TYPES,
     assess_coverage_increasing_tool_source_proposal,
 )
 from agents_shipgate.schemas.manifest import (
@@ -1320,6 +1321,65 @@ def test_the_manifest_reason_is_stripped_like_every_other_reviewed_reason() -> N
     binding = manifest.tool_sources[0].binding
     assert binding is not None
     assert binding.reason == "reviewed"
+
+
+_MANIFEST_DOC = Path("docs/manifest-v0.1.md")
+_DOC_SECTION = "### A published tool surface, declared once per source"
+
+
+def test_the_documented_example_is_one_a_real_scan_loads(tmp_path: Path) -> None:
+    """The block in the manifest reference is run, not read.
+
+    Two separate things can be wrong with an example, and only one of them is
+    visible to a scan of whatever the example itself names.
+
+    *It does not parse, or it does not do what the prose says.* Checked by
+    running it: the block is lifted out of the section, the artifact it names
+    is materialised, and the outcome the section claims is asserted.
+
+    *Its path is not the shape that source type accepts.* The first draft wrote
+    ``path: __toolsnaps__`` — the directory ``github/github-mcp-server`` keeps
+    its tool snapshots in, which is where the 116 tools in the issue came from
+    — and an ``mcp`` source names one protocol artifact, so a reader copying it
+    got ``static input is not a regular file``. No scan of the example can
+    catch that, because materialising "whatever path the doc chose" creates a
+    *file* at that name and it loads perfectly. The rule has to be stated
+    instead, and ``_FILE_SOURCE_TYPES`` is where the codebase already states
+    it: for those types the documented path names a file, so it carries a
+    suffix.
+    """
+
+    body = _MANIFEST_DOC.read_text(encoding="utf-8").split(_DOC_SECTION, 1)
+    assert len(body) == 2, f"{_DOC_SECTION!r} is not in {_MANIFEST_DOC}"
+    block = body[1].split("```yaml", 1)[1].split("```", 1)[0]
+    documented = yaml.safe_load(block)
+
+    sources = documented["tool_sources"]
+    assert [source.get("binding", {}).get("complete") for source in sources] == [True]
+    for source in sources:
+        if source["type"] in _FILE_SOURCE_TYPES:
+            assert PurePosixPath(str(source["path"])).suffix, source
+
+    workspace = tmp_path / "documented"
+    workspace.mkdir(parents=True, exist_ok=True)
+    for source in sources:
+        artifact = workspace / str(source["path"])
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_text(
+            json.dumps({"tools": [_mcp_tool("a"), _mcp_tool("b")]}), encoding="utf-8"
+        )
+    config = workspace / "shipgate.yaml"
+    config.write_text(
+        yaml.safe_dump(_manifest_dict(sources=sources), sort_keys=False),
+        encoding="utf-8",
+    )
+
+    report = _scan(config)
+
+    # It loads, and it does what the section says it does.
+    assert _coverage(report).reachable_tools == 2
+    assert _coverage(report).unbound_tools == 0
+    assert [gap.kind for gap in _binding_gaps(report)] == []
 
 
 def test_the_published_manifest_schema_carries_the_block() -> None:
