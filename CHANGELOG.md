@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- **The report's `Root agent:` line names the agent instead of hashing it.**
+  (#329) Every shipped sample printed `Root agent: agent_v1:7205d836…` at the
+  head of the Agent Binding Surface section — a derived digest that appears in
+  no file the adopter has, telling them which agent the whole section is about
+  in the one vocabulary they cannot look anything up in. It now reads
+  `Root agent: durable_order_agent [conductor_workflows]`, resolved through the
+  same agent label index a binding gap uses, so the section header and a
+  finding about that agent cannot spell it two different ways. `unresolved`
+  covers every way the graph can fail to name a root — no root, the
+  `legacy_direct` sentinel, or a root id no node carries; chaining back to the
+  id would restore the digest on exactly the graphs that already read worst,
+  and `binding_surface_facts.root_agent_id` still carries the identity in
+  `report.json` for a bug report.
+
+  **The sweep that was supposed to catch this could not see it.** The Markdown
+  renderer escapes every value it prints, so the line reached
+  `test_sample_markdown_speaks_the_adopters_vocabulary` as
+  `agent\_v1:7205d836…` — and every derived id shape and internal term in
+  `core.adopter_text` contains an underscore, which made that sweep close to
+  vacuous over the whole half of the report that goes through
+  `_safe_markdown_text`. The sweep now un-escapes each line first, against a
+  `unescape_markdown_text` defined as the escaper's inverse beside it, with a
+  negative control asserting the raw escaped spelling passes the matcher while
+  the sweep rejects it. Markdown-only: report, packet and verifier schemas are
+  unchanged, and the five sample `report.md` goldens are regenerated.
+
 - **A coding agent can now answer the declaration questions the scanner
   already knows the answers to.** (#410 §D) The questionnaire (#410 increment
   2) told a person which blanks were owed; it had no way to say that most of

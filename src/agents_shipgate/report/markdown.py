@@ -24,7 +24,9 @@ from agents_shipgate.core.findings.subject_rollup import (
 )
 from agents_shipgate.core.privacy import sanitize_report
 from agents_shipgate.core.source_warnings import group_source_warnings
+from agents_shipgate.core.surface_exclusions import agent_label_index
 from agents_shipgate.report.summary_text import evidence_coverage_text
+from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment
 from agents_shipgate.schemas.report import (
     DeclaredIntention,
     Finding,
@@ -1086,7 +1088,7 @@ def _append_binding_surface(lines: list[str], report: ReadinessReport) -> None:
     graph = report.binding_surface_facts
     lines.extend(["## Agent Binding Surface", ""])
     lines.append(f"Status: {_safe_markdown_text(graph.status)}")
-    lines.append(f"Root agent: {_safe_markdown_text(graph.root_agent_id or 'unresolved')}")
+    lines.append(f"Root agent: {_safe_markdown_text(_root_agent_label(graph))}")
     lines.append(f"Pass eligible: {str(graph.pass_eligible).lower()}")
     lines.append(
         "Catalog partition: "
@@ -1117,6 +1119,31 @@ def _append_binding_surface(lines: list[str], report: ReadinessReport) -> None:
         lines.append("")
 
 
+def _root_agent_label(graph: AgentBindingGraphAssessment) -> str:
+    """Name the root agent the way a reader can find it.
+
+    ``root_agent_id`` is a derived digest. Printing it read ``Root agent:
+    agent_v1:7205d836…`` on every shipped sample, naming something that
+    appears in no file the adopter has — the #329 rule, that proceeding must
+    not require understanding the internal identity model.
+
+    Resolved through :func:`agent_label_index` rather than from the node's own
+    fields, for the reason that index exists: an emitter that spells a label
+    itself produces a second spelling of the same subject.
+
+    ``unresolved`` covers both ways the graph can fail to name a root — no
+    root at all, and a root id no node carries (the ``legacy_direct``
+    sentinel, or a graph whose nodes and root disagree). Chaining to the id
+    would put the digest straight back, and the reader can do nothing with it;
+    ``binding_surface_facts.root_agent_id`` in ``report.json`` still carries
+    the identity for a bug report.
+    """
+
+    if graph.root_agent_id is None:
+        return "unresolved"
+    return agent_label_index(graph.agents).get(graph.root_agent_id, "unresolved")
+
+
 def _human_status(status: str) -> str:
     return status.replace("_", " ").capitalize()
 
@@ -1138,6 +1165,25 @@ def _safe_markdown_text(value: object) -> str:
     text = re.sub(r"(?m)^(\s*)-", r"\1\\-", text)
     text = re.sub(r"(?m)^(\s*\d+)\.", r"\1\\.", text)
     return text
+
+
+def unescape_markdown_text(text: str) -> str:
+    """The inverse of :func:`_safe_markdown_text`, for reading a report back.
+
+    A guard that reads rendered Markdown sees the escaped spelling, and every
+    derived id shape and internal term in
+    :mod:`agents_shipgate.core.adopter_text` contains an underscore — so
+    ``agent_v1:7205d836`` reaches the adopter-vocabulary sweep as
+    ``agent\\_v1:7205d836`` and matches nothing. That is how a digest shipped
+    in the ``Root agent:`` line of all five samples under a sweep written to
+    catch exactly it. Un-escaping first keeps that sweep about the sentence
+    instead of about the escaping.
+
+    A true inverse because the escaper escapes the backslash first: every
+    backslash in its output introduces exactly one escaped character.
+    """
+
+    return re.sub(r"\\(.)", r"\1", text)
 
 
 def _truncate_text(value: str, limit: int = 220) -> str:

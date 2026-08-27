@@ -232,7 +232,7 @@ No local runtime trace artifacts were declared for capability evidence.
 ## Agent Binding Surface
 
 Status: conflicting
-Root agent: agent\_v1:7cb237a00d64b7400f4adc3b
+Root agent: refund\_agent \[openai\_sdk\_static\]
 Pass eligible: false
 Catalog partition: 7 reachable, 0 possible, 1 unbound
 
