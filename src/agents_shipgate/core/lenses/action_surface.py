@@ -10,8 +10,19 @@ from urllib.parse import unquote
 
 from agents_shipgate.core.action_semantics import (
     ACTION_EFFECT_RANK,
+    effect_phrase,
+    join_phrases,
     missing_control_recommendation,
     normalize_declared_strings,
+)
+from agents_shipgate.core.control_packs import (
+    DEDICATED_CONTROL_CHECKS,
+    HIGH_IMPACT_APPROVAL_POLICY_ID,
+    HIGH_IMPACT_EFFECTS,
+    ControlPack,
+    control_pack_policy_id,
+    pack_only_effect_groups,
+    resolve_control_pack,
 )
 from agents_shipgate.core.domain import (
     DECLARATION_CLAIM_SOURCES,
@@ -1516,6 +1527,11 @@ def _current_action_policy_findings(
 ) -> list[Finding]:
     findings: list[Finding] = []
     control_effects = _control_effects(action)
+    # #410 §F: which controls each effect obliges is the manifest's one
+    # answer, resolved through the single reader in ``core.control_packs``
+    # so the action lens and the tool-level ``SHIP-POLICY-*`` checks cannot
+    # end up applying two readings of the same field.
+    pack = resolve_control_pack(manifest)
     if any(is_broad_scope(scope) for scope in action.required_scopes):
         findings.append(
             _finding(
@@ -1536,97 +1552,54 @@ def _current_action_policy_findings(
                 blocks_release=True,
             )
         )
-    if "financial_write" in control_effects:
-        missing = _missing_builtin_requirements(
-            action,
-            {
-                "approval.required": True,
-                "safeguards.audit_log": True,
-                "safeguards.idempotency": True,
-            },
-        )
+    for effect, check_id, severity, phrase in DEDICATED_CONTROL_CHECKS:
+        if effect not in control_effects:
+            continue
+        missing = _missing_pack_controls(manifest, action, pack.obligations_for(effect))
         if missing:
             findings.append(
                 _builtin_control_finding(
-                    check_id="SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
-                    title=f"{action.tool_name} has financial write capability without required controls",
-                    severity="critical",
-                    action=action,
-                    agent_id=agent_id,
-                    effect="financial_write",
-                    missing=missing,
-                )
-            )
-    if "external_communication" in control_effects:
-        missing = _missing_builtin_requirements(
-            action,
-            {"safeguards.audit_log": True},
-        )
-        if not _action_has_policy_control(
-            action,
-            manifest.policies.require_confirmation_for_tools,
-        ):
-            missing.append("confirmation.required")
-        if missing:
-            findings.append(
-                _builtin_control_finding(
-                    check_id="SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
+                    check_id=check_id,
                     title=(
-                        f"{action.tool_name} has external communication capability "
+                        f"{action.tool_name} has {phrase} capability "
                         "without required controls"
                     ),
-                    severity="high",
+                    severity=severity,
                     action=action,
                     agent_id=agent_id,
-                    effect="external_communication",
+                    effect=effect,
                     missing=missing,
+                    control_pack=pack.id,
                 )
             )
-    if "destructive" in control_effects:
-        missing = _missing_builtin_requirements(
-            action,
-            {
-                "approval.required": True,
-                "safeguards.rollback": True,
-            },
-        )
-        if not _action_has_policy_control(
-            action,
-            manifest.policies.require_confirmation_for_tools,
-        ):
-            missing.append("confirmation.required")
-        if missing:
-            findings.append(
-                _builtin_control_finding(
-                    check_id="SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING",
-                    title=f"{action.tool_name} has destructive capability without required controls",
-                    severity="critical",
-                    action=action,
-                    agent_id=agent_id,
-                    effect="destructive",
-                    missing=missing,
-                )
-            )
-    high_impact_effects = control_effects.intersection({"production_operation", "code_execution"})
+    high_impact_effects = control_effects.intersection(HIGH_IMPACT_EFFECTS)
     if high_impact_effects:
-        missing = _missing_builtin_requirements(
+        missing = _missing_pack_controls(
+            manifest,
             action,
-            {"approval.required": True},
+            frozenset().union(
+                *(pack.obligations_for(effect) for effect in high_impact_effects)
+            ),
         )
         if missing:
             findings.append(
                 _finding(
                     check_id="SHIP-ACTION-POLICY-VIOLATION",
+                    # Was "without approval". Under ``default`` approval is
+                    # the only obligation here, but a stricter pack adds an
+                    # audit log — and then an action that *has* approval was
+                    # told it did not, which is the #364 defect one field
+                    # over. The three dedicated checks already say this.
                     title=(
                         f"{action.tool_name} has "
                         f"{', '.join(sorted(high_impact_effects))} capability "
-                        "without approval"
+                        "without required controls"
                     ),
                     severity="critical",
                     action=action,
                     agent_id=agent_id,
                     evidence={
-                        "policy_id": "builtin-high-impact-approval",
+                        "policy_id": HIGH_IMPACT_APPROVAL_POLICY_ID,
                         "action_id": action.action_id,
                         "missing": [
                             {
@@ -1635,6 +1608,13 @@ def _current_action_policy_findings(
                             }
                             for path in missing
                         ],
+                        "control_pack": pack.id,
+                        # The effects this action actually has, not the whole
+                        # category. One id serves both high-impact effects, so
+                        # recovering them from it reported a code-execution
+                        # action as also operating on production — and then
+                        # demanded production's rollback (#410 §F review).
+                        "control_effects": sorted(high_impact_effects),
                     },
                     # One obligation, so this sentence cannot name a
                     # control the reader already declared — but it used to
@@ -1653,7 +1633,111 @@ def _current_action_policy_findings(
                     ),
                 )
             )
+    findings.extend(
+        _pack_only_control_findings(
+            manifest,
+            action,
+            agent_id=agent_id,
+            pack=pack,
+            control_effects=control_effects,
+        )
+    )
     return findings
+
+
+def _pack_only_control_findings(
+    manifest: AgentsShipgateManifest,
+    action: ActionFact,
+    *,
+    agent_id: str,
+    pack: ControlPack,
+    control_effects: set[str],
+) -> list[Finding]:
+    """Findings for obligations a pack states about effects nothing else covers.
+
+    ``default`` states none of these — the effects with a built-in control
+    check are exactly the effects it obliges anything for — so this route is
+    empty for every manifest that does not choose a pack, which is what keeps
+    the field additive. (Pinned by
+    ``test_the_default_pack_obliges_nothing_outside_the_dedicated_checks``:
+    the claim is what makes the field additive, so it cannot be left as
+    prose.) A stricter pack can oblige an audit log for a plain ``write``, and
+    there is no shipped check id for that; rather than mint one per effect,
+    they route through ``SHIP-ACTION-POLICY-VIOLATION``, the id that already
+    means *a policy this manifest selected was not satisfied*, carrying the
+    pack rule in ``evidence.policy_id``.
+
+    Effects obliging the same controls are one rule and one finding, the way
+    ``production_operation`` and ``code_execution`` already are. An action
+    that writes, reads privileged data, and touches identity owes one audit
+    log; three findings repeating one sentence about one action is the shape
+    #410 exists to remove.
+
+    Severity is ``high`` rather than ``critical``: the pack's own dedicated
+    families keep the severities they shipped with, and an obligation an
+    adopter added by choosing a stricter pack should not outrank the
+    destructive-capability blocker it sits beside.
+    """
+
+    findings: list[Finding] = []
+    for effects, controls in pack_only_effect_groups(pack, control_effects):
+        missing = _missing_pack_controls(manifest, action, controls)
+        if not missing:
+            continue
+        phrase = join_phrases([effect_phrase(effect) for effect in effects])
+        findings.append(
+            _finding(
+                check_id="SHIP-ACTION-POLICY-VIOLATION",
+                title=(
+                    f"{action.tool_name} has {phrase} capability "
+                    "without required controls"
+                ),
+                severity="high",
+                action=action,
+                agent_id=agent_id,
+                evidence={
+                    "policy_id": control_pack_policy_id(effects),
+                    "action_id": action.action_id,
+                    "missing": [{"path": path, "expected": True} for path in missing],
+                    "control_pack": pack.id,
+                    "control_effects": list(effects),
+                },
+                recommendation=missing_control_recommendation(list(effects), missing),
+                blocks_release=True,
+                support=_builtin_control_support(
+                    action,
+                    effects=set(effects),
+                    missing=missing,
+                ),
+            )
+        )
+    return findings
+
+
+def _missing_pack_controls(
+    manifest: AgentsShipgateManifest,
+    action: ActionFact,
+    controls: frozenset[str],
+) -> list[str]:
+    """Which of ``controls`` this action does not have, in reading order.
+
+    Five of the six control paths are fields on the action row. The sixth,
+    ``confirmation.required``, is not writable there at all — it is satisfied
+    from ``policies.require_confirmation_for_tools`` — so it is resolved
+    separately and appended last, which is also the order the three branches
+    this replaced produced it in.
+    """
+
+    row_paths = {
+        path: True for path in sorted(controls) if path != "confirmation.required"
+    }
+    missing = _missing_builtin_requirements(action, row_paths)
+    if "confirmation.required" in controls and not _action_has_policy_control(
+        action,
+        manifest.policies.require_confirmation_for_tools,
+    ):
+        missing.append("confirmation.required")
+    return missing
 
 
 def _action_has_policy_control(action: ActionFact, entries: list[Any]) -> bool:
@@ -1814,6 +1898,7 @@ def _builtin_control_finding(
     agent_id: str,
     effect: str,
     missing: list[str],
+    control_pack: str,
 ) -> Finding:
     """One built-in-control finding, built from one ``missing`` list.
 
@@ -1835,7 +1920,18 @@ def _builtin_control_finding(
         severity=severity,
         action=action,
         agent_id=agent_id,
-        evidence={"action_id": action.action_id, "missing": missing},
+        evidence={
+            "action_id": action.action_id,
+            "missing": missing,
+            # Which rule set asked for these, and which effects it asked
+            # about. Both are excluded from the fingerprint
+            # (``FINGERPRINT_EXCLUDED_EVIDENCE_KEYS``) because the finding is
+            # "this action lacks an audit log" either way — they change who
+            # asked, not what is wrong or how to fix it, and baselines
+            # recorded before the fields existed have to keep matching.
+            "control_pack": control_pack,
+            "control_effects": [effect],
+        },
         recommendation=missing_control_recommendation([effect], missing),
         blocks_release=True,
         support=_builtin_control_support(

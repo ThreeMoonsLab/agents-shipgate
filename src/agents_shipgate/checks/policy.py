@@ -7,10 +7,14 @@ from agents_shipgate.core.capability_policy import (
     subject_requires_confirmation_review,
 )
 from agents_shipgate.core.context import ScanContext
+from agents_shipgate.core.control_packs import resolve_control_pack
 
 
 def run(context: ScanContext):
     findings = []
+    # #410 §F: which effects oblige approval / confirmation is the manifest's
+    # one answer, not a set written out in this file.
+    pack = resolve_control_pack(context.manifest)
     subjects_by_tool_id = {
         subject.tool.id: subject for subject in context.capability_policy_subjects
     }
@@ -19,7 +23,7 @@ def run(context: ScanContext):
         if subject is None:
             continue
         tool = subject.tool
-        if subject_requires_approval_review(subject):
+        if subject_requires_approval_review(subject, pack=pack):
             findings.append(
                 tool_finding(
                     tool=tool,
@@ -30,6 +34,7 @@ def run(context: ScanContext):
                     evidence={
                         "risk_tags": list(subject.legacy_risk_tags),
                         "policy_match": None,
+                        "control_pack": pack.id,
                     },
                     confidence="high",
                     recommendation=f"Declare an approval policy for {tool.name} or remove this tool from the release.",
@@ -50,7 +55,7 @@ def run(context: ScanContext):
                     ),
                 )
             )
-        if subject_requires_confirmation_review(subject):
+        if subject_requires_confirmation_review(subject, pack=pack):
             findings.append(
                 tool_finding(
                     tool=tool,
@@ -61,6 +66,7 @@ def run(context: ScanContext):
                     evidence={
                         "risk_tags": list(subject.legacy_risk_tags),
                         "policy_match": None,
+                        "control_pack": pack.id,
                     },
                     confidence="high",
                     recommendation=f"Declare a user confirmation policy for {tool.name} or remove this action from the release.",

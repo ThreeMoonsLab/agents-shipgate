@@ -1757,6 +1757,24 @@
     "PoliciesConfig": {
       "additionalProperties": false,
       "properties": {
+        "control_pack": {
+          "anyOf": [
+            {
+              "enum": [
+                "default",
+                "financial-strict",
+                "read-only-agent"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Built-in control pack naming which controls each action effect obliges. Omit for 'default'. Every pack requires at least what 'default' requires.",
+          "title": "Control Pack"
+        },
         "require_approval_for_tools": {
           "items": {
             "$ref": "#/$defs/PolicyToolEntry"

@@ -638,7 +638,7 @@
         "action_id",
         "missing"
       ],
-      "fires_when": "A user-declared action_surface.policies rule matches an action and one or more required dot-path values are absent or different.",
+      "fires_when": "A user-declared action_surface.policies rule matches an action and one or more required dot-path values are absent or different, or the selected control pack (policies.control_pack) obliges a control for an effect with no dedicated check of its own. The rule is named in evidence.policy_id.",
       "floor_severity": "medium",
       "id": "SHIP-ACTION-POLICY-VIOLATION",
       "mvp_tier": "lifecycle",

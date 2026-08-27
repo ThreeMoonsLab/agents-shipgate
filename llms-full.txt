@@ -568,7 +568,7 @@ restate version archaeology here):
 - Audit envelopes: `release_decision.contribution_rules[]`, `policy_audit`,
   `privacy_audit`, `heuristics_filter` — explanatory, never a second gate
 
-The current schema is [`docs/report-schema.v0.39.json`](docs/report-schema.v0.39.json). Emitted reports carry `report_schema_version: "0.39"`; `surface_exclusions` records every subject a stage removed from the analysed surface and whether the release decision saw it, typed predicate support prevents heuristic evidence from being upgraded by policy severity or block metadata, and verify-native reports bind the content-addressed request and decision. A `passed` result requires a complete root-reachable static binding graph plus complete, conflict-free identity, effect, authority, and applicable-policy evidence for every reachable action. Every release decision explicitly carries `static_analysis_only: true`, `runtime_behavior_verified: false`, and `static_verdict_disclaimer`; packet §1 mirrors them. Binding, semantic, and policy-applicability gaps are not Findings and cannot be suppressed or baselined. See [`docs/passed-verdict-contract.md`](docs/passed-verdict-contract.md), [`docs/verification-reproducibility.md`](docs/verification-reproducibility.md), and [`docs/agent-contract-current.md`](docs/agent-contract-current.md). v0.38 remains frozen at [`docs/report-schema.v0.38.json`](docs/report-schema.v0.38.json).
+The current schema is [`docs/report-schema.v0.40.json`](docs/report-schema.v0.40.json). Emitted reports carry `report_schema_version: "0.40"`; `surface_exclusions` records every subject a stage removed from the analysed surface and whether the release decision saw it, typed predicate support prevents heuristic evidence from being upgraded by policy severity or block metadata, and verify-native reports bind the content-addressed request and decision. A `passed` result requires a complete root-reachable static binding graph plus complete, conflict-free identity, effect, authority, and applicable-policy evidence for every reachable action. Every release decision explicitly carries `static_analysis_only: true`, `runtime_behavior_verified: false`, and `static_verdict_disclaimer`; packet §1 mirrors them. Binding, semantic, and policy-applicability gaps are not Findings and cannot be suppressed or baselined. See [`docs/passed-verdict-contract.md`](docs/passed-verdict-contract.md), [`docs/verification-reproducibility.md`](docs/verification-reproducibility.md), and [`docs/agent-contract-current.md`](docs/agent-contract-current.md). v0.39 remains frozen at [`docs/report-schema.v0.39.json`](docs/report-schema.v0.39.json).
 
 **Release gating signal**: prefer `release_decision.decision` (`"blocked" | "review_required" | "insufficient_evidence" | "passed"`) over `summary.status`. The new field is **baseline-aware** — a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not `release_decision.blockers`. `summary.status` stays baseline-blind for v0.7 compatibility, so a baseline-matched-only critical produces both `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"` (intentional divergence — see [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus)). `insufficient_evidence` (added v0.14) signals that the scan saw too many low-confidence tools or source-loader warnings to be trustworthy; consumers that switch on the enum must fall back to `review_required` for unknown future values.
 
@@ -648,7 +648,7 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.39.json`](docs/report-schema.v0.39.json) (current).
+[`docs/report-schema.v0.40.json`](docs/report-schema.v0.40.json) (current).
 Older reports (`report_schema_version: "0.10"`) validate against the
 frozen [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json).
 Do not scrape Markdown when JSON is available.
@@ -686,7 +686,7 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.39.json`](docs/report-schema.v0.39.json) | `0.39` |
+| Report schema (current) | [`docs/report-schema.v0.40.json`](docs/report-schema.v0.40.json) | `0.40` |
 | Report schema (v0.38 frozen reference) | [`docs/report-schema.v0.38.json`](docs/report-schema.v0.38.json) | `0.38` |
 | Report schema (v0.37 frozen reference) | [`docs/report-schema.v0.37.json`](docs/report-schema.v0.37.json) | `0.37` |
 | Report schema (v0.34 frozen reference) | [`docs/report-schema.v0.34.json`](docs/report-schema.v0.34.json) | `0.34` |
@@ -1586,7 +1586,7 @@ Downstream repos generated with
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b7` — see [pyproject.toml](../pyproject.toml)
 - Runtime contract: `24` (minimum control contract: `21`)
-- Current report schema: `0.39` — [`docs/report-schema.v0.39.json`](report-schema.v0.39.json)
+- Current report schema: `0.40` — [`docs/report-schema.v0.40.json`](report-schema.v0.40.json)
 - Current packet schema: `0.16` — [`docs/packet-schema.v0.16.json`](packet-schema.v0.16.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
 - Current verifier schema: `0.13` — [`docs/verifier-schema.v0.13.json`](verifier-schema.v0.13.json) (v0.12 and earlier stay frozen; `0.13` adds `declaration_drift` to the evidence-gap and semantic-issue vocabularies)
@@ -2380,7 +2380,7 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full alpha stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.39.json`](report-schema.v0.39.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.40.json`](report-schema.v0.40.json) — machine-validatable JSON Schema for the current report.
 - [`docs/privacy.md`](privacy.md) and [`docs/report-sensitive-fields.json`](report-sensitive-fields.json) — default redaction behavior and sensitive-field inventory.
 - [`docs/packet-schema.v0.16.json`](packet-schema.v0.16.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog, including `mvp_tier` for MVP/readiness triage.
@@ -2449,7 +2449,7 @@ baseline summary and do not fail CI.
 | `SHIP-POLICY-APPROVAL-MISSING` | critical | A high-risk tool lacks a manifest approval policy. |
 | `SHIP-POLICY-CONFIRMATION-MISSING` | high | A destructive, external-write, or customer-communication tool lacks a confirmation policy. |
 | `SHIP-ACTION-UNDECLARED` | high | A loaded tool lacks explicit action-surface metadata when explicit actions are required. |
-| `SHIP-ACTION-POLICY-VIOLATION` | high | A user-declared action-surface policy requirement is not satisfied. |
+| `SHIP-ACTION-POLICY-VIOLATION` | high | A user-declared action-surface policy, or a selected control pack's obligation, is not satisfied. |
 | `SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING` | critical | A newly added financial write action lacks approval, audit, or idempotency controls. |
 | `SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING` | critical | A newly added destructive action lacks approval or rollback controls. |
 | `SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING` | high | A newly added external communication action lacks audit evidence. |
@@ -2553,8 +2553,8 @@ baseline summary and do not fail CI.
 | `SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING` | high | A high-risk production or production-like tool lacks owner metadata. |
 | `SHIP-MANIFEST-UNUSED-SCOPE` | medium/high | `permissions.scopes` contains a scope unused by any loaded tool; broad unused scopes are high. |
 | `SHIP-VERIFY-TRUST-ROOT-TOUCHED` | medium | A PR changed a release trust-root file; emitted only when a verification context (changed files) is supplied. |
-| `SHIP-VERIFY-POLICY-WEAKENED` | high | Base-vs-head effective policy weakened (CI mode downgraded, fail-on loosened, or a severity override lowered across a tier). |
-| `SHIP-VERIFY-POLICY-BASE-ABSENT` | medium | A policy or manifest trust root changed with no base policy snapshot to compare against (first adoption, or no base report); routed to human review without a weakening claim. |
+| `SHIP-VERIFY-POLICY-WEAKENED` | high | Base-vs-head effective policy weakened (CI mode downgraded, fail-on loosened, a severity override lowered across a tier, or the control pack moved to one that requires less). |
+| `SHIP-VERIFY-POLICY-BASE-ABSENT` | medium | A policy or manifest trust root changed and no base policy could be compared — no base report, a first adoption, or a control pack this build cannot resolve; routed to human review without a weakening claim. |
 | `SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED` | high | The PR broadens what the gate forgives — a new suppression, a widened waiver scope, or a larger accepted-debt baseline — versus the base. |
 | `SHIP-VERIFY-CI-GATE-REMOVED` | critical | The PR deletes the Shipgate CI workflow from an opted-in repo, which would stop the release gate from running. |
 | `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` | medium | The PR edits agent-instruction trust roots and weakening cannot be statically disproven; routed to human review. |
@@ -2654,6 +2654,15 @@ tool or disable the explicit-action requirement.
 A user-declared `action_surface.policies[]` rule matched an action, and one or
 more required dot-path values were absent or different. Satisfy the policy
 requirements or narrow/remove the action.
+
+This id also carries two built-in rules, distinguished by
+`evidence.policy_id`. `builtin-high-impact-approval` is the approval a
+production operation or code execution requires. `control-pack:<pack>:<effect>`
+is an obligation the manifest's selected control pack
+(`policies.control_pack`) states about an effect with no control check of its
+own — a plain write, a privileged read, or identity access. Both are mandatory
+current-surface controls: a `checks.ignore` entry records the exception but
+does not waive the blocker.
 
 ### SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING
 
@@ -3352,8 +3361,22 @@ changed, it compares the normalized effective-policy snapshot of the base
 report (supplied via `--diff-from`) against the head manifest and fires
 when the gate moved toward *less* review or *less* blocking — CI mode
 downgraded (e.g. `strict` → `advisory`), the fail-on severity set lost a
-tier, or a check's severity override dropped across a tier boundary. The
-comparison is semantic, not a text diff, so it is robust to reformatting.
+tier, a check's severity override dropped across a tier boundary, or
+`policies.control_pack` moved to a pack that requires *less* of some action
+effect (`kind: control_pack_weakened`). The comparison is semantic, not a text
+diff, so it is robust to reformatting.
+
+The first three kinds answer "does the same finding still block?"; the control
+pack answers "does the same action still produce the finding?", which is the
+other way a gate gets weaker. A pack move is one changed line, so it is one
+finding: `evidence.removed_controls` carries `{effect, controls}` for every
+effect that lost something, and the sentence names a bounded prefix plus how
+many it is not naming.
+
+Where either side names a control pack this build cannot resolve, no
+comparison is possible in either direction. That routes to
+`SHIP-VERIFY-POLICY-BASE-ABSENT` with `kind: control_pack_unrecognized` rather
+than reading as no weakening.
 
 The claim is base-relative, so this check fires only when a base snapshot
 exists to compare against. The no-base fail-safe is its own reason code,
@@ -3984,7 +4007,7 @@ from the hash so toggling `--suggest-patches` doesn't shift it.
 - [`checks.md`](checks.md) — full check catalog with rationale.
 - [`minimal-real-configs.md`](minimal-real-configs.md) — per-framework
   minimal manifests to build from.
-- [`report-schema.v0.39.json`](report-schema.v0.39.json) — current JSON
+- [`report-schema.v0.40.json`](report-schema.v0.40.json) — current JSON
   Schema for `report.json`.
 - [`AGENTS.md`](../AGENTS.md) — top-level agent instructions, install,
   trigger table.

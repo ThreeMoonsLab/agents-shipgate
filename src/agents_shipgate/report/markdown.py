@@ -4,7 +4,12 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-from agents_shipgate.core.action_semantics import control_phrase
+from agents_shipgate.core.action_semantics import (
+    control_phrase,
+    effect_phrase,
+    join_phrases,
+)
+from agents_shipgate.core.control_packs import control_rule_summaries
 from agents_shipgate.core.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
 from agents_shipgate.core.findings import (
     PROVENANCE_KIND_ORDER,
@@ -138,6 +143,7 @@ def render_markdown_report(
     _append_baseline(lines, report)
     _append_recommended_actions(lines, report.recommended_actions)
     _append_source_warnings(lines, report)
+    _append_control_pack(lines, report)
     _append_loaded_policy_packs(lines, report)
     _append_loaded_plugins(lines, report)
     _append_loaded_adapters(lines, report)
@@ -605,6 +611,46 @@ def _append_loaded_plugins(lines: list[str], report: ReadinessReport) -> None:
         lines.append(
             f"- {_safe_markdown_text(distribution)}{_safe_markdown_text(suffix)}: "
             f"{_safe_markdown_text(check_id)}"
+        )
+    lines.append("")
+
+
+def _append_control_pack(lines: list[str], report: ReadinessReport) -> None:
+    """Name the rule that wanted each missing control, once per rule (#410 §F).
+
+    Before this, a scan of four money-moving tools said "lacks a declared
+    approval policy" seven times and never once said *what requires approval*.
+    The rule is the thing an adopter can argue with, adopt, or tighten; the
+    per-tool rows below say who is short of it.
+
+    Rendered from the findings, so it appears only where a control is
+    actually missing — the pack a clean scan ran under is recorded in
+    ``shipgate.yaml`` rather than repeated here.
+
+    One report is one manifest is one pack, so the heading names the pack of
+    any row. Writing a loop over packs would be handling a state the engine
+    cannot produce, which reads as a fix and is never exercised; stating the
+    assumption is the honest version of the same thing.
+    """
+
+    summaries = control_rule_summaries(report.findings)
+    if not summaries:
+        return
+    pack = summaries[0].pack
+    lines.extend(["## Control Pack", ""])
+    lines.append(
+        f"`{_safe_markdown_text(pack.id)}` — {_safe_markdown_text(pack.name)} "
+        f"v{_safe_markdown_text(pack.version)}. "
+        f"{_safe_markdown_text(pack.summary)}"
+    )
+    lines.append("")
+    for row in summaries:
+        subject = join_phrases([effect_phrase(effect) for effect in row.effects])
+        controls = join_phrases([control_phrase(path) for path in row.controls])
+        noun = "action" if row.action_count == 1 else "actions"
+        lines.append(
+            f"- {_safe_markdown_text(subject)} requires "
+            f"{_safe_markdown_text(controls)} — {row.action_count} {noun} short"
         )
     lines.append("")
 

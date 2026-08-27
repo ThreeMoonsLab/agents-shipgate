@@ -562,6 +562,10 @@ _FROZEN_AND_CURRENT_SCHEMAS = [
         "capability-lock-diff-schema.v0.9.json",
         "declaration_drift",
     ),
+    # #410 §F: the effective-policy snapshot gained the control pack in force,
+    # so a base-vs-head comparison can see a pack moved to one that requires
+    # less. Only the report schema embeds ``EffectivePolicy``.
+    ("report-schema.v0.39.json", "report-schema.v0.40.json", "control_pack"),
 ]
 
 
@@ -634,6 +638,9 @@ _PUBLISHED_SCHEMA_SHA256 = {
     "capability-lock-diff-schema.v0.8.json": (
         "c872af71d41a445d1e28065704e034b2a0a32c88a5ec9e767ad8853f4373ac20"
     ),
+    "report-schema.v0.39.json": (
+        "9a150c97a13c59b4f1ba68d86d4393be1c799e6c84d1638acee825e28646dab9"
+    ),
 }
 
 
@@ -677,7 +684,7 @@ def test_every_emitted_artifact_validates_against_its_own_current_schema(tmp_pat
     )
 
     for artifact, schema_name in (
-        ("report.json", "report-schema.v0.39.json"),
+        ("report.json", "report-schema.v0.40.json"),
         ("packet.json", "packet-schema.v0.16.json"),
     ):
         payload = json.loads((tmp_path / artifact).read_text(encoding="utf-8"))

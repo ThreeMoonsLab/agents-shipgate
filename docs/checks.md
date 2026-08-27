@@ -54,7 +54,7 @@ baseline summary and do not fail CI.
 | `SHIP-POLICY-APPROVAL-MISSING` | critical | A high-risk tool lacks a manifest approval policy. |
 | `SHIP-POLICY-CONFIRMATION-MISSING` | high | A destructive, external-write, or customer-communication tool lacks a confirmation policy. |
 | `SHIP-ACTION-UNDECLARED` | high | A loaded tool lacks explicit action-surface metadata when explicit actions are required. |
-| `SHIP-ACTION-POLICY-VIOLATION` | high | A user-declared action-surface policy requirement is not satisfied. |
+| `SHIP-ACTION-POLICY-VIOLATION` | high | A user-declared action-surface policy, or a selected control pack's obligation, is not satisfied. |
 | `SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING` | critical | A newly added financial write action lacks approval, audit, or idempotency controls. |
 | `SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING` | critical | A newly added destructive action lacks approval or rollback controls. |
 | `SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING` | high | A newly added external communication action lacks audit evidence. |
@@ -158,8 +158,8 @@ baseline summary and do not fail CI.
 | `SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING` | high | A high-risk production or production-like tool lacks owner metadata. |
 | `SHIP-MANIFEST-UNUSED-SCOPE` | medium/high | `permissions.scopes` contains a scope unused by any loaded tool; broad unused scopes are high. |
 | `SHIP-VERIFY-TRUST-ROOT-TOUCHED` | medium | A PR changed a release trust-root file; emitted only when a verification context (changed files) is supplied. |
-| `SHIP-VERIFY-POLICY-WEAKENED` | high | Base-vs-head effective policy weakened (CI mode downgraded, fail-on loosened, or a severity override lowered across a tier). |
-| `SHIP-VERIFY-POLICY-BASE-ABSENT` | medium | A policy or manifest trust root changed with no base policy snapshot to compare against (first adoption, or no base report); routed to human review without a weakening claim. |
+| `SHIP-VERIFY-POLICY-WEAKENED` | high | Base-vs-head effective policy weakened (CI mode downgraded, fail-on loosened, a severity override lowered across a tier, or the control pack moved to one that requires less). |
+| `SHIP-VERIFY-POLICY-BASE-ABSENT` | medium | A policy or manifest trust root changed and no base policy could be compared — no base report, a first adoption, or a control pack this build cannot resolve; routed to human review without a weakening claim. |
 | `SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED` | high | The PR broadens what the gate forgives — a new suppression, a widened waiver scope, or a larger accepted-debt baseline — versus the base. |
 | `SHIP-VERIFY-CI-GATE-REMOVED` | critical | The PR deletes the Shipgate CI workflow from an opted-in repo, which would stop the release gate from running. |
 | `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` | medium | The PR edits agent-instruction trust roots and weakening cannot be statically disproven; routed to human review. |
@@ -259,6 +259,15 @@ tool or disable the explicit-action requirement.
 A user-declared `action_surface.policies[]` rule matched an action, and one or
 more required dot-path values were absent or different. Satisfy the policy
 requirements or narrow/remove the action.
+
+This id also carries two built-in rules, distinguished by
+`evidence.policy_id`. `builtin-high-impact-approval` is the approval a
+production operation or code execution requires. `control-pack:<pack>:<effect>`
+is an obligation the manifest's selected control pack
+(`policies.control_pack`) states about an effect with no control check of its
+own — a plain write, a privileged read, or identity access. Both are mandatory
+current-surface controls: a `checks.ignore` entry records the exception but
+does not waive the blocker.
 
 ### SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING
 
@@ -957,8 +966,22 @@ changed, it compares the normalized effective-policy snapshot of the base
 report (supplied via `--diff-from`) against the head manifest and fires
 when the gate moved toward *less* review or *less* blocking — CI mode
 downgraded (e.g. `strict` → `advisory`), the fail-on severity set lost a
-tier, or a check's severity override dropped across a tier boundary. The
-comparison is semantic, not a text diff, so it is robust to reformatting.
+tier, a check's severity override dropped across a tier boundary, or
+`policies.control_pack` moved to a pack that requires *less* of some action
+effect (`kind: control_pack_weakened`). The comparison is semantic, not a text
+diff, so it is robust to reformatting.
+
+The first three kinds answer "does the same finding still block?"; the control
+pack answers "does the same action still produce the finding?", which is the
+other way a gate gets weaker. A pack move is one changed line, so it is one
+finding: `evidence.removed_controls` carries `{effect, controls}` for every
+effect that lost something, and the sentence names a bounded prefix plus how
+many it is not naming.
+
+Where either side names a control pack this build cannot resolve, no
+comparison is possible in either direction. That routes to
+`SHIP-VERIFY-POLICY-BASE-ABSENT` with `kind: control_pack_unrecognized` rather
+than reading as no weakening.
 
 The claim is base-relative, so this check fires only when a base snapshot
 exists to compare against. The no-base fail-safe is its own reason code,

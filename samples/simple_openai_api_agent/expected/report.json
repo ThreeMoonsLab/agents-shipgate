@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.39",
-  "run_id": "agents_shipgate_156121deae9690a5",
+  "report_schema_version": "0.40",
+  "run_id": "agents_shipgate_4804c04e5187aa0f",
   "request_id": null,
   "subject_id": null,
   "input_set_id": null,
@@ -2936,6 +2936,10 @@
         "missing": [
           "safeguards.audit_log",
           "confirmation.required"
+        ],
+        "control_pack": "default",
+        "control_effects": [
+          "external_communication"
         ]
       },
       "confidence": "high",
@@ -3030,6 +3034,10 @@
           "approval.required",
           "safeguards.audit_log",
           "safeguards.idempotency"
+        ],
+        "control_pack": "default",
+        "control_effects": [
+          "financial_write"
         ]
       },
       "confidence": "high",
@@ -4162,7 +4170,8 @@
     "severity_overrides": {},
     "baseline_integrity_mode": "warn",
     "baseline_fingerprints": [],
-    "ci_gate_present": true
+    "ci_gate_present": true,
+    "control_pack": "default"
   },
   "human_ack": {
     "required": false,

@@ -901,12 +901,14 @@ Known `policies[].require` paths:
 | `operation` | string |
 | `input_schema_hash` | string |
 
-Built-in current-surface action policies require approval, audit logging, and
-idempotency for financial writes; approval, confirmation, and rollback for
-destructive actions; confirmation and audit logging for external communication;
-and approval for production operations and code execution. They also cover
-wildcard/admin scopes. Diff-only findings add severity for effect escalation,
-declared effect/control downgrades, approval removal, and safeguard removal.
+Built-in current-surface action policies are the *control pack* selected by
+`policies.control_pack` (see [Control Packs](#control-packs)). Under the
+`default` pack they require approval, audit logging, and idempotency for
+financial writes; approval, confirmation, and rollback for destructive actions;
+confirmation and audit logging for external communication; and approval for
+production operations and code execution. They also cover wildcard/admin
+scopes. Diff-only findings add severity for effect escalation, declared
+effect/control downgrades, approval removal, and safeguard removal.
 
 ## Validation Evidence Artifacts
 
@@ -1126,10 +1128,98 @@ checks:
 
 Suppressed findings remain in the JSON report with `suppressed: true`.
 
+## Control Packs
+
+`policies.control_pack` selects which controls each action effect requires. It
+is one answer for the repository, not one per tool: an organization's control
+requirements are a property of the organization, and asking per tool is what
+breeds the copy-paste that breeds wrong answers.
+
+```yaml
+policies:
+  control_pack: default   # default | financial-strict | read-only-agent
+```
+
+| Pack | The posture it encodes |
+|---|---|
+| `default` | Shipgate's built-in requirements. Money, destruction, production operations, code execution, and outbound communication carry controls; a plain write or a privileged read carries none. |
+| `financial-strict` | **Recoverability and record.** Every state change is logged and retry-safe, production operations are reversible, financial writes are confirmed, and privileged reads leave a trail. |
+| `read-only-agent` | **Permission.** This agent reads; any state change, outbound message, or privileged read is an exception carrying approval and an audit trail. Nothing is forbidden — a static scanner cannot forbid — but every non-read has to have been signed for. |
+
+Omitting the key means `default`; every existing manifest keeps its verdict.
+
+Row by row, with `—` meaning the pack requires no control for that effect
+(`test_the_documented_pack_matrix_matches_the_packs` keeps this table equal to
+the tables in `core/control_packs.py`):
+
+| Effect | `default` | `financial-strict` | `read-only-agent` |
+|---|---|---|---|
+| `read` | — | — | — |
+| `privileged_data_access` | — | `safeguards.audit_log` | `approval.required`, `safeguards.audit_log` |
+| `write` | — | `safeguards.audit_log`, `safeguards.idempotency` | `approval.required`, `safeguards.audit_log` |
+| `external_communication` | `confirmation policy`, `safeguards.audit_log` | `approval.required`, `confirmation policy`, `safeguards.audit_log` | `approval.required`, `confirmation policy`, `safeguards.audit_log` |
+| `code_execution` | `approval.required` | `approval.required`, `safeguards.audit_log` | `approval.required`, `safeguards.audit_log` |
+| `financial_write` | `approval.required`, `safeguards.audit_log`, `safeguards.idempotency` | `approval.required`, `confirmation policy`, `safeguards.audit_log`, `safeguards.idempotency` | `approval.required`, `confirmation policy`, `safeguards.audit_log`, `safeguards.idempotency` |
+| `identity_access` | — | `approval.required`, `safeguards.audit_log` | `approval.required`, `safeguards.audit_log` |
+| `production_operation` | `approval.required` | `approval.required`, `safeguards.audit_log`, `safeguards.rollback` | `approval.required`, `safeguards.audit_log` |
+| `destructive` | `approval.required`, `confirmation policy`, `safeguards.rollback` | `approval.required`, `confirmation policy`, `safeguards.audit_log`, `safeguards.rollback` | `approval.required`, `confirmation policy`, `safeguards.audit_log`, `safeguards.rollback` |
+
+`confirmation policy` is the one row-level control that is not an
+`action_surface.actions[]` field: it is satisfied from
+`policies.require_confirmation_for_tools`, which is why the finding names the
+policy rather than a key nobody can write.
+
+**A pack can only tighten the gate.** Every built-in pack requires at least
+what `default` requires, checked at import and pinned by a test, so choosing
+one can cost work but never coverage — and a report that passes under any pack
+would also have passed under `default`.
+
+**A pack decides which control findings fire, never what a declaration means.**
+The obligation lattice that decides whether a declared effect covers an
+inferred one is the built-in table, unaffected by the selection: a pack that
+required the same controls for two effects still cannot let a declaration of
+one discharge the other.
+
+Effects with no control check of their own — `write`, `privileged_data_access`,
+`identity_access` — report a pack obligation through
+`SHIP-ACTION-POLICY-VIOLATION` at `high`, with the rule named in
+`findings[].evidence.policy_id` as `control-pack:<effects>`. That prefix is
+reserved: an `action_surface.policies[].id` using it is rejected at manifest
+load, the same way `SHIP-` is reserved for built-in check ids. Like the four
+dedicated control families, these are mandatory current-surface controls — a
+`checks.ignore` entry records the exception but does not waive the blocker —
+and that is decided from `evidence.control_pack`, which only the engine
+writes, never from the id string alone.
+
+Switching to a stricter pack changes the `missing` list on a control finding
+whose requirements grew, and therefore its fingerprint — a baseline entry
+accepting the narrower gap stops matching and the finding re-opens. That is the
+intended direction: an acceptance recorded under looser rules should not carry
+into stricter ones. A move between two packs that require the *same* controls
+for an effect re-opens nothing, because the rule did not change.
+
+Moving to a pack that requires *less* of some effect is a release-policy
+weakening, and `verify --base` reports it: `SHIP-VERIFY-POLICY-WEAKENED` with
+`kind: control_pack_weakened`, one finding per pack move, naming every effect
+that lost a control. Changing the pack to make a scan pass is the thing that
+check exists to catch.
+
+`shipgate init --control-pack <id>` writes the selection. `init --json`
+reports it under `control_pack`: `requested` is what the invocation asked for,
+`selected` is what the manifest **on disk** carries (`null` when there is none
+or it does not load — a second `init` over an existing manifest writes
+nothing, and reporting the request there would describe a file it did not
+write), and `available` lists every pack this CLI knows. That list is also the
+capability probe: a CLI that predates control packs emits no `control_pack`
+key, and one that predates the *field* rejects a manifest carrying it with a
+routable config error rather than ignoring a release rule.
+
 ## Policy Packs
 
 v0.4 supports local declarative YAML policy packs for organization-specific
-rules. Policy packs are static data: Agents Shipgate reads YAML and never
+rules. These are *additional* rules matched against the tool surface, and are
+independent of the control pack above: the control pack parameterizes the
+built-in checks, while a policy pack adds rules of its own. Policy packs are static data: Agents Shipgate reads YAML and never
 imports Python or executes pack code.
 
 ```yaml

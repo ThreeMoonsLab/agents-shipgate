@@ -2,6 +2,87 @@
 
 ## Unreleased
 
+- **Control packs: the rules layer, chosen once at `init`.** (#410 §F) The rule
+  that a financial write needs approval, an audit log, and idempotency was
+  written four times in the engine, was not selectable, was not named, and was
+  stated nowhere the adopter reads — so seven findings said "lacks a declared
+  approval policy" and none of them said *what* requires one.
+
+  `policies.control_pack` now names the effect → required-controls rule set for
+  the whole repository: `default` (today's rules exactly), `financial-strict`,
+  or `read-only-agent`. `shipgate init --control-pack <id>` writes the
+  selection with a glossary of the alternatives above it, and `init --json`
+  reports the choice and every answer it takes under `control_pack`. Omitting
+  the key means `default`, so every existing manifest keeps its verdict — the
+  sample goldens' findings, severities, `blocks_release`, and release decisions
+  are unchanged.
+
+  **Selecting a pack can only tighten the gate.** Every built-in pack requires
+  at least what `default` requires — asserted at import, and pinned by a real
+  scan across every (pack × effect) pair plus a whole-finding-set comparison,
+  because a table read by eye is not the property that matters. A pack also
+  decides only which control findings *fire*: the obligation lattice that says
+  whether a declared effect covers an inferred one stays the built-in one, so a
+  pack requiring identical controls for two effects still cannot let a
+  declaration of one discharge the other (#413).
+
+  The engine now reads that one table rather than mirroring it. The three
+  dedicated action-control branches, the high-impact approval rule, and the
+  tool-level `SHIP-POLICY-APPROVAL-MISSING` / `SHIP-POLICY-CONFIRMATION-MISSING`
+  effect sets were four hand-maintained copies of the same rows; they are one
+  now. Effects with no control check of their own report a pack obligation
+  through `SHIP-ACTION-POLICY-VIOLATION` at `high`, naming the rule in
+  `evidence.policy_id` as `control-pack:<pack>:<effect>` — and, like the four
+  dedicated families, a `checks.ignore` entry records the exception without
+  waiving the blocker.
+
+  `scan` stdout and `report.md` now name the rule that wanted each missing
+  control, once per rule instead of once per tool: *"financial write requires
+  approval.required, safeguards.audit_log, and safeguards.idempotency — 3
+  actions short"*. Both render one projection, so they cannot report different
+  counts from one report. `SHIP-ACTION-POLICY-VIOLATION`'s built-in title says
+  "without required controls" rather than "without approval", which under a
+  stricter pack was telling an action that *has* approval that it does not.
+
+  **A pack move is a policy weakening, and the gate says so.** Every field in
+  the effective-policy snapshot answers *does the same finding still block?*;
+  a control pack answers *does the same action still produce the finding?*,
+  which is the other way a gate gets weaker — and the one a base-vs-head
+  comparison could not see. `effective_policy.control_pack` (report schema
+  `0.39 → 0.40`, additive, v0.39 frozen) publishes the pack in force, and
+  `SHIP-VERIFY-POLICY-WEAKENED` gains `kind: control_pack_weakened`: one
+  finding per pack move carrying `removed_controls[] = {effect, controls}`.
+  A base snapshot with no pack predates the field and is compared as
+  `default`, so the "no pack is weaker than default" invariant is enforced by
+  the comparison rather than assumed by it. A snapshot naming a pack the build
+  cannot resolve is the other case and is not read as "no weakening": it
+  routes to `SHIP-VERIFY-POLICY-BASE-ABSENT` with
+  `kind: control_pack_unrecognized`, the reason code that says the comparison
+  could not be made.
+
+  **A finding says which rules it is about, and identity follows.** Every
+  control finding stamps `evidence.control_pack` and `evidence.control_effects`
+  — the effects the rule actually matched, not its whole category, because one
+  id serves both high-impact effects and recovering them from it reported a
+  code-execution action as also operating on production. Both are excluded
+  from the fingerprint, so baselines recorded before the fields keep matching.
+  `run_id` now hashes the pack's id, version, and canonical obligations: two
+  manifests enforcing different policy are different runs even where neither
+  produces a control finding. The pack-only `policy_id` is
+  `control-pack:<effects>` with **no** pack name — it is a fingerprint input,
+  and two packs asking the same thing state one rule, so naming the pack would
+  re-open a baseline entry on a move that changed nothing. That prefix is
+  reserved: `action_surface.policies[].id` rejects it at manifest load, and
+  non-waivability is decided from `evidence.control_pack` rather than from the
+  id string, so a user policy cannot inherit the treatment.
+
+  No new check ids and no new CLI command. `init`'s recovery routes repeat the
+  selected pack, so following an emitted `next_action` completes the setup that
+  was asked for. Switching to a stricter pack re-opens baseline entries for
+  control findings whose requirements grew — an acceptance recorded under
+  looser rules should not carry into tighter ones — while a move between packs
+  that require the same controls re-opens nothing.
+
 - **Human-facing findings are grouped by subject, and a recommendation names
   only what is missing.** (#364) A scan of four money-moving tools produced
   seventeen findings across five check families. The summary showed three of

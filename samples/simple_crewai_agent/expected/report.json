@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.39",
-  "run_id": "agents_shipgate_9702bae6947b59b3",
+  "report_schema_version": "0.40",
+  "run_id": "agents_shipgate_3e60204cc1f38768",
   "request_id": null,
   "subject_id": null,
   "input_set_id": null,
@@ -2691,7 +2691,8 @@
     "severity_overrides": {},
     "baseline_integrity_mode": "warn",
     "baseline_fingerprints": [],
-    "ci_gate_present": true
+    "ci_gate_present": true,
+    "control_pack": "default"
   },
   "human_ack": {
     "required": false,

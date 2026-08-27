@@ -6,7 +6,7 @@ This document is the contract. If the runtime ever diverges from what's document
 
 Shipgate is pre-1.0. The CLI surface, exit codes, and `contract_version`
 described here are stable within the `0.x` line, but the `report.json` schema
-(`report_schema_version`, currently `0.39`) is still additive-versioned and
+(`report_schema_version`, currently `0.40`) is still additive-versioned and
 not yet frozen. A `1.0` line will not begin until the report schema reaches
 `1.0` and holds without a breaking change. Pin a version (or the Action tag)
 for reproducible CI.
@@ -148,7 +148,7 @@ exit code (3) are unchanged.
 
 Two capability schemas move: `capability_lock_schema_version` `0.6` → `0.7` and
 `capability_lock_diff_schema_version` `0.7` → `0.8`. `report_schema_version`
-(`0.38`), `packet_schema_version` (`0.15`), `verifier_schema_version` (`0.12`),
+(`0.40`), `packet_schema_version` (`0.16`), `verifier_schema_version` (`0.12`),
 `contract_version`, and the manifest `version: "0.1"` are unchanged.
 
 **Four published documents are restored to the bytes they were published with.**
@@ -2030,6 +2030,66 @@ reviewed authority for every action the source contributes; an
 for that action. Both sites share one set of mode co-requirements and one
 conflict rule against published source evidence, and existing manifests are
 unaffected — a source with no `authority` block resolves exactly as before.
+
+`policies.control_pack` (`default` | `financial-strict` | `read-only-agent`)
+is additive and changes no published schema, so there is no
+`report_schema_version` floor to check for it. A CLI that predates the field
+*rejects* it — the manifest loader is strict, so the run stops with a routable
+`ConfigError` (exit 2) naming the unknown key rather than ignoring a release
+rule. To detect support before writing it, read `control_pack.available` from
+`agents-shipgate init --json`; a CLI without control packs emits no
+`control_pack` key at all. It selects which controls
+each action effect requires. Omitting it means `default`, which is exactly the
+rule set every prior release applied, so existing manifests keep their
+verdicts. Every built-in pack requires at least what `default` requires — a
+pack can add obligations and can never drop one — so a report that passes
+under any pack would also have passed under `default`. Selecting a pack does
+not change what a *declaration* means: the obligation lattice deciding whether
+a declared effect covers an inferred one stays the built-in table.
+
+Obligations for effects with no dedicated control check (`write`,
+`privileged_data_access`, `identity_access`) are reported through
+`SHIP-ACTION-POLICY-VIOLATION` at `high`, with the rule named in
+`findings[].evidence.policy_id` as `control-pack:<effects>` (effects joined by
+`+` where one rule covers several). The pack name is deliberately **not** in
+that id: `policy_id` is a fingerprint input, and two packs requiring the same
+controls for the same effect state one rule, so naming the pack would re-open
+a baseline entry on a move that changed nothing. `control-pack:` is a reserved
+prefix — `action_surface.policies[].id` rejects it at manifest load, the same
+way `SHIP-` is reserved for built-in check ids.
+
+Like the four dedicated control families, these are mandatory current-surface
+controls: a `checks.ignore` entry records the exception without waiving the
+blocker. That is decided from `findings[].evidence.control_pack`, which only
+the engine writes, and never from the `policy_id` string alone.
+
+`effective_policy.control_pack` (v0.40+) publishes the pack in force, so a
+base-vs-head comparison can see the gate weakened by a *rule* change and not
+only by a severity one. `SHIP-VERIFY-POLICY-WEAKENED` gains
+`kind: control_pack_weakened`: one finding per pack move, carrying
+`removed_controls[] = {effect, controls}` for every effect the head pack
+requires less of. A snapshot with no `control_pack` predates the field and is
+compared as `default` — a build without control packs could not have loaded a
+manifest naming one. A snapshot naming a pack this build cannot resolve is a
+different case and is not read as "no weakening": it routes to
+`SHIP-VERIFY-POLICY-BASE-ABSENT` with `kind: control_pack_unrecognized`, the
+reason code that says the comparison could not be made.
+
+Control findings carry `findings[].evidence.control_pack` and
+`findings[].evidence.control_effects` (the effects the rule actually matched,
+not its whole category). Both are excluded from the finding fingerprint, so a
+baseline recorded before the fields keeps matching.
+
+`run_id` covers the pack's **id, version, and canonical obligations**: two
+manifests selecting different packs enforce different policy and are different
+runs, including where neither produces a control finding, and a release that
+changes what `default` requires moves it too.
+
+Moving to a stricter pack changes the `missing` list of a control finding
+whose requirements grew, and therefore its fingerprint — a baseline entry that
+accepted the narrower gap stops matching and the finding re-opens. A move
+between two packs that require the *same* controls for an effect re-opens
+nothing, because the rule did not change.
 
 ### Baseline Integrity (v0.5)
 

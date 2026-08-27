@@ -46,6 +46,12 @@ from agents_shipgate.cli.setup_control import (
     setup_input_id,
 )
 from agents_shipgate.cli.workspace_guard import require_workspace
+from agents_shipgate.core.control_packs import (
+    BUILTIN_CONTROL_PACKS,
+    CONTROL_PACK_IDS,
+    DEFAULT_CONTROL_PACK_ID,
+    resolve_control_pack,
+)
 from agents_shipgate.core.errors import DiscoveryError
 from agents_shipgate.invocation import render_command
 from agents_shipgate.schemas.agent_control import AgentActionKind
@@ -183,6 +189,7 @@ def _requested_setup_flags(
     ci: bool,
     claude_code: bool,
     agent_instructions: str | None,
+    control_pack: str = DEFAULT_CONTROL_PACK_ID,
 ) -> list[str]:
     """The setup this invocation asked for, as flags a rerun must repeat.
 
@@ -190,6 +197,15 @@ def _requested_setup_flags(
     selection completes with less than the caller requested and reports
     success for it. Mirrors ``_rerun_options`` in the verifier, for the
     same reason.
+
+    ``--control-pack`` is repeated only when it is not the default (#410 §F
+    review). The recovery argv has to *complete what was asked for*, and
+    omitting a flag whose value the command already assumes completes exactly
+    that — the manifest it writes is byte-identical either way. Repeating it
+    unconditionally would instead rewrite every existing route string, and
+    with it every route identity, to say something the previous string already
+    meant. This rests on "omitting the key means ``default``", which
+    ``STABILITY.md`` pins.
 
     ``--agent-instructions-kit`` is deliberately not here: it is a path,
     and a path is only meaningful relative to a workspace. See
@@ -201,9 +217,41 @@ def _requested_setup_flags(
         flags.append("--ci")
     if claude_code:
         flags.append("--claude-code")
+    if control_pack != DEFAULT_CONTROL_PACK_ID:
+        flags.append(f"--control-pack={control_pack}")
     if agent_instructions is not None:
         flags.append(f"--agent-instructions={agent_instructions}")
     return flags
+
+
+def _recovery_command(
+    *,
+    workspace: Path,
+    write: bool,
+    json_output: bool,
+    setup_flags: Sequence[str],
+) -> str:
+    """The argv that re-runs *this* invocation with the bad value corrected.
+
+    #410 §F review. An early-validation route used to render a bare
+    ``init --control-pack default``, dropping the workspace, the ``--write``
+    that made it a real run, and the ``--json`` the caller is reading the
+    answer through — so following the recovery exactly produced a dry run
+    against the wrong directory and printed prose to a JSON consumer. Both
+    early-validation routes build their command here, because two routes
+    spelling the same recovery two ways is how one of them stays wrong.
+    """
+
+    return render_command(
+        [
+            "init",
+            "--workspace",
+            str(workspace),
+            *(["--write"] if write else []),
+            *setup_flags,
+            *(["--json"] if json_output else []),
+        ]
+    )
 
 
 def _unresolved_scope_message(
@@ -478,6 +526,32 @@ def _manifest_placeholders(
             return [], data, f"{target} is not valid UTF-8: {exc}"
         return collect_placeholders(text), data, _manifest_defect(text)
     return [], None, None
+
+
+def _manifest_control_pack(manifest_bytes: bytes | None) -> str | None:
+    """The control pack the manifest *on disk* carries, or ``None``.
+
+    Same authority rule as :func:`_manifest_placeholders`: when a manifest
+    exists it is the authority, whether this run wrote it or found it.
+    Reporting ``--control-pack`` as the selection on ``skipped_existing``
+    would describe a file this run did not write — the defect #399 fixed one
+    field over, where ``placeholders`` reported the template's list for a
+    manifest that was never written.
+
+    ``None`` covers both "no manifest on disk" and "these bytes do not load":
+    a caller cannot be told which pack governs a file that is not there or
+    that the next command will reject.
+    """
+
+    if manifest_bytes is None:
+        return None
+    from agents_shipgate.config.loader import load_manifest_text
+
+    try:
+        manifest = load_manifest_text(manifest_bytes.decode("utf-8"))
+    except Exception:  # noqa: BLE001 - any objection means "cannot say".
+        return None
+    return resolve_control_pack(manifest).id
 
 
 def _manifest_defect(text: str) -> str | None:
@@ -755,6 +829,18 @@ def register(app: typer.Typer) -> None:
                 "decisions; generated CI stays advisory by default."
             ),
         ),
+        control_pack: str = typer.Option(
+            DEFAULT_CONTROL_PACK_ID,
+            "--control-pack",
+            help=(
+                "Which built-in control pack the manifest selects: which "
+                "controls each action effect requires. One answer for the "
+                "repository instead of one per tool. "
+                f"Choices: {', '.join(CONTROL_PACK_IDS)}. Every pack requires "
+                "at least what 'default' requires, so this can only tighten "
+                "the gate."
+            ),
+        ),
         agent_instructions_kit: Path | None = typer.Option(
             None,
             "--agent-instructions-kit",
@@ -776,6 +862,43 @@ def register(app: typer.Typer) -> None:
         workspace_resolved = workspace.resolve()
         target = workspace / "shipgate.yaml"
 
+        # Validated before any filesystem work, like --agent-instructions
+        # below: a typo here would otherwise be caught by the schema after
+        # the manifest was already written.
+        if control_pack not in CONTROL_PACK_IDS:
+            message = (
+                f"Unknown control pack {control_pack!r}. "
+                f"Expected one of: {', '.join(CONTROL_PACK_IDS)}."
+            )
+            typer.echo(message, err=True)
+            pack_action = NextAction(
+                kind="command",
+                command=_recovery_command(
+                    workspace=workspace_resolved,
+                    write=write,
+                    json_output=json_output,
+                    # The rest of the requested setup, with the bad pack
+                    # replaced by the one this command assumes.
+                    setup_flags=_requested_setup_flags(
+                        ci=ci,
+                        claude_code=claude_code,
+                        agent_instructions=agent_instructions,
+                    ),
+                ),
+                why=message,
+                expects=(
+                    "shipgate.yaml carrying policies.control_pack with a "
+                    "built-in pack id."
+                ),
+            )
+            _emit_agent_mode_error(
+                "config_error",
+                message=message,
+                next_action=pack_action.to_legacy_string(),
+                next_actions=[pack_action.model_dump(mode="json")],
+            )
+            raise typer.Exit(2)
+
         # Parse --agent-instructions selector early so invalid input fails before
         # any filesystem mutation. ``None`` = flag absent.
         requested_targets: list[str] | None
@@ -796,7 +919,19 @@ def register(app: typer.Typer) -> None:
                     next_actions=[
                         NextAction(
                             kind="command",
-                            command="agents-shipgate init --agent-instructions=default",
+                            # Same rule as the control-pack route above: the
+                            # recovery repeats the run it is correcting.
+                            command=_recovery_command(
+                                workspace=workspace_resolved,
+                                write=write,
+                                json_output=json_output,
+                                setup_flags=_requested_setup_flags(
+                                    ci=ci,
+                                    claude_code=claude_code,
+                                    agent_instructions="default",
+                                    control_pack=control_pack,
+                                ),
+                            ),
                             why=str(exc),
                             expects=(
                                 "Snippets render for the recommended downstream "
@@ -824,7 +959,9 @@ def register(app: typer.Typer) -> None:
         scope_project_roots = 0
         scope_python_files = 0
         if minimal:
-            template = render_manifest_template(workspace_resolved)
+            template = render_manifest_template(
+                workspace_resolved, control_pack=control_pack
+            )
             placeholders = collect_placeholders(template)
             auto_detected: dict[str, object] = {}
             next_action_create = NextAction(
@@ -864,7 +1001,9 @@ def register(app: typer.Typer) -> None:
                     next_actions=[action.model_dump(mode="json")],
                 )
                 raise typer.Exit(4) from exc
-            template = render_auto_manifest(workspace_resolved, detect_result)
+            template = render_auto_manifest(
+                workspace_resolved, detect_result, control_pack=control_pack
+            )
             # Validation gate: refuse to emit a manifest the schema would reject.
             try:
                 _validate_manifest_text(template)
@@ -1126,6 +1265,7 @@ def register(app: typer.Typer) -> None:
                     ci=ci,
                     claude_code=claude_code,
                     agent_instructions=agent_instructions,
+                    control_pack=control_pack,
                 ),
                 kit=agent_instructions_kit,
                 truncated=scope_truncated,
@@ -1142,6 +1282,7 @@ def register(app: typer.Typer) -> None:
                         ci=ci,
                         claude_code=claude_code,
                         agent_instructions=agent_instructions,
+                        control_pack=control_pack,
                     ),
                 ],
                 # With an instruction target selected, `init --write` leaves an
@@ -1208,6 +1349,7 @@ def register(app: typer.Typer) -> None:
                     ci=ci,
                     claude_code=claude_code,
                     agent_instructions=agent_instructions,
+                    control_pack=control_pack,
                 ),
                 *(["--allow-unresolved-scope"] if allow_unresolved_scope else []),
                 *(
@@ -1328,6 +1470,32 @@ def register(app: typer.Typer) -> None:
                 payload["agent_instructions"] = agent_instructions_outcome
             if local_contract_target is not None:
                 payload["local_contract"] = local_contract_target.to_json()
+            # The one question this command asks, and every answer it takes
+            # (#410 §F). Emitted for every run, including a refused one: a
+            # caller that is going to re-run init needs to know what it may
+            # pass, not only what this run happened to select.
+            payload["control_pack"] = {
+                # What the manifest at `path` carries, on the same authority
+                # rule the placeholders follow — `null` when no manifest is
+                # on disk, or when the one there does not load. `requested`
+                # is what this invocation asked for; on `skipped_existing`
+                # the two differ and reporting only the request would
+                # describe a file this run did not write.
+                "selected": _manifest_control_pack(control_manifest_bytes),
+                "requested": control_pack,
+                "manifest_path": "policies.control_pack",
+                "available": [
+                    {
+                        "id": pack.id,
+                        "name": pack.name,
+                        "version": pack.version,
+                        "summary": pack.summary,
+                    }
+                    for pack in (
+                        BUILTIN_CONTROL_PACKS[pack_id] for pack_id in CONTROL_PACK_IDS
+                    )
+                ],
+            }
             if gitignore_outcome is not None:
                 payload["gitignore"] = gitignore_outcome.to_json()
             if claude_code_outcome is not None:

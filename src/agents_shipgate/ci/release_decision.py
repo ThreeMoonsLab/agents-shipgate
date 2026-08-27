@@ -10,6 +10,7 @@ from agents_shipgate.ci.exit_policy import (
     effective_fail_on,
     exit_code_for_report,
 )
+from agents_shipgate.core.control_packs import is_mandatory_current_control
 from agents_shipgate.core.declaration_questions import (
     ANSWERABLE_ISSUE_KINDS,
     DIMENSION_BY_GAP_KIND,
@@ -428,12 +429,15 @@ def build_release_decision(
 
 
 def _is_mandatory_current_control(finding: Finding) -> bool:
-    if finding.check_id in _MANDATORY_CURRENT_CONTROL_CHECKS:
-        return True
-    return (
-        finding.check_id == "SHIP-ACTION-POLICY-VIOLATION"
-        and finding.evidence.get("policy_id") == "builtin-high-impact-approval"
-    )
+    """Thin alias for the shared predicate.
+
+    The rule moved to ``core.control_packs`` because the human Control Pack
+    section has to keep explaining a blocker this function keeps (#410 §F
+    review); two copies disagreed, and a report read BLOCKED while naming
+    nothing that blocked it.
+    """
+
+    return is_mandatory_current_control(finding)
 
 
 # Framework source-type prefixes that support an explicit local tool
@@ -662,16 +666,6 @@ _ACTION_EFFECT_VALUES = [
     "identity_access",
 ]
 _AUTHORITY_MODE_VALUES = ["none", "scoped", "unscoped", "ambient"]
-_MANDATORY_CURRENT_CONTROL_CHECKS = frozenset(
-    {
-        "SHIP-ACTION-WILDCARD-SCOPE",
-        "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
-        "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
-        "SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING",
-    }
-)
-
-
 #: Binding-issue kinds where something *referenced* did not resolve. The agent
 #: on these issues is the one doing the referencing — a handoff target that
 #: names nothing is attached to the perfectly healthy agent that declared it,

@@ -1,5 +1,11 @@
 # Policy Packs
 
+> **Not to be confused with the built-in *control pack*.**
+> `policies.control_pack` selects which controls each action *effect* requires
+> — one repository-wide answer that parameterizes the built-in checks. A
+> *policy pack* on this page is a local YAML file adding rules of its own. See
+> [Control Packs](manifest-v0.1.md#control-packs).
+
 Policy packs are local YAML files for organization-specific release rules. They
 are declarative data, not Python plugins, and are enabled by default only when
 declared in `shipgate.yaml` or passed on the CLI. The machine-readable schema is
