@@ -24,7 +24,9 @@ from agents_shipgate.core.findings.subject_rollup import (
 )
 from agents_shipgate.core.privacy import sanitize_report
 from agents_shipgate.core.source_warnings import group_source_warnings
+from agents_shipgate.core.surface_exclusions import agent_label_index
 from agents_shipgate.report.summary_text import evidence_coverage_text
+from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment
 from agents_shipgate.schemas.report import (
     DeclaredIntention,
     Finding,
@@ -1082,11 +1084,37 @@ def _append_inventory(lines: list[str], report: ReadinessReport) -> None:
     lines.append("")
 
 
+def _root_agent_line(graph: AgentBindingGraphAssessment) -> str:
+    """What to print where a root agent's identity goes.
+
+    ``unresolved`` is the right word for a graph nothing rooted. It is the
+    wrong word for a repository that publishes tool surfaces and has no agent
+    object to name — that graph is rooted, deliberately, by the reviewed
+    ``tool_sources[].binding`` entries listed on the next line, and calling it
+    unresolved reads as the failure it is not (#432 review).
+    """
+
+    if graph.root_agent_id:
+        return graph.root_agent_id
+    if graph.entry_point_agent_ids:
+        return "none (graph rooted by declared tool sources)"
+    return "unresolved"
+
+
 def _append_binding_surface(lines: list[str], report: ReadinessReport) -> None:
     graph = report.binding_surface_facts
     lines.extend(["## Agent Binding Surface", ""])
     lines.append(f"Status: {_safe_markdown_text(graph.status)}")
-    lines.append(f"Root agent: {_safe_markdown_text(graph.root_agent_id or 'unresolved')}")
+    lines.append(f"Root agent: {_safe_markdown_text(_root_agent_line(graph))}")
+    if graph.entry_point_agent_ids:
+        labels = agent_label_index(graph.agents)
+        lines.append(
+            "Entry points: "
+            + ", ".join(
+                _safe_markdown_text(labels.get(agent_id, agent_id))
+                for agent_id in graph.entry_point_agent_ids
+            )
+        )
     lines.append(f"Pass eligible: {str(graph.pass_eligible).lower()}")
     lines.append(
         "Catalog partition: "

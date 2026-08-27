@@ -132,6 +132,7 @@ CrewAI warnings:
 
 Status: structural
 Root agent: agent\_v1:db222e5ee84f5d3b4a7f0ca1
+Entry points: crew \[crewai\_agent\]
 Pass eligible: true
 Catalog partition: 3 reachable, 0 possible, 0 unbound
 

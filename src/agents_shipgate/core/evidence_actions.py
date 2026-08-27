@@ -367,7 +367,16 @@ def primary_evidence_gap(evidence: EvidenceCoverageDecision) -> EvidenceGap | No
 # to a source cannot keep an action's copy.
 _SOURCE_SCOPED_GAP_PHRASE: dict[str, str] = {
     "missing_authority_evidence": "a tool source has no declared authority",
+    "missing_binding_evidence": "a tool source's reviewed binding reaches no tool",
 }
+
+#: Every gap kind that can be raised about a ``tool_sources`` entry rather than
+#: about one action. Two independent producers reach that state — the
+#: questionnaire's source-answerable authority kinds (#410 increment 3) and a
+#: reviewed ``tool_sources[].binding`` that reaches no tool (#432) — so the set
+#: is stated here, beside the table it governs, rather than read off either
+#: producer and silently missing the other.
+SOURCE_SCOPED_GAP_KINDS: frozenset[str] = frozenset(_SOURCE_SCOPED_GAP_PHRASE)
 
 
 def evidence_gap_headline(gap: EvidenceGap) -> str:
@@ -445,6 +454,7 @@ def evidence_gap_accepted_values(gap: EvidenceGap) -> list[str]:
 
 
 __all__ = [
+    "SOURCE_SCOPED_GAP_KINDS",
     "yaml_scalar",
     "actionable_evidence_gaps",
     "display_literal",

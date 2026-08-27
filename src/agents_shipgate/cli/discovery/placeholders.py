@@ -83,6 +83,11 @@ HUMAN_OWNED_PLACEHOLDER_LEAVES = frozenset(
         "approval",
         "approval_required",
         "authority",
+        # ``tool_sources[].binding``: the reviewed claim that a source's
+        # published surface is the surface under review. Same closed-world
+        # claim the ``agent_bindings`` block carries, stated from the source
+        # side, and `agent_binding` is in `do_not_auto_assert` for it (#432).
+        "binding",
         "effect",
         "safeguards",
         "confirmation",

@@ -55,6 +55,31 @@ _CODEX_PLUGIN_METADATA_KEYS = {
 _KNOWN_CODEX_PLUGIN_KEYS = _CODEX_PLUGIN_COMPONENT_KEYS | _CODEX_PLUGIN_METADATA_KEYS
 
 
+def _attributed(
+    loaded: list[LoadedToolSource], source: ToolSourceConfig
+) -> list[LoadedToolSource]:
+    """Record which configured row produced these results, before anything joins on it.
+
+    This adapter is per-scan, so the dispatcher cannot pass it the config object
+    and attributes pass-2 results by the ``(adapter source type, minted source
+    id)`` pair instead. Neither half of that pair survives here: an MCP
+    inventory is minted as ``codex_plugin:<plugin>/<server>:inventory`` with
+    source type ``codex_plugin_mcp_inventory``, so its tools carried no
+    configured provenance at all and every source-wide declaration —
+    ``authority`` since #410, ``binding`` since #432 — silently applied to
+    nothing. ``binding`` is what made it visible, because it says out loud that
+    the source contributed nothing when it plainly did.
+
+    The loop above holds the configured row, which is the frame that knows;
+    matching ids downstream is the join #410 already established cannot be
+    trusted.
+    """
+
+    for entry in loaded:
+        entry.configured_source_id = source.id
+    return loaded
+
+
 def load_codex_plugin_artifacts(
     manifest: AgentsShipgateManifest,
     base_dir: Path,
@@ -83,7 +108,7 @@ def load_codex_plugin_artifacts(
                     seen_roots=seen_roots,
                     seen_names=seen_names,
                 )
-                loaded_sources.extend(package_sources)
+                loaded_sources.extend(_attributed(package_sources, source))
             elif source.mode == "marketplace":
                 marketplace_sources = _load_marketplace_source(
                     source=source,
@@ -93,7 +118,7 @@ def load_codex_plugin_artifacts(
                     seen_roots=seen_roots,
                     seen_names=seen_names,
                 )
-                loaded_sources.extend(marketplace_sources)
+                loaded_sources.extend(_attributed(marketplace_sources, source))
             else:
                 raise InputParseError(
                     f"Codex plugin source {source.id!r} has invalid mode "
@@ -108,6 +133,7 @@ def load_codex_plugin_artifacts(
                 LoadedToolSource(
                     source_id=source.id,
                     source_type="codex_plugin",
+                    configured_source_id=source.id,
                     warnings=[warning],
                 )
             )

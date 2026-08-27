@@ -95,6 +95,7 @@ No findings.
 
 Status: structural
 Root agent: agent\_v1:e72499e3feb23dae6e706766
+Entry points: agent \[langchain\_agent\]
 Pass eligible: true
 Catalog partition: 2 reachable, 0 possible, 0 unbound
 

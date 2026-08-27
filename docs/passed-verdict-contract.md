@@ -1,6 +1,6 @@
 # Evidence-backed `passed` verdict
 
-In the Agents Shipgate `0.16.0b7` runtime (contract v25, report schema v0.41),
+In the Agents Shipgate `0.16.0b7` runtime (contract v25, report schema v0.42),
 `release_decision.decision: passed` means the configured root
 agent and its complete reachable tool/handoff graph were statically proven,
 and every reachable capability has complete, conflict-free static identity,
@@ -52,18 +52,37 @@ the predicate is supported by authoritative static evidence.
 
 Catalog membership never implies binding. `tool_catalog[]` contains every
 canonical extracted declaration; `tool_inventory[]`, actions, checks, and
-capability facts contain only tools proven reachable from the root. Reviewed
-closed-world declarations live under `agent_bindings`; coding agents must not
-invent or auto-apply them.
+capability facts contain only tools proven reachable from the graph's entry
+points. Reviewed closed-world declarations live under `agent_bindings` and,
+since v0.42, under `tool_sources[].binding`; coding agents must not invent or
+auto-apply either.
 
-One non-agent package case is structural rather than declared: a fully parsed,
-warning-free skill-only Codex plugin can prove a complete package root with no
-callable tools or handoffs. The compatibility projection currently represents
-that package root in `binding_surface_facts.agents[]`, but it is not a runtime
-agent and does not require a synthetic reviewed `agent_bindings` declaration.
-Apps, MCP servers, hooks, MCP inventories, unknown manifest keys, skipped
-entries, component path issues, or source warnings invalidate the zero-surface
-proof.
+A graph has one or more entry points, published as
+`binding_surface_facts.entry_point_agent_ids` (v0.42+) and empty exactly when
+nothing rooted the graph. For an agent application that list is the single
+selected root and `root_agent_id` names it. A repository that publishes tool
+surfaces has **no agent object to select**: each `tool_sources[]` entry whose
+published surface a human reviewed under `binding` is its own entry point, so
+a repository publishing two servers has two — neither of which is the other's
+root. Such a run carries `root_agent_id: null` with a non-empty
+`entry_point_agent_ids`, and that state is a *deliberate* source-entry-point
+graph, not an unresolved one; `root_agent_id: null` with an empty list is the
+unresolved case. Every graph a release before v0.42 could produce has exactly
+one entry point, equal to its `root_agent_id`.
+
+`binding_surface_facts.agents[]` therefore holds nodes that are not runtime
+agents, and `agents[].kind` (v0.42+, default `agent`) says which is which. Two
+kinds exist today. `tool_source` is a reviewed published tool surface: it is
+named by its configured `tool_sources[].id`, it is an entry point rather than
+something an agent reaches, and it is deliberately invisible to root-selection
+heuristics and to agent-name resolution, so declaring one cannot change how any
+existing name resolves. The other is structural rather than declared: a fully
+parsed, warning-free skill-only Codex plugin can prove a complete package root
+with no callable tools or handoffs; the compatibility projection represents that
+package root as an `agent` node, but it is not a runtime agent and does not
+require a synthetic reviewed `agent_bindings` declaration. Apps, MCP servers,
+hooks, MCP inventories, unknown manifest keys, skipped entries, component path
+issues, or source warnings invalidate the zero-surface proof.
 
 The release decision also carries an explicit machine boundary:
 

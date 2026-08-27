@@ -148,6 +148,7 @@ Conductor OSS warnings:
 
 Status: partial
 Root agent: agent\_v1:7205d836e4b3fee257d90695
+Entry points: durable\_order\_agent \[conductor\_workflows\]
 Pass eligible: false
 Catalog partition: 1 reachable, 0 possible, 0 unbound
 

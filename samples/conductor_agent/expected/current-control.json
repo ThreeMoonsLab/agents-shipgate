@@ -2,13 +2,13 @@
   "artifacts": {
     "report": {
       "path": "report.json",
-      "sha256": "sha256:8e8839f5b10721943936f1c9e5643e8315400bd476c4d7c51b89d30c3d49bba5",
-      "size_bytes": 50770
+      "sha256": "sha256:43ef8893f8a0a01baca06b97db3f5d5c8f0f4f9460c1fe74565eae3fdeef54fc",
+      "size_bytes": 50873
     },
     "report_markdown": {
       "path": "report.md",
-      "sha256": "sha256:00636f6d764c5438c0ad0016e50ebdf2c83e68e7e94c2e10107b9c64ea954138",
-      "size_bytes": 6755
+      "sha256": "sha256:658e89c2ccf84519994d9e190d3ca2eb6b6e6707a637a4d694ded15e6189a7dc",
+      "size_bytes": 6816
     }
   },
   "control": {
@@ -25,7 +25,7 @@
     "reason": "A standalone scan produced the current report set. A scan does not authorize completion or merge; run `agents-shipgate verify` to obtain a merge decision.",
     "state": "agent_action_required"
   },
-  "current_control_id": "sha256:46bff883f6fb85836a9b825a2734d2989ddf603b52b9e09184bfa9b4263c8937",
+  "current_control_id": "sha256:96bd49a7df99ae3208472ae625e42ad2bc8383f50c07c51d27a9a7e7a298062c",
   "decision_id": null,
   "lifecycle_state": "terminal",
   "operation": "scan",
