@@ -589,11 +589,13 @@ class LoadedToolSource(BaseModel):
     # adapter, and the two namespaces overlap. A per-scan adapter with no
     # configured entry at all mints a fixed id (``openai_api``), which a
     # configured MCP row is free to reuse as its own ``id`` — and a
-    # ``codex_config`` entry emits one id per MCP server it read
-    # (``mcp_json:<server>``), matching no configured row and never
-    # one-to-one with the entry. Joining declarations on ``source_id`` therefore
-    # applied one source's reviewed authority to another's actions, and failed
-    # to apply it to the source it was written for (#410 review).
+    # ``codex_config`` entry emits one id per MCP server it read, under any of
+    # ``mcp_json:``, ``codex_config_mcp:``, or
+    # ``codex_plugin_config_mcp:<plugin>:``, so it is never one-to-one with the
+    # entry and is a server name rather than one an adopter wrote. Joining
+    # declarations on ``source_id`` therefore applied one source's reviewed
+    # authority to another's actions, and failed to apply it to the source it
+    # was written for (#410 review).
     #
     # ``None`` when nothing in ``tool_sources`` configures this result.
     configured_source_id: str | None = None

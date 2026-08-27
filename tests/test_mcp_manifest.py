@@ -10,6 +10,7 @@ from agents_shipgate.core.capability_lock import build_capability_lock
 from agents_shipgate.core.domain import Agent
 from agents_shipgate.inputs.mcp_manifest import (
     load_codex_config_mcp_sources,
+    normalize_codex_config_mcp_servers,
     normalize_mcp_json_servers,
     tools_from_normalized_mcp_servers,
 )
@@ -393,8 +394,16 @@ enabled_tools = ["open_page"]
 
     loaded = load_codex_config_mcp_sources(tmp_path, tmp_path)
 
-    assert loaded, "fixture produced no sources"
-    assert any(source.tools for source in loaded)
+    # Pinned by value, not by "some source had tools": the contract below is
+    # satisfied vacuously by a loader that stopped emitting a whole branch,
+    # and the plugin-nested and `.codex/config.toml` branches are exactly the
+    # ones a `.mcp.json`-shaped fixture would not miss.
+    assert {source.source_id: [tool.name for tool in source.tools] for source in loaded} == {
+        "mcp_json:enumerated": ["query"],
+        "mcp_json:stub": ["stub.*"],
+        "codex_config_mcp:docs": ["read_docs"],
+        "codex_plugin_config_mcp:browser:browser": ["open_page"],
+    }
     mismatched = [
         (source.source_id, tool.name, tool.source_id)
         for source in loaded
@@ -404,29 +413,64 @@ enabled_tools = ["open_page"]
     assert mismatched == []
 
 
-def test_the_minted_server_id_stays_free_of_the_path_it_was_read_from() -> None:
+@pytest.mark.parametrize(
+    ("normalize", "payload", "expected_id"),
+    [
+        (
+            normalize_mcp_json_servers,
+            {"mcpServers": {"github": {"command": "gh", "tools": {"search": {}}}}},
+            "mcp_json:github",
+        ),
+        (
+            normalize_codex_config_mcp_servers,
+            {"mcp_servers": {"github": {"command": "gh", "enabled_tools": ["search"]}}},
+            "codex_config_mcp:github",
+        ),
+        (
+            normalize_codex_config_mcp_servers,
+            {
+                "plugins": {
+                    "browser": {
+                        "mcp_servers": {
+                            "github": {"command": "gh", "enabled_tools": ["search"]}
+                        }
+                    }
+                }
+            },
+            "codex_plugin_config_mcp:browser:github",
+        ),
+    ],
+    ids=["mcp_json", "codex_toml", "codex_toml_plugin"],
+)
+def test_the_minted_server_id_stays_free_of_the_path_it_was_read_from(
+    normalize, payload: dict[str, object], expected_id: str
+) -> None:
     """An MCP capability is its server and tool, not the file declaring them.
 
-    `mcp audit` pins a pure rename of a `.mcp.json` as no capability change,
-    and that holds only while the minted id omits the path. Qualifying the id
-    per file is the obvious way to keep two packages that both declare
-    `github` apart — and it turns every such rename into an addition, so the
-    rejected option is pinned here rather than rediscovered.
+    `mcp audit` pins a pure rename as no capability change, and that holds only
+    while the minted id omits the path. Qualifying the id per file is the
+    obvious way to keep two packages that both declare `github` apart — and it
+    turns every such rename into an addition, so the rejected option is pinned
+    here rather than rediscovered.
+
+    All three prefixes are covered because all three are equally load-bearing:
+    a cross-file fix that qualifies only the one this test happened to name
+    would regress the other two silently.
 
     The file travels on `source_ref` and `source_path`, which is where a
     reader is pointed and what the duplicate-observation message opens.
     """
 
-    servers = normalize_mcp_json_servers(
-        {"mcpServers": {"github": {"command": "gh", "tools": {"search": {}}}}},
-        source_ref="pkg_a/.mcp.json",
-        source_path="pkg_a/.mcp.json",
+    servers = normalize(
+        payload,
+        source_ref="pkg_a/config",
+        source_path="pkg_a/config",
     )
 
-    assert [server.source_id for server in servers] == ["mcp_json:github"]
+    assert [server.source_id for server in servers] == [expected_id]
     tool = tools_from_normalized_mcp_servers(servers)[0]
-    assert tool.source_id == "mcp_json:github"
-    assert tool.source_ref == "pkg_a/.mcp.json"
+    assert tool.source_id == expected_id
+    assert tool.source_ref == "pkg_a/config"
 
 
 def test_two_servers_in_one_file_may_expose_the_same_tool_name(tmp_path: Path) -> None:
