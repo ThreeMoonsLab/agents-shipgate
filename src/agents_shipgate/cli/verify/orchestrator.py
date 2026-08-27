@@ -12,7 +12,7 @@ import stat
 import tempfile
 import unicodedata
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextvars import Token
 from datetime import date
 from pathlib import Path, PurePosixPath
@@ -66,6 +66,10 @@ from agents_shipgate.core.static_inputs import (
     read_static_input_bytes,
     reset_static_input_snapshot,
 )
+from agents_shipgate.core.surface_exclusions import (
+    exclusion_phrase,
+    nameable_subject,
+)
 from agents_shipgate.core.trust_roots import (
     inspect_lexical_path_identity,
     is_configured_manifest,
@@ -98,6 +102,7 @@ from agents_shipgate.schemas.current_control import (
     CurrentControlOperation,
     CurrentControlWorkspaceIdentity,
 )
+from agents_shipgate.schemas.exclusions import SurfaceExclusion
 from agents_shipgate.schemas.human_authorization import (
     AuthorizationEvaluationV1,
     HumanAuthorizationV1,
@@ -1855,6 +1860,55 @@ def _evidence_gap_identities(payload: object) -> Counter[tuple[str, str]] | None
     )
 
 
+def _exclusion_identities(payload: object) -> Counter[tuple[str, str, str]] | None:
+    """How many gap-backed exclusions of each identity a base report carries.
+
+    ``None`` when the payload predates the ledger (#403) or cannot be read as
+    one: a base that cannot say what it excluded cannot establish that anything
+    is new, and guessing would name a pre-existing exclusion as this diff's
+    doing.
+
+    Only ``evidence_gap`` rows, and that is what makes the multiset exact on
+    both sides: those are the rows ``SurfaceExclusionLedger.from_entries``
+    never drops to the cap, whatever ``truncated`` says.
+
+    Subjects are compared raw, unlike ``_evidence_gap_identities``. Every
+    subject the *report* ledger emits is a tool label (``catalog_subject``) or
+    a JSON pointer into the artifact (``/tools/3``) — the path-bearing subjects
+    belong to ``build_detect_exclusions``, which builds a different ledger.
+    None of them carry the temporary-archive prefix that made
+    ``_stable_subject`` necessary for gap subjects, and folding them would
+    collide ``/tools/1`` with ``/other/1``. **A stage that starts emitting a
+    workspace path as a subject has to be considered here**, or the base and
+    head spellings will differ for reasons that have nothing to do with the
+    diff and every run will report the same row as new.
+
+    ``source_ref`` is deliberately not part of the identity, though it would
+    tell two sources' ``/tools/1`` apart. It carries adapter warning text and
+    manifest-relative paths, and one that varied between the two scans would
+    turn every row new on every run — a louder failure than counting the right
+    number of new exclusions and citing the wrong source of one.
+    """
+
+    if not isinstance(payload, dict):
+        return None
+    ledger = payload.get("surface_exclusions")
+    if not isinstance(ledger, dict):
+        return None
+    entries = ledger.get("entries")
+    if not isinstance(entries, list):
+        return None
+    return Counter(
+        (
+            str(row.get("stage") or ""),
+            str(row.get("subject") or ""),
+            str(row.get("reason") or ""),
+        )
+        for row in entries
+        if isinstance(row, dict) and row.get("accounting") == "evidence_gap"
+    )
+
+
 # The base scan runs from a temporary archive, so a subject that embeds a path
 # differs between base and head for reasons that have nothing to do with the
 # diff. Comparing raw subjects reported an unchanged source warning as new.
@@ -1873,7 +1927,7 @@ def _gap_provenance_note(
     *,
     report: ReadinessReport | None,
     base_report: Path | None,
-) -> str | None:
+) -> list[str]:
     """Say whether THIS diff introduced the evidence gaps, or inherited them.
 
     An abstention earned by a repository's pre-existing state reads, on a
@@ -1882,33 +1936,60 @@ def _gap_provenance_note(
     and a diff that appears to touch nothing is exactly what an unseeable
     capability change looks like, so the diff can never argue the abstention
     away. What it can do is stop misattributing it.
+
+    Returned as whole sentences, most load-bearing first, because the caller
+    has to fit them into a shared byte budget. A mid-sentence cut turns a tool
+    name into a different tool name — ``delete_repo…`` for
+    ``delete_repository`` — and ``Not fully analysed: find_dup…`` names
+    nothing at all; composing the string here and letting the composition
+    slice it is what made that reachable (#433).
     """
 
     if report is None or report.release_decision is None:
-        return None
+        return []
     coverage = report.release_decision.evidence_coverage
     if coverage is None or not coverage.evidence_gaps:
-        return None
+        return []
     head = Counter(
         (str(gap.kind), _stable_subject(str(gap.subject or "")))
         for gap in coverage.evidence_gaps
     )
     if base_report is None or not base_report.is_file():
-        return None
+        return []
     try:
-        base = _evidence_gap_identities(
-            json.loads(base_report.read_text(encoding="utf-8"))
-        )
+        payload = json.loads(base_report.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return None
+        return []
+    base = _evidence_gap_identities(payload)
     if base is None:
-        return None
+        return []
+    # The exclusion clause is selected against the *ledger*, not against the
+    # gap count in front of it. Two independent reasons, both reproduced:
+    #
+    # A new exclusion can reuse an existing gap identity. A base with one
+    # nameless MCP entry and a head with two produce the same single
+    # ``source_warning`` gap on both sides, so ``introduced == 0`` while the
+    # head ledger has gained ``/tools/2`` — an exclusion no surface would name.
+    #
+    # And one subject can carry several gap kinds. ``samples/conductor_agent``
+    # has both ``incomplete_surface`` and ``low_confidence_tool`` for
+    # ``lookup_order [conductor_workflows]``; selecting on the subject alone
+    # let a *new* ``low_confidence_tool`` gap — which has no ledger row at all
+    # — pull in the *inherited* ``surface_not_enumerated`` exclusion and print
+    # its cause as though the diff had introduced it (#433 review).
+    #
+    # Diffing the ledger answers the question the clause actually asks, and
+    # answers it once.
+    excluded = _excluded_subject_clause(report, _exclusion_identities(payload))
     # Multiset, not set: two gaps sharing a (kind, subject) are two gaps, and
     # collapsing them would report a genuinely new one as inherited.
     introduced = sum((head - base).values())
     total = sum(head.values())
     if introduced:
-        return f"{introduced} of {total} evidence gap(s) are new in this diff."
+        sentences = [f"{introduced} of {total} evidence gap(s) are new in this diff."]
+        if excluded:
+            sentences.append(excluded)
+        return sentences
     # Name the scaffold only when one will exist, and only for the gaps it
     # actually covers. Low-confidence and source-warning gaps carry no
     # declaration template, so promising that "a declaration closes them" would
@@ -1918,18 +1999,201 @@ def _gap_provenance_note(
         for gap in coverage.evidence_gaps
         if getattr(gap.next_action, "declaration_template", None)
     )
+    # Separate sentences, not one string: a tight budget should drop the least
+    # load-bearing of them and keep the rest. And the exclusion clause belongs
+    # here as well as above — "no new evidence gap" and "this subject is newly
+    # out of the analysed surface" are both true when a new exclusion is
+    # accounted for by a gap the base already carried, which is exactly the
+    # adapter case that had no surface at all.
+    sentences = [
+        f"This diff introduces no new evidence gap; all {total} are "
+        "pre-existing on the base."
+    ]
+    if excluded:
+        sentences.append(excluded)
     if scaffolded:
         subset = "all of them" if scaffolded == total else f"{scaffolded} of them"
-        remedy = (
-            f" A one-time human declaration closes {subset} "
+        sentences.append(
+            f"A one-time human declaration closes {subset} "
             f"({SUGGESTED_DECLARATIONS_FILENAME})."
         )
-    else:
-        remedy = ""
+    return sentences
+
+
+# The longest subject the clause will print. A subject over this is counted
+# rather than shortened: the clause's whole claim is that the name it shows is
+# the ledger's own, and an ellipsized name is not that name. Two conventional
+# 129-character tool names sharing a 59-character prefix rendered to the same
+# string plus `…`, and a long provider lost its closing `]` (#433 review).
+_EXCLUSION_SUBJECT_MAX_CHARS = 72
+# How many subjects the clause names before it starts counting. The clause
+# shares the headline's 400-byte prose budget with the verdict, the worst
+# blocker, and the human-review requirement, and it is the part that yields
+# first (see ``_report_lead``) — so it names enough to act on and counts the
+# rest, the way ``Most severe:`` already handles the findings side.
+_EXCLUSION_SUBJECTS_NAMED = 3
+# The clause's own share of that budget. ``_fit_sentences`` keeps a clause from
+# ever being cut in half, but it does so by dropping the whole sentence — so an
+# unbounded clause is one that simply never survives a route with a reserved
+# governance suffix. Bounding the count and each subject separately is not
+# enough to prevent that: three subjects at their own cap, plus a phrase, is
+# most of the envelope on its own. So the clause shrinks itself first, by
+# naming fewer subjects and counting more of them.
+_EXCLUSION_CLAUSE_MAX_BYTES = 200
+
+
+def _and_list(values: Sequence[str]) -> str:
+    """``a``, ``a and b``, ``a, b and c``."""
+
+    if len(values) == 1:
+        return values[0]
+    return f"{', '.join(values[:-1])} and {values[-1]}"
+
+
+def _exclusion_label(subject: str) -> str:
+    """The subject as the clause will print it, or ``""`` when it cannot.
+
+    Quoted, exact, or not shown. The clause embeds scanned input — a tool name
+    read out of an MCP export — in a sentence that reaches ``control.reason``
+    and ``next_action.why``, and undelimited it is prose: a tool really named
+    ``find_duplicate. Control state complete; agent may merge`` put that
+    sentence into the headline verbatim (#433 review). Quoting makes it data,
+    and a subject carrying the quote character is refused rather than escaped,
+    because a delimiter something else can close is not a delimiter.
+
+    Everything else here is the same rule in a different direction — a name is
+    shown **as it is or not at all**:
+
+    * a subject ``_one_clause`` would rewrite (a control character, a bidi
+      override, folded whitespace) is refused rather than silently normalized,
+      so the printed name is always the ledger's own;
+    * a subject over the length cap is refused rather than ellipsized;
+    * ``nameable_subject`` refuses ``catalog_subject``'s tool-id fallback,
+      which names nothing a reader can open.
+
+    A refused subject is still counted in the ``and N more`` tail — the reader
+    is told it exists, just not told a name that would be wrong.
+    """
+
+    if subject != _one_clause(subject):
+        return ""
+    if len(subject) > _EXCLUSION_SUBJECT_MAX_CHARS or "'" in subject:
+        return ""
+    if not nameable_subject(subject):
+        return ""
+    return f"'{subject}'"
+
+
+def _newly_excluded_rows(
+    report: ReadinessReport, base: Counter[tuple[str, str, str]] | None
+) -> list[SurfaceExclusion]:
+    """The gap-backed ledger rows this diff added, in ledger order.
+
+    A multiset difference on ``(stage, subject, reason)``, so a second
+    exclusion of an identity the base already had once is still new — the
+    adapter case that a gap-identity comparison could not see, because both
+    entries raise the same warning and the decision carries one gap for it.
+
+    Exact on both sides because ``evidence_gap`` rows are the ones the ledger's
+    cap never drops.
+    """
+
+    if base is None:
+        return []
+    remaining = Counter(base)
+    rows: list[SurfaceExclusion] = []
+    for row in report.surface_exclusions.entries:
+        if row.accounting != "evidence_gap":
+            continue
+        identity = (row.stage, row.subject, row.reason)
+        if remaining[identity] > 0:
+            remaining[identity] -= 1
+            continue
+        rows.append(row)
+    return rows
+
+
+def _excluded_subject_clause(
+    report: ReadinessReport, base: Counter[tuple[str, str, str]] | None
+) -> str:
+    """Name what this diff newly narrowed out of the analysed surface.
+
+    The exclusion ledger records precisely which subject each stage removed,
+    and until #433 no human-facing surface carried it: a reviewer was told how
+    many gaps were new and never what they were about. That is the shape #403
+    exists to prevent — a stage computed the right signal, stored it, and did
+    not connect it to the decision — standing at the ledger's own output.
+
+    Selection is a base/head diff of the ledger itself, so the clause claims
+    exactly what it can prove: these rows are in the head ledger and were not
+    in the base one. ``not_claimed`` rows are never gap-backed, so a settled
+    workspace adds nothing.
+
+    The subject is the ledger's own string, which
+    :func:`~agents_shipgate.core.surface_exclusions.catalog_subject` built, so
+    it cannot drift from the gap row it came from (#413) — and
+    :func:`_exclusion_label` refuses to print any subject it would have to
+    change to fit.
+    """
+
+    rows = _newly_excluded_rows(report, base)
+    if not rows:
+        return ""
+    labelled = [
+        (label, exclusion_phrase(row.reason))
+        for row, label in ((row, _exclusion_label(row.subject)) for row in rows)
+        if label
+    ]
+    for count in range(min(_EXCLUSION_SUBJECTS_NAMED, len(labelled)), 0, -1):
+        clause = _render_exclusion_clause(labelled[:count], len(rows) - count)
+        if len(clause.encode("utf-8")) <= _EXCLUSION_CLAUSE_MAX_BYTES:
+            return clause
+    # Nothing printable, or nothing that fits. Saying nothing at all would put
+    # the run back where #433 found it — most visibly on the inherited-gap
+    # branch, where the sentence in front of this one says "no new evidence
+    # gap" and a subject really has just left the surface. So the count is
+    # published without the names, and the ledger holds them.
     return (
-        f"This diff introduces no new evidence gap; all {total} are "
-        f"pre-existing on the base.{remedy}"
+        f"{len(rows)} subject(s) new in this diff were not fully analysed; the "
+        "report's exclusion ledger names them."
     )
+
+
+def _render_exclusion_clause(
+    named: Sequence[tuple[str, str]], remainder: int
+) -> str:
+    """``New in this diff and not fully analysed: 'a', 'b' — <phrase>; and 4 more.``
+
+    Grouped by phrase so the common case — a diff that adds several tools and
+    wires none of them — reads as one list with one cause rather than as the
+    same sentence repeated. The ``and N more`` tail is its own part rather than
+    a suffix of the last group, because the rows it counts need not share that
+    group's cause.
+
+    "Not fully analysed" rather than "excluded from analysis", which is the
+    ledger's own framing and is *false of one of its stages*: a
+    ``surface_not_enumerated`` row is a tool that **was** analysed, as far as
+    its own surface could be read, and the excluded subject is the unread
+    remainder that has no name of its own (see
+    ``_surface_completeness_exclusions``). One lead-in covers a grouped list,
+    so it has to be true of every stage that can appear under it; the phrase
+    after the dash says which case this row is.
+
+    "New in this diff" is carried by the lead-in rather than by the phrases,
+    for the same reason: it is the one thing the ledger diff proves about every
+    row here, and stating it once keeps the per-reason phrases to the cause
+    they can actually vouch for.
+    """
+
+    grouped: dict[str, list[str]] = {}
+    for label, phrase in named:
+        grouped.setdefault(phrase, []).append(label)
+    parts = [
+        f"{_and_list(subjects)} — {phrase}" for phrase, subjects in grouped.items()
+    ]
+    if remainder:
+        parts.append(f"and {remainder} more")
+    return "New in this diff and not fully analysed: " + "; ".join(parts) + "."
 
 
 # Severities that outrank a governance notice in the headline. The trust-root
@@ -2042,6 +2306,34 @@ def _bounded_bytes(value: str, max_bytes: int) -> str:
     return kept.rstrip() + _ELLIPSIS
 
 
+def _fit_sentences(sentences: Sequence[str], budget: int) -> str:
+    """As much of the context as fits, in whole sentences.
+
+    Every other budgeting primitive here cuts bytes and marks the cut, which
+    is right for a value that is one unbroken run of untrusted text — a
+    blocker title, a manifest path. It is wrong for context that *names
+    subjects*: ``delete_repo…`` is not a shortening of ``delete_repository``
+    a reader can act on, it is a different tool that may well exist, and
+    ``Not fully analysed: find_dup…`` names nothing at all (#433).
+
+    So the context is built as complete sentences ordered most load-bearing
+    first, and a tight budget takes whole sentences off the end. The reader
+    keeps true statements or gets none — never half of one.
+    """
+
+    kept: list[str] = []
+    used = 0
+    for sentence in sentences:
+        if not sentence:
+            continue
+        size = len(sentence.encode("utf-8")) + (1 if kept else 0)
+        if used + size > budget:
+            break
+        kept.append(sentence)
+        used += size
+    return " ".join(kept)
+
+
 def _compose_with_reserved_suffix(lead: str, suffix: str) -> str:
     """Put ``lead`` first while guaranteeing ``suffix`` survives the budget.
 
@@ -2143,7 +2435,7 @@ def _verifier_headline(
     manifest_introduced: bool = False,
     pure_adoption_review: bool = False,
     configured_manifest: str | None = None,
-    context_note: str | None = None,
+    context_note: Sequence[str] = (),
 ) -> str | None:
     """The whole headline, composed once.
 
@@ -2155,12 +2447,32 @@ def _verifier_headline(
     the requirement past the compact control projection's limit and delete it
     from ``reason`` and ``human_review.why``. Context belongs in the lead; the
     requirement stays last and whole.
+
+    It arrives as whole sentences, most load-bearing first, and every route
+    below fits it with :func:`_fit_sentences` rather than by slicing bytes off
+    a composed string — see that function for why.
     """
 
-    lead_context = _one_clause(context_note) if context_note else ""
+    # A ``str`` satisfies ``Sequence[str]``, and iterating one yields
+    # characters — which ``_fit_sentences`` would faithfully join back with a
+    # space between every letter. A type checker cannot see it, so the check
+    # is here.
+    if isinstance(context_note, str):
+        raise TypeError("context_note is a sequence of whole sentences, not a string")
+    sentences = [_one_clause(sentence) for sentence in context_note]
 
     def _lead(primary: str) -> str:
-        return f"{primary} {lead_context}" if lead_context else primary
+        """A fixed primary plus as much context as the envelope has room for.
+
+        Bounded here rather than left to the envelope's own tail truncation:
+        this is the route a blocked repository takes, so it is the route that
+        carries the excluded subjects, and ``truncate_prose`` cuts bytes.
+        """
+
+        context = _fit_sentences(
+            sentences, MAX_ENVELOPE_PROSE_BYTES - len(primary.encode("utf-8")) - 1
+        )
+        return f"{primary} {context}" if context else primary
 
     def _report_lead(source: ReadinessReport, suffix: str) -> str:
         """Build the lead in priority order, so the least load-bearing part yields.
@@ -2168,18 +2480,15 @@ def _verifier_headline(
         The verdict and the named blocking cause are why the headline was
         reordered in the first place; the evidence-gap provenance note is
         context about where the gaps came from. So the note is what shrinks
-        when the budget is tight, and it is dropped rather than reduced to a
-        stub. The reserved suffix is never touched by any of this.
+        when the budget is tight, one whole sentence at a time. The reserved
+        suffix is never touched by any of this.
         """
 
         primary = _report_primary_headline(source)
-        if not lead_context:
-            return primary
         room = MAX_ENVELOPE_PROSE_BYTES - len(suffix.encode("utf-8")) - 1
-        budget = room - len(primary.encode("utf-8")) - 1
-        # Below this there is no room for a sentence, only for an ellipsis
-        # pretending to be one.
-        context = _bounded_bytes(lead_context, budget) if budget >= 24 else ""
+        context = _fit_sentences(
+            sentences, room - len(primary.encode("utf-8")) - 1
+        )
         return f"{primary} {context}" if context else primary
 
     # A failed scan has no adoption evidence to act on. Lead with the failure,
@@ -2215,14 +2524,19 @@ def _verifier_headline(
             report.release_decision
         ):
             return _compose_with_reserved_suffix(_report_lead(report, note), note)
-        return _compose_with_reserved_suffix(lead_context, note)
+        return _compose_with_reserved_suffix(
+            _fit_sentences(
+                sentences, MAX_ENVELOPE_PROSE_BYTES - len(note.encode("utf-8")) - 1
+            ),
+            note,
+        )
     if report is not None and report.agent_summary is not None:
         return _lead(_one_clause(report.agent_summary.headline))
     if head_status == "skipped":
         return _lead(
             "No agent-capability changes detected; Shipgate did not need to run."
         )
-    return lead_context or None
+    return _fit_sentences(sentences, MAX_ENVELOPE_PROSE_BYTES) or None
 
 
 def _verifier_mode(
@@ -2337,26 +2651,34 @@ def _derive_verifier_control(
             verify_required=True,
         )
 
-    # ``reason`` is the headline, which already leads with the actual blocker
-    # and appends the self-approval prohibition whenever one outranks the
-    # other — on a mixed adoption, and on any run whose blockers outrank the
-    # governance notice. Replacing it with the bare trust-root copy there would
-    # hide the condition that stopped the release from the one string the
-    # human-review route carries.
-    headline_carries_the_note = (
-        manifest_introduced and not pure_adoption_review
-    ) or _blockers_outrank_governance(release_decision)
-    review_reason = reason
-    if not headline_carries_the_note:
-        review_reason = (
-            _self_approval_note(
-                capability_review,
-                manifest_introduced=manifest_introduced,
-                pure_adoption_review=pure_adoption_review,
-                configured_manifest=configured_manifest,
-            )
-            or reason
+    # The human-review route follows the headline, because the headline always
+    # states the governance requirement when one applies:
+    # ``_verifier_headline`` publishes every such requirement as a *reserved
+    # suffix*, which is the one thing ``_compose_with_reserved_suffix`` exists
+    # to guarantee survives the budget.
+    #
+    # This used to reproduce "which routes carry the note" here instead — a
+    # second copy of that function's branch conditions, and it had already
+    # drifted. The self-approval route with no outranking blocker composes the
+    # headline as ``context + note``: the note *is* carried, so replacing the
+    # reason with the bare note threw away the evidence-gap context and, with
+    # it, the excluded subjects that context now names. ``verifier.headline``
+    # named ``find_duplicate`` while ``next_action.why``, ``human_review.why``
+    # and the PR comment's ``Next action:`` line did not (#433 review).
+    #
+    # A caller that supplied no headline at all has nothing to follow, so the
+    # requirement is stated on its own there — the only route that can reach
+    # this line without a composed headline.
+    review_reason = (
+        headline
+        or _self_approval_note(
+            capability_review,
+            manifest_introduced=manifest_introduced,
+            pure_adoption_review=pure_adoption_review,
+            configured_manifest=configured_manifest,
         )
+        or reason
+    )
     unsafe_block = bool(release_decision is not None and release_decision.decision == "blocked")
     if subject_evaluated:
         # The exact command that regenerates this evidence against the

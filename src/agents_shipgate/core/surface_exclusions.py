@@ -55,6 +55,59 @@ def catalog_subject(row: Mapping[str, Any]) -> str:
     return f"{name} [{provider}]" if provider else name
 
 
+#: The short human phrase each ledger ``reason`` renders as, for the surfaces
+#: that have room for a subject and a cause but not for a whole ``detail``
+#: sentence (#433).
+#:
+#: Lives beside the builder that emits the tokens, for the reason
+#: :func:`catalog_subject` does: a phrase table kept in the renderer is a second
+#: vocabulary for the same event, and it drifts in the direction nobody checks.
+#: The two ``adapter_parse`` reasons are here as well — they come from the
+#: bundled MCP loader, which is part of this vocabulary — while a third-party
+#: adapter's own token falls back, because there is nothing to look it up in.
+#:
+#: Written to follow a subject after an em dash, so no phrase carries number
+#: agreement of its own: ``'find_duplicate [github_mcp]' — not bound to the
+#: root agent`` reads the same for one subject or five.
+#:
+#: Every phrase states a *cause* and no phrase states provenance. The renderer
+#: says "new in this diff" once, from the ledger diff that proves it, and a
+#: phrase that repeated the claim got it wrong: ``newly_unbound_tool`` fires
+#: for a tool this change added **and** for one that was reachable at the base
+#: and lost the edge that bound it (``BindingSurfaceDiff.added_unbound_tool_ids``
+#: is head-minus-base, and the #403 discriminator is deliberately both), so
+#: "added by this diff" was false for a diff that only removed a declaration
+#: (#433 review).
+EXCLUSION_REASON_PHRASES: dict[str, str] = {
+    # binding
+    "incomplete_binding_edge": (
+        "bound by an edge that does not prove the binding complete"
+    ),
+    "newly_unbound_tool": "not bound to the root agent",
+    "unbound_tool": "in the catalog and not bound to the root agent",
+    "unverified_unbound_tool": (
+        "not bound to the root agent, with no usable base to compare against"
+    ),
+    # surface_completeness
+    "surface_not_enumerated": "not established as a complete surface",
+    # adapter_parse (agents_shipgate.inputs.mcp)
+    "unreadable_entry": "an entry the adapter could not read into the catalog",
+    "unnamed_entry": "an entry with no name, so no tool was read from it",
+}
+
+#: What an unrecognised token renders as. Deliberately says only what every
+#: exclusion has in common — a third-party adapter may coin any reason, and
+#: inventing a cause for it is the "do not invent provenance to fill a stage"
+#: mistake from the #404 review.
+FALLBACK_EXCLUSION_PHRASE = "removed from the analysed surface before any check ran"
+
+
+def exclusion_phrase(reason: str) -> str:
+    """The short human phrase for a ledger ``reason`` token."""
+
+    return EXCLUSION_REASON_PHRASES.get(reason, FALLBACK_EXCLUSION_PHRASE)
+
+
 def unavailable_base_subject(report: ReadinessReport) -> str:
     """The subject naming the base comparison this run could not perform.
 
@@ -140,6 +193,39 @@ def derived_id_kind(value: str) -> str | None:
             if pattern.search(qualifier):
                 return noun
     return None
+
+
+def nameable_subject(value: str) -> bool:
+    """Whether a subject can be printed *as a name* at a reader.
+
+    :func:`catalog_subject` falls back to the tool id for a row with no
+    ``name``, which is right where that string is used — a ledger entry joined
+    to a gap by value — and wrong the moment it becomes prose: nobody can open
+    ``tool_v2_6dcebe… [billing]`` (#329).
+
+    :func:`derived_id_kind` will not catch that spelling, and deliberately so.
+    It allows a derived shape in the *name* position because an adopter may
+    legally name a tool ``tool_v2_deadbeef``, and it aborts a scan on a match —
+    a false positive there is an outage. This predicate makes the opposite
+    trade for a display surface, where refusing a name costs one entry in a
+    bounded list and the reader still gets it in the count. Both halves are
+    checked: the qualifier positions ``derived_id_kind`` already owns, and the
+    name position it deliberately leaves alone.
+
+    :mod:`agents_shipgate.core.findings.subject_rollup` answers the same
+    question by dropping nameless *catalog rows*, which it can do because it
+    holds them; a caller holding only the rendered subject asks here.
+    """
+
+    stripped = value.strip()
+    if not stripped or derived_id_kind(stripped):
+        return False
+    name_position = _BRACKETED_QUALIFIER.sub("", stripped).strip()
+    if not name_position:
+        return False
+    return not any(
+        pattern.fullmatch(name_position) for _noun, pattern in DERIVED_ID_PATTERNS
+    )
 
 
 def agent_subject(node: AgentBindingNode) -> str:
@@ -372,8 +458,13 @@ def _binding_exclusions(
                 source_ref=_row_ref(row),
                 detail=(
                     (
-                        "This change put the tool in the catalog and left it "
-                        "unbound from the root agent, so no check judged it."
+                        # Not "this change added the tool": the same set also
+                        # holds a tool that was reachable at the base and lost
+                        # the edge that bound it, and naming one cause states a
+                        # fact the comparison did not establish (#433 review).
+                        "This change left the tool outside the root agent's "
+                        "bound surface — newly in the catalog, or bound at the "
+                        "base and no longer — so no check judged it."
                     )
                     if introduced
                     else (
@@ -561,6 +652,10 @@ def build_detect_exclusions(result: DetectResult) -> SurfaceExclusionLedger:
 __all__ = [
     "BINDING_GAP_KINDS",
     "DERIVED_ID_PATTERNS",
+    "EXCLUSION_REASON_PHRASES",
+    "FALLBACK_EXCLUSION_PHRASE",
+    "exclusion_phrase",
+    "nameable_subject",
     "agent_label_index",
     "agent_subject",
     "catalog_label_index",
