@@ -732,16 +732,38 @@ def _observations(
             )
         for original in loaded.tools:
             if original.source_id is not None and original.source_id != source_id:
+                # Naming the defect is not a repair. This was reachable from
+                # the built-in ``codex_config`` loader, which returned one
+                # file-level source holding tools stamped per MCP server, so
+                # every row over a config that named a server aborted here
+                # with nothing the reader could do; what remains reachable is
+                # a third-party adapter, whose code they cannot edit either.
+                #
+                # The configured entry is the one lever they do hold, so the
+                # sentence offers it *after* the diagnosis and names what it
+                # costs — dropping the entry is a scan without that source,
+                # not a fix, and a reader told "your configuration is fine"
+                # and then "edit your configuration" believes the first
+                # sentence was wrong.
+                configured = (loaded.configured_source_id or "").strip()
+                workaround = (
+                    " Until it is fixed, removing the tool_sources entry "
+                    f"{configured!r} from shipgate.yaml lets the scan run "
+                    "without the tools that entry reads."
+                    if configured
+                    else ""
+                )
                 raise InputParseError(
                     f"A tool source loader reported tool {original.name!r} as "
                     "belonging to a different source than the one it was read "
                     "from. That is a defect in the loader, not in this "
                     "repository's configuration — check report.json "
-                    "loaded_adapters[] if a third-party adapter is installed.",
+                    f"loaded_adapters[] if a third-party adapter is installed.{workaround}",
                     details={
                         "tool_name": original.name,
                         "tool_source_id": original.source_id,
                         "loaded_source_id": source_id,
+                        "configured_source_id": loaded.configured_source_id,
                     },
                 )
             # The extraction graph is no longer consumed after catalog

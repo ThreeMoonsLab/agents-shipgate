@@ -2,6 +2,59 @@
 
 ## Unreleased
 
+- **A `codex_config` tool source no longer aborts the scan on any MCP server
+  it finds.** A `tool_sources[]` row of `type: codex_config` failed outright
+  with `InputParseError` — "A tool source loader reported tool 't_codex' as
+  belonging to a different source than the one it was read from" — whenever
+  the workspace contained a `.mcp.json` or `.codex/config.toml` declaring a
+  server. Since a server with no enumerable tools still mints a `<server>.*`
+  wildcard, *any* server at all reached it: the source type worked only on
+  workspaces that had no MCP declarations to read, which is the opposite of
+  what it is for.
+
+  `inputs.mcp_manifest` minted a per-server id for every tool
+  (`mcp_json:<server>`, `codex_config_mcp:<server>`) and then wrapped a whole
+  file's servers in one `LoadedToolSource` named for the *file*
+  (`codex_config_mcp:<path>`). `core.tool_identity` requires a loaded source
+  to name the id its tools carry — a tool arriving under another source's
+  name is a loader defect — so the two spellings could never agree.
+
+  **The loader now emits one `LoadedToolSource` per MCP server**, built from
+  the server, so there is no second place that spells the id. The minted ids
+  themselves are unchanged and stay deliberately path-free: an MCP capability
+  is its server and tool, so moving a `.mcp.json` remains a pure rename rather
+  than a capability addition (`mcp audit`). One source per *file* was the
+  other candidate repair and is wrong: `_native_locator` is the bare tool name
+  for MCP-like sources, so grouping a file's servers together made a legal
+  `.mcp.json` whose two servers both expose `query` fail with "defines the
+  tool 'query' more than once".
+
+  No version moves and no schema changes: `report_schema_version`,
+  `contract_version`, and every published schema document are unchanged.
+  Nothing that previously produced a report changes shape, because no
+  workspace with an MCP server could produce one.
+
+  **Known gap.** Two files of the same kind declaring the same server name —
+  `pkg_a/.mcp.json` and `pkg_b/.mcp.json` both declaring `github`, which is
+  likely in a monorepo since server names are conventional — still fail:
+  `scan` with a duplicate-observation message that names a file the manifest
+  never listed twice, and `mcp audit` (already, independently of this change)
+  with an unhandled `ConfigError` and no JSON envelope. Path-free capability
+  identity and one-observation-per-identity are both deliberate, and
+  reconciling them is tracked separately.
+
+- **The loader-contract failure now offers a way forward.** "That is a defect
+  in the loader, not in this repository's configuration" was accurate and
+  terminal: the reader cannot edit an adapter they do not own, and had just
+  been told their own configuration was not at fault. When the dispatcher can
+  prove which `tool_sources` entry produced the read, the message now adds
+  *Until it is fixed, removing the tool_sources entry 'x' from shipgate.yaml
+  lets the scan run without the tools that entry reads* — after the diagnosis,
+  and named as the workaround it is rather than as the repair. `details` gains
+  `configured_source_id` alongside the existing keys. A source no configured
+  row produced is offered nothing, rather than an entry the reader could not
+  find.
+
 - **A new evidence gap now says which subject left the analysed surface.**
   (#433) The exclusion ledger from #403 records precisely which subject each
   stage removed — `("binding", "find_duplicate [github_mcp]", "evidence_gap")`

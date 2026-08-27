@@ -126,8 +126,7 @@ def load_codex_config_mcp_sources(root: Path, base_dir: Path) -> list[LoadedTool
                 source_ref=source_ref,
                 source_path=manifest_relative_path(str(path.resolve()), base_dir),
             )
-            if servers:
-                sources.append(_loaded_source_from_servers(source_ref, servers))
+            sources.extend(_loaded_sources_from_servers(servers))
         elif path.name == ".mcp.json":
             sources.extend(_load_mcp_json(path, base_dir))
     return sources
@@ -213,6 +212,10 @@ def _servers_from_mapping(
             continue
         if raw_server.get("enabled") is False:
             continue
+        # Deliberately path-free: an MCP capability is identified by its
+        # server and tool, so moving a ``.mcp.json`` is not a capability
+        # change (``mcp audit`` pins that as a pure rename). The file it was
+        # read from travels on ``source_ref``/``source_path`` instead.
         source_id = f"{source_id_prefix}:{server_name}"
         env_secret_names = tuple(_env_secret_names(raw_server.get("env")))
         transport = _transport(raw_server)
@@ -369,26 +372,48 @@ def _tool_from_normalized(
     )
 
 
-def _loaded_source_from_servers(
-    source_ref: str,
+def _loaded_sources_from_servers(
     servers: list[NormalizedMcpServer],
-) -> LoadedToolSource:
-    warnings = [
-        (
-            f"Codex MCP tool {tool.name!r} on server {server.name!r} contains "
-            "reserved binding annotations that were ignored: "
-            f"{', '.join(tool.rejected_binding_annotation_keys)}"
+) -> list[LoadedToolSource]:
+    """One loaded source per server, spelled with the id its tools carry.
+
+    ``_tool_from_normalized`` stamps every tool with ``server.source_id``, and
+    ``core.tool_identity`` requires a loaded source to name the id its tools
+    claim — a tool arriving under another source's name is a loader defect
+    there, and aborts the scan.
+
+    This function used to return one *file*-level ``codex_config_mcp:<path>``
+    source holding tools stamped per server, which mismatched on both file
+    kinds: ``mcp_json:<server>`` for a ``.mcp.json`` and
+    ``codex_config_mcp:<server>`` for a ``.codex/config.toml``. Since a server
+    with no enumerable tools still mints a ``<server>.*`` wildcard, *every*
+    ``codex_config`` row over a config naming any server aborted the scan.
+
+    Deriving the source from the server is what keeps the two spellings from
+    drifting apart again: there is no second place that spells the id, and no
+    per-file grouping to keep two servers that expose the same tool name from
+    colliding inside one source — ``_native_locator`` is the bare tool name
+    for MCP-like sources, so that grouping made a legal file look like a
+    duplicate definition.
+    """
+
+    return [
+        LoadedToolSource(
+            source_id=server.source_id,
+            source_type=server.source_type,
+            tools=tools_from_normalized_mcp_servers([server]),
+            warnings=[
+                (
+                    f"Codex MCP tool {tool.name!r} on server {server.name!r} contains "
+                    "reserved binding annotations that were ignored: "
+                    f"{', '.join(tool.rejected_binding_annotation_keys)}"
+                )
+                for tool in server.tools
+                if tool.rejected_binding_annotation_keys
+            ],
         )
         for server in servers
-        for tool in server.tools
-        if tool.rejected_binding_annotation_keys
     ]
-    return LoadedToolSource(
-        source_id=f"codex_config_mcp:{source_ref}",
-        source_type="codex_config_mcp",
-        tools=tools_from_normalized_mcp_servers(servers),
-        warnings=warnings,
-    )
 
 
 def _load_mcp_json(path: Path, base_dir: Path) -> list[LoadedToolSource]:
@@ -439,7 +464,7 @@ def _load_mcp_json(path: Path, base_dir: Path) -> list[LoadedToolSource]:
                 }
             )
         )
-    return [_loaded_source_from_servers(source_ref, enriched)] if enriched else []
+    return _loaded_sources_from_servers(enriched)
 
 
 def _tool_config_mapping(server: dict[str, Any]) -> dict[str, Any]:
