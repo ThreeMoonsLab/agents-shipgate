@@ -943,8 +943,8 @@ def test_the_gap_note_is_dropped_by_the_sentence_never_cut_mid_name(
     Every other budgeting primitive here cuts bytes and marks the cut, which
     is right for one unbroken run of untrusted text. The provenance note names
     *subjects*: `delete_repo…` is not a shortening of `delete_repository` a
-    reader can act on — it is a plausible other tool — and `Excluded from
-    analysis: find_dup…` names nothing at all (#433).
+    reader can act on — it is a plausible other tool — and `Not fully
+    analysed: find_dup…` names nothing at all (#433).
     """
 
     headline = _budgeted_headline(

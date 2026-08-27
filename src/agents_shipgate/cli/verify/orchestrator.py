@@ -1994,8 +1994,8 @@ def _excluded_subject_clause(
     identities the count above was computed from, so the clause and the number
     it follows can never describe different sets. The pointer's granularity is
     the gap *subject*, which is why the clause claims only what is true of
-    every row it shows — these subjects were excluded from analysis — and
-    leaves "new" to the sentence in front of it. ``not_claimed`` rows carry no
+    every row it shows — these subjects were not fully analysed — and leaves
+    "new" to the sentence in front of it. ``not_claimed`` rows carry no
     pointer at all, so a settled workspace adds nothing.
 
     The subject is the ledger's own string, which
@@ -2030,8 +2030,8 @@ def _excluded_subject_clause(
         clause = _render_exclusion_clause(labelled[:count], len(rows) - count)
         if len(clause.encode("utf-8")) <= _EXCLUSION_CLAUSE_MAX_BYTES:
             return clause
-    # Nothing nameable, or nothing that fits: no clause. "Excluded from
-    # analysis: and 1 more" says nothing the count in front of it did not.
+    # Nothing nameable, or nothing that fits: no clause. "Not fully analysed:
+    # and 1 more" says nothing the count in front of it did not.
     return ""
 
 
