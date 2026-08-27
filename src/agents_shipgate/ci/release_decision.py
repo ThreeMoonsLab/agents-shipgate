@@ -631,6 +631,16 @@ def _binding_declaration_template(
                 for source_id in source_ids
             ]
         }
+    if issue.source == TOOL_SOURCE_BINDING_DECLARATION:
+        # A reviewed source binding that reached no tool. It is raised against
+        # the surface node, which is the graph's root whenever it is the only
+        # declared surface — so without this the root-scoped branch below
+        # offered an ``agent_bindings.declarations`` row while the gap's own
+        # ``path`` named ``tool_sources[].binding``, listing some *other*
+        # source's tools under an ``agent:`` that names a tool source and
+        # resolves to nothing. The repair is in what this source reads; no
+        # block a reader could paste expresses it.
+        return None
     if issue.kind not in {"missing_binding_evidence", "partial_binding_evidence"}:
         return None
     # Root-scoped only. ``missing_binding_evidence`` is also raised per tool for

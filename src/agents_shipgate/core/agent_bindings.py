@@ -324,7 +324,7 @@ def resolve_agent_binding_graph(
                 issues.append(
                     AgentBindingIssue(
                         kind="unresolved_bound_tool",
-                        message=result.message or "Binding selector did not resolve exactly.",
+                        message=_unresolved_selector_message(selector, result.message),
                         agent_id=agent.agent_id,
                         source="shipgate.yaml",
                         source_pointer=f"{pointer}/tools/{selector_index_value}",
@@ -857,6 +857,40 @@ def _observations(
     return agents, edges, handoffs, partials, invalid_annotations
 
 
+#: Characters that mean a reader was writing a pattern, not a name.
+_GLOB_CHARACTERS = frozenset("*?[")
+
+
+def _unresolved_selector_message(selector: Any, message: str | None) -> str:
+    """The resolver's own sentence, plus what a pattern was reaching for.
+
+    ``tools: [{tool: "*", source_id: github_mcp}]`` is the other spelling #432
+    reported: a reader trying to say "all of this source's tools" in one row.
+    It is matched as a literal tool name and reported as matching none, which
+    is true and tells them nothing. Naming the statement they were reaching for
+    is what makes that row's failure actionable, and it is said here rather
+    than in the shared resolver because a pattern in an ``action_surface`` row
+    is a different misunderstanding with a different repair.
+    """
+
+    base = message or "Binding selector did not resolve exactly."
+    name = _selector_field(selector, "tool")
+    if not name or not (_GLOB_CHARACTERS & set(name)):
+        return base
+    return (
+        f"{base}. A binding selector names one tool exactly and is not a "
+        "pattern. To state that a whole source's published surface is the "
+        "surface under review, declare it once at "
+        "shipgate.yaml#tool_sources[].binding instead of matching its tools "
+        "here."
+    )
+
+
+def _selector_field(selector: Any, field: str) -> str | None:
+    value = getattr(selector, field, None)
+    return value.strip() if isinstance(value, str) else None
+
+
 def _declared_source_surfaces(
     manifest: AgentsShipgateManifest,
 ) -> list[tuple[ToolSourceConfig, str, _AgentObservation]]:
@@ -915,9 +949,20 @@ def _select_root(
     surfaces = [agent for agent in agents if agent.agent_id in surface_agent_ids]
     candidates = observed
     if root_config is not None:
-        candidates = [agent for agent in agents if agent.name == root_config.object]
+        matches = [agent for agent in agents if agent.name == root_config.object]
         if root_config.source_id:
-            candidates = [agent for agent in candidates if agent.source_id == root_config.source_id]
+            matches = [agent for agent in matches if agent.source_id == root_config.source_id]
+        # ``root.object`` names a statically reviewed agent *object*, so an
+        # observed agent wins the name outright. A declared surface answers to
+        # the selector only where nothing observed offers that name — which is
+        # the artifact-only case the selector could not be satisfied in at all,
+        # and is what keeps adding a ``binding`` block to a source whose id
+        # happens to match an agent from making a selector that used to resolve
+        # ambiguous.
+        observed_matches = [
+            agent for agent in matches if agent.agent_id not in surface_agent_ids
+        ]
+        candidates = observed_matches or matches
     elif manifest.agent.sdk and manifest.agent.sdk.object:
         candidates = [agent for agent in observed if agent.name == manifest.agent.sdk.object]
     elif len(manifest.agent_bindings.declarations) == 1:

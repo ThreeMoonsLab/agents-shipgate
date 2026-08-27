@@ -611,10 +611,15 @@ A repository may declare more than one source. Each is its own entry point;
 none of them is elected the root of the others. `binding_surface_facts.agents[]`
 carries one node per declared source, named by `tool_sources[].id`, so
 `agent_bindings.root: {object: <id>, source_id: <id>}` resolves to it once the
-block is written. Without the block, a catalog with no agent object anywhere
-reports that no root selector can match one, and names this block as the route
-— `root.object` is an agent object the scan observed, and a JSON tool export
-produces none.
+block is written. `root.object` still names a statically reviewed agent object
+first: where an observed agent and a declared source share a name, the agent
+wins the selector, so adding this block cannot make a selector that used to
+resolve ambiguous. Without the block, a catalog with no agent object anywhere
+reports that no root selector can match one and names this block as the route —
+a JSON tool export produces no code objects for any selector to match. A
+`tools:` selector spelled as a pattern (`{tool: "*"}`) says so too: selectors
+name one tool exactly, and this block is the statement that spelling was
+reaching for.
 
 A reviewed declaration that binds no tool is an error, not a no-op: it reports
 `missing_binding_evidence` naming the source, because the source contributed

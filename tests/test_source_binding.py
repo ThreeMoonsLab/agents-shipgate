@@ -384,60 +384,271 @@ def test_declaring_a_source_only_ever_widens_the_analysed_surface(
     assert set(after.unbound_tool_ids) < set(before.unbound_tool_ids)
 
 
+_ADK_UNREACHED_SUBAGENT = """\
+from google.adk.agents import Agent
+from google.adk.tools import FunctionTool
+
+
+def wire_money(amount: str) -> str:
+    \"\"\"Wire money out of the treasury account.\"\"\"
+    return amount
+
+
+def read_ledger() -> str:
+    \"\"\"Read the ledger.\"\"\"
+    return "ok"
+
+
+worker = Agent(
+    name="treasury_worker",
+    model="gemini-2.0-flash",
+    tools=[FunctionTool(wire_money)],
+)
+
+root_agent = Agent(
+    name="front_desk",
+    model="gemini-2.0-flash",
+    tools=[FunctionTool(read_ledger)],
+)
+"""
+
+_ADK_DYNAMIC_TOOLSET = """\
+from google.adk.agents import Agent
+from google.adk.tools import FunctionTool
+from google.adk.tools.mcp_tool import MCPToolset
+
+
+def read_ledger() -> str:
+    \"\"\"Read the ledger.\"\"\"
+    return "ok"
+
+
+root_agent = Agent(
+    name="front_desk",
+    model="gemini-2.0-flash",
+    tools=[FunctionTool(read_ledger), MCPToolset(connection_params=None)],
+)
+"""
+
+
+def _adk_workspace(
+    tmp_path: Path,
+    module: str,
+    *,
+    declared: bool,
+    source_id: str = "adk_main",
+    agent_bindings: dict[str, Any] | None = None,
+    select_root: bool = True,
+) -> Path:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "agent.py").write_text(module, encoding="utf-8")
+    source: dict[str, Any] = {
+        "id": source_id,
+        "type": "google_adk",
+        "path": "agent.py",
+    }
+    if declared:
+        source["binding"] = {"complete": True, "reason": _REVIEWED_REASON}
+    config = tmp_path / "shipgate.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                **_manifest_dict(
+                    sources=[source],
+                    agent_bindings=(
+                        agent_bindings
+                        if agent_bindings is not None
+                        else ({"root": {"object": "front_desk"}} if select_root else None)
+                    ),
+                ),
+                "environment": {"target": "production_like"},
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    return config
+
+
+def test_a_tool_the_declaration_reaches_is_judged_not_merely_accounted_for(
+    tmp_path: Path,
+) -> None:
+    """The gap it closes is replaced by obligations on the same tool.
+
+    ``wire_money`` sits on a sub-agent the root cannot reach, so #385 reports
+    it as excluded from the analysed surface and nothing judges it. Declaring
+    the source closes that row — and the honest test of "widening" is not that
+    the row went away but that the tool it named is now in the judged
+    population, carrying the effect and authority questions every other action
+    carries.
+    """
+
+    excluded = _scan(_adk_workspace(tmp_path / "plain", _ADK_UNREACHED_SUBAGENT, declared=False))
+    reached = _scan(_adk_workspace(tmp_path / "declared", _ADK_UNREACHED_SUBAGENT, declared=True))
+
+    judged_before = {str(row["name"]) for row in excluded.tool_inventory}
+    judged_after = {str(row["name"]) for row in reached.tool_inventory}
+    assert judged_before == {"read_ledger"}
+    assert judged_after == {"read_ledger", "wire_money"}
+    assert _coverage(excluded).unbound_tools == 1
+    assert _coverage(reached).unbound_tools == 0
+    assert [gap.kind for gap in _binding_gaps(reached)] == []
+    # And the verdict does not improve for it: the newly judged tool arrives
+    # owing exactly what an undeclared action owes.
+    assert reached.release_decision is not None
+    assert reached.release_decision.decision == "insufficient_evidence"
+    assert {
+        gap.subject_id
+        for gap in reached.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "missing_effect_evidence"
+    } > {
+        gap.subject_id
+        for gap in excluded.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "missing_effect_evidence"
+    }
+
+
+def test_a_declaration_cannot_launder_an_unenumerable_surface(
+    tmp_path: Path,
+) -> None:
+    """The one direction that would be a fail-open, closed.
+
+    A dynamically built toolset means the scan could not read what the source
+    publishes. "Everything this source publishes is under review" is not an
+    answer to that — nobody, the declarer included, knows what the set is — so
+    the graph stays ``partial`` and nothing is pass-eligible.
+    """
+
+    report = _scan(_adk_workspace(tmp_path / "dynamic", _ADK_DYNAMIC_TOOLSET, declared=True))
+
+    graph = report.binding_surface_facts
+    assert graph.status == "partial"
+    assert graph.pass_eligible is False
+    assert _coverage(report).pass_eligible is False
+    assert [issue.kind for issue in graph.issues] == ["partial_binding_evidence"]
+
+
+_ADK_COLLIDING_NAME = """\
+from google.adk.agents import Agent
+from google.adk.tools import FunctionTool
+
+
+def read_ledger() -> str:
+    \"\"\"Read the ledger.\"\"\"
+    return "ok"
+
+
+def wire_money(amount: str) -> str:
+    \"\"\"Wire money out.\"\"\"
+    return amount
+
+
+helper = Agent(name="helper", model="gemini-2.0-flash", tools=[FunctionTool(wire_money)])
+
+root_agent = Agent(
+    name="front_desk", model="gemini-2.0-flash", tools=[FunctionTool(read_ledger)]
+)
+"""
+
+_ADK_ROOT_WITH_SUBAGENT = """\
+from google.adk.agents import Agent
+from google.adk.tools import FunctionTool
+
+
+def read_ledger() -> str:
+    \"\"\"Read the ledger.\"\"\"
+    return "ok"
+
+
+def wire_money(amount: str) -> str:
+    \"\"\"Wire money out.\"\"\"
+    return amount
+
+
+helper = Agent(name="helper", model="gemini-2.0-flash", tools=[FunctionTool(wire_money)])
+
+root_agent = Agent(
+    name="front_desk",
+    model="gemini-2.0-flash",
+    tools=[FunctionTool(read_ledger)],
+    sub_agents=[helper],
+)
+"""
+
+
 def test_a_source_id_sharing_an_agent_name_does_not_rewire_that_name(
     tmp_path: Path,
 ) -> None:
     """A prescribed fix whose side effect breaks the graph is the #385 class.
 
     ``tool_sources[].id`` and an agent name are independent repository-chosen
-    namespaces. A surface node that deduped or resolved under the shared name
-    would silently bind the source's whole catalog to that agent, and would
-    break the ``agent_bindings.declarations`` row that used to resolve it.
+    namespaces, and this fixture makes them collide on purpose: a Google ADK
+    source named ``front_desk`` holding an agent named ``front_desk``, whose
+    observations agree on *both* the name and the source id the graph dedupes
+    on. Without a namespace of its own the surface would collapse into that
+    agent's node and bind the source's whole catalog to it; without being held
+    out of name resolution it would make the name ambiguous and break the
+    ``declarations`` row that used to resolve it.
     """
 
-    def build(with_binding: bool) -> Path:
-        published: dict[str, Any] = {
-            "id": "root",
-            "type": "mcp",
-            "path": "published/tools.json",
-        }
-        if with_binding:
-            published["binding"] = {"complete": True, "reason": _REVIEWED_REASON}
-        return _workspace(
-            tmp_path / ("declared" if with_binding else "plain"),
-            artifacts={
-                "agent/tools.json": [_mcp_tool("wired.a"), _mcp_tool("wired.b")],
-                "published/tools.json": [_mcp_tool("published.one")],
-            },
-            sources=[
-                {"id": "agent_tools", "type": "mcp", "path": "agent/tools.json"},
-                published,
+    config = _adk_workspace(
+        tmp_path / "collide",
+        _ADK_COLLIDING_NAME,
+        declared=True,
+        source_id="front_desk",
+        agent_bindings={
+            "root": {"object": "front_desk"},
+            "declarations": [
+                {
+                    "agent": "front_desk",
+                    "complete": True,
+                    "tools": [{"tool": "read_ledger", "source_id": "front_desk"}],
+                    "handoffs": [],
+                    "reason": "reviewed fixture binding",
+                }
             ],
-            agent_bindings={
-                "declarations": [
-                    {
-                        "agent": "root",
-                        "complete": True,
-                        "tools": [{"tool": "wired.a", "source_id": "agent_tools"}],
-                        "handoffs": [],
-                        "reason": "reviewed fixture binding",
-                    }
-                ]
-            },
-        )
-
-    plain = _scan(build(False)).binding_surface_facts
-    declared = _scan(build(True)).binding_surface_facts
-
-    # The declaration keeps resolving: `wired.a` is reachable in both runs, and
-    # `wired.b` stays unbound in both. Only the published source moved.
-    plain_reachable = set(plain.reachable_tool_ids)
-    declared_reachable = set(declared.reachable_tool_ids)
-    assert plain_reachable <= declared_reachable
-    assert len(declared_reachable) == len(plain_reachable) + 1
-    assert not any(
-        issue.kind == "unresolved_agent_binding" for issue in declared.issues
+        },
     )
+
+    graph = _scan(config).binding_surface_facts
+
+    named = [node for node in graph.agents if node.name == "front_desk"]
+    assert len(named) == 2, [node.model_dump() for node in graph.agents]
+    surface = next(
+        node for node in named if node.source_pointer == "/tool_sources/0/binding"
+    )
+    observed = next(node for node in named if node is not surface)
+    # The declaration and the selector both keep meaning the agent object.
+    assert graph.root_agent_id == observed.agent_id
+    assert [issue.kind for issue in graph.issues] == []
+    assert len(graph.reachable_tool_ids) == 2
+
+
+def test_a_declared_surface_is_invisible_to_root_selection_heuristics(
+    tmp_path: Path,
+) -> None:
+    """Adding the block must not make an agent the scan already picked ambiguous.
+
+    Root selection with no explicit selector takes the one observed agent no
+    handoff targets. A surface counted among those candidates would make this
+    two, and the repository would go from a resolved root to
+    ``ambiguous_root_agent`` for having declared a source.
+    """
+
+    def root_name(declared: bool) -> str | None:
+        graph = _scan(
+            _adk_workspace(
+                tmp_path / ("declared" if declared else "plain"),
+                _ADK_ROOT_WITH_SUBAGENT,
+                declared=declared,
+                select_root=False,
+            )
+        ).binding_surface_facts
+        names = {node.agent_id: node.name for node in graph.agents}
+        return names.get(graph.root_agent_id or "")
+
+    assert root_name(False) == "front_desk"
+    assert root_name(True) == "front_desk"
 
 
 # --------------------------------------------------------------------------
@@ -556,6 +767,60 @@ def test_the_scaffolded_block_is_the_manifest_edit_that_closes_the_gap(
 
     assert _coverage(second).reachable_tools == 12
     assert [gap.kind for gap in _binding_gaps(second)] == []
+
+
+def test_a_wildcard_selector_is_told_what_it_was_reaching_for(
+    tmp_path: Path,
+) -> None:
+    """The other spelling #432 reported, and the other half of the dead end.
+
+    ``tools: [{tool: "*", source_id: …}]`` is a reader trying to say "all of
+    this source's tools" in one row. It is matched as a literal name and
+    reported as matching none, which is true and tells them nothing.
+    """
+
+    config = _binding_workspaces(tmp_path)["unresolved_tool"]
+
+    gaps = _binding_gaps(_scan(config))
+
+    assert [gap.kind for gap in gaps] == ["unresolved_bound_tool"]
+    why = gaps[0].why
+    assert "is not a pattern" in why
+    assert "shipgate.yaml#tool_sources[].binding" in why
+    # The row to edit is still the broken selector, not the block it names.
+    assert gaps[0].next_action.path == "shipgate.yaml#agent_bindings.declarations"
+
+
+def test_an_exact_selector_that_matches_nothing_is_not_told_about_patterns(
+    tmp_path: Path,
+) -> None:
+    """The negative control: the sentence is about the pattern, not the failure.
+
+    Appending it to every unresolved selector would hand a plain typo a remedy
+    that has nothing to do with it.
+    """
+
+    config = _workspace(
+        tmp_path / "typo",
+        artifacts={"mcp/tools.json": [_mcp_tool("a")]},
+        sources=[{"id": "srv", "type": "mcp", "path": "mcp/tools.json"}],
+        agent_bindings={
+            "declarations": [
+                {
+                    "agent": "root",
+                    "complete": True,
+                    "tools": [{"tool": "aa", "source_id": "srv"}],
+                    "handoffs": [],
+                    "reason": "reviewed fixture binding",
+                }
+            ]
+        },
+    )
+
+    gaps = _binding_gaps(_scan(config))
+
+    assert [gap.kind for gap in gaps] == ["unresolved_bound_tool"]
+    assert "is not a pattern" not in gaps[0].why
 
 
 def test_a_root_selector_naming_a_declared_source_resolves(tmp_path: Path) -> None:
@@ -692,6 +957,117 @@ def test_a_catalog_with_no_declarable_source_is_not_sent_to_the_new_block(
     )
     assert gap.next_action.path == "shipgate.yaml#agent_bindings.declarations"
     assert gap.next_action.declaration_template is None
+
+
+#: The manifest block each published binding ``path`` names. A scaffolded block
+#: is pasted at the ``path`` beside it, so the two are one statement with two
+#: spellings — asserting either alone passes while the pair contradicts itself
+#: (#329 review).
+_BLOCK_BY_BINDING_PATH: dict[str, str] = {
+    "shipgate.yaml#agent_bindings": "agent_bindings",
+    "shipgate.yaml#agent_bindings.root": "agent_bindings",
+    "shipgate.yaml#agent_bindings.declarations": "agent_bindings",
+    "shipgate.yaml#tool_sources[].binding": "tool_sources",
+}
+
+
+def _binding_workspaces(tmp_path: Path) -> dict[str, Path]:
+    """One workspace per shape that raises a binding gap, keyed by what it is."""
+
+    return {
+        # No agent object anywhere, nothing declared: the reported dead end.
+        "artifact_only": _workspace(
+            tmp_path / "artifact_only",
+            artifacts={"mcp/tools.json": [_mcp_tool("a")]},
+            sources=[{"id": "srv", "type": "mcp", "path": "mcp/tools.json"}],
+        ),
+        # A declared surface plus a root selector that names nothing.
+        "bad_selector": _workspace(
+            tmp_path / "bad_selector",
+            artifacts={"mcp/tools.json": [_mcp_tool("a")]},
+            sources=[_binding_source("srv", "mcp/tools.json")],
+            agent_bindings={"root": {"object": "svr"}},
+        ),
+        # The only declared source contributes nothing, and it is therefore the
+        # graph's root — the shape that made a `tool_sources[].binding` path
+        # ship an `agent_bindings.declarations` block naming another source.
+        "declared_binds_nothing": _workspace(
+            tmp_path / "declared_binds_nothing",
+            artifacts={"empty/tools.json": [], "other/tools.json": [_mcp_tool("b")]},
+            sources=[
+                _binding_source("empty_source", "empty/tools.json"),
+                {"id": "other", "type": "mcp", "path": "other/tools.json"},
+            ],
+        ),
+        # A selector that resolves to no tool.
+        "unresolved_tool": _workspace(
+            tmp_path / "unresolved_tool",
+            artifacts={"mcp/tools.json": [_mcp_tool("a")]},
+            sources=[{"id": "srv", "type": "mcp", "path": "mcp/tools.json"}],
+            agent_bindings={
+                "declarations": [
+                    {
+                        "agent": "root",
+                        "complete": True,
+                        "tools": [{"tool": "*", "source_id": "srv"}],
+                        "handoffs": [],
+                        "reason": "reviewed fixture binding",
+                    }
+                ]
+            },
+        ),
+    }
+
+
+def test_every_binding_gap_scaffolds_a_block_for_the_path_it_names(
+    tmp_path: Path,
+) -> None:
+    """A ``path`` and its scaffolded block are one statement, checked as a pair.
+
+    Asserted as a rule over every shape that raises a binding gap rather than
+    at the site that was wrong, because a guard scoped to the one instance its
+    author could see passes vacuously for every other (#329, #404).
+    """
+
+    seen: set[str] = set()
+    for name, config in _binding_workspaces(tmp_path).items():
+        gaps = _binding_gaps(_scan(config))
+        assert gaps, name
+        for gap in gaps:
+            path = gap.next_action.path
+            assert path in _BLOCK_BY_BINDING_PATH, (name, gap.kind, path)
+            seen.add(f"{name}:{gap.kind}")
+            template = gap.next_action.declaration_template
+            if template is None:
+                continue
+            assert set(template) == {_BLOCK_BY_BINDING_PATH[path]}, (
+                name,
+                gap.kind,
+                path,
+                sorted(template),
+            )
+    # A parametrisation that matches nothing passes vacuously.
+    assert len(seen) >= len(_BLOCK_BY_BINDING_PATH)
+
+
+def test_a_declared_source_that_binds_nothing_scaffolds_no_block(
+    tmp_path: Path,
+) -> None:
+    """No block a reader could paste expresses "this source reads nothing".
+
+    The surface node is the graph's root whenever it is the only declared
+    surface, which is precisely what put this issue inside the root-scoped
+    ``agent_bindings.declarations`` branch. The repair is in what the source
+    reads, so the row carries prose and no template.
+    """
+
+    config = _binding_workspaces(tmp_path)["declared_binds_nothing"]
+
+    gaps = _binding_gaps(_scan(config))
+
+    assert [gap.kind for gap in gaps] == ["missing_binding_evidence"]
+    assert gaps[0].next_action.declaration_template is None
+    assert "empty_source" in gaps[0].why
 
 
 # --------------------------------------------------------------------------

@@ -23,8 +23,10 @@
   it is not written. It is additive and **widening**: it can only move tools
   *into* the analysed surface, where every check then judges them.
 
-  **The dead end is a route.** When nothing observed an agent object, the root
-  gap no longer prescribes a selector that cannot exist. It says so, routes to
+  **Both dead ends are routes.** When nothing observed an agent object, the root
+  gap no longer prescribes a selector that cannot exist, and a `tools:` selector
+  spelled as a pattern (`{tool: "*"}`) is told that selectors name one tool
+  exactly and which statement that spelling was reaching for. It says so, routes to
   `shipgate.yaml#tool_sources[].binding`, and the declaration scaffold writes
   one block per configured source carrying the ids read off the surface and
   `<REVIEW_REQUIRED>` for both halves of the judgement. A catalog whose tools
