@@ -166,6 +166,66 @@ def _binding_gaps(report: ReadinessReport) -> list[Any]:
     ]
 
 
+#: The manifest block each published binding ``path`` names. A scaffolded block
+#: is pasted at the ``path`` beside it, so the two are one statement with two
+#: spellings — asserting either alone passes while the pair contradicts itself
+#: (#329 review).
+_BLOCK_BY_BINDING_PATH: dict[str, str] = {
+    "shipgate.yaml#agent_bindings": "agent_bindings",
+    "shipgate.yaml#agent_bindings.root": "agent_bindings",
+    "shipgate.yaml#agent_bindings.declarations": "agent_bindings",
+    "shipgate.yaml#tool_sources[].binding": "tool_sources",
+}
+
+
+def _binding_workspaces(tmp_path: Path) -> dict[str, Path]:
+    """One workspace per shape that raises a binding gap, keyed by what it is."""
+
+    return {
+        # No agent object anywhere, nothing declared: the reported dead end.
+        "artifact_only": _workspace(
+            tmp_path / "artifact_only",
+            artifacts={"mcp/tools.json": [_mcp_tool("a")]},
+            sources=[{"id": "srv", "type": "mcp", "path": "mcp/tools.json"}],
+        ),
+        # A declared surface plus a root selector that names nothing.
+        "bad_selector": _workspace(
+            tmp_path / "bad_selector",
+            artifacts={"mcp/tools.json": [_mcp_tool("a")]},
+            sources=[_binding_source("srv", "mcp/tools.json")],
+            agent_bindings={"root": {"object": "svr"}},
+        ),
+        # The only declared source contributes nothing, and it is therefore the
+        # graph's root — the shape that made a `tool_sources[].binding` path
+        # ship an `agent_bindings.declarations` block naming another source.
+        "declared_binds_nothing": _workspace(
+            tmp_path / "declared_binds_nothing",
+            artifacts={"empty/tools.json": [], "other/tools.json": [_mcp_tool("b")]},
+            sources=[
+                _binding_source("empty_source", "empty/tools.json"),
+                {"id": "other", "type": "mcp", "path": "other/tools.json"},
+            ],
+        ),
+        # A selector that resolves to no tool.
+        "unresolved_tool": _workspace(
+            tmp_path / "unresolved_tool",
+            artifacts={"mcp/tools.json": [_mcp_tool("a")]},
+            sources=[{"id": "srv", "type": "mcp", "path": "mcp/tools.json"}],
+            agent_bindings={
+                "declarations": [
+                    {
+                        "agent": "root",
+                        "complete": True,
+                        "tools": [{"tool": "*", "source_id": "srv"}],
+                        "handoffs": [],
+                        "reason": "reviewed fixture binding",
+                    }
+                ]
+            },
+        ),
+    }
+
+
 # --------------------------------------------------------------------------
 # 1. One reviewed declaration reaches the whole published surface
 # --------------------------------------------------------------------------
@@ -1038,66 +1098,6 @@ def test_a_catalog_with_no_declarable_source_is_not_sent_to_the_new_block(
     )
     assert gap.next_action.path == "shipgate.yaml#agent_bindings.declarations"
     assert gap.next_action.declaration_template is None
-
-
-#: The manifest block each published binding ``path`` names. A scaffolded block
-#: is pasted at the ``path`` beside it, so the two are one statement with two
-#: spellings — asserting either alone passes while the pair contradicts itself
-#: (#329 review).
-_BLOCK_BY_BINDING_PATH: dict[str, str] = {
-    "shipgate.yaml#agent_bindings": "agent_bindings",
-    "shipgate.yaml#agent_bindings.root": "agent_bindings",
-    "shipgate.yaml#agent_bindings.declarations": "agent_bindings",
-    "shipgate.yaml#tool_sources[].binding": "tool_sources",
-}
-
-
-def _binding_workspaces(tmp_path: Path) -> dict[str, Path]:
-    """One workspace per shape that raises a binding gap, keyed by what it is."""
-
-    return {
-        # No agent object anywhere, nothing declared: the reported dead end.
-        "artifact_only": _workspace(
-            tmp_path / "artifact_only",
-            artifacts={"mcp/tools.json": [_mcp_tool("a")]},
-            sources=[{"id": "srv", "type": "mcp", "path": "mcp/tools.json"}],
-        ),
-        # A declared surface plus a root selector that names nothing.
-        "bad_selector": _workspace(
-            tmp_path / "bad_selector",
-            artifacts={"mcp/tools.json": [_mcp_tool("a")]},
-            sources=[_binding_source("srv", "mcp/tools.json")],
-            agent_bindings={"root": {"object": "svr"}},
-        ),
-        # The only declared source contributes nothing, and it is therefore the
-        # graph's root — the shape that made a `tool_sources[].binding` path
-        # ship an `agent_bindings.declarations` block naming another source.
-        "declared_binds_nothing": _workspace(
-            tmp_path / "declared_binds_nothing",
-            artifacts={"empty/tools.json": [], "other/tools.json": [_mcp_tool("b")]},
-            sources=[
-                _binding_source("empty_source", "empty/tools.json"),
-                {"id": "other", "type": "mcp", "path": "other/tools.json"},
-            ],
-        ),
-        # A selector that resolves to no tool.
-        "unresolved_tool": _workspace(
-            tmp_path / "unresolved_tool",
-            artifacts={"mcp/tools.json": [_mcp_tool("a")]},
-            sources=[{"id": "srv", "type": "mcp", "path": "mcp/tools.json"}],
-            agent_bindings={
-                "declarations": [
-                    {
-                        "agent": "root",
-                        "complete": True,
-                        "tools": [{"tool": "*", "source_id": "srv"}],
-                        "handoffs": [],
-                        "reason": "reviewed fixture binding",
-                    }
-                ]
-            },
-        ),
-    }
 
 
 def test_every_binding_gap_scaffolds_a_block_for_the_path_it_names(
