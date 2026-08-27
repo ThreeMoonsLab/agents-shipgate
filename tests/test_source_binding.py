@@ -901,6 +901,9 @@ def test_a_declaration_that_binds_nothing_fails_closed(tmp_path: Path) -> None:
 
     coverage = _coverage(report)
     assert coverage.pass_eligible is False
+    assert report.binding_surface_facts.pass_eligible is False
+    assert report.release_decision is not None
+    assert report.release_decision.decision == "insufficient_evidence"
     gap = next(
         gap
         for gap in _binding_gaps(report)
@@ -909,6 +912,11 @@ def test_a_declaration_that_binds_nothing_fails_closed(tmp_path: Path) -> None:
     assert gap.kind == "missing_binding_evidence"
     assert "empty_source" in gap.why
     assert gap.next_action.path == "shipgate.yaml#tool_sources[].binding"
+    # `status` stays `declared` — a reviewed declaration does exist — and the
+    # gate is carried by `pass_eligible`, exactly as it already is for an
+    # `invalid_binding_annotation` on an otherwise declared graph. Pinned so
+    # the pairing is a decision rather than an accident.
+    assert report.binding_surface_facts.status == "declared"
 
 
 def test_a_row_about_a_source_is_named_and_described_as_a_source(

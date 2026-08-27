@@ -874,7 +874,9 @@ def _unresolved_selector_message(selector: Any, message: str | None) -> str:
     is a different misunderstanding with a different repair.
     """
 
-    base = message or "Binding selector did not resolve exactly."
+    # The resolver's sentence carries no terminator; the fallback does. One
+    # rule for both, so the seam never reads ``exactly.. A binding selector``.
+    base = (message or "Binding selector did not resolve exactly.").rstrip(".")
     name = _selector_field(selector, "tool")
     if not name or not (_GLOB_CHARACTERS & set(name)):
         return base
