@@ -408,7 +408,17 @@ def detect_workspace(
     else:
         next_action = "Workspace does not appear to be an agent project. No action."
 
-    present_dirs = [d for d in CONVENTIONAL_DIRS if d in conventional_locations]
+    # Workspace-relative *paths*, in `CONVENTIONAL_DIRS` order — not the bare
+    # names this held while the check read only the root. Once it reads the
+    # whole tree a name is no longer a location: the reproduction in #441 has
+    # its only `tools/` at `awslabs/billing_cost_management_mcp_server/tools/`,
+    # and reporting `tools` for it sent every reader of this field, and of the
+    # negative-control message rendered from it, to a directory that does not
+    # exist. A path at the root is still spelled as the bare name, which is
+    # what `has_prompts_dir`-style *root* questions test against.
+    present_dirs = [
+        conventional_locations[d] for d in CONVENTIONAL_DIRS if d in conventional_locations
+    ]
     workspace_signals = WorkspaceSignals(
         python_file_count=len(py_facts),
         python_file_total=python_file_total,
@@ -417,8 +427,10 @@ def detect_workspace(
             (workspace / "pyproject.toml").is_file()
             or (workspace / "requirements.txt").is_file()
         ),
-        has_prompts_dir="prompts" in present_dirs,
-        has_tools_dir="tools" in present_dirs,
+        # "somewhere in this workspace", which is the question #441 asked. Where
+        # exactly is in `conventional_dirs`.
+        has_prompts_dir="prompts" in conventional_locations,
+        has_tools_dir="tools" in conventional_locations,
         conventional_dirs=present_dirs,
     )
 

@@ -148,8 +148,16 @@ class WorkspaceSignals(BaseModel):
     # projects found *before* the cap, this counts the scopes that exist.
     project_root_count: int = 0
     has_pyproject_or_requirements: bool = False
+    # Whether a directory of that name exists *anywhere* in the workspace, not
+    # only at its root: a Python distribution puts its tools under the import
+    # package, and reading the root alone missed the one structural signal such
+    # a repository offers (#441).
     has_prompts_dir: bool = False
     has_tools_dir: bool = False
+    # Where each one is, as a workspace-relative POSIX path — the shallowest
+    # occurrence, one entry per directory name. A conventional directory at the
+    # root is spelled as the bare name, so `"prompts" in conventional_dirs` is
+    # exactly the root question the negative controls ask.
     conventional_dirs: list[str] = Field(default_factory=list)
 
 

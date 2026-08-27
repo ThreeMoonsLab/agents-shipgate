@@ -233,6 +233,15 @@ contributes the same one weak signal a single root `tools/` does, and
 `SHIP-DIAG-NO-AGENT-SURFACE`'s `why` names whichever conventional directories
 were found rather than asserting a flat list of absences.
 
+`workspace_signals.conventional_dirs` carries the workspace-relative **path**
+of each one — `awslabs/billing_cost_management_mcp_server/tools`, not `tools` —
+because with the check reading the whole tree a bare name no longer resolves to
+anything a reader can open. A directory at the root is spelled as its bare
+name, which is exactly the test `SHIP-DIAG-PURE-PROMPT-EXPERIMENT` applies:
+that control still requires a **root** `prompts/`, because "only prompts/ is
+present" is a claim about the shape of the workspace and not about a directory
+somewhere inside it.
+
 ## Doctor behavior change
 
 Before this feature, `agents-shipgate doctor` raised `InputParseError(3)`

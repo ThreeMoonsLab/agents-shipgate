@@ -52,7 +52,9 @@
     schema rejects. The guard selecting the fallback tested the artifact
     *dict*, which has fixed keys and is therefore always truthy, so the
     fallback was unreachable. Both renderers now ask the same question through
-    one shared tuple of anchor keys.
+    one shared tuple of anchor keys — which also stops `--minimal` declaring an
+    `openai_api` surface for a bare `prompts/` directory, a signal an
+    Anthropic-only project carries too.
 
   No verdict, finding, or version moves: `report_schema_version`,
   `contract_version`, the verifier artifact version, and every published

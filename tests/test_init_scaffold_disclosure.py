@@ -72,7 +72,20 @@ def test_nested_tools_dir_contributes_its_conventional_dir_signal(
 ) -> None:
     result = detect_workspace(_fastmcp_server(tmp_path))
     assert result.workspace_signals.has_tools_dir is True
-    assert result.workspace_signals.conventional_dirs == ["tools"]
+    # The path, not the name. Once the signal reads the whole tree a bare
+    # `tools` is no longer a location, and this repository has no `./tools`
+    # for a reader following the field to open.
+    assert result.workspace_signals.conventional_dirs == [
+        "awslabs/billing_cost_management_mcp_server/tools"
+    ]
+
+
+def test_negative_control_names_a_directory_that_exists(tmp_path: Path) -> None:
+    workspace = _fastmcp_server(tmp_path)
+    result = detect_workspace(workspace)
+    (found,) = result.workspace_signals.conventional_dirs
+    assert (workspace / found).is_dir()
+    assert not (workspace / "tools").exists()
 
 
 def test_conventional_dir_at_the_root_still_counts_when_empty(tmp_path: Path) -> None:
@@ -121,8 +134,52 @@ def test_negative_control_names_the_conventional_dir_it_found(tmp_path: Path) ->
     (diagnostic,) = payload["diagnostics"]
     assert diagnostic["id"] == "SHIP-DIAG-NO-AGENT-SURFACE"
     why = diagnostic["next_actions"][0]["why"]
-    assert "tools/" in why
+    assert "awslabs/billing_cost_management_mcp_server/tools/" in why
     assert "A conventional directory alone is not one." in why
+
+
+def test_a_nested_prompts_dir_is_not_a_pure_prompt_experiment(tmp_path: Path) -> None:
+    """"Only prompts/ is present" is a claim about the shape of the workspace.
+
+    Widening ``has_prompts_dir`` to mean "anywhere" made that negative control
+    fire on a TypeScript MCP server with ``src/prompts/`` — the mongodb-mcp-server
+    shape the issue names as the common case — and the sentence it publishes is
+    contradicted by the thirty source files beside it.
+    """
+
+    (tmp_path / "package.json").write_text(
+        '{"name": "mongodb-mcp-server"}', encoding="utf-8"
+    )
+    source = tmp_path / "src" / "server"
+    source.mkdir(parents=True)
+    for index in range(30):
+        (source / f"mod{index}.ts").write_text(
+            f"export const x{index} = 1;\n", encoding="utf-8"
+        )
+    prompts = tmp_path / "src" / "prompts"
+    prompts.mkdir()
+    (prompts / "system.md").write_text("hello\n", encoding="utf-8")
+
+    runner = CliRunner()
+    payload = json.loads(
+        runner.invoke(app, ["detect", "--workspace", str(tmp_path), "--json"]).stdout
+    )
+    assert payload["workspace_signals"]["has_prompts_dir"] is True
+    (diagnostic,) = payload["diagnostics"]
+    assert diagnostic["id"] == "SHIP-DIAG-NO-AGENT-SURFACE"
+    assert "src/prompts/" in diagnostic["next_actions"][0]["why"]
+
+
+def test_a_root_prompts_dir_is_still_a_pure_prompt_experiment(tmp_path: Path) -> None:
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "a.md").write_text("hi\n", encoding="utf-8")
+
+    runner = CliRunner()
+    payload = json.loads(
+        runner.invoke(app, ["detect", "--workspace", str(tmp_path), "--json"]).stdout
+    )
+    (diagnostic,) = payload["diagnostics"]
+    assert diagnostic["id"] == "SHIP-DIAG-PURE-PROMPT-EXPERIMENT"
 
 
 # --- Defect 2: a field chosen without evidence is flagged as one -------------
@@ -412,3 +469,28 @@ def test_minimal_template_still_emits_openai_api_for_a_real_artifact(
     rendered = render_manifest_template(tmp_path.resolve())
     assert rendered.tool_surface_origin == "detected"
     assert "openai_api:" in rendered.text
+
+
+def test_minimal_template_does_not_declare_openai_api_for_bare_prompts(
+    tmp_path: Path,
+) -> None:
+    """A bare ``prompts/`` is ambiguous — an Anthropic-only project has one —
+    so neither renderer anchors an ``openai_api:`` block on it.
+
+    Before the dead-guard fix the ``--minimal`` renderer emitted the block for
+    every workspace, this one included. Pinned so the unmarked declaration
+    cannot come back.
+    """
+
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "system.md").write_text("hello\n", encoding="utf-8")
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "svc.openapi.yaml").write_text(
+        "openapi: 3.1.0\ninfo:\n  title: T\n  version: '1'\npaths: {}\n",
+        encoding="utf-8",
+    )
+    rendered = render_manifest_template(tmp_path.resolve())
+    assert rendered.tool_surface_origin == "detected"
+    assert "tools/svc.openapi.yaml" in rendered.text
+    assert "openai_api:" not in rendered.text
+    AgentsShipgateManifest.model_validate(yaml.safe_load(rendered.text))

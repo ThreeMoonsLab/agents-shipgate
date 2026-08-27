@@ -461,6 +461,19 @@ def diagnose_invalid_manifest(
     ]
 
 
+def _at_workspace_root(signals: WorkspaceSignals, name: str) -> bool:
+    """Whether that conventional directory sits at the workspace root.
+
+    ``has_prompts_dir`` / ``has_tools_dir`` answer "anywhere in this workspace",
+    which is the question #441 needed. A negative control that describes the
+    *shape* of the workspace needs the narrower one, and
+    ``conventional_dirs`` holds workspace-relative paths whose root spelling is
+    the bare name.
+    """
+
+    return name in signals.conventional_dirs
+
+
 def _no_agent_surface_why(signals: WorkspaceSignals) -> str:
     """Why nothing here is a Shipgate target, naming what *was* found.
 
@@ -475,7 +488,10 @@ def _no_agent_surface_why(signals: WorkspaceSignals) -> str:
     the one they would otherwise go looking for.
     """
 
-    found = [f"{name}/" for name in signals.conventional_dirs]
+    # `conventional_dirs` holds workspace-relative paths, so this names the
+    # directory a reader can actually open: `awslabs/…/tools/`, not `tools/`
+    # for a repository whose root has no `tools/` at all.
+    found = [f"{path}/" for path in signals.conventional_dirs]
     if not found:
         return (
             "Workspace has no framework imports, no tool artifacts, and no "
@@ -535,7 +551,16 @@ def diagnose_detect(
         ):
             # Negative-control precedence
             if (
-                signals.has_prompts_dir
+                # A *root* `prompts/`, not one anywhere in the tree. "Only
+                # prompts/ is present" is a claim about the shape of the
+                # workspace, and #441 widened `has_prompts_dir` to mean
+                # "somewhere" — which made this fire on a thirty-file
+                # TypeScript MCP server with `src/prompts/`, a repository that
+                # flatly contradicts the sentence below. `conventional_dirs`
+                # carries located paths, and a root directory is spelled as its
+                # bare name, so this is the same question the field answered
+                # before the widening.
+                _at_workspace_root(signals, "prompts")
                 and not signals.has_tools_dir
                 and signals.python_file_count == 0
             ):
