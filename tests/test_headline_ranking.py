@@ -899,32 +899,35 @@ def _medium_report(title: str):
     )
 
 
-@pytest.mark.parametrize(
-    "kwargs",
-    [
-        pytest.param({}, id="blocker-leads"),
-        pytest.param(
-            {"report": _medium_report("a medium finding")}, id="governance-leads"
-        ),
-        pytest.param(
-            {
-                "manifest_introduced": True,
-                "pure_adoption_review": False,
-                "configured_manifest": "deeply/" * 60 + "shipgate.yaml",
-            },
-            id="adoption-suffix",
-        ),
-        pytest.param(
-            {
-                "capability_review": _review(
-                    policy_weakened=True, policy_weakening_proven=False
-                ),
-                "report": _medium_report("a medium finding"),
-            },
-            id="longest-suffix",
-        ),
-    ],
-)
+#: Each case is `(extra kwargs, report factory)`. The factory takes the title,
+#: so the title axis below stays live for the cases that supply their own
+#: report — passing a prebuilt one made those parametrizations run twice with
+#: identical inputs.
+_BUDGET_ROUTES = [
+    pytest.param({}, _hostile_report, id="blocker-leads"),
+    pytest.param({}, _medium_report, id="governance-leads"),
+    pytest.param(
+        {
+            "manifest_introduced": True,
+            "pure_adoption_review": False,
+            "configured_manifest": "deeply/" * 60 + "shipgate.yaml",
+        },
+        _hostile_report,
+        id="adoption-suffix",
+    ),
+    pytest.param(
+        {
+            "capability_review": _review(
+                policy_weakened=True, policy_weakening_proven=False
+            )
+        },
+        _medium_report,
+        id="longest-suffix",
+    ),
+]
+
+
+@pytest.mark.parametrize(("kwargs", "build_report"), _BUDGET_ROUTES)
 @pytest.mark.parametrize(
     "title",
     [
@@ -932,7 +935,9 @@ def _medium_report(title: str):
         pytest.param("x" * 7_000, id="crowded"),
     ],
 )
-def test_the_gap_note_is_dropped_by_the_sentence_never_cut_mid_name(title, kwargs):
+def test_the_gap_note_is_dropped_by_the_sentence_never_cut_mid_name(
+    title, kwargs, build_report
+):
     """A byte budget must not turn a tool name into a different tool name.
 
     Every other budgeting primitive here cuts bytes and marks the cut, which
@@ -942,7 +947,9 @@ def test_the_gap_note_is_dropped_by_the_sentence_never_cut_mid_name(title, kwarg
     analysis: find_dup…` names nothing at all (#433).
     """
 
-    headline = _budgeted_headline(title, context_note=_EXCLUSION_NOTE, **kwargs)
+    headline = _budgeted_headline(
+        title, context_note=_EXCLUSION_NOTE, report=build_report(title), **kwargs
+    )
 
     assert len(headline.encode("utf-8")) <= MAX_ENVELOPE_PROSE_BYTES
     assert truncate_prose(headline) == headline

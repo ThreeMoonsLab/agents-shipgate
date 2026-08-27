@@ -1961,12 +1961,13 @@ _EXCLUSION_SUBJECT_MAX_CHARS = 60
 # first (see ``_report_lead``) — so it names enough to act on and counts the
 # rest, the way ``Most severe:`` already handles the findings side.
 _EXCLUSION_SUBJECTS_NAMED = 3
-# The clause's own share of that budget. Bounding the count and each subject
-# separately is not enough: three subjects at their own cap, plus a phrase, is
-# most of the envelope on its own, and the composition that would have shrunk
-# it (``_report_lead``) is reached only on the adoption and self-approval
-# routes. So the clause fits itself, by naming fewer subjects and counting more
-# of them, rather than being cut mid-name by the envelope's tail truncation.
+# The clause's own share of that budget. ``_fit_sentences`` keeps a clause from
+# ever being cut in half, but it does so by dropping the whole sentence — so an
+# unbounded clause is one that simply never survives a route with a reserved
+# governance suffix. Bounding the count and each subject separately is not
+# enough to prevent that: three subjects at their own cap, plus a phrase, is
+# most of the envelope on its own. So the clause shrinks itself first, by
+# naming fewer subjects and counting more of them.
 _EXCLUSION_CLAUSE_MAX_BYTES = 200
 
 
