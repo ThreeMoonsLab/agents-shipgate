@@ -213,7 +213,8 @@ def _servers_from_mapping(
         if raw_server.get("enabled") is False:
             continue
         # Deliberately path-free: an MCP capability is identified by its
-        # server and tool, so moving a ``.mcp.json`` is not a capability
+        # server and tool, so moving the file that declares it — a
+        # ``.mcp.json`` or a ``.codex/config.toml`` — is not a capability
         # change (``mcp audit`` pins that as a pure rename). The file it was
         # read from travels on ``source_ref``/``source_path`` instead.
         source_id = f"{source_id_prefix}:{server_name}"
@@ -383,11 +384,13 @@ def _loaded_sources_from_servers(
     there, and aborts the scan.
 
     This function used to return one *file*-level ``codex_config_mcp:<path>``
-    source holding tools stamped per server, which mismatched on both file
-    kinds: ``mcp_json:<server>`` for a ``.mcp.json`` and
-    ``codex_config_mcp:<server>`` for a ``.codex/config.toml``. Since a server
-    with no enumerable tools still mints a ``<server>.*`` wildcard, *every*
-    ``codex_config`` row over a config naming any server aborted the scan.
+    source holding tools stamped per server, which mismatched on every shape
+    the normalizers mint: ``mcp_json:<server>`` for a ``.mcp.json``, and
+    ``codex_config_mcp:<server>`` plus
+    ``codex_plugin_config_mcp:<plugin>:<server>`` for a ``.codex/config.toml``.
+    Since a server with no enumerable tools still mints a ``<server>.*``
+    wildcard, *every* ``codex_config`` row over a config naming any server
+    aborted the scan.
 
     Deriving the source from the server is what keeps the two spellings from
     drifting apart again: there is no second place that spells the id, and no
