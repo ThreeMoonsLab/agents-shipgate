@@ -573,6 +573,58 @@ positive structural edges. Empty `tools` and `handoffs` prove a zero-capability
 root. These are human-reviewed claims and must never be inferred or auto-filled
 by a coding agent.
 
+### A published tool surface, declared once per source
+
+Binding is real information for an agent: a catalog may hold 63 OpenAPI
+operations of which the agent wires 5, and catalog membership is deliberately
+never evidence of capability. For a **tool server** there is no such gap — the
+repository under review *is* the tool surface, anything in its published
+`tools/list` is callable by any client that connects, there is no root agent,
+and there is nothing to select between. Naming 116 tools individually to say so
+is the copy-paste that breeds wrong answers. Declare it once on the source:
+
+```yaml
+tool_sources:
+  - id: github_mcp
+    type: mcp
+    path: __toolsnaps__
+    binding:
+      complete: true
+      reason: >-
+        This repository is the server; every tool in its published tools/list
+        is callable by any client that connects to it.
+```
+
+`complete` is spelled exactly as `agent_bindings.declarations[].complete` and
+means the same thing: the block's presence is the closed-world claim, so `true`
+is the only value. `reason` records how the published surface was reviewed, and
+must not be blank.
+
+Every tool the source contributes becomes root-reachable — it is judged by every
+check, exactly as a tool an agent wires is. The block is **additive and
+widening**: it can only move tools *into* the analysed surface, never out of it.
+It is per source, so a source without it resolves exactly as before, and an
+agent that wires a subset of some other catalog still reports the unbound
+remainder.
+
+A repository may declare more than one source. Each is its own entry point;
+none of them is elected the root of the others. `binding_surface_facts.agents[]`
+carries one node per declared source, named by `tool_sources[].id`, so
+`agent_bindings.root: {object: <id>, source_id: <id>}` resolves to it once the
+block is written. Without the block, a catalog with no agent object anywhere
+reports that no root selector can match one, and names this block as the route
+— `root.object` is an agent object the scan observed, and a JSON tool export
+produces none.
+
+A reviewed declaration that binds no tool is an error, not a no-op: it reports
+`missing_binding_evidence` naming the source, because the source contributed
+nothing to the catalog and a proven binding graph over an empty analysed
+surface is worse than no graph at all.
+
+Like every other reviewed claim, this one is a human's. It cannot be inferred
+from source content, it is refused in agent-authored `tool_sources` proposals,
+and `doctor` routes an unfilled placeholder inside it to a person.
+
 ## Action Surface Diff
 
 The optional top-level `action_surface:` block adds reviewer-facing action

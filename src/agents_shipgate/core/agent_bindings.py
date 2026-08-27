@@ -29,7 +29,13 @@ from agents_shipgate.schemas.bindings import (
     AgentHandoffBindingEdge,
     AgentToolBindingEdge,
 )
-from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.manifest import AgentsShipgateManifest, ToolSourceConfig
+
+#: ``AgentBindingIssue.source`` / ``AgentToolBindingEdge.source`` for everything
+#: a ``tool_sources[].binding`` declaration produces. Routing on this typed
+#: value rather than on the pointer's text is what lets the pointer be a plain
+#: manifest location and the prose be rewritten freely (#329).
+TOOL_SOURCE_BINDING_DECLARATION = "tool_source_binding_declaration"
 
 _TOOL_EDGE_TYPES = {
     "direct_tool",
@@ -47,19 +53,28 @@ class _AgentObservation:
     source_ref: str | None
     source_pointer: str | None
     complete: bool
+    #: A published tool surface declared under ``tool_sources[].binding``
+    #: rather than an agent object anyone observed (#432).
+    tool_source_surface: bool = False
 
     @property
     def agent_id(self) -> str:
-        payload = json.dumps(
-            {
-                "name": self.name,
-                "source_id": self.source_id,
-                "source_ref": None if self.source_id else self.source_ref,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        return f"agent_v1:{hashlib.sha256(payload.encode()).hexdigest()[:24]}"
+        payload: dict[str, object] = {
+            "name": self.name,
+            "source_id": self.source_id,
+            "source_ref": None if self.source_id else self.source_ref,
+        }
+        # Only surfaces carry the extra key, so every id an agent observation
+        # has ever produced is byte-identical to what it produced before. It is
+        # carried at all because a ``tool_sources[].id`` and an agent name are
+        # independent repository-chosen namespaces: without it, a Google ADK
+        # source ``orders`` holding an agent named ``orders`` would dedupe the
+        # surface and the agent into one node and silently bind the source's
+        # whole catalog to that agent. A prescribed fix whose own side effect
+        # rewires the graph is the #385 class.
+        if self.tool_source_surface:
+            payload["tool_source_surface"] = True
+        return f"agent_v1:{hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()).hexdigest()[:24]}"
 
 
 @dataclass(frozen=True)
@@ -125,8 +140,18 @@ def resolve_agent_binding_graph(
                 _AgentObservation(name, None, "shipgate.yaml", None, True)
             )
 
+    # Added after the declaration seeding above, never before it: a surface is
+    # named by a ``tool_sources[].id``, and letting that name into
+    # ``observed_names`` would suppress the seed for an ``agent_bindings``
+    # declaration that happens to share it.
+    surfaces = _declared_source_surfaces(manifest)
+    surface_agent_ids = frozenset(
+        observation.agent_id for _, _, observation in surfaces
+    )
+    agent_observations.extend(observation for _, _, observation in surfaces)
+
     agents = _dedupe_agents(agent_observations)
-    root, root_issues = _select_root(manifest, agents, raw_handoffs)
+    root, root_issues = _select_root(manifest, agents, raw_handoffs, surface_agent_ids)
     if root is not None and all(agent.agent_id != root.agent_id for agent in agents):
         agents.append(root)
     issues: list[AgentBindingIssue] = list(root_issues)
@@ -139,7 +164,14 @@ def resolve_agent_binding_graph(
         for message in sorted(invalid_annotations)
     )
     selector_index = ToolSelectorIndex.build(tools)
-    by_agent_name = _agents_by_name(agents)
+    # Surfaces are excluded from name resolution deliberately. Adding a
+    # ``binding`` block must not change how any name already resolved: a
+    # ``tool_sources[].id`` sharing a name with an observed agent would
+    # otherwise make that name ambiguous and break the declaration that used
+    # to resolve it (#385).
+    by_agent_name = _agents_by_name(
+        [agent for agent in agents if agent.agent_id not in surface_agent_ids]
+    )
     tool_edges: list[AgentToolBindingEdge] = []
     handoff_edges: list[AgentHandoffBindingEdge] = []
 
@@ -377,6 +409,42 @@ def resolve_agent_binding_graph(
                 )
             )
 
+    for source, pointer, observation in surfaces:
+        bound = [tool for tool in tools if source.id in tool.configured_source_ids]
+        if not bound:
+            # A reviewed declaration that binds nothing is not a no-op: with
+            # the surface seeded as an entry point, staying silent would report
+            # a proven binding graph over an empty analysed surface. It fails
+            # closed and names the source, because the repair is in what that
+            # source reads, not in this block's wording.
+            issues.append(
+                AgentBindingIssue(
+                    kind="missing_binding_evidence",
+                    message=(
+                        f"The reviewed binding declaration on tool source "
+                        f"{source.id!r} binds no tool, because that source "
+                        f"contributed nothing to the tool catalog."
+                    ),
+                    agent_id=observation.agent_id,
+                    source=TOOL_SOURCE_BINDING_DECLARATION,
+                    source_pointer=pointer,
+                )
+            )
+            continue
+        for tool in bound:
+            tool_edges.append(
+                AgentToolBindingEdge(
+                    agent_id=observation.agent_id,
+                    tool_id=tool.id,
+                    edge_type="direct_tool",
+                    confidence="high",
+                    provenance_kind="static_declaration",
+                    source=TOOL_SOURCE_BINDING_DECLARATION,
+                    source_pointer=pointer,
+                    complete=True,
+                )
+            )
+
     if partials:
         for partial in sorted(partials):
             issues.append(
@@ -389,7 +457,7 @@ def resolve_agent_binding_graph(
 
     tool_edges = _dedupe_tool_edges(tool_edges)
     handoff_edges = _dedupe_handoff_edges(handoff_edges)
-    reachable_agents, paths = _reachable_agents(root, handoff_edges)
+    reachable_agents, paths = _reachable_agents(root, handoff_edges, surface_agent_ids)
     for edge in handoff_edges:
         if edge.source_agent_id in reachable_agents and not edge.complete:
             issues.append(
@@ -445,7 +513,10 @@ def resolve_agent_binding_graph(
             )
         )
 
-    if root is not None and not declarations and not tool_edges and tools:
+    # A graph is rooted by a selected agent or by a declared published surface.
+    # Both are entry points; only the first has a name to report.
+    rooted = root is not None or bool(surface_agent_ids)
+    if root is not None and not declarations and not surfaces and not tool_edges and tools:
         issues.append(
             AgentBindingIssue(
                 kind="missing_binding_evidence",
@@ -456,7 +527,7 @@ def resolve_agent_binding_graph(
                 agent_id=root.agent_id,
             )
         )
-    if root is None and tools and not issues:
+    if not rooted and tools and not issues:
         issues.append(
             AgentBindingIssue(
                 kind="ambiguous_root_agent",
@@ -475,8 +546,8 @@ def resolve_agent_binding_graph(
         }
         for issue in issues
     )
-    declared = bool(declarations) and not conflict and not partial and root is not None
-    structural = bool(tool_edges or (root is not None and not tools)) and not issues
+    declared = bool(declarations or surfaces) and not conflict and not partial and rooted
+    structural = bool(tool_edges or (rooted and not tools)) and not issues
     status = (
         "conflicting"
         if conflict
@@ -488,7 +559,7 @@ def resolve_agent_binding_graph(
         if structural
         else "unknown"
     )
-    pass_eligible = root is not None and not issues and status in {"declared", "structural"}
+    pass_eligible = rooted and not issues and status in {"declared", "structural"}
 
     graph = AgentBindingGraphAssessment(
         root_agent_id=root.agent_id if root else None,
@@ -786,54 +857,141 @@ def _observations(
     return agents, edges, handoffs, partials, invalid_annotations
 
 
+def _declared_source_surfaces(
+    manifest: AgentsShipgateManifest,
+) -> list[tuple[ToolSourceConfig, str, _AgentObservation]]:
+    """Every ``tool_sources[]`` entry whose published surface is reviewed.
+
+    One node per declared source rather than one shared node, because a
+    repository may publish two servers and each is its own reviewed surface —
+    electing one of them the root of the other would be a claim nobody made.
+    The node is named and keyed by the configured source id so
+    ``agent_bindings.root: {object: <id>, source_id: <id>}`` — the spelling a
+    reader reaches for — resolves to it.
+    """
+
+    return [
+        (
+            source,
+            f"/tool_sources/{index}/binding",
+            _AgentObservation(
+                name=source.id,
+                source_id=source.id,
+                source_ref="shipgate.yaml",
+                source_pointer=f"/tool_sources/{index}/binding",
+                complete=True,
+                tool_source_surface=True,
+            ),
+        )
+        for index, source in enumerate(manifest.tool_sources)
+        if source.binding is not None
+    ]
+
+
 def _select_root(
     manifest: AgentsShipgateManifest,
     agents: list[AgentBindingNode],
     raw_handoffs: list[_RawHandoffEdge],
+    surface_agent_ids: frozenset[str] = frozenset(),
 ) -> tuple[AgentBindingNode | None, list[AgentBindingIssue]]:
+    """Pick the one agent the reviewed graph is rooted at, or say why not.
+
+    A ``tool_sources[].binding`` surface is a node in the graph but it is not
+    an agent object, so it is deliberately invisible to every *heuristic* here:
+    those exist to find the one agent a framework wired, and a published tool
+    surface is neither wired nor an alternative to one. It stays selectable by
+    an explicit selector, because ``tool_sources[].id`` is a name the manifest
+    itself spells and ``root: {object: <id>, source_id: <id>}`` is the spelling
+    a reader reaches for first (#432).
+
+    When nothing observed an agent and the surfaces are the whole reviewed
+    graph, there is no root to name and no ambiguity to report: one surface
+    becomes the root, several leave it unset, and the surfaces root the graph
+    either way.
+    """
+
     root_config = manifest.agent_bindings.root
-    candidates = agents
+    observed = [agent for agent in agents if agent.agent_id not in surface_agent_ids]
+    surfaces = [agent for agent in agents if agent.agent_id in surface_agent_ids]
+    candidates = observed
     if root_config is not None:
         candidates = [agent for agent in agents if agent.name == root_config.object]
         if root_config.source_id:
             candidates = [agent for agent in candidates if agent.source_id == root_config.source_id]
     elif manifest.agent.sdk and manifest.agent.sdk.object:
-        candidates = [agent for agent in agents if agent.name == manifest.agent.sdk.object]
+        candidates = [agent for agent in observed if agent.name == manifest.agent.sdk.object]
     elif len(manifest.agent_bindings.declarations) == 1:
         declared = manifest.agent_bindings.declarations[0].agent
         if declared == "root":
-            if len(agents) == 1:
-                return agents[0], []
+            if len(observed) == 1:
+                return observed[0], []
             synthetic = AgentBindingNode(
                 agent_id=_AgentObservation("root", None, "shipgate.yaml", None, True).agent_id,
                 name="root",
                 source_ref="shipgate.yaml",
             )
             return synthetic, []
-        candidates = [agent for agent in agents if agent.name == declared]
+        candidates = [agent for agent in observed if agent.name == declared]
     else:
         target_names = {edge.target_agent for edge in raw_handoffs}
-        top_level = [agent for agent in agents if agent.name not in target_names]
+        top_level = [agent for agent in observed if agent.name not in target_names]
         if len(top_level) == 1:
             candidates = top_level
+        elif not observed and surfaces:
+            return (surfaces[0] if len(surfaces) == 1 else None), []
     if len(candidates) == 1:
         return candidates[0], []
-    message = (
-        "No root agent matched the configured selector."
-        if not candidates
-        else f"Root selector matched {len(candidates)} agents."
+    return None, [
+        AgentBindingIssue(
+            kind="ambiguous_root_agent",
+            message=_root_selection_message(candidates, agents),
+            source="shipgate.yaml",
+        )
+    ]
+
+
+def _root_selection_message(
+    candidates: list[AgentBindingNode],
+    agents: list[AgentBindingNode],
+) -> str:
+    """Say which of the three root failures happened, and never invent a selector.
+
+    "No root agent matched the configured selector" was reported for a scan
+    that configured no selector at all, and for a catalog — a checked-in MCP
+    tool export, an OpenAPI spec — that produces no code objects for any
+    selector to match. It sent two separate adoption walks hunting for a value
+    that cannot exist (#432).
+
+    The empty case is judged on the whole graph rather than on observed agents
+    alone: a declared source surface is a name the selector could have matched,
+    so a repository that has one has a selector problem, not a nothing-to-select
+    problem, and telling it that nothing was observed would be true and useless.
+    """
+
+    if candidates:
+        return f"Root selector matched {len(candidates)} agents."
+    if agents:
+        return "No entry in the binding graph matched the configured root selector."
+    return (
+        "No agent object was observed anywhere in this scan, so no "
+        "agent_bindings.root selector can match one. State the reviewed "
+        "surface in shipgate.yaml instead: tool_sources[].binding for a source "
+        "whose published tools are the surface under review, or one "
+        "agent_bindings.declarations entry naming agent: root."
     )
-    return None, [AgentBindingIssue(kind="ambiguous_root_agent", message=message, source="shipgate.yaml")]
 
 
 def _dedupe_agents(observations: list[_AgentObservation]) -> list[AgentBindingNode]:
-    by_key: dict[tuple[str, str | None, str | None], _AgentObservation] = {}
+    # The key is exactly what ``agent_id`` hashes, surface flag included, so
+    # two observations dedupe if and only if they are one node.
+    by_key: dict[tuple[str, str | None, str | None, bool], _AgentObservation] = {}
     for observation in observations:
         by_key[
             (
                 observation.name,
                 observation.source_id,
                 None if observation.source_id else observation.source_ref,
+                observation.tool_source_surface,
             )
         ] = observation
     return [
@@ -889,16 +1047,29 @@ def _resolve_agent(name: str, source_id: str | None, by_name: dict[str, list[Age
 def _reachable_agents(
     root: AgentBindingNode | None,
     handoffs: list[AgentHandoffBindingEdge],
+    surface_agent_ids: frozenset[str] = frozenset(),
 ) -> tuple[set[str], dict[str, list[str]]]:
-    if root is None:
+    """Walk the complete handoff graph from every declared entry point.
+
+    A ``tool_sources[].binding`` surface is an entry point in its own right: a
+    published tool server has no root agent to be reached *from*, and a
+    repository may publish more than one. Seeding them alongside the root is
+    what lets several declared surfaces coexist without one of them having to
+    be elected the root of the others (#432).
+    """
+
+    seeds = sorted(
+        ({root.agent_id} if root is not None else set()) | set(surface_agent_ids)
+    )
+    if not seeds:
         return set(), {}
     outgoing: dict[str, list[str]] = defaultdict(list)
     for edge in handoffs:
         if edge.complete:
             outgoing[edge.source_agent_id].append(edge.target_agent_id)
-    reachable = {root.agent_id}
-    paths = {root.agent_id: [root.agent_id]}
-    queue = deque([root.agent_id])
+    reachable = set(seeds)
+    paths = {seed: [seed] for seed in seeds}
+    queue = deque(seeds)
     while queue:
         current = queue.popleft()
         for target in sorted(outgoing.get(current, [])):
@@ -1026,4 +1197,4 @@ def _line_pointer(record: dict[str, Any]) -> str | None:
     return f"{source}:{line}" if source and isinstance(line, int) else source
 
 
-__all__ = ["resolve_agent_binding_graph"]
+__all__ = ["TOOL_SOURCE_BINDING_DECLARATION", "resolve_agent_binding_graph"]

@@ -10,6 +10,7 @@ from agents_shipgate.ci.exit_policy import (
     effective_fail_on,
     exit_code_for_report,
 )
+from agents_shipgate.core.agent_bindings import TOOL_SOURCE_BINDING_DECLARATION
 from agents_shipgate.core.control_packs import is_mandatory_current_control
 from agents_shipgate.core.declaration_questions import (
     ANSWERABLE_ISSUE_KINDS,
@@ -552,6 +553,31 @@ def _inventory_declaration_template(
     }
 
 
+def _declarable_source_ids(tool_catalog: Sequence[Tool]) -> list[str] | None:
+    """The ``tool_sources`` ids a ``binding`` declaration could cover, or ``None``.
+
+    ``None`` means the route is not writable for this catalog, and the two
+    readers below — the gap's ``path``/``expects`` and the scaffolded block —
+    must agree about that, because a prescribed remedy the schema rejects is
+    worse than a vague one (#329). It is ``None`` unless *every* catalog entry
+    came from exactly one configured ``tool_sources`` row: a tool from a
+    per-scan adapter (``openai_api``, ``anthropic_api``, ``n8n``) has no row to
+    declare on and the schema rejects one, and a tool a reviewed
+    ``tool_identity`` binding merged across two configured sources is only
+    fully covered when both of them declare.
+    """
+
+    if not tool_catalog:
+        return None
+    ids: set[str] = set()
+    for tool in tool_catalog:
+        configured = set(tool.configured_source_ids)
+        if len(configured) != 1:
+            return None
+        ids.add(configured.pop())
+    return sorted(ids)
+
+
 def _binding_declaration_template(
     graph: AgentBindingGraphAssessment,
     issue: AgentBindingIssue,
@@ -582,7 +608,29 @@ def _binding_declaration_template(
     """
 
     if issue.kind == "ambiguous_root_agent":
-        return deepcopy(AGENT_BINDINGS_ROOT_TEMPLATE) if graph.agents else None
+        if graph.agents:
+            return deepcopy(AGENT_BINDINGS_ROOT_TEMPLATE)
+        # No agent object was observed, so a root selector has nothing to name
+        # and the scaffold must not offer one. What it can offer is the other
+        # reviewed statement — one row per configured source, carrying the
+        # source ids that were read off the surface and nothing else (#432).
+        # The judgement stays blank, and there is no ceiling here because the
+        # row count is the number of sources, not the number of tools.
+        source_ids = _declarable_source_ids(tool_catalog)
+        if source_ids is None:
+            return None
+        return {
+            "tool_sources": [
+                {
+                    "id": source_id,
+                    "binding": {
+                        "complete": REVIEW_REQUIRED_SENTINEL,
+                        "reason": REVIEW_REQUIRED_SENTINEL,
+                    },
+                }
+                for source_id in source_ids
+            ]
+        }
     if issue.kind not in {"missing_binding_evidence", "partial_binding_evidence"}:
         return None
     # Root-scoped only. ``missing_binding_evidence`` is also raised per tool for
@@ -748,13 +796,55 @@ def _binding_coverage(
         label = agent_labels.get(agent_id or "")
         return label or issue.source_pointer or "agent binding graph"
 
+    # Whether ``tool_sources[].binding`` is a route this catalog can take. Read
+    # from the same helper the scaffolded block reads, so the ``path`` an agent
+    # routes on and the block a human pastes cannot disagree.
+    source_declarable = _declarable_source_ids(tool_catalog) is not None
+
     for issue in graph.issues:
         _increment(reason_counts, issue.kind)
         if issue.kind == "ambiguous_root_agent":
-            action_kind = "declare_agent_root"
-            path = "shipgate.yaml#agent_bindings.root"
-            accepted_values = ["source_id", "object"]
-            expects = "Declare the exact root agent object and rerun verification."
+            if graph.agents:
+                action_kind = "declare_agent_root"
+                path = "shipgate.yaml#agent_bindings.root"
+                accepted_values = ["source_id", "object"]
+                expects = "Declare the exact root agent object and rerun verification."
+            elif source_declarable:
+                # Nothing observed an agent object, so no root selector can
+                # match one and ``declare_agent_root`` is the dead end #432
+                # reported: two adoption walks reached for ``root.object``
+                # first and were sent looking for a value that cannot exist.
+                action_kind = "declare_agent_bindings"
+                path = "shipgate.yaml#tool_sources[].binding"
+                accepted_values = ["complete:true", "reason"]
+                expects = (
+                    "No agent object was observed, so no root selector can match "
+                    "one. Declare at shipgate.yaml#tool_sources[].binding that "
+                    "this source's published tools are the surface under review, "
+                    "then rerun verification."
+                )
+            else:
+                action_kind = "declare_agent_bindings"
+                path = "shipgate.yaml#agent_bindings.declarations"
+                accepted_values = ["agent", "complete:true", "tools", "handoffs", "reason"]
+                expects = (
+                    "No agent object was observed, so no root selector can match "
+                    "one. Declare the reviewed closed-world tool set at "
+                    "shipgate.yaml#agent_bindings.declarations with agent: root, "
+                    "then rerun verification."
+                )
+        elif issue.source == TOOL_SOURCE_BINDING_DECLARATION:
+            # A reviewed source binding that binds nothing. The block is where
+            # the reader starts either way — the declaration is wrong about
+            # what the source publishes, or the source is not reading it.
+            action_kind = "declare_agent_bindings"
+            path = "shipgate.yaml#tool_sources[].binding"
+            accepted_values = ["complete:true", "reason"]
+            expects = (
+                "Point the declared source at the artifact that publishes its "
+                "tools, or remove the binding declaration, then rerun "
+                "verification."
+            )
         elif issue.kind in {"missing_binding_evidence", "unresolved_bound_tool"}:
             action_kind = "declare_agent_bindings"
             path = "shipgate.yaml#agent_bindings.declarations"

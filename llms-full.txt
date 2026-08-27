@@ -219,8 +219,10 @@ release-visible and route them to human review.
 Never invent or auto-fill an action effect or action authority declaration —
 including the shared `tool_sources[].authority` block, which is the same
 authority claim made once for a whole source rather than once per action.
-Never invent or auto-fill `agent_bindings` root, tool, or handoff declarations;
-they are reviewed closed-world claims about deployed wiring.
+Never invent or auto-fill `agent_bindings` root, tool, or handoff declarations,
+or the `tool_sources[].binding` block that makes the same closed-world claim
+once for a whole published tool surface; they are reviewed claims about
+deployed wiring.
 Contract v14 publishes these boundaries as `action_effect`, `action_authority`,
 and `agent_binding` in `do_not_auto_assert[]`; route binding and semantic next
 actions to a human and rerun verification after the reviewed declaration is supplied.

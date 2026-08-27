@@ -2046,6 +2046,17 @@ for that action. Both sites share one set of mode co-requirements and one
 conflict rule against published source evidence, and existing manifests are
 unaffected — a source with no `authority` block resolves exactly as before.
 
+`tool_sources[].binding` (`{complete: true, reason}`) is additive and changes
+no published schema, so there is no `report_schema_version` floor to check for
+it. A CLI that predates the field *rejects* it — the manifest loader is strict,
+so the run stops with a routable `ConfigError` (exit 2) naming the unknown key
+rather than ignoring a reviewed claim. It declares that every tool the source
+contributes is part of the surface under review, which is what a tool server
+publishing its own `tools/list` asserts; the effect is only ever to widen the
+analysed surface, and a source with no `binding` block resolves exactly as
+before. It does not replace `agent_bindings.declarations`, which remains the
+way an agent declares the subset of a catalog it wires.
+
 `policies.control_pack` (`default` | `financial-strict` | `read-only-agent`)
 is additive and changes no published schema, so there is no
 `report_schema_version` floor to check for it. A CLI that predates the field

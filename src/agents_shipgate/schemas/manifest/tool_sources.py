@@ -92,6 +92,53 @@ class SourceAuthorityConfig(BaseModel):
         return self
 
 
+class SourceBindingConfig(BaseModel):
+    """Reviewed statement that this source's published surface *is* the surface under review.
+
+    Binding is real information for an **agent**: a catalog may hold 63 OpenAPI
+    operations of which the agent wires 5, and #385 drew that boundary
+    deliberately — catalog membership is never evidence of capability.
+
+    For a **tool server** there is no such gap. The repository under review is
+    the tool surface: anything in its published ``tools/list`` is callable by
+    any client that connects to it, there is no root agent, and there is
+    nothing to select between. Stating that one structural fact used to cost
+    one ``agent_bindings.declarations[].tools`` row per tool — 116 of them for
+    ``github/github-mcp-server`` — which is what breeds the copy-paste that
+    breeds wrong answers, and is where an adopter stops (#432).
+
+    Declared here it applies to every tool the source contributes, exactly as
+    ``authority`` applies to every action it contributes. It is **additive and
+    widening**: it can only move tools *into* the analysed surface, where every
+    check then judges them. A source with no ``binding`` block behaves exactly
+    as before.
+
+    It stays a human declaration. Inferring "this source binds everything" from
+    the source's own content is the #268 attack, and the point of this block is
+    to make the statement one line, not to remove it.
+    """
+
+    model_config = STRICT_MODEL_CONFIG
+
+    #: Spelled exactly as ``agent_bindings.declarations[].complete``, and for
+    #: the same reason: the closed-world assertion is the thing being reviewed,
+    #: so there is no ``false`` to write. Presence of the block is the claim.
+    complete: Literal[True] = True
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def require_non_blank_reason(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError(
+                "tool_sources[].binding.reason must record how the published "
+                "surface was reviewed; a reviewed declaration with a blank "
+                "reason is not a reviewed declaration"
+            )
+        return normalized
+
+
 class ToolSourceConfig(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
@@ -133,6 +180,10 @@ class ToolSourceConfig(BaseModel):
     # exactly as before, and every existing per-action declaration keeps
     # working and keeps winning.
     authority: SourceAuthorityConfig | None = None
+    # #432. Additive and widening: a source with no ``binding`` block behaves
+    # exactly as before, and a source that has one can only move its own tools
+    # into the analysed surface, never out of it.
+    binding: SourceBindingConfig | None = None
 
     @field_validator("id", mode="before")
     @classmethod
