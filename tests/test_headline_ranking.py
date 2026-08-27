@@ -879,7 +879,7 @@ def test_the_pr_comment_reports_the_proven_fact_not_the_routing_flag(tmp_path):
 #: must not be cut in half.
 _EXCLUSION_NOTE = [
     "1 of 83 evidence gap(s) are new in this diff.",
-    "Excluded from analysis: find_duplicate [github_mcp], create_issue_batch "
+    "Not fully analysed: find_duplicate [github_mcp], create_issue_batch "
     "[github_mcp] and delete_repository [github_mcp] — added by this diff and "
     "not bound to the root agent; and 4 more.",
 ]

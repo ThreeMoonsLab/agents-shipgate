@@ -17,7 +17,7 @@
 
   `verify`'s headline, and therefore `control.reason`, `control.next_action.why`
   and the PR comment's `Summary:` / `Next action:` lines, now continue:
-  `Excluded from analysis: find_duplicate [github_mcp] — added by this diff
+  `Not fully analysed: find_duplicate [github_mcp] — added by this diff
   and not bound to the root agent.` Rendering only: no verdict, count, gap,
   finding, or permission moves, and no version does either
   (`report_schema_version`, `contract_version`, the verifier artifact version

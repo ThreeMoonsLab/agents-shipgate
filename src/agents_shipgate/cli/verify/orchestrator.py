@@ -1890,7 +1890,7 @@ def _gap_provenance_note(
     Returned as whole sentences, most load-bearing first, because the caller
     has to fit them into a shared byte budget. A mid-sentence cut turns a tool
     name into a different tool name — ``delete_repo…`` for
-    ``delete_repository`` — and ``Excluded from analysis: find_dup…`` names
+    ``delete_repository`` — and ``Not fully analysed: find_dup…`` names
     nothing at all; composing the string here and letting the composition
     slice it is what made that reachable (#433).
     """
@@ -2038,13 +2038,22 @@ def _excluded_subject_clause(
 def _render_exclusion_clause(
     named: Sequence[tuple[str, str]], remainder: int
 ) -> str:
-    """``Excluded from analysis: a, b — <phrase>; c — <phrase>; and 4 more.``
+    """``Not fully analysed: a, b — <phrase>; c — <phrase>; and 4 more.``
 
     Grouped by phrase so the common case — a diff that adds several tools and
     wires none of them — reads as one list with one cause rather than as the
     same sentence repeated. The ``and N more`` tail is its own part rather than
     a suffix of the last group, because the rows it counts need not share that
     group's cause.
+
+    "Not fully analysed" rather than "excluded from analysis", which is the
+    ledger's own framing and is *false of one of its stages*: a
+    ``surface_not_enumerated`` row is a tool that **was** analysed, as far as
+    its own surface could be read, and the excluded subject is the unread
+    remainder that has no name of its own (see
+    ``_surface_completeness_exclusions``). One lead-in covers a grouped list,
+    so it has to be true of every stage that can appear under it; the phrase
+    after the dash says which case this row is.
     """
 
     grouped: dict[str, list[str]] = {}
@@ -2055,7 +2064,7 @@ def _render_exclusion_clause(
     ]
     if remainder:
         parts.append(f"and {remainder} more")
-    return "Excluded from analysis: " + "; ".join(parts) + "."
+    return "Not fully analysed: " + "; ".join(parts) + "."
 
 
 # Severities that outrank a governance notice in the headline. The trust-root
@@ -2176,7 +2185,7 @@ def _fit_sentences(sentences: Sequence[str], budget: int) -> str:
     blocker title, a manifest path. It is wrong for context that *names
     subjects*: ``delete_repo…`` is not a shortening of ``delete_repository``
     a reader can act on, it is a different tool that may well exist, and
-    ``Excluded from analysis: find_dup…`` names nothing at all (#433).
+    ``Not fully analysed: find_dup…`` names nothing at all (#433).
 
     So the context is built as complete sentences ordered most load-bearing
     first, and a tight budget takes whole sentences off the end. The reader

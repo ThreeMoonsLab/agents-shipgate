@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 
 from agents_shipgate.cli.scan.orchestrator import run_scan
+from agents_shipgate.cli.verify.orchestrator import _EXCLUSION_CLAUSE_MAX_BYTES
 from agents_shipgate.core.evidence_actions import evidence_gap_headline
 from agents_shipgate.core.semantic_consistency import (
     SemanticConsistencyError,
@@ -1397,7 +1398,7 @@ def test_the_named_subject_is_the_ledger_spelling(tmp_path):
         catalog_subject({"name": "find_duplicate", "provider": "server_mcp"})
         == report_ledger_subject
     )
-    assert f"Excluded from analysis: {report_ledger_subject} —" in note
+    assert f"Not fully analysed: {report_ledger_subject} —" in note
 
 
 def test_many_new_exclusions_name_a_bounded_subset_and_count_the_rest(tmp_path):
@@ -1445,7 +1446,7 @@ def test_a_settled_workspace_adds_no_exclusion_clause(tmp_path):
     assert [row.accounting for row in ledger.entries] == ["not_claimed"]
     assert ledger.gated == 0
     assert "are new in this diff" in note
-    assert "Excluded from analysis" not in note
+    assert "Not fully analysed" not in note
 
 
 def test_an_adapter_omission_is_named_like_any_other_exclusion(tmp_path):
@@ -1473,7 +1474,7 @@ def test_an_adapter_omission_is_named_like_any_other_exclusion(tmp_path):
         "evidence_gap",
     )
     assert (
-        "Excluded from analysis: /tools/1 — an entry with no name, "
+        "Not fully analysed: /tools/1 — an entry with no name, "
         "so no tool was read from it." in note
     )
 
@@ -1610,7 +1611,7 @@ def test_a_subject_that_is_only_a_digest_is_counted_and_not_named():
 
     clause = _excluded_subject_clause(report, {row.accounted_by})
 
-    # Nothing nameable, so no clause at all — "Excluded from analysis: and 1
+    # Nothing nameable, so no clause at all — "Not fully analysed: and 1
     # more" would say nothing the count in front of it did not already say.
     assert clause == ""
 
@@ -1624,7 +1625,7 @@ def test_a_subject_that_is_only_a_digest_is_counted_and_not_named():
     )
     assert TOOL_ID not in clause
     assert clause == (
-        "Excluded from analysis: charge_card [billing] — bound by an edge "
+        "Not fully analysed: charge_card [billing] — bound by an edge "
         "that does not prove the binding complete; and 1 more."
     )
 
@@ -1649,3 +1650,80 @@ def test_a_subject_that_is_only_a_digest_is_counted_and_not_named():
 )
 def test_nameable_subject_refuses_only_a_derived_id(subject, nameable):
     assert nameable_subject(subject) is nameable
+
+
+def _gap_row(stage, subject, reason):
+    return SurfaceExclusion(
+        stage=stage,
+        subject=subject,
+        reason=reason,
+        detail="recorded by the stage that narrowed",
+        accounting="evidence_gap",
+        accounted_by=subject,
+    )
+
+
+def _clause_for(rows):
+    from agents_shipgate.cli.verify.orchestrator import _excluded_subject_clause
+
+    report = _report_with_one_possible_tool()
+    report.surface_exclusions = SurfaceExclusionLedger.from_entries(rows)
+    return _excluded_subject_clause(report, {row.subject for row in rows})
+
+
+def test_two_causes_render_as_two_groups_under_one_lead_in():
+    """One lead-in, one clause per cause, and a tail of its own.
+
+    The lead-in has to be true of every stage that can appear under it, which
+    is why it is "Not fully analysed" and not the ledger's own "excluded from
+    analysis": a `surface_not_enumerated` row is a tool that *was* analysed as
+    far as its surface could be read, and the excluded subject is the unread
+    remainder. The `and N more` tail is a part of its own rather than a suffix
+    of the last group, because the rows it counts need not share that cause.
+    """
+
+    clause = _clause_for(
+        [
+            _gap_row("binding", "find_duplicate [gh]", "newly_unbound_tool"),
+            _gap_row("binding", "list_branches [gh]", "newly_unbound_tool"),
+            _gap_row("surface_completeness", "charge_card [b]", "surface_not_enumerated"),
+            _gap_row("surface_completeness", "issue_refund [b]", "surface_not_enumerated"),
+        ]
+    )
+
+    # Ledger order is (accounting, stage, subject, reason), so the two binding
+    # rows group first and the fourth row becomes the tail.
+    assert clause == (
+        "Not fully analysed: find_duplicate [gh] and list_branches [gh] — "
+        "added by this diff and not bound to the root agent; charge_card [b] "
+        "— not established as a complete surface; and 1 more."
+    )
+
+
+def test_the_clause_names_fewer_subjects_rather_than_overrunning_its_budget():
+    """It shrinks itself instead of being shrunk by the envelope.
+
+    A clause that does not fit is dropped whole by the headline composition,
+    so an unbounded one is a clause that never survives a route with a
+    reserved governance suffix. The same four rows as above with realistic
+    provider-qualified names name two subjects instead of three, and the tail
+    absorbs the difference — no row is lost from the accounting.
+    """
+
+    rows = [
+        _gap_row("binding", "find_duplicate [github_mcp]", "newly_unbound_tool"),
+        _gap_row("binding", "list_branches [github_mcp]", "newly_unbound_tool"),
+        _gap_row("surface_completeness", "charge_card [billing]", "surface_not_enumerated"),
+        _gap_row("surface_completeness", "issue_refund [billing]", "surface_not_enumerated"),
+    ]
+
+    clause = _clause_for(rows)
+
+    assert clause == (
+        "Not fully analysed: find_duplicate [github_mcp] and "
+        "list_branches [github_mcp] — added by this diff and not bound to the "
+        "root agent; and 2 more."
+    )
+    assert len(clause.encode("utf-8")) <= _EXCLUSION_CLAUSE_MAX_BYTES
+    # Every row is still accounted for: two named, two counted.
+    assert len(rows) == 2 + 2
