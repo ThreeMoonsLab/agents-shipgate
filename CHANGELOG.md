@@ -27,6 +27,16 @@
   negative control asserting the raw escaped spelling passes the matcher while
   the sweep rejects it.
 
+  **`unresolved` is only ever said about an agent.** A report carrying no
+  agent graph at all — the `legacy_direct` compatibility assessment
+  `core.findings.report_builder` builds, and the schema default for a
+  `report.json` written before the field existed — has a truthy
+  `root_agent_id` that no node carries, so resolving it like an agent id
+  printed `unresolved` between `Status: structural` and `Pass eligible: true`,
+  describing a failure the report was not reporting. It now reads
+  `Root agent: none (tools bound directly, no agent graph)`, the same shape
+  #432 gave the tool-source state beside it.
+
   The `Entry points:` line beneath it (#432) resolves through the same index,
   and its own fallback is now `unresolved` rather than the raw `agent_v1:` id.
   The two lines had disagreed about the same agent one line apart — `Root

@@ -1085,6 +1085,20 @@ def _append_inventory(lines: list[str], report: ReadinessReport) -> None:
     lines.append("")
 
 
+#: ``root_agent_id`` on the compatibility assessment a report carries when no
+#: agent graph was resolved at all: ``core.findings.report_builder`` builds it
+#: whenever its ``binding_surface_facts`` argument is ``None``, and it is the
+#: ``binding_surface_facts`` default for a ``report.json`` written before the
+#: field existed. It is a state, not an agent id — no node carries it — so it
+#: has to be answered before the label index is consulted, or it renders as a
+#: root the graph could not name.
+#:
+#: Spelled here rather than shared, because the four modules that *produce*
+#: the sentinel each spell the literal too; one constant for all five is a
+#: worthwhile cleanup and a wider change than a rendering fix.
+_LEGACY_DIRECT_ROOT_AGENT_ID = "legacy_direct"
+
+
 def _agent_display(agent_id: str, labels: Mapping[str, str]) -> str:
     """The one label naming an agent on the binding surface. Never its id.
 
@@ -1097,10 +1111,15 @@ def _agent_display(agent_id: str, labels: Mapping[str, str]) -> str:
     puts a derived digest in front of the reader — ``Root agent:
     agent_v1:7205d836…``, which is in no file they have and which #329 forbids
     of any adopter-facing sentence. The ids stay in
-    ``binding_surface_facts`` in ``report.json`` for a bug report. The index
-    is built from every node the walk recorded and the entry points are
-    exactly its seeds, so this fallback is a fail-safe rather than a state
-    the scanner can reach.
+    ``binding_surface_facts`` in ``report.json`` for a bug report.
+
+    Callers must answer every id that is not an agent *before* reaching here.
+    A graph the walk built always has a node for its root and for each entry
+    point, so for those the fallback is unreachable — but
+    :data:`_LEGACY_DIRECT_ROOT_AGENT_ID` is a truthy ``root_agent_id`` with no
+    node behind it, and reading it as an unnameable agent reported a rooted,
+    pass-eligible graph as ``unresolved``. ``unresolved`` is the answer for an
+    agent the graph could not name, never for a state that is not an agent.
     """
 
     return labels.get(agent_id) or "unresolved"
@@ -1117,8 +1136,17 @@ def _root_agent_line(graph: AgentBindingGraphAssessment) -> str:
 
     A root the graph *did* name is printed as its label, never as
     ``root_agent_id`` (see :func:`_agent_display`).
+
+    And it is the wrong word a third time for a report carrying no agent graph
+    at all, whose root is :data:`_LEGACY_DIRECT_ROOT_AGENT_ID` — a truthy id no
+    node carries. That is the same shape of claim as the tool-source state
+    above: ``Status: structural`` and ``Pass eligible: true`` are printed
+    around this line, and ``unresolved`` between them describes a failure that
+    did not happen.
     """
 
+    if graph.root_agent_id == _LEGACY_DIRECT_ROOT_AGENT_ID:
+        return "none (tools bound directly, no agent graph)"
     if graph.root_agent_id:
         return _agent_display(graph.root_agent_id, agent_label_index(graph.agents))
     if graph.entry_point_agent_ids:
@@ -1193,7 +1221,7 @@ def _safe_markdown_text(value: object) -> str:
     return text
 
 
-def unescape_markdown_text(text: str) -> str:
+def _unescape_markdown_text(text: str) -> str:
     """The inverse of :func:`_safe_markdown_text`, for reading a report back.
 
     A guard that reads rendered Markdown sees the escaped spelling, and every

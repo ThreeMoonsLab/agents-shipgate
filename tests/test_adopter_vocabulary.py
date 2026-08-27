@@ -72,10 +72,11 @@ from agents_shipgate.core.evidence_actions import (
 )
 from agents_shipgate.core.surface_exclusions import derived_id_kind
 from agents_shipgate.report.markdown import (
+    _LEGACY_DIRECT_ROOT_AGENT_ID,
     MARKDOWN_ESCAPE_CHARS,
     _append_binding_surface,
     _safe_markdown_text,
-    unescape_markdown_text,
+    _unescape_markdown_text,
 )
 from agents_shipgate.schemas.bindings import (
     AgentBindingGraphAssessment,
@@ -108,7 +109,7 @@ def _markdown_vocabulary_offenders(markdown: str, *, where: str) -> list[str]:
     return [
         f"{where}:{number} {internal_vocabulary(sentence)} :: {line.strip()!r}"
         for number, line in enumerate(markdown.splitlines(), start=1)
-        for sentence in [unescape_markdown_text(line)]
+        for sentence in [_unescape_markdown_text(line)]
         if internal_vocabulary(sentence)
     ]
 
@@ -507,6 +508,14 @@ def test_an_unnamed_agent_never_falls_back_to_its_id() -> None:
     assert internal_vocabulary(subject) == ()
 
 
+def _root_agent_line_of(rendered: str) -> str:
+    """The one `Root agent:` line, so an assertion cannot pass on a neighbour."""
+
+    return next(
+        line for line in rendered.splitlines() if line.startswith("Root agent:")
+    )
+
+
 def _binding_surface_markdown(graph: AgentBindingGraphAssessment) -> str:
     lines: list[str] = []
     _append_binding_surface(
@@ -544,7 +553,7 @@ def test_the_markdown_root_agent_line_names_the_agent() -> None:
 
     # Asserted on the un-escaped text: what a reader sees rendered, not the
     # backslashes the renderer inserts to get it there.
-    assert "Root agent: conductor [google_adk:agent.py]" in unescape_markdown_text(
+    assert "Root agent: conductor [google_adk:agent.py]" in _unescape_markdown_text(
         markdown
     )
     assert _markdown_vocabulary_offenders(markdown, where="report.md") == []
@@ -554,7 +563,6 @@ def test_the_markdown_root_agent_line_names_the_agent() -> None:
     ("root_agent_id", "agents"),
     [
         pytest.param(None, [], id="no_root"),
-        pytest.param("legacy_direct", [], id="legacy_sentinel"),
         pytest.param(_ROOT_AGENT_ID, [], id="root_no_node_carries"),
         pytest.param(
             _ROOT_AGENT_ID,
@@ -582,6 +590,54 @@ def test_an_unnameable_root_agent_never_falls_back_to_its_id(
     assert _markdown_vocabulary_offenders(markdown, where="report.md") == []
 
 
+def test_the_compat_graph_is_not_reported_as_an_unnamed_agent() -> None:
+    """``legacy_direct`` is not a root the graph failed to name.
+
+    It is the assessment a report carries when no agent graph was resolved at
+    all — ``core.findings.report_builder`` builds it whenever its
+    ``binding_surface_facts`` argument is ``None``, and it is the schema
+    default for a ``report.json`` written before the field existed. It is
+    truthy and no node carries it, so routing it through the label index
+    printed ``unresolved`` between ``Status: structural`` and
+    ``Pass eligible: true`` — a failure the report was not reporting. Same
+    rule as the tool-source state beside it (#432): the word for a deliberate
+    state is not the word for a broken one.
+    """
+
+    markdown = _binding_surface_markdown(
+        AgentBindingGraphAssessment(
+            root_agent_id=_LEGACY_DIRECT_ROOT_AGENT_ID,
+            status="structural",
+            pass_eligible=True,
+        )
+    )
+    plain = _unescape_markdown_text(markdown)
+
+    assert _root_agent_line_of(plain) == (
+        "Root agent: none (tools bound directly, no agent graph)"
+    )
+    assert _markdown_vocabulary_offenders(markdown, where="report.md") == []
+
+
+def test_the_default_report_renders_the_compat_graph_that_way() -> None:
+    """The state above, reached the way production reaches it.
+
+    Asserting on a hand-built assessment alone would keep passing if the
+    default the builder relies on moved out from under it.
+    """
+
+    report = ReadinessReport.model_construct()
+
+    assert report.binding_surface_facts.root_agent_id == _LEGACY_DIRECT_ROOT_AGENT_ID
+    lines: list[str] = []
+    _append_binding_surface(lines, report)
+    rendered = _unescape_markdown_text("\n".join(lines))
+
+    assert _root_agent_line_of(rendered) == (
+        "Root agent: none (tools bound directly, no agent graph)"
+    )
+
+
 def test_the_entry_points_line_never_falls_back_to_an_id_either() -> None:
     """The second agent line in this section, added by #432.
 
@@ -605,9 +661,9 @@ def test_the_entry_points_line_never_falls_back_to_an_id_either() -> None:
     )
 
     assert "Root agent: none (graph rooted by declared tool sources)" in (
-        unescape_markdown_text(markdown)
+        _unescape_markdown_text(markdown)
     )
-    assert "Entry points: server_a, unresolved" in unescape_markdown_text(markdown)
+    assert "Entry points: server_a, unresolved" in _unescape_markdown_text(markdown)
     assert _markdown_vocabulary_offenders(markdown, where="report.md") == []
 
 
@@ -1379,7 +1435,7 @@ def test_unescaping_inverts_the_renderers_escaping() -> None:
     """
 
     original = "".join(MARKDOWN_ESCAPE_CHARS) + " agent_v1:7205d836 - 1. x"
-    assert unescape_markdown_text(_safe_markdown_text(original)) == original
+    assert _unescape_markdown_text(_safe_markdown_text(original)) == original
 
 
 # --- the failure this issue was filed for, end to end ------------------------
