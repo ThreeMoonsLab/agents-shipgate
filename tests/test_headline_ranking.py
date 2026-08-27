@@ -718,18 +718,18 @@ def test_a_trust_root_only_pr_still_leads_with_the_trust_root_message(tmp_path):
 # --- second review: budget, Unicode, and the PR-comment claim ---------------
 
 
-_GAP_NOTE = (
+_GAP_NOTE = [
     "This diff introduces no new evidence gap; all 19 are pre-existing on the base."
-)
+]
 
 
 def _budgeted_headline(title: str, **kwargs) -> str:
+    kwargs.setdefault("context_note", _GAP_NOTE)
+    kwargs.setdefault("report", _hostile_report(title))
+    kwargs.setdefault("capability_review", _review(trust_root_touched=True))
     headline = _verifier_headline(
-        report=_hostile_report(title),
         merge_verdict="blocked",
         head_status="succeeded",
-        capability_review=_review(trust_root_touched=True),
-        context_note=_GAP_NOTE,
         **kwargs,
     )
     assert headline is not None
@@ -869,3 +869,114 @@ def test_the_pr_comment_reports_the_proven_fact_not_the_routing_flag(tmp_path):
     assert "weakening unproven" not in proven
     assert "- Merge verdict: `blocked`" in proven
     assert "- Agent may merge: `false`" in proven
+
+
+# --- the context note is fitted in whole sentences (#433) -------------------
+
+
+#: The note as `_gap_provenance_note` builds it once an exclusion is named:
+#: a count sentence that must survive, and a clause carrying tool names that
+#: must not be cut in half.
+_EXCLUSION_NOTE = [
+    "1 of 83 evidence gap(s) are new in this diff.",
+    "Not fully analysed: find_duplicate [github_mcp], create_issue_batch "
+    "[github_mcp] and delete_repository [github_mcp] — added by this diff and "
+    "not bound to the root agent; and 4 more.",
+]
+
+
+def _medium_report(title: str):
+    """A blocked report whose blockers do *not* outrank the governance notice.
+
+    This is the route where the self-approval prohibition leads and the whole
+    lead is context — the tightest budget the note ever sees.
+    """
+
+    return _report_with(
+        decision="blocked",
+        blockers=[_blocker("SHIP-DIAG-SOMETHING", "medium", title)],
+        headline="1 active finding(s) block release.",
+    )
+
+
+#: Each case is `(extra kwargs, report factory)`. The factory takes the title,
+#: so the title axis below stays live for the cases that supply their own
+#: report — passing a prebuilt one made those parametrizations run twice with
+#: identical inputs.
+_BUDGET_ROUTES = [
+    pytest.param({}, _hostile_report, id="blocker-leads"),
+    pytest.param({}, _medium_report, id="governance-leads"),
+    pytest.param(
+        {
+            "manifest_introduced": True,
+            "pure_adoption_review": False,
+            "configured_manifest": "deeply/" * 60 + "shipgate.yaml",
+        },
+        _hostile_report,
+        id="adoption-suffix",
+    ),
+    pytest.param(
+        {
+            "capability_review": _review(
+                policy_weakened=True, policy_weakening_proven=False
+            )
+        },
+        _medium_report,
+        id="longest-suffix",
+    ),
+]
+
+
+@pytest.mark.parametrize(("kwargs", "build_report"), _BUDGET_ROUTES)
+@pytest.mark.parametrize(
+    "title",
+    [
+        pytest.param("stripe.create_refund lacks a declared approval policy", id="short"),
+        pytest.param("x" * 7_000, id="crowded"),
+    ],
+)
+def test_the_gap_note_is_dropped_by_the_sentence_never_cut_mid_name(
+    title, kwargs, build_report
+):
+    """A byte budget must not turn a tool name into a different tool name.
+
+    Every other budgeting primitive here cuts bytes and marks the cut, which
+    is right for one unbroken run of untrusted text. The provenance note names
+    *subjects*: `delete_repo…` is not a shortening of `delete_repository` a
+    reader can act on — it is a plausible other tool — and `Not fully
+    analysed: find_dup…` names nothing at all (#433).
+    """
+
+    headline = _budgeted_headline(
+        title, context_note=_EXCLUSION_NOTE, report=build_report(title), **kwargs
+    )
+
+    assert len(headline.encode("utf-8")) <= MAX_ENVELOPE_PROSE_BYTES
+    assert truncate_prose(headline) == headline
+    assert headline.endswith((
+        "a human must review it.",
+        "adopting a release policy is a separate human-review decision.",
+    ))
+    for sentence in _EXCLUSION_NOTE:
+        # Present whole, or not present at all — never a prefix of one.
+        assert sentence in headline or sentence[:24] not in headline
+    # The count sentence yields last, so a clause without it is a fit that ran
+    # the priority order backwards.
+    if _EXCLUSION_NOTE[1] in headline:
+        assert _EXCLUSION_NOTE[0] in headline
+
+
+def test_a_context_note_passed_as_a_string_is_refused():
+    """A `str` satisfies `Sequence[str]`, and iterating one yields characters.
+
+    No type checker sees it, and the failure is silent and absurd: the
+    headline would carry the note with a space between every letter.
+    """
+
+    with pytest.raises(TypeError, match="whole sentences"):
+        _verifier_headline(
+            report=_hostile_report("a title"),
+            merge_verdict="blocked",
+            head_status="succeeded",
+            context_note="1 of 83 evidence gap(s) are new in this diff.",
+        )

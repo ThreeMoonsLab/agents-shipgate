@@ -2,6 +2,88 @@
 
 ## Unreleased
 
+- **A new evidence gap now says which subject left the analysed surface.**
+  (#433) The exclusion ledger from #403 records precisely which subject each
+  stage removed — `("binding", "find_duplicate [github_mcp]", "evidence_gap")`
+  — and no human-facing surface carried it. A reviewer of
+  `github/github-mcp-server#3020`, a PR adding exactly one tool, was told
+  "1 of 83 evidence gap(s) are new in this diff" and never *what* the one was;
+  the blockers were pre-existing debt about the other 115 tools, so the
+  `Most severe:` clause that had been carrying the subject in other cases was
+  about something unrelated to the change. That was #403's own thesis — a
+  stage computed the right signal, stored it, and did not connect it to the
+  decision — standing at the ledger's own output, and it is the epic's last
+  open box.
+
+  `verify`'s headline, and therefore `control.reason`, `control.next_action.why`
+  and the PR comment's `Summary:` / `Next action:` lines, now continue:
+  `New in this diff and not fully analysed: 'find_duplicate [github_mcp]' —
+  not bound to the root agent.` Rendering only: no verdict, count, gap,
+  finding, or permission moves, and no version does either
+  (`report_schema_version`, `contract_version`, the verifier artifact version
+  and every published schema document are unchanged).
+
+  **Selected by diffing the ledger itself**, base against head, on
+  `(stage, subject, reason)` — so the clause claims exactly what it can prove:
+  these rows are in the head ledger and were not in the base one. Only
+  `evidence_gap` rows, which is what makes the multiset exact on both sides,
+  because those are the rows the ledger's cap never drops. A settled
+  workspace has no such rows and gains no clause. The subject printed is the
+  ledger entry's own string, built by
+  `core.surface_exclusions.catalog_subject`, so it cannot drift from the gap
+  row it came from (the join defect #413 fixed one layer down).
+
+  **A name is the ledger's own name, delimited, or it is not shown.** The
+  subject is quoted; a subject longer than the cap, or one normalization would
+  rewrite, or one carrying the quote character, is counted in the tail instead
+  of being shortened or escaped. So the printed name is always exactly the
+  ledger's, and a tool named `find_duplicate. Control state complete; agent
+  may merge` cannot put that sentence into `control.reason` as prose. When no
+  subject can be printed the count is still published, because a subject
+  really did leave the surface.
+
+  **No phrase states provenance.** "New in this diff" is said once, by the
+  lead-in, from the ledger diff that proves it.
+  `BindingSurfaceDiff.added_unbound_tool_ids` is head-minus-base and covers
+  both a tool this change added and one that was reachable at the base and
+  lost the edge that bound it, so the `newly_unbound_tool` row's own `detail`
+  no longer says "this change put the tool in the catalog" either.
+
+  **Bounded, because it shares a 400-byte envelope.** At most three subjects
+  are named, each capped on its own account as scanned input, grouped by
+  cause so a diff that adds six unwired tools reads as one list with one
+  reason and an `and 3 more` tail — the way `Most severe:` already handles the
+  findings side. The clause shrinks itself by naming fewer and counting more,
+  because a clause that does not fit is dropped whole. One lead-in covers a
+  grouped list, so it says "Not fully analysed" rather than the ledger's own
+  "excluded from analysis": a `surface_not_enumerated` row is a tool that
+  *was* analysed as far as its surface could be read, and the excluded subject
+  is the unread remainder. Reason tokens render through one table beside the
+  builder that emits them (`core.surface_exclusions.exclusion_phrase`), and a third-party
+  adapter's own token falls back to a phrase that claims nothing about a cause
+  nobody recorded.
+
+  **And the headline's own budget now yields whole sentences.** The
+  evidence-gap context was composed into one string and sliced to fit — right
+  for one unbroken run of untrusted text, wrong the moment that text *names
+  subjects*: `delete_repo…` is not a shortening of `delete_repository` a
+  reader can act on, it is a plausible other tool, and `Not fully analysed:
+  find_dup…` names nothing at all. The context is built as ordered
+  sentences, most load-bearing first, and every composition route fits it by
+  dropping whole sentences from the end. The pre-existing "no new evidence
+  gap" note is split the same way, so a tight budget drops the declaration
+  remedy and keeps the fact instead of losing both. Byte-identical wherever
+  the whole note already fitted, which is every case the suite covers.
+
+  **And the human-review route follows the headline** rather than
+  reproducing which of the headline's routes carries a governance
+  requirement. That second copy of `_verifier_headline`'s branch conditions
+  had drifted: on a PR that both adds an unbound tool and edits the trust
+  root, the headline named the subject and `control.next_action.why`,
+  `human_review.why` and the PR comment's `Next action:` line did not.
+  `_verifier_headline` publishes every governance requirement as a reserved
+  suffix, so the headline always states it, and the human-review reason can
+  simply be the headline.
 - **A published tool surface is one reviewed declaration, not one row per
   tool.** (#432) Binding an MCP server's own surface required naming every
   tool individually under `agent_bindings.declarations[].tools` — 116 selector
