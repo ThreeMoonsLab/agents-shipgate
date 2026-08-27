@@ -35,8 +35,19 @@
     thirty `tools/` directories contributes the one weak signal a single root
     `tools/` does; the credit can never flip `is_agent_project`, because every
     strong signal is already worth the full detection threshold on its own.
-    `SHIP-DIAG-NO-AGENT-SURFACE` now names the conventional directories it
-    found instead of asserting a flat list of absences.
+    `workspace_signals.conventional_dirs` now carries the workspace-relative
+    *path* of each one rather than its bare name — with the check reading the
+    whole tree a name is no longer a location, and `["tools"]` sent a reader to
+    a directory the reproduction does not have. `SHIP-DIAG-NO-AGENT-SURFACE`
+    names those paths instead of asserting a flat list of absences, and
+    `SHIP-DIAG-PURE-PROMPT-EXPERIMENT` keeps asking about a **root**
+    `prompts/`: "only prompts/ is present" describes the shape of a workspace,
+    and reading the widened signal made it fire on a thirty-file TypeScript MCP
+    server with `src/prompts/`. The scan walks distinct parent directories on
+    strings rather than calling `Path.relative_to` per inventory entry, which
+    took 4.4 s on a 120k-file inventory against 42 ms for the shipped form — on
+    a whole-workspace pass `detect` already runs for exactly the monorepos #363
+    and #395 are about.
 
   Two defects found while fixing those:
 
