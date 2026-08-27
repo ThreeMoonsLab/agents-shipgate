@@ -494,3 +494,60 @@ def test_minimal_template_does_not_declare_openai_api_for_bare_prompts(
     assert "tools/svc.openapi.yaml" in rendered.text
     assert "openai_api:" not in rendered.text
     AgentsShipgateManifest.model_validate(yaml.safe_load(rendered.text))
+
+
+def test_conventional_dir_scan_reports_the_shallowest_of_many(tmp_path: Path) -> None:
+    """Correctness with many files sharing few parents — the shape the
+    inventory actually has.
+
+    The *cost* of that shape is why the scan walks distinct parent directories
+    on strings rather than calling ``relative_to`` per file: the obvious
+    spelling took 4.4 s on a 120k-file inventory, against 42 ms for this one,
+    on a whole-workspace pass ``detect`` already runs for exactly the monorepos
+    #363 and #395 are about. That is a benchmark, not an assertion — wall-clock
+    does not belong in a unit test — so what is pinned here is the answer.
+    """
+
+    from agents_shipgate.cli.discovery.signals import _conventional_dir_locations
+
+    root = tmp_path.resolve()
+    files = [
+        root / "services" / f"s{index % 4}" / "tools" / f"f{index}.py"
+        for index in range(400)
+    ]
+    files.append(root / "z" / "prompts" / "late.md")
+    assert _conventional_dir_locations(root, files=files) == {
+        "prompts": "z/prompts",
+        "tools": "services/s0/tools",
+    }
+
+
+def test_a_file_at_the_workspace_root_contributes_no_conventional_dir(
+    tmp_path: Path,
+) -> None:
+    """``tools.py`` at the root is a file, not a ``tools/`` directory.
+
+    The behaviour, not the fast path that implements it: the early ``continue``
+    for a root-level file only saves work — with it removed the empty parent
+    slice yields nothing either way — so this pins the answer rather than
+    pretending to guard the branch.
+    """
+
+    from agents_shipgate.cli.discovery.signals import _conventional_dir_locations
+
+    root = tmp_path.resolve()
+    assert _conventional_dir_locations(root, files=[root / "tools.py"]) == {}
+
+
+def test_conventional_dir_scan_ignores_paths_outside_the_workspace(
+    tmp_path: Path,
+) -> None:
+    """A resolved symlink can point out of the tree; it is not this workspace's
+    signal. ``relative_to`` raised for these, and the prefix test replaced it."""
+
+    from agents_shipgate.cli.discovery.signals import _conventional_dir_locations
+
+    root = (tmp_path / "ws").resolve()
+    root.mkdir()
+    outside = (tmp_path / "elsewhere" / "tools" / "x.py").resolve()
+    assert _conventional_dir_locations(root, files=[outside]) == {}

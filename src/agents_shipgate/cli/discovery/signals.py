@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -1714,6 +1715,15 @@ def _conventional_dir_locations(
 
     Bounded by the inventory walk, which already drops ``.git``, ``node_modules``,
     virtualenvs, and everything else in ``SKIP_DIRS``.
+
+    Walks *directories*, not files, and on strings rather than ``Path``
+    objects. The inventory is a file list on which many entries share a parent,
+    and the obvious spelling — ``path.relative_to(workspace).parts`` per file —
+    cost 4.4 seconds on a 120k-file monorepo, which is a whole-workspace scan
+    ``detect`` already runs on exactly the repositories #363 and #395 are about.
+    Deduplicating parents first makes the chain walk proportional to the number
+    of distinct directories; ``str(path)`` is cached on ``PurePath``, so the
+    prefix test is a slice comparison and not a second traversal.
     """
 
     located: dict[str, str] = {
@@ -1722,16 +1732,33 @@ def _conventional_dir_locations(
     wanted = {name for name in CONVENTIONAL_DIRS if name not in located}
     if not wanted:
         return located
+    # ``rstrip`` so a workspace that is already a filesystem or drive root —
+    # ``/`` renders as ``"/"``, ``C:\\`` as ``"C:\\"`` — does not produce a
+    # doubled separator that matches no path under it.
+    prefix = f"{str(workspace).rstrip(os.sep)}{os.sep}"
+    prefix_length = len(prefix)
+    seen_directories: set[str] = set()
     shallowest: dict[str, tuple[int, str]] = {}
     for path in files:
-        try:
-            parents = path.relative_to(workspace).parts[:-1]
-        except ValueError:
+        text = str(path)
+        if not text.startswith(prefix):
+            # Not under the workspace at all — a resolved symlink pointing out
+            # of the tree. `relative_to` raised for these; this skips them.
             continue
-        for depth, part in enumerate(parents):
+        cut = text.rfind(os.sep)
+        if cut < prefix_length:
+            # A file directly in the workspace root has no parent directory
+            # inside it, so nothing here can be a conventional dir.
+            continue
+        directory = text[prefix_length:cut]
+        if directory in seen_directories:
+            continue
+        seen_directories.add(directory)
+        parts = directory.split(os.sep)
+        for depth, part in enumerate(parts):
             if part not in wanted:
                 continue
-            candidate = (depth, "/".join(parents[: depth + 1]))
+            candidate = (depth, "/".join(parts[: depth + 1]))
             current = shallowest.get(part)
             if current is None or candidate < current:
                 shallowest[part] = candidate
