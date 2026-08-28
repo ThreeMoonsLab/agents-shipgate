@@ -109,6 +109,18 @@
   prevent. Markdown-only: report, packet and verifier schemas are unchanged,
   and the five sample `report.md` goldens are regenerated.
 
+- **The loader-contract failure now offers a way forward.** "That is a defect
+  in the loader, not in this repository's configuration" was accurate and
+  terminal: the reader cannot edit an adapter they do not own, and had just
+  been told their own configuration was not at fault. When the dispatcher can
+  prove which `tool_sources` entry produced the read, the message now adds
+  *Until it is fixed, removing the tool_sources entry 'x' from shipgate.yaml
+  lets the scan run without the tools that entry reads* — after the diagnosis,
+  and named as the workaround it is rather than as the repair. `details` gains
+  `configured_source_id` alongside the existing keys. A source no configured
+  row produced is offered nothing, rather than an entry the reader could not
+  find.
+
 - **A new evidence gap now says which subject left the analysed surface.**
   (#433) The exclusion ledger from #403 records precisely which subject each
   stage removed — `("binding", "find_duplicate [github_mcp]", "evidence_gap")`

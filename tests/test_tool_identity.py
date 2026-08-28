@@ -242,6 +242,68 @@ def test_duplicate_observation_tuple_is_rejected() -> None:
         raise AssertionError("duplicate observation tuple was accepted")
 
 
+def test_a_loader_that_misnames_its_tools_names_the_entry_that_read_them() -> None:
+    """A tool arriving under another source's name is refused, and routed.
+
+    The rejection is unchanged; what it says is not. It named the defect and
+    stopped there, which left the reader nothing to do — they cannot edit the
+    adapter, and the sentence had already told them their configuration was
+    not at fault. The configured entry is the one lever they hold, so it is
+    offered after the diagnosis and labelled as the workaround it is.
+
+    Reachable from the built-in `codex_config` loader until it was fixed to
+    return one source per MCP server; what remains reachable is a third-party
+    adapter.
+    """
+
+    loaded = LoadedToolSource(
+        source_id="acme:read",
+        source_type="acme",
+        configured_source_id="vendor_tools",
+        tools=[Tool(id="t", name="pay", source_type="acme", source_id="acme:write")],
+    )
+
+    with pytest.raises(InputParseError) as excinfo:
+        build_tool_identity_catalog([loaded], ToolIdentityConfig())
+
+    message = str(excinfo.value)
+    assert "'pay'" in message
+    assert "removing the tool_sources entry 'vendor_tools' from shipgate.yaml" in message
+    # Labelled as a workaround with its cost, not as the repair: a reader told
+    # their configuration is fine and then told to edit it stops believing the
+    # first half.
+    assert "without the tools that entry reads" in message
+    assert excinfo.value.details["configured_source_id"] == "vendor_tools"
+    # The minted ids stay in `details`, where tooling reads them, and out of
+    # the sentence a person is expected to act on.
+    assert "acme:write" not in message
+    assert not internal_vocabulary(message), message
+
+
+def test_a_loader_with_no_configured_entry_is_offered_no_workaround() -> None:
+    """No entry is invented for a source no `tool_sources` row produced.
+
+    A per-scan adapter reading a top-level manifest section has no configured
+    entry, and naming one the reader could not find would be worse than the
+    dead end this message used to be.
+    """
+
+    loaded = LoadedToolSource(
+        source_id="acme:read",
+        source_type="acme",
+        tools=[Tool(id="t", name="pay", source_type="acme", source_id="acme:write")],
+    )
+
+    with pytest.raises(InputParseError) as excinfo:
+        build_tool_identity_catalog([loaded], ToolIdentityConfig())
+
+    message = str(excinfo.value)
+    assert "tool_sources entry" not in message
+    assert "loaded_adapters[]" in message
+    assert excinfo.value.details["configured_source_id"] is None
+    assert not internal_vocabulary(message), message
+
+
 def test_only_a_field_that_names_a_file_can_name_a_file() -> None:
     """An edit action must name a file, and most provenance fields do not.
 

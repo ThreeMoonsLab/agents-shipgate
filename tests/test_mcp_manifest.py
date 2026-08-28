@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.capability_lock import build_capability_lock
 from agents_shipgate.core.domain import Agent
 from agents_shipgate.core.errors import InputParseError
@@ -13,6 +14,7 @@ from agents_shipgate.inputs.mcp_manifest import (
     _RISK_UNION_ANNOTATIONS,
     DUPLICATE_SERVER_DECLARATION,
     load_codex_config_mcp_sources,
+    normalize_codex_config_mcp_servers,
     normalize_mcp_json_servers,
     tools_from_normalized_mcp_servers,
 )
@@ -860,3 +862,232 @@ def test_a_stub_declaration_beside_an_enumerated_one_keeps_the_unknown_remainder
     assert wildcard.annotations["mcp_unknown_schema"] is True
     assert wildcard.source_ref == "pkg_b/.mcp.json"
     assert len(source.warnings) == 1
+
+
+def _codex_manifest_text() -> str:
+    return """
+version: "0.1"
+project:
+  name: codex-mcp
+agent:
+  name: codex-agent
+  declared_purpose:
+    - read repository MCP declarations
+environment:
+  target: local
+tool_sources:
+  - id: codex
+    type: codex_config
+    path: .
+output:
+  packet:
+    enabled: false
+""".lstrip()
+
+
+@pytest.mark.parametrize(
+    ("filename", "body"),
+    [
+        (
+            ".mcp.json",
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "srv": {
+                            "command": "node",
+                            "tools": {"t_codex": {"description": "Read a thing."}},
+                        }
+                    }
+                }
+            ),
+        ),
+        # No `tools` map at all: the loader mints a `srv.*` wildcard, which
+        # carries the same minted id and reached the same contract check.
+        (".mcp.json", json.dumps({"mcpServers": {"srv": {"command": "node"}}})),
+        (
+            ".codex/config.toml",
+            '[mcp_servers.srv]\ncommand = "node"\n'
+            '[mcp_servers.srv.tools.t_codex]\ndescription = "Read a thing."\n',
+        ),
+    ],
+    ids=["mcp_json_enumerated", "mcp_json_wildcard", "codex_toml_enumerated"],
+)
+def test_codex_config_row_over_a_config_with_servers_scans(
+    tmp_path: Path, filename: str, body: str
+) -> None:
+    """A `codex_config` row over a config that names a server must complete.
+
+    The loader returned one file-level `codex_config_mcp:<path>` source whose
+    tools were stamped per server, and `core.tool_identity` rejects a tool
+    arriving under another source's name — so *every* such row aborted the
+    whole scan with `InputParseError`. Both file kinds are parametrized
+    because both mismatched: `mcp_json:<server>` under a `.mcp.json`, and
+    `codex_config_mcp:<server>` under a `.codex/config.toml`.
+
+    The three fixtures that already used `type: codex_config`
+    (`test_verify_orchestrator.py`, `test_preflight.py`,
+    `test_codex_boundary_check.py`) all point at workspaces where the loader
+    mints no tools, so nothing reached the check.
+    """
+
+    target = tmp_path / filename
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(body, encoding="utf-8")
+    (tmp_path / "shipgate.yaml").write_text(_codex_manifest_text(), encoding="utf-8")
+
+    report, _exit_code = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "agents-shipgate-reports",
+    )
+
+    # `run_scan` *raises* on this defect rather than returning a code, so
+    # reaching a report at all is the regression guard. The exit code is the
+    # fail policy's business and is deliberately not asserted here.
+    assert [row["source_type"] for row in report.tool_catalog] == ["codex_config_mcp"]
+
+
+def test_every_minted_codex_mcp_tool_names_the_source_it_was_read_from(
+    tmp_path: Path,
+) -> None:
+    """The contract `core.tool_identity._observations` enforces, checked here.
+
+    Asserted over one workspace holding every shape the loader emits — both
+    file kinds, a plugin-nested server, an enumerated tool, and a wildcard
+    stub — because the defect was invisible to `load_codex_config_mcp_sources`
+    tests that only ever read `.tools`.
+    """
+
+    (tmp_path / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "enumerated": {"command": "a", "tools": {"query": {}}},
+                    "stub": {"command": "b"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = tmp_path / ".codex" / "config.toml"
+    config.parent.mkdir()
+    config.write_text(
+        """
+[mcp_servers.docs]
+command = "docs-mcp"
+enabled_tools = ["read_docs"]
+
+[plugins.browser.mcp_servers.browser]
+command = "browser-mcp"
+enabled_tools = ["open_page"]
+""",
+        encoding="utf-8",
+    )
+
+    loaded = load_codex_config_mcp_sources(tmp_path, tmp_path)
+
+    # Pinned by value, not by "some source had tools": the contract below is
+    # satisfied vacuously by a loader that stopped emitting a whole branch,
+    # and the plugin-nested and `.codex/config.toml` branches are exactly the
+    # ones a `.mcp.json`-shaped fixture would not miss.
+    assert {source.source_id: [tool.name for tool in source.tools] for source in loaded} == {
+        "mcp_json:enumerated": ["query"],
+        "mcp_json:stub": ["stub.*"],
+        "codex_config_mcp:docs": ["read_docs"],
+        "codex_plugin_config_mcp:browser:browser": ["open_page"],
+    }
+    mismatched = [
+        (source.source_id, tool.name, tool.source_id)
+        for source in loaded
+        for tool in source.tools
+        if tool.source_id != source.source_id
+    ]
+    assert mismatched == []
+
+
+@pytest.mark.parametrize(
+    ("normalize", "payload", "expected_id"),
+    [
+        (
+            normalize_mcp_json_servers,
+            {"mcpServers": {"github": {"command": "gh", "tools": {"search": {}}}}},
+            "mcp_json:github",
+        ),
+        (
+            normalize_codex_config_mcp_servers,
+            {"mcp_servers": {"github": {"command": "gh", "enabled_tools": ["search"]}}},
+            "codex_config_mcp:github",
+        ),
+        (
+            normalize_codex_config_mcp_servers,
+            {
+                "plugins": {
+                    "browser": {
+                        "mcp_servers": {
+                            "github": {"command": "gh", "enabled_tools": ["search"]}
+                        }
+                    }
+                }
+            },
+            "codex_plugin_config_mcp:browser:github",
+        ),
+    ],
+    ids=["mcp_json", "codex_toml", "codex_toml_plugin"],
+)
+def test_every_minted_prefix_stays_free_of_the_path_it_was_read_from(
+    normalize, payload: dict[str, object], expected_id: str
+) -> None:
+    """An MCP capability is its server and tool, not the file declaring them.
+
+    `mcp audit` pins a pure rename as no capability change, and that holds only
+    while the minted id omits the path. Qualifying the id per file is the
+    obvious way to keep two packages that both declare `github` apart — and it
+    turns every such rename into an addition, so the rejected option is pinned
+    here rather than rediscovered.
+
+    All three prefixes are covered because all three are equally load-bearing:
+    a cross-file fix that qualifies only the one this test happened to name
+    would regress the other two silently.
+
+    The file travels on `source_ref` and `source_path`, which is where a
+    reader is pointed and what the duplicate-observation message opens.
+    """
+
+    servers = normalize(
+        payload,
+        source_ref="pkg_a/config",
+        source_path="pkg_a/config",
+    )
+
+    assert [server.source_id for server in servers] == [expected_id]
+    tool = tools_from_normalized_mcp_servers(servers)[0]
+    assert tool.source_id == expected_id
+    assert tool.source_ref == "pkg_a/config"
+
+
+def test_two_servers_in_one_file_may_expose_the_same_tool_name(tmp_path: Path) -> None:
+    """The reason the fix is one source per server, not one source per file.
+
+    `_native_locator` is the bare tool name for MCP-like sources, so grouping
+    both servers under one file-level id would have made a legal `.mcp.json`
+    raise "defines the tool more than once".
+    """
+
+    (tmp_path / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "alpha": {"command": "a", "tools": {"query": {}}},
+                    "beta": {"command": "b", "tools": {"query": {}}},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "shipgate.yaml").write_text(_codex_manifest_text(), encoding="utf-8")
+
+    report, _exit_code = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "agents-shipgate-reports",
+    )
+
+    assert sorted(row["name"] for row in report.tool_catalog) == ["query", "query"]

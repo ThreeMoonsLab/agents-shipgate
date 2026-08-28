@@ -293,6 +293,13 @@ def _servers_from_mapping(
             continue
         if raw_server.get("enabled") is False:
             continue
+        # Deliberately path-free: an MCP capability is identified by its
+        # server and tool, so moving the file that declares it — a
+        # ``.mcp.json`` or a ``.codex/config.toml`` — is not a capability
+        # change (``mcp audit`` pins that as a pure rename). The file it was
+        # read from travels on ``source_ref``/``source_path`` instead, and it
+        # is this invariant that makes one name in two files one server to
+        # reconcile rather than two surfaces to tell apart.
         source_id = f"{source_id_prefix}:{server_name}"
         env_secret_names = tuple(_env_secret_names(raw_server.get("env")))
         transport = _transport(raw_server)
