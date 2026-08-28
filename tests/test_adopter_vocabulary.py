@@ -71,6 +71,13 @@ from agents_shipgate.core.evidence_actions import (
     evidence_gap_headline,
 )
 from agents_shipgate.core.surface_exclusions import derived_id_kind
+from agents_shipgate.report.markdown import (
+    _LEGACY_DIRECT_ROOT_AGENT_ID,
+    MARKDOWN_ESCAPE_CHARS,
+    _append_binding_surface,
+    _safe_markdown_text,
+    _unescape_markdown_text,
+)
 from agents_shipgate.schemas.bindings import (
     AgentBindingGraphAssessment,
     AgentBindingIssue,
@@ -86,6 +93,25 @@ from agents_shipgate.schemas.report import (
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 runner = CliRunner()
+
+
+def _markdown_vocabulary_offenders(markdown: str, *, where: str) -> list[str]:
+    """Every line of a rendered report that uses internal vocabulary.
+
+    Un-escaped first. The renderer escapes ``_`` in every value it prints, and
+    every derived id shape and internal term contains one, so the raw line
+    ``agent\\_v1:7205d836…`` matched nothing and the sweep was very nearly
+    vacuous over the half of the report that goes through
+    ``_safe_markdown_text``. Matching the sentence the reader sees, not the
+    escaping that got it there, is what keeps this sweep about the rule.
+    """
+
+    return [
+        f"{where}:{number} {internal_vocabulary(sentence)} :: {line.strip()!r}"
+        for number, line in enumerate(markdown.splitlines(), start=1)
+        for sentence in [_unescape_markdown_text(line)]
+        if internal_vocabulary(sentence)
+    ]
 
 
 # --- the rule is not vacuous -------------------------------------------------
@@ -480,6 +506,165 @@ def test_an_unnamed_agent_never_falls_back_to_its_id() -> None:
     subject = agent_subject(unnamed)
     assert subject == "agent.py"
     assert internal_vocabulary(subject) == ()
+
+
+def _root_agent_line_of(rendered: str) -> str:
+    """The one `Root agent:` line, so an assertion cannot pass on a neighbour."""
+
+    return next(
+        line for line in rendered.splitlines() if line.startswith("Root agent:")
+    )
+
+
+def _binding_surface_markdown(graph: AgentBindingGraphAssessment) -> str:
+    lines: list[str] = []
+    _append_binding_surface(
+        lines, ReadinessReport.model_construct(binding_surface_facts=graph)
+    )
+    return "\n".join(lines)
+
+
+_ROOT_AGENT_ID = "agent_v1:7205d836e4b3fee257d90695"
+
+
+def test_the_markdown_root_agent_line_names_the_agent() -> None:
+    """``Root agent:`` shipped a digest in every sample (#329).
+
+    The reader is being told which agent the whole binding section is about,
+    and ``agent_v1:7205d836…`` is in no file they have. The label comes from
+    the one agent index, so this line and a binding gap about the same agent
+    cannot disagree about what it is called.
+    """
+
+    graph = AgentBindingGraphAssessment(
+        root_agent_id=_ROOT_AGENT_ID,
+        status="structural",
+        agents=[
+            AgentBindingNode(
+                agent_id=_ROOT_AGENT_ID,
+                name="conductor",
+                source_id="google_adk:agent.py",
+                source_ref="agent.py",
+            )
+        ],
+        pass_eligible=True,
+    )
+    markdown = _binding_surface_markdown(graph)
+
+    # Asserted on the un-escaped text: what a reader sees rendered, not the
+    # backslashes the renderer inserts to get it there.
+    assert "Root agent: conductor [google_adk:agent.py]" in _unescape_markdown_text(
+        markdown
+    )
+    assert _markdown_vocabulary_offenders(markdown, where="report.md") == []
+
+
+@pytest.mark.parametrize(
+    ("root_agent_id", "agents"),
+    [
+        pytest.param(None, [], id="no_root"),
+        pytest.param(_ROOT_AGENT_ID, [], id="root_no_node_carries"),
+        pytest.param(
+            _ROOT_AGENT_ID,
+            [AgentBindingNode(agent_id="agent_v1:d1c2d1404233507abc674042", name="a")],
+            id="root_disagrees_with_nodes",
+        ),
+    ],
+)
+def test_an_unnameable_root_agent_never_falls_back_to_its_id(
+    root_agent_id: str | None, agents: list[AgentBindingNode]
+) -> None:
+    """Every way the graph can fail to name a root ends at prose, not the id.
+
+    A fallback that chains back to ``root_agent_id`` would reintroduce the
+    digest on exactly the graphs that are already hardest to read.
+    """
+
+    markdown = _binding_surface_markdown(
+        AgentBindingGraphAssessment(
+            root_agent_id=root_agent_id, status="unknown", agents=agents
+        )
+    )
+
+    assert "Root agent: unresolved" in markdown
+    assert _markdown_vocabulary_offenders(markdown, where="report.md") == []
+
+
+def test_the_compat_graph_is_not_reported_as_an_unnamed_agent() -> None:
+    """``legacy_direct`` is not a root the graph failed to name.
+
+    It is the assessment a report carries when no agent graph was resolved at
+    all — ``core.findings.report_builder`` builds it whenever its
+    ``binding_surface_facts`` argument is ``None``, and it is the schema
+    default for a ``report.json`` written before the field existed. It is
+    truthy and no node carries it, so routing it through the label index
+    printed ``unresolved`` between ``Status: structural`` and
+    ``Pass eligible: true`` — a failure the report was not reporting. Same
+    rule as the tool-source state beside it (#432): the word for a deliberate
+    state is not the word for a broken one.
+    """
+
+    markdown = _binding_surface_markdown(
+        AgentBindingGraphAssessment(
+            root_agent_id=_LEGACY_DIRECT_ROOT_AGENT_ID,
+            status="structural",
+            pass_eligible=True,
+        )
+    )
+    plain = _unescape_markdown_text(markdown)
+
+    assert _root_agent_line_of(plain) == (
+        "Root agent: none (tools bound directly, no agent graph)"
+    )
+    assert _markdown_vocabulary_offenders(markdown, where="report.md") == []
+
+
+def test_the_default_report_renders_the_compat_graph_that_way() -> None:
+    """The state above, reached the way production reaches it.
+
+    Asserting on a hand-built assessment alone would keep passing if the
+    default the builder relies on moved out from under it.
+    """
+
+    report = ReadinessReport.model_construct()
+
+    assert report.binding_surface_facts.root_agent_id == _LEGACY_DIRECT_ROOT_AGENT_ID
+    lines: list[str] = []
+    _append_binding_surface(lines, report)
+    rendered = _unescape_markdown_text("\n".join(lines))
+
+    assert _root_agent_line_of(rendered) == (
+        "Root agent: none (tools bound directly, no agent graph)"
+    )
+
+
+def test_the_entry_points_line_never_falls_back_to_an_id_either() -> None:
+    """The second agent line in this section, added by #432.
+
+    It resolves through the same index, so a rooted graph prints one spelling
+    on both lines rather than a digest above a label. Its own fallback is the
+    same word: an entry point the index cannot name is `unresolved`, never the
+    ``agent_v1:`` id that fallback used to hand the reader.
+    """
+
+    named = AgentBindingNode(
+        agent_id=_ROOT_AGENT_ID, name="server_a", kind="tool_source"
+    )
+    markdown = _binding_surface_markdown(
+        AgentBindingGraphAssessment(
+            root_agent_id=None,
+            status="declared",
+            agents=[named],
+            entry_point_agent_ids=[_ROOT_AGENT_ID, "agent_v1:d1c2d1404233507abc674042"],
+            pass_eligible=True,
+        )
+    )
+
+    assert "Root agent: none (graph rooted by declared tool sources)" in (
+        _unescape_markdown_text(markdown)
+    )
+    assert "Entry points: server_a, unresolved" in _unescape_markdown_text(markdown)
+    assert _markdown_vocabulary_offenders(markdown, where="report.md") == []
 
 
 def test_an_unknown_agent_falls_back_to_something_readable() -> None:
@@ -1226,14 +1411,36 @@ def test_sample_reports_speak_the_adopters_vocabulary(report_path: Path) -> None
     ids=lambda path: path.parent.parent.name,
 )
 def test_sample_markdown_speaks_the_adopters_vocabulary(markdown_path: Path) -> None:
-    offenders = [
-        f"{markdown_path.name}:{number} {internal_vocabulary(line)} :: {line.strip()!r}"
-        for number, line in enumerate(
-            markdown_path.read_text(encoding="utf-8").splitlines(), start=1
-        )
-        if internal_vocabulary(line)
-    ]
+    offenders = _markdown_vocabulary_offenders(
+        markdown_path.read_text(encoding="utf-8"), where=markdown_path.name
+    )
     assert not offenders, "\n".join(offenders)
+
+
+def test_the_markdown_sweep_sees_through_the_renderers_escaping() -> None:
+    """The negative control for the line above.
+
+    Without it the sweep passes on the exact string it was written to reject:
+    ``Root agent: agent_v1:7205d836…`` shipped in all five samples because the
+    renderer had escaped the underscore first. A guard that cannot fail on the
+    producer's own spelling is not guarding anything.
+    """
+
+    shipped = "Root agent: " + _safe_markdown_text(_ROOT_AGENT_ID)
+    assert shipped == "Root agent: agent\\_v1:7205d836e4b3fee257d90695"
+    assert internal_vocabulary(shipped) == ()
+    assert _markdown_vocabulary_offenders(shipped, where="report.md")
+
+
+def test_unescaping_inverts_the_renderers_escaping() -> None:
+    """The sweep reads what the renderer wrote, so the pair has to stay a pair.
+
+    A value carrying every escaped character, including a literal backslash —
+    the one that makes order load-bearing, since the escaper escapes it first.
+    """
+
+    original = "".join(MARKDOWN_ESCAPE_CHARS) + " agent_v1:7205d836 - 1. x"
+    assert _unescape_markdown_text(_safe_markdown_text(original)) == original
 
 
 # --- the failure this issue was filed for, end to end ------------------------
