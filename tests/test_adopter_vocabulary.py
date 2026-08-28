@@ -722,6 +722,11 @@ SOURCE_WARNING_PROBES: dict[str, str] = {
             sw.unknown_binding_member_source("orders_typo", "process_order"),
         ],
     ),
+    "duplicate_mcp_server_declaration_warning": (
+        sw.duplicate_mcp_server_declaration_warning(
+            "github", "packages/api/.mcp.json", ["packages/worker/.mcp.json"]
+        )
+    ),
     "unmatched_binding_member": sw.unmatched_binding_member(
         "orders_b", "process_order", 2
     ),

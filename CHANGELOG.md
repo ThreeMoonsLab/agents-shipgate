@@ -2,6 +2,60 @@
 
 ## Unreleased
 
+- **The same MCP server declared in two files is one capability, reconciled.**
+  A `codex_config` row over a workspace where two packages each carry a
+  `.mcp.json` naming `github` aborted the scan with
+  `'pkg_b/.mcp.json' was read twice as one tool source [...] Remove the
+  repeated shipgate.yaml entry naming 'pkg_b/.mcp.json'` — false on both
+  counts, and naming an edit nobody could make: the manifest names `path: .`
+  once, and that file was read once.
+
+  Two deliberate rules collided. An MCP capability is identified by
+  `(server, tool)` and by nothing else, so that moving a `.mcp.json` is not a
+  capability change (`mcp audit` pins this); and one identity may be observed
+  only once. Qualifying the minted id with the path resolves the collision and
+  breaks the first rule, so it stays rejected —
+  `tests/test_mcp_manifest.py::test_the_minted_server_id_stays_free_of_the_path_it_was_read_from`
+  keeps it rejected. The answer is that the two files declare **one capability
+  twice**, and the reader reconciles them before the catalog sees them.
+
+  **Identical declarations are silent.** Nothing was dropped, and a source
+  warning is a gating input; the ordinary monorepo layout gains no evidence
+  gap. Sameness is decided on the declaration as written, not on the fields
+  that reach a catalog row, so two files agreeing on every tool and disagreeing
+  on the command that serves them are not identical.
+
+  **Disagreeing declarations are merged conservatively, never by picking one.**
+  The merged server carries the union of the tools; a claim that raises risk
+  survives from any one declaration (`destructiveHint`, an unenumerated
+  `server.*` remainder, secret environment names, an external URL, an
+  authority scope, `approval_mode: approve` — which reaches even a tool whose
+  own file said nothing about approval); a reassuring claim survives only when
+  every declaration makes it (`readOnlyHint`, a local-documentation server, a
+  transport); and two files describing one tool with different schemas leave
+  the interface unknown rather than publishing either. A declaration the auth
+  parser refuses stays refused rather than being rebuilt as a valid one. Each
+  merged tool names the file that declares it, and each declaration that did
+  not enter the catalog on its own becomes a `SourceSurfaceOmission` — an
+  `adapter_parse` row in the #403 exclusion ledger, accounted for by the source
+  warning that reports it.
+
+  Two defects found alongside it:
+
+  - A `codex_config` row over *any* config naming an MCP server aborted the
+    scan before reaching the above: the loader returned one file-level tool
+    source holding tools stamped per server, so every tool was reported as
+    belonging to a source other than the one it was read from. It returns one
+    source per server.
+  - Two `tool_sources` entries reading one server from two files is the one
+    duplicate no reader can reconcile — neither entry's declarations speak for
+    both — and it was reported as a repeated manifest entry, which it is not.
+    A third `details.cause`, `duplicate_across_artifacts`, names both files and
+    the two repairs that exist. Documented in `docs/errors.json`.
+
+  No verdict, count, or version moves: `report_schema_version`,
+  `contract_version` and every published schema document are unchanged.
+
 - **The report's `Root agent:` line names the agent instead of hashing it.**
   (#329) Every shipped sample printed `Root agent: agent_v1:7205d836…` at the
   head of the Agent Binding Surface section — a derived digest that appears in
@@ -54,47 +108,6 @@
   [conductor_workflows]` — which is the drift one shared index exists to
   prevent. Markdown-only: report, packet and verifier schemas are unchanged,
   and the five sample `report.md` goldens are regenerated.
-
-- **A `codex_config` tool source no longer aborts the scan on any MCP server
-  it finds.** A `tool_sources[]` row of `type: codex_config` failed outright
-  with `InputParseError` — "A tool source loader reported tool 't_codex' as
-  belonging to a different source than the one it was read from" — whenever
-  the workspace contained a `.mcp.json` or `.codex/config.toml` declaring a
-  server. Since a server with no enumerable tools still mints a `<server>.*`
-  wildcard, *any* server at all reached it: the source type worked only on
-  workspaces that had no MCP declarations to read, which is the opposite of
-  what it is for.
-
-  `inputs.mcp_manifest` minted a per-server id for every tool
-  (`mcp_json:<server>`, `codex_config_mcp:<server>`) and then wrapped a whole
-  file's servers in one `LoadedToolSource` named for the *file*
-  (`codex_config_mcp:<path>`). `core.tool_identity` requires a loaded source
-  to name the id its tools carry — a tool arriving under another source's
-  name is a loader defect — so the two spellings could never agree.
-
-  **The loader now emits one `LoadedToolSource` per MCP server**, built from
-  the server, so there is no second place that spells the id. The minted ids
-  themselves are unchanged and stay deliberately path-free: an MCP capability
-  is its server and tool, so moving a `.mcp.json` remains a pure rename rather
-  than a capability addition (`mcp audit`). One source per *file* was the
-  other candidate repair and is wrong: `_native_locator` is the bare tool name
-  for MCP-like sources, so grouping a file's servers together made a legal
-  `.mcp.json` whose two servers both expose `query` fail with "defines the
-  tool 'query' more than once".
-
-  No version moves and no schema changes: `report_schema_version`,
-  `contract_version`, and every published schema document are unchanged.
-  Nothing that previously produced a report changes shape, because no
-  workspace with an MCP server could produce one.
-
-  **Known gap.** Two files of the same kind declaring the same server name —
-  `pkg_a/.mcp.json` and `pkg_b/.mcp.json` both declaring `github`, which is
-  likely in a monorepo since server names are conventional — still fail:
-  `scan` with a duplicate-observation message that names a file the manifest
-  never listed twice, and `mcp audit` (already, independently of this change)
-  with an unhandled `ConfigError` and no JSON envelope. Path-free capability
-  identity and one-observation-per-identity are both deliberate, and
-  reconciling them is tracked separately.
 
 - **The loader-contract failure now offers a way forward.** "That is a defect
   in the loader, not in this repository's configuration" was accurate and

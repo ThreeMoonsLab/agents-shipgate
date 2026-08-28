@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from agents_shipgate.core.adopter_text import (
+    DUPLICATE_ACROSS_ARTIFACTS,
     DUPLICATE_TOOL_IN_SOURCE,
     REPEATED_SOURCE_ENTRY,
     source_label,
@@ -347,6 +348,30 @@ def _duplicate_tool_action(
         file_path=source_file if isinstance(source_file, str) else None,
         source_id=source_id,
     )
+    if details.get("cause") == DUPLICATE_ACROSS_ARTIFACTS:
+        other_file = details.get("other_source_file")
+        other = source_label(
+            file_path=other_file if isinstance(other_file, str) else None,
+            source_id=source_id,
+        )
+        # Review, not edit. Two repairs are available and they live in
+        # different files — rename one of the declarations, or bring both under
+        # one tool_sources entry — so publishing either as a routable `path`
+        # would send a consumer to change the file the reader had not chosen.
+        return NextAction(
+            kind="review",
+            why=(
+                f"{other} and {where} both declare the tool {tool_name!r} "
+                "under one name, so one capability arrived twice. Either "
+                "rename one declaration, or cover both files with a single "
+                f"tool_sources entry in {manifest} so they are reconciled as "
+                "one."
+            ),
+            expects=(
+                "Each capability is declared once, or the files declaring it "
+                "are read by one tool source."
+            ),
+        )
     if details.get("cause") == REPEATED_SOURCE_ENTRY:
         return NextAction(
             kind="edit",

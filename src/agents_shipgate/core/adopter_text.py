@@ -52,6 +52,7 @@ from collections.abc import Iterable
 
 __all__ = [
     "AGENT_ID_PATTERN",
+    "DUPLICATE_ACROSS_ARTIFACTS",
     "DUPLICATE_IN_SOURCE_ARTIFACT",
     "DUPLICATE_TOOL_IN_SOURCE",
     "FINGERPRINT_PATTERN",
@@ -84,8 +85,14 @@ DUPLICATE_TOOL_IN_SOURCE = "duplicate_tool_in_source"
 #: id, which is a repeated entry in the manifest.
 #: ``DUPLICATE_IN_SOURCE_ARTIFACT`` — one read of one artifact produced the
 #: same tool twice, which is a duplicate definition inside that artifact.
+#: ``DUPLICATE_ACROSS_ARTIFACTS`` — two *different* files declared one
+#: capability under one name. Neither of the other two sentences is true of it:
+#: the manifest names no artifact twice, and no artifact defines the tool twice.
+#: Reporting it as a repeated entry told the reader to delete a manifest line
+#: that does not exist.
 REPEATED_SOURCE_ENTRY = "repeated_source_entry"
 DUPLICATE_IN_SOURCE_ARTIFACT = "duplicate_in_source_artifact"
+DUPLICATE_ACROSS_ARTIFACTS = "duplicate_across_artifacts"
 
 #: Identity-model terms with no counterpart in anything an adopter writes or
 #: opens. No anchor rescues these: there is nowhere to send the reader.
@@ -240,21 +247,40 @@ def source_label(*, file_path: str | None, source_id: str) -> str:
 
 
 def duplicate_tool_observation_message(
-    *, tool_name: str, file_path: str | None, source_id: str, cause: str
+    *,
+    tool_name: str,
+    file_path: str | None,
+    source_id: str,
+    cause: str,
+    other_file_path: str | None = None,
 ) -> str:
     """The adopter-facing form of a duplicate tool inside one tool source.
 
-    Two mistakes reach the duplicate check with opposite repairs, and ``cause``
-    says which one the check actually saw (see :data:`REPEATED_SOURCE_ENTRY`).
-    Naming both and hedging was the first draft of this message; it reads as
-    helpful and is not, because the structured action beside it can only carry
-    one target.
+    Three mistakes reach the duplicate check with different repairs, and
+    ``cause`` says which one the check actually saw (see
+    :data:`REPEATED_SOURCE_ENTRY`). Naming them all and hedging was the first
+    draft of this message; it reads as helpful and is not, because the
+    structured action beside it can only carry one target.
+
+    ``other_file_path`` is the file the *first* read of this identity came
+    from, and it is what distinguishes two files declaring one capability from
+    one file read twice. Without it the message asserted a repeated manifest
+    entry for a manifest that names each file once.
 
     The identity triple that detected it — ``source_type``, ``source_id``,
     ``native_locator`` — stays in the error's ``details`` for a bug report.
     """
 
     where = source_label(file_path=file_path, source_id=source_id)
+    if cause == DUPLICATE_ACROSS_ARTIFACTS:
+        other = source_label(file_path=other_file_path, source_id=source_id)
+        return (
+            f"The tool {tool_name!r} was read from both {other} and {where}, "
+            "which declare it under one name, so one capability arrived twice. "
+            "Give the two declarations distinct names, or bring both files "
+            "under a single shipgate.yaml tool_sources entry so they are "
+            "reconciled as one declaration, then re-run the scan."
+        )
     if cause == REPEATED_SOURCE_ENTRY:
         return (
             f"{where} was read twice as one tool source, so the tool "
