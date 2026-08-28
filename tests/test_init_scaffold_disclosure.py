@@ -748,10 +748,34 @@ def test_rendered_manifest_survives_copy_and_pickle(tmp_path: Path) -> None:
     import copy
     import pickle
 
-    for rendered in (
-        render_manifest_template(tmp_path.resolve()),
-        render_auto_manifest(tmp_path, detect_workspace(tmp_path)),
-    ):
+    # Siblings, not nested: an OpenAPI spot under `tmp_path` would make the
+    # bare workspace detected too.
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    detected = tmp_path / "detected"
+    detected.mkdir()
+    (detected / "svc.openapi.yaml").write_text(
+        "openapi: 3.1.0\n"
+        "info:\n  title: T\n  version: '1'\n"
+        "paths:\n"
+        "  /orders:\n"
+        "    get:\n"
+        "      operationId: listOrders\n"
+        "      responses:\n"
+        "        '200':\n"
+        "          description: ok\n",
+        encoding="utf-8",
+    )
+    renders = [
+        render_manifest_template(bare.resolve()),
+        render_auto_manifest(bare, detect_workspace(bare)),
+        render_manifest_template(detected.resolve()),
+        render_auto_manifest(detected, detect_workspace(detected)),
+    ]
+    # Both provenances, because `__new__` validates the pair and a round trip
+    # that dropped `scaffold_summary` would still construct on a detected one.
+    assert {r.tool_surface_origin for r in renders} == {"scaffold", "detected"}
+    for rendered in renders:
         for clone in (
             copy.copy(rendered),
             copy.deepcopy(rendered),
