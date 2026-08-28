@@ -195,12 +195,18 @@ def _absorb(
     configured_ids_by_source_id: Mapping[tuple[str, str], str] | None = None,
 ) -> None:
     for loaded in result.tool_sources:
-        loaded.configured_source_id = _configured_id_for(
-            loaded,
-            adapter,
-            configured_source_id,
-            configured_ids_by_source_id,
-        )
+        # An adapter that recorded the association itself wins. A per-scan
+        # adapter reading its own ``tool_sources`` rows knows exactly which row
+        # produced each result, and the pair-matching fallback below cannot
+        # recover that for a result whose minted id *or* source type is derived
+        # (a Codex plugin MCP inventory is both — #432 review).
+        if loaded.configured_source_id is None:
+            loaded.configured_source_id = _configured_id_for(
+                loaded,
+                adapter,
+                configured_source_id,
+                configured_ids_by_source_id,
+            )
     sink.extend(result.tool_sources)
     if result.artifact is not None:
         if adapter.artifact_class is not None and not isinstance(

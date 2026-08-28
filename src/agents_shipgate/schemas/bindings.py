@@ -17,11 +17,24 @@ BindingEdgeType = Literal[
 ]
 
 
+#: What a node in the binding graph *is*. The array is called ``agents`` and
+#: was, for a long time, only agents — so a consumer reading it had no way to
+#: tell a runtime agent from something else the projection represents there.
+#: ``tool_source`` is a published tool surface a human reviewed under
+#: ``tool_sources[].binding``: it has no agent object anywhere, it is named by
+#: its configured source id, and it is an entry point rather than something an
+#: agent reaches (#432).
+BindingNodeKind = Literal["agent", "tool_source"]
+
+
 class AgentBindingNode(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     agent_id: str
     name: str
+    # v0.42. Additive and defaulted, so every node any prior release emitted
+    # reads back as what it was.
+    kind: BindingNodeKind = "agent"
     source_id: str | None = None
     source_ref: str | None = None
     source_pointer: str | None = None
@@ -77,6 +90,19 @@ class AgentBindingGraphAssessment(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     root_agent_id: str | None = None
+    # v0.42: every node the reachability walk started from, root included.
+    #
+    # ``root_agent_id`` alone cannot distinguish two opposite states, and one
+    # of them is now reachable with `pass_eligible: true`: a graph nothing
+    # rooted, and a graph rooted by declared published surfaces where no agent
+    # object exists to name (#432). A repository publishing two servers has two
+    # entry points and no root agent, which is not the same fact as "the root
+    # could not be identified" and must not read as it.
+    #
+    # Empty exactly when nothing rooted the graph. Non-empty and equal to
+    # ``[root_agent_id]`` for every graph a prior release could produce, so a
+    # consumer reading it need not special-case the old shape.
+    entry_point_agent_ids: list[str] = Field(default_factory=list)
     status: BindingStatus
     agents: list[AgentBindingNode] = Field(default_factory=list)
     tool_edges: list[AgentToolBindingEdge] = Field(default_factory=list)
@@ -127,6 +153,7 @@ __all__ = [
     "AgentBindingGraphAssessment",
     "AgentBindingIssue",
     "AgentBindingNode",
+    "BindingNodeKind",
     "AgentHandoffBindingEdge",
     "AgentToolBindingEdge",
     "BindingEdgeType",

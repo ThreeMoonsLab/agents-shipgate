@@ -38,8 +38,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.41.json`](report-schema.v0.41.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.41"`, and `effective_policy.control_pack` names the control pack in force, so a base-vs-head comparison can see a pack moved to one that requires less)
-- [`report-schema.v0.40.json`](report-schema.v0.40.json) — frozen reference (`effective_policy.control_pack` names the control pack in force)
+- [`report-schema.v0.42.json`](report-schema.v0.42.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.42"`, and `effective_policy.control_pack` names the control pack in force, so a base-vs-head comparison can see a pack moved to one that requires less)
+- [`report-schema.v0.41.json`](report-schema.v0.41.json) — frozen reference (`effective_policy.control_pack` names the control pack in force)
 - [`report-schema.v0.39.json`](report-schema.v0.39.json) — frozen reference (a confirmed declaration whose evidence has since moved re-opens as a `declaration_drift` gap)
 - [`report-schema.v0.38.json`](report-schema.v0.38.json) — frozen v0.38 reference; pre-v0.39 reports validate against this
 - [`report-schema.v0.37.json`](report-schema.v0.37.json) — frozen reference (added `semantic_coverage.declaration_questions`, the questionnaire projection that says how many declarations a repository still owes)

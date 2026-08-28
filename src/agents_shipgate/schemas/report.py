@@ -1457,7 +1457,7 @@ class ReadinessReport(BaseModel):
     # manifest block that answers it (``answer_path``), so the actions one
     # ``tool_sources[].authority`` block covers are one question and one
     # evidence-gap row rather than N of each (#410 increment 3).
-    report_schema_version: str = "0.41"
+    report_schema_version: str = "0.42"
     run_id: str
     request_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
     subject_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)

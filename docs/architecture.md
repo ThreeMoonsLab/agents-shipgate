@@ -3,7 +3,7 @@
 A single-page summary of the `agents-shipgate` codebase for new
 contributors and AI coding agents extending the project. Current as of
 2026-07-13; auto-checked against `agents-shipgate contract --json`:
-runtime contract `25`, report schema `v0.41`, packet schema `v0.17`.
+runtime contract `25`, report schema `v0.42`, packet schema `v0.17`.
 
 For the per-field stability contract, see
 [`../STABILITY.md`](../STABILITY.md). For the agent-facing field index,
@@ -665,7 +665,7 @@ contract. Headlines:
 
 - **Manifest schema** stable across `0.x` (`version: "0.1"`).
 - **Report JSON shape** is additive across the `0.x` line. Current
-  `report_schema_version: "0.41"`; older schemas frozen as
+  `report_schema_version: "0.42"`; older schemas frozen as
   `docs/report-schema.v0.N.json`.
 - **Packet JSON shape** is additive across the `0.x` line. Current
   `packet_schema_version: "0.17"`; older schemas frozen.
