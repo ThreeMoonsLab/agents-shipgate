@@ -240,7 +240,11 @@ manifest validates but downstream consumers see meaningless defaults.
 
 **When discovery reads no tool surface at all.** `init --json` reports
 `tool_surface_origin`: `"detected"` when every source in the manifest was read
-out of the workspace, `"scaffold"` when none was. On `"scaffold"` the
+out of the workspace, `"scaffold"` when none was, and `null` when this run's
+render reached neither disk nor the payload — `skipped_existing` and
+`refused_unresolved_scope`, where the manifest at `path` is not this render's
+to describe. The paragraph below is about the runs that report one of the
+first two. On `"scaffold"` the
 `tool_sources` block is a placeholder for you to complete — `id`, `type`, and
 `path` are all `CHANGE_ME`, all three are in `placeholders[]`, and the manifest
 comment names the built-in `type` values (an installed third-party adapter's

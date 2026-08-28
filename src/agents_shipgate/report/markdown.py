@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from collections.abc import Mapping
 from pathlib import Path
 
 from agents_shipgate.core.action_semantics import (
@@ -1084,6 +1085,56 @@ def _append_inventory(lines: list[str], report: ReadinessReport) -> None:
     lines.append("")
 
 
+#: ``root_agent_id`` on the compatibility assessment a report carries when no
+#: agent graph was resolved at all: ``core.findings.report_builder`` builds it
+#: whenever its ``binding_surface_facts`` argument is ``None``, and it is the
+#: ``binding_surface_facts`` default for a ``report.json`` written before the
+#: field existed. It is a state, not an agent id — no node carries it — so it
+#: has to be answered before the label index is consulted, or it renders as a
+#: root the graph could not name.
+#:
+#: Spelled here rather than shared, because the four modules that *produce*
+#: the sentinel each spell the literal too; one constant for all five is a
+#: worthwhile cleanup and a wider change than a rendering fix.
+_LEGACY_DIRECT_ROOT_AGENT_ID = "legacy_direct"
+
+#: What the root line says for a graph rooted by reviewed
+#: ``tool_sources[].binding`` surfaces rather than by an agent object.
+#:
+#: One constant because two branches reach the same fact from opposite sides:
+#: several surfaces leave ``root_agent_id`` unset, and exactly one surface
+#: *becomes* the root (``core.agent_bindings._select_root``). Whether a
+#: repository has an agent object cannot depend on how many sources it
+#: declared, so the sentence must not either.
+_ROOTED_BY_TOOL_SOURCES = "none (graph rooted by declared tool sources)"
+
+
+def _agent_display(agent_id: str, labels: Mapping[str, str]) -> str:
+    """The one label naming an agent on the binding surface. Never its id.
+
+    Both agent lines in this section resolve through
+    :func:`agent_label_index`, for the reason that index exists: an emitter
+    that spells a label from a node's own fields produces a second spelling of
+    the same subject.
+
+    ``unresolved`` where the index cannot name one. Chaining to ``agent_id``
+    puts a derived digest in front of the reader — ``Root agent:
+    agent_v1:7205d836…``, which is in no file they have and which #329 forbids
+    of any adopter-facing sentence. The ids stay in
+    ``binding_surface_facts`` in ``report.json`` for a bug report.
+
+    Callers must answer every id that is not an agent *before* reaching here.
+    A graph the walk built always has a node for its root and for each entry
+    point, so for those the fallback is unreachable — but
+    :data:`_LEGACY_DIRECT_ROOT_AGENT_ID` is a truthy ``root_agent_id`` with no
+    node behind it, and reading it as an unnameable agent reported a rooted,
+    pass-eligible graph as ``unresolved``. ``unresolved`` is the answer for an
+    agent the graph could not name, never for a state that is not an agent.
+    """
+
+    return labels.get(agent_id) or "unresolved"
+
+
 def _root_agent_line(graph: AgentBindingGraphAssessment) -> str:
     """What to print where a root agent's identity goes.
 
@@ -1092,12 +1143,40 @@ def _root_agent_line(graph: AgentBindingGraphAssessment) -> str:
     object to name — that graph is rooted, deliberately, by the reviewed
     ``tool_sources[].binding`` entries listed on the next line, and calling it
     unresolved reads as the failure it is not (#432 review).
+
+    **Whether an agent object exists is read from the root node's ``kind``,
+    not from whether a root id is set.** ``_select_root`` returns the sole
+    surface node when a repository declares exactly one reviewed
+    ``tool_sources[].binding`` and nothing observed an agent, so that graph
+    has a truthy ``root_agent_id`` pointing at a ``tool_source``. Naming it
+    like an agent printed ``Root agent: github_mcp`` beside
+    ``Pass eligible: true`` for a repository with no agent object at all,
+    while the two-surface form of the same repository printed the correct
+    sentence — one fact, worded two ways by a count (#329 review).
+
+    A root the graph *did* name, and that is an agent, is printed as its
+    label, never as ``root_agent_id`` (see :func:`_agent_display`).
+
+    And ``unresolved`` is the wrong word once more for a report carrying no
+    agent graph at all, whose root is :data:`_LEGACY_DIRECT_ROOT_AGENT_ID` — a
+    truthy id no node carries. Same shape of claim as the tool-source state:
+    ``Status: structural`` and ``Pass eligible: true`` are printed around this
+    line, and ``unresolved`` between them describes a failure that did not
+    happen.
     """
 
+    if graph.root_agent_id == _LEGACY_DIRECT_ROOT_AGENT_ID:
+        return "none (tools bound directly, no agent graph)"
     if graph.root_agent_id:
-        return graph.root_agent_id
+        root = next(
+            (node for node in graph.agents if node.agent_id == graph.root_agent_id),
+            None,
+        )
+        if root is not None and root.kind == "tool_source":
+            return _ROOTED_BY_TOOL_SOURCES
+        return _agent_display(graph.root_agent_id, agent_label_index(graph.agents))
     if graph.entry_point_agent_ids:
-        return "none (graph rooted by declared tool sources)"
+        return _ROOTED_BY_TOOL_SOURCES
     return "unresolved"
 
 
@@ -1111,7 +1190,7 @@ def _append_binding_surface(lines: list[str], report: ReadinessReport) -> None:
         lines.append(
             "Entry points: "
             + ", ".join(
-                _safe_markdown_text(labels.get(agent_id, agent_id))
+                _safe_markdown_text(_agent_display(agent_id, labels))
                 for agent_id in graph.entry_point_agent_ids
             )
         )
@@ -1166,6 +1245,25 @@ def _safe_markdown_text(value: object) -> str:
     text = re.sub(r"(?m)^(\s*)-", r"\1\\-", text)
     text = re.sub(r"(?m)^(\s*\d+)\.", r"\1\\.", text)
     return text
+
+
+def _unescape_markdown_text(text: str) -> str:
+    """The inverse of :func:`_safe_markdown_text`, for reading a report back.
+
+    A guard that reads rendered Markdown sees the escaped spelling, and every
+    derived id shape and internal term in
+    :mod:`agents_shipgate.core.adopter_text` contains an underscore — so
+    ``agent_v1:7205d836`` reaches the adopter-vocabulary sweep as
+    ``agent\\_v1:7205d836`` and matches nothing. That is how a digest shipped
+    in the ``Root agent:`` line of all five samples under a sweep written to
+    catch exactly it. Un-escaping first keeps that sweep about the sentence
+    instead of about the escaping.
+
+    A true inverse because the escaper escapes the backslash first: every
+    backslash in its output introduces exactly one escaped character.
+    """
+
+    return re.sub(r"\\(.)", r"\1", text)
 
 
 def _truncate_text(value: str, limit: int = 220) -> str:

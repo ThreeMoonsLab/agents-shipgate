@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from agents_shipgate.core.adopter_text import (
+    DUPLICATE_ACROSS_ARTIFACTS,
     DUPLICATE_IN_SOURCE_ARTIFACT,
     DUPLICATE_TOOL_IN_SOURCE,
     REPEATED_SOURCE_ENTRY,
@@ -710,11 +711,14 @@ def _observations(
     repeated_artifacts: frozenset[str] = frozenset(),
 ) -> list[Tool]:
     observations: list[Tool] = []
-    # Which *read* first produced each identity, not merely that something did.
-    # A repeated manifest entry and a duplicate definition inside one artifact
-    # both land here, and they are repaired in different files — the reader
-    # gets one structured action, so the check has to know which (#329 review).
-    seen: dict[tuple[str, str, str], int] = {}
+    # Which *read* first produced each identity and out of which file, not
+    # merely that something did. Three mistakes land here — a repeated manifest
+    # entry, a duplicate definition inside one artifact, and two files
+    # declaring one capability under one name — and they are repaired in
+    # different places, so the check has to know which it saw (#329 review).
+    # The file is half of that: without it, two files each naming an MCP server
+    # ``github`` once were reported as a manifest entry repeated twice.
+    seen: dict[tuple[str, str, str], tuple[int, str | None]] = {}
     for read_index, loaded in enumerate(loaded_sources):
         source_id = loaded.source_id.strip()
         if not source_id:
@@ -732,16 +736,38 @@ def _observations(
             )
         for original in loaded.tools:
             if original.source_id is not None and original.source_id != source_id:
+                # Naming the defect is not a repair. This was reachable from
+                # the built-in ``codex_config`` loader, which returned one
+                # file-level source holding tools stamped per MCP server, so
+                # every row over a config that named a server aborted here
+                # with nothing the reader could do; what remains reachable is
+                # a third-party adapter, whose code they cannot edit either.
+                #
+                # The configured entry is the one lever they do hold, so the
+                # sentence offers it *after* the diagnosis and names what it
+                # costs — dropping the entry is a scan without that source,
+                # not a fix, and a reader told "your configuration is fine"
+                # and then "edit your configuration" believes the first
+                # sentence was wrong.
+                configured = (loaded.configured_source_id or "").strip()
+                workaround = (
+                    " Until it is fixed, removing the tool_sources entry "
+                    f"{configured!r} from shipgate.yaml lets the scan run "
+                    "without the tools that entry reads."
+                    if configured
+                    else ""
+                )
                 raise InputParseError(
                     f"A tool source loader reported tool {original.name!r} as "
                     "belonging to a different source than the one it was read "
                     "from. That is a defect in the loader, not in this "
                     "repository's configuration — check report.json "
-                    "loaded_adapters[] if a third-party adapter is installed.",
+                    f"loaded_adapters[] if a third-party adapter is installed.{workaround}",
                     details={
                         "tool_name": original.name,
                         "tool_source_id": original.source_id,
                         "loaded_source_id": source_id,
+                        "configured_source_id": loaded.configured_source_id,
                     },
                 )
             # The extraction graph is no longer consumed after catalog
@@ -751,8 +777,9 @@ def _observations(
             tool.source_id = source_id
             locator = _native_locator(tool)
             key = (tool.source_type, source_id, locator)
-            first_read = seen.get(key)
-            if first_read is not None:
+            first = seen.get(key)
+            if first is not None:
+                first_read, first_file = first
                 # Theirs, and repairable — but only if the message names what
                 # to open. The identity triple that detected the collision is
                 # kept in ``details`` for machine consumers and bug reports
@@ -771,17 +798,31 @@ def _observations(
                 declared_twice = source_file is not None and (
                     _normalized_declared_path(source_file) in repeated_artifacts
                 )
-                cause = (
-                    REPEATED_SOURCE_ENTRY
-                    if first_read != read_index or declared_twice
-                    else DUPLICATE_IN_SOURCE_ARTIFACT
-                )
+                # Two *different* files first. Both other causes assert
+                # something about a single artifact — that the manifest names
+                # it twice, or that it defines the tool twice — and neither is
+                # true when the identity is path-free (every MCP-like source
+                # type) and two files declare the same server. The MCP reader
+                # reconciles that within one ``tool_sources`` entry; what
+                # reaches here has no reader that can, so it is reported with
+                # the repairs that do exist rather than an invented one.
+                if (
+                    first_file is not None
+                    and source_file is not None
+                    and first_file != source_file
+                ):
+                    cause = DUPLICATE_ACROSS_ARTIFACTS
+                elif first_read != read_index or declared_twice:
+                    cause = REPEATED_SOURCE_ENTRY
+                else:
+                    cause = DUPLICATE_IN_SOURCE_ARTIFACT
                 raise InputParseError(
                     duplicate_tool_observation_message(
                         tool_name=tool.name,
                         file_path=source_file,
                         source_id=source_id,
                         cause=cause,
+                        other_file_path=first_file,
                     ),
                     details={
                         "failure": DUPLICATE_TOOL_IN_SOURCE,
@@ -791,9 +832,10 @@ def _observations(
                         "native_locator": locator,
                         "tool_name": tool.name,
                         "source_file": source_file,
+                        "other_source_file": first_file,
                     },
                 )
-            seen[key] = read_index
+            seen[key] = (read_index, _source_file(tool))
             observation_id = _stable_id(
                 "obs_v1",
                 {

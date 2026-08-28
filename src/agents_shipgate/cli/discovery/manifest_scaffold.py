@@ -100,6 +100,26 @@ class RenderedManifest(str):
         instance.scaffold_summary = scaffold_summary
         return instance
 
+    def __getnewargs_ex__(self) -> tuple[tuple[str], dict[str, object]]:
+        """Reconstruct with the provenance, not just the text.
+
+        ``str``'s inherited reduction rebuilds a subclass as ``cls(text)``, and
+        this ``__new__`` takes its provenance keyword-only — so ``copy.copy``,
+        ``copy.deepcopy``, and ``pickle.loads(pickle.dumps(...))`` all raised
+        ``TypeError`` on a value that was a plain ``str`` before this field
+        existed. Restoring the string contract meant restoring *all* of it:
+        caches, multiprocessing, and generic copying code do this without
+        knowing what a manifest is (#441 review 2).
+        """
+
+        return (
+            (str(self),),
+            {
+                "tool_surface_origin": self.tool_surface_origin,
+                "scaffold_summary": self.scaffold_summary,
+            },
+        )
+
     @property
     def text(self) -> str:
         """The manifest as a plain ``str``."""
@@ -119,14 +139,22 @@ class RenderedManifest(str):
 #: ``*_DETAIL``, which only the manifest comment carries — the artifact has no
 #: byte budget.
 DISCOVERY_SCAFFOLD_SUMMARY = (
-    "Discovery found no tool surface here, so the tool_sources block is a "
-    "scaffold, not an inference: every value in it is a placeholder."
+    "Discovery found no tool source to declare here, so the tool_sources "
+    "block is a scaffold, not an inference: every value in it is a "
+    "placeholder."
 )
 
-#: The evidence behind :data:`DISCOVERY_SCAFFOLD_SUMMARY`. Auto mode has
-#: actually looked for each of these.
+#: The evidence behind :data:`DISCOVERY_SCAFFOLD_SUMMARY`.
+#:
+#: Not "no framework import was read": auto mode can read one and still need
+#: the scaffold. A workspace whose only file is ``agent.py`` with ``import
+#: anthropic`` scores a full ``anthropic`` detection, and Anthropic is
+#: artifact-based — with no ``tools/anthropic-tools.json`` there is nothing for
+#: the manifest to point at. The scaffold is right there; the evidence sentence
+#: was false (#441 review 2).
 DISCOVERY_SCAFFOLD_DETAIL = (
-    "No framework import, tool export, or API spec was read in this workspace."
+    "No tool export, API spec, or framework source file was found for the "
+    "manifest to point at — a framework import on its own is not one."
 )
 
 #: What ``--minimal`` says instead. It never runs framework detection, so
@@ -139,10 +167,16 @@ MINIMAL_SCAFFOLD_SUMMARY = (
 )
 
 #: The evidence behind :data:`MINIMAL_SCAFFOLD_SUMMARY`, and the way out of it.
+#: Not "none matched": a prompts/ directory populates
+#: ``discover_openai_api_artifacts()["prompt_files"]``, and response-format-only
+#: and trace-only workspaces do the same. Those matches are real; they are
+#: deliberately not *anchors*, because an Anthropic-only project has a prompts/
+#: directory too (#441 review 2).
 MINIMAL_SCAFFOLD_DETAIL = (
     "Only MCP/OpenAPI/Conductor exports and simple OpenAI API artifacts were "
-    "probed, and none matched. Re-run `init` without `--minimal` to detect "
-    "frameworks from source."
+    "probed, and none that anchors a tool surface matched — a prompts/ "
+    "directory on its own does not. Re-run `init` without `--minimal` to "
+    "detect frameworks from source."
 )
 
 

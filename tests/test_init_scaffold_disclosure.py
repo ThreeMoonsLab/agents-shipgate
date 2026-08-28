@@ -610,7 +610,6 @@ def test_minimal_does_not_claim_discovery_it_never_ran(tmp_path: Path) -> None:
     assert rendered.scaffold_summary == MINIMAL_SCAFFOLD_SUMMARY
     assert DISCOVERY_SCAFFOLD_SUMMARY not in rendered
     assert "does not run framework detection" in rendered
-    assert "No framework import" not in rendered
 
     # And the auto renderer, which did run that detection, still detects it.
     assert (
@@ -731,3 +730,115 @@ def test_rendered_manifest_refuses_a_provenance_that_contradicts_itself() -> Non
         RenderedManifest("x", tool_surface_origin="scaffold")
     with pytest.raises(ValueError):
         RenderedManifest("x", tool_surface_origin="detected", scaffold_summary="s")
+
+
+# --- Review round 2 ---------------------------------------------------------
+
+
+def test_rendered_manifest_survives_copy_and_pickle(tmp_path: Path) -> None:
+    """``str``'s inherited reduction rebuilds a subclass as ``cls(text)``, and
+    this ``__new__`` takes its provenance keyword-only.
+
+    All three of these worked when the renderers returned a plain ``str``, and
+    caches, multiprocessing, and generic copying code do them without knowing
+    what a manifest is — so restoring the string contract meant restoring all
+    of it, not only the read methods.
+    """
+
+    import copy
+    import pickle
+
+    for rendered in (
+        render_manifest_template(tmp_path.resolve()),
+        render_auto_manifest(tmp_path, detect_workspace(tmp_path)),
+    ):
+        for clone in (
+            copy.copy(rendered),
+            copy.deepcopy(rendered),
+            pickle.loads(pickle.dumps(rendered)),
+        ):
+            assert clone == rendered
+            assert clone.tool_surface_origin == rendered.tool_surface_origin
+            assert clone.scaffold_summary == rendered.scaffold_summary
+
+
+def test_auto_scaffold_does_not_deny_a_framework_import_it_read(
+    tmp_path: Path,
+) -> None:
+    """Auto mode can read and classify a framework import and still scaffold.
+
+    ``import anthropic`` alone scores a full ``anthropic`` detection, and
+    Anthropic is artifact-based — with no ``tools/anthropic-tools.json`` there
+    is nothing for the manifest to point at. The scaffold is right; "no
+    framework import was read" was not.
+    """
+
+    (tmp_path / "agent.py").write_text(
+        "import anthropic\n\nclient = anthropic.Anthropic()\n", encoding="utf-8"
+    )
+    result = detect_workspace(tmp_path)
+    assert [fw.type for fw in result.frameworks] == ["anthropic"]
+
+    rendered = render_auto_manifest(tmp_path, result)
+    assert rendered.tool_surface_origin == "scaffold"
+    assert "No framework import" not in rendered
+    assert "a framework import on its own is not one" in rendered
+
+
+def test_minimal_scaffold_does_not_deny_artifacts_it_matched(
+    tmp_path: Path,
+) -> None:
+    """A prompts/ directory populates ``prompt_files``.
+
+    That match is real; it is deliberately not an *anchor*, because an
+    Anthropic-only project has a prompts/ directory too. Saying "none matched"
+    contradicted the probe's own output.
+    """
+
+    from agents_shipgate.cli.discovery.artifacts import discover_openai_api_artifacts
+
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "system.md").write_text("hi\n", encoding="utf-8")
+    assert discover_openai_api_artifacts(tmp_path.resolve())["prompt_files"]
+
+    rendered = render_manifest_template(tmp_path.resolve())
+    assert rendered.tool_surface_origin == "scaffold"
+    assert "and none matched" not in rendered
+    assert "none that anchors a tool surface matched" in rendered
+
+
+def test_scaffold_prose_never_calls_the_builtins_the_whole_set() -> None:
+    """Every surface that names the built-in types must leave the open set
+    open — the manifest comment, the control postcondition, the diagnostic, and
+    the registry message."""
+
+    from agents_shipgate.cli._register_init import _scaffold_next_action
+    from agents_shipgate.cli.diagnostics import diagnose_unknown_adapter_source_type
+    from agents_shipgate.core.errors import ConfigError
+    from agents_shipgate.inputs.protocol import REGISTRY
+
+    surfaces = [
+        "\n".join(
+            scaffold_tool_sources_block(
+                summary=DISCOVERY_SCAFFOLD_SUMMARY, detail=DISCOVERY_SCAFFOLD_DETAIL
+            )
+        ),
+        _scaffold_next_action(Path("shipgate.yaml"), "S.").expects or "",
+        (
+            diagnose_unknown_adapter_source_type(
+                Path("shipgate.yaml"),
+                source_type=MANIFEST_PLACEHOLDER_VALUE,
+                plugins_enabled=False,
+                message="m",
+            )[0].next_actions[0].why
+            or ""
+        ),
+    ]
+    try:
+        REGISTRY.require(MANIFEST_PLACEHOLDER_VALUE)
+    except ConfigError as exc:
+        surfaces.append(str(exc))
+
+    for surface in surfaces:
+        assert "adapter" in surface, surface
+        assert "one of " + ", ".join(BUILTIN_TOOL_SOURCE_TYPES) not in surface
