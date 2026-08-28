@@ -1515,26 +1515,52 @@ def test_every_reason_the_ledger_owns_renders_a_phrase():
     Both directions: a token added to a builder without a phrase says nothing
     a reader can act on, and a phrase left behind by a renamed token is dead
     text nobody would notice. Scoped to the vocabularies this package owns —
-    the two report-side builders and the bundled MCP loader — because a
+    the two report-side builders and the two bundled MCP loaders — because a
     third-party adapter may coin any token and the fallback is the right
     answer for it. A new emitter here is meant to fail this test and be added
     deliberately.
+
+    A reason spelled as a module constant is resolved to its value. Reading
+    only ``ast.Constant`` would have skipped ``reason=DUPLICATE_SERVER_-
+    DECLARATION`` entirely and passed while proving nothing about it, which is
+    the vacuous-guard shape this sweep exists to avoid.
     """
 
     import ast
 
     from agents_shipgate.core import surface_exclusions as module
     from agents_shipgate.inputs import mcp as mcp_module
+    from agents_shipgate.inputs import mcp_manifest as mcp_manifest_module
 
-    def _string_constants(node: ast.AST) -> set[str]:
+    def _module_constants(tree: ast.AST) -> dict[str, str]:
+        found: dict[str, str] = {}
+        for node in getattr(tree, "body", []):
+            if not isinstance(node, ast.Assign):
+                continue
+            if not (
+                isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+            ):
+                continue
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    found[target.id] = node.value.value
+        return found
+
+    def _string_constants(node: ast.AST, constants: dict[str, str]) -> set[str]:
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             return {node.value}
+        if isinstance(node, ast.Name) and node.id in constants:
+            return {constants[node.id]}
         if isinstance(node, ast.IfExp):
-            return _string_constants(node.body) | _string_constants(node.orelse)
+            return _string_constants(node.body, constants) | _string_constants(
+                node.orelse, constants
+            )
         return set()
 
     def _keyword_reasons(path: Path, functions: set[str]) -> set[str]:
         tree = ast.parse(path.read_text(encoding="utf-8"))
+        constants = _module_constants(tree)
         found: set[str] = set()
         for node in ast.walk(tree):
             if not isinstance(node, ast.FunctionDef) or node.name not in functions:
@@ -1542,22 +1568,29 @@ def test_every_reason_the_ledger_owns_renders_a_phrase():
             for call in (n for n in ast.walk(node) if isinstance(n, ast.Call)):
                 for keyword in call.keywords:
                     if keyword.arg == "reason":
-                        found |= _string_constants(keyword.value)
+                        found |= _string_constants(keyword.value, constants)
         return found
 
     def _omit_reasons(path: Path) -> set[str]:
         tree = ast.parse(path.read_text(encoding="utf-8"))
+        constants = _module_constants(tree)
         found: set[str] = set()
         for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
             if isinstance(call.func, ast.Name) and call.func.id == "_omit":
                 if len(call.args) >= 2:
-                    found |= _string_constants(call.args[1])
+                    found |= _string_constants(call.args[1], constants)
         return found
 
-    emitted = _keyword_reasons(
-        Path(module.__file__),
-        {"_binding_exclusions", "_surface_completeness_exclusions"},
-    ) | _omit_reasons(Path(mcp_module.__file__))
+    emitted = (
+        _keyword_reasons(
+            Path(module.__file__),
+            {"_binding_exclusions", "_surface_completeness_exclusions"},
+        )
+        | _omit_reasons(Path(mcp_module.__file__))
+        | _keyword_reasons(
+            Path(mcp_manifest_module.__file__), {"_merge_server_declarations"}
+        )
+    )
 
     assert emitted, "the AST scan found no reason tokens, so it proves nothing"
     assert emitted == set(EXCLUSION_REASON_PHRASES)

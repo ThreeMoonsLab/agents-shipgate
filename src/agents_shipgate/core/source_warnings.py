@@ -284,6 +284,33 @@ def unbound_inventory_duplicate_warning(
     )
 
 
+def duplicate_mcp_server_declaration_warning(
+    server_name: str, primary_path: str, other_paths: Sequence[str]
+) -> str:
+    """Warning for one MCP server declared, differently, in several files.
+
+    An MCP capability is identified by ``(server, tool)`` and by nothing else —
+    moving the file that declares it is not a capability change, which
+    ``mcp audit`` pins — so two files naming ``github`` are not two surfaces
+    that happen to collide. They are one server declared twice.
+
+    Identical declarations are silent: nothing is dropped and nothing is in
+    doubt. This is the other case. The reader cannot know which declaration the
+    agent will load, so it analyses the widest surface the group allows and
+    says so here, rather than picking the first file walked and passing
+    quietly on a narrower one.
+    """
+
+    return (
+        f"MCP server {server_name!r} is declared in {primary_path!r} and in "
+        f"{_quoted_list(other_paths)}, and the declarations disagree. They name "
+        "one server, so Agents Shipgate analysed the widest surface they allow: "
+        "the union of their tools, and the least reassuring value of every "
+        "setting they disagree on. Make the declarations agree, or give the "
+        "servers distinct names, then rerun the scan."
+    )
+
+
 def ambiguous_inventory_merge_warning(
     inventory_path: str, source_id: str, tools: Sequence[str]
 ) -> str:
@@ -704,6 +731,7 @@ __all__ = [
     "visible_skeleton",
     "adk_unresolved_tool_warning",
     "ambiguous_inventory_merge_warning",
+    "duplicate_mcp_server_declaration_warning",
     "group_source_warnings",
     "invalid_tool_binding_warning",
     "self_referential_inventory_warning",
