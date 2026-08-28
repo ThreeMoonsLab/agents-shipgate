@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from agents_shipgate.cli.diagnostics import input_parse_recovery
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core.adopter_text import (
     DUPLICATE_TOOL_IN_SOURCE,
+    TOOL_SOURCE_MISMATCH,
     internal_vocabulary,
 )
 from agents_shipgate.core.baseline import apply_baseline
@@ -242,18 +246,20 @@ def test_duplicate_observation_tuple_is_rejected() -> None:
         raise AssertionError("duplicate observation tuple was accepted")
 
 
-def test_a_loader_that_misnames_its_tools_names_the_entry_that_read_them() -> None:
-    """A tool arriving under another source's name is refused, and routed.
+def test_a_loader_that_misnames_its_tools_is_routed_without_a_bypass() -> None:
+    """A defect in adapter code, routed as one — and never as source removal.
 
-    The rejection is unchanged; what it says is not. It named the defect and
-    stopped there, which left the reader nothing to do — they cannot edit the
-    adapter, and the sentence had already told them their configuration was
-    not at fault. The configured entry is the one lever they hold, so it is
-    offered after the diagnosis and labelled as the workaround it is.
+    The rejection is unchanged; what it says and how it routes are not. It
+    named the defect and stopped, which left the reader nothing to do: they
+    cannot edit an adapter they do not own. A draft answered that by offering
+    the one lever they *do* hold — remove the `tool_sources` entry — which is
+    a merge gate publishing its own bypass, since the next scan then omits
+    that capability surface entirely. However plainly the cost is stated, a
+    gate must not recommend not gating.
 
-    Reachable from the built-in `codex_config` loader until it was fixed to
-    return one source per MCP server; what remains reachable is a third-party
-    adapter.
+    So the sentence names the adapter and stops, and the route is typed: this
+    is the failure with no file in this repository to open, so it carries no
+    `path` and offers the two repairs that keep the surface.
     """
 
     loaded = LoadedToolSource(
@@ -268,24 +274,60 @@ def test_a_loader_that_misnames_its_tools_names_the_entry_that_read_them() -> No
 
     message = str(excinfo.value)
     assert "'pay'" in message
-    assert "removing the tool_sources entry 'vendor_tools' from shipgate.yaml" in message
-    # Labelled as a workaround with its cost, not as the repair: a reader told
-    # their configuration is fine and then told to edit it stops believing the
-    # first half.
-    assert "without the tools that entry reads" in message
-    assert excinfo.value.details["configured_source_id"] == "vendor_tools"
-    # The minted ids stay in `details`, where tooling reads them, and out of
-    # the sentence a person is expected to act on.
+    assert "tool_sources[].type 'acme'" in message
+    # The bypass, and the two anchors that could not survive contact: the
+    # manifest may be nested or named otherwise, and this aborts before any
+    # report exists — `doctor` builds the same catalog, so it aborts too.
+    assert "removing" not in message.lower()
+    assert "shipgate.yaml" not in message
+    assert "report.json" not in message
+    # Internal ids stay in `details`, where tooling reads them.
     assert "acme:write" not in message
     assert not internal_vocabulary(message), message
 
+    assert excinfo.value.details["failure"] == TOOL_SOURCE_MISMATCH
+    assert excinfo.value.details["source_type"] == "acme"
+    assert excinfo.value.details["configured_source_id"] == "vendor_tools"
 
-def test_a_loader_with_no_configured_entry_is_offered_no_workaround() -> None:
-    """No entry is invented for a source no `tool_sources` row produced.
 
-    A per-scan adapter reading a top-level manifest section has no configured
-    entry, and naming one the reader could not find would be worse than the
-    dead end this message used to be.
+def test_the_mismatch_route_names_the_adapter_and_publishes_no_path() -> None:
+    """Untyped, this fell through to the generic action with no route at all.
+
+    `input_parse_recovery` routes on `details["failure"]`, so a failure
+    without one gets "inspect the file referenced in the error" — advice that
+    is actively wrong here, because the file is in someone else's package.
+    """
+
+    loaded = LoadedToolSource(
+        source_id="acme:read",
+        source_type="acme",
+        configured_source_id="vendor_tools",
+        tools=[Tool(id="t", name="pay", source_type="acme", source_id="acme:write")],
+    )
+    with pytest.raises(InputParseError) as excinfo:
+        build_tool_identity_catalog([loaded], ToolIdentityConfig())
+
+    actions = input_parse_recovery(excinfo.value, manifest_path=Path("shipgate.yaml"))
+
+    assert len(actions) == 1
+    action = actions[0]
+    assert action.kind == "review"
+    # No routable path: nothing in this repository is wrong, and a consumer
+    # routing on `path` would edit a file that was never the problem.
+    assert action.path is None
+    assert "'vendor_tools'" in action.why
+    assert "upgrade" in action.why.lower()
+    # Never the bypass.
+    assert "remov" not in action.why.lower().split("removing it would drop")[0]
+    assert not internal_vocabulary(action.why), action.why
+    assert not internal_vocabulary(action.expects), action.expects
+
+
+def test_a_loader_with_no_configured_entry_is_routed_by_its_type() -> None:
+    """A per-scan adapter has no `tool_sources` row, so none is invented.
+
+    Naming an entry the reader cannot find would be worse than naming none;
+    the adapter's type is what locates it instead.
     """
 
     loaded = LoadedToolSource(
@@ -297,11 +339,11 @@ def test_a_loader_with_no_configured_entry_is_offered_no_workaround() -> None:
     with pytest.raises(InputParseError) as excinfo:
         build_tool_identity_catalog([loaded], ToolIdentityConfig())
 
-    message = str(excinfo.value)
-    assert "tool_sources entry" not in message
-    assert "loaded_adapters[]" in message
     assert excinfo.value.details["configured_source_id"] is None
-    assert not internal_vocabulary(message), message
+    action = input_parse_recovery(excinfo.value)[0]
+    assert "tool_sources[].type 'acme'" in action.why
+    assert "tool_sources entry" not in action.why
+    assert not internal_vocabulary(action.why), action.why
 
 
 def test_only_a_field_that_names_a_file_can_name_a_file() -> None:

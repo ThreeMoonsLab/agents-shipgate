@@ -109,17 +109,30 @@
   prevent. Markdown-only: report, packet and verifier schemas are unchanged,
   and the five sample `report.md` goldens are regenerated.
 
-- **The loader-contract failure now offers a way forward.** "That is a defect
-  in the loader, not in this repository's configuration" was accurate and
-  terminal: the reader cannot edit an adapter they do not own, and had just
-  been told their own configuration was not at fault. When the dispatcher can
-  prove which `tool_sources` entry produced the read, the message now adds
-  *Until it is fixed, removing the tool_sources entry 'x' from shipgate.yaml
-  lets the scan run without the tools that entry reads* — after the diagnosis,
-  and named as the workaround it is rather than as the repair. `details` gains
-  `configured_source_id` alongside the existing keys. A source no configured
-  row produced is offered nothing, rather than an entry the reader could not
-  find.
+- **A loader-contract failure is now routed, and never as "remove the source".**
+  "A tool source loader reported tool 'x' as belonging to a different source
+  than the one it was read from" was accurate and terminal. It is the one
+  input failure with no file in this repository to open — a defect in adapter
+  code — and it carried no typed `details.failure`, so agent-mode recovery
+  fell through to the generic "inspect the file referenced in the error": in
+  this case a file inside someone else's package.
+
+  It now carries `failure: "tool_source_mismatch"` with `details.source_type`
+  and `details.configured_source_id`, and `input_parse_recovery()` routes it to
+  a `review` action naming the adapter, with **no `path`** — nothing in the
+  repository is wrong, and a consumer routing on `path` would edit a file that
+  was never the problem. The two repairs offered both keep the surface: upgrade
+  Agents Shipgate if the adapter is built in, or the package providing it if it
+  is not; failing that, an explicit human decision about the source. Removing
+  the `tool_sources` entry is named only as what it costs — its tools leave
+  every future scan — and never as the recovery, because a merge gate must not
+  publish its own bypass.
+
+  The message no longer names `shipgate.yaml` or `report.json`. The manifest
+  may be nested or named otherwise, and this aborts *before* a report exists —
+  `doctor` builds the same catalog, so it aborts here too and cannot be where
+  the reader goes looking for the adapter. Routing documented in
+  `docs/errors.json`.
 
 - **A new evidence gap now says which subject left the analysed surface.**
   (#433) The exclusion ledger from #403 records precisely which subject each

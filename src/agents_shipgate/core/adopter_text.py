@@ -63,6 +63,7 @@ __all__ = [
     "OBSERVATION_ID_PATTERN",
     "REPEATED_SOURCE_ENTRY",
     "TOOL_ID_PATTERN",
+    "TOOL_SOURCE_MISMATCH",
     "duplicate_tool_observation_message",
     "internal_vocabulary",
     "names_a_locatable_anchor",
@@ -74,6 +75,16 @@ __all__ = [
 #: source. Routing on a typed key rather than on the message text is what lets
 #: the sentence be rewritten for a human without breaking the recovery route.
 DUPLICATE_TOOL_IN_SOURCE = "duplicate_tool_in_source"
+
+#: ``details["failure"]`` for a loader that reported a tool as belonging to a
+#: source other than the one it was read from. Alone among the input failures
+#: this one is not in the adopter's repository at all: it is a defect in
+#: adapter code, so no ``path`` is routable and the recovery is to repair or
+#: upgrade the adapter. It carries a typed key for the same reason the
+#: duplicate does — the sentence is for the reader, ``details`` is for the
+#: caller, and an untyped failure falls through to the generic review action
+#: with no route at all.
+TOOL_SOURCE_MISMATCH = "tool_source_mismatch"
 
 #: ``details["cause"]``. Two different mistakes reach the duplicate check and
 #: they have opposite repairs, so the check reports which one it saw rather

@@ -26,6 +26,7 @@ from agents_shipgate.core.adopter_text import (
     DUPLICATE_ACROSS_ARTIFACTS,
     DUPLICATE_TOOL_IN_SOURCE,
     REPEATED_SOURCE_ENTRY,
+    TOOL_SOURCE_MISMATCH,
     source_label,
 )
 from agents_shipgate.core.errors import InputParseError
@@ -280,6 +281,8 @@ def input_parse_recovery(
         ]
     if details.get("failure") == DUPLICATE_TOOL_IN_SOURCE:
         return [_duplicate_tool_action(details, manifest=manifest)]
+    if details.get("failure") == TOOL_SOURCE_MISMATCH:
+        return [_tool_source_mismatch_action(details)]
     # `init --write` on a workspace where detect found no sources leaves
     # CHANGE_ME placeholders; scanning then fails here. Route to the
     # placeholder fix, not the generic missing-file advice.
@@ -323,6 +326,53 @@ def input_parse_recovery(
             ),
         )
     ]
+
+
+def _tool_source_mismatch_action(details: Mapping[str, Any]) -> NextAction:
+    """Review, and deliberately no ``path``.
+
+    Every other input failure names a file in this repository. This one does
+    not: an adapter reported a tool under a source it was not read from, which
+    is a defect in that adapter's code. There is no manifest edit that repairs
+    it — and the edit that makes the failure *stop*, removing the
+    ``tool_sources`` entry, silently drops a capability surface from the gate.
+    A gate must not publish its own bypass as a recovery, so the two repairs
+    offered are the two that keep the surface: repair or upgrade the adapter,
+    or take an explicit human decision about the source.
+
+    ``review`` is the honest kind here — ``next_action_kinds`` defines it as
+    read and decide, with no machine-applicable action — and omitting ``path``
+    is what stops a consumer routing on it from editing a file that was never
+    wrong.
+    """
+
+    source_type = str(details.get("source_type") or "")
+    configured = str(details.get("configured_source_id") or "").strip()
+    # The adopter wrote this id, so it locates the row; without one — a
+    # per-scan adapter reading a top-level section — the type is all there is,
+    # and inventing an entry would send them looking for a row that is not
+    # there.
+    where = (
+        f"the tool_sources entry {configured!r}"
+        if configured
+        else f"tool_sources[].type {source_type!r}"
+    )
+    return NextAction(
+        kind="review",
+        why=(
+            f"The adapter that reads {where} reported a tool under a source it "
+            "was not read from. That is a defect in the adapter's code, so no "
+            "change to this repository fixes it: upgrade Agents Shipgate if the "
+            "adapter is built in, or the package providing it if it is not. If "
+            "neither is available, this source needs an explicit human decision "
+            "before the gate can run again — removing it would drop its tools "
+            "from every future scan."
+        ),
+        expects=(
+            "The adapter reports every tool under the source it was read from, "
+            "and the scan reaches a verdict with that source's tools in it."
+        ),
+    )
 
 
 def _duplicate_tool_action(

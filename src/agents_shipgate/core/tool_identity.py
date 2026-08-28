@@ -13,6 +13,7 @@ from agents_shipgate.core.adopter_text import (
     DUPLICATE_IN_SOURCE_ARTIFACT,
     DUPLICATE_TOOL_IN_SOURCE,
     REPEATED_SOURCE_ENTRY,
+    TOOL_SOURCE_MISMATCH,
     duplicate_tool_observation_message,
     overlapping_binding_message,
 )
@@ -736,37 +737,34 @@ def _observations(
             )
         for original in loaded.tools:
             if original.source_id is not None and original.source_id != source_id:
-                # Naming the defect is not a repair. This was reachable from
-                # the built-in ``codex_config`` loader, which returned one
-                # file-level source holding tools stamped per MCP server, so
-                # every row over a config that named a server aborted here
-                # with nothing the reader could do; what remains reachable is
-                # a third-party adapter, whose code they cannot edit either.
+                # The one input failure with nothing in this repository to
+                # open. It is a defect in adapter code, so the sentence names
+                # *which* adapter and stops; the route lives in
+                # ``input_parse_recovery``, reached through the typed
+                # ``failure`` below.
                 #
-                # The configured entry is the one lever they do hold, so the
-                # sentence offers it *after* the diagnosis and names what it
-                # costs — dropping the entry is a scan without that source,
-                # not a fix, and a reader told "your configuration is fine"
-                # and then "edit your configuration" believes the first
-                # sentence was wrong.
-                configured = (loaded.configured_source_id or "").strip()
-                workaround = (
-                    " Until it is fixed, removing the tool_sources entry "
-                    f"{configured!r} from shipgate.yaml lets the scan run "
-                    "without the tools that entry reads."
-                    if configured
-                    else ""
-                )
+                # It deliberately does not offer the reader's one lever —
+                # removing the ``tool_sources`` entry. That is the gate
+                # explaining how to stop gating a capability surface, which is
+                # worse than the dead end it would replace however plainly the
+                # cost is stated. An earlier draft also named ``shipgate.yaml``
+                # and ``report.json``, and neither survives contact: the
+                # manifest may be nested or named otherwise, and this aborts
+                # *before* a report exists — ``doctor`` builds the same catalog
+                # and so aborts here too, which rules it out as the place to go
+                # looking for the adapter.
                 raise InputParseError(
                     f"A tool source loader reported tool {original.name!r} as "
                     "belonging to a different source than the one it was read "
-                    "from. That is a defect in the loader, not in this "
-                    "repository's configuration — check report.json "
-                    f"loaded_adapters[] if a third-party adapter is installed.{workaround}",
+                    "from. The adapter that reads tool_sources[].type "
+                    f"{loaded.source_type!r} produced it, and no edit to this "
+                    "repository can correct a defect in that adapter's code.",
                     details={
+                        "failure": TOOL_SOURCE_MISMATCH,
                         "tool_name": original.name,
                         "tool_source_id": original.source_id,
                         "loaded_source_id": source_id,
+                        "source_type": loaded.source_type,
                         "configured_source_id": loaded.configured_source_id,
                     },
                 )
