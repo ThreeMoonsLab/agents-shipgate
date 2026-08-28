@@ -103,7 +103,7 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # form, exactly as ``edit`` does for setup — so
 # ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21 for the third time and for
 # the same reason.
-CONTRACT_VERSION: Literal["25"] = "25"
+CONTRACT_VERSION: Literal["26"] = "26"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"

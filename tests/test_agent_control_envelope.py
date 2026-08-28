@@ -478,10 +478,15 @@ def test_a_declaration_route_fits_the_published_budget():
     paths carry real tool names.
     """
 
+    from agents_shipgate.cli.verify.fix_task import _declaration_instructions
     from agents_shipgate.schemas.agent_control_envelope import (
         MAX_ENVELOPE_QUESTIONS,
         ConfirmDeclarationsAction,
         EnvelopeDeclarationQuestion,
+    )
+    from agents_shipgate.schemas.verifier import (
+        VerifierDeclarationConfirmation,
+        VerifierDeclarationQuestion,
     )
 
     artifacts = {
@@ -519,17 +524,35 @@ def test_a_declaration_route_fits_the_published_budget():
         )
         for index in range(MAX_ENVELOPE_QUESTIONS)
     ]
+    # ``why`` comes from the real renderer rather than a copy of it. A hand
+    # written one goes stale silently and takes the measurement with it: the
+    # copy grew by 170 bytes in #429 while this fixture kept measuring the
+    # short version.
     route = ConfirmDeclarationsAction(
         kind="confirm_declarations",
         command=command,
         expects=(
-            "5 declaration(s) written into the manifest and committed to this "
-            "branch; 1 question(s) then remain for a human."
+            "99 declaration(s) written into the manifest, and this control "
+            "superseded — re-run verification before committing; 1 question(s) "
+            "then remain for a human."
         ),
-        why=(
-            "Apply the 5 declaration(s) this scan derived from its own evidence, "
-            "commit them to this branch, and re-run verification."
-        ),
+        why=_declaration_instructions(
+            VerifierDeclarationConfirmation(
+                command=command,
+                questions=[
+                    VerifierDeclarationQuestion(
+                        subject=f"request_refund_approval_{index} [salesforce_toolkit]",
+                        dimension="effect",
+                        answer_path=(
+                            "shipgate.yaml#action_surface.actions"
+                            f"[tool='request_refund_approval_{index}']"
+                        ),
+                        authorable_by="coding_agent" if index else "human",
+                    )
+                    for index in range(100)
+                ],
+            )
+        )[0],
         questions=rows,
         agent_authorable=99,
         human_authorable=1,

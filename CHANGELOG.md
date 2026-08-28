@@ -2,6 +2,160 @@
 
 ## Unreleased
 
+- **The declaration continuation: a drafted proposal can now reach the person
+  it was drafted for.** (#429 review) `apply-patches --kinds declare_action`
+  writes into `shipgate.yaml`, which is the trust root — so the control that
+  authorized it is superseded the instant it lands, and the rerun is a fresh
+  decision over a manifest that now says more. When the declaration is the
+  thing that makes a risk judgeable, that decision is `blocked`, and a blocked
+  decision authorizes nothing. The proposal Shipgate itself drafted could
+  therefore never be committed, pushed, or put on a PR: the §D loop could not
+  finish.
+
+  `apply-patches` now leaves a receipt beside the report it applied from —
+  `declaration-continuation.json`, `shipgate.declaration_continuation/v1` —
+  pinning the manifest by **byte** digest on both sides of the write, and
+  naming the rows it wrote. A later working-tree run honours it only when both
+  digests still match *and* the two manifests it names differ by nothing but
+  added `action_surface.actions` rows. On that proof the blocked run is
+  `review_publishable`: `edit`, `commit`, `push`, `update_pr` — `merge` and
+  `report_complete` still denied, so the gate is exactly as strong as it was.
+  Without a receipt, a blocked decision authorizes nothing, as before.
+
+  **Coordinates, and the temporal window.** Both halves of the receipt are
+  recorded against `report.manifest_dir` — the coordinate system a scoped
+  monorepo manifest lives in — and are resolved through it rather than against
+  the repository root or, worse, the process directory. A first adoption has no
+  earlier manifest for a digest to name, so the receipt records the absence and
+  the *introduction proof* carries the claim there. The introduction proof
+  itself now reads the **merge base**, like every other half of it: asking the
+  base tip let a diverged history where `main` deletes a gate the merge base
+  still carries read as an adoption. And the applier's second authorized shape
+  — filling the fields an existing row leaves silent — is accepted alongside an
+  appended row, because a parsed manifest spells "silent" as a present key with
+  a `None` value and a raw comparison read the fill as a changed answer.
+
+  **It is provenance, not a signature, and the bound is deliberate.** Anyone
+  who can write the manifest can write a receipt whose digests match it. What
+  they cannot do is make the delta *parse* as declarations, so a forged receipt
+  buys putting a manifest change in front of a human — which is the thing it is
+  for — and never a loosened gate. `verifier.json`, `agent-handoff.json` and
+  `verify-run.json` each carry the resulting `declaration_continuation`
+  boolean, which is what lets their shared publication invariant tell this case
+  apart; their schema versions move to `0.15`, `v8` and `v5`, and the runtime
+  contract to `26`.
+
+- **The route is reachable on a first adoption, and states the only order the
+  protocol allows.** (#429) §D's `declare_action` route was refused on
+  `capability_review.policy_weakened` — the *fail-closed routing flag*, which
+  stays raised whenever the direction of a policy change could not be
+  established. Establishing it means proving that no file in the tree parses as
+  a manifest under any name, and that proof reads the tree: one blob past the
+  probe's per-candidate read bound ends it, and `google/adk-samples`, the
+  adoption-walk target, carries 35. So a first adoption — the run with **all
+  thirteen** questions open, three of them agent-answerable — was the one run
+  that could never be offered the route that answers them.
+
+  The route now asks a separate, cheaper, **sound** question instead: does this
+  diff introduce the gate it is judged by? The configured manifest is in the
+  evaluated diff, absent at the comparison ref, the diff deletes and renames
+  away nothing at all, and every policy input this run *resolved* — the fixed
+  trust-root globs, `checks.policy_packs[].path` at any legal path, and the
+  `--policy-pack` / `--baseline` inputs — is that manifest. A proven weakening
+  refuses regardless. The removal check is suffix-agnostic and asked over the
+  comparison the run evaluated, because a gate may be `old-gate.json` and a
+  staged rename is invisible to `base...head`.
+
+  Deliberately nothing else moves: the whole-tree content probe and its bounds
+  are untouched, so `policy_weakened`, the verdict, the adoption wording and
+  the human route all read exactly as before. What moves is only who may draft
+  the blanks, into a manifest a human still merges.
+
+  **Order.** The route's instruction was "apply, commit, re-run". But the
+  command supersedes the control that issued it, so the permissions printed
+  beside the route cannot authorize publishing what it just wrote. It now says
+  re-run first and act on what the re-run authorizes, and the typed `expects`
+  promises the write and the supersession rather than a commit. When that
+  refresh refuses, the recovery it advertises is the producing run's own exact
+  local rerun — recovered from the artifacts the refusal had already validated
+  — rather than a fixed `--base origin/main --head HEAD` that needed a
+  remote-tracking ref, scanned committed `HEAD`, and missed the very edit that
+  superseded the pointer.
+
+  **A withheld route names itself.** `report.json` publishes every open
+  question with `authorable_by` resolved whether or not the route is published,
+  so a control that offered nothing and explained nothing read as an invitation
+  to edit the trust root without the route. The headline — and so
+  `control.reason` and `control.next_action.why` — now carries for example
+  `3 declaration(s) this scan could draft are withheld: a blocker is open, and
+  that decision is a person's.` One pass produces both the refusal and the
+  cause, open blockers are checked before the verdict so a blocked report names
+  the blocker, and only a comparison that actually ran may say the gate was
+  weakened. It is headline *context*: it shares the 400-byte prose budget, is
+  dropped whole rather than truncated, and yields to the gap-provenance clause.
+  Do not branch on its presence.
+
+- **The declaration route is reachable on a first adoption.** (#429) §D's
+  `declare_action` route was refused on `capability_review.policy_weakened`,
+  which is the *fail-closed routing flag*: it stays raised whenever the
+  direction of a policy change could not be established. Establishing it means
+  proving that no file in the tree parses as a Shipgate manifest under any
+  name — and that proof reads the tree, so a single blob past the probe's
+  per-candidate read bound ends it. `google/adk-samples`, the adoption-walk
+  target, carries 35 such blobs. The result was that a first adoption, the run
+  with **all thirteen** questions open and three of them agent-answerable, was
+  the one run that could never be offered the route that answers them.
+
+  The route now asks a **separate, cheaper, proven** question instead: does
+  this diff introduce the gate it is judged by? The configured manifest is in
+  the evaluated diff, it is absent at the comparison ref, the diff removes or
+  renames away no YAML file, and every policy surface it touches is that
+  manifest. When all four hold there is no prior version of this gate the
+  change could have loosened, whatever some other file in the tree may be, and
+  the fail-closed flag is raised only because nothing could be compared. A
+  **proven** weakening refuses the route regardless.
+
+  Deliberately nothing else moves. The whole-tree content probe and its bounds
+  are untouched, so `policy_weakened`, the verdict, the adoption wording, the
+  self-approval headline and the human route all read exactly as before — a
+  base that retains an operational manifest under another name still refuses to
+  be called an adoption, at any file size. What moves is only who may draft the
+  blanks, into a manifest a human still merges.
+
+  **The route states the only order the protocol allows: rerun, then publish.**
+  Its instruction was "apply, commit, re-run". But `apply-patches` edits
+  `shipgate.yaml`, so the moment it succeeds `agents-shipgate agent control`
+  refuses with `workspace_changed` — "the working tree carries 1 uncommitted
+  change this decision never saw" — and the v20 refresh rule requires that read
+  before any commit, push, or PR update. The permissions printed beside the
+  route were computed against a manifest that no longer exists. So the
+  instruction, and the typed `expects`, now promise the write and the
+  supersession rather than a commit, and say that the rerun is a fresh decision
+  that may hand the branch to a person.
+
+  **A withheld route names itself.** `report.json` publishes every open
+  question with `authorable_by` resolved whether or not the route is published,
+  so an agent could see that three rows were its own to write while `control`
+  offered it nothing and explained nothing — which reads as an invitation to
+  edit the trust root without the route. The headline, and so `control.reason`
+  and `control.next_action.why`, now carries for example `3 declaration(s) this
+  scan could draft are withheld: a blocker is open, and that decision is a
+  person's.` The sentence is produced by the same pass that withholds the
+  route, so the published cause is always the cause that acted; open blockers
+  are checked before the verdict, so a blocked report names the blocker rather
+  than the verdict that follows from it; and only a comparison that actually
+  ran may say the gate was weakened.
+
+  It is headline *context*, with the standing consequence: it shares the
+  400-byte prose budget, it is dropped whole rather than truncated, and it
+  yields to the gap-provenance clause, which names a subject that left the
+  analysed surface and renders into the PR comment a person reads. A run whose
+  verdict and worst blocker have spent the budget publishes no context at all.
+  Do not branch on its presence — a guaranteed machine field would be new
+  published surface and is not in this change.
+
+  Rendering and routing reachability only: no schema, verdict, permission
+  vector or contract version moves.
 - **`init` no longer writes a source type it guessed, and says when the block
   it wrote is a scaffold.** (#441) `detect` on
   `awslabs/mcp`'s `src/billing-cost-management-mcp-server` — a FastMCP Python

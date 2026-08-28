@@ -96,7 +96,7 @@ DOCS = REPO_ROOT / "docs"
 # generated file sitting under the previous version's name.
 _AGENT_RESULT_SUFFIX = "v3"
 _BOUNDARY_SUFFIX = "v2"
-_VERIFY_RUN_SUFFIX = "v4"
+_VERIFY_RUN_SUFFIX = "v5"
 SRC = REPO_ROOT / "src"
 
 # Allow `python scripts/generate_schemas.py` from a checkout without install.

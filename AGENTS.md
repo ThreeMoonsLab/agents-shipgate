@@ -202,7 +202,7 @@ Contract v14 publishes these boundaries as `action_effect`, `action_authority`,
 and `agent_binding` in `do_not_auto_assert[]`; route binding and semantic next
 actions to a human and rerun verification after the reviewed declaration is supplied.
 
-There is exactly one exception, and it is narrow by construction (contract v25,
+There is exactly one exception, and it is narrow by construction (contract v26,
 report v0.41). When `control.next_action.kind` is `confirm_declarations`, run
 the command it names and nothing else. That command writes only the rows the
 report itself tags `next_action.authorable_by: "coding_agent"` — rows whose

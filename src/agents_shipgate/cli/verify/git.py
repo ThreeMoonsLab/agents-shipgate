@@ -866,6 +866,25 @@ def _reject_binary_capability_paths(
         raise BinaryCapabilityDiffError(hidden)
 
 
+def read_bytes_at_ref(workspace: Path, ref: str, path: Path) -> bytes | None:
+    """One file's exact bytes at ``ref``, or ``None`` if it could not be read.
+
+    Bytes rather than text, because the only caller hashes them: decoding
+    normalizes CRLF, and a digest taken after that can never match the one the
+    applier wrote from the file on disk — the bug class already fixed once
+    inside ``apply-patches`` itself.
+    """
+
+    commit = commit_sha(workspace, ref)
+    if commit is None:
+        return None
+    return _run_git_bounded_output(
+        workspace,
+        ["show", f"{commit}:{path.as_posix()}"],
+        max_output_bytes=_MAX_MANIFEST_BYTES,
+    )
+
+
 def read_file_at_ref(workspace: Path, ref: str, path: Path) -> str | None:
     """Return one file's text at ``ref`` without materializing the tree."""
 
@@ -883,6 +902,43 @@ def read_file_at_ref(workspace: Path, ref: str, path: Path) -> str | None:
         return payload.decode("utf-8", errors="strict")
     except UnicodeDecodeError:
         return None
+
+
+def path_present_at_ref(workspace: Path, ref: str, path: Path) -> bool | None:
+    """Whether exactly this path exists as a blob at ``ref``.
+
+    ``None`` when git could not answer, so every caller reads it fail-closed.
+    Deliberately *not* expressed as ``read_file_at_ref(...) is None``: that
+    helper also returns ``None`` for a blob past its read bound, which would
+    report an oversize committed gate as absent — the exact confusion #429 was
+    filed about, one layer down.
+
+    One bounded ``ls-tree`` on the single path, so a repository's size does not
+    enter into it.
+    """
+
+    commit = commit_sha(workspace, ref)
+    if commit is None:
+        return None
+    result = _run_git(
+        workspace,
+        ["ls-tree", "-z", "--full-tree", commit, "--", path.as_posix()],
+        check=False,
+        text=False,
+    )
+    if result.returncode != 0:
+        return None
+    records = [record for record in result.stdout.split(b"\0") if record]
+    for record in records:
+        header, separator, _encoded_path = record.partition(b"\t")
+        if not separator:
+            return None
+        fields = header.split()
+        if len(fields) < 2:
+            return None
+        if fields[1] == b"blob":
+            return True
+    return False
 
 
 def resolve_tree_path_identity(
@@ -1153,6 +1209,72 @@ def removes_a_yaml_file(workspace: Path, base: str | None, head: str) -> bool | 
     # Checking both rename sides is deliberately conservative: a destination
     # YAML path can only suppress friendly adoption wording, never grant it.
     return any(path.lower().endswith(_MANIFEST_SUFFIXES) for path in paths)
+
+
+def removes_any_tracked_path(
+    workspace: Path,
+    *,
+    comparison_ref: str,
+    head: str,
+    worktree: bool,
+) -> bool | None:
+    """Whether the *effective* evaluated diff deletes or renames away anything.
+
+    Suffix-agnostic and content-agnostic, unlike :func:`removes_a_yaml_file`,
+    and that is the point rather than laziness. That helper answers a wording
+    question and may safely look only at ``.yaml``/``.yml``; this one answers
+    "could this diff have moved an existing gate onto the configured path",
+    where the gate may be ``old-gate.json`` or have no suffix at all, and where
+    a missed rename grants a coding agent write access to the trust root.
+    Refusing on *any* removal costs an adoption PR that also deletes a file its
+    drafting route; guessing which removals could have been a manifest costs
+    correctness (#429 review).
+
+    ``worktree`` selects the comparison the run actually evaluated. A run whose
+    head is the working tree stages and edits files that ``base...head`` cannot
+    see — a staged ``R086 old-gate.yml -> shipgate.yaml`` under ``--base main``
+    is invisible to the committed range and is exactly the shape this exists to
+    refuse.
+
+    ``None`` means the diff could not be read: cannot prove, so callers must
+    not claim an introduction.
+    """
+
+    try:
+        _reject_unbound_diff_configuration(workspace)
+        if worktree:
+            _reject_executable_worktree_filters(workspace)
+    except ConfigError:
+        return None
+    comparison_commit = commit_sha(workspace, comparison_ref)
+    if comparison_commit is None:
+        return None
+    args = [
+        *_SAFE_DIFF_CONFIG,
+        "diff",
+        *_DETERMINISTIC_DIFF_OPTIONS,
+        "--name-status",
+        "--diff-filter=DR",
+        "-z",
+        comparison_commit,
+    ]
+    if not worktree:
+        head_commit = commit_sha(workspace, head)
+        if head_commit is None:
+            return None
+        args[-1] = f"{comparison_commit}...{head_commit}"
+    output = _run_git_bounded_output(
+        workspace,
+        args,
+        max_output_bytes=_DIFF_METADATA_LIMIT,
+    )
+    if output is None:
+        return None
+    try:
+        paths = _paths_from_name_status(output)
+    except (UnicodeDecodeError, ConfigError):
+        return None
+    return bool(paths)
 
 
 def working_tree_context(
@@ -2123,7 +2245,10 @@ __all__ = [
     "git_path",
     "GitPushEndpoint",
     "merge_base_sha",
+    "path_present_at_ref",
+    "read_bytes_at_ref",
     "read_file_at_ref",
+    "removes_any_tracked_path",
     "repository_identity",
     "require_merge_base_sha",
     "resolve_tree_path_identity",

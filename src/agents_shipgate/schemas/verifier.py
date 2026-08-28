@@ -614,8 +614,15 @@ class VerifierArtifact(BaseModel):
                     # the change as a publishable review does. The four
                     # progress booleans are Literal-pinned to move together, so
                     # testing one is testing all four.
+                    # The declaration continuation is part of the *condition*,
+                    # not an exception bolted onto the consequent: a run that
+                    # carries one is simply not the shape this rule is about.
+                    # Written as ``not: {const: true}`` so an artifact that
+                    # omits the field — every pre-v0.15 payload — still matches
+                    # and is still held to the original requirement (#429).
                     "if": {
                         "properties": {
+                            "declaration_continuation": {"not": {"const": True}},
                             "control": {
                                 "properties": {
                                     "completion_allowed": {"const": False},
@@ -625,7 +632,7 @@ class VerifierArtifact(BaseModel):
                                     },
                                 },
                                 "required": ["completion_allowed", "permissions"],
-                            }
+                            },
                         },
                         "required": ["control"],
                     },
@@ -711,7 +718,7 @@ class VerifierArtifact(BaseModel):
         },
     )
 
-    verifier_schema_version: Literal["0.14"] = "0.14"
+    verifier_schema_version: Literal["0.15"] = "0.15"
     static_analysis_only: Literal[True] = True
     runtime_behavior_verified: Literal[False] = False
     static_verdict_disclaimer: str = STATIC_VERDICT_DISCLAIMER
@@ -732,6 +739,15 @@ class VerifierArtifact(BaseModel):
     # that read its diff cleanly. Pre-v0.7 artifacts are normalized to
     # ``VerifierDiffStatus.unknown()`` on the legacy path instead.
     diff_status: VerifierDiffStatus
+    #: Set when this run's trust-root delta is a declaration continuation:
+    #: ``apply-patches`` left a receipt, its two byte digests pin the manifest
+    #: on both sides of the write, and the delta parses as additions to
+    #: ``action_surface.actions`` and nothing else. It is the one fact that
+    #: lets a *blocked* decision authorize publication — putting the proposal
+    #: in front of a person — while ``merge`` and ``report_complete`` stay
+    #: denied. False everywhere else, so nothing about publication changes for
+    #: any other run (#429).
+    declaration_continuation: bool = False
     trigger: dict[str, Any] = Field(default_factory=dict)
     base_status: VerifierBaseStatus = "not_requested"
     base_tree_sha: str | None = None
@@ -812,6 +828,10 @@ class VerifierArtifact(BaseModel):
             # v0.13 build could produce: it had no way to tell an agent it may
             # draft an answer, so every question it wrote was one a human owed.
             "0.13",
+            # v0.14 froze without ``declaration_continuation``. A v0.14 build
+            # could not mint or read the receipt, so ``false`` — publication is
+            # refused on a blocked decision — is exactly what that build meant.
+            "0.14",
         }
         if not legacy:
             # Current artifacts must already carry the authoritative control
@@ -819,7 +839,7 @@ class VerifierArtifact(BaseModel):
             # control would turn an internal consistency failure into a trusted
             # handoff.  Only frozen prior readers are normalized.
             return normalized
-        normalized["verifier_schema_version"] = "0.14"
+        normalized["verifier_schema_version"] = "0.15"
         # A pre-v0.7 artifact recorded nothing about whether its diff was
         # readable. Defaulting that to ``complete`` would manufacture the one
         # claim the whole field exists to stop.
@@ -1141,7 +1161,9 @@ class VerifierArtifact(BaseModel):
             )
         if self.release_decision is None:
             raise ValueError("publication authority requires a release decision substrate")
-        if self.release_decision.decision == "blocked":
+        if self.release_decision.decision == "blocked" and not (
+            self.declaration_continuation
+        ):
             raise ValueError("a blocked release decision cannot authorize publication")
 
     def _assert_passed_substrate_is_consistent(self) -> None:

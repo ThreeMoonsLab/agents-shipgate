@@ -106,6 +106,7 @@ def build_fix_task(
     rerun_options: Sequence[str] | None = None,
     report_path: str = "agents-shipgate-reports/report.json",
     repair_subject_available: bool = True,
+    configured_gate_introduced: bool = False,
 ) -> VerifierFixTask | None:
     """Project the head scan onto a single repair task.
 
@@ -201,12 +202,13 @@ def build_fix_task(
     # from evidence this run already read, and the manifest they land in is the
     # trust root, so the change still reaches the gate only through a human
     # merge (#410 §D).
-    confirmation = _declaration_confirmation(
+    confirmation, _withheld = declaration_route(
         report,
         capability_review=capability_review,
         merge_verdict=merge_verdict,
         report_path=report_path,
         repair_subject_available=repair_subject_available,
+        configured_gate_introduced=configured_gate_introduced,
     )
     if confirmation is not None:
         return VerifierFixTask(
@@ -308,15 +310,27 @@ def build_fix_task(
 _MAX_NAMED_HUMAN_QUESTIONS = 3
 
 
-def _declaration_confirmation(
+def declaration_route(
     report: ReadinessReport,
     *,
     capability_review: VerifierCapabilityReview,
     merge_verdict: MergeVerdict,
     report_path: str,
     repair_subject_available: bool,
-) -> VerifierDeclarationConfirmation | None:
-    """The declarations this run may hand to the coding agent, or ``None``.
+    configured_gate_introduced: bool = False,
+) -> tuple[VerifierDeclarationConfirmation | None, str | None]:
+    """The §D route, or the reason a run that could have taken it did not.
+
+    Both halves come from one pass over one set of conditions, because the
+    published reason has to be the reason: a second function restating these
+    predicates is the "second implementation" bug class, and here it would
+    surface as a run that names a withholding cause it did not act on.
+
+    The second element is ``None`` in two quite different situations, and the
+    caller must not conflate them. Either the route *was* published, or no
+    question on this run is one an agent could have drafted — nothing was
+    withheld, so there is nothing to explain. It is a sentence only when a
+    drafting route existed to publish and something refused it (#429).
 
     Five conditions, each a separate way this could be the wrong route, and
     all of them fail closed:
@@ -335,8 +349,17 @@ def _declaration_confirmation(
       What carries the obligation is that ``merge`` and ``report_complete``
       stay denied and ``verify_required`` stays true, so the next run routes
       the items to a person with nothing completed in between.
-    * **The comparison did not weaken policy.** A run whose own diff loosened
-      the gate is not one to hand an agent a manifest-writing command in.
+    * **The change did not weaken policy.** A run whose own diff loosened the
+      gate is not one to hand an agent a manifest-writing command in. A
+      *proven* weakening always refuses. The fail-closed flag also refuses,
+      *unless* ``configured_gate_introduced`` — the separate, cheap, sound fact
+      that this diff introduces the gate it is judged by, touches no other
+      policy surface, and removes no YAML file. There is then no prior version
+      of this gate for the change to have loosened, and the flag is raised only
+      because nothing could be compared. Without that exemption the route was
+      unreachable on any repository where proving "no manifest under any name"
+      is unaffordable — which is most of them, and which is the run with every
+      question still open (#429).
     * **A repair subject exists** — the same precondition every other
       coding-agent route carries.
     * **The report carries the patches the command would apply.** The route
@@ -345,6 +368,10 @@ def _declaration_confirmation(
       nothing and the agent would re-run verify into the identical route.
       Naming a step that cannot change the answer is the dead end #397 closed,
       and this is the same shape one surface over.
+
+    A sixth is a precondition rather than a refusal, and it is asked first: at
+    least one open question must be one an agent may draft. Its failure is the
+    only one that reports no cause, because there was no route here to withhold.
 
     Three conditions the human fallback below *does* apply are deliberately
     **not** among them, and each is a decision rather than an omission:
@@ -366,22 +393,67 @@ def _declaration_confirmation(
     """
 
     decision = report.release_decision
-    if decision is None or merge_verdict != "insufficient_evidence":
-        return None
-    if decision.decision != "insufficient_evidence" or decision.blockers:
-        return None
-    if capability_review.policy_weakened or not repair_subject_available:
-        return None
-    coverage = decision.evidence_coverage
-    if coverage is None:
-        return None
+    coverage = decision.evidence_coverage if decision is not None else None
+    if decision is None or coverage is None:
+        return None, None
+    # Asked first, and it is the one check whose failure is *not* a
+    # withholding: with no drafting question there was never a route here to
+    # withhold, so every later refusal below is one an agent could otherwise
+    # have acted on and therefore one worth naming.
+    questions = coverage.semantic_coverage.declaration_questions.open_questions
+    drafts = sum(1 for question in questions if question.authorable_by == "coding_agent")
+    if not drafts:
+        return None, None
+
+    def withheld(because: str) -> tuple[None, str]:
+        """The whole sentence, composed here so the cause cannot outlive it.
+
+        Deliberately short, and deliberately all literals. It travels as
+        headline context inside a 400-byte budget the verdict and the worst
+        blocker have usually already spent, and ``_fit_sentences`` keeps whole
+        sentences or none — so a leisurely version of this is one that simply
+        never appears. Nothing scanned reaches it either, which is what spares
+        it the delimiting the exclusion clause beside it needs (#433).
+        """
+
+        return None, (
+            f"{drafts} declaration(s) this scan could draft are withheld: {because}."
+        )
+
+    # Blockers before the verdict, because a blocked report satisfies both and
+    # the blocker is the more useful answer. Asked the other way round, "a
+    # blocker is open" was a cause the code could never actually emit.
+    if decision.blockers:
+        return withheld("a blocker is open, and that decision is a person's")
+    if merge_verdict != "insufficient_evidence" or decision.decision != (
+        "insufficient_evidence"
+    ):
+        return withheld("this run has a finding to answer, not a blank to fill")
+    if capability_review.policy_weakening_proven:
+        return withheld("this change weakens the release policy that evaluates it")
+    if capability_review.policy_weakened and not configured_gate_introduced:
+        # ``policy_weakened`` is the fail-closed *routing* flag: it stays raised
+        # when nothing could be compared, which on a large repository is the
+        # normal answer, because proving "no manifest under any name" means
+        # reading the tree and one blob past the read bound ends that (#429).
+        # Refusing the route on it alone made the run with every question open
+        # the one run that could never be offered the route that answers them.
+        #
+        # So the exemption is not "trust the flag less". It is a separate,
+        # cheaper fact that is *sound*: this diff introduces the gate it is
+        # judged by, touches no other policy surface, and removes no YAML file.
+        # There is then no prior version of this gate for the change to have
+        # loosened, whatever some other file in the tree may be. A proven
+        # weakening is refused above regardless, and the flag itself, the
+        # verdict, the adoption wording and the human route are all untouched:
+        # only who may draft the blanks moves.
+        return withheld("no base policy proved this change does not weaken the gate")
+    if not repair_subject_available:
+        return withheld("this run reads committed refs, not a worktree to write into")
     if not any(
         gap.next_action.patch is not None for gap in coverage.evidence_gaps
     ):
-        return None
-    questions = coverage.semantic_coverage.declaration_questions.open_questions
-    if not any(question.authorable_by == "coding_agent" for question in questions):
-        return None
+        return withheld("report.json carries no declaration patch to apply")
     apply_command = retarget_command(
         " ".join(
             shlex.quote(part)
@@ -398,26 +470,44 @@ def _declaration_confirmation(
             )
         )
     )
-    return VerifierDeclarationConfirmation(
-        command=apply_command,
-        questions=[
-            VerifierDeclarationQuestion(
-                subject=question.subject,
-                subject_id=question.subject_id,
-                subject_kind=question.subject_kind,
-                dimension=question.dimension,
-                answer_path=question.answer_path,
-                authorable_by=question.authorable_by,
-            )
-            for question in questions
-        ],
+    return (
+        VerifierDeclarationConfirmation(
+            command=apply_command,
+            questions=[
+                VerifierDeclarationQuestion(
+                    subject=question.subject,
+                    subject_id=question.subject_id,
+                    subject_kind=question.subject_kind,
+                    dimension=question.dimension,
+                    answer_path=question.answer_path,
+                    authorable_by=question.authorable_by,
+                )
+                for question in questions
+            ],
+        ),
+        None,
     )
 
 
 def _declaration_instructions(
     confirmation: VerifierDeclarationConfirmation,
 ) -> list[str]:
-    """What to do, and — by name — what will still be owed afterwards.
+    """What to do, in the only order the protocol allows, and — by name — what
+    will still be owed afterwards.
+
+    The order is load-bearing, not style, and it is not the intuitive one. The
+    command edits ``shipgate.yaml``, so the moment it succeeds this control is
+    stale: ``agent control`` refuses with ``workspace_changed`` ("the working
+    tree carries 1 uncommitted change this decision never saw") and contract
+    v20 requires the refresh before any commit, push, or PR update. The
+    permissions printed beside this route were computed against a manifest that
+    no longer exists, so they cannot authorize publishing what the command just
+    wrote. **Rerun first; act on what the rerun authorizes.**
+
+    That rerun is also a fresh decision, and a declaration whose whole purpose
+    is to make a risk judgeable is exactly what can move the verdict to one only
+    a person may clear. Saying so here is the difference between a loop and a
+    surprise (#429).
 
     The second half is the whole point of the route. "Human review required"
     at the end of a loop tells the agent to stop without telling anyone what
@@ -430,8 +520,14 @@ def _declaration_instructions(
     ]
     human = [item for item in confirmation.questions if item.authorable_by == "human"]
     out = [
+        # Kept under ``MAX_ENVELOPE_PROSE_BYTES``: this sentence *is*
+        # ``control.next_action.why``, and the envelope truncates prose past
+        # that bound — which would cut the ordering clause this route depends
+        # on right off the end.
         f"Apply the {len(drafts)} declaration(s) this scan derived from its own "
-        "evidence, commit them to this branch, and re-run verification. Each "
+        "evidence, then re-run verification before committing or pushing: the "
+        "command edits the manifest, which supersedes this control, and the "
+        "re-run is a fresh decision that may hand the branch to a person. Each "
         "one restates an effect the scan already read; the merging human "
         "reviews them as part of the manifest change.",
     ]

@@ -42,6 +42,11 @@ import typer
 from pydantic import ValidationError
 from ruamel.yaml import YAML
 
+from agents_shipgate.schemas.declaration_continuation import (
+    DECLARATION_CONTINUATION_ARTIFACT_NAME,
+    AppliedDeclaration,
+    DeclarationContinuationV1,
+)
 from agents_shipgate.schemas.patches import (
     AppendPointerPatch,
     DeclareActionPatch,
@@ -100,9 +105,13 @@ def apply_patches(
     confidence_levels = _confidence_set(confidence)
     kind_set = {k.strip() for k in kinds.split(",") if k.strip()}
 
+    report_bytes = b""
     try:
-        report = json.loads(from_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
+        # Bytes, then decode: the receipt below pins this report by content,
+        # and text reading normalizes newlines out of the digest.
+        report_bytes = from_path.read_bytes()
+        report = json.loads(report_bytes.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         message = f"Cannot parse JSON report at {from_path}: {exc}"
         typer.echo(message, err=True)
         _emit_malformed_patch_error(from_path, message)
@@ -282,9 +291,12 @@ def apply_patches(
 
     summary = _Summary()
     refused_declarations: list[tuple[str, str]] = []
+    continuations: list[tuple[str, list[Patch], _FileOutcome]] = []
     for target_file, patches in sorted(grouped.items()):
         outcome = _apply_one_file(Path(target_file), patches, apply=apply)
         summary.record(target_file, outcome)
+        if outcome.status == "applied" and outcome.sha256_after is not None:
+            continuations.append((target_file, patches, outcome))
         # ``skipped_drift`` counts too, and for the same reason ``error`` does:
         # a stale report writes nothing, and an agent that re-ran verify on a
         # silent exit 0 would come back with the identical route. Both outcomes
@@ -294,6 +306,13 @@ def apply_patches(
             isinstance(patch, DeclareActionPatch) for patch in patches
         ):
             refused_declarations.append((target_file, outcome.error or "refused"))
+
+    _write_declaration_continuation(
+        from_path,
+        report_bytes=report_bytes,
+        manifest_dir=manifest_dir_resolved,
+        applied=continuations,
+    )
 
     if json_output:
         typer.echo(json.dumps(summary.as_dict(apply=apply), indent=2))
@@ -344,6 +363,82 @@ def apply_patches(
 
 
 # --- Internals --------------------------------------------------------------
+
+
+def _write_declaration_continuation(
+    from_path: Path,
+    *,
+    report_bytes: bytes,
+    manifest_dir: Path,
+    applied: list[tuple[str, list[Patch], _FileOutcome]],
+) -> None:
+    """Record a declaration write so the run that judges it can recognise it.
+
+    Written beside the report the patches came from, which is the directory
+    ``verify --out`` names — so the next run finds it without being told, and a
+    receipt from a different reports directory can never be picked up by
+    accident.
+
+    Only ``declare_action`` writes produce one. Every other patch kind repairs
+    something the manifest already says and has never needed to travel across
+    its own mutation; minting a receipt for them would be publishing a surface
+    with no reader.
+
+    Best-effort by design: the write has already happened and succeeded, and
+    failing the command because a *receipt* could not be written would turn a
+    completed repair into an error. A missing receipt costs the next run its
+    publish-only route, which is the fail-closed direction.
+    """
+
+    rows: list[AppliedDeclaration] = []
+    manifest_path: str | None = None
+    before: str | None = None
+    after: str | None = None
+    for target_file, patches, outcome in applied:
+        declarations = [p for p in patches if isinstance(p, DeclareActionPatch)]
+        if not declarations:
+            continue
+        if manifest_path is not None:
+            # Two files each carrying declarations is not a shape the route
+            # emits — every ``declare_action`` patch targets the configured
+            # manifest — and a receipt can pin only one pair of digests. Refuse
+            # to describe it rather than describe half of it.
+            return
+        try:
+            manifest_path = (
+                Path(target_file).resolve().relative_to(manifest_dir).as_posix()
+            )
+        except (OSError, ValueError):
+            return
+        before, after = outcome.sha256_before, outcome.sha256_after
+        for patch in declarations:
+            rows.append(
+                AppliedDeclaration(
+                    target_path=patch.target_path,
+                    selector={
+                        key: str(value) for key, value in patch.selector.items()
+                    },
+                    declaration={
+                        key: str(value) for key, value in patch.declaration.items()
+                    },
+                )
+            )
+    if manifest_path is None or before is None or after is None or not rows:
+        return
+    try:
+        receipt = DeclarationContinuationV1(
+            manifest_path=manifest_path,
+            manifest_sha256_before=before,
+            manifest_sha256_after=after,
+            source_report_sha256=hashlib.sha256(report_bytes).hexdigest(),
+            applied=rows,
+        )
+        (from_path.parent / DECLARATION_CONTINUATION_ARTIFACT_NAME).write_text(
+            json.dumps(receipt.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    except (OSError, ValueError):
+        return
 
 
 def _emit_input_error(kind: str, message: str, **fields: object) -> None:
@@ -478,6 +573,11 @@ class _FileOutcome:
     patches_in_group: int
     diff: str | None = None
     error: str | None = None
+    #: Byte digests of the target on both sides of the write, populated only
+    #: where one happened. They are what the declaration continuation pins, and
+    #: they are taken here because this is the only place that holds both.
+    sha256_before: str | None = None
+    sha256_after: str | None = None
 
 
 @dataclass
@@ -590,8 +690,15 @@ def _apply_one_file(
     )
 
     if apply and original_text != new_text:
-        path.write_bytes(new_text.encode("utf-8"))
-        return _FileOutcome(status="applied", patches_in_group=len(patches), diff=diff)
+        written = new_text.encode("utf-8")
+        path.write_bytes(written)
+        return _FileOutcome(
+            status="applied",
+            patches_in_group=len(patches),
+            diff=diff,
+            sha256_before=current_sha,
+            sha256_after=hashlib.sha256(written).hexdigest(),
+        )
 
     return _FileOutcome(
         status="applied" if apply else "dry_run",

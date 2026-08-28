@@ -23,7 +23,7 @@ from agents_shipgate.core.current_control import (
     read_current_control,
 )
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.schemas.contract import COMMANDS, DEFAULT_PATHS
+from agents_shipgate.schemas.contract import DEFAULT_PATHS
 from agents_shipgate.schemas.current_control import (
     CURRENT_CONTROL_ARTIFACT_NAME,
     VERIFIER_ARTIFACT_KEY,
@@ -213,7 +213,9 @@ def control(
             next_actions=[
                 NextAction(
                     kind="command",
-                    command=COMMANDS["verify_pr"],
+                    command=_superseded_recovery_command(
+                        exc, workspace=workspace, reports_dir=reports_dir
+                    ),
                     why=guidance,
                     expects=(
                         "current-control.json is present, valid, every artifact "
@@ -280,6 +282,46 @@ def control(
         raise typer.Exit(4)
 
     typer.echo(render_agent_control_envelope(envelope))
+
+
+def _superseded_recovery_command(
+    exc: CurrentControlUnavailable,
+    *,
+    workspace: Path,
+    reports_dir: Path,
+) -> str:
+    """The rerun that refreshes *this* pointer, preferring the one that made it.
+
+    A fixed ``verify --base origin/main --head HEAD`` was wrong for the route
+    that most often lands here. The §D declaration route runs on the *working
+    tree*, and its own command edits ``shipgate.yaml`` — so the mandatory
+    refresh that follows it always refuses, and the recovery it advertised
+    needed a remote-tracking ref that may not exist, otherwise scanned
+    committed ``HEAD`` and so missed the very edit that superseded the pointer,
+    dropped ``--no-base`` and any policy or baseline option, and wrote to the
+    default reports directory rather than the one being refreshed (#429
+    review).
+
+    A currency refusal is not an integrity one: the pointer and every artifact
+    it binds were hash-validated in the same pass, and only the workspace had
+    moved. So the producing run's own ``fix_task.verification_command`` is
+    available and exact, and it is what a continuation needs. It is used only
+    to *name* a step — nothing here authorizes anything — and any refusal that
+    could not validate the set falls back to a command rebuilt from the request
+    the caller just made.
+    """
+
+    data = exc.artifacts.get(VERIFIER_ARTIFACT_KEY)
+    if data is not None:
+        try:
+            verifier = VerifierArtifact.model_validate_json(data)
+        except ValueError:
+            verifier = None
+        if verifier is not None and verifier.fix_task is not None:
+            command = verifier.fix_task.verification_command
+            if command:
+                return command
+    return _recovery_verify_command(workspace, reports_dir)
 
 
 def _recovery_verify_command(workspace: Path, reports_dir: Path) -> str:

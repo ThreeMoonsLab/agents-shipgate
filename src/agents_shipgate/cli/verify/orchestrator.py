@@ -20,6 +20,7 @@ from typing import Any
 
 from agents_shipgate import __version__
 from agents_shipgate.checks.verify import PROTECTED_FILE_EDITS
+from agents_shipgate.checks.verify_policy import touched_policy_surfaces
 from agents_shipgate.ci.release_decision import SUGGESTED_DECLARATIONS_FILENAME
 from agents_shipgate.cli._artifact_lifecycle import clear_verifier_route_artifacts
 from agents_shipgate.cli._helpers import _apply_strict_plugins
@@ -31,6 +32,7 @@ from agents_shipgate.cli.discovery.scope import (
 )
 from agents_shipgate.cli.discovery.signals import weak_marker_evidence_dirs
 from agents_shipgate.cli.scan.orchestrator import run_scan
+from agents_shipgate.config.loader import load_manifest_text
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.agent_handoff import build_agent_handoff
 from agents_shipgate.core.authorization_execution import (
@@ -102,6 +104,10 @@ from agents_shipgate.schemas.current_control import (
     CurrentControlOperation,
     CurrentControlWorkspaceIdentity,
 )
+from agents_shipgate.schemas.declaration_continuation import (
+    DECLARATION_CONTINUATION_ARTIFACT_NAME,
+    DeclarationContinuationV1,
+)
 from agents_shipgate.schemas.exclusions import SurfaceExclusion
 from agents_shipgate.schemas.human_authorization import (
     AuthorizationEvaluationV1,
@@ -143,7 +149,12 @@ from agents_shipgate.triggers import (
 )
 
 from .capability_review import build_capability_review
-from .fix_task import FORBIDDEN_SHORTCUTS, build_fix_task, is_pure_adoption_review
+from .fix_task import (
+    FORBIDDEN_SHORTCUTS,
+    build_fix_task,
+    declaration_route,
+    is_pure_adoption_review,
+)
 from .git import (
     DiffContext,
     DiffInputError,
@@ -157,9 +168,12 @@ from .git import (
     ensure_git_workspace,
     git_path,
     merge_base_sha,
+    path_present_at_ref,
+    read_bytes_at_ref,
     read_file_at_ref,
     ref_exists,
     removes_a_yaml_file,
+    removes_any_tracked_path,
     repository_identity,
     require_merge_base_sha,
     resolve_source_head_identity,
@@ -860,12 +874,29 @@ def run_verify(
             )
             base_notes.extend(cache_notes)
 
+        # Two claims, sharing a prefix and diverging on purpose.
+        # ``_manifest_introduced`` adds the whole-tree content probe, which a
+        # large repository defeats, so anything that only needs "this diff
+        # introduces the gate it is judged by" must not wait on it (#429).
+        # The structural half of that cheaper claim is decided here; whether
+        # the introduction is *unshared* needs the scan's own record of the
+        # policy inputs it loaded, so it is asked later.
+        configured_gate_introduced = _configured_gate_introduced(
+            git_root=git_root,
+            config_relative=config_relative,
+            base_status=base_status,
+            base=base,
+            head=head,
+            worktree_ref=None if archive_head else effective_worktree_ref,
+            changed_files=changed_files,
+        )
         manifest_introduced = _manifest_introduced(
             git_root=git_root,
             config_relative=config_relative,
             base_status=base_status,
             base=base,
             head=head,
+            worktree_ref=None if archive_head else effective_worktree_ref,
             changed_files=changed_files,
         )
     except Exception:
@@ -1116,7 +1147,25 @@ def run_verify(
             out_dir=out_dir,
             ci_mode=ci_mode,
             manifest_introduced=manifest_introduced,
+            # Both halves, joined only here: the structural one was decided
+            # before the scan, and whether the introduction is unshared needs
+            # the scan's own record of the policy packs it loaded.
+            configured_gate_introduced=(
+                configured_gate_introduced
+                and _gate_introduction_is_unshared(
+                    artifact_report,
+                    git_root=git_root,
+                    config_relative=config_relative,
+                    changed_files=changed_files,
+                    external_policy_inputs=[
+                        baseline_path,
+                        static_diff_from_path,
+                        *list(policy_pack_paths or []),
+                    ],
+                )
+            ),
             worktree=not archive_head,
+            worktree_ref=None if archive_head else effective_worktree_ref,
             rerun_options=rerun_options,
         )
         try:
@@ -1635,6 +1684,237 @@ def _rerun_options(
     return options
 
 
+def _configured_gate_introduced(
+    *,
+    git_root: Path,
+    config_relative: Path,
+    base_status: VerifierBaseStatus,
+    base: str | None,
+    head: str,
+    worktree_ref: str | None,
+    changed_files: list[str],
+) -> bool:
+    """The *structural* half of "this diff introduces the gate it is judged by".
+
+    Deliberately weaker than :func:`_manifest_introduced`, and the difference
+    is the point. This makes no claim about manifests under other names — it
+    proves only that there is no prior version of the configured gate for this
+    change to have loosened.
+
+    That is a far cheaper claim, and unlike the whole-tree content probe it is
+    affordable on a real repository. ``google/adk-samples`` carries 35 blobs
+    over the probe's per-candidate read bound, so the probe answers "cannot
+    prove" there and ``policy_weakened`` stays fail-closed true — which is
+    correct, and which is why the §D declaration route may not be gated on that
+    flag alone (#429).
+
+    Three conditions, each fail-closed:
+
+    * The configured manifest is in the evaluated diff. That is the literal
+      claim.
+    * It is **absent at the comparison ref**. Editing a gate that has been
+      committed for months is not introducing one, and this is asked directly
+      rather than inferred from the content probe, which cannot see a blob past
+      its read bound.
+    * The evaluated diff **deletes and renames away nothing at all**. This is
+      what stops move-and-loosen — an existing gate renamed onto the configured
+      path while the rules relax. Suffix-agnostic and content-agnostic on
+      purpose: a manifest may be ``old-gate.json`` or carry no suffix, so
+      ``removes_a_yaml_file``'s ``.yaml``/``.yml`` test is a name check of
+      exactly the kind this file's own probe docstring rejects. And it is asked
+      over the comparison the run *evaluated*: a worktree run stages changes
+      that ``base...head`` cannot see, so a staged
+      ``R086 old-gate.yml -> shipgate.yaml`` under ``--base main`` would
+      otherwise pass (#429 review). The cost is that an adoption PR which also
+      deletes a file loses its drafting route; the alternative is guessing
+      which deletions could have been a gate.
+
+    The policy *inputs* this run resolved are a separate question, asked after
+    the scan by :func:`_gate_introduction_is_unshared`, because only the scan
+    knows which packs it loaded.
+
+    Unknown bases (``ref_missing``, ``archive_failed``) are never introductions:
+    absence of evidence is not evidence of absence.
+    """
+
+    if not _configured_gate_is_new_at_ref(
+        git_root=git_root,
+        config_relative=config_relative,
+        base_status=base_status,
+        base=base,
+        head=head,
+        worktree_ref=worktree_ref,
+        changed_files=changed_files,
+    ):
+        return False
+    removed = removes_any_tracked_path(
+        git_root,
+        comparison_ref=worktree_ref if worktree_ref is not None else (base or head),
+        head=head,
+        worktree=worktree_ref is not None,
+    )
+    return removed is False
+
+
+def _configured_gate_is_new_at_ref(
+    *,
+    git_root: Path,
+    config_relative: Path,
+    base_status: VerifierBaseStatus,
+    base: str | None,
+    head: str,
+    worktree_ref: str | None,
+    changed_files: list[str],
+) -> bool:
+    """The configured manifest is in this diff and absent at the ref it is judged against.
+
+    Shared by the adoption claim and the route's precondition, which then add
+    *different* guards on top — the whole-tree content probe for the first, a
+    stricter removal check for the second. Sharing the prefix rather than
+    writing it twice is what keeps "introduces the gate" meaning one thing.
+    """
+
+    if not any(
+        is_configured_manifest(
+            config_relative,
+            str(path).replace("\\", "/"),
+            workspace=git_root,
+        )
+        for path in changed_files
+    ):
+        return False
+    ref = _introduction_comparison_ref(
+        git_root=git_root,
+        base_status=base_status,
+        base=base,
+        head=head,
+        worktree_ref=worktree_ref,
+    )
+    if ref is None:
+        return False
+    return path_present_at_ref(git_root, ref, config_relative) is False
+
+
+def _gate_introduction_is_unshared(
+    report: ReadinessReport | None,
+    *,
+    git_root: Path,
+    config_relative: Path,
+    changed_files: list[str],
+    external_policy_inputs: Sequence[Path | None],
+) -> bool:
+    """Whether the introduced manifest is the *only* policy input this diff moved.
+
+    "Nothing existed to weaken" is false the moment the same diff also edits a
+    policy pack or a baseline that was already there, and the fixed
+    ``_POLICY_SURFACES`` globs cannot see one: ``checks.policy_packs[].path``
+    accepts any legal path, and ``--policy-pack`` / ``--baseline`` are not in
+    the tree's vocabulary at all. A base holding a critical ``org-rules.yml``,
+    plus a diff that adds ``shipgate.yaml`` referencing it *and* empties it,
+    reads as an isolated introduction to a glob and is a gate weakening to a
+    person (#429 review).
+
+    So the packs are taken from the run's own record of what it loaded —
+    ``report.loaded_policy_packs[].path`` — rather than re-resolved here. A
+    second resolution is the "second implementation" bug class, and the failure
+    mode is precisely a pack the predicate does not know the scan honoured.
+    A run with no report cannot enumerate them, and fails closed.
+    """
+
+    if report is None:
+        return False
+
+    def _is_the_manifest(path: str) -> bool:
+        return is_configured_manifest(
+            config_relative, path.replace("\\", "/"), workspace=git_root
+        )
+
+    changed = {str(path).replace("\\", "/") for path in changed_files}
+    inputs = set(touched_policy_surfaces(sorted(changed)))
+    manifest_dir = Path(report.manifest_dir) if report.manifest_dir else git_root
+    for pack in report.loaded_policy_packs:
+        inputs.add(_repository_relative(pack.path, git_root, anchor=manifest_dir))
+    for path in external_policy_inputs:
+        if path is not None:
+            inputs.add(_repository_relative(str(path), git_root))
+    return not any(
+        candidate in changed and not _is_the_manifest(candidate)
+        for candidate in inputs
+    )
+
+
+def _repository_relative(path: str, git_root: Path, *, anchor: Path | None = None) -> str:
+    """A resolved input path in the spelling ``changed_files`` uses, if it is one.
+
+    ``anchor`` is the directory a *relative* value is relative **to**, and it is
+    required for anything the report owns: ``loaded_policy_packs[].path`` and a
+    continuation's ``manifest_path`` are recorded against ``report.manifest_dir``
+    so they read the same on any machine. Resolving those against the
+    repository root silently renames them in a scoped monorepo —
+    ``services/mailer/org-rules.yml`` became ``org-rules.yml``, which matches
+    nothing in ``changed_files``, so emptying a loaded pack looked isolated
+    (#429 review). CLI paths carry no such anchor and stay CWD/absolute.
+    """
+
+    candidate = Path(path)
+    # A relative value is never resolved bare. ``Path("shipgate.yaml").resolve()``
+    # answers against the *process directory*, and a command run from the
+    # repository root therefore turned a scoped receipt's ``shipgate.yaml`` into
+    # a root-level path that happened to relativize cleanly — so the check
+    # passed on a path nobody had written and failed on the real one. The
+    # anchor the value was recorded against comes first, then the repository
+    # root; the bare form is only meaningful when it is already absolute
+    # (#429 review).
+    if candidate.is_absolute():
+        roots = [candidate]
+    else:
+        roots = [root / candidate for root in ((anchor,) if anchor else ()) + (git_root,)]
+    for probe in roots:
+        try:
+            return probe.resolve().relative_to(git_root.resolve()).as_posix()
+        except (OSError, ValueError):
+            continue
+    return str(path).replace("\\", "/")
+
+
+def _introduction_comparison_ref(
+    *,
+    git_root: Path,
+    base_status: VerifierBaseStatus,
+    base: str | None,
+    head: str,
+    worktree_ref: str | None,
+) -> str | None:
+    """The ref an introduction claim is made against, or ``None`` if there is none.
+
+    **The merge base, never the base tip.** Every other half of this proof —
+    the evaluated diff, the removal guard — is computed from the merge base,
+    and asking a different ref about the manifest's presence is how a diverged
+    history slipped through: a merge base carrying a strict ``shipgate.yaml``,
+    a ``main`` that deletes it, and a feature worktree that weakens that
+    long-lived gate reported ``missing_manifest`` at the tip, cleared
+    ``policy_weakened`` and offered the route. The gate was present at the base
+    the diff was actually taken from, so that is not an adoption (#429 review).
+
+    ``worktree_ref`` already *is* the effective comparison — the merge base
+    when a base resolved, ``head`` otherwise — so it is used as given. A
+    ref-bound run has none, and ``base...head`` is merge-base semantics there
+    too, so the merge base is computed. A merge base that cannot be computed is
+    ``None``: cannot prove, never "proven absent".
+    """
+
+    if worktree_ref is not None:
+        return worktree_ref
+    if base_status == "missing_manifest" and base is not None:
+        return merge_base_sha(git_root, base, head)
+    if base_status in {"not_requested", "skipped"}:
+        # No base was compared against, so the manifest's own history is the
+        # base: present in the workspace but absent from the head commit means
+        # this working tree is introducing it.
+        return head
+    return None
+
+
 def _manifest_introduced(
     *,
     git_root: Path,
@@ -1642,6 +1922,7 @@ def _manifest_introduced(
     base_status: VerifierBaseStatus,
     base: str | None,
     head: str,
+    worktree_ref: str | None = None,
     changed_files: list[str],
 ) -> bool:
     """True when the comparison base carries no Shipgate manifest at all.
@@ -1656,42 +1937,38 @@ def _manifest_introduced(
     while loosening it — also finds nothing at the configured path on the base,
     and would otherwise get to call itself a first adoption.
 
-    Three independent checks close that, because a name check alone cannot: a
-    repository may call its manifest anything, so both ``old-gate.yml`` renamed
-    to ``new-gate.yml`` and a base that simply *keeps* ``old-gate.yml`` pass
-    every name test. The base must carry no manifest under the configured or
-    default name, no tracked file under any name that reads like a manifest at
-    all, *and* the evaluated diff must not delete or rename away any YAML file.
-    All three are fail-closed: a git command that cannot answer means "not an
-    adoption", never "proven absent".
+    :func:`_configured_gate_introduced` carries every check that can be made
+    from the diff and the configured path, and this adds the one that cannot:
+    a repository may call its manifest anything, so a base that simply *keeps*
+    an operational ``old-gate.yml`` passes every name test. Only a
+    suffix-agnostic content probe over the whole tree separates that from a
+    genuine first adoption, and it is fail-closed — a candidate it could not
+    read, or a tree beyond its bounds, means "not an adoption", never "proven
+    absent".
 
-    Unknown bases (``ref_missing``, ``archive_failed``) are never treated as
-    adoptions: absence of evidence is not evidence of absence.
-
-    The evaluated diff must also actually contain the manifest. That is the
-    literal claim being made ("this PR introduces it"), and it is what makes
-    ``trust_root_touched`` structurally true for every adoption — which matters
-    because ``policy_weakened`` is honestly ``false`` here, so the trust-root
-    signal is the one machine consumers are left with.
+    That probe is also the expensive one, and the one a large repository
+    defeats. Nothing that merely needs "this diff introduces the gate it is
+    judged by" should be gated on it; see the helper above (#429).
     """
 
-    if not any(
-        is_configured_manifest(
-            config_relative,
-            str(path).replace("\\", "/"),
-            workspace=git_root,
-        )
-        for path in changed_files
+    if not _configured_gate_is_new_at_ref(
+        git_root=git_root,
+        config_relative=config_relative,
+        base_status=base_status,
+        base=base,
+        head=head,
+        worktree_ref=worktree_ref,
+        changed_files=changed_files,
     ):
         return False
-    if base_status == "missing_manifest" and base is not None:
-        ref: str = base
-    elif base_status in {"not_requested", "skipped"}:
-        # No base was compared against, so the manifest's own history is the
-        # base: present in the workspace but absent from the head commit means
-        # this working tree is introducing it.
-        ref = head
-    else:
+    ref = _introduction_comparison_ref(
+        git_root=git_root,
+        base_status=base_status,
+        base=base,
+        head=head,
+        worktree_ref=worktree_ref,
+    )
+    if ref is None:  # pragma: no cover - the helper above already refused.
         return False
     # Only canonical default names are meaningful as a name-based safety
     # signal. Treating an arbitrary configured basename as manifest identity
@@ -1921,6 +2198,265 @@ def _stable_subject(subject: str) -> str:
     return _VOLATILE_PATH_RE.sub(
         lambda match: f"/…/{PurePosixPath(match.group(0)).name}", subject
     )
+
+
+def _declaration_continuation_holds(
+    *,
+    git_root: Path,
+    config_path: Path,
+    config_relative: Path,
+    out_dir: Path,
+    comparison_ref: str | None,
+    gate_introduced: bool,
+) -> bool:
+    """Whether this run's trust-root delta is exactly a declaration it drafted.
+
+    The route's own command writes into the manifest, which supersedes the
+    control that authorized it; the run that follows is a fresh decision, and
+    when the declaration is what made a risk judgeable that decision is
+    ``blocked`` — which authorizes nothing. The proposal Shipgate drafted could
+    then never reach the person meant to review it (#429 review).
+
+    ``apply-patches`` leaves a receipt beside the report it applied from, and
+    the proof is a pair of byte digests: the manifest at the comparison ref
+    hashed to ``manifest_sha256_before``, and the manifest now hashes to
+    ``manifest_sha256_after``. Both matching means the delta under evaluation is
+    precisely what was applied — nothing else touched the file, and nothing is
+    riding along. Anything unreadable, unparseable, stale or mismatched is
+    ``False``: the receipt can only ever *grant* the publish-only route, so
+    every failure is the fail-closed direction.
+
+    The receipt is not a signature and does not pretend to be; see
+    :mod:`agents_shipgate.schemas.declaration_continuation` for what a forged
+    one could buy, and why publication rather than merge is the bound that
+    makes it acceptable.
+    """
+
+    if comparison_ref is None:
+        return False
+    receipt_path = out_dir / DECLARATION_CONTINUATION_ARTIFACT_NAME
+    try:
+        receipt = DeclarationContinuationV1.model_validate_json(
+            receipt_path.read_bytes()
+        )
+    except (OSError, ValueError):
+        return False
+    # The receipt names its own target, and it must be the gate this run is
+    # judged by. A receipt for some other file is not evidence about this one.
+    #
+    # Resolved through the manifest directory first, because that is the
+    # coordinate system the applier wrote it in: a scoped
+    # ``services/closer/shipgate.yaml`` is recorded as ``shipgate.yaml``, and
+    # comparing that against the git-root-relative configured path made the
+    # exact apply/rerun route return ``false`` and strip every publication
+    # permission (#429 review).
+    # Both coordinate systems are derived here from one absolute path, because
+    # every caller-supplied form of them has been wrong at least once: a
+    # relative ``config_path`` resolves against the process's directory, and a
+    # ``config_relative`` that lost its directory turned a scoped
+    # ``services/closer/shipgate.yaml`` into ``shipgate.yaml`` and read a file
+    # that does not exist (#429 review).
+    manifest_absolute = (
+        config_path if config_path.is_absolute() else (git_root / config_path)
+    )
+    try:
+        manifest_relative = manifest_absolute.resolve().relative_to(git_root.resolve())
+    except (OSError, ValueError):
+        return False
+    if not is_configured_manifest(
+        manifest_relative,
+        _repository_relative(
+            receipt.manifest_path, git_root, anchor=manifest_absolute.parent
+        ),
+        workspace=git_root,
+    ):
+        return False
+    try:
+        current = manifest_absolute.read_bytes()
+    except OSError:
+        return False
+    if hashlib.sha256(current).hexdigest() != receipt.manifest_sha256_after:
+        return False
+    # The "before" state, established against the ref the run is judged from —
+    # never against whatever the receipt asserts, which the writer controls.
+    present = path_present_at_ref(git_root, comparison_ref, manifest_relative)
+    if present is None:
+        return False
+    if not present:
+        # A first adoption: the manifest the applier wrote into is itself
+        # uncommitted, so no earlier version exists for a digest to name, and
+        # the "delta" is the whole file — there is nothing for the semantic
+        # comparison below to compare against. What carries the claim instead
+        # is the *introduction* proof this run already made: there was no gate
+        # here, so nothing could have been loosened. Asking for a before-digest
+        # left the advertised apply/rerun path blocked on exactly the run it
+        # was built for (#429 review).
+        # The recorded before-digest is deliberately *not* consulted here. It
+        # names bytes that were never committed, so no ref can check it, and a
+        # value only the receipt's writer knows is not an anchor. What carries
+        # the claim is the introduction proof this run made independently.
+        return gate_introduced
+    if receipt.manifest_sha256_before is None:
+        return False
+    previous = read_bytes_at_ref(git_root, comparison_ref, manifest_relative)
+    if previous is None:
+        return False
+    if hashlib.sha256(previous).hexdigest() != receipt.manifest_sha256_before:
+        return False
+    # Provenance and semantics are two questions, and the receipt answers only
+    # the first. It pins *which bytes* changed; it cannot say that those bytes
+    # are declarations, because a hand-written receipt would carry the same
+    # digests over a manifest that flipped ``ci.mode``. So the manifests it
+    # names are compared directly, and the delta must be additions to
+    # ``action_surface.actions`` and nothing else.
+    #
+    # This is also why the fail-closed ``policy_weakened`` flag is the wrong
+    # guard here and is deliberately not consulted: on the working-tree run
+    # this route lives on there is no base policy to compare, so the flag is
+    # raised for every such edit and would make the carve-out unreachable in
+    # exactly the case it exists for — the same mistake, one layer down, as
+    # gating the route itself on it. A *proven* weakening is refused by the
+    # caller regardless.
+    return _only_adds_action_declarations(previous, current)
+
+
+def _only_adds_action_declarations(before: bytes, after: bytes) -> bool:
+    """Whether ``after`` is ``before`` plus declaration rows, and nothing else.
+
+    Compared as parsed manifests rather than as text, because that is what the
+    gate is: reordered keys, a reflowed list and a changed comment are all the
+    same policy, and a byte comparison would refuse them while a semantic one
+    cannot be fooled by them either. Every row the earlier manifest carried
+    must survive unchanged — this admits additions only, never an edit to an
+    answer someone already reviewed.
+
+    Unparseable on either side is ``False``. A manifest this run could not read
+    is not one it may make a claim about.
+    """
+
+    try:
+        head = load_manifest_text(after.decode("utf-8")).model_dump(mode="json")
+        base = load_manifest_text(before.decode("utf-8")).model_dump(mode="json")
+    except (ConfigError, UnicodeDecodeError, ValueError):
+        return False
+    head_surface = head.pop("action_surface", None) or {}
+    base_surface = base.pop("action_surface", None) or {}
+    if head != base:
+        return False
+    head_actions = head_surface.pop("actions", None) or []
+    base_actions = base_surface.pop("actions", None) or []
+    if head_surface != base_surface:
+        return False
+    return _actions_only_gained_declarations(base_actions, head_actions)
+
+
+def _actions_only_gained_declarations(base: list, head: list) -> bool:
+    """Whether ``head`` is ``base`` with rows appended and blanks filled.
+
+    ``_declare_action`` has two authorized shapes, not one: no row names the
+    tool and the declaration is *appended*, or exactly one row does and the
+    patch writes only the fields that row leaves **silent**. Requiring the list
+    to grow recognised the first and refused the second, so the exact patch the
+    route emits for an already-listed action produced no publishable
+    continuation at all (#429 review).
+
+    So each earlier row must survive in a head row that agrees with it
+    everywhere it spoke and may answer more; nothing may be removed, no
+    answered field may change, and something must have changed. Exact matches
+    are paired first, so one row's superset is never consumed by another row
+    that also happens to fit it.
+    """
+
+    remaining = list(head)
+    paired: list[tuple[dict, dict]] = []
+    unmatched = []
+    for row in base:
+        if not isinstance(row, dict):
+            return False
+        if row in remaining:
+            remaining.remove(row)
+            paired.append((row, row))
+        else:
+            unmatched.append(row)
+    for row in unmatched:
+        candidate = next(
+            (
+                other
+                for other in remaining
+                if isinstance(other, dict) and _row_only_gained_answers(row, other)
+            ),
+            None,
+        )
+        if candidate is None:
+            return False
+        remaining.remove(candidate)
+        paired.append((row, candidate))
+    filled = any(before != after for before, after in paired)
+    return bool(remaining) or filled
+
+
+def _row_only_gained_answers(before: dict, after: dict) -> bool:
+    """Whether ``after`` is ``before`` with silent fields answered, nothing else.
+
+    A *silent* field is one the earlier row left as ``None``. That is the state
+    ``_declare_action`` writes into, and it is what a parsed manifest calls it:
+    the model fills every key, so "the row did not answer this" arrives as a
+    present key with a ``None`` value rather than a missing one. Comparing raw
+    dicts therefore read the authorized field-fill as a changed answer and
+    refused it (#429 review).
+
+    A field the earlier row *did* answer must survive untouched, and no field
+    may be dropped.
+    """
+
+    if set(before) - set(after):
+        return False
+    return all(
+        after.get(key) == value or value is None for key, value in before.items()
+    )
+
+
+def _withheld_declaration_note(
+    report: ReadinessReport | None,
+    *,
+    fix_task: VerifierFixTask | None,
+    capability_review: VerifierCapabilityReview | None,
+    merge_verdict: MergeVerdict,
+    report_path: str,
+    repair_subject_available: bool,
+    configured_gate_introduced: bool,
+) -> list[str]:
+    """Say why the declarations an agent could have drafted are not on offer.
+
+    ``report.json`` publishes every open question with ``authorable_by``
+    resolved whether or not the route is published, so an agent can see that
+    three of them are its own to write while ``control`` offers it nothing and
+    says nothing about the gap. Silence there is not neutral: it reads as an
+    invitation to write the manifest without the route, which is the one thing
+    the trust root exists to stop (#429).
+
+    Answered by :func:`declaration_route` rather than by re-deriving its
+    preconditions, so the published cause is always the cause that acted —
+    including the two cases it reports as no cause at all: the route was
+    published, or no question was an agent's to draft.
+
+    The absent fix task is a real guard, not a shortcut around that call. It
+    covers ``mergeable``, where nothing is owed and no route was refused, and
+    the recovery paths that never reached the route at all — asking for a cause
+    there would invent one.
+    """
+
+    if fix_task is None or report is None or capability_review is None:
+        return []
+    _confirmation, withheld = declaration_route(
+        report,
+        capability_review=capability_review,
+        merge_verdict=merge_verdict,
+        report_path=report_path,
+        repair_subject_available=repair_subject_available,
+        configured_gate_introduced=configured_gate_introduced,
+    )
+    return [withheld] if withheld else []
 
 
 def _gap_provenance_note(
@@ -2570,6 +3106,7 @@ def _derive_verifier_control(
     manifest_introduced: bool = False,
     pure_adoption_review: bool = False,
     configured_manifest: str | None = None,
+    declaration_continuation: bool = False,
 ) -> AgentControl:
     """Project verifier facts through the shared operational control engine."""
 
@@ -2577,11 +3114,32 @@ def _derive_verifier_control(
     # read the change and reach a determination it can stand behind? Publishing
     # asserts something about an evaluated change, so no route may claim it
     # without all four parts — not the repair route, and not the human one.
-    subject_evaluated = bool(
+    read_the_change = bool(
         execution == "succeeded"
         and release_decision is not None
-        and release_decision.decision != "blocked"
         and diff_status.completeness == "complete"
+    )
+    subject_evaluated = bool(
+        read_the_change
+        and release_decision is not None
+        and release_decision.decision != "blocked"
+    )
+    # The one blocked result that may still be published, and only to the
+    # extent of reaching review. The run read the change, the gate's own knobs
+    # did not loosen, and a receipt binds this trust-root delta by byte digest
+    # to the declarations Shipgate's own applier wrote. Without the carve-out
+    # the §D loop cannot finish: the drafted proposal makes a risk judgeable,
+    # the fresh decision blocks on it, and the manifest change can never reach
+    # the person the whole route exists to hand it to (#429 review).
+    #
+    # ``merge`` and ``report_complete`` stay denied — this authorizes putting a
+    # proposal in front of a human, never landing it.
+    publishable_declaration = bool(
+        read_the_change
+        and not subject_evaluated
+        and declaration_continuation
+        and capability_review is not None
+        and not capability_review.policy_weakening_proven
     )
 
     reason = (
@@ -2679,8 +3237,12 @@ def _derive_verifier_control(
         )
         or reason
     )
-    unsafe_block = bool(release_decision is not None and release_decision.decision == "blocked")
-    if subject_evaluated:
+    unsafe_block = bool(
+        release_decision is not None
+        and release_decision.decision == "blocked"
+        and not publishable_declaration
+    )
+    if subject_evaluated or publishable_declaration:
         # The exact command that regenerates this evidence against the
         # committed refs, so the agent can commit, push, and republish without
         # inventing a rerun. ``fix_task`` is present on every non-mergeable
@@ -2864,7 +3426,9 @@ def _build_verifier(
     headline_override: str | None = None,
     first_next_action_override: AgentControlAction | None = None,
     manifest_introduced: bool = False,
+    configured_gate_introduced: bool = False,
     worktree: bool = False,
+    worktree_ref: str | None = None,
     rerun_options: list[str] | None = None,
 ) -> VerifierArtifact:
     release_decision_model = report.release_decision if report is not None else None
@@ -2897,6 +3461,17 @@ def _build_verifier(
         "ref_missing",
         "archive_failed",
     }
+    # Hoisted so the fix task and the withholding note below are answered from
+    # one set of values. Recomputing either beside the second caller would be a
+    # second implementation of the route's own preconditions, and the failure
+    # mode is a run that names a reason it did not act on.
+    repair_subject_available = _repair_subject_available(
+        report,
+        git_root=git_root,
+        head=head,
+        worktree=worktree,
+    )
+    resolved_report_path = str((out_dir / "report.json").resolve())
     fix_task = (
         None
         if safe_recovery
@@ -2910,13 +3485,9 @@ def _build_verifier(
             config=_display_path(config_path, git_root),
             worktree=worktree,
             rerun_options=rerun_options,
-            report_path=str((out_dir / "report.json").resolve()),
-            repair_subject_available=_repair_subject_available(
-                report,
-                git_root=git_root,
-                head=head,
-                worktree=worktree,
-            ),
+            report_path=resolved_report_path,
+            repair_subject_available=repair_subject_available,
+            configured_gate_introduced=configured_gate_introduced,
         )
     )
     can_merge = _can_merge_without_human(
@@ -2925,6 +3496,26 @@ def _build_verifier(
         capability_review=capability_review,
     )
     resolved_diff_status = diff_status or VerifierDiffStatus()
+    # Only a working-tree run can hold an uncommitted declaration, and only
+    # that run's comparison ref carries the manifest the receipt was written
+    # against. A ref-bound run evaluates committed objects and has nothing for
+    # a receipt to be about.
+    declaration_continuation = worktree and _declaration_continuation_holds(
+        git_root=git_root,
+        config_path=config_path,
+        config_relative=(
+            config_path.relative_to(git_root)
+            if config_path.is_absolute()
+            else Path(config_path)
+        ),
+        out_dir=out_dir,
+        # The comparison the run evaluated, not ``head``: with a base, a
+        # worktree run is judged from the merge base, and the receipt's before
+        # state has to be read from the same place every other half of this
+        # proof reads from (#429 review).
+        comparison_ref=worktree_ref or head,
+        gate_introduced=configured_gate_introduced,
+    )
     # The provenance note is passed *into* the composition, not appended to its
     # result: the reserved budget that keeps the human-review requirement whole
     # is only a guarantee if every later addition goes through it.
@@ -2936,7 +3527,26 @@ def _build_verifier(
         manifest_introduced=manifest_introduced,
         pure_adoption_review=pure_adoption_review,
         configured_manifest=_display_path(config_path, git_root),
-        context_note=_gap_provenance_note(report=report, base_report=base_report),
+        # Order is the whole point of passing both, because ``_fit_sentences``
+        # keeps a *prefix* of whole sentences: whichever is second is the one a
+        # long blocker title deletes. Provenance stays first. Its clause names
+        # the subject a capability change left unanalysed (#433), it is a fact
+        # about the release decision, and the same headline renders into the PR
+        # comment a person reads. The withholding is an explanation of route
+        # availability addressed to an agent that has the human route either
+        # way — worth saying, and the right one to lose under pressure.
+        context_note=[
+            *_gap_provenance_note(report=report, base_report=base_report),
+            *_withheld_declaration_note(
+                report,
+                fix_task=fix_task,
+                capability_review=capability_review,
+                merge_verdict=merge_verdict,
+                report_path=resolved_report_path,
+                repair_subject_available=repair_subject_available,
+                configured_gate_introduced=configured_gate_introduced,
+            ),
+        ],
     )
     control = _derive_verifier_control(
         execution=head_status,
@@ -2952,8 +3562,14 @@ def _build_verifier(
         manifest_introduced=manifest_introduced,
         pure_adoption_review=pure_adoption_review,
         configured_manifest=_display_path(config_path, git_root),
+        # Only a working-tree run can hold an uncommitted declaration, and only
+        # that run's comparison ref carries the manifest the receipt was
+        # written against. A ref-bound run evaluates committed objects and has
+        # nothing for the receipt to be about.
+        declaration_continuation=declaration_continuation,
     )
     return VerifierArtifact(
+        declaration_continuation=declaration_continuation,
         workspace=str(git_root),
         config=_display_path(config_path, git_root),
         base_ref=base,
@@ -3854,6 +4470,7 @@ def _write_verify_run_artifact(
         merge_verdict=verifier.merge_verdict,
         can_merge_without_human=verifier.can_merge_without_human,
         control=verifier.control,
+        declaration_continuation=verifier.declaration_continuation,
     )
     artifact = build_verify_run_artifact(
         plan=plan,
