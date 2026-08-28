@@ -217,14 +217,24 @@ Key response fields:
   a `path` (YAML-pointer-ish location) and `current` value. Replace
   these before scanning. Every field the template chose without evidence is
   in here, `tool_sources[].type` included (#441).
-- `tool_surface_origin`: `"detected"` | `"scaffold"`. `"scaffold"` means
-  discovery read no tool surface at all and the `tool_sources` block is a
+- `tool_surface_origin`: `"detected"` | `"scaffold"` | `null`. `"scaffold"`
+  means this render read no tool surface and the `tool_sources` block is a
   placeholder — `id`, `type`, and `path` are all `CHANGE_ME` and all three
-  are in `placeholders[]`. `detect` on the same workspace reports
-  `is_agent_project: false` with no suggested sources, and it is not wrong:
-  nothing here was inferred. `manifest_message` states the same fact in
-  prose. Do **not** run `scan` on a scaffold — fill in the block first;
-  until then there is nothing for the gate to read.
+  are in `placeholders[]`. `null` means this run's render reached neither disk
+  nor this payload, so it describes no file you can open: `skipped_existing`
+  and `refused_unresolved_scope` report it, on the same authority rule
+  `placeholders` follows. `manifest_message` always states the same fact in
+  prose; `control.reason` states it only where init's own reason is the
+  envelope's, because on a freshly written manifest the human-owned
+  `declared_purpose` declaration outranks it. Do **not** run `scan` on a
+  scaffold — fill in the block first; until then there is nothing for the gate
+  to read.
+
+  In the default (auto) mode a `"scaffold"` also means full discovery found
+  nothing, and `detect` on the same workspace agrees: `is_agent_project: false`
+  with no suggested sources. Under `--minimal` it means only that the minimal
+  template skips framework detection entirely — `detect` may well report a
+  framework for the same workspace — and the summary it emits says so.
 - `auto_detected.agent_name` — the value the manifest carries
   (`null` when the template fell back to `CHANGE_ME`; matches the YAML
   exactly).

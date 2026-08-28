@@ -8,6 +8,8 @@ import threading
 from pathlib import Path
 
 from agents_shipgate.cli.discovery.manifest_scaffold import (
+    MINIMAL_SCAFFOLD_DETAIL,
+    MINIMAL_SCAFFOLD_SUMMARY,
     RenderedManifest,
     ToolSurfaceOrigin,
     scaffold_tool_sources_block,
@@ -314,7 +316,14 @@ def render_manifest_template(
             )
     elif not has_api_artifacts:
         tool_surface_origin = "scaffold"
-        lines.extend(scaffold_tool_sources_block())
+        # This renderer probed artifact globs and nothing else. It has not
+        # looked at a single Python import, so it may not report that none was
+        # found: `detect` says `langchain` for a workspace this scaffolds.
+        lines.extend(
+            scaffold_tool_sources_block(
+                summary=MINIMAL_SCAFFOLD_SUMMARY, detail=MINIMAL_SCAFFOLD_DETAIL
+            )
+        )
     if has_api_artifacts:
         lines.extend(["", "# Detected simple OpenAI API artifacts:", "openai_api:"])
         if api_artifacts["prompt_files"]:
@@ -379,7 +388,13 @@ def render_manifest_template(
             "",
         ]
     )
-    return RenderedManifest(text="\n".join(lines), tool_surface_origin=tool_surface_origin)
+    return RenderedManifest(
+        "\n".join(lines),
+        tool_surface_origin=tool_surface_origin,
+        scaffold_summary=(
+            MINIMAL_SCAFFOLD_SUMMARY if tool_surface_origin == "scaffold" else None
+        ),
+    )
 
 
 

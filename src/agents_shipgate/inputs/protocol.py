@@ -219,8 +219,9 @@ class AdapterRegistry:
                 remediation = (
                     "That is the placeholder `agents-shipgate init` writes "
                     "when it finds no tool surface to read. Replace it with "
-                    "the type of the source this repository publishes "
-                    f"(built-ins are: {builtin_tool_source_types_text()}), and set "
+                    "the type of the source this repository publishes — a "
+                    f"built-in ({builtin_tool_source_types_text()}) or one an "
+                    "installed third-party adapter registers — and set "
                     "tool_sources[].path to that file."
                 )
             elif discovery_enabled:

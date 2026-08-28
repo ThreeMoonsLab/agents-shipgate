@@ -151,11 +151,14 @@ def diagnose_unknown_adapter_source_type(
                     "placeholder `agents-shipgate init` writes when it finds "
                     "no tool surface to read. Nothing was inferred here: name "
                     "the source this repository publishes and the path to it. "
-                    f"Accepted types: {builtin_tool_source_types_text()}."
+                    f"Built-ins: {builtin_tool_source_types_text()}; an "
+                    "installed third-party adapter's own source type is "
+                    "equally valid."
                 ),
                 expects=(
-                    "tool_sources[].type names an accepted source type and "
-                    "tool_sources[].path resolves to a file in this workspace."
+                    "tool_sources[].type names a built-in source type or one "
+                    "an installed adapter registers, and tool_sources[].path "
+                    "resolves to a file in this workspace."
                 ),
             ),
             NextAction(
@@ -259,9 +262,19 @@ def diagnose_unknown_adapter_source_type(
     return [
         Diagnostic(
             id=DIAG_UNKNOWN_ADAPTER_SOURCE_TYPE,
+            # The title names the remedy the selected route actually is. The
+            # single "(install/enable the adapter, or fix a typo)" title named,
+            # for the placeholder, exactly the two remedies its own branch says
+            # do not apply — and a title is what a reader sees before any
+            # `next_actions[]` entry (#441 review).
             title=(
-                f"No adapter handles tool_sources[].type {source_type!r} "
-                "in shipgate.yaml (install/enable the adapter, or fix a typo)"
+                f"tool_sources[].type is still the {source_type!r} placeholder "
+                "in shipgate.yaml (name the source this repository publishes)"
+                if source_type == MANIFEST_PLACEHOLDER_VALUE
+                else (
+                    f"No adapter handles tool_sources[].type {source_type!r} "
+                    "in shipgate.yaml (install/enable the adapter, or fix a typo)"
+                )
             ),
             severity="block",
             next_actions=next_actions,

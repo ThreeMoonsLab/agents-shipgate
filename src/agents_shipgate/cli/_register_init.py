@@ -31,10 +31,7 @@ from agents_shipgate.cli.discovery.gitignore_block import (
     ensure_reports_gitignore,
 )
 from agents_shipgate.cli.discovery.local_contract import LOCAL_CONTRACT_RELATIVE_PATH
-from agents_shipgate.cli.discovery.manifest_scaffold import (
-    SCAFFOLD_SUMMARY,
-    ToolSurfaceOrigin,
-)
+from agents_shipgate.cli.discovery.manifest_scaffold import ToolSurfaceOrigin
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
 from agents_shipgate.cli.discovery.scope import repository_root
 from agents_shipgate.cli.scope_routing import (
@@ -579,7 +576,7 @@ def _manifest_defect(text: str) -> str | None:
     return None
 
 
-def _scaffold_next_action(target: Path) -> NextAction:
+def _scaffold_next_action(target: Path, summary: str) -> NextAction:
     """The step that follows a manifest whose tool surface is a placeholder.
 
     Not ``scan``. The published advance has to be able to change the answer
@@ -593,14 +590,19 @@ def _scaffold_next_action(target: Path) -> NextAction:
         kind="edit",
         path=str(target),
         why=(
-            f"{SCAFFOLD_SUMMARY} Name the source this repository publishes — "
-            "its type and the path to it — before scanning; until then a scan "
-            "has nothing to read and reports nothing about this repository."
+            f"{summary} Name the source this repository publishes — its type "
+            "and the path to it — before scanning; until then a scan has "
+            "nothing to read and reports nothing about this repository."
         ),
         expects=(
-            "tool_sources[0].type names one of the values listed in the "
-            "manifest comment, and tool_sources[0].path resolves to a file in "
-            "this workspace."
+            # Not "one of the values listed in the comment": that comment names
+            # the built-ins, and `ToolSourceConfig.type` is deliberately open to
+            # a third-party adapter's own source type (#441 review). A
+            # postcondition narrower than the schema fails a manifest the
+            # loader accepts.
+            "tool_sources[0].type names a built-in source type or one an "
+            "installed adapter registers, and tool_sources[0].path resolves to "
+            "a file in this workspace."
         ),
     )
 
@@ -610,7 +612,7 @@ def _init_reason(
     *,
     target: Path,
     write: bool,
-    tool_surface_origin: ToolSurfaceOrigin = "detected",
+    scaffold_summary: str | None = None,
 ) -> str:
     """One sentence stating what this run did to the manifest.
 
@@ -627,7 +629,7 @@ def _init_reason(
     # `MAX_ENVELOPE_PROSE_BYTES` and the rest of every sentence below carries an
     # absolute path, so a scaffold clause appended after it is the clause that
     # disappears on a deep tree — which is to say on someone else's repository.
-    prefix = f"{SCAFFOLD_SUMMARY} " if tool_surface_origin == "scaffold" else ""
+    prefix = f"{scaffold_summary} " if scaffold_summary else ""
     if manifest_status == "written":
         return f"{prefix}Wrote {target}."
     if manifest_status == "skipped_existing":
@@ -653,6 +655,7 @@ def _init_advance(
     setup_flags: Sequence[str] = (),
     workflow_status: str | None = None,
     tool_surface_origin: ToolSurfaceOrigin = "detected",
+    scaffold_summary: str | None = None,
 ) -> tuple[NextAction, AgentActionKind, str, bool]:
     """The step init already names, typed for the control envelope.
 
@@ -799,7 +802,12 @@ def _init_advance(
         # is still the right answer for the question this function was asked,
         # and it is the answer that becomes visible the moment that precedence
         # changes (#441).
-        return (_scaffold_next_action(target), "configure", SETUP_INCOMPLETE, False)
+        return (
+            _scaffold_next_action(target, scaffold_summary or ""),
+            "configure",
+            SETUP_INCOMPLETE,
+            False,
+        )
     return (next_action_create, "rerun", SETUP_COMPLETE, False)
 
 
@@ -1035,6 +1043,7 @@ def register(app: typer.Typer) -> None:
             )
             template = rendered.text
             tool_surface_origin = rendered.tool_surface_origin
+            scaffold_summary = rendered.scaffold_summary
             placeholders = collect_placeholders(template)
             auto_detected: dict[str, object] = {}
             next_action_create = NextAction(
@@ -1079,6 +1088,7 @@ def register(app: typer.Typer) -> None:
             )
             template = rendered.text
             tool_surface_origin = rendered.tool_surface_origin
+            scaffold_summary = rendered.scaffold_summary
             # Validation gate: refuse to emit a manifest the schema would reject.
             try:
                 _validate_manifest_text(template)
@@ -1255,7 +1265,7 @@ def register(app: typer.Typer) -> None:
                 target.write_text(template, encoding="utf-8")
                 manifest_status = "written"
                 manifest_message = f"Wrote {target}"
-                if tool_surface_origin == "scaffold":
+                if scaffold_summary is not None:
                     # Said in `manifest_message` rather than only in
                     # `control.reason`, because on a freshly written manifest
                     # the human-owned `declared_purpose` placeholder always
@@ -1264,7 +1274,7 @@ def register(app: typer.Typer) -> None:
                     # to `_init_reason` alone would never be read on the path
                     # that writes the file (#441). This field reaches both
                     # stdout and the JSON payload, unconditionally.
-                    manifest_message = f"{manifest_message}\n{SCAFFOLD_SUMMARY}"
+                    manifest_message = f"{manifest_message}\n{scaffold_summary}"
 
         # Workflow action — independent of manifest action.
         workflow_outcome: dict[str, object] | None = None
@@ -1450,6 +1460,7 @@ def register(app: typer.Typer) -> None:
                 str(workflow_outcome["status"]) if workflow_outcome is not None else None
             ),
             tool_surface_origin=tool_surface_origin,
+            scaffold_summary=scaffold_summary,
         )
         routing = setup_control_envelope(
             operation="init",
@@ -1473,6 +1484,19 @@ def register(app: typer.Typer) -> None:
                     # setup. Hashing the action covers every flag that can
                     # reach it, including ones added later.
                     advance.model_dump(mode="json") if advance is not None else None,
+                    # Whether this render read a tool surface or scaffolded one,
+                    # and the sentence that says so. Both reach the published
+                    # answer — `tool_surface_origin` is a payload field and
+                    # `scaffold_summary` opens `control.reason` — and neither is
+                    # implied by anything above: two `--minimal` dry runs, one
+                    # in an empty directory and one after an OpenAPI spec was
+                    # added, produced `scaffold` and `detected` with different
+                    # reasons under a byte-identical `input_id`, because
+                    # `manifest_status`, the placeholder list, and the advance
+                    # are the same in both (#441 review). An identity that does
+                    # not cover the answer is a cache that serves the wrong one.
+                    tool_surface_origin,
+                    scaffold_summary,
                     # The #370 scope facts select this route whenever the
                     # workspace holds more than one project; without them the
                     # candidate list could change while the identity of the
@@ -1487,7 +1511,7 @@ def register(app: typer.Typer) -> None:
                 manifest_status,
                 target=target,
                 write=write,
-                tool_surface_origin=tool_surface_origin,
+                scaffold_summary=scaffold_summary,
             ),
             advance=advance,
             advance_kind=advance_kind,

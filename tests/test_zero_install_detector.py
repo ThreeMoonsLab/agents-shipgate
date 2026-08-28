@@ -274,6 +274,19 @@ def test_script_verdict_matches_cli(script_module, sample_dir):
         f"{sample_dir.name}: workspace_signals keys diverged "
         f"(script={set(script_signals)!r}, cli={set(cli_signals)!r})."
     )
+    # Keys alone let the same named field mean two different things. When the
+    # canonical detector started locating conventional directories anywhere in
+    # the tree (#441), the script kept reading only the workspace root — so
+    # `has_tools_dir` was `true` on one side and `false` on the other while
+    # this test stayed green. These three are the located-directory answer, so
+    # they are compared by value.
+    for key in ("has_prompts_dir", "has_tools_dir", "conventional_dirs"):
+        assert script_signals[key] == cli_signals[key], (
+            f"{sample_dir.name}: workspace_signals[{key!r}] diverged "
+            f"(script={script_signals[key]!r}, cli={cli_signals[key]!r}). "
+            "The script must mirror cli/discovery/signals.py:"
+            "_conventional_dir_locations exactly."
+        )
 
     assert script_result["agent_name_candidates"] == cli_result["agent_name_candidates"], (
         f"{sample_dir.name}: agent_name_candidates diverged.\n"
@@ -982,3 +995,50 @@ def test_script_binding_rules_match_the_cli(script_module, tmp_path):
             script_result["agent_name_candidates"]
             == cli_result["agent_name_candidates"]
         ), f"{label}: binding resolution diverged from the CLI"
+
+
+def test_script_locates_nested_conventional_dirs_like_the_cli(
+    script_module, tmp_path
+):
+    """The samples all keep their conventional directories at the root, so the
+    per-sample parity check above cannot see this divergence.
+
+    #441 moved conventional-directory discovery below the workspace root in the
+    canonical detector. The script kept reading only the root, and because the
+    parity assertion compared `workspace_signals` *keys*, `has_tools_dir` was
+    `true` on one side and `false` on the other with every test green. This
+    fixture is the reproduction from that issue: a Python distribution whose
+    tools live under the import package.
+    """
+
+    workspace = tmp_path / "src" / "billing-cost-management-mcp-server"
+    package = workspace / "awslabs" / "billing_cost_management_mcp_server"
+    (package / "tools").mkdir(parents=True)
+    (workspace / "pyproject.toml").write_text(
+        '[project]\nname = "awslabs.billing"\nversion = "0.1.0"\n', encoding="utf-8"
+    )
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "tools" / "budget_tools.py").write_text(
+        "async def budget_server(ctx):\n    return {}\n", encoding="utf-8"
+    )
+    (workspace / "docs").mkdir()
+    (workspace / "docs" / "prompts").mkdir()
+    (workspace / "docs" / "prompts" / "system.md").write_text("hi\n", encoding="utf-8")
+
+    script_signals = script_module.detect(workspace)["workspace_signals"]
+    cli_signals = detect_workspace(workspace.resolve()).model_dump(mode="json")[
+        "workspace_signals"
+    ]
+
+    for key in ("has_prompts_dir", "has_tools_dir", "conventional_dirs"):
+        assert script_signals[key] == cli_signals[key], (
+            f"workspace_signals[{key!r}] diverged "
+            f"(script={script_signals[key]!r}, cli={cli_signals[key]!r})."
+        )
+    # And the value is the located path, not the bare name — the thing a
+    # reader of either surface can open.
+    assert cli_signals["conventional_dirs"] == [
+        "docs/prompts",
+        "awslabs/billing_cost_management_mcp_server/tools",
+    ]
+    assert cli_signals["has_tools_dir"] is True

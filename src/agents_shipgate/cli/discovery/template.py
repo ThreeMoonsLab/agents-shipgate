@@ -29,6 +29,8 @@ from agents_shipgate.cli.discovery.artifacts import (
     discover_openai_api_artifacts,
 )
 from agents_shipgate.cli.discovery.manifest_scaffold import (
+    DISCOVERY_SCAFFOLD_DETAIL,
+    DISCOVERY_SCAFFOLD_SUMMARY,
     RenderedManifest,
     ToolSurfaceOrigin,
     scaffold_tool_sources_block,
@@ -109,7 +111,11 @@ def render_auto_manifest(
         # carries a scaffold — and says so, in the YAML and in the caller's
         # return value alike.
         tool_surface_origin = "scaffold"
-        tool_source_lines = scaffold_tool_sources_block()
+        # Auto mode ran full discovery, so it is entitled to say nothing was
+        # found. `--minimal` is not; see `manifest_scaffold`.
+        tool_source_lines = scaffold_tool_sources_block(
+            summary=DISCOVERY_SCAFFOLD_SUMMARY, detail=DISCOVERY_SCAFFOLD_DETAIL
+        )
 
     # Excluded-source hints are comments, appended only after the fallback
     # decision above so they can never stand in for a real tool_sources
@@ -138,7 +144,13 @@ def render_auto_manifest(
     lines.append("")
     lines.extend(_ci_and_output_block())
     lines.append("")
-    return RenderedManifest(text="\n".join(lines), tool_surface_origin=tool_surface_origin)
+    return RenderedManifest(
+        "\n".join(lines),
+        tool_surface_origin=tool_surface_origin,
+        scaffold_summary=(
+            DISCOVERY_SCAFFOLD_SUMMARY if tool_surface_origin == "scaffold" else None
+        ),
+    )
 
 
 def _project_name(workspace: Path, detect_result: DetectResult) -> str:

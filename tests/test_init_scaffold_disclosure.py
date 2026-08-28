@@ -26,7 +26,9 @@ from typer.testing import CliRunner
 from agents_shipgate.cli.discovery import detect_workspace, render_auto_manifest
 from agents_shipgate.cli.discovery.artifacts import render_manifest_template
 from agents_shipgate.cli.discovery.manifest_scaffold import (
-    SCAFFOLD_SUMMARY,
+    DISCOVERY_SCAFFOLD_DETAIL,
+    DISCOVERY_SCAFFOLD_SUMMARY,
+    MINIMAL_SCAFFOLD_SUMMARY,
     scaffold_tool_sources_block,
 )
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
@@ -213,7 +215,11 @@ def test_scaffold_comment_lists_every_accepted_type(tmp_path: Path) -> None:
     this comment describing a set the loader no longer accepts."""
 
     comment = "\n".join(
-        line for line in scaffold_tool_sources_block() if line.startswith("#")
+        line
+        for line in scaffold_tool_sources_block(
+            summary=DISCOVERY_SCAFFOLD_SUMMARY, detail=DISCOVERY_SCAFFOLD_DETAIL
+        )
+        if line.startswith("#")
     )
     for source_type in BUILTIN_TOOL_SOURCE_TYPES:
         assert source_type in comment
@@ -245,7 +251,7 @@ def test_init_states_that_the_source_block_is_a_scaffold(tmp_path: Path) -> None
 
     assert payload["created"] is True
     assert payload["tool_surface_origin"] == "scaffold"
-    assert SCAFFOLD_SUMMARY in payload["manifest_message"]
+    assert DISCOVERY_SCAFFOLD_SUMMARY in payload["manifest_message"]
     assert "tool_sources[0].type" in {
         entry["path"] for entry in payload["placeholders"]
     }
@@ -260,7 +266,7 @@ def test_init_dry_run_control_reason_states_the_scaffold(tmp_path: Path) -> None
     result = runner.invoke(app, ["init", "--workspace", str(workspace), "--json"])
     payload = json.loads(result.stdout)
     assert payload["tool_surface_origin"] == "scaffold"
-    assert SCAFFOLD_SUMMARY in payload["control"]["reason"]
+    assert DISCOVERY_SCAFFOLD_SUMMARY in payload["control"]["reason"]
     assert payload["control"]["next_action"]["command"] is not None
 
 
@@ -268,7 +274,7 @@ def test_init_human_output_states_the_scaffold(tmp_path: Path) -> None:
     workspace = _fastmcp_server(tmp_path)
     runner = CliRunner()
     result = runner.invoke(app, ["init", "--workspace", str(workspace), "--write"])
-    assert SCAFFOLD_SUMMARY in result.stdout
+    assert DISCOVERY_SCAFFOLD_SUMMARY in result.stdout
 
 
 def test_init_on_a_detected_workspace_is_unaffected(tmp_path: Path) -> None:
@@ -322,6 +328,7 @@ def test_scaffold_advance_is_an_edit_not_a_scan(tmp_path: Path) -> None:
         next_action_create=scan,
         skipped_target=None,
         tool_surface_origin="scaffold",
+        scaffold_summary=DISCOVERY_SCAFFOLD_SUMMARY,
     )
     assert (kind, decision, blocking) == ("configure", "setup_incomplete", False)
     assert advance.kind == "edit"
@@ -358,7 +365,7 @@ def test_written_scaffold_publishes_the_human_declaration(tmp_path: Path) -> Non
     assert payload["control"]["control_state"] == "human_review_required"
     assert payload["control"]["next_action"]["command"] is None
     assert payload["tool_surface_origin"] == "scaffold"
-    assert SCAFFOLD_SUMMARY in payload["manifest_message"]
+    assert DISCOVERY_SCAFFOLD_SUMMARY in payload["manifest_message"]
 
 
 def test_tool_surface_origin_is_null_when_this_run_wrote_nothing(
@@ -404,8 +411,11 @@ def test_registry_message_names_the_placeholder_not_a_missing_package() -> None:
         raise AssertionError("expected ConfigError")
 
     assert "placeholder" in message
+    # Neither remedy the generic branches offer: there is no discovery flag to
+    # set and no package that ships an adapter for `CHANGE_ME`.
     assert "AGENTS_SHIPGATE_ENABLE_PLUGINS" not in message
-    assert "install" not in message
+    assert "adapter package" not in message
+    assert "fix a typo" not in message
 
 
 def test_unknown_adapter_diagnostic_routes_the_placeholder_to_an_edit(
@@ -551,3 +561,173 @@ def test_conventional_dir_scan_ignores_paths_outside_the_workspace(
     root.mkdir()
     outside = (tmp_path / "elsewhere" / "tools" / "x.py").resolve()
     assert _conventional_dir_locations(root, files=[outside]) == {}
+
+
+# --- Review findings on the first two commits -------------------------------
+
+
+def test_both_renderers_still_return_a_usable_string(tmp_path: Path) -> None:
+    """The package docstring names ``render_manifest_template`` among the
+    imports it keeps stable across releases.
+
+    Returning a dataclass kept every in-tree call site green — each was updated
+    to ``.text`` — while breaking every caller outside the tree. This is the
+    call a consumer actually makes.
+    """
+
+    for rendered in (
+        render_manifest_template(tmp_path.resolve()),
+        render_auto_manifest(tmp_path, detect_workspace(tmp_path)),
+    ):
+        assert isinstance(rendered, str)
+        assert yaml.safe_load(rendered)["version"] == "0.1"
+        assert rendered.splitlines()[0].startswith("# yaml-language-server:")
+        assert rendered.rstrip().endswith("- json")
+        target = tmp_path / "out.yaml"
+        target.write_text(rendered, encoding="utf-8")
+        assert target.read_text(encoding="utf-8") == rendered.text
+
+
+def test_minimal_does_not_claim_discovery_it_never_ran(tmp_path: Path) -> None:
+    """``--minimal`` probes artifact globs and nothing else.
+
+    On ``samples/simple_langchain_agent`` the canonical ``detect`` reports
+    ``langchain`` while this renderer scaffolds, so "discovery found no tool
+    surface" and "no framework import was read" are claims it has no
+    observation behind.
+    """
+
+    import shutil
+
+    samples = Path(__file__).resolve().parent.parent / "samples"
+    workspace = tmp_path / "lc"
+    shutil.copytree(samples / "simple_langchain_agent", workspace)
+    (workspace / "shipgate.yaml").unlink(missing_ok=True)
+
+    assert [fw.type for fw in detect_workspace(workspace).frameworks] == ["langchain"]
+    rendered = render_manifest_template(workspace.resolve())
+    assert rendered.tool_surface_origin == "scaffold"
+    assert rendered.scaffold_summary == MINIMAL_SCAFFOLD_SUMMARY
+    assert DISCOVERY_SCAFFOLD_SUMMARY not in rendered
+    assert "does not run framework detection" in rendered
+    assert "No framework import" not in rendered
+
+    # And the auto renderer, which did run that detection, still detects it.
+    assert (
+        render_auto_manifest(
+            workspace, detect_workspace(workspace)
+        ).tool_surface_origin
+        == "detected"
+    )
+
+
+def test_minimal_init_reports_its_own_summary(tmp_path: Path) -> None:
+    runner = CliRunner()
+    payload = json.loads(
+        runner.invoke(
+            app, ["init", "--workspace", str(tmp_path), "--minimal", "--json"]
+        ).stdout
+    )
+    assert payload["tool_surface_origin"] == "scaffold"
+    assert MINIMAL_SCAFFOLD_SUMMARY in payload["control"]["reason"]
+    assert DISCOVERY_SCAFFOLD_SUMMARY not in payload["control"]["reason"]
+
+
+def test_input_id_covers_the_provenance_it_publishes(tmp_path: Path) -> None:
+    """Two dry runs whose answers differ must not share a cache identity.
+
+    ``manifest_status``, the placeholder list, and the advance are identical
+    for both, so nothing else in ``routing_facts`` separates them: the origin
+    and its summary had to be added.
+    """
+
+    runner = CliRunner()
+
+    def run() -> dict[str, object]:
+        return json.loads(
+            runner.invoke(
+                app, ["init", "--workspace", str(tmp_path), "--minimal", "--json"]
+            ).stdout
+        )
+
+    empty = run()
+    (tmp_path / "svc.openapi.yaml").write_text(
+        "openapi: 3.1.0\ninfo:\n  title: T\n  version: '1'\npaths: {}\n",
+        encoding="utf-8",
+    )
+    populated = run()
+
+    assert empty["tool_surface_origin"] == "scaffold"
+    assert populated["tool_surface_origin"] == "detected"
+    assert empty["control"]["reason"] != populated["control"]["reason"]
+    assert empty["control"]["input_id"] != populated["control"]["input_id"]
+
+
+def test_scaffold_does_not_close_the_open_source_type(tmp_path: Path) -> None:
+    """``ToolSourceConfig.type`` is deliberately open to third-party adapters,
+    and a repository only a custom adapter can read is *more* likely to reach
+    the scaffold, not less. Nothing here may say the built-ins are the whole
+    accepted set."""
+
+    from agents_shipgate.cli._register_init import _scaffold_next_action
+    from agents_shipgate.cli.diagnostics import diagnose_unknown_adapter_source_type
+    from agents_shipgate.core.errors import ConfigError
+    from agents_shipgate.inputs.protocol import REGISTRY
+
+    rendered = render_auto_manifest(tmp_path, detect_workspace(tmp_path))
+    assert "third-party adapter" in rendered
+
+    action = _scaffold_next_action(tmp_path / "shipgate.yaml", "S.")
+    assert "installed adapter registers" in (action.expects or "")
+
+    (diagnostic,) = diagnose_unknown_adapter_source_type(
+        tmp_path / "shipgate.yaml",
+        source_type=MANIFEST_PLACEHOLDER_VALUE,
+        plugins_enabled=False,
+        message="No adapter registered for source type 'CHANGE_ME'.",
+    )
+    assert "third-party adapter" in (diagnostic.next_actions[0].why or "")
+
+    try:
+        REGISTRY.require(MANIFEST_PLACEHOLDER_VALUE)
+    except ConfigError as exc:
+        assert "third-party adapter registers" in str(exc)
+
+
+def test_placeholder_diagnostic_title_matches_its_route(tmp_path: Path) -> None:
+    """The single title named "install/enable the adapter, or fix a typo" —
+    exactly the two remedies the placeholder branch says do not apply, and a
+    title is what a reader sees before any ``next_actions[]`` entry."""
+
+    from agents_shipgate.cli.diagnostics import diagnose_unknown_adapter_source_type
+
+    (placeholder,) = diagnose_unknown_adapter_source_type(
+        tmp_path / "shipgate.yaml",
+        source_type=MANIFEST_PLACEHOLDER_VALUE,
+        plugins_enabled=False,
+        message="m",
+    )
+    assert "install" not in placeholder.title
+    assert "typo" not in placeholder.title
+    assert "placeholder" in placeholder.title
+
+    (unknown,) = diagnose_unknown_adapter_source_type(
+        tmp_path / "shipgate.yaml",
+        source_type="openapii",
+        plugins_enabled=False,
+        message="m",
+    )
+    assert "fix a typo" in unknown.title
+
+
+def test_rendered_manifest_refuses_a_provenance_that_contradicts_itself() -> None:
+    """The summary and the origin are one answer; they cannot disagree."""
+
+    import pytest
+
+    from agents_shipgate.cli.discovery.manifest_scaffold import RenderedManifest
+
+    with pytest.raises(ValueError):
+        RenderedManifest("x", tool_surface_origin="scaffold")
+    with pytest.raises(ValueError):
+        RenderedManifest("x", tool_surface_origin="detected", scaffold_summary="s")

@@ -21,11 +21,20 @@
     cannot drift) and states that discovery had no evidence for any of them.
     `path` also loses its `.yaml` suffix, which belonged to the guessed type.
   - `init --json` gains `tool_surface_origin`: `"detected"` when every source
-    was read out of the workspace, `"scaffold"` when none was. The same fact
-    is stated in prose in `manifest_message`, on stdout, and in
-    `control.reason`. The renderer decides it — no caller re-derives it — and
-    the published next step for a scaffold is the edit that completes it, not
-    a `scan` that cannot resolve an adapter for `CHANGE_ME`.
+    was read out of the workspace, `"scaffold"` when none was, and `null` when
+    this run's render reached neither disk nor the payload (`skipped_existing`,
+    `refused_unresolved_scope`) — the authority rule `placeholders` already
+    follows. The same fact is stated in prose in `manifest_message` and on
+    stdout, and in `control.reason` on the routes where init's own reason is
+    the envelope's; on a freshly written manifest the human-owned
+    `declared_purpose` placeholder outranks it and `control.reason` carries
+    that declaration instead, which is why `manifest_message` is the field
+    that always says it. The renderer decides the origin — no caller
+    re-derives it — and the published next step for a scaffold is the edit
+    that completes it, not a `scan` that cannot resolve an adapter for
+    `CHANGE_ME`. The two renderers do not say the *same* thing about why:
+    `--minimal` never runs framework detection, so it reports that rather than
+    claiming discovery found nothing.
   - Conventional-directory discovery (`prompts/`, `tools/`,
     `.agents-shipgate/`) now reads the whole tree, not just the workspace
     root. A Python distribution puts its tools under the import package —
