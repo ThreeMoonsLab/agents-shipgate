@@ -1501,6 +1501,44 @@ def test_the_rootless_entry_point_state_is_published_as_itself(
     assert "Entry points: server\\_a, server\\_b" in rendered
 
 
+def test_one_declared_surface_is_the_same_state_as_several(tmp_path: Path) -> None:
+    """The single-source half of the state above, which reads oppositely.
+
+    ``_select_root`` returns the sole surface node when a repository declares
+    exactly one reviewed ``tool_sources[].binding`` and nothing observed an
+    agent, so — unlike the two-source form — that graph has a truthy
+    ``root_agent_id``, pointing at a node whose ``kind`` is ``tool_source``.
+
+    A renderer keyed on "is a root id set" therefore called it
+    ``Root agent: github_mcp`` beside ``Pass eligible: true``, announcing an
+    agent object that does not exist, while the two-source form of the same
+    repository printed the correct sentence. Whether a repository has an agent
+    is not a function of how many sources it declared, so the answer is read
+    from the node's ``kind`` (#329 review).
+    """
+
+    config = _workspace(
+        tmp_path / "one",
+        artifacts={"a/tools.json": [_mcp_tool("a.one")]},
+        sources=[_binding_source("github_mcp", "a/tools.json")],
+    )
+
+    report = _scan(config)
+
+    graph = report.binding_surface_facts
+    assert graph.pass_eligible is True
+    # The producer's shape, which is what makes this different from the
+    # two-source case rather than a duplicate of it.
+    assert graph.root_agent_id is not None
+    assert [node.kind for node in graph.agents] == ["tool_source"]
+    assert graph.entry_point_agent_ids == [graph.root_agent_id]
+
+    rendered = render_markdown_report(report)
+    assert "Root agent: none \\(graph rooted by declared tool sources\\)" in rendered
+    # The surface still names itself on the line that says what rooted it.
+    assert "Entry points: github\\_mcp" in rendered
+
+
 def test_an_agent_graph_still_has_exactly_one_entry_point(tmp_path: Path) -> None:
     """The compatibility half: every graph a prior release could produce.
 

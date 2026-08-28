@@ -10,10 +10,10 @@
   `Root agent: durable_order_agent [conductor_workflows]`, resolved through the
   same agent label index a binding gap uses, so the section header and a
   finding about that agent cannot spell it two different ways. `unresolved`
-  covers every way the graph can fail to name a root — no root, the
-  `legacy_direct` sentinel, or a root id no node carries; chaining back to the
-  id would restore the digest on exactly the graphs that already read worst,
-  and `binding_surface_facts.root_agent_id` still carries the identity in
+  is said only where an agent really could not be named — no root at all, or a
+  root id no node carries; chaining back to the id would restore the digest on
+  exactly the graphs that already read worst, and
+  `binding_surface_facts.root_agent_id` still carries the identity in
   `report.json` for a bug report.
 
   **The sweep that was supposed to catch this could not see it.** The Markdown
@@ -23,19 +23,29 @@
   `core.adopter_text` contains an underscore, which made that sweep close to
   vacuous over the whole half of the report that goes through
   `_safe_markdown_text`. The sweep now un-escapes each line first, against a
-  `unescape_markdown_text` defined as the escaper's inverse beside it, with a
+  `_unescape_markdown_text` defined as the escaper's inverse beside it, with a
   negative control asserting the raw escaped spelling passes the matcher while
   the sweep rejects it.
 
-  **`unresolved` is only ever said about an agent.** A report carrying no
-  agent graph at all — the `legacy_direct` compatibility assessment
-  `core.findings.report_builder` builds, and the schema default for a
-  `report.json` written before the field existed — has a truthy
-  `root_agent_id` that no node carries, so resolving it like an agent id
-  printed `unresolved` between `Status: structural` and `Pass eligible: true`,
-  describing a failure the report was not reporting. It now reads
-  `Root agent: none (tools bound directly, no agent graph)`, the same shape
-  #432 gave the tool-source state beside it.
+  **`unresolved` is only ever said about an agent.** Two states reach this
+  line with a truthy `root_agent_id` and no agent behind it, and reading
+  either as an unnameable agent describes a failure that did not happen —
+  `Status: structural` and `Pass eligible: true` are printed around it.
+
+  A report carrying no agent graph at all — the `legacy_direct` compatibility
+  assessment `core.findings.report_builder` builds, and the schema default for
+  a `report.json` written before the field existed — now reads `Root agent:
+  none (tools bound directly, no agent graph)`.
+
+  And a repository that declares exactly **one** reviewed
+  `tool_sources[].binding` surface and observes no agent: `_select_root`
+  returns that sole surface node, so the graph has a root id pointing at a
+  `kind: tool_source`. That printed `Root agent: github_mcp` beside
+  `Pass eligible: true` — announcing an agent object the repository does not
+  have — while the *two*-surface form of the same repository printed the
+  correct sentence. Whether a repository has an agent is not a function of how
+  many sources it declared, so the answer is read from the node's `kind`, and
+  both forms now say `none (graph rooted by declared tool sources)`.
 
   The `Entry points:` line beneath it (#432) resolves through the same index,
   and its own fallback is now `unresolved` rather than the raw `agent_v1:` id.

@@ -1098,6 +1098,16 @@ def _append_inventory(lines: list[str], report: ReadinessReport) -> None:
 #: worthwhile cleanup and a wider change than a rendering fix.
 _LEGACY_DIRECT_ROOT_AGENT_ID = "legacy_direct"
 
+#: What the root line says for a graph rooted by reviewed
+#: ``tool_sources[].binding`` surfaces rather than by an agent object.
+#:
+#: One constant because two branches reach the same fact from opposite sides:
+#: several surfaces leave ``root_agent_id`` unset, and exactly one surface
+#: *becomes* the root (``core.agent_bindings._select_root``). Whether a
+#: repository has an agent object cannot depend on how many sources it
+#: declared, so the sentence must not either.
+_ROOTED_BY_TOOL_SOURCES = "none (graph rooted by declared tool sources)"
+
 
 def _agent_display(agent_id: str, labels: Mapping[str, str]) -> str:
     """The one label naming an agent on the binding surface. Never its id.
@@ -1134,23 +1144,39 @@ def _root_agent_line(graph: AgentBindingGraphAssessment) -> str:
     ``tool_sources[].binding`` entries listed on the next line, and calling it
     unresolved reads as the failure it is not (#432 review).
 
-    A root the graph *did* name is printed as its label, never as
-    ``root_agent_id`` (see :func:`_agent_display`).
+    **Whether an agent object exists is read from the root node's ``kind``,
+    not from whether a root id is set.** ``_select_root`` returns the sole
+    surface node when a repository declares exactly one reviewed
+    ``tool_sources[].binding`` and nothing observed an agent, so that graph
+    has a truthy ``root_agent_id`` pointing at a ``tool_source``. Naming it
+    like an agent printed ``Root agent: github_mcp`` beside
+    ``Pass eligible: true`` for a repository with no agent object at all,
+    while the two-surface form of the same repository printed the correct
+    sentence — one fact, worded two ways by a count (#329 review).
 
-    And it is the wrong word a third time for a report carrying no agent graph
-    at all, whose root is :data:`_LEGACY_DIRECT_ROOT_AGENT_ID` — a truthy id no
-    node carries. That is the same shape of claim as the tool-source state
-    above: ``Status: structural`` and ``Pass eligible: true`` are printed
-    around this line, and ``unresolved`` between them describes a failure that
-    did not happen.
+    A root the graph *did* name, and that is an agent, is printed as its
+    label, never as ``root_agent_id`` (see :func:`_agent_display`).
+
+    And ``unresolved`` is the wrong word once more for a report carrying no
+    agent graph at all, whose root is :data:`_LEGACY_DIRECT_ROOT_AGENT_ID` — a
+    truthy id no node carries. Same shape of claim as the tool-source state:
+    ``Status: structural`` and ``Pass eligible: true`` are printed around this
+    line, and ``unresolved`` between them describes a failure that did not
+    happen.
     """
 
     if graph.root_agent_id == _LEGACY_DIRECT_ROOT_AGENT_ID:
         return "none (tools bound directly, no agent graph)"
     if graph.root_agent_id:
+        root = next(
+            (node for node in graph.agents if node.agent_id == graph.root_agent_id),
+            None,
+        )
+        if root is not None and root.kind == "tool_source":
+            return _ROOTED_BY_TOOL_SOURCES
         return _agent_display(graph.root_agent_id, agent_label_index(graph.agents))
     if graph.entry_point_agent_ids:
-        return "none (graph rooted by declared tool sources)"
+        return _ROOTED_BY_TOOL_SOURCES
     return "unresolved"
 
 
