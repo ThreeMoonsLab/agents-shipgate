@@ -239,7 +239,7 @@ def _configured_id_for(
     Pass 1 knows exactly — the dispatcher called the adapter *with* the config
     object, so every result of that call belongs to it however the adapter
     chose to spell the ids it mints (``codex_config`` emits
-    ``codex_config_mcp:<path>``, which matches no configured row).
+    ``codex_config_mcp:<server>``, which matches no configured row).
 
     Pass 2 has no config object, because a per-scan adapter fires once and may
     cover several entries plus a top-level manifest section. It is attributed

@@ -2,6 +2,60 @@
 
 ## Unreleased
 
+- **The same MCP server declared in two files is one capability, reconciled.**
+  A `codex_config` row over a workspace where two packages each carry a
+  `.mcp.json` naming `github` aborted the scan with
+  `'pkg_b/.mcp.json' was read twice as one tool source [...] Remove the
+  repeated shipgate.yaml entry naming 'pkg_b/.mcp.json'` — false on both
+  counts, and naming an edit nobody could make: the manifest names `path: .`
+  once, and that file was read once.
+
+  Two deliberate rules collided. An MCP capability is identified by
+  `(server, tool)` and by nothing else, so that moving a `.mcp.json` is not a
+  capability change (`mcp audit` pins this); and one identity may be observed
+  only once. Qualifying the minted id with the path resolves the collision and
+  breaks the first rule, so it stays rejected —
+  `tests/test_mcp_manifest.py::test_the_minted_server_id_stays_free_of_the_path_it_was_read_from`
+  keeps it rejected. The answer is that the two files declare **one capability
+  twice**, and the reader reconciles them before the catalog sees them.
+
+  **Identical declarations are silent.** Nothing was dropped, and a source
+  warning is a gating input; the ordinary monorepo layout gains no evidence
+  gap. Sameness is decided on the declaration as written, not on the fields
+  that reach a catalog row, so two files agreeing on every tool and disagreeing
+  on the command that serves them are not identical.
+
+  **Disagreeing declarations are merged conservatively, never by picking one.**
+  The merged server carries the union of the tools; a claim that raises risk
+  survives from any one declaration (`destructiveHint`, an unenumerated
+  `server.*` remainder, secret environment names, an external URL, an
+  authority scope, `approval_mode: approve` — which reaches even a tool whose
+  own file said nothing about approval); a reassuring claim survives only when
+  every declaration makes it (`readOnlyHint`, a local-documentation server, a
+  transport); and two files describing one tool with different schemas leave
+  the interface unknown rather than publishing either. A declaration the auth
+  parser refuses stays refused rather than being rebuilt as a valid one. Each
+  merged tool names the file that declares it, and each declaration that did
+  not enter the catalog on its own becomes a `SourceSurfaceOmission` — an
+  `adapter_parse` row in the #403 exclusion ledger, accounted for by the source
+  warning that reports it.
+
+  Two defects found alongside it:
+
+  - A `codex_config` row over *any* config naming an MCP server aborted the
+    scan before reaching the above: the loader returned one file-level tool
+    source holding tools stamped per server, so every tool was reported as
+    belonging to a source other than the one it was read from. It returns one
+    source per server.
+  - Two `tool_sources` entries reading one server from two files is the one
+    duplicate no reader can reconcile — neither entry's declarations speak for
+    both — and it was reported as a repeated manifest entry, which it is not.
+    A third `details.cause`, `duplicate_across_artifacts`, names both files and
+    the two repairs that exist. Documented in `docs/errors.json`.
+
+  No verdict, count, or version moves: `report_schema_version`,
+  `contract_version` and every published schema document are unchanged.
+
 - **A new evidence gap now says which subject left the analysed surface.**
   (#433) The exclusion ledger from #403 records precisely which subject each
   stage removed — `("binding", "find_duplicate [github_mcp]", "evidence_gap")`
