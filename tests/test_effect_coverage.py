@@ -512,6 +512,44 @@ def test_the_row_never_names_the_manifest_as_the_source_agreeing_with_it() -> No
     assert "source evidence agrees with the declaration (openapi_method)" in corroborated
 
 
+def test_only_the_manifest_can_write_a_reviewed_risk_hint() -> None:
+    """The trust premise the exclusion rests on, pinned.
+
+    Excluding `risk_hint:manual` from the source-evidence comparison is only
+    safe because tool-published content cannot produce one. Two things make
+    that true and both are one edit away from not being: `_validated_hint_basis`
+    grants the `reviewed_declaration` basis to no other hint source, and no
+    adapter writes a hint with that basis or that source. Adapters read
+    untrusted files; if one could emit either, a server could describe itself
+    into a claim the resolver stops reading as its own.
+    """
+
+    from agents_shipgate.core.semantic_assessment import _validated_hint_basis
+
+    tool = _tool()
+    for source in ("mcp_annotation", "openapi_method", "keyword", "n8n_static", "name"):
+        hint = ToolRiskHint(
+            tag="destructive",
+            source=source,
+            confidence="high",
+            basis="reviewed_declaration",
+        )
+        assert _validated_hint_basis(tool, hint, None) == "unknown", (
+            f"{source} was granted the reviewed basis"
+        )
+
+    adapters = _REPO_ROOT / "src" / "agents_shipgate" / "inputs"
+    offenders = [
+        str(path.relative_to(_REPO_ROOT))
+        for path in sorted(adapters.rglob("*.py"))
+        if "reviewed_declaration" in (text := path.read_text(encoding="utf-8"))
+        or '"manual"' in text
+    ]
+    assert not offenders, (
+        "an adapter can now write a reviewed risk hint: " + ", ".join(offenders)
+    )
+
+
 @pytest.mark.parametrize(
     ("tool_updates", "declaration_updates"),
     [
