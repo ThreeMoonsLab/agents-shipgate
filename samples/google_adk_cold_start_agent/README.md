@@ -72,6 +72,23 @@ action nothing has bounded, with a repository-chosen name breaking the tie.
 That is the regression `expected/suggested-declarations.yaml` catches by
 byte comparison.
 
+## What could move the verdict out from under it
+
+`insufficient_evidence` is what two tests pin, and it is not reached by the
+evidence gaps alone. A blocker, or an *active high or critical review concern
+on a proven-reachable capability*, both outrank it — so the verdict also
+depends on this fixture's one finding,
+`SHIP-ADK-EVAL-COVERAGE-MISSING` (it declares no `google_adk.eval_sets`),
+staying below that tier. It is `medium` today.
+
+Left in deliberately rather than silenced with an eval file: a repository that
+has not declared its eval coverage is exactly what a cold start looks like, and
+shaping the fixture around its own test would hide a real part of the report.
+But if raising that check's severity ever turns this sample
+`review_required`, the failure you will see is
+`test_sample_expected_report_json_is_current` reporting a decision mismatch,
+and this paragraph is the reason.
+
 ## Not covered here
 
 One rung of the order is missing: an action whose only reading is a heuristic

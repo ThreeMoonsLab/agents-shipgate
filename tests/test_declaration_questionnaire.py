@@ -1967,7 +1967,21 @@ def test_cold_start_scaffold_matches_its_golden(tmp_path):
 
     out = _cold_start_scan(tmp_path)
 
-    actual = (out / "suggested-declarations.yaml").read_text(encoding="utf-8")
+    written = out / "suggested-declarations.yaml"
+    # Named before it is read. ``_write_suggested_declarations`` *deletes* the
+    # file rather than writing one when no gap carries a template, so the
+    # likeliest regression here is its absence — and reading it unconditionally
+    # would report that as a path that does not exist rather than as the thing
+    # it is.
+    assert written.is_file(), (
+        "The scan wrote no suggested-declarations.yaml. This fixture is the "
+        "only sample that renders a declaration questionnaire; if its "
+        "questions were closed on purpose, the goldens beside it no longer "
+        "pin anything and the fixture needs a new open question, not a "
+        "regenerated golden."
+    )
+
+    actual = written.read_text(encoding="utf-8")
     expected = COLD_START_SCAFFOLD.read_text(encoding="utf-8")
 
     assert actual == expected, (
