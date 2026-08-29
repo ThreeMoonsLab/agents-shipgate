@@ -49,7 +49,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "cryptography>=50.0.0,<51",
+  "cryptography>=50.0.1,<51",
   "packaging>=26.3,<27",
   "pydantic>=2.13.4,<3",
   "pyyaml>=6.0.3,<7",
