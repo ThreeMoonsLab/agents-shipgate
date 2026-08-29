@@ -99,6 +99,12 @@ Tests can inject smaller requirements into the Python API, but those artifacts
 are marked `qualification_tier: test`, can never set
 `production_qualified: true`, and are rejected by both release gates.
 
+Both release gates re-derive the strata and every floor above from the artifact's
+own cases — the standard-library sealing gate included. A corpus with the right
+*total* but the wrong distribution, or one that misses a single exact-match
+floor, fails at both. The result envelope is
+`shipgate.safety_qualification/v5`.
+
 ## Run
 
 ```bash

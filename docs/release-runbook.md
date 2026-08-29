@@ -124,9 +124,15 @@ production rate rounded up.
 Both gates apply the rule independently — the exhaustive
 `scripts/verify_safety_qualification_release.py` in the `tests` job, and the
 standard-library `scripts/verify_qualification_binding.py` in the sealing job.
-An artifact naming a tier the version does not admit is rejected by both, and
-is then measured against the *production* counts, so a bad tier can never
-shrink what is checked.
+The sealing gate cannot import the project, so it *restates* each tier's
+strata, exact-match floors, per-stratum holdout, and origin and κ floors, and
+re-derives them from the raw cases; a case count alone would let 56 identical
+rows through. An artifact naming a tier the version does not admit is rejected
+by both, and is then measured against the *production* policy, so a bad tier
+can never shrink what is checked.
+
+"Unparsable" is decided by a complete PEP 440 parse, not a prefix: `0garbage`
+is not a `0.x` version and gets the production bar.
 
 To produce the artifact, `scripts/run_safety_qualification.py` selects the same
 way. `--policy-tier production` opts up to the 100-case bar on a `0.x` wheel;

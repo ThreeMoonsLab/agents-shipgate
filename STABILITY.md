@@ -13,6 +13,39 @@ for reproducible CI.
 
 ---
 
+<a id="migration-note-unreleased-pre-1-0-evidence-bar"></a>
+
+## Migration Note: unreleased — the pre-1.0 release evidence bar
+
+`shipgate.safety_qualification` advances **v4 → v5**. The corpus
+(`shipgate.safety_corpus/v4`) and receipt-index
+(`shipgate.safety_receipt_index/v4`) envelopes **do not move**: their grammar is
+unchanged, and these versions track grammar rather than release batches. No
+`contract_version`, `report_schema_version`, or published adopter-facing schema
+document changes.
+
+Two grammar changes force the bump. `qualification_tier` gains `pre_1_0`
+alongside `beta` and `test`, and the result now carries a cross-field
+invariant: `production_qualified` is true exactly when a `qualified` artifact
+claims the `beta` tier. A v4 reader admits neither, so a genuine `pre_1_0`
+artifact must not claim to be v4.
+
+**Reader behaviour.** The v5 reader accepts `shipgate.safety_qualification/v4`
+and reads it as v5, because every v4 payload is a v5 payload with identical
+meaning: v4's tier vocabulary is a strict subset of v5's, and the producer that
+emitted v4 always satisfied the new invariant. Upgrading grants nothing — the
+payload must still satisfy every v5 rule. Nothing emits v4 any more. v1 and v2
+continue to be read, as before; v3 is not, also as before.
+
+**What this is for.** `0.x` tags are now governed by a named 56-case `pre_1_0`
+policy, decided under
+[#341](https://github.com/ThreeMoonsLab/agents-shipgate/issues/341) and recorded
+in [`docs/release-evidence-policy-decision.md`](docs/release-evidence-policy-decision.md).
+It reduces evidence *coverage* only: the zero-unsafe-auto-pass rule, per-case
+receipts, the holdout fraction, the κ floor and `static_only` are unchanged, and
+every exact-match floor is the production rate rounded up. `1.0` and later still
+require the 100-case `beta` artifact, and there is no promotion shortcut.
+
 <a id="migration-note-unreleased-adopter-vocabulary"></a>
 
 ## Migration Note: unreleased — adopter-facing output stops naming internal fields

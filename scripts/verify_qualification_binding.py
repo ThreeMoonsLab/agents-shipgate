@@ -18,8 +18,10 @@ delegate publication authority, using nothing but the standard library:
 * it claims ``production_qualified`` exactly when it claims the ``beta`` tier;
 * it is static-only and does not claim runtime behaviour was proven;
 * it carries no failures, and exactly as many cases and receipts as that
-  policy requires;
-* it reports **zero** unsafe auto-passes;
+  policy requires, in exactly that policy's 28 profile x outcome strata;
+* it meets that policy's per-outcome exact-match floors and per-stratum
+  holdout minimum, both re-derived from the raw cases;
+* it reports **zero** unsafe auto-passes, overall and per profile;
 * and — the binding that matters — its recorded wheel name, version and
   SHA-256 are the wheel about to be published.
 
@@ -42,34 +44,43 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
 if __package__:
     from scripts._release_support import (
         PRODUCTION_QUALIFICATION_TIER,
-        QUALIFICATION_CASE_COUNTS,
+        QUALIFICATION_DECISIONS,
         SHA256_PATTERN,
         ReleaseError,
         accepted_qualification_tiers,
         describe_accepted_tiers,
         inspect_wheel,
+        qualification_policy,
     )
 else:  # ``python scripts/verify_qualification_binding.py``
     from _release_support import (
         PRODUCTION_QUALIFICATION_TIER,
-        QUALIFICATION_CASE_COUNTS,
+        QUALIFICATION_DECISIONS,
         SHA256_PATTERN,
         ReleaseError,
         accepted_qualification_tiers,
         describe_accepted_tiers,
         inspect_wheel,
+        qualification_policy,
     )
 
 
 def _require(errors: list[str], condition: bool, message: str) -> None:
     if not condition:
         errors.append(message)
+
+
+def _is_number(value: Any) -> bool:
+    """A real JSON number. ``True`` is an ``int`` in Python and is not one."""
+
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def verify_qualification_binding(
@@ -102,16 +113,13 @@ def verify_qualification_binding(
 
     # Which policy governs is decided by the wheel's version, never by the
     # artifact. An artifact naming a tier this version does not admit is
-    # rejected *and* falls back to the production case count, so a bad tier
-    # can never shrink the population checked below.
+    # rejected *and* falls back to the production policy, so a bad tier can
+    # never shrink the population checked below.
     accepted_tiers = accepted_qualification_tiers(wheel_version)
     tier = payload.get("qualification_tier")
     tier_accepted = tier in accepted_tiers
-    required_case_count = (
-        QUALIFICATION_CASE_COUNTS[tier]
-        if tier_accepted
-        else QUALIFICATION_CASE_COUNTS[PRODUCTION_QUALIFICATION_TIER]
-    )
+    policy = qualification_policy(tier if tier_accepted else PRODUCTION_QUALIFICATION_TIER)
+    required_case_count = policy.case_count
 
     _require(
         errors,
@@ -177,6 +185,82 @@ def verify_qualification_binding(
 
     _require(errors, derived_unsafe == 0, "cases contain an unsafe auto-pass")
     _require(errors, derived_runtime_failures == 0, "cases contain a runtime failure")
+
+    # A total case count is not a policy. Without the strata and the
+    # exact-match floors below, 56 cases in no stratum at all, or 56 correctly
+    # stratified cases with two safe passes missing, passed here while the
+    # exhaustive gate rejected them -- so the dependency-compromise boundary
+    # this file exists to hold would have been decorative.
+    objects = [case for case in cases if isinstance(case, dict)]
+    _require(errors, len(objects) == len(cases), "a case entry is not a JSON object")
+
+    strata = Counter(
+        (str(case.get("profile")), str(case.get("expected_decision"))) for case in objects
+    )
+    _require(
+        errors,
+        dict(strata) == policy.strata,
+        f"case profile/outcome strata do not match the {policy.tier} policy",
+    )
+
+    for decision in QUALIFICATION_DECISIONS:
+        exact = sum(
+            1
+            for case in objects
+            if case.get("expected_decision") == decision
+            and case.get("actual_decision") == decision
+        )
+        floor = policy.minimum_exact[decision]
+        _require(
+            errors,
+            exact >= floor,
+            f"{decision} exact-match floor failed: {exact} of "
+            f"{policy.outcome_total(decision)}, need {floor}",
+        )
+
+    for profile in sorted(policy.profile_counts):
+        _require(
+            errors,
+            not any(
+                case.get("profile") == profile
+                and case.get("expected_decision") != "passed"
+                and case.get("actual_decision") == "passed"
+                for case in objects
+            ),
+            f"profile {profile} contains an unsafe auto-pass",
+        )
+
+    for (profile, decision), stratum_size in sorted(policy.strata.items()):
+        holdout = sum(
+            1
+            for case in objects
+            if case.get("profile") == profile
+            and case.get("expected_decision") == decision
+            and case.get("split") == "holdout"
+        )
+        _require(
+            errors,
+            holdout >= policy.minimum_holdout(stratum_size),
+            f"stratum {profile}/{decision} holdout requirement failed",
+        )
+
+    # The only two policy floors that are *not* derivable from ``cases``: no
+    # case row carries its origin or the label agreement it came from. They are
+    # read from the summary and named as such, rather than silently skipped
+    # because they are inconvenient to re-derive here.
+    _require(
+        errors,
+        _is_number(summary.get("qualified_origin_cases"))
+        and summary["qualified_origin_cases"] >= policy.minimum_qualified_origins,
+        f"summary qualified_origin_cases is below the {policy.tier} minimum "
+        f"of {policy.minimum_qualified_origins}",
+    )
+    _require(
+        errors,
+        _is_number(summary.get("cohen_kappa"))
+        and summary["cohen_kappa"] >= policy.minimum_kappa,
+        f"summary cohen_kappa is below the {policy.tier} floor of {policy.minimum_kappa}",
+    )
     _require(
         errors,
         len(receipts) == required_case_count,

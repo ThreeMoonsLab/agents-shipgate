@@ -11,7 +11,10 @@ from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 
 SAFETY_CORPUS_SCHEMA_VERSION = "shipgate.safety_corpus/v4"
 SAFETY_RECEIPT_INDEX_SCHEMA_VERSION = "shipgate.safety_receipt_index/v4"
-SAFETY_QUALIFICATION_SCHEMA_VERSION = "shipgate.safety_qualification/v4"
+# v5 carries the ``pre_1_0`` tier and the production_qualified/tier invariant
+# added for issue #341. The corpus and receipt-index envelopes stay at v4: their
+# grammar did not move, and versions here track grammar, not release batches.
+SAFETY_QUALIFICATION_SCHEMA_VERSION = "shipgate.safety_qualification/v5"
 
 SafetyProfile = Literal[
     "mcp",
@@ -623,7 +626,7 @@ class SafetyQualificationResultV1(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["shipgate.safety_qualification/v4"] = (
+    schema_version: Literal["shipgate.safety_qualification/v5"] = (
         SAFETY_QUALIFICATION_SCHEMA_VERSION
     )
     qualification_tier: QualificationTier
@@ -643,13 +646,28 @@ class SafetyQualificationResultV1(BaseModel):
 
     @field_validator("schema_version", mode="before")
     @classmethod
-    def _upgrade_v1_schema(cls, value: str) -> str:
+    def _upgrade_prior_envelopes(cls, value: str) -> str:
+        """Read the earlier envelopes; emit only the current one.
+
+        v4 is accepted and read as v5 because every v4 payload *is* a v5
+        payload with identical meaning: v4's tier vocabulary (``beta``,
+        ``test``) is a strict subset of v5's, and the producer that emitted v4
+        always satisfied v5's production_qualified/tier invariant. Upgrading
+        grants nothing -- the payload still has to satisfy every v5 rule, and
+        `schema_version` is attacker-controlled text either way.
+
+        The reverse direction is why the version had to move at all: a genuine
+        ``pre_1_0`` artifact is *not* readable by a v4 reader, so it must not
+        claim to be v4.
+        """
+
         return (
             SAFETY_QUALIFICATION_SCHEMA_VERSION
             if value
             in {
                 "shipgate.safety_qualification/v1",
                 "shipgate.safety_qualification/v2",
+                "shipgate.safety_qualification/v4",
             }
             else value
         )

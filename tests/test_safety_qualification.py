@@ -22,6 +22,8 @@ from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.safety_qualification import (
     RELEASE_SAFETY_PROFILES,
+    SAFETY_CORPUS_SCHEMA_VERSION,
+    SAFETY_RECEIPT_INDEX_SCHEMA_VERSION,
     FrozenSafetyCorpusV1,
     HumanAdjudicationV1,
     IndependentHumanLabelV1,
@@ -55,8 +57,9 @@ from agents_shipgate.schemas.verify_run import (
     build_verify_run_artifact,
 )
 from scripts._release_support import (
-    QUALIFICATION_CASE_COUNTS,
+    QUALIFICATION_POLICIES,
     accepted_qualification_tiers,
+    release_version_is_pre_1_0,
 )
 from scripts.run_safety_qualification import (
     EXPECTED_MERGE_VERDICT,
@@ -819,6 +822,44 @@ def test_the_production_flag_cannot_disagree_with_the_tier(tmp_path: Path) -> No
         )
 
 
+def test_the_qualification_envelope_advanced_for_the_new_grammar(tmp_path: Path) -> None:
+    """`pre_1_0` and the production_qualified invariant are grammar changes.
+
+    A v4 reader admits neither, so a genuine pre-1.0 artifact must not claim
+    v4. v4 payloads stay readable because v4's vocabulary is a strict subset of
+    v5's and its producer always satisfied the new invariant; v3 was never
+    readable and still is not.
+    """
+
+    payload = _run(_fixture(tmp_path)).model_dump(mode="json")
+    assert payload["schema_version"] == "shipgate.safety_qualification/v5"
+
+    for readable in (
+        "shipgate.safety_qualification/v1",
+        "shipgate.safety_qualification/v2",
+        "shipgate.safety_qualification/v4",
+        "shipgate.safety_qualification/v5",
+    ):
+        assert SafetyQualificationResultV1.model_validate(
+            {**payload, "schema_version": readable}
+        ).schema_version == "shipgate.safety_qualification/v5"
+
+    for rejected in (
+        "shipgate.safety_qualification/v3",
+        "shipgate.safety_qualification/v6",
+        "shipgate.safety_qualification",
+    ):
+        with pytest.raises(ValidationError):
+            SafetyQualificationResultV1.model_validate(
+                {**payload, "schema_version": rejected}
+            )
+
+    # The corpus and receipt-index envelopes did *not* move: their grammar is
+    # unchanged, and these versions track grammar rather than release batches.
+    assert SAFETY_CORPUS_SCHEMA_VERSION == "shipgate.safety_corpus/v4"
+    assert SAFETY_RECEIPT_INDEX_SCHEMA_VERSION == "shipgate.safety_receipt_index/v4"
+
+
 def test_an_unknown_qualification_tier_is_not_a_valid_artifact(tmp_path: Path) -> None:
     """Negative control for the widened tier union: adding ``pre_1_0`` must not
     have turned ``qualification_tier`` into a free-text field."""
@@ -838,17 +879,83 @@ def test_an_unknown_qualification_tier_is_not_a_valid_artifact(tmp_path: Path) -
             )
 
 
-def test_the_stdlib_case_counts_match_the_named_policies() -> None:
-    """The sealing job restates these counts without importing the schemas.
-    Two copies of a number are a drift risk unless something binds them."""
+def test_the_stdlib_policy_table_matches_the_named_policies() -> None:
+    """The sealing job restates the whole policy without importing the schemas.
 
-    assert QUALIFICATION_CASE_COUNTS == {
-        "beta": sum(item.count for item in production_safety_requirements().required_strata),
-        "pre_1_0": sum(item.count for item in pre_release_safety_requirements().required_strata),
+    A restated *case count* was not enough: the sealer could not tell 56
+    correctly stratified cases from 56 identical ones, nor notice a corpus two
+    safe passes below its floor. Every field it now re-derives is bound here,
+    because two copies of a policy drift unless something forces them equal.
+    """
+
+    named = {
+        "beta": production_safety_requirements(),
+        "pre_1_0": pre_release_safety_requirements(),
     }
-    assert accepted_qualification_tiers("0.16.0b7") == ("beta", "pre_1_0")
+    assert set(QUALIFICATION_POLICIES) == set(named)
+    assert set(QUALIFICATION_POLICIES) == set(accepted_qualification_tiers("0.16.0b7"))
     assert accepted_qualification_tiers("1.0.0") == ("beta",)
-    assert set(QUALIFICATION_CASE_COUNTS) == set(accepted_qualification_tiers("0.16.0b7"))
+
+    for tier, requirements in named.items():
+        policy = QUALIFICATION_POLICIES[tier]
+        assert policy.tier == tier
+        assert policy.strata == {
+            (item.profile, item.expected_decision): item.count
+            for item in requirements.required_strata
+        }, tier
+        assert policy.case_count == sum(item.count for item in requirements.required_strata), tier
+        assert policy.minimum_exact == {
+            "passed": requirements.minimum_safe_passes,
+            "review_required": requirements.minimum_review_exact,
+            "insufficient_evidence": requirements.minimum_insufficient_evidence_exact,
+            "blocked": requirements.minimum_blocked_exact,
+        }, tier
+        assert policy.minimum_qualified_origins == requirements.minimum_qualified_origins, tier
+        assert policy.minimum_kappa == requirements.minimum_kappa, tier
+        assert policy.minimum_holdout_fraction_per_stratum == (
+            requirements.minimum_holdout_fraction_per_stratum
+        ), tier
+        assert policy.maximum_unsafe_auto_passes == requirements.maximum_unsafe_auto_passes, tier
+        for decision in DECISIONS:
+            assert policy.outcome_total(decision) == sum(
+                item.count
+                for item in requirements.required_strata
+                if item.expected_decision == decision
+            ), (tier, decision)
+        # The sealer's holdout minimum is the verifier's, not an approximation.
+        for item in requirements.required_strata:
+            assert policy.minimum_holdout(item.count) == math.ceil(
+                item.count * requirements.minimum_holdout_fraction_per_stratum
+            ), tier
+
+
+def test_only_a_complete_pep440_version_can_reach_the_cheaper_policy() -> None:
+    """The approved rule sends *every* unparsable version to the production bar.
+
+    A prefix-anchored parse read `0garbage`, `0.16.0garbage` and `0..1` as
+    major 0 and handed them the pre-1.0 policy — the exact inversion of the
+    documented fallback. Both release gates share this helper, so the hole
+    opened both at once.
+    """
+
+    for version in (
+        "0.16.0b7", "0.16.0", "0.16.0rc1", "0.16.0.post1", "0.16.0.dev1",
+        "0.16.0+local", "0.16.0-1", "0.0.1", "0",
+        # Leading zeros are legal PEP 440 and normalize away.
+        "00.1", "0.016.0",
+    ):
+        assert release_version_is_pre_1_0(version) is True, version
+
+    for version in (
+        # Genuinely 1.0 or later, including a normalizing leading zero and a
+        # non-zero epoch.
+        "1.0.0", "1.0.0rc1", "01.0.0", "9.9.9", "1!0.1", "10.2.0",
+        # Malformed: none of these may buy the cheaper bar.
+        "0garbage", "0.16.0garbage", "0..1", "0-", "0x1", "0.16.0_", "",
+        "  ", "0.16.0 extra", "-0.1", "0.16.0++local", "v0.16.0", "0!x",
+    ):
+        assert release_version_is_pre_1_0(version) is False, version
+        assert accepted_qualification_tiers(version) == ("beta",), version
 
 
 def test_custom_fixture_qualifies_only_as_test_and_is_byte_deterministic(

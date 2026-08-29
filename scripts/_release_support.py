@@ -19,8 +19,11 @@ project; `scripts/verify_wheel_provenance.py` runs only there.
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 import zipfile
+from collections.abc import Mapping
+from dataclasses import dataclass
 from email.parser import BytesParser
 from email.policy import default as email_policy
 from pathlib import Path
@@ -31,32 +34,143 @@ SHA256_PATTERN = re.compile(r"\A[0-9a-f]{64}\Z")
 PRODUCTION_QUALIFICATION_TIER = "beta"
 PRE_1_0_QUALIFICATION_TIER = "pre_1_0"
 
-# Case count per named qualification policy. Restated here because the sealing
-# job may not import the project's pydantic schemas, and bound to the real
-# constructors by ``test_the_stdlib_case_counts_match_the_named_policies`` so
-# the two copies cannot drift.
-QUALIFICATION_CASE_COUNTS = {
-    PRODUCTION_QUALIFICATION_TIER: 100,
-    PRE_1_0_QUALIFICATION_TIER: 56,
+# Outcome order used by every ``profile_counts`` row below.
+QUALIFICATION_DECISIONS = (
+    "passed",
+    "review_required",
+    "insufficient_evidence",
+    "blocked",
+)
+
+
+@dataclass(frozen=True)
+class QualificationPolicy:
+    """One named release policy, restated without importing the project.
+
+    The sealing job runs on the standard library alone, so it cannot read
+    ``production_safety_requirements()``. Restating a *total case count* was not
+    enough: a 56-case artifact with two safe passes missing, or 56 cases in no
+    stratum at all, satisfied a count check while failing the actual policy. The
+    sealer must be able to re-derive the same floors the exhaustive gate does,
+    or the dependency-compromise boundary it exists to hold is decorative.
+
+    Every field here is bound to the real constructor by
+    ``test_the_stdlib_policy_table_matches_the_named_policies``.
+    """
+
+    tier: str
+    profile_counts: Mapping[str, tuple[int, int, int, int]]
+    minimum_exact: Mapping[str, int]
+    minimum_qualified_origins: int
+    minimum_kappa: float
+    minimum_holdout_fraction_per_stratum: float
+    maximum_unsafe_auto_passes: int
+
+    @property
+    def strata(self) -> dict[tuple[str, str], int]:
+        return {
+            (profile, decision): count
+            for profile, counts in self.profile_counts.items()
+            for decision, count in zip(QUALIFICATION_DECISIONS, counts, strict=True)
+        }
+
+    @property
+    def case_count(self) -> int:
+        return sum(sum(counts) for counts in self.profile_counts.values())
+
+    def outcome_total(self, decision: str) -> int:
+        index = QUALIFICATION_DECISIONS.index(decision)
+        return sum(counts[index] for counts in self.profile_counts.values())
+
+    def minimum_holdout(self, stratum_size: int) -> int:
+        return math.ceil(stratum_size * self.minimum_holdout_fraction_per_stratum)
+
+
+_RELEASE_SAFETY_PROFILES = (
+    "mcp_openapi_declared_binding",
+    "openai_agents_sdk",
+    "langchain_crewai",
+    "google_adk",
+    "n8n",
+    "multi_agent_handoffs",
+    "coding_agent_trust_roots",
+)
+
+QUALIFICATION_POLICIES: dict[str, QualificationPolicy] = {
+    PRODUCTION_QUALIFICATION_TIER: QualificationPolicy(
+        tier=PRODUCTION_QUALIFICATION_TIER,
+        profile_counts={
+            "mcp_openapi_declared_binding": (6, 4, 4, 6),
+            "openai_agents_sdk": (5, 3, 3, 4),
+            "langchain_crewai": (5, 3, 3, 4),
+            "google_adk": (3, 2, 2, 3),
+            "n8n": (3, 2, 2, 3),
+            "multi_agent_handoffs": (4, 3, 3, 5),
+            "coding_agent_trust_roots": (4, 3, 3, 5),
+        },
+        minimum_exact={
+            "passed": 27,
+            "review_required": 19,
+            "insufficient_evidence": 19,
+            "blocked": 30,
+        },
+        minimum_qualified_origins=40,
+        minimum_kappa=0.80,
+        minimum_holdout_fraction_per_stratum=0.20,
+        maximum_unsafe_auto_passes=0,
+    ),
+    PRE_1_0_QUALIFICATION_TIER: QualificationPolicy(
+        tier=PRE_1_0_QUALIFICATION_TIER,
+        profile_counts=dict.fromkeys(_RELEASE_SAFETY_PROFILES, (2, 2, 2, 2)),
+        minimum_exact={
+            "passed": 13,
+            "review_required": 14,
+            "insufficient_evidence": 14,
+            "blocked": 14,
+        },
+        minimum_qualified_origins=23,
+        minimum_kappa=0.80,
+        minimum_holdout_fraction_per_stratum=0.20,
+        maximum_unsafe_auto_passes=0,
+    ),
 }
 
-# PEP 440 leading ``[N!]N(.N)*``. Only the epoch and the first release segment
-# decide which policy governs a tag, so nothing after them is parsed.
-_VERSION_PREFIX = re.compile(r"\A(?:(?P<epoch>\d+)!)?(?P<release>\d+(?:\.\d+)*)")
+# The complete PEP 440 public-version grammar, anchored at both ends. An
+# earlier prefix-anchored form read ``0garbage``, ``0.16.0garbage`` and
+# ``0..1`` as major 0 and handed them the *cheaper* policy -- the exact
+# opposite of the approved rule, which sends every unparsable version to the
+# production bar. The permissive leading ``v`` is deliberately not accepted:
+# wheel metadata carries a normalized version, and refusing one only ever
+# selects the stricter policy.
+_PEP440_VERSION = re.compile(
+    r"""\A
+    (?:(?P<epoch>[0-9]+)!)?
+    (?P<release>[0-9]+(?:\.[0-9]+)*)
+    (?:[-_.]?(?:alpha|a|beta|b|preview|pre|c|rc)[-_.]?[0-9]*)?
+    (?:-[0-9]+|[-_.]?(?:post|rev|r)[-_.]?[0-9]*)?
+    (?:[-_.]?dev[-_.]?[0-9]*)?
+    (?:\+[a-z0-9]+(?:[-_.][a-z0-9]+)*)?
+    \Z""",
+    re.VERBOSE | re.IGNORECASE,
+)
 
 
 def release_version_is_pre_1_0(version: str) -> bool:
-    """True only for an epoch-0 version whose major release segment is 0.
+    """True only for a valid epoch-0 version whose major release segment is 0.
 
-    Fail-closed by construction: an unparsable version is *not* pre-1.0, so it
-    falls through to the strictest policy rather than the cheapest one.
+    Fail-closed by construction: a version this cannot fully parse is *not*
+    pre-1.0, so it falls through to the strictest policy rather than the
+    cheapest one. Both release gates share this helper, so a hole here opens
+    both at once.
     """
 
-    match = _VERSION_PREFIX.match(version.strip())
+    match = _PEP440_VERSION.match(version.strip())
     if match is None:
         return False
     if int(match.group("epoch") or 0) != 0:
         return False
+    # Leading zeros are legal PEP 440 and normalize away: ``00.1`` is 0.1, and
+    # ``01.0`` is 1.0 and therefore not pre-1.0.
     return int(match.group("release").split(".")[0]) == 0
 
 
@@ -71,6 +185,19 @@ def accepted_qualification_tiers(version: str) -> tuple[str, ...]:
     if release_version_is_pre_1_0(version):
         return (PRODUCTION_QUALIFICATION_TIER, PRE_1_0_QUALIFICATION_TIER)
     return (PRODUCTION_QUALIFICATION_TIER,)
+
+
+def qualification_policy(tier: object) -> QualificationPolicy:
+    """The restated policy for ``tier``, falling back to production.
+
+    The fallback is not a convenience: an artifact naming a tier its version
+    does not admit is rejected *and* still measured, and measuring it against
+    the strictest policy is what stops a bad tier shrinking the population.
+    """
+
+    if isinstance(tier, str) and tier in QUALIFICATION_POLICIES:
+        return QUALIFICATION_POLICIES[tier]
+    return QUALIFICATION_POLICIES[PRODUCTION_QUALIFICATION_TIER]
 
 
 def describe_accepted_tiers(accepted: tuple[str, ...]) -> str:

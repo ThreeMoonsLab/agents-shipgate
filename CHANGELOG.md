@@ -151,6 +151,22 @@
   the `requirements=` keyword too, not just `--policy-tier`, which previously
   let a caller score a `1.0` wheel against the pre-1.0 policy and exit `0`.
 
+  **Review found three more, all in the parts that decide what publishes.**
+  The sealing gate restated only a *case count*, so it could not tell 56
+  correctly stratified cases from 56 identical ones, and accepted a corpus two
+  safe passes below its floor that the exhaustive gate rejected — the
+  dependency-compromise boundary it exists to hold was decorative. It now
+  restates each tier's strata, exact-match floors, per-stratum holdout, and the
+  origin and κ floors, re-derives them from the raw cases, and has every field
+  bound to the real constructors by test. The version→tier rule was anchored
+  only at the start of the string, so `0garbage`, `0.16.0garbage` and `0..1`
+  bought the *cheaper* policy — the exact inversion of the documented fallback,
+  in a helper both gates share; it now requires a complete PEP 440 parse. And
+  `qualification_tier: pre_1_0` plus the new cross-field invariant are grammar
+  changes emitted under a frozen envelope id, so
+  `shipgate.safety_qualification` advances **v4 → v5**, with v4 still readable
+  (its vocabulary is a strict subset) and the corpus and receipt-index
+  envelopes deliberately unmoved, since their grammar did not change.
 
 - **The declaration continuation: a drafted proposal can now reach the person
   it was drafted for.** (#429 review) `apply-patches --kinds declare_action`

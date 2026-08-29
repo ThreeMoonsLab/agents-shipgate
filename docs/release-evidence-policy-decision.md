@@ -73,7 +73,9 @@ The governing policy is a function of the **version**, applied by the pipeline:
   carrying more evidence than its tag requires.
 - **anything else** (`1.0.0`, `1.0.0rc1`, `9.9.9`, `1!0.1`) → `beta` only.
 - **an unparsable version** → `beta` only. The fallback is the strictest
-  policy, never the cheapest.
+  policy, never the cheapest. "Unparsable" means anything that is not a
+  complete PEP 440 version: `0garbage` and `0.16.0garbage` are *not* pre-1.0,
+  even though they begin with a zero.
 
 This is not "inferring the choice from the tag", which #341 forbade. The choice
 was made here, by a named human, and *is* a rule keyed to the version range;
@@ -125,7 +127,9 @@ the wrong shape.
   names a tier from what the thresholds *are*, so an ad-hoc threshold set scores
   as `test` and can never release. `SafetyQualificationResultV1` additionally
   refuses to construct an artifact whose `production_qualified` disagrees with
-  its tier.
+  its tier. Both are grammar changes, so the envelope advances
+  `shipgate.safety_qualification/v4 → v5`; see the migration note in
+  [`STABILITY.md`](../STABILITY.md).
 - `scripts/run_safety_qualification.py` — produces the artifact, and selects the
   policy from the wheel version (`--policy-tier` may opt *up* to production;
   it refuses to opt down for a 1.0-or-later wheel).
@@ -133,11 +137,18 @@ the wrong shape.
   Re-derives every count, interval and confusion matrix from the governing
   policy.
 - `scripts/verify_qualification_binding.py` — **the sealing gate.** Standard
-  library only, so it restates the per-tier case counts rather than importing
-  them; `test_the_stdlib_case_counts_match_the_named_policies` binds the two
-  copies. *This site is easy to miss: an earlier draft of this brief listed
-  only five, and a change that skipped this one would have failed at the
-  sealing step with a bare case-count error.*
+  library only, so it *restates* each tier's strata, exact-match floors,
+  holdout minimum and origin/κ floors rather than importing them, and
+  re-derives them from the raw cases;
+  `test_the_stdlib_policy_table_matches_the_named_policies` binds every field
+  of the two copies. Restating only a case count is not enough — it cannot
+  tell 56 correctly stratified cases from 56 identical ones, nor notice a
+  corpus two safe passes below its floor, which is exactly the class of
+  weakening this gate exists to stop. *This site is easy to miss: an earlier
+  draft of this brief listed only five.*
+- `scripts/_release_support.py` — the version→tier rule, shared by both gates
+  and the producer. It requires a **complete** PEP 440 parse: a version it
+  cannot fully parse is not pre-1.0, so it falls to the production bar.
 - `benchmark/safety-qualification/README.md` — **the corpus owner's runbook**,
   and the one that decides what actually gets built. A change that left this
   behind would aim the corpus-delivery effort at the wrong shape entirely,
