@@ -1,6 +1,6 @@
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
 from jsonschema import validate
@@ -291,7 +291,16 @@ def test_sample_expected_report_json_uses_repo_placeholder_for_manifest_dir():
         assert str(Path.cwd()) not in text
         assert payload["manifest_dir"].startswith("<REPO>/samples/")
         for fmt, written in (payload.get("generated_reports") or {}).items():
-            assert not Path(written).is_absolute(), (
+            # Both spellings, because `Path` is the *running* platform's and
+            # the leak this catches is a POSIX temp path: `WindowsPath('/var/
+            # folders/…').is_absolute()` is False for want of a drive, so on
+            # Windows the check would pass on exactly the golden it exists to
+            # reject (#425 review).
+            absolute = (
+                PurePosixPath(written).is_absolute()
+                or PureWindowsPath(written).is_absolute()
+            )
+            assert not absolute, (
                 f"{path} records an absolute path for its {fmt} report "
                 f"({written!r}). Regenerate it with a relative `output_dir` so "
                 "the golden does not carry the generating machine's temp dir."
