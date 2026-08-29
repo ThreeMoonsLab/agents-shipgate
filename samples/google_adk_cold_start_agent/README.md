@@ -85,9 +85,10 @@ Left in deliberately rather than silenced with an eval file: a repository that
 has not declared its eval coverage is exactly what a cold start looks like, and
 shaping the fixture around its own test would hide a real part of the report.
 But if raising that check's severity ever turns this sample
-`review_required`, the failure you will see is
-`test_sample_expected_report_json_is_current` reporting a decision mismatch,
-and this paragraph is the reason.
+`review_required`, two tests fail —
+`test_sample_expected_report_json_is_current`, which asserts the decision
+string, and `test_cold_start_markdown_report_matches_golden`, whose golden
+carries it as a line of prose — and this paragraph is the reason.
 
 ## Not covered here
 
