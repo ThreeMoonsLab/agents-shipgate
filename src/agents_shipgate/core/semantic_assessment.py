@@ -576,12 +576,11 @@ def _assess_effect(
         # fixed for the same reason; this branch never got the treatment.
         #
         # Narrow on purpose: only the two spellings of "declare this category
-        # as reviewed" are excluded, never ``is_manifest_owned_effect_claim``
-        # wholesale.
-        # That predicate also covers ``action_scope``, and #417 deliberately
-        # made a declared ``crm.delete`` grant bound the action's effect — a
-        # grant asserts an independent fact, a tag refines the effect the same
-        # person wrote.
+        # as reviewed" are excluded, never every manifest-owned claim. That
+        # wider set covers ``action_scope`` too, and #417 deliberately made a
+        # declared ``crm.delete`` grant bound the action's effect — a grant
+        # asserts an independent fact, a tag refines the effect the same person
+        # wrote.
         contradictory = [
             claim
             for claim in [*structural, *inferred]
