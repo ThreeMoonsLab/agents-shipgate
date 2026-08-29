@@ -1281,13 +1281,17 @@ def test_the_sealer_reads_the_governing_policy_from_the_version_not_the_artifact
     )
     assert record["qualification_tier"] == "pre_1_0"
 
-    # The identical claim does not publish anything from 1.0 onwards.
-    with pytest.raises(ReleaseError, match="tier is not beta"):
+    # The identical claim does not publish anything from 1.0 onwards -- and the
+    # rejected tier does not get to pick the population either: the counts fall
+    # back to production, so the same artifact is also short 44 cases.
+    with pytest.raises(ReleaseError) as excinfo:
         verify_qualification_binding(
             qualification_path=_artifact(post_1_0_wheel, "9.9.9", 56),
             wheel_path=post_1_0_wheel,
             tag="v9.9.9",
         )
+    assert "tier is not beta" in str(excinfo.value)
+    assert "carries 56 cases, not 100" in str(excinfo.value)
 
     for overrides, count, expected in [
         # A tier the version admits still owns its own case count, in both

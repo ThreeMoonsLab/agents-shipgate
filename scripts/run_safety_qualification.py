@@ -61,9 +61,17 @@ from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.schemas.verify_run import VerifyRunArtifact
 
 if __package__:
-    from scripts._release_support import release_version_is_pre_1_0
+    from scripts._release_support import (
+        accepted_qualification_tiers,
+        describe_accepted_tiers,
+        release_version_is_pre_1_0,
+    )
 else:  # ``python scripts/run_safety_qualification.py``
-    from _release_support import release_version_is_pre_1_0
+    from _release_support import (
+        accepted_qualification_tiers,
+        describe_accepted_tiers,
+        release_version_is_pre_1_0,
+    )
 
 DECISIONS: tuple[ReleaseDecisionStatus, ...] = (
     "passed",
@@ -489,6 +497,30 @@ def _confusion_matrix(
 POLICY_TIER_CHOICES = ("auto", "production", "pre-1.0")
 
 
+def require_tier_governs_version(tier: str, wheel_version: str) -> None:
+    """Refuse a named policy the wheel's version does not admit.
+
+    The same rule both release gates apply, enforced here so it holds however
+    the requirements were chosen -- the ``--policy-tier`` flag *and* the
+    ``requirements=`` keyword. Without it a caller could hand
+    ``pre_release_safety_requirements()`` to a ``1.0`` wheel and get a
+    zero-exit artifact that no gate will ever accept, discovered only after
+    signing.
+
+    ``test`` is exempt: an ad-hoc threshold set is already unpublishable at
+    every gate, and unit fixtures legitimately score one against any wheel.
+    """
+
+    if tier == "test":
+        return
+    accepted = accepted_qualification_tiers(wheel_version)
+    if tier not in accepted:
+        raise ConfigError(
+            f"The {tier} qualification policy does not govern {wheel_version}; "
+            f"that version requires {describe_accepted_tiers(accepted)}"
+        )
+
+
 def select_release_requirements(
     wheel_version: str, choice: str = "auto"
 ) -> SafetyQualificationRequirementsV1:
@@ -509,15 +541,12 @@ def select_release_requirements(
         raise ConfigError(f"Unknown qualification policy tier: {choice}")
     if choice == "production":
         return production_safety_requirements()
-    pre_1_0 = release_version_is_pre_1_0(wheel_version)
     if choice == "pre-1.0":
-        if not pre_1_0:
-            raise ConfigError(
-                f"The pre-1.0 qualification policy does not govern {wheel_version}; "
-                "1.0 and later require the production policy"
-            )
+        require_tier_governs_version("pre_1_0", wheel_version)
         return pre_release_safety_requirements()
-    return pre_release_safety_requirements() if pre_1_0 else production_safety_requirements()
+    if release_version_is_pre_1_0(wheel_version):
+        return pre_release_safety_requirements()
+    return production_safety_requirements()
 
 
 def run_safety_qualification(
@@ -532,8 +561,11 @@ def run_safety_qualification(
     wheel_name, wheel_version, wheel_sha256 = inspect_wheel(wheel_path)
     active_requirements = requirements or select_release_requirements(wheel_version, policy_tier)
     # Named from what the thresholds *are*, never from what a caller asks for:
-    # an ad-hoc requirements object stays ``test`` and cannot release.
+    # an ad-hoc requirements object stays ``test`` and cannot release. The
+    # version rule is then re-applied to the *result*, so it also binds the
+    # ``requirements=`` keyword, which bypasses the selector above.
     tier = tier_for_requirements(active_requirements)
+    require_tier_governs_version(tier, wheel_version)
     corpus = load_frozen_corpus(corpus_path)
     receipt_index = load_receipt_index(receipt_index_path)
     corpus_sha256 = sha256_file(corpus_path)

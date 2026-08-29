@@ -103,9 +103,10 @@ constructor. `pre_1_0` is additive.
 
 **Reusing `production_qualified` for both tiers.** The flag keeps meaning "met
 the 100-case bar". A `pre_1_0` artifact reports `production_qualified: false`,
-and both release verifiers reject an artifact that claims otherwise. A field
-that quietly changed meaning would be the easiest way for this decision to be
-misread later.
+and the artifact schema refuses to *construct* one that says otherwise — so the
+producer cannot emit the inconsistency, rather than every reader having to
+catch it after signing. A field that quietly changed meaning would be the
+easiest way for this decision to be misread later.
 
 ## Where the bar is defined
 
@@ -117,7 +118,9 @@ so a partial change fails a release verifier rather than silently weakening it.
   origin minimum, κ floor, holdout fraction, unsafe-auto-pass maximum.
 - `QualificationTier` — `beta`, `pre_1_0`, `test`. `tier_for_requirements()`
   names a tier from what the thresholds *are*, so an ad-hoc threshold set scores
-  as `test` and can never release.
+  as `test` and can never release. `SafetyQualificationResultV1` additionally
+  refuses to construct an artifact whose `production_qualified` disagrees with
+  its tier.
 - `scripts/run_safety_qualification.py` — produces the artifact, and selects the
   policy from the wheel version (`--policy-tier` may opt *up* to production;
   it refuses to opt down for a 1.0-or-later wheel).
@@ -130,8 +133,13 @@ so a partial change fails a release verifier rather than silently weakening it.
   copies. *This site is easy to miss: an earlier draft of this brief listed
   only five, and a change that skipped this one would have failed at the
   sealing step with a bare case-count error.*
-- `docs/distribution.md` and [`release-runbook.md`](release-runbook.md) — the
-  operator-facing description of the protected release input.
+- `benchmark/safety-qualification/README.md` — **the corpus owner's runbook**,
+  and the one that decides what actually gets built. A change that left this
+  behind would send the corpus-delivery effort at the wrong shape entirely,
+  which no gate can detect and no verifier error would explain.
+- `docs/distribution.md`, [`release-runbook.md`](release-runbook.md) and
+  `docs/INDEX.md` — the operator-facing description of the protected release
+  input, and the index agents walk to find it.
 
 ## Acceptance
 

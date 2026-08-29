@@ -137,7 +137,19 @@
   binds its restated numbers to the real constructors so the two copies cannot
   drift. Along the way the exhaustive verifier stopped hard-coding `100` in six
   places and now derives every count, metric denominator and confusion-matrix
-  profile from the governing policy.
+  profile from the governing policy. Review turned up a **seventh**:
+  `benchmark/safety-qualification/README.md`, the corpus owner's runbook, which
+  decides what actually gets built — a change that left it behind would have
+  aimed the whole corpus effort at the wrong shape, which no gate can detect.
+  It now documents both policies, and its pre-existing claim that receipts must
+  carry report schema `0.40` (the gate pins `0.42`) is corrected.
+
+  **`production_qualified` is now unrepresentable when it disagrees with the
+  tier.** Every gate rejected such an artifact, but only after it had been
+  signed and handed to the release. `SafetyQualificationResultV1` refuses to
+  construct one, so the producer cannot emit it — and the version rule binds
+  the `requirements=` keyword too, not just `--policy-tier`, which previously
+  let a caller score a `1.0` wheel against the pre-1.0 policy and exit `0`.
 
 
 - **The declaration continuation: a drafted proposal can now reach the person

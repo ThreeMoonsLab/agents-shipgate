@@ -655,6 +655,24 @@ class SafetyQualificationResultV1(BaseModel):
         )
 
     @model_validator(mode="after")
+    def _production_claim_matches_the_tier(self) -> SafetyQualificationResultV1:
+        """``production_qualified`` means the 100-case bar, in every artifact.
+
+        Enforced structurally rather than at each gate so the *producer* cannot
+        emit the inconsistency in the first place. A pre-1.0 artifact asserting
+        the production flag would otherwise be signed before any verifier saw
+        it, and rejected only at the last step before publication.
+        """
+
+        expected = self.qualified and self.qualification_tier == "beta"
+        if self.production_qualified != expected:
+            raise ValueError(
+                "production_qualified must be true exactly when a qualified "
+                "artifact claims the beta tier"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _sort_output(self) -> SafetyQualificationResultV1:
         self.strata.sort(key=lambda item: (item.profile, item.expected_decision))
         self.confusion_matrices.sort(key=lambda item: item.profile)

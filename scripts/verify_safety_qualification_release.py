@@ -103,14 +103,11 @@ def verify_release_qualification(
 
     _append(errors, bool(tag), "release tag is empty")
     _append(errors, tag == f"v{wheel_version}", "release tag does not match wheel version")
+    # ``production_qualified`` is not re-checked here: the artifact schema
+    # refuses to construct one where it disagrees with ``qualified`` and the
+    # tier, so ``_load_qualification`` above has already rejected it. The
+    # standard-library sealing gate, which parses raw JSON, restates it.
     _append(errors, result.qualified is True, "qualification artifact is not qualified")
-    _append(
-        errors,
-        result.production_qualified == (tier == "beta"),
-        "qualification artifact is not production_qualified"
-        if tier == "beta"
-        else "qualification claims production_qualified without the production policy",
-    )
     _append(errors, result.static_only is True, "qualification must be static-only")
     _append(
         errors,

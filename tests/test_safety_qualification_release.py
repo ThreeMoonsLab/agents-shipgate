@@ -369,10 +369,20 @@ def test_the_tier_a_0_x_artifact_names_selects_the_counts_it_must_meet(
     numbers: a 56-case corpus cannot call itself ``beta``, and a 100-case one
     cannot call itself ``pre_1_0``."""
 
+    def _relabel(tier: str, production: bool):
+        # Both fields together: relabelling only the tier trips the artifact's
+        # own production_qualified invariant, which would prove that check
+        # rather than the case count this test is about.
+        def _apply(payload: dict) -> None:
+            payload["qualification_tier"] = tier
+            payload["production_qualified"] = production
+
+        return _apply
+
     wheel, qualification = _fixture(
         tmp_path / "understated", requirements=pre_release_safety_requirements()
     )
-    _mutate(qualification, lambda payload: payload.__setitem__("qualification_tier", "beta"))
+    _mutate(qualification, _relabel("beta", True))
     with pytest.raises(ConfigError, match="exactly 100 cases"):
         verify_release_qualification(
             wheel_path=wheel, qualification_path=qualification, tag=f"v{VERSION}"
@@ -381,7 +391,7 @@ def test_the_tier_a_0_x_artifact_names_selects_the_counts_it_must_meet(
     wheel, qualification = _fixture(
         tmp_path / "overstated", requirements=production_safety_requirements()
     )
-    _mutate(qualification, lambda payload: payload.__setitem__("qualification_tier", "pre_1_0"))
+    _mutate(qualification, _relabel("pre_1_0", False))
     with pytest.raises(ConfigError, match="exactly 56 cases"):
         verify_release_qualification(
             wheel_path=wheel, qualification_path=qualification, tag=f"v{VERSION}"
@@ -389,13 +399,24 @@ def test_the_tier_a_0_x_artifact_names_selects_the_counts_it_must_meet(
 
 
 def test_a_pre_1_0_artifact_may_not_claim_the_production_flag(tmp_path: Path) -> None:
-    """``production_qualified`` keeps meaning "met the 100-case bar". A pre-1.0
-    artifact asserting it is inconsistent, not merely optimistic."""
+    """``production_qualified`` keeps meaning "met the 100-case bar".
+
+    The artifact schema refuses to construct the inconsistency at all, so the
+    runner cannot emit one and the verifier rejects it while parsing -- before
+    any policy check runs. Both directions are wrong: a pre-1.0 artifact
+    claiming the flag, and a beta artifact disclaiming it.
+    """
 
     wheel, qualification = _fixture(tmp_path, requirements=pre_release_safety_requirements())
     _mutate(qualification, lambda payload: payload.__setitem__("production_qualified", True))
+    with pytest.raises(ConfigError, match="Invalid safety qualification artifact"):
+        verify_release_qualification(
+            wheel_path=wheel, qualification_path=qualification, tag=f"v{VERSION}"
+        )
 
-    with pytest.raises(ConfigError, match="production_qualified without the production policy"):
+    wheel, qualification = _fixture(tmp_path / "beta", requirements=production_safety_requirements())
+    _mutate(qualification, lambda payload: payload.__setitem__("production_qualified", False))
+    with pytest.raises(ConfigError, match="Invalid safety qualification artifact"):
         verify_release_qualification(
             wheel_path=wheel, qualification_path=qualification, tag=f"v{VERSION}"
         )
