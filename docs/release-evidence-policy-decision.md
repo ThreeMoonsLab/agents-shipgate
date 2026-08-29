@@ -82,7 +82,9 @@ Nothing in the artifact influences which policy applies to it.
 
 **Promotion to 1.0 is not automatic and has no shortcut.** There is no path by
 which `pre_1_0` evidence qualifies a `1.0` tag. Shipping 1.0 requires the full
-100-case artifact, which is what the corpus-delivery issue exists to produce.
+100-case artifact, which is what corpus-delivery issue
+[#456](https://github.com/ThreeMoonsLab/agents-shipgate/issues/456) exists to
+produce.
 When it lands, `pre_1_0` stops being reachable by construction — every tag from
 then on has a major version of at least 1 — and the tier is retired from the
 vocabulary in the same change that ships the 1.0 bar.
@@ -110,8 +112,11 @@ easiest way for this decision to be misread later.
 
 ## Where the bar is defined
 
-Changing the bar means changing all of these together; they are cross-checked,
-so a partial change fails a release verifier rather than silently weakening it.
+Changing the bar means changing all of these together. The first five are
+cross-checked, so a partial change fails a release verifier rather than
+silently weakening it. The last two are not, and are the more dangerous
+omission for exactly that reason: nothing fails, and the corpus gets built to
+the wrong shape.
 
 - `production_safety_requirements()` and `pre_release_safety_requirements()` in
   `src/agents_shipgate/schemas/safety_qualification.py` — case counts, strata,
@@ -135,7 +140,7 @@ so a partial change fails a release verifier rather than silently weakening it.
   sealing step with a bare case-count error.*
 - `benchmark/safety-qualification/README.md` — **the corpus owner's runbook**,
   and the one that decides what actually gets built. A change that left this
-  behind would send the corpus-delivery effort at the wrong shape entirely,
+  behind would aim the corpus-delivery effort at the wrong shape entirely,
   which no gate can detect and no verifier error would explain.
 - `docs/distribution.md`, [`release-runbook.md`](release-runbook.md) and
   `docs/INDEX.md` — the operator-facing description of the protected release
@@ -151,8 +156,9 @@ so a partial change fails a release verifier rather than silently weakening it.
 - [x] Documentation, schema vocabulary, qualification generator, release
       verifiers, and this runbook agree — enforced by the tests named above,
       not only asserted here.
-- [ ] A separate corpus-delivery issue is opened for the 56-case artifact and
-      the 100-case 1.0 bar.
+- [x] A separate corpus-delivery issue is opened for the 56-case artifact and
+      the 100-case 1.0 bar —
+      [#456](https://github.com/ThreeMoonsLab/agents-shipgate/issues/456).
 - [ ] A rehearsal proves the chosen policy **fails closed** — dispatch
       **Release Rehearsal** against an artifact that misses the bar and confirm
       publication stops at the qualification step. The deterministic half of

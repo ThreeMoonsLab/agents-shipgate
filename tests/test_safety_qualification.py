@@ -302,7 +302,7 @@ def _fixture(
     policy = tmp_path / "qualification-policy.json"
     _write_json(policy, {"policy": "beta-exact", "version": 1})
 
-    cases = cases or [
+    cases = cases if cases is not None else [
         _case(
             f"case-{decision}",
             decision,
