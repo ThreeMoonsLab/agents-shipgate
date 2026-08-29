@@ -283,39 +283,52 @@ def test_the_published_repair_closes_the_row_it_is_printed_on() -> None:
     unclosed: list[str] = []
     routes: set[str] = set()
     exercised = 0
+    seeded = 0
     for count in (1, 2, 3):
         for effects in itertools.combinations(sorted(tags), count):
             tool = observed(effects)
-            for declared in _EFFECTS:
-                base = {
-                    "tool": "send_email",
-                    "effect": declared,
-                    "authority": {"mode": "none"},
-                }
-                assessment, kinds = _issue_kinds(
-                    tool, ActionDeclarationConfig.model_validate(base)
-                )
-                if "declaration_below_inferred_evidence" not in kinds:
-                    continue
-                exercised += 1
-                repair = effect_repair(assessment.effect)
-                routes.add(repair.kind)
-                repaired = dict(base)
-                if repair.kind == "raise_effect":
-                    repaired["effect"] = repair.effect
-                else:
-                    repaired["risk_tags"] = list(repair.risk_tags)
-                repaired_assessment, after = _issue_kinds(
-                    tool, ActionDeclarationConfig.model_validate(repaired)
-                )
-                if after or not repaired_assessment.pass_eligible:
-                    unclosed.append(
-                        f"declared={declared} observed={effects} "
-                        f"repair={repair.kind}:{repair.effect or repair.risk_tags} "
-                        f"-> {sorted(after) or 'not pass-eligible'}"
+            # Rows that already carry a reviewed tag as well as bare ones.
+            # `risk_tags` is one key, so applying the repair replaces it: a
+            # repair naming only the new category deleted a covering tag and
+            # reopened the row on the next scan (#424 review). The seed is a
+            # category the tool really does read, so it covers something.
+            for seed in ((), (effects[0],)):
+                for declared in _EFFECTS:
+                    base: dict = {
+                        "tool": "send_email",
+                        "effect": declared,
+                        "authority": {"mode": "none"},
+                    }
+                    if seed:
+                        base["risk_tags"] = list(seed)
+                    assessment, kinds = _issue_kinds(
+                        tool, ActionDeclarationConfig.model_validate(base)
                     )
+                    if "declaration_below_inferred_evidence" not in kinds:
+                        continue
+                    exercised += 1
+                    seeded += bool(seed)
+                    repair = effect_repair(assessment.effect)
+                    routes.add(repair.kind)
+                    repaired = dict(base)
+                    if repair.kind == "raise_effect":
+                        repaired["effect"] = repair.effect
+                    else:
+                        # Replaced, not unioned: that is what pasting a block
+                        # that names the key does.
+                        repaired["risk_tags"] = list(repair.risk_tags)
+                    repaired_assessment, after = _issue_kinds(
+                        tool, ActionDeclarationConfig.model_validate(repaired)
+                    )
+                    if after or not repaired_assessment.pass_eligible:
+                        unclosed.append(
+                            f"declared={declared} observed={effects} seed={seed} "
+                            f"repair={repair.kind}:{repair.effect or repair.risk_tags} "
+                            f"-> {sorted(after) or 'not pass-eligible'}"
+                        )
 
     assert exercised > 100, "the matrix stopped exercising the rule"
+    assert seeded > 50, "the matrix stopped exercising already-tagged rows"
     assert routes == {"raise_effect", "declare_risk_tags"}, (
         f"the matrix stopped walking both published routes: {sorted(routes)}"
     )
