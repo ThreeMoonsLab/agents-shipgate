@@ -29,7 +29,8 @@ from agents_shipgate.core.adopter_text import (
     source_label,
 )
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.schemas.detect import DetectResult
+from agents_shipgate.invocation import render_command
+from agents_shipgate.schemas.detect import DetectResult, WorkspaceSignals
 from agents_shipgate.schemas.diagnostics import (
     DIAG_CHANGE_ME_PLACEHOLDERS,
     DIAG_CODEX_PLUGIN_PACKAGE_DETECTED,
@@ -46,6 +47,10 @@ from agents_shipgate.schemas.diagnostics import (
     DIAG_ZERO_TOOLS,
     Diagnostic,
     NextAction,
+)
+from agents_shipgate.schemas.manifest import (
+    MANIFEST_PLACEHOLDER_VALUE,
+    builtin_tool_source_types_text,
 )
 
 
@@ -128,9 +133,51 @@ def diagnose_unknown_adapter_source_type(
     The "edit shipgate.yaml" path that ``diagnose_invalid_manifest``
     emits would be misleading here — the manifest itself is valid;
     the user just needs to install/enable the matching adapter.
+
+    Unless the type is the manifest placeholder, in which case the edit *is*
+    the answer and both other routes are wrong: there is no package to install
+    for ``CHANGE_ME`` and no typo to fix. It is the value ``init`` writes when
+    discovery found no tool surface, and it is the first failure a scaffolded
+    manifest hits — ahead of the missing ``path``, which ``input_parse_recovery``
+    has always routed as a placeholder (#441).
     """
 
-    if plugins_enabled:
+    if source_type == MANIFEST_PLACEHOLDER_VALUE:
+        next_actions = [
+            NextAction(
+                kind="edit",
+                path=str(manifest_path),
+                why=(
+                    f"tool_sources[].type is still {source_type!r} — the "
+                    "placeholder `agents-shipgate init` writes when it finds "
+                    "no tool surface to read. Nothing was inferred here: name "
+                    "the source this repository publishes and the path to it. "
+                    f"Built-ins: {builtin_tool_source_types_text()}; an "
+                    "installed third-party adapter's own source type is "
+                    "equally valid."
+                ),
+                expects=(
+                    "tool_sources[].type names a built-in source type or one "
+                    "an installed adapter registers, and tool_sources[].path "
+                    "resolves to a file in this workspace."
+                ),
+            ),
+            NextAction(
+                kind="command",
+                command=render_command(
+                    ["doctor", "--config", str(manifest_path), "--json"]
+                ),
+                why=(
+                    "List every field this manifest still leaves unresolved, "
+                    "not only the one the scan stopped on."
+                ),
+                expects=(
+                    "A doctor payload whose placeholders[] is empty for this "
+                    "manifest."
+                ),
+            ),
+        ]
+    elif plugins_enabled:
         next_actions = [
             NextAction(
                 kind="command",
@@ -154,8 +201,7 @@ def diagnose_unknown_adapter_source_type(
                 path=str(manifest_path),
                 why=(
                     f"If {source_type!r} is a typo, fix it. Built-in "
-                    "source types: mcp, openapi, openai_agents_sdk, "
-                    "google_adk, langchain, crewai, codex_plugin."
+                    f"source types: {builtin_tool_source_types_text()}."
                 ),
                 expects=(
                     "Manifest references only built-in source types or "
@@ -204,8 +250,7 @@ def diagnose_unknown_adapter_source_type(
                 path=str(manifest_path),
                 why=(
                     f"If {source_type!r} is a typo, fix it. Built-in "
-                    "source types: mcp, openapi, openai_agents_sdk, "
-                    "google_adk, langchain, crewai, codex_plugin."
+                    f"source types: {builtin_tool_source_types_text()}."
                 ),
                 expects=(
                     "Manifest references only built-in source types or "
@@ -218,9 +263,19 @@ def diagnose_unknown_adapter_source_type(
     return [
         Diagnostic(
             id=DIAG_UNKNOWN_ADAPTER_SOURCE_TYPE,
+            # The title names the remedy the selected route actually is. The
+            # single "(install/enable the adapter, or fix a typo)" title named,
+            # for the placeholder, exactly the two remedies its own branch says
+            # do not apply — and a title is what a reader sees before any
+            # `next_actions[]` entry (#441 review).
             title=(
-                f"No adapter handles tool_sources[].type {source_type!r} "
-                "in shipgate.yaml (install/enable the adapter, or fix a typo)"
+                f"tool_sources[].type is still the {source_type!r} placeholder "
+                "in shipgate.yaml (name the source this repository publishes)"
+                if source_type == MANIFEST_PLACEHOLDER_VALUE
+                else (
+                    f"No adapter handles tool_sources[].type {source_type!r} "
+                    "in shipgate.yaml (install/enable the adapter, or fix a typo)"
+                )
             ),
             severity="block",
             next_actions=next_actions,
@@ -444,6 +499,55 @@ def diagnose_invalid_manifest(
     ]
 
 
+def _at_workspace_root(signals: WorkspaceSignals, name: str) -> bool:
+    """Whether that conventional directory sits at the workspace root.
+
+    ``has_prompts_dir`` / ``has_tools_dir`` answer "anywhere in this workspace",
+    which is the question #441 needed. A negative control that describes the
+    *shape* of the workspace needs the narrower one, and
+    ``conventional_dirs`` holds workspace-relative paths whose root spelling is
+    the bare name.
+    """
+
+    return name in signals.conventional_dirs
+
+
+def _no_agent_surface_why(signals: WorkspaceSignals) -> str:
+    """Why nothing here is a Shipgate target, naming what *was* found.
+
+    The flat "no framework imports, no tool artifacts, and no prompt directory"
+    is a list of absences, and it stopped being the whole truth once the
+    conventional-dir signal started reading below the workspace root (#441): a
+    repository whose tools live at
+    ``awslabs/billing_cost_management_mcp_server/tools/`` was told nothing
+    tool-shaped was found, while ``workspace_signals.has_tools_dir`` in the
+    same payload said otherwise. A reader deciding whether to trust the verdict
+    needs the signal that was seen and *not* found sufficient, because that is
+    the one they would otherwise go looking for.
+    """
+
+    # `conventional_dirs` holds workspace-relative paths, so this names the
+    # directory a reader can actually open: `awslabs/…/tools/`, not `tools/`
+    # for a repository whose root has no `tools/` at all.
+    found = [f"{path}/" for path in signals.conventional_dirs]
+    if not found:
+        return (
+            "Workspace has no framework imports, no tool artifacts, and no "
+            "prompt directory."
+        )
+    return (
+        f"Workspace has {_join_and(found)} but no framework imports and no "
+        "parseable tool artifact, so there is no declared surface to gate. "
+        "A conventional directory alone is not one."
+    )
+
+
+def _join_and(items: list[str]) -> str:
+    if len(items) == 1:
+        return items[0]
+    return f"{', '.join(items[:-1])} and {items[-1]}"
+
+
 def diagnose_detect(
     result: DetectResult, *, has_manifest: bool, workspace: Path
 ) -> list[Diagnostic]:
@@ -485,7 +589,16 @@ def diagnose_detect(
         ):
             # Negative-control precedence
             if (
-                signals.has_prompts_dir
+                # A *root* `prompts/`, not one anywhere in the tree. "Only
+                # prompts/ is present" is a claim about the shape of the
+                # workspace, and #441 widened `has_prompts_dir` to mean
+                # "somewhere" — which made this fire on a thirty-file
+                # TypeScript MCP server with `src/prompts/`, a repository that
+                # flatly contradicts the sentence below. `conventional_dirs`
+                # carries located paths, and a root directory is spelled as its
+                # bare name, so this is the same question the field answered
+                # before the widening.
+                _at_workspace_root(signals, "prompts")
                 and not signals.has_tools_dir
                 and signals.python_file_count == 0
             ):
@@ -538,10 +651,7 @@ def diagnose_detect(
                         next_actions=[
                             NextAction(
                                 kind="stop",
-                                why=(
-                                    "Workspace has no framework imports, no "
-                                    "tool artifacts, and no prompt directory."
-                                ),
+                                why=_no_agent_surface_why(signals),
                             )
                         ],
                     )

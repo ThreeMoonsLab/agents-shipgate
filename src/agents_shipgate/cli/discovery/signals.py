@@ -24,7 +24,11 @@ Scoring (per plan §1, post-review v4):
   (``*mcp*.json``, ``*openapi*.yaml``, ``openai-config.json``,
   ``*anthropic*tools*.json``, ``*anthropic*policy*.yaml``).
 - Weak  (+0.5 each): conventional directory layout
-  (``prompts/``, ``tools/``, ``.agents-shipgate/``).
+  (``prompts/``, ``tools/``, ``.agents-shipgate/``), wherever in the tree it
+  sits — a Python distribution puts its tools under the import package
+  (``awslabs/billing_cost_management_mcp_server/tools/``), and reading only
+  the workspace root missed the one structural signal such a repository
+  offers (#441).
 
 A framework is *detected* when its score ≥ 2.0 AND it accumulated at
 least one strong signal.
@@ -37,6 +41,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -281,7 +286,8 @@ def detect_workspace(
 
     pkg_tokens = _collect_package_tokens(workspace)
     glob_hits = _collect_glob_hits(workspace, files=inventory)
-    dir_hits = _collect_dir_hits(workspace)
+    conventional_locations = _conventional_dir_locations(workspace, files=inventory)
+    dir_hits = _collect_dir_hits(conventional_locations)
 
     scores = _initial_framework_scores()
 
@@ -403,7 +409,17 @@ def detect_workspace(
     else:
         next_action = "Workspace does not appear to be an agent project. No action."
 
-    present_dirs = [d for d in CONVENTIONAL_DIRS if (workspace / d).is_dir()]
+    # Workspace-relative *paths*, in `CONVENTIONAL_DIRS` order — not the bare
+    # names this held while the check read only the root. Once it reads the
+    # whole tree a name is no longer a location: the reproduction in #441 has
+    # its only `tools/` at `awslabs/billing_cost_management_mcp_server/tools/`,
+    # and reporting `tools` for it sent every reader of this field, and of the
+    # negative-control message rendered from it, to a directory that does not
+    # exist. A path at the root is still spelled as the bare name, which is
+    # what `has_prompts_dir`-style *root* questions test against.
+    present_dirs = [
+        conventional_locations[d] for d in CONVENTIONAL_DIRS if d in conventional_locations
+    ]
     workspace_signals = WorkspaceSignals(
         python_file_count=len(py_facts),
         python_file_total=python_file_total,
@@ -412,8 +428,10 @@ def detect_workspace(
             (workspace / "pyproject.toml").is_file()
             or (workspace / "requirements.txt").is_file()
         ),
-        has_prompts_dir="prompts" in present_dirs,
-        has_tools_dir="tools" in present_dirs,
+        # "somewhere in this workspace", which is the question #441 asked. Where
+        # exactly is in `conventional_dirs`.
+        has_prompts_dir="prompts" in conventional_locations,
+        has_tools_dir="tools" in conventional_locations,
         conventional_dirs=present_dirs,
     )
 
@@ -1677,8 +1695,79 @@ def _collect_glob_hits(
     return hits
 
 
-def _collect_dir_hits(workspace: Path) -> dict[str, list[str]]:
-    present = [d for d in CONVENTIONAL_DIRS if (workspace / d).is_dir()]
+def _conventional_dir_locations(
+    workspace: Path, *, files: Sequence[Path]
+) -> dict[str, str]:
+    """Where each conventional directory lives, as a workspace-relative path.
+
+    Keyed by the *name* — ``prompts``, ``tools``, ``.agents-shipgate`` — so a
+    repository with thirty ``tools/`` directories still contributes one weak
+    signal for ``tools``, exactly as the root-only check did. The value is the
+    shallowest occurrence, which is the one a reader would have looked for.
+
+    Looking below the root is the whole point (#441): a Python distribution
+    puts its tools inside the import package, so
+    ``awslabs/billing_cost_management_mcp_server/tools/`` reported
+    ``has_tools_dir: false`` and the one structural signal that repository
+    offers went unread. The root is still checked separately because the
+    inventory is a list of *files*: an empty ``prompts/`` has no entry in it,
+    and it was a signal before this looked deeper.
+
+    Bounded by the inventory walk, which already drops ``.git``, ``node_modules``,
+    virtualenvs, and everything else in ``SKIP_DIRS``.
+
+    Walks *directories*, not files, and on strings rather than ``Path``
+    objects. The inventory is a file list on which many entries share a parent,
+    and the obvious spelling — ``path.relative_to(workspace).parts`` per file —
+    cost 4.4 seconds on a 120k-file monorepo, which is a whole-workspace scan
+    ``detect`` already runs on exactly the repositories #363 and #395 are about.
+    Deduplicating parents first makes the chain walk proportional to the number
+    of distinct directories; ``str(path)`` is cached on ``PurePath``, so the
+    prefix test is a slice comparison and not a second traversal.
+    """
+
+    located: dict[str, str] = {
+        name: name for name in CONVENTIONAL_DIRS if (workspace / name).is_dir()
+    }
+    wanted = {name for name in CONVENTIONAL_DIRS if name not in located}
+    if not wanted:
+        return located
+    # ``rstrip`` so a workspace that is already a filesystem or drive root —
+    # ``/`` renders as ``"/"``, ``C:\\`` as ``"C:\\"`` — does not produce a
+    # doubled separator that matches no path under it.
+    prefix = f"{str(workspace).rstrip(os.sep)}{os.sep}"
+    prefix_length = len(prefix)
+    seen_directories: set[str] = set()
+    shallowest: dict[str, tuple[int, str]] = {}
+    for path in files:
+        text = str(path)
+        if not text.startswith(prefix):
+            # Not under the workspace at all — a resolved symlink pointing out
+            # of the tree. `relative_to` raised for these; this skips them.
+            continue
+        cut = text.rfind(os.sep)
+        if cut < prefix_length:
+            # A file directly in the workspace root has no parent directory
+            # inside it, so nothing here can be a conventional dir.
+            continue
+        directory = text[prefix_length:cut]
+        if directory in seen_directories:
+            continue
+        seen_directories.add(directory)
+        parts = directory.split(os.sep)
+        for depth, part in enumerate(parts):
+            if part not in wanted:
+                continue
+            candidate = (depth, "/".join(parts[: depth + 1]))
+            current = shallowest.get(part)
+            if current is None or candidate < current:
+                shallowest[part] = candidate
+    located.update({name: rel for name, (_, rel) in shallowest.items()})
+    return located
+
+
+def _collect_dir_hits(locations: dict[str, str]) -> dict[str, list[str]]:
+    present = [locations[d] for d in CONVENTIONAL_DIRS if d in locations]
     if not present:
         return {f: [] for f in (
             "langchain", "crewai", "google_adk", "anthropic", "openai_agents_sdk",

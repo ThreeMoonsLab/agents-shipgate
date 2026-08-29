@@ -1690,6 +1690,56 @@ def _local_marketplace_roots(workspace: Path, paths: list[Path]) -> set[Path]:
     return roots
 
 
+def _conventional_dir_locations(
+    workspace: Path, files: list[Path]
+) -> dict[str, str]:
+    """Mirror of ``signals._conventional_dir_locations``.
+
+    Byte parity of *behaviour* with the canonical implementation, which is what
+    ``tests/test_zero_install_detector.py`` pins: a conventional directory is
+    located anywhere in the tree, one entry per directory *name*, shallowest
+    occurrence, reported as a workspace-relative POSIX path. A root directory
+    is spelled as its bare name.
+
+    The root ``is_dir`` check stays because the inventory is a list of *files*
+    and an empty ``prompts/`` has no entry in it. Parents are deduplicated and
+    compared as strings for the same reason the canonical version does it:
+    ``relative_to`` per inventory entry cost 4.4 s on 120k files (#441).
+    """
+
+    located: dict[str, str] = {
+        name: name for name in CONVENTIONAL_DIRS if (workspace / name).is_dir()
+    }
+    wanted = {name for name in CONVENTIONAL_DIRS if name not in located}
+    if not wanted:
+        return located
+    prefix = f"{str(workspace).rstrip(os.sep)}{os.sep}"
+    prefix_length = len(prefix)
+    seen_directories: set[str] = set()
+    shallowest: dict[str, tuple[int, str]] = {}
+    for path in files:
+        text = str(path)
+        if not text.startswith(prefix):
+            continue
+        cut = text.rfind(os.sep)
+        if cut < prefix_length:
+            continue
+        directory = text[prefix_length:cut]
+        if directory in seen_directories:
+            continue
+        seen_directories.add(directory)
+        parts = directory.split(os.sep)
+        for depth, part in enumerate(parts):
+            if part not in wanted:
+                continue
+            candidate = (depth, "/".join(parts[: depth + 1]))
+            current = shallowest.get(part)
+            if current is None or candidate < current:
+                shallowest[part] = candidate
+    located.update({name: rel for name, (_, rel) in shallowest.items()})
+    return located
+
+
 def detect(workspace: Path) -> dict[str, Any]:
     workspace = workspace.resolve()
     files = _inventory(workspace)
@@ -1763,7 +1813,10 @@ def detect(workspace: Path) -> dict[str, Any]:
                 p,
             )
 
-    present_dirs = [d for d in CONVENTIONAL_DIRS if (workspace / d).is_dir()]
+    conventional_locations = _conventional_dir_locations(workspace, files)
+    present_dirs = [
+        conventional_locations[d] for d in CONVENTIONAL_DIRS if d in conventional_locations
+    ]
     for fw in FRAMEWORKS:
         for d in present_dirs:
             _add(scores, fw, 0.5, "weak", f"conventional dir: {d}/")
@@ -2007,8 +2060,8 @@ def detect(workspace: Path) -> dict[str, Any]:
                 (workspace / "pyproject.toml").is_file()
                 or (workspace / "requirements.txt").is_file()
             ),
-            "has_prompts_dir": "prompts" in present_dirs,
-            "has_tools_dir": "tools" in present_dirs,
+            "has_prompts_dir": "prompts" in conventional_locations,
+            "has_tools_dir": "tools" in conventional_locations,
             "conventional_dirs": present_dirs,
         },
         "script_version": SCRIPT_VERSION,

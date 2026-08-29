@@ -238,6 +238,25 @@ Walk `placeholders[]`, edit each one in `shipgate.yaml`, then re-run
 `scan`. Skipping this step leaves an invalid adoption artifact — the
 manifest validates but downstream consumers see meaningless defaults.
 
+**When discovery reads no tool surface at all.** `init --json` reports
+`tool_surface_origin`: `"detected"` when every source in the manifest was read
+out of the workspace, `"scaffold"` when none was, and `null` when this run's
+render reached neither disk nor the payload — `skipped_existing` and
+`refused_unresolved_scope`, where the manifest at `path` is not this render's
+to describe. The paragraph below is about the runs that report one of the
+first two. On `"scaffold"` the
+`tool_sources` block is a placeholder for you to complete — `id`, `type`, and
+`path` are all `CHANGE_ME`, all three are in `placeholders[]`, and the manifest
+comment names the built-in `type` values (an installed third-party adapter's
+own source type is equally valid). Nothing there was inferred, and
+`manifest_message` says so. This is the common outcome for an MCP server whose
+tools are registered in code rather than exported to a file (#431): in the
+default mode, running `detect` on the same workspace will say it found no agent
+framework, prompts, or tool surface, and it is right — the manifest is a
+starting point, not a description. Under `--minimal` a scaffold means something
+narrower — that mode never runs framework detection — and its summary says so
+rather than claiming discovery found nothing.
+
 `scan --suggest-patches` attaches a Patch object to every active finding.
 `apply-patches --confidence high` mutates only the safe stale-manifest
 removals — scope-coverage appends require an explicit `--confidence medium`.

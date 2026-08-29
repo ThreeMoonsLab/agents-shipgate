@@ -20,7 +20,9 @@ from collections.abc import Iterator, Mapping, Sequence
 
 import yaml
 
-PLACEHOLDER_VALUE = "CHANGE_ME"
+from agents_shipgate.schemas.manifest import MANIFEST_PLACEHOLDER_VALUE
+
+PLACEHOLDER_VALUE = MANIFEST_PLACEHOLDER_VALUE
 
 # Manifest fields whose value is a *declaration a human makes*, not a fact an
 # agent can read out of the repository. Shipgate already refuses to auto-assert

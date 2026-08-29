@@ -1617,7 +1617,7 @@ def test_n8n_detect_and_auto_init_emit_top_level_block(tmp_path):
     assert result.is_agent_project is True
     assert any(framework.type == "n8n" for framework in result.frameworks)
 
-    manifest_text = render_auto_manifest(project, result)
+    manifest_text = render_auto_manifest(project, result).text
     assert "n8n:" in manifest_text
     assert "type: n8n" not in manifest_text
     assert "  credential_stubs:" in manifest_text

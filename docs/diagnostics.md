@@ -188,7 +188,7 @@ point either.
 | `SHIP-DIAG-MISSING-SOURCE-FILE`     | block    | A required `tool_sources[].path` does not resolve under the manifest directory. (`doctor` no longer raises `InputParseError(3)` for this — see below.) |
 | `SHIP-DIAG-CHANGE-ME-PLACEHOLDERS`  | warn     | Manifest text still contains `CHANGE_ME` markers.                                                                                                |
 | `SHIP-DIAG-NO-PRODUCTION-PERMISSIONS` | warn   | `environment.target: production` AND no permissions / scopes / policies declared.                                                                 |
-| `SHIP-DIAG-UNKNOWN-ADAPTER-SOURCE-TYPE` | block | Manifest references a `tool_sources[].type` that no registered adapter handles. Rank-1 action depends on plugin state: enable plugin discovery (`AGENTS_SHIPGATE_ENABLE_PLUGINS=1`) and install the third-party adapter package, or fix a typo. v0.20+. |
+| `SHIP-DIAG-UNKNOWN-ADAPTER-SOURCE-TYPE` | block | Manifest references a `tool_sources[].type` that no registered adapter handles. Rank-1 action depends on plugin state: enable plugin discovery (`AGENTS_SHIPGATE_ENABLE_PLUGINS=1`) and install the third-party adapter package, or fix a typo. When the type is `CHANGE_ME` the rank-1 action is instead an `edit`: that is the scaffold `init` writes when it reads no tool surface, so there is no package to install and no typo to fix. v0.20+; placeholder route v0.17 (#441). |
 
 The three negative controls in that table (`NO-AGENT-SURFACE`,
 `NON-AGENT-LIBRARY`, `PURE-PROMPT-EXPERIMENT`) each publish a `stop`
@@ -221,6 +221,26 @@ SHIP-DIAG-PURE-PROMPT-EXPERIMENT
 A workspace with both a `prompts/` directory and a `pyproject.toml`
 emits only `SHIP-DIAG-PURE-PROMPT-EXPERIMENT`, not the broader
 `SHIP-DIAG-NON-AGENT-LIBRARY`.
+
+The two predicates that read `has_prompts_dir` / `has_tools_dir` see
+conventional directories **anywhere in the tree**, not only at the workspace
+root (#441). A Python distribution puts its tools under the import package —
+`awslabs/billing_cost_management_mcp_server/tools/` — and reading only the
+root reported `has_tools_dir: false` for it, which selected
+`SHIP-DIAG-NON-AGENT-LIBRARY` over the catch-all. The credit is deduplicated
+by directory *name*, so a monorepo with thirty `tools/` directories
+contributes the same one weak signal a single root `tools/` does, and
+`SHIP-DIAG-NO-AGENT-SURFACE`'s `why` names whichever conventional directories
+were found rather than asserting a flat list of absences.
+
+`workspace_signals.conventional_dirs` carries the workspace-relative **path**
+of each one — `awslabs/billing_cost_management_mcp_server/tools`, not `tools` —
+because with the check reading the whole tree a bare name no longer resolves to
+anything a reader can open. A directory at the root is spelled as its bare
+name, which is exactly the test `SHIP-DIAG-PURE-PROMPT-EXPERIMENT` applies:
+that control still requires a **root** `prompts/`, because "only prompts/ is
+present" is a claim about the shape of the workspace and not about a directory
+somewhere inside it.
 
 ## Doctor behavior change
 

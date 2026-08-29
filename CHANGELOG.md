@@ -2,6 +2,87 @@
 
 ## Unreleased
 
+- **`init` no longer writes a source type it guessed, and says when the block
+  it wrote is a scaffold.** (#441) `detect` on
+  `awslabs/mcp`'s `src/billing-cost-management-mcp-server` — a FastMCP Python
+  MCP server — reports `is_agent_project: false` and
+  `"not a Shipgate target"`. `init`, the command the control loop routes to
+  from `verify --preview`, wrote a manifest for it anyway, and the manifest
+  declared `type: openapi` for a repository containing no OpenAPI spec. `id`
+  and `path` were flagged in `placeholders[]`; `type` was in neither
+  `placeholders[]` nor a comment, so filling in the two flagged blanks yielded
+  a schema-valid manifest describing a source that does not exist.
+
+  Three changes, one per defect:
+
+  - The fallback `tool_sources` block is now `id`/`type`/`path` all
+    `CHANGE_ME`, all three in `placeholders[]`, under a comment that lists
+    every **built-in** `type` (rendered from `BUILTIN_TOOL_SOURCE_TYPES`, so it
+    cannot drift) and notes that a source type registered by an installed
+    third-party adapter is equally valid — `ToolSourceConfig.type` is
+    deliberately open, and a repository only a custom adapter can read is
+    *more* likely to reach this scaffold. The comment states that nothing here
+    was inferred. `path` also loses its `.yaml` suffix, which belonged to the
+    guessed type.
+  - `init --json` gains `tool_surface_origin`: `"detected"` when every source
+    was read out of the workspace, `"scaffold"` when none was, and `null` when
+    this run's render reached neither disk nor the payload (`skipped_existing`,
+    `refused_unresolved_scope`) — the authority rule `placeholders` already
+    follows. The same fact is stated in prose in `manifest_message` and on
+    stdout, and in `control.reason` on the routes where init's own reason is
+    the envelope's; on a freshly written manifest the human-owned
+    `declared_purpose` placeholder outranks it and `control.reason` carries
+    that declaration instead, which is why `manifest_message` is the field
+    that always says it. The renderer decides the origin — no caller
+    re-derives it — and the published next step for a scaffold is the edit
+    that completes it, not a `scan` that cannot resolve an adapter for
+    `CHANGE_ME`. The two renderers do not say the *same* thing about why:
+    `--minimal` never runs framework detection, so it reports that rather than
+    claiming discovery found nothing.
+  - Conventional-directory discovery (`prompts/`, `tools/`,
+    `.agents-shipgate/`) now reads the whole tree, not just the workspace
+    root. A Python distribution puts its tools under the import package —
+    `awslabs/billing_cost_management_mcp_server/tools/` — and reading only the
+    root reported `has_tools_dir: false` for the one structural signal that
+    repository offers. Deduplicated by directory *name*, so a monorepo with
+    thirty `tools/` directories contributes the one weak signal a single root
+    `tools/` does; the credit can never flip `is_agent_project`, because every
+    strong signal is already worth the full detection threshold on its own.
+    `workspace_signals.conventional_dirs` now carries the workspace-relative
+    *path* of each one rather than its bare name — with the check reading the
+    whole tree a name is no longer a location, and `["tools"]` sent a reader to
+    a directory the reproduction does not have. `SHIP-DIAG-NO-AGENT-SURFACE`
+    names those paths instead of asserting a flat list of absences, and
+    `SHIP-DIAG-PURE-PROMPT-EXPERIMENT` keeps asking about a **root**
+    `prompts/`: "only prompts/ is present" describes the shape of a workspace,
+    and reading the widened signal made it fire on a thirty-file TypeScript MCP
+    server with `src/prompts/`. The scan walks distinct parent directories on
+    strings rather than calling `Path.relative_to` per inventory entry, which
+    took 4.4 s on a 120k-file inventory against 42 ms for the shipped form — on
+    a whole-workspace pass `detect` already runs for exactly the monorepos #363
+    and #395 are about.
+
+  Two defects found while fixing those:
+
+  - `AdapterRegistry.require('CHANGE_ME')` told the reader to enable
+    third-party adapter discovery and install a package — for a value
+    Shipgate itself wrote. Both the message and
+    `SHIP-DIAG-UNKNOWN-ADAPTER-SOURCE-TYPE` now route the placeholder to an
+    edit. Both prose copies of the built-in type list had also dropped
+    `codex_config` and `conductor`; all three copies now render from the
+    schema's own tuple.
+  - `init --minimal` on a workspace with no MCP/OpenAPI sources emitted an
+    empty `openai_api:` block and no `tool_sources`, producing a manifest the
+    schema rejects. The guard selecting the fallback tested the artifact
+    *dict*, which has fixed keys and is therefore always truthy, so the
+    fallback was unreachable. Both renderers now ask the same question through
+    one shared tuple of anchor keys — which also stops `--minimal` declaring an
+    `openai_api` surface for a bare `prompts/` directory, a signal an
+    Anthropic-only project carries too.
+
+  No verdict, finding, or version moves: `report_schema_version`,
+  `contract_version`, the verifier artifact version, and every published
+  schema document are unchanged.
 - **The same MCP server declared in two files is one capability, reconciled.**
   A `codex_config` row over a workspace where two packages each carry a
   `.mcp.json` naming `github` aborted the scan with

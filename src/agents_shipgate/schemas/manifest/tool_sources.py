@@ -32,6 +32,22 @@ BUILTIN_TOOL_SOURCE_TYPES: tuple[str, ...] = (
     "conductor",
 )
 
+
+
+def builtin_tool_source_types_text() -> str:
+    """The accepted ``tool_sources[].type`` values, as prose for a message.
+
+    Three messages name this list — ``AdapterRegistry.require``'s remediation
+    and the two ``SHIP-DIAG-UNKNOWN-ADAPTER-SOURCE-TYPE`` routes — and all
+    three used to type it out. Two of them had dropped ``codex_config`` and
+    ``conductor``, so the structured recovery for an unresolved source type
+    told an adopter that two accepted values were not accepted (#441). The
+    ``init`` scaffold's comment renders from the same tuple.
+    """
+
+    return ", ".join(BUILTIN_TOOL_SOURCE_TYPES)
+
+
 #: Built-in adapters that are intentionally NOT permitted in
 #: ``tool_sources[]`` because they are per_scan-only and ingest
 #: configuration from their dedicated top-level manifest section.
