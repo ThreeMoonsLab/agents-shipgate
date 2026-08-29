@@ -23,9 +23,17 @@ import re
 from pathlib import Path
 
 from agents_shipgate.cli.discovery.artifacts import (
+    OPENAI_API_ANCHOR_KEYS,
     discover_anthropic_artifacts,
     discover_n8n_artifacts,
     discover_openai_api_artifacts,
+)
+from agents_shipgate.cli.discovery.manifest_scaffold import (
+    DISCOVERY_SCAFFOLD_DETAIL,
+    DISCOVERY_SCAFFOLD_SUMMARY,
+    RenderedManifest,
+    ToolSurfaceOrigin,
+    scaffold_tool_sources_block,
 )
 from agents_shipgate.cli.discovery.signals import select_agent_name
 from agents_shipgate.cli.discovery.source_ids import assign_source_ids
@@ -44,12 +52,18 @@ def render_auto_manifest(
     detect_result: DetectResult,
     *,
     control_pack: str = DEFAULT_CONTROL_PACK_ID,
-) -> str:
+) -> RenderedManifest:
     """Build a schema-valid ``shipgate.yaml`` for a detected workspace.
 
-    Falls back to a CHANGE_ME-heavy template when no framework was
+    Falls back to a CHANGE_ME-heavy scaffold when no framework was
     detected (mirroring today's static-init behavior; ``--minimal`` is
     the dedicated path for the pre-v0.6 template).
+
+    Returns the text together with :attr:`RenderedManifest.tool_surface_origin`, because
+    whether the tool surface was *read* or *scaffolded* is decided here — by
+    the four block builders below — and a caller that re-derived it would be
+    answering the same question a second time, from less. ``init`` needs the
+    answer to say plainly what it wrote (#441).
     """
     workspace = workspace.resolve()
     project_name = _project_name(workspace, detect_result)
@@ -90,17 +104,18 @@ def render_auto_manifest(
     openai_lines = _openai_api_block(workspace, detect_result)
     n8n_lines = _n8n_block(workspace, detect_result)
 
+    tool_surface_origin: ToolSurfaceOrigin = "detected"
     if not tool_source_lines and not anthropic_lines and not openai_lines and not n8n_lines:
-        # Schema requires ≥ 1 of tool_sources / openai_api / anthropic /
-        # google_adk / langchain / crewai. Empty workspace → emit a
-        # CHANGE_ME stub identical to the legacy --minimal template's
-        # fallback so users get an actionable starting point.
-        tool_source_lines = [
-            "tool_sources:",
-            "  - id: CHANGE_ME",
-            "    type: openapi",
-            "    path: CHANGE_ME.yaml",
-        ]
+        # The schema requires at least one source block. Nothing was read, so
+        # the manifest
+        # carries a scaffold — and says so, in the YAML and in the caller's
+        # return value alike.
+        tool_surface_origin = "scaffold"
+        # Auto mode ran full discovery, so it is entitled to say nothing was
+        # found. `--minimal` is not; see `manifest_scaffold`.
+        tool_source_lines = scaffold_tool_sources_block(
+            summary=DISCOVERY_SCAFFOLD_SUMMARY, detail=DISCOVERY_SCAFFOLD_DETAIL
+        )
 
     # Excluded-source hints are comments, appended only after the fallback
     # decision above so they can never stand in for a real tool_sources
@@ -129,7 +144,13 @@ def render_auto_manifest(
     lines.append("")
     lines.extend(_ci_and_output_block())
     lines.append("")
-    return "\n".join(lines)
+    return RenderedManifest(
+        "\n".join(lines),
+        tool_surface_origin=tool_surface_origin,
+        scaffold_summary=(
+            DISCOVERY_SCAFFOLD_SUMMARY if tool_surface_origin == "scaffold" else None
+        ),
+    )
 
 
 def _project_name(workspace: Path, detect_result: DetectResult) -> str:
@@ -278,8 +299,7 @@ def _openai_api_block(workspace: Path, detect_result: DetectResult) -> list[str]
     # OpenAI-specific artifact patterns (tools/openai-tools.json,
     # openai-config.json, tests/*openai*cases*.json,
     # policies/*openai*.yaml, policies/*api*.yaml) anchor the block.
-    openai_specific_keys = ("tools", "model_config", "test_cases", "policy_rules")
-    if not any(artifacts.get(key) for key in openai_specific_keys):
+    if not any(artifacts.get(key) for key in OPENAI_API_ANCHOR_KEYS):
         return []
     lines = ["openai_api:"]
     if artifacts["prompt_files"]:

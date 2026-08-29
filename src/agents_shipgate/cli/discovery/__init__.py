@@ -37,6 +37,7 @@ from agents_shipgate.cli.discovery.ci_workflow import (
     CiWorkflowResult,
     write_ci_workflow,
 )
+from agents_shipgate.cli.discovery.manifest_scaffold import RenderedManifest
 from agents_shipgate.cli.discovery.signals import (
     DEFAULT_MAX_PYTHON_FILES,
     detect_workspace,
@@ -80,6 +81,7 @@ __all__ = [
     "discover_manifest_paths",
     "discover_openai_api_artifacts",
     "discover_tool_sources",
+    "RenderedManifest",
     "render_auto_manifest",
     "render_manifest_template",
     "select_agent_name",

@@ -1187,8 +1187,8 @@ def test_a_declaration_never_reaches_a_source_that_merely_shares_an_id(
 def test_a_declaration_reaches_a_source_whose_adapter_mints_its_own_ids() -> None:
     """The inverse failure: a row that matched nothing it was written for.
 
-    A ``codex_config`` entry emits results whose ids are derived from the file
-    it read (``codex_config_mcp:.codex/config.toml``), matching no configured
+    A ``codex_config`` entry emits results whose ids are derived from the
+    server they declare (``codex_config_mcp:billing``), matching no configured
     row. Joining on the minted id silently applied its reviewed authority
     nowhere. The dispatcher records the entry every result of that call belongs
     to, whatever the adapter chose to call it.
@@ -1210,7 +1210,7 @@ def test_a_declaration_reaches_a_source_whose_adapter_mints_its_own_ids() -> Non
         }
     )
     loaded = LoadedToolSource(
-        source_id="codex_config_mcp:.codex/config.toml",
+        source_id="codex_config_mcp:billing",
         source_type="codex_config_mcp",
         configured_source_id="codex",
         tools=[
@@ -1219,7 +1219,7 @@ def test_a_declaration_reaches_a_source_whose_adapter_mints_its_own_ids() -> Non
                     "id": "seed",
                     "name": "billing.charge",
                     "source_type": "codex_config_mcp",
-                    "source_id": "codex_config_mcp:.codex/config.toml",
+                    "source_id": "codex_config_mcp:billing",
                     "extraction_confidence": "high",
                     "extraction": {"surface": "enumerated"},
                 }

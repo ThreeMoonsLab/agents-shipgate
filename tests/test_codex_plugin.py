@@ -353,7 +353,7 @@ def test_detect_and_init_route_codex_plugin_only_workspace(tmp_path: Path) -> No
     diags = diagnose_detect(result, has_manifest=False, workspace=tmp_path)
     assert [diag.id for diag in diags] == [DIAG_CODEX_PLUGIN_PACKAGE_DETECTED]
 
-    rendered = render_auto_manifest(tmp_path, result)
+    rendered = render_auto_manifest(tmp_path, result).text
     assert "type: codex_plugin" in rendered
     assert "mode: package" in rendered
     assert "path: ." in rendered

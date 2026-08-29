@@ -90,9 +90,13 @@ EXCLUSION_REASON_PHRASES: dict[str, str] = {
     ),
     # surface_completeness
     "surface_not_enumerated": "not established as a complete surface",
-    # adapter_parse (agents_shipgate.inputs.mcp)
+    # adapter_parse (agents_shipgate.inputs.mcp, agents_shipgate.inputs.mcp_manifest)
     "unreadable_entry": "an entry the adapter could not read into the catalog",
     "unnamed_entry": "an entry with no name, so no tool was read from it",
+    "duplicate_server_declaration": (
+        "a disagreeing second declaration of a server this workspace declares "
+        "more than once"
+    ),
 }
 
 #: What an unrecognised token renders as. Deliberately says only what every

@@ -206,7 +206,7 @@ def test_conductor_detect_and_init_positive_and_negative_controls(tmp_path):
     detected = detect_workspace(positive)
     assert any(item.type == "conductor" for item in detected.frameworks)
     assert detected.suggested_sources == [{"type": "conductor", "path": "workflows/agent.json"}]
-    rendered = render_auto_manifest(positive, detected)
+    rendered = render_auto_manifest(positive, detected).text
     assert "type: conductor" in rendered
     assert "path: workflows/agent.json" in rendered
     load_manifest(_write_text(positive / "shipgate.yaml", rendered))
