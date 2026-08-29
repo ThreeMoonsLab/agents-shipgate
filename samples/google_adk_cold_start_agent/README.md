@@ -1,9 +1,10 @@
 # Google ADK cold-start agent
 
 The cold-start sibling of [`google_adk_agent`](../google_adk_agent/). That
-fixture answers every declaration question it is asked, so its questionnaire is
-`0 of 0` and no committed artifact beside it ever renders one. This fixture
-stops partway on purpose: it reaches `insufficient_evidence` with **ten open
+fixture answers every declaration question it is asked — `2 of 2 answered`,
+nothing open — so a scan of it writes no `suggested-declarations.yaml` at all
+and no committed artifact beside it ever renders one. This fixture stops
+partway on purpose: it reaches `insufficient_evidence` with **ten open
 declaration questions**, and ships the questionnaire an adopter actually reads
 as a byte-compared golden.
 
@@ -39,11 +40,13 @@ to prefer one blank over another is the shape of the name:
 | `ops.append_case_note` | established structurally (`POST`), so it is never asked about | not asked |
 | `record_case_outcome` | declared in `shipgate.yaml`, so its two questions are answered | counted, not open |
 
-The first four are what pin the band. `update_case_index` leads
-`assemble_case_timeline`, and `list_case_attachments` trails both, against
-alphabetical order in each case — so flattening `name_shape_band` changes the
-committed file. That is the half of #419's fix a bounded-versus-unbounded
-fixture alone would not hold.
+`update_case_index`, `assemble_case_timeline` and `list_case_attachments` are
+the three that pin the band, and they are the fixture's whole answer to the
+second half of #419. Nothing was read about any of them, so the only thing
+separating their questions is the shape of the name: the first leads and the
+third trails, against alphabetical order in both directions. Flatten
+`name_shape_band` and the committed file changes — which a
+bounded-versus-unbounded fixture alone would not catch.
 
 `ops.export_case_bundle` carries a declaration that is **wrong on purpose**:
 the MCP export publishes an `ops:cases:read` OAuth scope and the manifest row
@@ -91,21 +94,19 @@ Run from the repository root, after any change that moves values:
 
 ```bash
 python - <<'PY'
-import os, shutil, tempfile
+import os
 from pathlib import Path
 from agents_shipgate.cli.scan import run_scan
 
 sample = Path("samples/google_adk_cold_start_agent")
-out = Path(tempfile.mkdtemp())
 run_scan(
     config_path=sample / "shipgate.yaml",
-    output_dir=out,
+    output_dir=Path("expected"),
     formats=["json", "markdown"],
     ci_mode="advisory",
     packet_enabled=False,
 )
-for name in ("report.json", "report.md", "suggested-declarations.yaml"):
-    shutil.copy(out / name, sample / "expected" / name)
+(sample / "expected" / "current-control.json").unlink(missing_ok=True)
 golden = sample / "expected" / "report.json"
 golden.write_text(
     golden.read_text(encoding="utf-8").replace(os.getcwd(), "<REPO>"),
@@ -114,8 +115,17 @@ golden.write_text(
 PY
 ```
 
-Scan into an absolute temporary directory and copy, rather than writing
-straight into `expected/`: a scan also emits `current-control.json`, and this
-fixture deliberately does not commit one — the hash-bound pointer path is
-covered by [`conductor_agent`](../conductor_agent/), and a second copy of it
-would have to be rebound after the `<REPO>` substitution on every regeneration.
+Two things that look like details and are not.
+
+`output_dir` is the **relative** `"expected"`, which `run_scan` resolves under
+the manifest directory rather than under the process directory. The report
+records where it wrote itself, so scanning into an absolute temporary directory
+and copying the files back bakes a contributor's `/var/folders/…/tmp…` path
+into `generated_reports` — a value no test compares, which is exactly why it
+would sit there churning on every regeneration.
+
+The `unlink` is not tidying. A scan also publishes `current-control.json`, and
+this fixture deliberately does not commit one: the hash-bound pointer path is
+covered by [`conductor_agent`](../conductor_agent/), and a second copy would
+have to be rebound *after* the `<REPO>` substitution every time, since that
+rewrite changes both the length and the digest of `report.json`.

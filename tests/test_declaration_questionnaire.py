@@ -1983,10 +1983,12 @@ def test_cold_start_golden_still_asks_open_questions():
 
     Every other sample answers everything it is asked, and a byte comparison
     against a questionnaire that renders nothing passes just as happily as one
-    against a questionnaire that renders six blocks. So the properties that
-    make the golden worth having are named here: if a future change to the
-    engine, or an over-helpful edit to the manifest, closes these questions,
-    this fails instead of the goldens silently emptying.
+    against a questionnaire that renders every rung. So the properties that
+    make the golden worth having are named here rather than left to a count
+    that goes stale: if a future change to the engine, or an over-helpful edit
+    to the manifest, closes these questions, this fails instead of the goldens
+    silently emptying. ``COLD_START_QUESTION_ORDER`` below is what pins how
+    many there are, and what each of them is for.
     """
 
     coverage = _cold_start_coverage(_cold_start_golden())
@@ -2164,15 +2166,23 @@ def test_cold_start_questionnaire_covers_every_rung_it_claims_to():
 
     golden = _cold_start_golden()
     coverage = _cold_start_coverage(golden)
-    gaps = {
-        (gap["subject_kind"], gap["subject_id"], DIMENSION_BY_GAP_KIND[gap["kind"]]): gap
-        for gap in golden["release_decision"]["evidence_coverage"]["evidence_gaps"]
-        if gap["kind"] in DIMENSION_BY_GAP_KIND
-    }
+    # Indexed to lists, not to single rows. One question is one blank a
+    # reviewer fills, and several published rows can ask for it: five kinds map
+    # to the ``effect`` dimension alone, so a dict of one row per key would
+    # keep whichever was emitted last and quietly evaluate every assertion
+    # below against a row nobody named.
+    gaps: dict[tuple[str, str | None, str], list[dict]] = {}
+    for gap in golden["release_decision"]["evidence_coverage"]["evidence_gaps"]:
+        dimension = DIMENSION_BY_GAP_KIND.get(gap["kind"])
+        if dimension is None:
+            continue
+        key = (gap["subject_kind"], gap["subject_id"], dimension)
+        gaps.setdefault(key, []).append(gap)
     effect_actions = [
-        gaps[(row["subject_kind"], row["subject_id"], "effect")]["next_action"]
+        gap["next_action"]
         for row in coverage["open_questions"]
         if row["dimension"] == "effect"
+        for gap in gaps[(row["subject_kind"], row["subject_id"], "effect")]
     ]
     readings = [action["observed_readings"] for action in effect_actions]
 
@@ -2203,8 +2213,10 @@ def test_cold_start_questionnaire_covers_every_rung_it_claims_to():
     }
     unfillable = [
         gap
-        for key, gap in gaps.items()
-        if key in open_keys and gap["next_action"].get("declaration_template") is None
+        for key, rows in gaps.items()
+        if key in open_keys
+        for gap in rows
+        if gap["next_action"].get("declaration_template") is None
     ]
     assert unfillable
     assert {gap["kind"] for gap in unfillable} == {"conflicting_authority_evidence"}

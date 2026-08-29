@@ -1,7 +1,8 @@
 version: "0.1"
 
 # The cold-start sibling of samples/google_adk_agent. That one answers every
-# declaration question it is asked, so its questionnaire is `0/0` and nothing
+# declaration question it is asked — `2 of 2 answered`, nothing open — so a
+# scan of it writes no suggested-declarations.yaml at all, and nothing
 # committed beside it ever renders one. This one deliberately stops partway:
 # it reaches `insufficient_evidence` with open declaration questions, and
 # `expected/suggested-declarations.yaml` is the questionnaire an adopter reads
@@ -9,7 +10,7 @@ version: "0.1"
 #
 # Each action below exists for one rung of the questionnaire's order, which
 # ranks by the ceiling of what an answer can establish rather than by what the
-# scan already inferred (#419). Nothing bounds the first four, so they lead,
+# scan already inferred (#419). Nothing bounds the first five, so they lead,
 # ordered among themselves by the only thing left — the shape of the name:
 #
 #   update_case_index           nothing read; name bands as mutating   (+1)
