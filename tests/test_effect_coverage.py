@@ -238,12 +238,20 @@ def test_the_published_repair_closes_the_row_it_is_printed_on() -> None:
     """Exhaustive: apply what the row advertises and the row must be gone.
 
     A published next step that cannot change the answer is the recurring defect
-    here. Two ways the single-value instruction failed: it named the strongest
-    observation and left a second one uncovered, and it fell through to
-    "declare the ``write`` controls" for an effect that obliges none.
+    here. Three ways the instruction failed: it named the strongest observation
+    and left a second one uncovered; it fell through to "declare the ``write``
+    controls" for an effect that obliges none; and — checking only that the row
+    itself disappeared — the ``declare_risk_tags`` route swapped a review-tier
+    row for a *blocking* ``conflicting_effect_evidence`` on 281 of the 390
+    declared/observed pairs that take it (#424).
 
-    This walks every declared effect against every one- and two-observation
-    combination, applies the repair the row publishes, and re-resolves.
+    So "closed" is the whole effect dimension being clean, not the absence of
+    one kind. A repair that trades one finding for a worse one has not closed
+    anything.
+
+    This walks every declared effect against every one-, two-, and
+    three-observation combination, applies the repair the row publishes, and
+    re-resolves.
     """
 
     import itertools
@@ -273,8 +281,9 @@ def test_the_published_repair_closes_the_row_it_is_printed_on() -> None:
         )
 
     unclosed: list[str] = []
+    routes: set[str] = set()
     exercised = 0
-    for count in (1, 2):
+    for count in (1, 2, 3):
         for effects in itertools.combinations(sorted(tags), count):
             tool = observed(effects)
             for declared in _EFFECTS:
@@ -290,21 +299,26 @@ def test_the_published_repair_closes_the_row_it_is_printed_on() -> None:
                     continue
                 exercised += 1
                 repair = effect_repair(assessment.effect)
+                routes.add(repair.kind)
                 repaired = dict(base)
                 if repair.kind == "raise_effect":
                     repaired["effect"] = repair.effect
                 else:
                     repaired["risk_tags"] = list(repair.risk_tags)
-                _, after = _issue_kinds(
+                repaired_assessment, after = _issue_kinds(
                     tool, ActionDeclarationConfig.model_validate(repaired)
                 )
-                if "declaration_below_inferred_evidence" in after:
+                if after or not repaired_assessment.pass_eligible:
                     unclosed.append(
                         f"declared={declared} observed={effects} "
-                        f"repair={repair.kind}:{repair.effect or repair.risk_tags}"
+                        f"repair={repair.kind}:{repair.effect or repair.risk_tags} "
+                        f"-> {sorted(after) or 'not pass-eligible'}"
                     )
 
     assert exercised > 100, "the matrix stopped exercising the rule"
+    assert routes == {"raise_effect", "declare_risk_tags"}, (
+        f"the matrix stopped walking both published routes: {sorted(routes)}"
+    )
     assert not unclosed, "\n".join(unclosed)
 
 
@@ -330,6 +344,152 @@ def test_a_repair_never_drops_the_reading_the_reviewer_declared() -> None:
 
     assert repair.kind == "declare_risk_tags"
     assert repair.effect is None
+
+
+# --------------------------------------------------------------------------
+# A reviewed risk tag is not source evidence (#424)
+# --------------------------------------------------------------------------
+
+
+def _policy_eligible_effects(assessment) -> set[str]:
+    """What `_control_effects` unions — the categories whose controls apply.
+
+    Asserted here rather than through the lens because it is the same set by
+    construction, and a repair that closes the row by making the observation
+    *disappear* would look identical to one that closes it by making the
+    category's controls apply. Only the second is a repair.
+    """
+
+    return {
+        claim.value
+        for claim in assessment.effect.claims
+        if claim.policy_eligible and claim.value in ACTION_EFFECT_RANK
+    }
+
+
+def test_the_tag_route_closes_the_row_it_is_printed_on() -> None:
+    """The issue's own reproduction, applied verbatim.
+
+    `declaration_below_inferred_evidence` publishes two routes, and the second
+    names the row's own repair: add the uncovered category as a reviewed
+    `risk_tags` entry. Reading that entry back as *source* evidence made the
+    edit produce a blocking `conflicting_effect_evidence` whose message blamed
+    the reviewer's own manifest — a published next step that could not close
+    the row it was printed on.
+    """
+
+    tool = _tool(
+        risk_hints=[
+            ToolRiskHint(
+                tag="external_write",
+                source="keyword",
+                confidence="medium",
+                basis="inferred_keyword",
+            ),
+            ToolRiskHint(
+                tag="destructive",
+                source="keyword",
+                confidence="medium",
+                basis="inferred_keyword",
+            ),
+        ]
+    )
+    raised, kinds = _issue_kinds(tool, _declaration(effect="external_communication"))
+    assert kinds == {"declaration_below_inferred_evidence"}
+
+    repair = effect_repair(raised.effect)
+    assert repair.kind == "declare_risk_tags"
+    assert repair.risk_tags == ("destructive",)
+
+    repaired, after = _issue_kinds(
+        tool,
+        _declaration(
+            effect="external_communication", risk_tags=list(repair.risk_tags)
+        ),
+    )
+    assert after == set()
+    assert repaired.pass_eligible is True
+    # And it closed by *applying* the destructive controls, not by silencing
+    # the observation: the declared tag is policy-eligible evidence.
+    assert "destructive" in _policy_eligible_effects(repaired)
+    assert repaired.conservative_effect == "destructive"
+
+
+def test_the_other_spelling_of_a_reviewed_tag_reads_the_same_way() -> None:
+    """`risk_overrides.tags` says the same thing once for a whole selector.
+
+    It reaches the effect dimension as `risk_hint:manual` with basis
+    `reviewed_declaration` rather than through the action row, so a fix scoped
+    to the action row alone would leave the sibling surface contradicting the
+    declaration beside it.
+    """
+
+    tool = _tool(
+        risk_hints=[
+            ToolRiskHint(
+                tag="external_write",
+                source="name",
+                confidence="medium",
+                basis="inferred_keyword",
+            ),
+            # Exactly what `_apply_manual_override` writes for a
+            # `risk_overrides.tags` entry.
+            ToolRiskHint(
+                tag="destructive",
+                source="manual",
+                confidence="high",
+                basis="reviewed_declaration",
+            ),
+        ]
+    )
+    assessment, kinds = _issue_kinds(
+        tool, _declaration(effect="external_communication")
+    )
+
+    assert kinds == set()
+    assert assessment.pass_eligible is True
+    assert "destructive" in _policy_eligible_effects(assessment)
+
+
+@pytest.mark.parametrize(
+    ("tool_updates", "declaration_updates"),
+    [
+        # A source annotation the server published.
+        ({"annotations": {"httpMethod": "POST"}}, {}),
+        # A permission list the source itself carries.
+        ({"auth": {"type": "oauth2", "scopes": ["crm:write"]}}, {}),
+        # A permission list the *manifest* declares. #417 deliberately made a
+        # declared `crm.delete` grant bound the action's effect, so this one
+        # must keep contradicting a weaker declaration even though it is
+        # manifest-owned — which is why the exclusion is the two risk-tag
+        # spellings and never `_is_manifest_owned` wholesale.
+        (
+            {},
+            {
+                "scopes": ["crm.delete"],
+                "authority": {"mode": "scoped", "auth_type": "oauth2"},
+            },
+        ),
+    ],
+)
+def test_a_declared_tag_never_launders_away_evidence_it_does_not_own(
+    tool_updates: dict, declaration_updates: dict
+) -> None:
+    """Negative control: the exclusion is scoped to reviewed risk tags.
+
+    Adding `risk_tags: [destructive]` accounts for the *heuristic* reading of
+    the same category. It may not answer a claim the reviewer did not write —
+    protocol structure, a source's own scopes, or a declared grant.
+    """
+
+    for risk_tags in ([], ["destructive"]):
+        _, kinds = _issue_kinds(
+            _tool(**tool_updates),
+            _declaration(effect="read", risk_tags=risk_tags, **declaration_updates),
+        )
+        assert "conflicting_effect_evidence" in kinds, (
+            f"risk_tags={risk_tags} silenced evidence it does not own"
+        )
 
 
 # --------------------------------------------------------------------------

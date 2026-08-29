@@ -17,6 +17,7 @@ from agents_shipgate.core.domain import (
     DECLARED_EFFECT_SOURCE,
     DECLARED_SOURCE_AUTHORITY_SOURCE,
     ENVIRONMENT_TEMPLATE_AUTHORITY_SOURCE,
+    REVIEWED_RISK_TAG_CLAIM_SOURCES,
     SURFACE_ENUMERATED,
     AuthorityMode,
     AuthoritySemanticAssessment,
@@ -504,8 +505,7 @@ def _assess_effect(
         authoritative.extend(
             claim
             for claim in claims
-            if claim.source in {"risk_hint:manual", "action_risk_tag_declaration"}
-            and claim.value != "read"
+            if claim.source in REVIEWED_RISK_TAG_CLAIM_SOURCES and claim.value != "read"
         )
     declared = [
         claim for claim in authoritative if claim.source == DECLARED_EFFECT_SOURCE
@@ -560,12 +560,32 @@ def _assess_effect(
     below_sources: list[str] = []
     if declaration is not None and declaration.effect is not None:
         declared_rank = _EFFECT_RANK[declaration.effect]
-        # Unchanged: policy-eligible evidence outranking the declaration is a
-        # blocking conflict, and no override may acknowledge it away.
+        # Unchanged: policy-eligible *source* evidence outranking the
+        # declaration is a blocking conflict, and no override may acknowledge
+        # it away.
+        #
+        # #424 — but a reviewed risk tag is not source evidence. The row this
+        # branch pre-empts publishes exactly one non-raise route: "add
+        # ``risk_tags: [X]`` so the X controls apply to this action". Reading
+        # that tag back as evidence contradicting the ``effect`` beside it
+        # turned the published repair into a *blocking* conflict whose message
+        # blamed the reviewer's own manifest — 281 of the 390 declared/observed
+        # pairs that take the tag route could not close the row they were
+        # printed on. :func:`claims_above_declared_effect` had already decided
+        # the other way one branch over, and ``_source_read_conflict`` was
+        # fixed for the same reason; this branch never got the treatment.
+        #
+        # Narrow on purpose: only the two spellings of "declare this category
+        # as reviewed" are excluded, never ``_is_manifest_owned`` wholesale.
+        # That predicate also covers ``action_scope``, and #417 deliberately
+        # made a declared ``crm.delete`` grant bound the action's effect — a
+        # grant asserts an independent fact, a tag refines the effect the same
+        # person wrote.
         contradictory = [
             claim
             for claim in [*structural, *inferred]
             if claim.policy_eligible
+            and claim.source not in REVIEWED_RISK_TAG_CLAIM_SOURCES
             and _EFFECT_RANK[_as_effect(claim.value)] > declared_rank
         ]
         if not contradictory:

@@ -491,52 +491,83 @@ def test_the_answerable_kinds_are_real_gap_kinds_and_belong_to_one_dimension() -
 _PIN = "<CURRENT_PIN>"
 
 
-#: One reachable configuration per answerable kind, with the declaration that
-#: is supposed to close it. `conflicting_effect_evidence` appears twice on
-#: purpose: it is raised about two different surfaces, and only one of them is
-#: a question a declaration can answer.
-_ROUND_TRIP_CASES: dict[str, tuple[dict, dict, dict]] = {
-    # kind: (tool kwargs, declaration that raised it or {}, the answer)
+#: Every reachable configuration whose row a declaration is supposed to close,
+#: grouped by kind. `conflicting_effect_evidence` appears twice on purpose: it
+#: is raised about two different surfaces, and only one of them is a question a
+#: declaration can answer.
+#:
+#: A kind carries more than one case when its row publishes more than one
+#: route out. `declaration_below_inferred_evidence` publishes two — raise the
+#: effect, or name the categories as reviewed `risk_tags` — and only the first
+#: was walked, so the second could swap the row for a *blocking*
+#: `conflicting_effect_evidence` and nothing here noticed (#424).
+_ROUND_TRIP_CASES: dict[str, tuple[tuple[dict, dict, dict], ...]] = {
+    # kind: ((tool kwargs, declaration that raised it or {}, the answer), ...)
     "missing_effect_evidence": (
-        {"source_type": "mcp", "annotations": {"mcp_server": True}},
-        {},
-        {"effect": "write"},
+        (
+            {"source_type": "mcp", "annotations": {"mcp_server": True}},
+            {},
+            {"effect": "write"},
+        ),
     ),
     "inferred_effect_only": (
-        {"risk_hints": "external_communication"},
-        {},
-        {"effect": "external_communication"},
+        (
+            {"risk_hints": "external_communication"},
+            {},
+            {"effect": "external_communication"},
+        ),
     ),
     "declaration_below_inferred_evidence": (
-        {"risk_hints": "external_communication"},
-        {"effect": "read"},
-        {"effect": "external_communication"},
+        # The `raise_effect` route.
+        (
+            {"risk_hints": "external_communication"},
+            {"effect": "read"},
+            {"effect": "external_communication"},
+        ),
+        # The `declare_risk_tags` route. No single effect covers both
+        # `destructive` and `external_communication` under both rank tables, so
+        # the row's own instruction is to name the uncovered category as a
+        # reviewed tag — the exact edit #424 found could not close the row it
+        # was printed on.
+        (
+            {"risk_hints": ("destructive", "external_communication")},
+            {"effect": "external_communication"},
+            {"effect": "external_communication", "risk_tags": ["destructive"]},
+        ),
     ),
     "conflicting_effect_evidence": (
-        {"annotations": {"httpMethod": "POST"}},
-        {"effect": "read"},
-        {"effect": "write"},
+        (
+            {"annotations": {"httpMethod": "POST"}},
+            {"effect": "read"},
+            {"effect": "write"},
+        ),
     ),
     "missing_authority_evidence": (
-        {},
-        {},
-        {"authority": {"mode": "none"}},
+        (
+            {},
+            {},
+            {"authority": {"mode": "none"}},
+        ),
     ),
     "conflicting_authority_evidence": (
-        {"auth": {"type": "oauth2", "scopes": ["a:write"]}},
-        {"authority": {"mode": "none"}},
-        {
-            "scopes": ["a:write"],
-            "authority": {"mode": "scoped", "auth_type": "oauth2"},
-        },
+        (
+            {"auth": {"type": "oauth2", "scopes": ["a:write"]}},
+            {"authority": {"mode": "none"}},
+            {
+                "scopes": ["a:write"],
+                "authority": {"mode": "scoped", "auth_type": "oauth2"},
+            },
+        ),
     ),
     # A pinned declaration whose pin names evidence this scan does not read.
     # The answer is the same declaration re-confirmed against what it reads
     # now — the one-line edit the row asks for (#410 §E).
     "declaration_drift": (
-        {"risk_hints": "external_communication"},
-        {"effect": "external_communication", "basis": "confirmed:0"},
-        {"effect": "external_communication", "basis": _PIN},
+        (
+            {"risk_hints": "external_communication"},
+            {"effect": "external_communication", "basis": "confirmed:0"},
+            {"effect": "external_communication", "basis": _PIN},
+        ),
     ),
 }
 
@@ -568,35 +599,46 @@ def test_every_answerable_kind_has_an_answer_that_closes_it() -> None:
         "a kind was added to ANSWERABLE_ISSUE_KINDS with no round-trip case"
     )
 
-    for kind, (tool_kwargs, raising, answer) in _ROUND_TRIP_CASES.items():
+    for kind, cases in _ROUND_TRIP_CASES.items():
         dimension = dimension_of[kind]
-        hint = tool_kwargs.pop("risk_hints", None) if "risk_hints" in tool_kwargs else None
-        tool = _observing(hint, **tool_kwargs) if hint else _tool(**tool_kwargs)
-        raised = assess_tool_semantics(
-            tool,
-            ActionDeclarationConfig.model_validate({"tool": "send_email", **raising})
-            if raising
-            else None,
-        )
-        assert kind in {issue.kind for issue in _dim_issues(raised, dimension)}, (
-            f"{kind}: the fixture no longer raises it"
-        )
+        for tool_kwargs, raising, answer in cases:
+            tool_kwargs = dict(tool_kwargs)
+            hints = tool_kwargs.pop("risk_hints", None)
+            if isinstance(hints, str):
+                hints = (hints,)
+            tool = _observing(*hints, **tool_kwargs) if hints else _tool(**tool_kwargs)
+            raised = assess_tool_semantics(
+                tool,
+                ActionDeclarationConfig.model_validate({"tool": "send_email", **raising})
+                if raising
+                else None,
+            )
+            assert kind in {issue.kind for issue in _dim_issues(raised, dimension)}, (
+                f"{kind}: the fixture no longer raises it"
+            )
 
-        answered = assess_tool_semantics(
-            tool,
-            ActionDeclarationConfig.model_validate(
-                {"tool": "send_email", **_with_pin(answer, tool)}
-            ),
-        )
-        tool.semantic_assessment = answered
-        questions = {
-            (question.dimension, question.answered)
-            for question in declaration_questions([tool])
-        }
-        assert (dimension, False) not in questions, (
-            f"{kind}: applying {answer} left the {dimension} question open — "
-            "the counter advertises a finish line this answer cannot reach"
-        )
+            answered = assess_tool_semantics(
+                tool,
+                ActionDeclarationConfig.model_validate(
+                    {"tool": "send_email", **_with_pin(answer, tool)}
+                ),
+            )
+            tool.semantic_assessment = answered
+            questions = {
+                (question.dimension, question.answered)
+                for question in declaration_questions([tool])
+            }
+            assert (dimension, False) not in questions, (
+                f"{kind}: applying {answer} left the {dimension} question open — "
+                "the counter advertises a finish line this answer cannot reach"
+            )
+            # And it must not have traded the row for a different one: the
+            # published route has to leave the dimension clean, not swap a
+            # review-tier row for a blocking conflict (#424).
+            assert not _dim_issues(answered, dimension), (
+                f"{kind}: applying {answer} replaced the row with "
+                f"{sorted(issue.kind for issue in _dim_issues(answered, dimension))}"
+            )
 
 
 def _rendered_gaps(tmp_path: Path, *, tools: list[dict], actions: list[dict]):
@@ -611,6 +653,81 @@ def _rendered_gaps(tmp_path: Path, *, tools: list[dict], actions: list[dict]):
     )
     assert report.release_decision is not None
     return report, report.release_decision.evidence_coverage.evidence_gaps
+
+
+def test_pasting_the_published_tag_block_closes_the_row_end_to_end(
+    tmp_path: Path,
+) -> None:
+    """The §E walk that found #424, as a scan the reader actually performs.
+
+    The unit round-trip proves the resolver agrees with itself. This proves the
+    thing a reviewer does: take the block the row publishes, paste it into the
+    action it names, rescan. That is where the defect was visible — the row's
+    own repair came back as a *blocking* `conflicting_effect_evidence` — and
+    where the pin has to survive it, since a template that re-opens
+    `declaration_drift` on the next scan has not closed anything either.
+    """
+
+    tools = [
+        {
+            "name": "purge_and_notify_customers",
+            "description": (
+                "Delete the customer record permanently and email the customer "
+                "about it."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {"id": {"type": "string"}},
+                "required": ["id"],
+                "additionalProperties": False,
+            },
+        }
+    ]
+    declared = {
+        "tool": "purge_and_notify_customers",
+        "effect": "external_communication",
+        "authority": {"mode": "none"},
+    }
+
+    def _scan(actions: list[dict], where: Path):
+        where.mkdir()
+        report, _ = run_scan(
+            config_path=_mcp_workspace(where, tools=tools, actions=actions),
+            output_dir=where / "out",
+            formats=["json"],
+            ci_mode="advisory",
+            packet_enabled=False,
+        )
+        assert report.release_decision is not None
+        return report
+
+    raised = _scan([dict(declared)], tmp_path / "before")
+    gap = next(
+        item
+        for item in raised.release_decision.evidence_coverage.evidence_gaps
+        if item.kind == "declaration_below_inferred_evidence"
+    )
+    template = dict(gap.next_action.declaration_template or {})
+    assert template["risk_tags"] == ["destructive"]
+    # `override` is the row's *other* route, offered in the same block; a
+    # reviewer taking the first one does not also write an acknowledgement.
+    template.pop("override", None)
+    merged = {**declared, **{
+        key: value
+        for key, value in template.items()
+        if key not in {"tool_id", "source_id"}
+    }}
+
+    answered = _scan([merged], tmp_path / "after")
+    coverage = answered.release_decision.evidence_coverage
+
+    assert [item.kind for item in coverage.evidence_gaps] == []
+    questions = coverage.semantic_coverage.declaration_questions
+    assert questions.open == 0 and questions.answered == questions.total
+    # Closed by *applying* both categories' controls, not by silencing either.
+    active = {finding.check_id for finding in answered.findings}
+    assert "SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING" in active
+    assert "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING" in active
 
 
 def test_a_source_owned_row_points_at_the_source_it_names(tmp_path: Path) -> None:

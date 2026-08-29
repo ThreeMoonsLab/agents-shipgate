@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+- **A reviewed risk tag is the manifest refining its own row, not source
+  evidence contradicting it.** (#424) `declaration_below_inferred_evidence`
+  publishes two routes, and the second is the one the row names: *"add
+  `action_surface.actions[].risk_tags: [X]` so the X controls apply to this
+  action"*. Applying it exactly as instructed replaced the review-tier row with
+  a **blocking** `conflicting_effect_evidence` whose message blamed the
+  reviewer's own manifest — the published next step could not close the row it
+  was printed on. Measured over every declared effect against every one-, two-,
+  and three-observation combination: 281 of the 390 pairs that take the tag
+  route. First-time adoption was never affected; a proposal always raises the
+  effect or names a covering set, so only the post-declaration repair was
+  broken, and it was broken exactly where the two published rank tables
+  disagree — the case the two-route design exists for.
+
+  Two branches of the resolver disagreed about what a reviewed `risk_tags`
+  entry is. `claims_above_declared_effect` treats it as **covering**,
+  deliberately: a declared tag is policy-eligible, so it both accounts for the
+  observation and makes that category's built-in controls apply. The
+  `contradictory` filter ran first and read the same claim as source evidence
+  outranking the declaration. It now excludes the two spellings of "declare
+  this category as reviewed" — the action row's `risk_tags` and the
+  `risk_overrides.tags` hint that says it once for a whole selector. This is
+  the same class already fixed one branch over in `_source_read_conflict`.
+
+  **Deliberately narrow.** The exclusion is *not* `_is_manifest_owned`
+  wholesale. That predicate also covers `action_scope`, and a declared
+  permission list is a different kind of statement: #417 made a declared
+  `crm.delete` grant bound the action's effect, so excluding it would re-open
+  that fail-open. A declared tag refines the effect the same person wrote; a
+  declared grant asserts an independent fact that bounds it. Protocol
+  annotations, a source's own scopes, and typed provider facts keep
+  contradicting a weaker declaration exactly as before.
+
+  **The gate verdict this moves.** `effect: read` + `risk_tags: [destructive]`
+  goes from blocking to pass-eligible. It is not a downgrade: the action still
+  resolves to `destructive`, the destructive claim is still policy-eligible,
+  and the two spellings now produce byte-identical gate answers — the same
+  decision and the same findings as declaring the effect outright. The P0
+  canary that pinned the old outcome
+  (`manual_financial_tag_cannot_downgrade_to_read`) is replaced in its slot by
+  the boundary the fix draws, `declared_delete_scope_cannot_downgrade_to_read`,
+  and the property it guarded is asserted in its new form beside it.
+
 - **The declaration continuation: a drafted proposal can now reach the person
   it was drafted for.** (#429 review) `apply-patches --kinds declare_action`
   writes into `shipgate.yaml`, which is the trust root — so the control that

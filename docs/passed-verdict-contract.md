@@ -156,8 +156,13 @@ human review, not an executable Patch.
 A declaration may freely escalate past the evidence. Declaring an effect
 **weaker** than one the scan inferred raises
 `declaration_below_inferred_evidence` (v0.36+) and the action is not
-pass-eligible until a reviewer raises `effect` or acknowledges the difference
-with `actions[].override` (`evidence` + `reason`). An acknowledged override is
+pass-eligible until a reviewer accounts for the observation or acknowledges the
+difference with `actions[].override` (`evidence` + `reason`). Accounting for it
+is one edit, and the row names which: raise `effect` where one value covers
+every uncovered reading, otherwise name the uncovered categories as reviewed
+`actions[].risk_tags` — a declared tag is policy-eligible, so it accounts for
+the reading *and* applies that category's controls, reaching the same gate
+answer as declaring the effect outright. An acknowledged override is
 accepted and the action is pass-eligible again, but it is counted as a semantic
 review concern — like `unscoped` and `ambient` authority, it keeps human review
 mandatory, so a run carrying one is never `passed`.

@@ -357,19 +357,34 @@ CONTRADICTION_EVASION_CASES = [
         authority_mode="none",
         effect_issues=frozenset({"conflicting_effect_evidence"}),
     ),
+    # #424 retired this slot's previous occupant,
+    # `manual_financial_tag_cannot_downgrade_to_read`. A declared
+    # `risk_tags: [financial_action]` beside `effect: read` is the manifest
+    # refining its own row, not contradicting it — and reading it as a
+    # contradiction is what left the `declare_risk_tags` repair unable to close
+    # the row that published it. The property that canary guarded is unchanged
+    # and asserted, in its post-#424 form, by
+    # `test_a_reviewed_tag_transitions_the_action_instead_of_blocking_it`.
+    #
+    # The slot now holds the boundary that fix draws. A declared *scope* is a
+    # different kind of statement: #417 made a declared `billing.delete` grant
+    # bound the action's effect, so it must keep contradicting a weaker
+    # declaration even though the same human wrote both lines. The tag rides
+    # along to prove it cannot launder the grant.
     SemanticCanary(
         "contradiction_evasion",
-        "manual_financial_tag_cannot_downgrade_to_read",
+        "declared_delete_scope_cannot_downgrade_to_read",
         declaration={
             "tool": "process_order",
             "effect": "read",
             "risk_tags": ["financial_action"],
-            "authority": {"mode": "none"},
+            "scopes": ["billing.delete"],
+            "authority": {"mode": "scoped", "auth_type": "oauth2"},
         },
         effect_status="conflicting",
-        effect="financial_write",
+        effect="destructive",
         authority_status="declared",
-        authority_mode="none",
+        authority_mode="scoped",
         effect_issues=frozenset({"conflicting_effect_evidence"}),
     ),
     SemanticCanary(
@@ -1345,6 +1360,37 @@ def test_p0_robustness_metamorphic_canary(case: RobustnessCanary) -> None:
         assert assessment.effect.status == "protocol_default"
         assert assessment.conservative_effect == "write"
         assert assessment.pass_eligible is False
+
+
+def test_a_reviewed_tag_transitions_the_action_instead_of_blocking_it() -> None:
+    """The retired canary's property, in the form #424 left it.
+
+    `effect: read` + `risk_tags: [financial_action]` used to be a blocking
+    `conflicting_effect_evidence`. It is now pass-eligible — and the reason
+    that is not an evasion is asserted here rather than assumed: the action
+    resolves to `financial_write`, the financial-write claim is policy-eligible
+    (so `_control_effects` applies that category's controls), and read is not
+    what anything downstream reads.
+    """
+
+    assessment = assess_tool_semantics(
+        _semantic_tool(),
+        ActionDeclarationConfig.model_validate(
+            {
+                "tool": "process_order",
+                "effect": "read",
+                "risk_tags": ["financial_action"],
+                "authority": {"mode": "none"},
+            }
+        ),
+    )
+
+    assert assessment.conservative_effect == "financial_write"
+    assert "financial_write" in {
+        claim.value for claim in assessment.effect.claims if claim.policy_eligible
+    }
+    assert assessment.pass_eligible is True
+    assert not assessment.effect.issues
 
 
 def test_p0_safety_canary_catalog_has_exact_planned_shape() -> None:

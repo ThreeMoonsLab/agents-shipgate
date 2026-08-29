@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import json
 from pathlib import Path
 
@@ -361,6 +362,17 @@ def test_control_union_preserves_financial_and_destructive_claims(
 def test_manual_positive_action_tag_cannot_hide_behind_read_effect(
     tmp_path: Path,
 ) -> None:
+    """A declared tag applies its category's controls; it does not soften.
+
+    The tag used to be reported as `conflicting_effect_evidence` — the
+    manifest read as contradicting itself — which is the #424 defect: the
+    same reading made the `declare_risk_tags` repair unable to close the row
+    that published it. What must hold is that the tag cannot *hide* anything,
+    and the stronger form of that is what the gate now says: the
+    financial-write controls apply, they are missing, and the run is blocked
+    for that reason rather than for the shape of the manifest.
+    """
+
     config = _write_project(
         tmp_path,
         tools=[_tool("settle_order")],
@@ -383,11 +395,68 @@ def test_manual_positive_action_tag_cannot_hide_behind_read_effect(
     )
 
     assert report.release_decision is not None
-    assert report.release_decision.decision != "passed"
+    assert report.release_decision.decision == "blocked"
     assert any(
-        gap.kind == "conflicting_effect_evidence"
-        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        finding.check_id == "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING"
+        for finding in report.findings
     )
+
+
+def test_a_declared_tag_obliges_exactly_what_declaring_the_effect_would(
+    tmp_path: Path,
+) -> None:
+    """The two spellings have to land on the same gate answer.
+
+    `effect: read` + `risk_tags: [financial_write]` is now pass-eligible where
+    it used to be a blocking conflict (#424), so the thing worth proving is
+    that nothing was laundered: the controls the tag obliges are the controls
+    `effect: financial_write` obliges, and the same absence blocks either way.
+    """
+
+    controls = [
+        ("approval", {"required": True}),
+        ("safeguards", {"audit_log": True, "idempotency": True}),
+    ]
+    counter = itertools.count()
+
+    def _gate(action: dict[str, object]) -> tuple[str, frozenset[str]]:
+        root = tmp_path / f"case{next(counter)}"
+        root.mkdir()
+        report, _ = run_scan(
+            config_path=_write_project(
+                root, tools=[_tool("settle_order")], actions=[action]
+            ),
+            output_dir=root / "reports",
+            formats=["json"],
+            ci_mode="advisory",
+            packet_enabled=False,
+        )
+        assert report.release_decision is not None
+        return report.release_decision.decision, frozenset(
+            finding.check_id for finding in report.findings
+        )
+
+    def _spellings(**extra: object) -> tuple[tuple[str, frozenset[str]], ...]:
+        base: dict[str, object] = {
+            "tool": "settle_order",
+            "authority": {"mode": "none"},
+            **extra,
+        }
+        return (
+            _gate({**base, "effect": "read", "risk_tags": ["financial_write"]}),
+            _gate({**base, "effect": "financial_write"}),
+        )
+
+    controlled_tag, controlled_effect = _spellings(controls=controls)
+    bare_tag, bare_effect = _spellings()
+
+    assert controlled_tag == controlled_effect
+    assert bare_tag == bare_effect
+    # And the controls were the whole difference: without them both spellings
+    # block on the same missing financial-write control.
+    assert "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING" not in controlled_tag[1]
+    assert bare_tag[0] == "blocked"
+    assert "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING" in bare_tag[1]
 
 
 def test_suppression_cannot_waive_mandatory_destructive_control(
