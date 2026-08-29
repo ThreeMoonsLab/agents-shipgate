@@ -1,13 +1,36 @@
 version: 2
+
+# The constraints/ locks are hash-pinned closures, not flat requirement lists:
+# most lines are transitive and are recorded with a `# via <parent>` comment.
+# Dependabot treats every line as independently bumpable, so it will raise a pin
+# past the cap of the parent that pulls it in. Such a PR can never go green —
+# pip fails with ResolutionImpossible at install time, before any test runs —
+# and it cannot be repaired by rebasing, only closed.
+#
+# A transitive pin should move because its parent moved. When one of these is
+# genuinely wanted, bump the parent and recompile with scripts/update_locks.py.
+
 updates:
   - package-ecosystem: pip
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # `# via cyclonedx-bom`, which requires chardet<6.0,>=5.1. cyclonedx-bom
+      # 7.3.1 is the latest release overall, not merely the latest 7.x, so no
+      # release accepts chardet 6 or above. Closed #407 on this. Major updates
+      # only: 5.x movement is still legitimate, and this reopens on its own if
+      # cyclonedx-bom ever lifts the cap.
+      - dependency-name: "chardet"
+        update-types: ["version-update:semver-major"]
+      # `# via pydantic`, which pins it *exactly* rather than as a range:
+      # pydantic 2.13.4 requires pydantic-core==2.46.4, and 2.13.5 requires
+      # ==2.46.5. Any independent bump is unsatisfiable at every update type,
+      # so this one is ignored outright. Closed #382 on this.
+      - dependency-name: "pydantic-core"
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
-
