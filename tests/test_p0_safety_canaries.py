@@ -1368,9 +1368,9 @@ def test_a_reviewed_tag_transitions_the_action_instead_of_blocking_it() -> None:
     `effect: read` + `risk_tags: [financial_action]` used to be a blocking
     `conflicting_effect_evidence`. It is now pass-eligible — and the reason
     that is not an evasion is asserted here rather than assumed: the action
-    resolves to `financial_write`, the financial-write claim is policy-eligible
-    (so `_control_effects` applies that category's controls), and read is not
-    what anything downstream reads.
+    resolves to `financial_write`, which is the effect every downstream
+    consumer reads, and the financial-write claim is policy-eligible, which is
+    what makes `_control_effects` apply that category's controls.
     """
 
     assessment = assess_tool_semantics(

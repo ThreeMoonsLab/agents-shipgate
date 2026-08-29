@@ -492,9 +492,9 @@ _PIN = "<CURRENT_PIN>"
 
 
 #: Every reachable configuration whose row a declaration is supposed to close,
-#: grouped by kind. `conflicting_effect_evidence` appears twice on purpose: it
-#: is raised about two different surfaces, and only one of them is a question a
-#: declaration can answer.
+#: grouped by kind. `conflicting_effect_evidence` carries the manifest-owned
+#: surface only: it is also raised about a source that contradicts itself, and
+#: that one is not a question any declaration can answer.
 #:
 #: A kind carries more than one case when its row publishes more than one
 #: route out. `declaration_below_inferred_evidence` publishes two — raise the
