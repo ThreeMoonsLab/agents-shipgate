@@ -655,8 +655,9 @@ def _rendered_gaps(tmp_path: Path, *, tools: list[dict], actions: list[dict]):
     return report, report.release_decision.evidence_coverage.evidence_gaps
 
 
+@pytest.mark.parametrize("already_declared", [[], ["financial_write"]])
 def test_pasting_the_published_tag_block_closes_the_row_end_to_end(
-    tmp_path: Path,
+    tmp_path: Path, already_declared: list[str]
 ) -> None:
     """The §E walk that found #424, as a scan the reader actually performs.
 
@@ -666,14 +667,20 @@ def test_pasting_the_published_tag_block_closes_the_row_end_to_end(
     own repair came back as a *blocking* `conflicting_effect_evidence` — and
     where the pin has to survive it, since a template that re-opens
     `declaration_drift` on the next scan has not closed anything either.
+
+    Parametrized over a row that already carries a covering tag, because
+    `risk_tags` is one YAML key and pasting replaces it. A template naming only
+    the newly uncovered category deleted the tag that was covering the
+    financial reading, and the next scan reopened the row asking for it back —
+    the same defect, in the case the repair itself creates (#424 review).
     """
 
     tools = [
         {
-            "name": "purge_and_notify_customers",
+            "name": "refund_and_purge_customer",
             "description": (
-                "Delete the customer record permanently and email the customer "
-                "about it."
+                "Issue a refund payment to the customer and permanently delete "
+                "their account record."
             ),
             "inputSchema": {
                 "type": "object",
@@ -683,11 +690,13 @@ def test_pasting_the_published_tag_block_closes_the_row_end_to_end(
             },
         }
     ]
-    declared = {
-        "tool": "purge_and_notify_customers",
+    declared: dict = {
+        "tool": "refund_and_purge_customer",
         "effect": "external_communication",
         "authority": {"mode": "none"},
     }
+    if already_declared:
+        declared["risk_tags"] = list(already_declared)
 
     def _scan(actions: list[dict], where: Path):
         where.mkdir()
@@ -708,24 +717,34 @@ def test_pasting_the_published_tag_block_closes_the_row_end_to_end(
         if item.kind == "declaration_below_inferred_evidence"
     )
     template = dict(gap.next_action.declaration_template or {})
-    assert template["risk_tags"] == ["destructive"]
+    # The whole value of the key, not the additions: the same list either way,
+    # so a reviewer who already answered half the question keeps that half.
+    assert template["risk_tags"] == ["financial_write", "destructive"]
     # `override` is the row's *other* route, offered in the same block; a
     # reviewer taking the first one does not also write an acknowledgement.
     template.pop("override", None)
-    merged = {**declared, **{
-        key: value
-        for key, value in template.items()
-        if key not in {"tool_id", "source_id"}
-    }}
+    # Pasted the way a merge instruction is pasted: each key it names replaces
+    # the key it lands on. Unioning here instead would test the reader's
+    # goodwill rather than the block.
+    merged = {
+        **declared,
+        **{
+            key: value
+            for key, value in template.items()
+            if key not in {"tool_id", "source_id"}
+        },
+    }
 
     answered = _scan([merged], tmp_path / "after")
     coverage = answered.release_decision.evidence_coverage
 
     assert [item.kind for item in coverage.evidence_gaps] == []
     questions = coverage.semantic_coverage.declaration_questions
-    assert questions.open == 0 and questions.answered == questions.total
-    # Closed by *applying* both categories' controls, not by silencing either.
+    assert questions.open == 0
+    assert questions.answered == questions.total
+    # Closed by *applying* every category's controls, not by silencing any.
     active = {finding.check_id for finding in answered.findings}
+    assert "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING" in active
     assert "SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING" in active
     assert "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING" in active
 

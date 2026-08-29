@@ -588,10 +588,21 @@ def build_action(
         for claim in semantic_assessment.effect.claims
         if claim.policy_eligible and claim.value in ACTION_EFFECT_RANK
     }
+    # Every category the reviewed surface establishes gets its tag, so the
+    # controls it obliges are visible in the row. ``read`` is excluded because
+    # it is not a category: it is the assertion that none of them apply, and
+    # ``semantic_effects`` is a *union* — a row declaring ``effect: read``
+    # beside ``risk_tags: [financial_write]`` contributes both. Mapping the
+    # ``read`` member synthesized a ``read_only`` tag on a ``financial_write``
+    # action, and ``derive_side_effect`` reads that tag as positive evidence,
+    # publishing ``reversibility: reversible`` for it — the one thing that
+    # helper's own docstring says a declared read must not buy (#461). The
+    # conservative effect below still contributes ``read_only`` where the
+    # action really does resolve to ``read``.
     risk_tag_values = sorted(
         set(risk_tag_values)
         | {_risk_tag_for_effect(effect)}
-        | {_risk_tag_for_effect(value) for value in semantic_effects}
+        | {_risk_tag_for_effect(value) for value in semantic_effects if value != "read"}
     )
     approval = _approval_fact(manifest, tool, declaration)
     safeguards = _safeguards_fact(manifest, tool, declaration)

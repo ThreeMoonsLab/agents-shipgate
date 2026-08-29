@@ -300,6 +300,22 @@ def _assess_effect(
                 "reviewed_declaration",
                 "action_surface_declaration",
                 f"action_surface.actions[tool={tool.name!r}].effect",
+                # The reviewed tag list *verbatim*, because a repair that
+                # publishes ``risk_tags`` publishes the whole value of that key
+                # and has to be able to write back what is already there. It
+                # cannot be rebuilt from the tag claims below: three members of
+                # the vocabulary — ``read_only``, ``network_access`` and
+                # ``customer_data`` — map to no positive effect and produce no
+                # claim, so a list rebuilt from claims would drop what a
+                # reviewer wrote (#424 review).
+                #
+                # Recorded on this claim rather than a new assessment field
+                # because this branch is the exact condition under which the
+                # repair can be published: no declared ``effect``, no
+                # ``declaration_below_inferred_evidence`` row.
+                {"declared_risk_tags": list(declaration.risk_tags)}
+                if declaration.risk_tags
+                else None,
             )
         )
     if declaration is not None:
@@ -1035,6 +1051,14 @@ def effect_repair(effect: EffectSemanticAssessment) -> EffectRepair:
     policy-eligible evidence, so it both accounts for the observation *and*
     makes that category's built-in controls apply, which is the outcome the
     uncovered obligation was asking for.
+
+    A third way it could not close its own row, and the reason ``risk_tags``
+    is the *whole* list rather than the additions: ``risk_tags`` is one YAML
+    key, so a template naming it replaces it. Publishing ``[destructive]`` for
+    a row already reading ``risk_tags: [financial_write]`` asked the reviewer
+    to delete the tag covering the financial reading, and the next scan
+    reopened the row asking for it back (#424 review). ``added_risk_tags``
+    carries what changed, so the sentence and the value cannot disagree.
     """
 
     declared = next(
@@ -1065,17 +1089,35 @@ def effect_repair(effect: EffectSemanticAssessment) -> EffectRepair:
             instruction=f"Raise action_surface.actions[].effect to {target!r}",
             effect=target,
         )
-    tags = [value for value in uncovered if value in _ACTION_RISK_TAG_VALUES]
-    if not tags:  # pragma: no cover - every non-read effect has a matching tag
+    added = [value for value in uncovered if value in _ACTION_RISK_TAG_VALUES]
+    if not added:  # pragma: no cover - every non-read effect has a matching tag
         return EffectRepair(kind="raise_effect", instruction=_GENERIC_RAISE)
-    rendered = ", ".join(tags)
+    # The whole list, not just the new part. ``risk_tags`` is one YAML key, so
+    # a template naming it replaces it: publishing ``[destructive]`` for a row
+    # that already reads ``risk_tags: [financial_write]`` asked the reviewer to
+    # delete the tag that was covering the financial reading, and the next scan
+    # reopened the row asking for it back — the #424 defect surviving in the
+    # case #424's own repair created (#424 review).
+    #
+    # Declared tags keep the reviewer's own spelling and order:
+    # ``financial_action`` and ``financial_write`` are one category under two
+    # names, and rewriting one to the other is a change nobody asked for.
+    declared_tags = [
+        str(tag)
+        for tag in (declared.evidence.get("declared_risk_tags") or [])
+        if isinstance(tag, str)
+    ]
+    declared_effects = {_TAG_EFFECTS.get(tag) for tag in declared_tags}
+    tags = [*declared_tags, *(value for value in added if value not in declared_effects)]
+    rendered_added = ", ".join(added)
     return EffectRepair(
         kind="declare_risk_tags",
         instruction=(
-            f"Add action_surface.actions[].risk_tags: [{rendered}] so the "
-            f"{rendered} controls apply to this action"
+            f"Set action_surface.actions[].risk_tags: [{', '.join(tags)}] so the "
+            f"{rendered_added} controls apply to this action"
         ),
         risk_tags=tuple(tags),
+        added_risk_tags=tuple(added),
     )
 
 
@@ -1126,7 +1168,16 @@ class EffectRepair:
     kind: Literal["raise_effect", "declare_risk_tags"]
     instruction: str
     effect: ActionEffect | None = None
+    #: The **complete** value to write to ``risk_tags`` — every tag the row
+    #: already declares, plus the categories this repair adds. A template
+    #: carrying only the additions replaces the key it is merged into, so on an
+    #: already-tagged action the published repair dropped a covering tag and
+    #: reopened the same row on the next scan (#424 review).
     risk_tags: tuple[str, ...] = ()
+    #: The categories being added, which is what the instruction's "so the X
+    #: controls apply" clause names and what ``accepted_values`` publishes.
+    #: Equal to :attr:`risk_tags` when the row declared none.
+    added_risk_tags: tuple[str, ...] = ()
 
 
 #: Evidence bases that state a *default* rather than an observation of the
