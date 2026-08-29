@@ -186,8 +186,8 @@ def test_handoff_rejects_tampered_current_verify_run_outcome() -> None:
     ("schema_path", "control_path"),
     [
         ("docs/verifier-schema.v0.8.json", ("control",)),
-        ("docs/agent-handoff-schema.v7.json", ("control",)),
-        ("docs/verify-run-schema.v4.json", ("outcome", "control")),
+        ("docs/agent-handoff-schema.v8.json", ("control",)),
+        ("docs/verify-run-schema.v5.json", ("outcome", "control")),
     ],
 )
 def test_generated_public_schemas_reject_contradictory_control(
@@ -199,8 +199,8 @@ def test_generated_public_schemas_reject_contradictory_control(
     handoff = build_agent_handoff(verifier=verifier, verify_run=run)
     payload_by_schema = {
         "docs/verifier-schema.v0.8.json": verifier.model_dump(mode="json"),
-        "docs/agent-handoff-schema.v7.json": handoff.model_dump(mode="json"),
-        "docs/verify-run-schema.v4.json": run.model_dump(mode="json"),
+        "docs/agent-handoff-schema.v8.json": handoff.model_dump(mode="json"),
+        "docs/verify-run-schema.v5.json": run.model_dump(mode="json"),
     }
     payload = deepcopy(payload_by_schema[schema_path])
     control = payload
@@ -214,7 +214,7 @@ def test_generated_public_schemas_reject_contradictory_control(
 
 @pytest.mark.parametrize(
     "schema_path",
-    ["docs/verifier-schema.v0.8.json", "docs/agent-handoff-schema.v7.json"],
+    ["docs/verifier-schema.v0.8.json", "docs/agent-handoff-schema.v8.json"],
 )
 def test_generated_schemas_reject_accepted_authorization_on_passed_gate(
     schema_path: str,
@@ -224,7 +224,7 @@ def test_generated_schemas_reject_accepted_authorization_on_passed_gate(
     handoff = build_agent_handoff(verifier=verifier, verify_run=run)
     payload_by_schema = {
         "docs/verifier-schema.v0.8.json": verifier.model_dump(mode="json"),
-        "docs/agent-handoff-schema.v7.json": handoff.model_dump(mode="json"),
+        "docs/agent-handoff-schema.v8.json": handoff.model_dump(mode="json"),
     }
     payload = deepcopy(payload_by_schema[schema_path])
     payload["authorization"] = _accepted_authorization().model_dump(mode="json")

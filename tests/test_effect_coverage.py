@@ -568,7 +568,7 @@ _FROZEN_AND_CURRENT_SCHEMAS = [
     ("report-schema.v0.39.json", "report-schema.v0.40.json", "control_pack"),
     ("report-schema.v0.40.json", "report-schema.v0.41.json", "authorable_by"),
     ("packet-schema.v0.16.json", "packet-schema.v0.17.json", "authorable_by"),
-    ("verifier-schema.v0.13.json", "verifier-schema.v0.14.json", "authorable_by"),
+    ("verifier-schema.v0.13.json", "verifier-schema.v0.15.json", "authorable_by"),
     # #432: the binding graph gained the entry points the reachability walk
     # started from, and every node gained the kind it is. Only the report
     # schema embeds ``AgentBindingGraphAssessment``.

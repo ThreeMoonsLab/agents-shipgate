@@ -85,6 +85,11 @@ def build_agent_handoff(
     return AgentHandoffArtifact(
         contract_version=CONTRACT_VERSION,
         operation=operation,
+        # Carried, never re-derived: the receipt is validated once, by the run
+        # that read the manifests, and every projection of that run has to
+        # agree with it or the shared publication invariant will disagree with
+        # itself across three artifacts (#429).
+        declaration_continuation=verifier_model.declaration_continuation,
         subject=AgentHandoffSubject(
             workspace=verifier_model.workspace,
             config=verifier_model.config,

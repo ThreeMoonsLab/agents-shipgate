@@ -42,6 +42,7 @@ override) emits nothing.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from functools import lru_cache
 
 from agents_shipgate.checks._metadata_loader import load_check_metadata
@@ -439,6 +440,19 @@ def _effective_severity(
     return defaults.get(check_id)
 
 
+def touched_policy_surfaces(files: Sequence[str]) -> list[str]:
+    """The policy trust roots among ``files``, by glob.
+
+    Exported because the adoption path asks the same question from outside a
+    ``ScanContext``: an introduction that also edits an existing policy pack or
+    baseline is not covered by "nothing existed to weaken", and that carve-out
+    has to be the same set of surfaces this fail-safe fires on or the two will
+    disagree about what a policy surface is.
+    """
+
+    return touched(_POLICY_SURFACES, list(files))
+
+
 def _touched_policy_surfaces(context: ScanContext) -> list[str]:
     """Changed policy trust roots, including a non-default manifest name.
 
@@ -449,7 +463,7 @@ def _touched_policy_surfaces(context: ScanContext) -> list[str]:
     """
 
     files = changed_files(context)
-    hits = set(touched(_POLICY_SURFACES, files))
+    hits = set(touched_policy_surfaces(files))
     hits.update(path for path in files if is_context_configured_manifest(context, path))
     return sorted(hits)
 

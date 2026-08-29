@@ -11,8 +11,8 @@ from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV
 from agents_shipgate.schemas.verification_identity import CONTENT_ID_PATTERN
 from agents_shipgate.schemas.verifier import Applicability, MergeVerdict, map_merge_verdict
 
-AGENT_HANDOFF_SCHEMA_VERSION = "shipgate.agent_handoff/v7"
-AGENT_HANDOFF_SCHEMA_PATH = "docs/agent-handoff-schema.v7.json"
+AGENT_HANDOFF_SCHEMA_VERSION = "shipgate.agent_handoff/v8"
+AGENT_HANDOFF_SCHEMA_PATH = "docs/agent-handoff-schema.v8.json"
 
 AgentHandoffOperation = Literal["verify_pr", "verify_local", "verify_preview"]
 RemediationPlanSafety = Literal["allowed", "forbidden", "patch"]
@@ -217,8 +217,12 @@ class AgentHandoffArtifact(BaseModel):
                     },
                 },
                 {
+                    # See ``VerifierArtifact``: the continuation is part of the
+                    # condition, and an artifact that omits the field still
+                    # matches and is still held to the original requirement.
                     "if": {
                         "properties": {
+                            "declaration_continuation": {"not": {"const": True}},
                             "control": {
                                 "properties": {
                                     "completion_allowed": {"const": False},
@@ -228,7 +232,7 @@ class AgentHandoffArtifact(BaseModel):
                                     },
                                 },
                                 "required": ["completion_allowed", "permissions"],
-                            }
+                            },
                         },
                         "required": ["control"],
                     },
@@ -302,7 +306,7 @@ class AgentHandoffArtifact(BaseModel):
         },
     )
 
-    schema_version: Literal["shipgate.agent_handoff/v7"] = AGENT_HANDOFF_SCHEMA_VERSION
+    schema_version: Literal["shipgate.agent_handoff/v8"] = AGENT_HANDOFF_SCHEMA_VERSION
     contract_version: str
     tool: AgentHandoffTool = Field(default_factory=AgentHandoffTool)
     operation: AgentHandoffOperation
@@ -320,6 +324,11 @@ class AgentHandoffArtifact(BaseModel):
         default_factory=AgentHandoffReproducibility
     )
     artifacts: dict[str, str] = Field(default_factory=dict)
+    #: Carried from the verifier: this run's trust-root delta is a declaration
+    #: continuation, receipt-pinned on both sides, so a blocked decision may
+    #: authorize publication and nothing more (#429). Appended, because the
+    #: top-level section order is itself a pinned contract.
+    declaration_continuation: bool = False
 
     @model_validator(mode="after")
     def _single_gate_and_control(self) -> AgentHandoffArtifact:
@@ -350,7 +359,7 @@ class AgentHandoffArtifact(BaseModel):
                 raise ValueError(
                     "publication authority requires a verified handoff gate with a decision"
                 )
-            if self.gate.decision == "blocked":
+            if self.gate.decision == "blocked" and not self.declaration_continuation:
                 raise ValueError("a blocked handoff gate cannot authorize publication")
         if self.authorization.status == "accepted":
             if self.gate.decision != "review_required":

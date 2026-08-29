@@ -440,7 +440,7 @@ def test_setup_input_id_tracks_the_manifest_it_answered_about(tmp_path: Path):
 DURABLE_CONTROL_SCHEMAS = (
     "codex-boundary-result-schema.v2",
     "verifier-schema.v0.9",
-    "agent-handoff-schema.v7",
+    "agent-handoff-schema.v8",
     "preflight-schema.v0.4",
     "agent-result-schema.v3",
     "agent-boundary-result-schema.v2",
@@ -1586,7 +1586,7 @@ def test_a_completion_cannot_rest_on_a_negative_verdict(source: str, decision: s
     check = source == "agent_boundary"
     payload = {
         "schema_version": "shipgate.agent_control/v1",
-        "contract_version": "25",
+        "contract_version": "26",
         "operation": "check" if check else "verify",
         "source": "run",
         "execution": "succeeded",

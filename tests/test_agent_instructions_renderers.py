@@ -44,12 +44,12 @@ ALL_RENDERERS = {
 }
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
-    ".claude/skills/agents-shipgate/SKILL.md": "89951c7bee8c20a2f72dbc13ed5e719d19056060a3a55a9974a88203062432ad",
+    ".claude/skills/agents-shipgate/SKILL.md": "6aedbd716d37d42a60efd385ff6b516bcf20239a8524b7c594d96ae7ef41c49b",
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": "1f6ef3e51a09e824a98d6e5b33f2bf61282c62e2ae859e234da9f56161fa4a87",
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "5c5eba31886aeabc902a97b53d00bfdd6ab15e1423574633060bbdfd8bbd8b25",
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": "4f92d6d0b254e602c993516e1dc5b77c64c87b3e7b5cb4967ddd5a140dd2d510",
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829",
-    ".claude/skills/agents-shipgate/prompts/fix-top-finding.md": "32c7f3e9a515e9eff2e45599e38c534781dcd771a4b8a7f27b5efa92365c578c",
+    ".claude/skills/agents-shipgate/prompts/fix-top-finding.md": "1956133a2d1003326e471f8ecab7b781e655dc9c33fbd2d1d681711f9ac0f08c",
     ".claude/skills/agents-shipgate/prompts/recommend-fixes.md": "162aa2fb96066535425d9cf86a247a6782b8ec7cc661a18b42dbedf394779475",
     ".claude/skills/agents-shipgate/prompts/stabilize-strict-mode.md": "00da293e63792ccaf980f82d525ac12073807f41fd2d78c5a95498054053e364",
     ".claude/skills/agents-shipgate/prompts/triage-false-positive.md": "8cfbb0d4b6e2c36569d24260384d3a54165f966276112f4b143b4ac234b51ada",
@@ -173,16 +173,16 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
     assert payload["schema_version"] == "10"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "25"
+    assert payload["contract_version"] == "26"
     assert payload["minimum_control_contract_version"] == "21"
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
     assert "verify_local" not in payload["primary_commands"]
     assert payload["commands"]["verify_local"].startswith("agents-shipgate verify")
-    assert payload["verifier_schema_version"] == "0.14"
-    assert payload["verify_run_schema_version"] == "shipgate.verify_run/v4"
-    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v7"
-    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v7.json"
+    assert payload["verifier_schema_version"] == "0.15"
+    assert payload["verify_run_schema_version"] == "shipgate.verify_run/v5"
+    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v8"
+    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v8.json"
     assert payload["agent_handoff_artifact"] == "agents-shipgate-reports/agent-handoff.json"
     assert payload["codex_boundary_result_schema_version"] == "shipgate.codex_boundary_result/v2"
     assert payload["agent_boundary_result_schema_version"] == ("shipgate.agent_boundary_result/v2")

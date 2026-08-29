@@ -267,16 +267,16 @@ def _declaration_route(
         kind="confirm_declarations",
         command=action.command,
         expects=(
-            f"{len(drafts)} declaration(s) written into the manifest"
-            # Only where this control actually grants it. A route says what
-            # its own permission vector allows, and promising a commit beside
-            # ``commit: false`` would be the envelope contradicting itself in
-            # the same object.
-            + (
-                " and committed to this branch"
-                if control.permissions.publishes
-                else " (this run authorizes the named command only)"
-            )
+            f"{len(drafts)} declaration(s) written into the manifest, and this "
+            # It promises no commit, and that is the correction, not an
+            # omission. The command edits ``shipgate.yaml``, so ``agent
+            # control`` refuses with ``workspace_changed`` the moment it
+            # succeeds, and contract v20 requires that refresh before any
+            # commit, push, or PR update. The permissions printed beside this
+            # route were computed against a manifest that no longer exists;
+            # promising a publication they cannot authorize is the dead end
+            # #429 reported, one turn later than it looked (#429 review).
+            "control superseded — re-run verification before committing"
             + (
                 f"; {len(human)} question(s) then remain for a human."
                 if human

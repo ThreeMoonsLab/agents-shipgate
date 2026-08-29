@@ -227,7 +227,7 @@ Contract v14 publishes these boundaries as `action_effect`, `action_authority`,
 and `agent_binding` in `do_not_auto_assert[]`; route binding and semantic next
 actions to a human and rerun verification after the reviewed declaration is supplied.
 
-There is exactly one exception, and it is narrow by construction (contract v25,
+There is exactly one exception, and it is narrow by construction (contract v26,
 report v0.41). When `control.next_action.kind` is `confirm_declarations`, run
 the command it names and nothing else. That command writes only the rows the
 report itself tags `next_action.authorable_by: "coding_agent"` — rows whose
@@ -1412,15 +1412,43 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
-Runtime contract v25 adds one route to the control envelope:
+Runtime contract v26 adds the **declaration continuation**: a receipt
+``apply-patches`` writes beside the report it applied from
+(``declaration-continuation.json``, ``shipgate.declaration_continuation/v1``),
+and the one situation in which a **blocked** release decision may authorize
+publication. The receipt pins the manifest by byte digest on both sides of the
+write; the run additionally compares the two manifests and requires the delta
+to be added ``action_surface.actions`` rows and nothing else. On that proof the
+control is ``review_publishable`` — ``edit``/``commit``/``push``/``update_pr``
+so the drafted proposal reaches a person, ``merge`` and ``report_complete``
+still denied. Without it a blocked decision authorizes nothing, exactly as
+before. `verifier.json`, `agent-handoff.json` and `verify-run.json` each carry
+the resulting `declaration_continuation` boolean, which is why their schema
+versions move to `0.15`, `v8` and `v5`.
+
+Runtime contract v25 added one route to the control envelope:
 `next_action.kind: "confirm_declarations"`, published by `verify` on a
 **working-tree** run whose verdict is `insufficient_evidence`, with no blockers
-and no proven policy weakening, when at least one open declaration question is
-one the scan can answer from its own evidence. It is not published on a
-ref-bound (`--base`/`--head`) run: `apply-patches` mutates the checkout, so the
-exact rerun would re-scan the commit the edit is not in yet — the same
-precondition every mechanical repair route carries. The PR flow is therefore
-local loop, then commit, then CI verifies the committed result.
+and no policy weakening, when at least one open declaration question is one the
+scan can answer from its own evidence. It is not published on a ref-bound
+(`--base`/`--head`) run: `apply-patches` mutates the checkout, so the exact
+rerun would re-scan the commit the edit is not in yet — the same precondition
+every mechanical repair route carries.
+
+Weakening here is `capability_review.policy_weakening_proven`, plus the
+fail-closed `capability_review.policy_weakened` **unless this diff introduces
+the gate it is judged by**. That exemption is a separate, narrow, proven fact —
+the configured manifest is in the diff, absent at the comparison ref, the diff
+removes or renames away no YAML file, and every policy surface it touches is
+that manifest — so there is no prior version of this gate the change could have
+loosened. It exists because `policy_weakened` stays raised whenever the
+direction could not be established, and establishing it means proving no file
+in the tree parses as a manifest under any name: one blob past the probe's read
+bound ends that proof, which is the normal case on a real repository. Gating
+the route on the flag alone made a first adoption — the run with every question
+still open — the one run that could never be offered it. Nothing else moves:
+the flag, the verdict, the adoption wording, and the human route are all
+unchanged, and a proven weakening still refuses.
 
 - **What it carries.** The exact `apply-patches` command that writes those
   answers, plus `questions[]` — open declaration questions, each tagged
@@ -1457,9 +1485,38 @@ local loop, then commit, then CI verifies the committed result.
   refuses — exit 5, nothing written — when a row already answers one
   differently, when two equally compatible rows name the same tool, or when the
   manifest has changed since the scan.
-- **After it.** Re-run verification. If questions remain, they are the ones
-  tagged `"human"`, and the human route names them rather than asking for
-  generic review.
+- **After it, in this order: rerun, then publish.** The command edits
+  `shipgate.yaml`, so the moment it succeeds this control is stale —
+  `agents-shipgate agent control` refuses with `workspace_changed` ("the
+  working tree carries 1 uncommitted change this decision never saw"), and the
+  v20 refresh rule requires that read before any commit, push, or PR update.
+  The permissions printed beside the route were computed against a manifest
+  that no longer exists and cannot authorize publishing what the command just
+  wrote, which is why `expects` promises the write and the supersession rather
+  than a commit. Re-run verification, then act on what *that* run authorizes.
+  It is a fresh decision, and a declaration whose whole purpose is to make a
+  risk judgeable is exactly what can move the verdict to one only a person may
+  clear. If questions remain, they are the ones tagged `"human"`, and the human
+  route names them rather than asking for generic review.
+- **When it is withheld.** `report.json` publishes every open question with
+  `authorable_by` resolved whether or not the route is published, so a control
+  that offered nothing and explained nothing read as an invitation to write the
+  manifest without the route. The headline — and therefore `control.reason` and
+  `control.next_action.why` — now carries one sentence naming the cause, for
+  example `3 declaration(s) this scan could draft are withheld: a blocker is
+  open, and that decision is a person's.` It is produced by the same pass that
+  withholds the route, so the cause published is the cause that acted, and only
+  a comparison that actually ran may say the gate was weakened. It appears only
+  where a drafting route existed to publish and something refused it; a run
+  with no agent-authorable question withheld nothing and says nothing.
+
+  **It is an explanation, not a machine field.** Like every headline context
+  clause it shares the 400-byte prose budget with the verdict, the worst
+  blocker, the gap-provenance clause and the reserved human-review
+  requirement, and it is dropped whole — after gap provenance, which names a
+  subject that left the analysed surface and outranks it — rather than
+  truncated. A run whose verdict and blocker have already spent the budget
+  publishes no context at all. Do not branch on its presence.
 
 The `AgentControl` union is unchanged again, so
 `minimum_control_contract_version` stays at `21`: the control holds the step as
@@ -1672,17 +1729,17 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b7` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `25` (minimum control contract: `21`)
+- Runtime contract: `26` (minimum control contract: `21`)
 - Current report schema: `0.42` — [`docs/report-schema.v0.42.json`](report-schema.v0.42.json)
 - Current packet schema: `0.17` — [`docs/packet-schema.v0.17.json`](packet-schema.v0.17.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
-- Current verifier schema: `0.14` — [`docs/verifier-schema.v0.14.json`](verifier-schema.v0.14.json) (v0.13 and earlier stay frozen; `0.14` adds `authorable_by` to declaration questions and `fix_task.declaration_confirmation`)
-- Current verify-run schema: `shipgate.verify_run/v4` — [`docs/verify-run-schema.v4.json`](verify-run-schema.v4.json)
+- Current verifier schema: `0.15` — [`docs/verifier-schema.v0.15.json`](verifier-schema.v0.15.json) (v0.14 and earlier stay frozen; `0.15` adds `declaration_continuation`, the one fact that lets a blocked decision authorize publication)
+- Current verify-run schema: `shipgate.verify_run/v5` — [`docs/verify-run-schema.v5.json`](verify-run-schema.v5.json)
 - Current verification identity schemas: [`plan v1`](verification-plan-schema.v1.json), [`unit result v1`](verification-unit-result-schema.v1.json), [`artifact manifest v1`](verification-artifact-manifest-schema.v1.json), and [`terminal receipt v1`](verification-receipt-schema.v1.json)
 - Current control pointer schema: `shipgate.current_control/v1` — [`docs/current-control-schema.v1.json`](current-control-schema.v1.json)
 - Current agent control envelope schema: `shipgate.agent_control/v1` — [`docs/agent-control-schema.v1.json`](agent-control-schema.v1.json)
 - Current human-authorization schemas: request, signed grant, verifier evaluation, and external trust policy v1 — [`docs/human-authorization-schema.v1.json`](human-authorization-schema.v1.json)
-- Current agent handoff schema: `shipgate.agent_handoff/v7` — [`docs/agent-handoff-schema.v7.json`](agent-handoff-schema.v7.json)
+- Current agent handoff schema: `shipgate.agent_handoff/v8` — [`docs/agent-handoff-schema.v8.json`](agent-handoff-schema.v8.json)
 - Current agent boundary result schema: `shipgate.agent_boundary_result/v2` — [`docs/agent-boundary-result-schema.v2.json`](agent-boundary-result-schema.v2.json)
 - Frozen deprecated Codex projection: `shipgate.codex_boundary_result/v2` — [`docs/codex-boundary-result-schema.v2.json`](codex-boundary-result-schema.v2.json)
 - Current preflight schema: `0.4` — [`docs/preflight-schema.v0.4.json`](preflight-schema.v0.4.json)
@@ -1767,7 +1824,7 @@ entry points into the same one decision engine.
   repair, or stop*. Prefer
   validate `agents-shipgate-reports/verification-receipt.json`, then read
   `agents-shipgate-reports/agent-handoff.json` for the compact
-  `shipgate.agent_handoff/v7` view: lead with `control.state`, then read
+  `shipgate.agent_handoff/v8` view: lead with `control.state`, then read
   `control.next_action`, `gate.merge_verdict`, and `reproducibility.run_id` for the
   content-addressed verify identity. `verifier.json` remains the authoritative
   controller substrate and `verify-run.json` remains the detailed run
@@ -2007,7 +2064,7 @@ first touch before a full scan. To evaluate just the run/skip trigger, run
 
 `agents-shipgate verify` and `verify --preview` also write
 `agents-shipgate-reports/verify-run.json` whenever the output directory can be
-created. It carries `schema_version: "shipgate.verify_run/v4"`, the exact
+created. It carries `schema_version: "shipgate.verify_run/v5"`, the exact
 verification plan, executor, unit-result IDs, decision ID, outcome projection,
 and artifact references. `request_id` is the content-addressed run identity;
 the deprecated `run_id` remains for one compatibility cycle as its exact alias,
@@ -2015,7 +2072,7 @@ never as a separately derived identity. It has no wall-clock timestamp and is
 not a second gate.
 
 `agents-shipgate-reports/agent-handoff.json` carries
-`schema_version: "shipgate.agent_handoff/v7"` and top-level sections
+`schema_version: "shipgate.agent_handoff/v8"` and top-level sections
 `gate`, `control`, `fix_task`, `blocked_by[]`,
 `remediation_plan[]`, `capability_review`, `authorization`, `reproducibility`,
 and `artifacts`.
@@ -2035,7 +2092,7 @@ agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --jso
 ```
 
 In `agents-shipgate-reports/verifier.json`, read the fields below (full
-schema [`docs/verifier-schema.v0.14.json`](verifier-schema.v0.14.json)). **Lead
+schema [`docs/verifier-schema.v0.15.json`](verifier-schema.v0.15.json)). **Lead
 with `control.state`.** Every release and merge field below is a mirror or
 deterministic projection of `report.json`; the authorization evaluation is an
 operational overlay and cannot change those fields.

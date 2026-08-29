@@ -826,6 +826,247 @@ def test_a_base_that_keeps_another_manifest_is_not_an_adoption(tmp_path):
     )
 
 
+def test_an_oversize_committed_gate_is_not_introduced_by_editing_it(tmp_path):
+    """The cheap introduction fact asks the ref directly, not the content probe.
+
+    ``_configured_gate_introduced`` is what the §D route is now allowed on, so
+    it has to be sound where the probe is merely silent. A custom-named gate
+    larger than the probe's read bound is one the probe refuses to answer about
+    at all; editing it must still not read as introducing a gate. It does not,
+    because the fact asks whether the configured path exists at the ref rather
+    than inferring absence from a candidate nobody read (#429 review).
+    """
+
+    from agents_shipgate.cli.verify.git import _MAX_MANIFEST_BYTES, carries_manifest_like_yaml
+    from agents_shipgate.cli.verify.orchestrator import _configured_gate_introduced
+
+    repo = _repo_adopting_shipgate(tmp_path)
+    sample = repo / "samples" / "support_refund_agent"
+    manifest = sample / "shipgate.yaml"
+    manifest.write_text(
+        manifest.read_text("utf-8") + "\n" + ("# pad\n" * (_MAX_MANIFEST_BYTES // 3)),
+        encoding="utf-8",
+    )
+    _git(repo, "mv", "samples/support_refund_agent/shipgate.yaml", "samples/support_refund_agent/big-gate.yml")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "an oversize custom-named gate")
+    assert (sample / "big-gate.yml").stat().st_size > _MAX_MANIFEST_BYTES
+    # Edited in the worktree, which is what a run with no base compares.
+    (sample / "big-gate.yml").write_text(
+        (sample / "big-gate.yml").read_text("utf-8") + "# one more\n", encoding="utf-8"
+    )
+
+    config_relative = Path("samples/support_refund_agent/big-gate.yml")
+    arguments = {
+        "git_root": repo,
+        "config_relative": config_relative,
+        "base_status": "not_requested",
+        "base": None,
+        "head": "HEAD",
+        "worktree_ref": "HEAD",
+        "changed_files": [config_relative.as_posix()],
+    }
+    # The probe cannot answer about a blob this size — that is the state this
+    # fact has to be sound in, not one it may lean on.
+    assert carries_manifest_like_yaml(repo, "HEAD") is None
+    assert _configured_gate_introduced(**arguments) is False
+    assert _manifest_introduced(
+        **{key: value for key, value in arguments.items() if key != "worktree_ref"}
+    ) is False
+
+
+def test_a_gate_renamed_onto_the_configured_path_is_not_introduced(tmp_path):
+    """Move-and-loosen, refused by the fact the §D route depends on.
+
+    ``old-gate.yml`` renamed to the configured ``new-gate.yml`` while the rules
+    relax finds nothing at the configured path on the base, so "absent at the
+    ref" alone would call it an introduction. The deletion is what refuses it,
+    and it has to refuse it here and not only in ``_manifest_introduced``,
+    because this is the fact that now decides whether an agent may write into
+    that manifest (#429 review).
+    """
+
+    from agents_shipgate.cli.verify.orchestrator import _configured_gate_introduced
+
+    repo = _repo_adopting_shipgate(tmp_path)
+    _git(
+        repo,
+        "mv",
+        "samples/support_refund_agent/shipgate.yaml",
+        "samples/support_refund_agent/old-gate.yml",
+    )
+    _git(repo, "commit", "-m", "name the gate")
+    _git(
+        repo,
+        "mv",
+        "samples/support_refund_agent/old-gate.yml",
+        "samples/support_refund_agent/new-gate.yml",
+    )
+    _git(repo, "commit", "-m", "move the gate")
+
+    arguments = {
+        "git_root": repo,
+        "config_relative": Path("samples/support_refund_agent/new-gate.yml"),
+        "base_status": "missing_manifest",
+        "base": "HEAD~1",
+        "head": "HEAD",
+        "worktree_ref": None,
+        "changed_files": [
+            "samples/support_refund_agent/new-gate.yml",
+            "samples/support_refund_agent/old-gate.yml",
+        ],
+    }
+    assert _configured_gate_introduced(**arguments) is False
+    assert _manifest_introduced(
+        **{key: value for key, value in arguments.items() if key != "worktree_ref"}
+    ) is False
+
+
+def test_an_adoption_that_also_moves_a_resolved_policy_input_is_shared(tmp_path):
+    """"Nothing existed to weaken" is false when a pack was already there.
+
+    And the fixed ``_POLICY_SURFACES`` globs cannot see one:
+    ``checks.policy_packs[].path`` accepts any legal path, and
+    ``--policy-pack`` / ``--baseline`` are not in the tree's vocabulary at all.
+    A base holding a critical ``org-rules.yml``, plus a diff that adds
+    ``shipgate.yaml`` referencing it *and* empties it, reads as an isolated
+    introduction to a glob and is a gate weakening to a person (#429 review).
+
+    So the packs come from the run's own record of what it loaded, and this
+    pins all three sources: the globs, the manifest-declared pack, and a CLI
+    input.
+    """
+
+    from agents_shipgate.cli.verify.orchestrator import _gate_introduction_is_unshared
+    from agents_shipgate.schemas.report import LoadedPolicyPack, ReadinessReport
+
+    repo = _repo_adopting_shipgate(tmp_path)
+    manifest = Path("samples/support_refund_agent/shipgate.yaml")
+    report = ReadinessReport.model_construct(
+        loaded_policy_packs=[
+            LoadedPolicyPack(
+                id="org-rules", name="Org rules", path="org-rules.yml", rule_count=1
+            )
+        ]
+    )
+
+    def _unshared(changed, *, external=()):
+        return _gate_introduction_is_unshared(
+            report,
+            git_root=repo,
+            config_relative=manifest,
+            changed_files=list(changed),
+            external_policy_inputs=list(external),
+        )
+
+    assert _unshared([manifest.as_posix()]) is True
+    # A manifest-declared pack at an arbitrary path: invisible to the globs.
+    assert _unshared([manifest.as_posix(), "org-rules.yml"]) is False
+    # A policy surface the globs do see.
+    assert _unshared([manifest.as_posix(), "policies/pack.yaml"]) is False
+    # A CLI input, which is in no vocabulary the tree carries.
+    assert (
+        _unshared(
+            [manifest.as_posix(), "ci/baseline.json"],
+            external=[repo / "ci" / "baseline.json"],
+        )
+        is False
+    )
+    # A run with no report cannot enumerate what it loaded, and fails closed.
+    assert (
+        _gate_introduction_is_unshared(
+            None,
+            git_root=repo,
+            config_relative=manifest,
+            changed_files=[manifest.as_posix()],
+            external_policy_inputs=[],
+        )
+        is False
+    )
+
+
+def test_a_scoped_pack_path_is_seen_in_the_repository_spelling(tmp_path):
+    """``loaded_policy_packs[].path`` is manifest-relative, ``changed_files`` is not.
+
+    With ``services/mailer/shipgate.yaml`` loading ``org-rules.yml``, the report
+    says ``org-rules.yml`` while the diff says
+    ``services/mailer/org-rules.yml``. Resolved against the repository root
+    those never met, so emptying a loaded pack read as an isolated
+    introduction (#429 review).
+    """
+
+    from agents_shipgate.cli.verify.orchestrator import _gate_introduction_is_unshared
+    from agents_shipgate.schemas.report import LoadedPolicyPack, ReadinessReport
+
+    repo = tmp_path / "repo"
+    (repo / "services" / "mailer").mkdir(parents=True)
+    manifest = Path("services/mailer/shipgate.yaml")
+    report = ReadinessReport.model_construct(
+        manifest_dir=str(repo / "services" / "mailer"),
+        loaded_policy_packs=[
+            LoadedPolicyPack(
+                id="org-rules", name="Org rules", path="org-rules.yml", rule_count=1
+            )
+        ],
+    )
+
+    def _unshared(changed):
+        return _gate_introduction_is_unshared(
+            report,
+            git_root=repo,
+            config_relative=manifest,
+            changed_files=list(changed),
+            external_policy_inputs=[],
+        )
+
+    assert _unshared([manifest.as_posix()]) is True
+    assert _unshared([manifest.as_posix(), "services/mailer/org-rules.yml"]) is False
+
+
+def test_a_diverged_base_tip_does_not_make_an_edit_an_adoption(tmp_path):
+    """The introduction proof reads the merge base, like every other half.
+
+    A merge base carrying a strict gate, a ``main`` that deletes it, and a
+    branch that weakens that long-lived gate: asking the base *tip* about the
+    manifest's presence reported ``missing_manifest``, cleared
+    ``policy_weakened``, and offered the drafting route. The gate was present at
+    the base the diff is actually taken from, so this is not an adoption
+    (#429 review).
+    """
+
+    from agents_shipgate.cli.verify.orchestrator import _configured_gate_introduced
+
+    repo = _repo_adopting_shipgate(tmp_path)
+    manifest = Path("samples/support_refund_agent/shipgate.yaml")
+    # The default branch is whatever this git was configured to init with, so
+    # it is read rather than assumed: CI's is not necessarily `main`.
+    trunk = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    # The trunk drops the gate; the merge base still has it.
+    _git(repo, "checkout", "-qb", "feature")
+    _git(repo, "checkout", "-q", trunk)
+    _git(repo, "rm", "-q", str(manifest))
+    _git(repo, "commit", "-qm", "the trunk drops the gate")
+    _git(repo, "checkout", "-q", "feature")
+
+    arguments = {
+        "git_root": repo,
+        "config_relative": manifest,
+        "base_status": "missing_manifest",
+        "base": trunk,
+        "head": "HEAD",
+        "changed_files": [manifest.as_posix()],
+    }
+    # The tip says absent; the merge base says present, and that is the one
+    # this diff is judged from.
+    assert _configured_gate_introduced(**arguments, worktree_ref=None) is False
+
+
 def test_a_quoted_key_manifest_on_the_base_blocks_the_adoption_claim(tmp_path):
     """A text probe for `^project:` misses a manifest that loads fine.
 

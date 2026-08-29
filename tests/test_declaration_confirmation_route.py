@@ -11,6 +11,7 @@ surface an agent actually reads.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -510,6 +511,474 @@ def test_no_route_on_a_ref_bound_run(tmp_path: Path) -> None:
     assert envelope["next_action"]["actor"] == "human"
 
 
+# --- the route is reachable, and says so when it is not ---------------------
+
+
+def _adopting_repo(path: Path, *, extra_bytes: int = 0) -> Path:
+    """A first adoption: the manifest is written but not yet committed."""
+
+    path.mkdir(parents=True, exist_ok=True)
+    _git(path, "init", "-q", "-b", "main")
+    _git(path, "config", "user.email", "test@example.test")
+    _git(path, "config", "user.name", "Test")
+    (path / "agent.py").write_text(_AGENT_SOURCE, encoding="utf-8")
+    (path / ".gitignore").write_text("sg-out/\n.agents-shipgate/\n", encoding="utf-8")
+    if extra_bytes:
+        (path / "uv.lock").write_bytes(b"x" * extra_bytes)
+    _git(path, "add", "-A")
+    _git(path, "commit", "-qm", "base")
+    (path / "shipgate.yaml").write_text(_MANIFEST, encoding="utf-8")
+    return path
+
+
+def test_the_route_is_offered_on_a_first_adoption(tmp_path: Path) -> None:
+    """The run with every question open is the one that most needs it."""
+
+    repo = _adopting_repo(tmp_path / "repo")
+    envelope = _verify(repo, "--no-base")
+
+    assert envelope["next_action"]["kind"] == "confirm_declarations"
+    review = _artifact(repo, "verifier.json")["capability_review"]
+    assert review["trust_root_touched"] is True
+    assert review["policy_weakened"] is False
+
+
+def test_one_large_file_does_not_withdraw_the_route(tmp_path: Path) -> None:
+    """#429, manifestation 1, at its actual cause.
+
+    Proving that no file in the tree parses as a manifest under any name means
+    reading the tree, and the read stops at the first blob past its
+    per-candidate bound. One lockfile is enough — ``google/adk-samples``, the
+    walk target, carries 35 — so ``policy_weakened`` stays fail-closed true and
+    the route was refused on it, in essentially every real repository.
+
+    The flag is *right* to stay raised, and it still does: what changed is that
+    the route no longer depends on it where this diff introduces the very gate
+    it is judged by. That is the assertion pair here — the probe still cannot
+    answer, and the route is offered anyway.
+    """
+
+    from agents_shipgate.cli.verify.git import _MAX_MANIFEST_BYTES
+
+    repo = _adopting_repo(tmp_path / "repo", extra_bytes=_MAX_MANIFEST_BYTES + 1)
+    envelope = _verify(repo, "--no-base")
+
+    assert envelope["next_action"]["kind"] == "confirm_declarations"
+    review = _artifact(repo, "verifier.json")["capability_review"]
+    assert review["policy_weakened"] is True
+    assert review["policy_weakening_proven"] is False
+
+
+def test_a_withheld_route_produces_the_cause_it_acted_on(tmp_path: Path) -> None:
+    """Its inputs are published either way, so silence is the wrong answer.
+
+    ``report.json`` carries every open question with ``authorable_by``
+    resolved whether or not the route is. An agent that can see a row is its
+    own to write, and a control that offers nothing and explains nothing, is
+    being invited to edit the trust root without the route (#429).
+
+    Asserted on the cause the route itself produced rather than on this run's
+    headline. The clause travels as headline context under a shared 400-byte
+    budget — this fixture spends 322 of it on the verdict, the target and the
+    gap provenance — so where it *lands* is a fixture property.
+    ``test_a_weakening_edit_is_still_refused_the_route`` covers a run with room
+    for it.
+    """
+
+    repo = _repo(tmp_path / "repo")
+    _git(repo, "checkout", "-qb", "feature")
+    (repo / "agent.py").write_text(_AGENT_SOURCE + "\n# tweak\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "change")
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--base",
+            "main",
+            "--head",
+            "feature",
+            "--config",
+            "shipgate.yaml",
+            "--ci-mode",
+            "advisory",
+            "--format",
+            "control",
+            "--out",
+            "sg-out",
+        ],
+    )
+    envelope = json.loads(result.output[result.output.index("{") :])
+
+    report = _artifact(repo, "report.json")
+    questions = report["release_decision"]["evidence_coverage"]["semantic_coverage"][
+        "declaration_questions"
+    ]["open_questions"]
+    drafts = [row for row in questions if row["authorable_by"] == "coding_agent"]
+    assert drafts, "the fixture must still publish a question an agent could draft"
+
+    assert envelope["next_action"]["kind"] != "confirm_declarations"
+
+    from agents_shipgate.cli.verify.fix_task import declaration_route
+    from agents_shipgate.schemas.verifier import VerifierArtifact
+
+    verifier = VerifierArtifact.model_validate(_artifact(repo, "verifier.json"))
+    _route, withheld = declaration_route(
+        _read_report_model(repo),
+        capability_review=verifier.capability_review,
+        merge_verdict=verifier.merge_verdict,
+        report_path=str(repo / "sg-out" / "report.json"),
+        # The one precondition a ref-bound run fails, and the reason this
+        # fixture is ref-bound at all.
+        repair_subject_available=False,
+    )
+    assert withheld == (
+        f"{len(drafts)} declaration(s) this scan could draft are withheld: this run "
+        "reads committed refs, not a worktree to write into."
+    )
+
+
+def test_nothing_is_named_when_nothing_was_withheld(tmp_path: Path) -> None:
+    """The dual. A run with no question an agent may draft withheld no route.
+
+    Without this, "withheld" would print on every human-routed run in the
+    product, and an agent would read a refusal into a route that never existed.
+    """
+
+    published = _verify(_repo(tmp_path / "offered"))
+    assert published["next_action"]["kind"] == "confirm_declarations"
+    assert "are withheld" not in published["reason"]
+
+    humans_only = _verify(_repo(tmp_path / "humans", agent=_NEUTRAL_SOURCE))
+    assert humans_only["next_action"]["kind"] == "review"
+    assert "are withheld" not in humans_only["reason"]
+
+
+def test_a_run_that_never_reached_the_route_names_no_cause(tmp_path: Path) -> None:
+    """A verdict of ``mergeable`` refused nothing, and must say nothing.
+
+    ``build_fix_task`` returns no task at all when the PR is mergeable, and on
+    the base-recovery paths that stop before any decision. Asking the route for
+    a cause there gets the first condition it happens to check — "this run has
+    a finding to answer" — printed on a run with no finding at all.
+    """
+
+    from agents_shipgate.cli.verify.orchestrator import _withheld_declaration_note
+    from agents_shipgate.schemas.verifier import (
+        VerifierCapabilityReview,
+        VerifierFixTask,
+    )
+
+    repo = _repo(tmp_path / "repo")
+    _verify(repo)
+    report = _read_report_model(repo)
+    arguments = {
+        "capability_review": VerifierCapabilityReview(),
+        "merge_verdict": "mergeable",
+        "report_path": str(repo / "sg-out" / "report.json"),
+        "repair_subject_available": True,
+        "configured_gate_introduced": False,
+    }
+
+    human_task = VerifierFixTask(actor="human", safe_to_attempt=False)
+    assert _withheld_declaration_note(report, fix_task=human_task, **arguments)
+    assert _withheld_declaration_note(report, fix_task=None, **arguments) == []
+
+
+def test_a_retained_gate_under_another_name_still_refuses_the_adoption_claim(
+    tmp_path: Path,
+) -> None:
+    """The reviewer's shape, and exactly how far the route's exemption goes.
+
+    A base that keeps an operational manifest under an arbitrary name, padded
+    past the probe's read bound, must not be talked into "nothing existed to
+    weaken": the probe answers "cannot prove", ``policy_weakened`` stays
+    fail-closed true and the wording stays conservative — the same as for the
+    identical gate below the bound, so file size does no semantic work.
+
+    The route is still offered, and that is the deliberate line. The gate this
+    run is judged by is ``shipgate.yaml``, which this diff introduces; whatever
+    ``old-gate.json`` is, it is not a prior version of *that* gate, so nothing
+    here could have loosened it. The agent may draft blanks into a manifest a
+    person still merges; it may not merge, and the verdict is unchanged.
+    """
+
+    from agents_shipgate.cli.verify.git import _MAX_MANIFEST_BYTES
+
+    repo = tmp_path / "repo"
+    repo.mkdir(parents=True)
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test")
+    (repo / "agent.py").write_text(_AGENT_SOURCE, encoding="utf-8")
+    (repo / ".gitignore").write_text("sg-out/\n.agents-shipgate/\n", encoding="utf-8")
+    (repo / "old-gate.json").write_text(
+        _MANIFEST + ("# pad\n" * (_MAX_MANIFEST_BYTES // 3)), encoding="utf-8"
+    )
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "base keeps an oversize custom-named gate")
+    assert (repo / "old-gate.json").stat().st_size > _MAX_MANIFEST_BYTES
+    (repo / "shipgate.yaml").write_text(_MANIFEST, encoding="utf-8")
+
+    envelope = _verify(repo, "--no-base")
+    review = _artifact(repo, "verifier.json")["capability_review"]
+
+    assert review["policy_weakened"] is True
+    assert review["policy_weakening_proven"] is False
+    assert "no base policy was available to prove" in _artifact(
+        repo, "verifier.json"
+    )["headline"]
+    assert envelope["next_action"]["kind"] == "confirm_declarations"
+
+
+_ORG_PACK = """id: org-rules
+name: Org rules
+version: "1.0"
+rules:
+  - id: ORG-NO-EMAIL
+    severity: critical
+    title: Outward email is not permitted
+    when:
+      effect: external_communication
+"""
+
+_EMPTIED_PACK = """id: org-rules
+name: Org rules
+version: "1.0"
+rules: []
+"""
+
+
+def test_an_introduction_that_also_empties_a_referenced_pack_is_refused(
+    tmp_path: Path,
+) -> None:
+    """The route's exemption must not survive a diff that moved another gate.
+
+    A base holding a critical ``org-rules.yml``, a diff that adds
+    ``shipgate.yaml`` *referencing* it and empties it in the same breath: the
+    fixed policy-surface globs cannot see a pack at an arbitrary
+    ``checks.policy_packs[].path``, so "only the configured manifest changed"
+    was false while reading true (#429 review). The packs are now taken from
+    the run's own record of what it loaded.
+    """
+
+    from agents_shipgate.cli.verify.git import _MAX_MANIFEST_BYTES
+
+    repo = tmp_path / "repo"
+    repo.mkdir(parents=True)
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test")
+    (repo / "agent.py").write_text(_AGENT_SOURCE, encoding="utf-8")
+    (repo / ".gitignore").write_text("sg-out/\n.agents-shipgate/\n", encoding="utf-8")
+    # Forces the whole-tree probe to fail closed, which is what makes the
+    # route depend on the introduction fact at all.
+    (repo / "uv.lock").write_bytes(b"x" * (_MAX_MANIFEST_BYTES + 1))
+    (repo / "org-rules.yml").write_text(_ORG_PACK, encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "base carries a critical org pack")
+
+    (repo / "shipgate.yaml").write_text(
+        _MANIFEST + "checks:\n  policy_packs:\n    - path: org-rules.yml\n",
+        encoding="utf-8",
+    )
+    (repo / "org-rules.yml").write_text(_EMPTIED_PACK, encoding="utf-8")
+
+    envelope = _verify(repo, "--no-base")
+    report = _artifact(repo, "report.json")
+
+    assert [pack["path"] for pack in report["loaded_policy_packs"]] == ["org-rules.yml"]
+    assert _artifact(repo, "verifier.json")["capability_review"]["policy_weakened"] is (
+        True
+    )
+    assert envelope["next_action"]["kind"] != "confirm_declarations"
+    assert envelope["next_actor"] == "human"
+
+
+def test_a_staged_rename_onto_the_configured_path_is_refused(tmp_path: Path) -> None:
+    """Move-and-loosen, hidden in the index under ``--base``.
+
+    ``base...head`` cannot see a staged rename, and the run evaluates the
+    worktree, so the committed range was the wrong comparison to ask. The
+    removal check now asks the comparison the run actually evaluated, and asks
+    it suffix-agnostically — a gate may be ``old-gate.json`` (#429 review).
+    """
+
+    repo = tmp_path / "repo"
+    repo.mkdir(parents=True)
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test")
+    (repo / "agent.py").write_text(_AGENT_SOURCE, encoding="utf-8")
+    (repo / ".gitignore").write_text("sg-out/\n.agents-shipgate/\n", encoding="utf-8")
+    (repo / "old-gate.yml").write_text(_MANIFEST + _STRICTER, encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "base carries an existing gate")
+
+    _git(repo, "mv", "old-gate.yml", "shipgate.yaml")
+    (repo / "shipgate.yaml").write_text(_MANIFEST + _LOOSENED, encoding="utf-8")
+    _git(repo, "add", "-A")
+
+    envelope = _verify(repo, "--base", "main")
+
+    assert envelope["next_action"]["kind"] != "confirm_declarations"
+    assert envelope["next_actor"] == "human"
+
+
+def test_a_json_named_gate_rename_is_refused(tmp_path: Path) -> None:
+    """The dual: the removal check may not be a suffix list.
+
+    ``removes_a_yaml_file`` recognizes only ``.yaml``/``.yml``, and a
+    configured manifest may be JSON or have no suffix at all.
+    """
+
+    from agents_shipgate.cli.verify.orchestrator import _configured_gate_introduced
+
+    repo = tmp_path / "repo"
+    repo.mkdir(parents=True)
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test")
+    (repo / "old-gate.json").write_text(_MANIFEST, encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "base carries a json-named gate")
+    _git(repo, "mv", "old-gate.json", "new-gate.json")
+    _git(repo, "commit", "-qm", "move it")
+
+    assert (
+        _configured_gate_introduced(
+            git_root=repo,
+            config_relative=Path("new-gate.json"),
+            base_status="missing_manifest",
+            base="HEAD~1",
+            head="HEAD",
+            worktree_ref=None,
+            changed_files=["new-gate.json", "old-gate.json"],
+        )
+        is False
+    )
+
+
+def test_a_blocked_report_names_the_blocker_not_the_verdict(tmp_path: Path) -> None:
+    """Order among the causes, which decides which one is ever emitted.
+
+    A blocked report satisfies the verdict mismatch too, so asking that first
+    made "a blocker is open" a cause the code could not reach — a documented
+    example no run produces.
+    """
+
+    from agents_shipgate.cli.verify.fix_task import declaration_route
+    from agents_shipgate.schemas.verifier import VerifierCapabilityReview
+
+    repo = _repo(tmp_path / "repo")
+    _verify(repo)
+    report = _read_report_model(repo)
+    decision = report.release_decision
+    decision.decision = "blocked"
+    decision.blockers = [*decision.review_items[:1]] or decision.blockers
+
+    _route, withheld = declaration_route(
+        report,
+        capability_review=VerifierCapabilityReview(),
+        merge_verdict="blocked",
+        report_path=str(repo / "sg-out" / "report.json"),
+        repair_subject_available=True,
+    )
+    assert withheld is not None
+    assert "a blocker is open" in withheld
+
+
+_STRICTER = """checks:
+  severity_overrides:
+    SHIP-DOC-MISSING-DESCRIPTION: high
+"""
+
+_LOOSENED = """checks:
+  severity_overrides:
+    SHIP-DOC-MISSING-DESCRIPTION: low
+"""
+
+
+def test_a_weakening_edit_is_still_refused_the_route(tmp_path: Path) -> None:
+    """The regression #429 asks for: relaxing *this* is not on the table.
+
+    A diff that loosens the gate keeps the route refused and the decision a
+    person's. The state stays ``review_publishable`` rather than the total
+    stop, which is #335's design and unrelated to the route: the change was
+    read, so pushing it to a PR is how a human comes to see it, and ``merge``
+    is denied throughout.
+    """
+
+    repo = _repo(tmp_path / "repo", manifest=_MANIFEST + _STRICTER)
+    _git(repo, "checkout", "-qb", "feature")
+    (repo / "shipgate.yaml").write_text(_MANIFEST + _LOOSENED, encoding="utf-8")
+
+    envelope = _verify(repo, "--base", "main")
+
+    review = _artifact(repo, "verifier.json")["capability_review"]
+    assert review["policy_weakened"] is True
+    assert review["policy_weakening_proven"] is True
+    assert envelope["next_actor"] == "human"
+    assert envelope["next_action"]["kind"] != "confirm_declarations"
+    assert envelope["permissions"]["merge"] is False
+    assert envelope["permissions"]["report_complete"] is False
+    assert _artifact(repo, "verifier.json")["fix_task"]["declaration_confirmation"] is (
+        None
+    )
+    assert "weakens the release policy that evaluates it" in envelope["reason"]
+
+    # Both context sentences are on this run, and the order between them is
+    # deliberate: ``_fit_sentences`` keeps a prefix of whole sentences, so
+    # second is the one a long enough headline deletes. Gap provenance is a
+    # fact about the release decision and renders into the PR comment a person
+    # reads (#433); the withholding is an explanation for an agent that has the
+    # human route either way, so it is the right one to lose under pressure.
+    reason = envelope["reason"]
+    assert "are withheld" in reason
+    assert "pre-existing on the base" in reason
+    assert reason.index("pre-existing on the base") < reason.index("are withheld")
+
+
+def test_an_unprovable_direction_does_not_claim_a_weakening(tmp_path: Path) -> None:
+    """The refusal is the same; only the sentence may differ.
+
+    ``policy_weakened`` stays raised when nothing could be compared, and this
+    route is refused on that flag. Saying "this weakens the gate" about a
+    comparison that never ran states a fact the run does not have.
+    """
+
+    from agents_shipgate.cli.verify.fix_task import declaration_route
+    from agents_shipgate.schemas.verifier import VerifierCapabilityReview
+
+    repo = _repo(tmp_path / "repo")
+    _verify(repo)
+    report = _read_report_model(repo)
+
+    _route, unproven = declaration_route(
+        report,
+        capability_review=VerifierCapabilityReview(policy_weakened=True),
+        merge_verdict="insufficient_evidence",
+        report_path=str(repo / "sg-out" / "report.json"),
+        repair_subject_available=True,
+    )
+    _route, proven = declaration_route(
+        report,
+        capability_review=VerifierCapabilityReview(
+            policy_weakened=True,
+            policy_weakening_proven=True,
+        ),
+        merge_verdict="insufficient_evidence",
+        report_path=str(repo / "sg-out" / "report.json"),
+        repair_subject_available=True,
+    )
+
+    assert unproven is not None and "no base policy proved" in unproven
+    assert proven is not None and "weakens the release policy" in proven
+
+
 # --- the loop closes --------------------------------------------------------
 
 
@@ -563,6 +1032,110 @@ def test_the_loop_ends_with_the_agent_out_of_moves_and_a_named_residue(
     assert [row["answer_path"] for row in counter["open_questions"]] == [
         q["answer_path"] for q in owed
     ]
+
+
+def test_the_route_says_to_rerun_before_it_says_to_publish(tmp_path: Path) -> None:
+    """Order, and it is the counter-intuitive one.
+
+    The command edits ``shipgate.yaml``, so the moment it succeeds this control
+    is stale — ``agent control`` refuses with ``workspace_changed`` and the v20
+    refresh rule requires that read before any commit, push, or PR update. The
+    permissions printed beside the route were computed against a manifest that
+    no longer exists, so a route that told the agent to spend them was naming
+    an illegal step (#429 review).
+    """
+
+    repo = _repo(tmp_path / "repo")
+    envelope = _verify(repo)
+    action = envelope["next_action"]
+
+    assert action["kind"] == "confirm_declarations"
+    why = action["why"]
+    assert why.index("re-run verification") < why.index("committing")
+    # And the typed post-condition promises the write and the supersession,
+    # never a commit this control cannot authorize once the command has run.
+    assert "control superseded" in action["expects"]
+    assert "committed to this branch" not in action["expects"]
+
+    # The same sentence, from the one place it is written — and equality is
+    # also what keeps it inside ``MAX_ENVELOPE_PROSE_BYTES``: a longer version
+    # arrives here truncated, with the ordering clause cut off the end.
+    fix_task = _artifact(repo, "verifier.json")["fix_task"]
+    assert fix_task["instructions"][0] == why
+
+
+def test_the_control_this_route_publishes_is_superseded_by_its_own_command(
+    tmp_path: Path,
+) -> None:
+    """The fact the ordering rests on, asserted rather than asserted about.
+
+    Reproduced end to end: the route is published with commit/push true, its
+    exact command succeeds, and the mandatory control refresh then refuses.
+    Any instruction that spends those permissions after the command has run is
+    naming a step the protocol rejects.
+    """
+
+    from agents_shipgate.cli.current_workspace import live_workspace
+    from agents_shipgate.core.current_control import (
+        CurrentControlUnavailable,
+        read_current_control,
+    )
+    from agents_shipgate.schemas.current_control import VERIFIER_ARTIFACT_KEY
+
+    repo = _repo(tmp_path / "repo")
+    envelope = _verify(repo)
+    assert envelope["next_action"]["kind"] == "confirm_declarations"
+    assert envelope["permissions"]["commit"] is True
+
+    reports = repo / "sg-out"
+
+    def _read():
+        # Exactly how `agents-shipgate agent control` reads it, capture and
+        # all: the capture is what a currency refusal can hand back.
+        return read_current_control(
+            reports,
+            live=lambda: live_workspace(repo, reports),
+            capture=(VERIFIER_ARTIFACT_KEY,),
+        )
+
+    assert _read().pointer.control.state == "agent_action_required"
+
+    result = runner.invoke(
+        app,
+        [
+            "apply-patches",
+            "--from",
+            str(reports / "report.json"),
+            "--kinds",
+            "declare_action",
+            "--confidence",
+            "high",
+            "--apply",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    with pytest.raises(CurrentControlUnavailable) as refusal:
+        _read()
+    assert refusal.value.reason == "workspace_changed"
+
+    # And the refusal carries the *validated* set, so the recovery it names is
+    # the producing run's own exact local rerun rather than a default PR verify
+    # that would scan committed HEAD and miss the edit that superseded it
+    # (#429 review).
+    from agents_shipgate.cli.agent_interface import _superseded_recovery_command
+
+    recovery = _superseded_recovery_command(
+        refusal.value, workspace=repo, reports_dir=reports
+    )
+    assert recovery == _artifact(repo, "verifier.json")["fix_task"][
+        "verification_command"
+    ]
+    # The three things the hard-coded PR verify got wrong for this route.
+    assert "--base origin/main" not in recovery
+    assert "--head HEAD" not in recovery
+    assert "--out sg-out" in recovery
+    assert "--config shipgate.yaml" in recovery
 
 
 def test_a_ref_bound_run_never_publishes_an_archive_path(tmp_path: Path) -> None:
@@ -621,6 +1194,424 @@ def test_a_ref_bound_run_never_publishes_an_archive_path(tmp_path: Path) -> None
     for name in ("packet.json", "report.sarif", "verification-base-report.json"):
         text = (repo / "sg-out" / name).read_text(encoding="utf-8")
         assert "agents-shipgate-verify-" not in text, name
+
+
+# --- the continuation ------------------------------------------------------
+
+
+def _apply(repo: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "apply-patches",
+            "--from",
+            str(repo / "sg-out" / "report.json"),
+            "--kinds",
+            "declare_action",
+            "--confidence",
+            "high",
+            "--apply",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_the_drafted_proposal_reaches_review(tmp_path: Path) -> None:
+    """The loop's last step, and the one that was missing.
+
+    Applying the route's own command makes the declared risk judgeable, so the
+    fresh decision is ``blocked`` — and a blocked decision authorizes nothing,
+    which left the proposal Shipgate drafted unable to reach the person the
+    route exists to hand it to (#429 review). The receipt closes it: the run
+    is publish-only, so the change reaches a PR, and ``merge`` is exactly as
+    denied as it was.
+    """
+
+    repo = _repo(tmp_path / "repo")
+    assert _verify(repo)["next_action"]["kind"] == "confirm_declarations"
+    _apply(repo)
+
+    after = _verify(repo)
+    assert after["decision"] == "blocked"
+    assert after["control_state"] == "review_publishable"
+    assert after["permissions"] == {
+        "edit": True,
+        "commit": True,
+        "push": True,
+        "update_pr": True,
+        "merge": False,
+        "report_complete": False,
+    }
+    assert after["human_review"]["required"] is True
+
+    receipt = json.loads(
+        (repo / "sg-out" / "declaration-continuation.json").read_text(encoding="utf-8")
+    )
+    assert receipt["schema_version"] == "shipgate.declaration_continuation/v1"
+    assert receipt["manifest_path"] == "shipgate.yaml"
+    assert [row["declaration"]["effect"] for row in receipt["applied"]] == [
+        "external_communication"
+    ]
+
+
+def test_without_the_receipt_a_blocked_run_authorizes_nothing(tmp_path: Path) -> None:
+    """The carve-out is the receipt's, not the verdict's.
+
+    Same manifest, same blocked decision, no receipt: the total stop that every
+    other blocked run gets. Nothing about ``blocked`` changed in general.
+    """
+
+    repo = _repo(tmp_path / "repo")
+    _verify(repo)
+    _apply(repo)
+    (repo / "sg-out" / "declaration-continuation.json").unlink()
+
+    after = _verify(repo)
+    assert after["decision"] == "blocked"
+    assert after["control_state"] == "human_review_required"
+    assert after["permissions"]["commit"] is False
+
+
+def test_a_receipt_stops_describing_a_manifest_that_moved_again(
+    tmp_path: Path,
+) -> None:
+    """Both digests are load-bearing, and the *after* one is what expires.
+
+    A receipt that kept authorizing publication after a second, unrelated edit
+    would be authorizing that edit too — which is the whole point of pinning
+    the bytes on both sides rather than recording that an apply happened.
+    """
+
+    repo = _repo(tmp_path / "repo")
+    _verify(repo)
+    _apply(repo)
+    assert _verify(repo)["control_state"] == "review_publishable"
+
+    manifest = repo / "shipgate.yaml"
+    manifest.write_text(manifest.read_text(encoding="utf-8") + "\n# later\n", encoding="utf-8")
+    assert _verify(repo)["control_state"] == "human_review_required"
+
+
+def test_a_forged_receipt_cannot_publish_a_loosened_gate(tmp_path: Path) -> None:
+    """The receipt is provenance, not a signature, and this is the bound.
+
+    Anyone who can write the manifest can write a receipt whose digests match
+    it. What they cannot do is make the delta parse as declarations: the two
+    manifests are compared, and anything but added ``action_surface.actions``
+    rows refuses. So a forged receipt buys putting a proposal in front of a
+    person — which is what it is for — and never a loosened gate.
+    """
+
+    repo = _repo(tmp_path / "repo", manifest=_MANIFEST + _STRICTER)
+    _verify(repo)
+    _apply(repo)
+
+    manifest = repo / "shipgate.yaml"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            "SHIP-DOC-MISSING-DESCRIPTION: high", "SHIP-DOC-MISSING-DESCRIPTION: low"
+        ),
+        encoding="utf-8",
+    )
+    receipt_path = repo / "sg-out" / "declaration-continuation.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["manifest_sha256_after"] = hashlib.sha256(
+        manifest.read_bytes()
+    ).hexdigest()
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    after = _verify(repo)
+    assert after["control_state"] == "human_review_required"
+    assert after["permissions"]["commit"] is False
+
+
+def test_a_ref_bound_run_never_honours_a_continuation(tmp_path: Path) -> None:
+    """A committed-ref run has nothing for a receipt to be about.
+
+    It evaluates objects, not a working tree, so the uncommitted manifest the
+    receipt pins is not what it read.
+    """
+
+    from agents_shipgate.cli.verify.orchestrator import _declaration_continuation_holds
+
+    repo = _repo(tmp_path / "repo")
+    _verify(repo)
+    _apply(repo)
+    assert (
+        _declaration_continuation_holds(
+            git_root=repo,
+            config_path=repo / "shipgate.yaml",
+            config_relative=Path("shipgate.yaml"),
+            out_dir=repo / "sg-out",
+            comparison_ref=None,
+            gate_introduced=False,
+        )
+        is False
+    )
+
+
+def test_a_published_continuation_validates_against_its_own_schemas(
+    tmp_path: Path,
+) -> None:
+    """First-party output must satisfy the contract it advertises.
+
+    The Pydantic validators learned the exception; the JSON-Schema ``allOf``
+    conditions had not, so a real continuation emitted three artifacts that
+    each failed their own newly published schema — the one thing a version
+    bump is supposed to make impossible (#429 review).
+    """
+
+    from jsonschema import Draft202012Validator
+
+    repo = _repo(tmp_path / "repo")
+    _verify(repo)
+    _apply(repo)
+    after = _verify(repo)
+    assert after["control_state"] == "review_publishable"
+
+    root = Path(__file__).resolve().parent.parent
+    for artifact, schema in (
+        ("verifier.json", "verifier-schema.v0.15.json"),
+        ("agent-handoff.json", "agent-handoff-schema.v8.json"),
+        ("verify-run.json", "verify-run-schema.v5.json"),
+    ):
+        payload = json.loads((repo / "sg-out" / artifact).read_text(encoding="utf-8"))
+        validator = Draft202012Validator(
+            json.loads((root / "docs" / schema).read_text(encoding="utf-8"))
+        )
+        assert not list(validator.iter_errors(payload)), (
+            artifact,
+            [error.message for error in validator.iter_errors(payload)][:2],
+        )
+
+
+def test_a_blocked_run_without_a_continuation_still_fails_the_schema(
+    tmp_path: Path,
+) -> None:
+    """The condition is narrowed, not removed.
+
+    A payload that publishes on a blocked decision *without* the flag — every
+    pre-v0.15 artifact included, since they omit the field entirely — must
+    still be refused by the published schema.
+    """
+
+    from jsonschema import Draft202012Validator
+
+    repo = _repo(tmp_path / "repo")
+    _verify(repo)
+    _apply(repo)
+    _verify(repo)
+
+    root = Path(__file__).resolve().parent.parent
+    payload = json.loads((repo / "sg-out" / "verifier.json").read_text(encoding="utf-8"))
+    validator = Draft202012Validator(
+        json.loads((root / "docs" / "verifier-schema.v0.15.json").read_text("utf-8"))
+    )
+    payload.pop("declaration_continuation")
+    assert list(validator.iter_errors(payload))
+
+
+def test_a_first_adoption_can_still_publish_its_proposal(tmp_path: Path) -> None:
+    """There is no earlier version of a manifest this diff introduces.
+
+    Reading a before-digest out of the comparison ref therefore found nothing
+    and refused, which left the advertised apply/rerun path immediately blocked
+    on the very run the route was built for. What carries "nothing could have
+    been loosened" here is the introduction proof — there was no gate
+    (#429 review).
+    """
+
+    repo = _adopting_repo(tmp_path / "repo")
+    assert _verify(repo, "--no-base")["next_action"]["kind"] == "confirm_declarations"
+    _apply(repo)
+
+    # The receipt records the pre-apply bytes it saw; what the reader does
+    # *not* do is treat them as an anchor, because nothing committed carries
+    # them on an adoption.
+    assert (repo / "sg-out" / "declaration-continuation.json").is_file()
+
+    after = _verify(repo, "--no-base")
+    assert after["decision"] == "blocked"
+    assert after["control_state"] == "review_publishable"
+    assert after["permissions"]["commit"] is True
+
+
+def test_an_absent_before_state_needs_the_introduction_proof(tmp_path: Path) -> None:
+    """The dual, and the reason the absent case is not a hole.
+
+    "No earlier bytes" is exactly what an *unrelated* uncommitted manifest also
+    looks like. Without a proven introduction beside it, the receipt is
+    describing a change nothing established, and the run stops.
+    """
+
+    from agents_shipgate.cli.verify.orchestrator import _declaration_continuation_holds
+
+    repo = _adopting_repo(tmp_path / "repo")
+    _verify(repo, "--no-base")
+    _apply(repo)
+    arguments = {
+        "git_root": repo,
+        "config_path": repo / "shipgate.yaml",
+        "config_relative": Path("shipgate.yaml"),
+        "out_dir": repo / "sg-out",
+        "comparison_ref": "HEAD",
+    }
+    assert _declaration_continuation_holds(**arguments, gate_introduced=True) is True
+    assert _declaration_continuation_holds(**arguments, gate_introduced=False) is False
+
+
+def test_the_continuation_survives_a_scoped_manifest(tmp_path: Path) -> None:
+    """Two coordinate systems, and the receipt speaks the applier's.
+
+    ``manifest_path`` is recorded relative to ``report.manifest_dir``, so a
+    scoped ``services/closer/shipgate.yaml`` is written as ``shipgate.yaml``.
+    Compared as a repository path it matched nothing, and the exact apply/rerun
+    route stripped every publication permission on the one repository shape
+    monorepo adoption produces (#429 review).
+    """
+
+    repo = tmp_path / "repo"
+    (repo / "services" / "closer").mkdir(parents=True)
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test")
+    (repo / "services" / "closer" / "agent.py").write_text(_AGENT_SOURCE, encoding="utf-8")
+    (repo / "services" / "closer" / "shipgate.yaml").write_text(_MANIFEST, encoding="utf-8")
+    (repo / ".gitignore").write_text("sg-out/\n.agents-shipgate/\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "base")
+
+    def _run(*extra: str) -> dict:
+        result = runner.invoke(
+            app,
+            [
+                "verify",
+                "--workspace",
+                str(repo),
+                "--config",
+                "services/closer/shipgate.yaml",
+                "--ci-mode",
+                "advisory",
+                "--format",
+                "control",
+                "--out",
+                "sg-out",
+                "--no-base",
+                *extra,
+            ],
+        )
+        assert result.exit_code in (0, 1), result.output
+        return json.loads(result.output[result.output.index("{") :])
+
+    assert _run()["next_action"]["kind"] == "confirm_declarations"
+    applied = runner.invoke(
+        app,
+        [
+            "apply-patches",
+            "--from",
+            str(repo / "sg-out" / "report.json"),
+            "--kinds",
+            "declare_action",
+            "--confidence",
+            "high",
+            "--apply",
+        ],
+    )
+    assert applied.exit_code == 0, applied.output
+    receipt = json.loads(
+        (repo / "sg-out" / "declaration-continuation.json").read_text(encoding="utf-8")
+    )
+    assert receipt["manifest_path"] == "shipgate.yaml"
+
+    after = _run()
+    assert after["decision"] == "blocked"
+    assert after["control_state"] == "review_publishable"
+    assert after["permissions"]["commit"] is True
+    assert after["permissions"]["merge"] is False
+
+
+def test_a_relative_recorded_path_is_never_resolved_against_the_process(
+    tmp_path: Path,
+) -> None:
+    """The bug under the scoped failure, isolated.
+
+    ``Path("shipgate.yaml").resolve()`` answers against the *process* directory.
+    Run from the repository root that relativized cleanly, so a scoped
+    receipt's path silently became a root-level one — the check then passed on
+    a path nobody had written and failed on the real one.
+    """
+
+    import os
+
+    from agents_shipgate.cli.verify.orchestrator import _repository_relative
+
+    repo = tmp_path / "repo"
+    (repo / "services" / "closer").mkdir(parents=True)
+    previous = os.getcwd()
+    os.chdir(repo)
+    try:
+        assert (
+            _repository_relative(
+                "shipgate.yaml", repo, anchor=repo / "services" / "closer"
+            )
+            == "services/closer/shipgate.yaml"
+        )
+    finally:
+        os.chdir(previous)
+
+
+def test_the_continuation_accepts_a_filled_row(tmp_path: Path) -> None:
+    """The applier's *other* authorized shape.
+
+    ``_declare_action`` fills the fields an existing row leaves silent, which
+    changes a row in place and leaves the list the same length. Requiring the
+    list to grow refused exactly the patch the route emits for an action the
+    manifest already lists — and a parsed manifest spells "silent" as a present
+    key with a ``None`` value, so a raw dict comparison read the fill as a
+    changed answer (#429 review).
+    """
+
+    listed = _MANIFEST + (
+        "action_surface:\n"
+        "  actions:\n"
+        "    - tool: send_email\n"
+        "      source_id: adk_agent\n"
+    )
+    repo = _repo(tmp_path / "repo", manifest=listed)
+    assert _verify(repo)["next_action"]["kind"] == "confirm_declarations"
+    _apply(repo)
+
+    manifest = (repo / "shipgate.yaml").read_text(encoding="utf-8")
+    assert "effect: external_communication" in manifest
+
+    after = _verify(repo)
+    assert after["decision"] == "blocked"
+    assert after["control_state"] == "review_publishable"
+    assert after["permissions"]["commit"] is True
+
+
+def test_a_changed_answer_is_not_a_filled_blank(tmp_path: Path) -> None:
+    """The dual: only *silent* fields may be answered.
+
+    A row that already carried an effect and now carries a different one is a
+    reviewed answer being replaced, which no receipt may publish.
+    """
+
+    from agents_shipgate.cli.verify.orchestrator import _only_adds_action_declarations
+
+    def _manifest(effect: str | None) -> bytes:
+        row = "    - tool: send_email\n      source_id: adk_agent\n"
+        if effect:
+            row += f"      effect: {effect}\n"
+        return (_MANIFEST + "action_surface:\n  actions:\n" + row).encode()
+
+    silent = _manifest(None)
+    answered = _manifest("external_communication")
+    replaced = _manifest("read")
+
+    assert _only_adds_action_declarations(silent, answered) is True
+    assert _only_adds_action_declarations(answered, replaced) is False
+    assert _only_adds_action_declarations(answered, answered) is False
 
 
 # --- the envelope's own limits ----------------------------------------------

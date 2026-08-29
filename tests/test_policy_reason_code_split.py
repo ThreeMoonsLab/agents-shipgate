@@ -450,7 +450,7 @@ def test_the_frozen_v0_8_schema_still_describes_v0_8_artifacts():
 
     v08 = json.loads((REPO_ROOT / "docs" / "verifier-schema.v0.8.json").read_text("utf-8"))
     current = json.loads(
-        (REPO_ROOT / "docs" / "verifier-schema.v0.14.json").read_text("utf-8")
+        (REPO_ROOT / "docs" / "verifier-schema.v0.15.json").read_text("utf-8")
     )
 
     review = v08["$defs"]["VerifierCapabilityReview"]["properties"]
@@ -459,11 +459,11 @@ def test_the_frozen_v0_8_schema_still_describes_v0_8_artifacts():
         current["$defs"]["VerifierCapabilityReview"]["properties"]
     )
     assert v08["properties"]["verifier_schema_version"]["const"] == "0.8"
-    assert current["properties"]["verifier_schema_version"]["const"] == "0.14"
+    assert current["properties"]["verifier_schema_version"]["const"] == "0.15"
 
     from agents_shipgate.schemas.verifier import VerifierArtifact
 
-    assert VerifierArtifact.model_fields["verifier_schema_version"].default == "0.14"
+    assert VerifierArtifact.model_fields["verifier_schema_version"].default == "0.15"
     Draft202012Validator.check_schema(current)
 
 
@@ -480,13 +480,13 @@ def test_a_v0_8_artifact_still_reads_and_normalizes_forward(tmp_path):
     repo = _repo_adopting_shipgate(tmp_path)
     verifier, _report, _exit = _run_verify(repo)
     payload = verifier.model_dump(mode="json")
-    assert payload["verifier_schema_version"] == "0.14"
+    assert payload["verifier_schema_version"] == "0.15"
 
     payload["verifier_schema_version"] = "0.8"
     payload["capability_review"].pop("policy_weakening_proven")
     normalized = VerifierArtifact.model_validate(payload)
 
-    assert normalized.verifier_schema_version == "0.14"
+    assert normalized.verifier_schema_version == "0.15"
     assert normalized.capability_review.policy_weakening_proven is False
 
 

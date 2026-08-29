@@ -134,9 +134,23 @@ class CurrentControlUnavailable(AgentsShipgateError):
     control state it cached earlier.
     """
 
-    def __init__(self, reason: str, detail: str, *, path: Path | None = None) -> None:
+    def __init__(
+        self,
+        reason: str,
+        detail: str,
+        *,
+        path: Path | None = None,
+        artifacts: dict[str, bytes] | None = None,
+    ) -> None:
         self.reason = reason
         self.path = path
+        #: The artifacts this pass had already hash-validated against the
+        #: pointer before the refusal. Present only where the refusal is about
+        #: currency rather than integrity — a superseded pointer is still a
+        #: coherent published set, and it is the only place the *exact* command
+        #: that produced it survives. A caller may use it to name a recovery
+        #: step; it authorizes nothing, and it must not be read as current.
+        self.artifacts = dict(artifacts or {})
         super().__init__(detail)
 
 
@@ -538,7 +552,15 @@ def read_current_control(
             last = mismatch
             continue
         observed = observe()
-        _validate_control_currency(out_dir, pointer, observed)
+        try:
+            _validate_control_currency(out_dir, pointer, observed)
+        except CurrentControlUnavailable as stale:
+            # The set validated; only its currency did not. Hand the captured
+            # bytes on so the caller can recover the producing run's own exact
+            # rerun rather than advertising a default that verifies something
+            # else (#429 review).
+            stale.artifacts = dict(captured)
+            raise
         confirmation = _load_pointer(out_dir, path)
         if confirmation.current_control_id != pointer.current_control_id:
             last = moved
@@ -547,6 +569,7 @@ def read_current_control(
         # observations must agree. Checking the pointer alone left a window in
         # which HEAD advanced between the comparison and the return.
         if _workspace_fingerprint(observe()) != _workspace_fingerprint(observed):
+            workspace_moved.artifacts = dict(captured)
             last = workspace_moved
             continue
         # `captured` was read in the same pass that hashed it, and neither the

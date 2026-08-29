@@ -209,6 +209,16 @@ def _assessment_for_diff(
             else None
         )
         if comparison_ref is not None:
+            # No ``protected_paths`` here, unlike ``_manifest_introduced``.
+            # That guard exists because the probe skips a blob past its read
+            # bound (#429), which would otherwise let a committed, oversize,
+            # custom-named gate read as absent — but it needs the manifest's
+            # path relative to the *repository root*, and ``workspace`` here
+            # may be a subdirectory of one. The residual is narrower than the
+            # spelling risk of guessing that path: it needs a base manifest
+            # over 512 KiB under a non-canonical name, and it moves only which
+            # sentence ``_manifest_adoption_paths`` prints — never the rule id,
+            # the action, the risk level, or the control state.
             no_manifest = (
                 carries_manifest_like_yaml(
                     workspace,

@@ -16,7 +16,7 @@ from agents_shipgate.schemas.verification_identity import (
     content_id,
 )
 
-VERIFY_RUN_SCHEMA_VERSION = "shipgate.verify_run/v4"
+VERIFY_RUN_SCHEMA_VERSION = "shipgate.verify_run/v5"
 
 
 class VerifyRunTool(BaseModel):
@@ -114,8 +114,12 @@ class VerifyRunOutcome(BaseModel):
             # evaluated, non-blocked outcome.
             "allOf": [
                 {
+                    # See ``VerifierArtifact``: the continuation is part of the
+                    # condition, and an artifact that omits the field still
+                    # matches and is still held to the original requirement.
                     "if": {
                         "properties": {
+                            "declaration_continuation": {"not": {"const": True}},
                             "control": {
                                 "properties": {
                                     "completion_allowed": {"const": False},
@@ -125,7 +129,7 @@ class VerifyRunOutcome(BaseModel):
                                     },
                                 },
                                 "required": ["completion_allowed", "permissions"],
-                            }
+                            },
                         },
                         "required": ["control"],
                     },
@@ -193,6 +197,10 @@ class VerifyRunOutcome(BaseModel):
     merge_verdict: str
     can_merge_without_human: bool = False
     control: AgentControl
+    #: Carried from the verifier: this run's trust-root delta is a declaration
+    #: continuation, receipt-pinned on both sides, so a blocked decision may
+    #: authorize publication and nothing more (#429).
+    declaration_continuation: bool = False
 
     @model_validator(mode="after")
     def _control_projects_outcome(self) -> VerifyRunOutcome:
@@ -237,7 +245,7 @@ class VerifyRunOutcome(BaseModel):
                 raise ValueError(
                     "publication authority requires a succeeded verify-run with a decision"
                 )
-            if self.decision == "blocked":
+            if self.decision == "blocked" and not self.declaration_continuation:
                 raise ValueError("a blocked verify-run cannot authorize publication")
         return self
 
@@ -291,7 +299,7 @@ class VerifyRunArtifact(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["shipgate.verify_run/v4"] = VERIFY_RUN_SCHEMA_VERSION
+    schema_version: Literal["shipgate.verify_run/v5"] = VERIFY_RUN_SCHEMA_VERSION
     request_id: str = Field(pattern=CONTENT_ID_PATTERN)
     # Deprecated for one compatibility cycle; it is an exact alias, never a
     # separately-computed identity.
