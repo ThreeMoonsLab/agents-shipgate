@@ -53,18 +53,25 @@ against the exact wheel and signs `safety-qualification.json`:
 |---|---|
 | `SAFETY_QUALIFICATION_WHEEL_URL` | HTTPS URL for the exact qualified wheel |
 | `SAFETY_QUALIFICATION_WHEEL_FILENAME` | Safe wheel basename, for example `agents_shipgate-0.16.0b6-py3-none-any.whl` |
-| `SAFETY_QUALIFICATION_JSON_URL` | HTTPS URL for the production-qualified JSON artifact |
+| `SAFETY_QUALIFICATION_JSON_URL` | HTTPS URL for the qualified JSON artifact |
 | `SAFETY_QUALIFICATION_SIGSTORE_BUNDLE_URL` | HTTPS URL for that JSON artifact's Sigstore bundle |
 
 The verification job checks the signature identity first, then validates the
-artifact's production policy, 100-case invariants, tag/version, and wheel
-SHA-256. It then rebuilds a wheel from the tagged checkout and requires byte
-equality with the qualified wheel, which is the binding that ties the published
-artifact to the tagged commit. The rebuilt wheel is only ever a comparison
+artifact against the policy the tag's version requires — the 100-case `beta`
+policy, or, for a `0.x` tag, the 56-case `pre_1_0` policy approved in
+[`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) —
+together with the tag/version and wheel SHA-256. Which policy governs is
+derived from the version, never read from the artifact, and a `0.x` tag may
+also publish on the stronger `beta` artifact.
+
+It then rebuilds a wheel from the tagged checkout and requires byte equality
+with the qualified wheel, which is the binding that ties the published artifact
+to the tagged commit. The rebuilt wheel is only ever a comparison
 reference: the artifact published to PyPI remains the exact qualified wheel.
 
 Missing variables, non-HTTPS URLs, an unsafe filename, an invalid signature, a
-non-production result, or any binding mismatch stops before PyPI publication.
+result whose tier the tag's version does not admit, or any binding mismatch
+stops before PyPI publication.
 
 Because a tampered wheel URL now fails the source-binding gate rather than
 reaching PyPI, variable ACLs are no longer the primary control over what gets
@@ -75,8 +82,9 @@ This is a configured trust root, not proof of organizational independence.
 The promotion job trusts the signed qualification summary and does not replay
 its underlying verifier receipts. The four-week, three-design-partner rollout
 is likewise an external beta stop condition; the machine gate enforces only
-the qualification artifact's combined minimum of 40 real-history,
-rejected/reverted, or design-partner origins.
+the qualification artifact's combined origin minimum — 40 real-history,
+rejected/reverted, or design-partner cases under the production policy and 23
+under the pre-1.0 one, the same 40% share of each corpus.
 
 ## Marketplace And Site
 

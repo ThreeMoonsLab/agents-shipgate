@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""Build a deterministic, fail-closed beta safety qualification artifact.
+"""Build a deterministic, fail-closed safety qualification artifact.
 
 This runner does not execute Agents Shipgate and never substitutes a scan for a
 verifier receipt. It validates frozen human labels, content-addressed verifier
-artifacts, and the exact built wheel before scoring the beta acceptance policy.
+artifacts, and the exact built wheel before scoring a *named* release policy.
+
+Two named policies exist, and the wheel's version decides which one applies:
+the 100-case ``beta`` production policy, and the 56-case ``pre_1_0`` policy
+approved for ``0.x`` tags (issue #341, recorded in
+``docs/release-evidence-policy-decision.md``). Any other threshold set scores
+as ``test`` and can never release.
 """
 
 from __future__ import annotations
@@ -46,11 +52,18 @@ from agents_shipgate.schemas.safety_qualification import (
     SafetyReceiptEntryV1,
     SafetyReceiptIndexV1,
     WilsonIntervalV1,
+    pre_release_safety_requirements,
     production_safety_requirements,
+    tier_for_requirements,
 )
 from agents_shipgate.schemas.verification_identity import VerificationReceipt
 from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.schemas.verify_run import VerifyRunArtifact
+
+if __package__:
+    from scripts._release_support import release_version_is_pre_1_0
+else:  # ``python scripts/run_safety_qualification.py``
+    from _release_support import release_version_is_pre_1_0
 
 DECISIONS: tuple[ReleaseDecisionStatus, ...] = (
     "passed",
@@ -473,6 +486,40 @@ def _confusion_matrix(
     return SafetyConfusionMatrixV1(profile=profile, rows=rows)  # type: ignore[arg-type]
 
 
+POLICY_TIER_CHOICES = ("auto", "production", "pre-1.0")
+
+
+def select_release_requirements(
+    wheel_version: str, choice: str = "auto"
+) -> SafetyQualificationRequirementsV1:
+    """Pick the named policy that governs ``wheel_version``.
+
+    ``auto`` applies the rule a human approved for issue #341 rather than
+    inferring one: ``0.x`` builds are governed by the pre-1.0 policy, anything
+    else by the 100-case production policy. The release verifiers re-derive the
+    same rule from the tag independently, so this choice is never trusted.
+
+    ``production`` is always available -- opting *up* to more evidence than the
+    tag requires can never weaken a release. ``pre-1.0`` is refused for a
+    non-0.x wheel, at the point of production rather than at the gate, because
+    such an artifact could never publish.
+    """
+
+    if choice not in POLICY_TIER_CHOICES:
+        raise ConfigError(f"Unknown qualification policy tier: {choice}")
+    if choice == "production":
+        return production_safety_requirements()
+    pre_1_0 = release_version_is_pre_1_0(wheel_version)
+    if choice == "pre-1.0":
+        if not pre_1_0:
+            raise ConfigError(
+                f"The pre-1.0 qualification policy does not govern {wheel_version}; "
+                "1.0 and later require the production policy"
+            )
+        return pre_release_safety_requirements()
+    return pre_release_safety_requirements() if pre_1_0 else production_safety_requirements()
+
+
 def run_safety_qualification(
     *,
     wheel_path: Path,
@@ -480,12 +527,13 @@ def run_safety_qualification(
     receipt_index_path: Path,
     policy_paths: Iterable[Path],
     requirements: SafetyQualificationRequirementsV1 | None = None,
+    policy_tier: str = "auto",
 ) -> SafetyQualificationResultV1:
-    active_requirements = requirements or production_safety_requirements()
-    production_requirements = production_safety_requirements()
-    production_tier = active_requirements == production_requirements
-
     wheel_name, wheel_version, wheel_sha256 = inspect_wheel(wheel_path)
+    active_requirements = requirements or select_release_requirements(wheel_version, policy_tier)
+    # Named from what the thresholds *are*, never from what a caller asks for:
+    # an ad-hoc requirements object stays ``test`` and cannot release.
+    tier = tier_for_requirements(active_requirements)
     corpus = load_frozen_corpus(corpus_path)
     receipt_index = load_receipt_index(receipt_index_path)
     corpus_sha256 = sha256_file(corpus_path)
@@ -744,7 +792,7 @@ def run_safety_qualification(
         if not metric.passed:
             _failure(
                 failures,
-                code="beta_threshold_failed",
+                code="policy_threshold_failed",
                 message=(
                     f"{metric.name}: {metric.numerator}/{metric.denominator}; "
                     f"required {metric.requirement}"
@@ -792,9 +840,9 @@ def run_safety_qualification(
     }
     qualified = not failures
     return SafetyQualificationResultV1(
-        qualification_tier="beta" if production_tier else "test",
+        qualification_tier=tier,
         qualified=qualified,
-        production_qualified=qualified and production_tier,
+        production_qualified=qualified and tier == "beta",
         inputs=QualificationInputDigestV1(
             wheel_name=wheel_name,
             wheel_version=wheel_version,
@@ -833,12 +881,21 @@ def render_safety_qualification_json(result: SafetyQualificationResultV1) -> str
 
 
 def qualification_exit_code(result: SafetyQualificationResultV1) -> int:
-    return 0 if result.production_qualified else 1
+    """Zero only for a clean run against a *named* release policy.
+
+    ``production_qualified`` alone would fail a valid pre-1.0 artifact, and
+    ``qualified`` alone would pass an ad-hoc ``test`` threshold set.
+    """
+
+    return 0 if result.qualified and result.qualification_tier != "test" else 1
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Validate frozen labels and real verifier receipts for beta qualification."
+        description=(
+            "Validate frozen labels and real verifier receipts against the named "
+            "release policy the wheel version selects."
+        )
     )
     parser.add_argument("--wheel", type=Path, required=True, help="Built agents-shipgate wheel")
     parser.add_argument("--corpus", type=Path, required=True, help="Frozen labeled corpus")
@@ -851,6 +908,17 @@ def _parser() -> argparse.ArgumentParser:
         action="append",
         required=True,
         help="Qualification policy file or directory; repeatable",
+    )
+    parser.add_argument(
+        "--policy-tier",
+        choices=POLICY_TIER_CHOICES,
+        default="auto",
+        help=(
+            "Which named release policy to score against. 'auto' (default) "
+            "selects the pre-1.0 policy for a 0.x wheel and the production "
+            "policy otherwise; 'production' always scores the 100-case bar; "
+            "'pre-1.0' is refused for a 1.0-or-later wheel"
+        ),
     )
     parser.add_argument(
         "--out",
@@ -870,6 +938,7 @@ def main(argv: list[str] | None = None) -> int:
             corpus_path=args.corpus,
             receipt_index_path=args.receipts,
             policy_paths=args.policy,
+            policy_tier=args.policy_tier,
         )
     except (ConfigError, OSError, ValueError) as exc:
         sys.stderr.write(f"Safety qualification configuration error: {exc}\n")

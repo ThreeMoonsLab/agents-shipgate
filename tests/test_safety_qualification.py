@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import zipfile
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.errors import ConfigError
@@ -19,16 +21,20 @@ from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.safety_qualification import (
+    RELEASE_SAFETY_PROFILES,
     FrozenSafetyCorpusV1,
     HumanAdjudicationV1,
     IndependentHumanLabelV1,
     SafetyCorpusCaseV1,
     SafetyQualificationRequirementsV1,
+    SafetyQualificationResultV1,
     SafetyReceiptEntryV1,
     SafetyReceiptIndexV1,
     SafetyStratumRequirementV1,
     compute_frozen_labels_sha256,
+    pre_release_safety_requirements,
     production_safety_requirements,
+    tier_for_requirements,
 )
 from agents_shipgate.schemas.verification_identity import (
     VerificationBlob,
@@ -48,6 +54,10 @@ from agents_shipgate.schemas.verify_run import (
     VerifyRunOutcome,
     build_verify_run_artifact,
 )
+from scripts._release_support import (
+    QUALIFICATION_CASE_COUNTS,
+    accepted_qualification_tiers,
+)
 from scripts.run_safety_qualification import (
     EXPECTED_MERGE_VERDICT,
     hash_policy_bundle,
@@ -55,6 +65,7 @@ from scripts.run_safety_qualification import (
     main,
     render_safety_qualification_json,
     run_safety_qualification,
+    select_release_requirements,
     sha256_file,
 )
 
@@ -499,6 +510,176 @@ def test_production_defaults_pin_the_exact_beta_contract() -> None:
     assert requirements.minimum_kappa == 0.80
 
 
+def test_pre_release_defaults_pin_the_exact_pre_1_0_contract() -> None:
+    """The numbers a human approved on 2026-08-29 (issue #341, Route 2).
+
+    Pinned as literals so changing the approved bar is a visible edit to this
+    test, not a silent consequence of editing the constructor.
+    """
+
+    requirements = pre_release_safety_requirements()
+    counts = {
+        (item.profile, item.expected_decision): item.count for item in requirements.required_strata
+    }
+
+    assert len(counts) == 28
+    assert set(counts.values()) == {2}
+    assert sum(counts.values()) == 56
+    assert sum(count for (_, decision), count in counts.items() if decision == "passed") == 14
+    assert sum(count for (_, decision), count in counts.items() if decision != "passed") == 42
+    assert requirements.minimum_safe_passes == 13
+    assert requirements.minimum_blocked_exact == 14
+    assert requirements.minimum_review_exact == 14
+    assert requirements.minimum_insufficient_evidence_exact == 14
+    assert requirements.maximum_unsafe_auto_passes == 0
+    assert requirements.minimum_qualified_origins == 23
+    assert requirements.minimum_kappa == 0.80
+
+
+def test_the_pre_1_0_policy_covers_every_production_stratum() -> None:
+    """Less coverage means fewer *cases*, never fewer profile x outcome cells.
+
+    Dropping a cell would delete every observation of a profile/outcome pair,
+    which reduces strictness rather than coverage. This also fails loudly if a
+    profile is added to production and not to the pre-1.0 policy.
+    """
+
+    production = production_safety_requirements()
+    pre_1_0 = pre_release_safety_requirements()
+
+    production_strata = {(item.profile, item.expected_decision) for item in production.required_strata}
+    pre_1_0_strata = {(item.profile, item.expected_decision) for item in pre_1_0.required_strata}
+
+    assert pre_1_0_strata == production_strata
+    assert {item.profile for item in pre_1_0.required_strata} == set(RELEASE_SAFETY_PROFILES)
+    assert all(item.count >= 1 for item in pre_1_0.required_strata)
+    # Two per cell is what leaves each one a tuning case *and* a holdout case.
+    assert all(
+        item.count - math.ceil(item.count * pre_1_0.minimum_holdout_fraction_per_stratum) >= 1
+        for item in pre_1_0.required_strata
+    )
+
+
+def test_the_pre_1_0_policy_is_never_laxer_than_production_per_rate() -> None:
+    """A smaller corpus may reduce coverage. It must not reduce strictness.
+
+    Each exact-match floor is compared as a *rate* against the population it
+    governs, because 13 of 14 and 27 of 30 are the same demand at different
+    sizes -- and 12 of 14 would not be.
+    """
+
+    production = production_safety_requirements()
+    pre_1_0 = pre_release_safety_requirements()
+
+    def _outcome_totals(requirements: SafetyQualificationRequirementsV1) -> dict[str, int]:
+        return {
+            decision: sum(
+                item.count
+                for item in requirements.required_strata
+                if item.expected_decision == decision
+            )
+            for decision in DECISIONS
+        }
+
+    production_totals = _outcome_totals(production)
+    pre_1_0_totals = _outcome_totals(pre_1_0)
+    floors = {
+        "passed": "minimum_safe_passes",
+        "blocked": "minimum_blocked_exact",
+        "review_required": "minimum_review_exact",
+        "insufficient_evidence": "minimum_insufficient_evidence_exact",
+    }
+    for decision, attribute in floors.items():
+        production_rate = getattr(production, attribute) / production_totals[decision]
+        pre_1_0_rate = getattr(pre_1_0, attribute) / pre_1_0_totals[decision]
+        assert pre_1_0_rate >= production_rate, attribute
+        # ...and it is the *smallest* count meeting that rate, so the smaller
+        # policy is not quietly stricter than the decision recorded either.
+        assert getattr(pre_1_0, attribute) == math.ceil(production_rate * pre_1_0_totals[decision])
+
+    # The invariants that may not move at all, regardless of corpus size.
+    assert pre_1_0.maximum_unsafe_auto_passes == production.maximum_unsafe_auto_passes == 0
+    assert (
+        pre_1_0.minimum_holdout_fraction_per_stratum
+        == production.minimum_holdout_fraction_per_stratum
+    )
+    assert pre_1_0.minimum_kappa == production.minimum_kappa
+    assert (
+        pre_1_0.required_report_schema_version == production.required_report_schema_version
+    )
+    # The origin floor is the same share of the corpus, rounded up.
+    production_total = sum(item.count for item in production.required_strata)
+    pre_1_0_total = sum(item.count for item in pre_1_0.required_strata)
+    origin_share = production.minimum_qualified_origins / production_total
+    assert pre_1_0.minimum_qualified_origins == math.ceil(origin_share * pre_1_0_total)
+
+
+def test_the_governing_policy_is_derived_from_the_wheel_version() -> None:
+    """#341 approved a policy keyed to the version range, so applying it is
+    implementing the decision -- not inferring one from the tag."""
+
+    assert select_release_requirements("0.16.0b7") == pre_release_safety_requirements()
+    assert select_release_requirements("0.16.0") == pre_release_safety_requirements()
+    assert select_release_requirements("1.0.0") == production_safety_requirements()
+    assert select_release_requirements("1.0.0rc1") == production_safety_requirements()
+    # Unparsable versions fall to the strictest policy, never the cheapest.
+    assert select_release_requirements("not-a-version") == production_safety_requirements()
+
+    # Opting *up* is always available; opting down past 1.0 is refused where
+    # the artifact would be produced, not only where it would be gated.
+    assert select_release_requirements("0.16.0b7", "production") == production_safety_requirements()
+    with pytest.raises(ConfigError, match="does not govern 1.0.0"):
+        select_release_requirements("1.0.0", "pre-1.0")
+    with pytest.raises(ConfigError, match="Unknown qualification policy tier"):
+        select_release_requirements("0.16.0b7", "whatever")
+
+
+def test_an_ad_hoc_threshold_set_can_never_name_itself_a_release_tier() -> None:
+    """Tiers are named from what the thresholds *are*. One relaxed field is
+    enough to stop a requirements object presenting as release-grade."""
+
+    assert tier_for_requirements(production_safety_requirements()) == "beta"
+    assert tier_for_requirements(pre_release_safety_requirements()) == "pre_1_0"
+    assert tier_for_requirements(_test_requirements()) == "test"
+
+    weakened = pre_release_safety_requirements().model_copy(
+        update={"minimum_blocked_exact": 13}
+    )
+    assert tier_for_requirements(weakened) == "test"
+
+
+def test_an_unknown_qualification_tier_is_not_a_valid_artifact(tmp_path: Path) -> None:
+    """Negative control for the widened tier union: adding ``pre_1_0`` must not
+    have turned ``qualification_tier`` into a free-text field."""
+
+    payload = _run(_fixture(tmp_path)).model_dump(mode="json")
+    assert payload["qualification_tier"] == "test"
+
+    accepted = SafetyQualificationResultV1.model_validate(
+        {**payload, "qualification_tier": "pre_1_0"}
+    )
+    assert accepted.qualification_tier == "pre_1_0"
+
+    for rejected in ("production", "pre_1.0", "PRE_1_0", ""):
+        with pytest.raises(ValidationError):
+            SafetyQualificationResultV1.model_validate(
+                {**payload, "qualification_tier": rejected}
+            )
+
+
+def test_the_stdlib_case_counts_match_the_named_policies() -> None:
+    """The sealing job restates these counts without importing the schemas.
+    Two copies of a number are a drift risk unless something binds them."""
+
+    assert QUALIFICATION_CASE_COUNTS == {
+        "beta": sum(item.count for item in production_safety_requirements().required_strata),
+        "pre_1_0": sum(item.count for item in pre_release_safety_requirements().required_strata),
+    }
+    assert accepted_qualification_tiers("0.16.0b7") == ("beta", "pre_1_0")
+    assert accepted_qualification_tiers("1.0.0") == ("beta",)
+    assert set(QUALIFICATION_CASE_COUNTS) == set(accepted_qualification_tiers("0.16.0b7"))
+
+
 def test_custom_fixture_qualifies_only_as_test_and_is_byte_deterministic(
     tmp_path: Path,
 ) -> None:
@@ -521,33 +702,46 @@ def test_custom_fixture_qualifies_only_as_test_and_is_byte_deterministic(
     assert render_safety_qualification_json(first) == render_safety_qualification_json(second)
 
 
-def test_cli_uses_unrelaxed_production_policy_and_emits_failed_artifact(
+def test_cli_uses_an_unrelaxed_named_policy_and_emits_failed_artifact(
     tmp_path: Path,
 ) -> None:
+    """The CLI never scores the corpus it was handed on the corpus's own terms.
+
+    The four-case fixture satisfies no named policy, so both the version-derived
+    default and an explicit opt-up to production must reject it. ``0.16.0b7`` is
+    a ``0.x`` wheel, so the default is the pre-1.0 policy approved in #341 --
+    smaller, and still nothing this fixture can meet.
+    """
+
     wheel, corpus, receipts, policy = _fixture(tmp_path)
-    output = tmp_path / "safety-qualification.json"
 
-    exit_code = main(
-        [
-            "--wheel",
-            str(wheel),
-            "--corpus",
-            str(corpus),
-            "--receipts",
-            str(receipts),
-            "--policy",
-            str(policy),
-            "--out",
-            str(output),
-        ]
-    )
-    payload = json.loads(output.read_text(encoding="utf-8"))
+    def _run_cli(*extra: str) -> dict:
+        output = tmp_path / f"safety-qualification{'-'.join(extra) or '-auto'}.json"
+        exit_code = main(
+            [
+                "--wheel",
+                str(wheel),
+                "--corpus",
+                str(corpus),
+                "--receipts",
+                str(receipts),
+                "--policy",
+                str(policy),
+                "--out",
+                str(output),
+                *extra,
+            ]
+        )
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        assert exit_code == 1
+        assert payload["qualified"] is False
+        assert payload["production_qualified"] is False
+        assert payload["failures"]
+        return payload
 
-    assert exit_code == 1
-    assert payload["qualification_tier"] == "beta"
-    assert payload["qualified"] is False
-    assert payload["production_qualified"] is False
-    assert payload["failures"]
+    assert _run_cli()["qualification_tier"] == "pre_1_0"
+    assert _run_cli("--policy-tier", "production")["qualification_tier"] == "beta"
+    assert _run_cli("--policy-tier", "pre-1.0")["qualification_tier"] == "pre_1_0"
 
 
 def test_human_adjudicated_non_safe_pass_fails_closed(tmp_path: Path) -> None:
@@ -564,7 +758,7 @@ def test_human_adjudicated_non_safe_pass_fails_closed(tmp_path: Path) -> None:
     assert result.summary.unsafe_auto_pass_count == 1
     assert "unsafe_auto_pass" in codes
     assert "profile_unsafe_auto_pass" in codes
-    assert "beta_threshold_failed" in codes
+    assert "policy_threshold_failed" in codes
 
 
 def test_missing_receipt_is_a_runtime_failure_not_fallback_scoring(tmp_path: Path) -> None:

@@ -100,6 +100,46 @@
 
   [#461]: https://github.com/ThreeMoonsLab/agents-shipgate/issues/461
 
+- **A `0.x` tag now has an evidence bar it can actually meet, and it is not a
+  weaker judgement.** (#341) The only release policy was 100 adjudicated,
+  receipt-bound cases — the claim `1.0` should make — enforced for every tag.
+  No corpus met it, so nothing published, and evaluators kept installing
+  `v0.15.0`: an older, less-verified build than the one being withheld.
+
+  A second **named** policy, `pre_1_0`, governs `0.x` tags: 56 cases, two in
+  each of the same 28 profile × decision strata, with the origin floor at the
+  same 40% share. Everything that decides whether evidence is *believed* is
+  byte-identical to the production policy — zero unsafe auto-passes per profile
+  and overall, a unique terminal verifier receipt per case, the 20% holdout
+  fraction, the κ floor, `static_only`, and full re-derivation by the verifier.
+  Every exact-match floor is the production rate rounded up, which at 56 cases
+  means three of the four land on 100%: a smaller corpus buys less tolerance
+  for error, not more. The route, the numbers, the rejected alternatives and
+  the promotion path are recorded by a named owner in
+  [`docs/release-evidence-policy-decision.md`](docs/release-evidence-policy-decision.md).
+
+  **The version decides the policy; the artifact never does.** Epoch 0 with
+  major 0 admits `pre_1_0` or the stronger `beta`; everything else — including
+  a version that will not parse — admits `beta` only. Both release gates derive
+  this independently, and an artifact naming a tier its version does not admit
+  is rejected *and* then measured against the production counts, so a bad tier
+  cannot shrink what is checked. `production_qualified` keeps meaning "met the
+  100-case bar": a `pre_1_0` artifact reports it `false`, and claiming
+  otherwise is itself a rejection.
+
+  **The sealing gate was the sixth definition site, not the fifth.** The
+  standing brief listed five places the bar is defined; `verify_qualification_binding.py`
+  — the standard-library gate that seals a release without importing the
+  project — hard-coded `REQUIRED_CASE_COUNT = 100` and `tier == "beta"`
+  independently. A change that moved the other five would have failed there,
+  at the last step before publication, with a bare case-count error. It is
+  per-tier now, and `test_the_stdlib_case_counts_match_the_named_policies`
+  binds its restated numbers to the real constructors so the two copies cannot
+  drift. Along the way the exhaustive verifier stopped hard-coding `100` in six
+  places and now derives every count, metric denominator and confusion-matrix
+  profile from the governing policy.
+
+
 - **The declaration continuation: a drafted proposal can now reach the person
   it was drafted for.** (#429 review) `apply-patches --kinds declare_action`
   writes into `shipgate.yaml`, which is the trust root — so the control that

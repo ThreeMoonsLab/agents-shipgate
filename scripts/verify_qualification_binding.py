@@ -11,9 +11,14 @@ dependency there could rewrite the verifier itself.
 This module exists so the sealing job can restate the claims that actually
 delegate publication authority, using nothing but the standard library:
 
-* the artifact is a **beta**, **qualified**, **production_qualified** result;
+* the artifact is **qualified** under a policy the tag's version admits --
+  the 100-case ``beta`` policy, or, for a ``0.x`` tag only, the 56-case
+  ``pre_1_0`` policy approved in
+  ``docs/release-evidence-policy-decision.md`` (issue #341);
+* it claims ``production_qualified`` exactly when it claims the ``beta`` tier;
 * it is static-only and does not claim runtime behaviour was proven;
-* it carries no failures, exactly 100 cases, and 100 receipts;
+* it carries no failures, and exactly as many cases and receipts as that
+  policy requires;
 * it reports **zero** unsafe auto-passes;
 * and — the binding that matters — its recorded wheel name, version and
   SHA-256 are the wheel about to be published.
@@ -41,11 +46,25 @@ from pathlib import Path
 from typing import Any
 
 if __package__:
-    from scripts._release_support import SHA256_PATTERN, ReleaseError, inspect_wheel
+    from scripts._release_support import (
+        PRODUCTION_QUALIFICATION_TIER,
+        QUALIFICATION_CASE_COUNTS,
+        SHA256_PATTERN,
+        ReleaseError,
+        accepted_qualification_tiers,
+        describe_accepted_tiers,
+        inspect_wheel,
+    )
 else:  # ``python scripts/verify_qualification_binding.py``
-    from _release_support import SHA256_PATTERN, ReleaseError, inspect_wheel
-
-REQUIRED_CASE_COUNT = 100
+    from _release_support import (
+        PRODUCTION_QUALIFICATION_TIER,
+        QUALIFICATION_CASE_COUNTS,
+        SHA256_PATTERN,
+        ReleaseError,
+        accepted_qualification_tiers,
+        describe_accepted_tiers,
+        inspect_wheel,
+    )
 
 
 def _require(errors: list[str], condition: bool, message: str) -> None:
@@ -81,11 +100,37 @@ def verify_qualification_binding(
 
     assert isinstance(inputs, dict) and isinstance(summary, dict) and isinstance(cases, list)
 
-    _require(errors, payload.get("qualification_tier") == "beta", "qualification tier is not beta")
-    _require(errors, payload.get("qualified") is True, "artifact is not qualified")
-    _require(
-        errors, payload.get("production_qualified") is True, "artifact is not production_qualified"
+    # Which policy governs is decided by the wheel's version, never by the
+    # artifact. An artifact naming a tier this version does not admit is
+    # rejected *and* falls back to the production case count, so a bad tier
+    # can never shrink the population checked below.
+    accepted_tiers = accepted_qualification_tiers(wheel_version)
+    tier = payload.get("qualification_tier")
+    tier_accepted = tier in accepted_tiers
+    required_case_count = (
+        QUALIFICATION_CASE_COUNTS[tier]
+        if tier_accepted
+        else QUALIFICATION_CASE_COUNTS[PRODUCTION_QUALIFICATION_TIER]
     )
+
+    _require(
+        errors,
+        tier_accepted,
+        f"qualification tier is not {describe_accepted_tiers(accepted_tiers)}",
+    )
+    _require(errors, payload.get("qualified") is True, "artifact is not qualified")
+    if tier == PRODUCTION_QUALIFICATION_TIER:
+        _require(
+            errors,
+            payload.get("production_qualified") is True,
+            "artifact is not production_qualified",
+        )
+    else:
+        _require(
+            errors,
+            payload.get("production_qualified") is False,
+            "artifact claims production_qualified without the production policy",
+        )
     _require(errors, payload.get("static_only") is True, "artifact is not static-only")
     _require(
         errors,
@@ -96,18 +141,18 @@ def verify_qualification_binding(
 
     _require(
         errors,
-        len(cases) == REQUIRED_CASE_COUNT,
-        f"artifact carries {len(cases)} cases, not {REQUIRED_CASE_COUNT}",
+        len(cases) == required_case_count,
+        f"artifact carries {len(cases)} cases, not {required_case_count}",
     )
     _require(
         errors,
-        summary.get("total_cases") == REQUIRED_CASE_COUNT,
-        "summary total_cases is not 100",
+        summary.get("total_cases") == required_case_count,
+        f"summary total_cases is not {required_case_count}",
     )
     _require(
         errors,
-        summary.get("receipt_count") == REQUIRED_CASE_COUNT,
-        "summary receipt_count is not 100",
+        summary.get("receipt_count") == required_case_count,
+        f"summary receipt_count is not {required_case_count}",
     )
 
     # Derived from the cases, not read from the summary. The summary is a
@@ -134,8 +179,8 @@ def verify_qualification_binding(
     _require(errors, derived_runtime_failures == 0, "cases contain a runtime failure")
     _require(
         errors,
-        len(receipts) == REQUIRED_CASE_COUNT,
-        f"cases carry {len(receipts)} receipts, not {REQUIRED_CASE_COUNT}",
+        len(receipts) == required_case_count,
+        f"cases carry {len(receipts)} receipts, not {required_case_count}",
     )
     _require(
         errors,
@@ -181,7 +226,7 @@ def verify_qualification_binding(
             "Release safety qualification rejected: " + "; ".join(sorted(set(errors)))
         )
     return {
-        "qualification_tier": payload.get("qualification_tier"),
+        "qualification_tier": tier,
         "wheel_name": wheel_name,
         "wheel_version": wheel_version,
         "wheel_sha256": wheel_sha256,

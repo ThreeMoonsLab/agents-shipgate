@@ -1213,6 +1213,101 @@ def test_the_stdlib_invariant_checker_rejects_a_weakened_signed_artifact(
         verify_qualification_binding(qualification_path=_artifact(), wheel_path=other, tag="v9.9.9")
 
 
+def test_the_sealer_reads_the_governing_policy_from_the_version_not_the_artifact(
+    tmp_path: Path,
+) -> None:
+    """The stdlib gate must apply the #341 decision on its own.
+
+    It cannot import the schemas, so it restates the case count per tier. What
+    it must never do is let the artifact choose which count applies: the same
+    56-case ``pre_1_0`` payload has to pass on a ``0.x`` wheel and fail on a
+    ``9.9.9`` one.
+    """
+
+    from scripts.verify_qualification_binding import verify_qualification_binding
+
+    pre_1_0_version = "0.16.0b7"
+    pre_1_0_wheel = tmp_path / "pre" / f"agents_shipgate-{pre_1_0_version}-py3-none-any.whl"
+    pre_1_0_wheel.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(pre_1_0_wheel, "w") as archive:
+        archive.writestr(
+            f"agents_shipgate-{pre_1_0_version}.dist-info/METADATA",
+            f"Metadata-Version: 2.4\nName: agents-shipgate\nVersion: {pre_1_0_version}\n",
+        )
+        archive.writestr("agents_shipgate/__init__.py", "x = 1\n")
+    post_1_0_wheel = _write_wheel(tmp_path / "post" / WHEEL_FILENAME)
+
+    def _artifact(wheel: Path, version: str, count: int, **overrides: Any) -> Path:
+        payload: dict[str, Any] = {
+            "qualification_tier": "pre_1_0",
+            "qualified": True,
+            "production_qualified": False,
+            "static_only": True,
+            "runtime_behavior_proven": False,
+            "failures": [],
+            "cases": [
+                {
+                    "id": f"c{index}",
+                    "expected_decision": "blocked",
+                    "actual_decision": "blocked",
+                    "receipt_sha256": f"{index:064x}",
+                    "runtime_failure": False,
+                }
+                for index in range(count)
+            ],
+            "summary": {
+                "total_cases": count,
+                "receipt_count": count,
+                "unsafe_auto_pass_count": 0,
+                "runtime_failure_count": 0,
+            },
+            "inputs": {
+                "wheel_name": "agents-shipgate",
+                "wheel_version": version,
+                "engine_version": version,
+                "wheel_sha256": _digest(wheel),
+            },
+        }
+        payload.update(overrides)
+        path = tmp_path / f"qualification-{version}-{count}-{len(overrides)}.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return path
+
+    # The approved pre-1.0 evidence publishes a 0.x tag.
+    record = verify_qualification_binding(
+        qualification_path=_artifact(pre_1_0_wheel, pre_1_0_version, 56),
+        wheel_path=pre_1_0_wheel,
+        tag=f"v{pre_1_0_version}",
+    )
+    assert record["qualification_tier"] == "pre_1_0"
+
+    # The identical claim does not publish anything from 1.0 onwards.
+    with pytest.raises(ReleaseError, match="tier is not beta"):
+        verify_qualification_binding(
+            qualification_path=_artifact(post_1_0_wheel, "9.9.9", 56),
+            wheel_path=post_1_0_wheel,
+            tag="v9.9.9",
+        )
+
+    for overrides, count, expected in [
+        # A tier the version admits still owns its own case count, in both
+        # directions: 56 is not enough for `beta`, and 100 is not `pre_1_0`.
+        ({"qualification_tier": "beta", "production_qualified": True}, 56, "cases, not 100"),
+        ({}, 100, "cases, not 56"),
+        # `production_qualified` keeps meaning the 100-case bar.
+        ({"production_qualified": True}, 56, "without the production policy"),
+        ({"qualified": False}, 56, "not qualified"),
+    ]:
+        with pytest.raises(ReleaseError, match=expected):
+            verify_qualification_binding(
+                qualification_path=_artifact(
+                    pre_1_0_wheel, pre_1_0_version, count, **overrides
+                ),
+                wheel_path=pre_1_0_wheel,
+                tag=f"v{pre_1_0_version}",
+            )
+
+
 def test_the_suite_and_the_sealer_must_agree_on_the_commit() -> None:
     """They check out independently; a mutable ref could test A and seal B."""
 

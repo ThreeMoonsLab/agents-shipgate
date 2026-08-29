@@ -15,10 +15,13 @@ from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.schemas.safety_qualification import (
     QualificationInputDigestV1,
     SafetyQualificationCaseResultV1,
+    SafetyQualificationRequirementsV1,
     SafetyQualificationResultV1,
     SafetyQualificationStratumV1,
     SafetyQualificationSummaryV1,
+    pre_release_safety_requirements,
     production_safety_requirements,
+    tier_for_requirements,
 )
 from scripts.run_safety_qualification import _confusion_matrix, _metric, sha256_file
 from scripts.verify_safety_qualification_release import (
@@ -27,19 +30,33 @@ from scripts.verify_safety_qualification_release import (
 )
 
 VERSION = "0.16.0b7"
+POST_1_0_VERSION = "1.0.0"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def _write_wheel(path: Path) -> None:
+def _write_wheel(path: Path, version: str = VERSION) -> None:
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(
-            "agents_shipgate-0.16.0b7.dist-info/METADATA",
-            "Metadata-Version: 2.4\nName: agents-shipgate\nVersion: 0.16.0b7\n",
+            f"agents_shipgate-{version}.dist-info/METADATA",
+            f"Metadata-Version: 2.4\nName: agents-shipgate\nVersion: {version}\n",
         )
 
 
-def _production_result(wheel: Path) -> SafetyQualificationResultV1:
-    requirements = production_safety_requirements()
+def _result(
+    wheel: Path,
+    *,
+    requirements: SafetyQualificationRequirementsV1 | None = None,
+    version: str = VERSION,
+) -> SafetyQualificationResultV1:
+    """A perfectly conforming artifact for whichever named policy is supplied.
+
+    Everything is derived from ``requirements`` -- counts, thresholds, metric
+    denominators, matrix profiles -- so a policy change cannot leave this
+    builder asserting the previous one's numbers.
+    """
+
+    requirements = requirements or production_safety_requirements()
+    tier = tier_for_requirements(requirements)
     cases: list[SafetyQualificationCaseResultV1] = []
     strata: list[SafetyQualificationStratumV1] = []
     for requirement in requirements.required_strata:
@@ -72,50 +89,51 @@ def _production_result(wheel: Path) -> SafetyQualificationResultV1:
             )
         )
 
-    safe = sum(case.expected_decision == "passed" for case in cases)
-    blocked = sum(case.expected_decision == "blocked" for case in cases)
-    review = sum(case.expected_decision == "review_required" for case in cases)
-    insufficient = sum(case.expected_decision == "insufficient_evidence" for case in cases)
+    total = len(cases)
+    outcome_counts = {
+        decision: sum(case.expected_decision == decision for case in cases)
+        for decision in ("passed", "review_required", "insufficient_evidence", "blocked")
+    }
     metrics = [
         _metric(
             name="unsafe_auto_pass_rate",
             numerator=0,
-            denominator=70,
-            requirement="<= 0 cases",
+            denominator=total - outcome_counts["passed"],
+            requirement=f"<= {requirements.maximum_unsafe_auto_passes} cases",
             passed=True,
         ),
         _metric(
             name="safe_pass_rate",
-            numerator=safe,
-            denominator=safe,
-            requirement=">= 27 cases",
+            numerator=outcome_counts["passed"],
+            denominator=outcome_counts["passed"],
+            requirement=f">= {requirements.minimum_safe_passes} cases",
             passed=True,
         ),
         _metric(
             name="blocked_exact_rate",
-            numerator=blocked,
-            denominator=blocked,
-            requirement=">= 30 cases",
+            numerator=outcome_counts["blocked"],
+            denominator=outcome_counts["blocked"],
+            requirement=f">= {requirements.minimum_blocked_exact} cases",
             passed=True,
         ),
         _metric(
             name="review_exact_rate",
-            numerator=review,
-            denominator=review,
-            requirement=">= 19 cases",
+            numerator=outcome_counts["review_required"],
+            denominator=outcome_counts["review_required"],
+            requirement=f">= {requirements.minimum_review_exact} cases",
             passed=True,
         ),
         _metric(
             name="insufficient_evidence_exact_rate",
-            numerator=insufficient,
-            denominator=insufficient,
-            requirement=">= 19 cases",
+            numerator=outcome_counts["insufficient_evidence"],
+            denominator=outcome_counts["insufficient_evidence"],
+            requirement=f">= {requirements.minimum_insufficient_evidence_exact} cases",
             passed=True,
         ),
         _metric(
             name="overall_exact_rate",
-            numerator=100,
-            denominator=100,
+            numerator=total,
+            denominator=total,
             requirement="reported for audit; outcome-specific thresholds govern",
             passed=True,
         ),
@@ -123,24 +141,16 @@ def _production_result(wheel: Path) -> SafetyQualificationResultV1:
     matrices = [_confusion_matrix(cases, profile="all")]
     matrices.extend(
         _confusion_matrix(cases, profile=profile)
-        for profile in (
-            "mcp_openapi_declared_binding",
-            "openai_agents_sdk",
-            "langchain_crewai",
-            "google_adk",
-            "n8n",
-            "multi_agent_handoffs",
-            "coding_agent_trust_roots",
-        )
+        for profile in sorted({item.profile for item in requirements.required_strata})
     )
     return SafetyQualificationResultV1(
-        qualification_tier="beta",
+        qualification_tier=tier,
         qualified=True,
-        production_qualified=True,
+        production_qualified=tier == "beta",
         inputs=QualificationInputDigestV1(
             wheel_name="agents-shipgate",
-            wheel_version=VERSION,
-            engine_version=VERSION,
+            wheel_version=version,
+            engine_version=version,
             wheel_sha256=sha256_file(wheel),
             corpus_name="frozen-corpus.json",
             corpus_id="beta-corpus-v1",
@@ -152,20 +162,15 @@ def _production_result(wheel: Path) -> SafetyQualificationResultV1:
         ),
         requirements=requirements,
         summary=SafetyQualificationSummaryV1(
-            total_cases=100,
-            qualified_origin_cases=40,
-            primary_label_agreements=100,
+            total_cases=total,
+            qualified_origin_cases=requirements.minimum_qualified_origins,
+            primary_label_agreements=total,
             cohen_kappa=1.0,
-            receipt_count=100,
-            exact_count=100,
+            receipt_count=total,
+            exact_count=total,
             unsafe_auto_pass_count=0,
             runtime_failure_count=0,
-            outcome_counts={
-                "passed": 30,
-                "review_required": 20,
-                "insufficient_evidence": 20,
-                "blocked": 30,
-            },
+            outcome_counts=outcome_counts,
         ),
         strata=strata,
         confusion_matrices=matrices,
@@ -175,13 +180,22 @@ def _production_result(wheel: Path) -> SafetyQualificationResultV1:
     )
 
 
-def _fixture(tmp_path: Path) -> tuple[Path, Path]:
+def _fixture(
+    tmp_path: Path,
+    *,
+    requirements: SafetyQualificationRequirementsV1 | None = None,
+    version: str = VERSION,
+) -> tuple[Path, Path]:
     tmp_path.mkdir(parents=True, exist_ok=True)
-    wheel = tmp_path / "agents_shipgate-0.16.0b7-py3-none-any.whl"
-    _write_wheel(wheel)
+    wheel = tmp_path / f"agents_shipgate-{version}-py3-none-any.whl"
+    _write_wheel(wheel, version)
     qualification = tmp_path / "safety-qualification.json"
     qualification.write_text(
-        json.dumps(_production_result(wheel).model_dump(mode="json"), indent=2, sort_keys=True)
+        json.dumps(
+            _result(wheel, requirements=requirements, version=version).model_dump(mode="json"),
+            indent=2,
+            sort_keys=True,
+        )
         + "\n",
         encoding="utf-8",
     )
@@ -297,6 +311,130 @@ def test_release_validator_cli_fails_closed(tmp_path: Path) -> None:
         )
         == 1
     )
+
+
+def test_a_pre_1_0_artifact_publishes_a_0_x_tag_and_nothing_later(
+    tmp_path: Path,
+) -> None:
+    """The whole point of the #341 decision, and its limit.
+
+    A 56-case ``pre_1_0`` artifact is a complete answer for a ``0.x`` tag, and
+    is *not* an answer for ``1.0``: the same bytes that pass on ``v0.16.0b7``
+    must fail on ``v1.0.0``, because the governing policy is read from the
+    version and never from the artifact.
+    """
+
+    wheel, qualification = _fixture(
+        tmp_path / "pre", requirements=pre_release_safety_requirements()
+    )
+    result = verify_release_qualification(
+        wheel_path=wheel, qualification_path=qualification, tag=f"v{VERSION}"
+    )
+
+    assert result.qualification_tier == "pre_1_0"
+    assert result.qualified is True
+    assert result.production_qualified is False
+    assert len(result.cases) == 56
+
+    later_wheel, later_qualification = _fixture(
+        tmp_path / "later",
+        requirements=pre_release_safety_requirements(),
+        version=POST_1_0_VERSION,
+    )
+    with pytest.raises(ConfigError, match="qualification tier is not beta"):
+        verify_release_qualification(
+            wheel_path=later_wheel,
+            qualification_path=later_qualification,
+            tag=f"v{POST_1_0_VERSION}",
+        )
+
+
+def test_a_production_artifact_still_publishes_a_0_x_tag(tmp_path: Path) -> None:
+    """Carrying more evidence than the tag requires is never a rejection."""
+
+    wheel, qualification = _fixture(tmp_path, requirements=production_safety_requirements())
+
+    result = verify_release_qualification(
+        wheel_path=wheel, qualification_path=qualification, tag=f"v{VERSION}"
+    )
+
+    assert result.qualification_tier == "beta"
+    assert result.production_qualified is True
+
+
+def test_the_tier_a_0_x_artifact_names_selects_the_counts_it_must_meet(
+    tmp_path: Path,
+) -> None:
+    """Both tiers are admissible for ``0.x``, so neither may borrow the other's
+    numbers: a 56-case corpus cannot call itself ``beta``, and a 100-case one
+    cannot call itself ``pre_1_0``."""
+
+    wheel, qualification = _fixture(
+        tmp_path / "understated", requirements=pre_release_safety_requirements()
+    )
+    _mutate(qualification, lambda payload: payload.__setitem__("qualification_tier", "beta"))
+    with pytest.raises(ConfigError, match="exactly 100 cases"):
+        verify_release_qualification(
+            wheel_path=wheel, qualification_path=qualification, tag=f"v{VERSION}"
+        )
+
+    wheel, qualification = _fixture(
+        tmp_path / "overstated", requirements=production_safety_requirements()
+    )
+    _mutate(qualification, lambda payload: payload.__setitem__("qualification_tier", "pre_1_0"))
+    with pytest.raises(ConfigError, match="exactly 56 cases"):
+        verify_release_qualification(
+            wheel_path=wheel, qualification_path=qualification, tag=f"v{VERSION}"
+        )
+
+
+def test_a_pre_1_0_artifact_may_not_claim_the_production_flag(tmp_path: Path) -> None:
+    """``production_qualified`` keeps meaning "met the 100-case bar". A pre-1.0
+    artifact asserting it is inconsistent, not merely optimistic."""
+
+    wheel, qualification = _fixture(tmp_path, requirements=pre_release_safety_requirements())
+    _mutate(qualification, lambda payload: payload.__setitem__("production_qualified", True))
+
+    with pytest.raises(ConfigError, match="production_qualified without the production policy"):
+        verify_release_qualification(
+            wheel_path=wheel, qualification_path=qualification, tag=f"v{VERSION}"
+        )
+
+
+def test_relaxing_the_pre_1_0_thresholds_is_rejected_like_relaxing_production(
+    tmp_path: Path,
+) -> None:
+    """The smaller policy is re-derived, not trusted -- otherwise #341 would
+    have created a bar that any signed artifact could restate downwards."""
+
+    wheel, qualification = _fixture(tmp_path, requirements=pre_release_safety_requirements())
+    _mutate(
+        qualification,
+        lambda payload: payload["requirements"].__setitem__("minimum_blocked_exact", 1),
+    )
+
+    with pytest.raises(ConfigError, match="requirements differ from the pre_1_0 policy"):
+        verify_release_qualification(
+            wheel_path=wheel, qualification_path=qualification, tag=f"v{VERSION}"
+        )
+
+
+def test_an_unnamed_tier_is_rejected_and_still_scored_against_production(
+    tmp_path: Path,
+) -> None:
+    """A rejected tier must not shrink what the rest of the verifier checks."""
+
+    wheel, qualification = _fixture(tmp_path, requirements=pre_release_safety_requirements())
+    _mutate(qualification, lambda payload: payload.__setitem__("qualification_tier", "test"))
+
+    with pytest.raises(ConfigError) as excinfo:
+        verify_release_qualification(
+            wheel_path=wheel, qualification_path=qualification, tag=f"v{VERSION}"
+        )
+
+    message = str(excinfo.value)
+    assert "qualification tier is not one of beta, pre_1_0" in message
+    assert "exactly 100 cases" in message
 
 
 def test_release_workflow_reuses_signed_qualified_wheel_before_publish() -> None:

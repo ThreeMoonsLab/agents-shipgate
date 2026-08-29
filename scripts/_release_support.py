@@ -28,6 +28,58 @@ from pathlib import Path
 DISTRIBUTION_NAME = "agents-shipgate"
 SHA256_PATTERN = re.compile(r"\A[0-9a-f]{64}\Z")
 
+PRODUCTION_QUALIFICATION_TIER = "beta"
+PRE_1_0_QUALIFICATION_TIER = "pre_1_0"
+
+# Case count per named qualification policy. Restated here because the sealing
+# job may not import the project's pydantic schemas, and bound to the real
+# constructors by ``test_the_stdlib_case_counts_match_the_named_policies`` so
+# the two copies cannot drift.
+QUALIFICATION_CASE_COUNTS = {
+    PRODUCTION_QUALIFICATION_TIER: 100,
+    PRE_1_0_QUALIFICATION_TIER: 56,
+}
+
+# PEP 440 leading ``[N!]N(.N)*``. Only the epoch and the first release segment
+# decide which policy governs a tag, so nothing after them is parsed.
+_VERSION_PREFIX = re.compile(r"\A(?:(?P<epoch>\d+)!)?(?P<release>\d+(?:\.\d+)*)")
+
+
+def release_version_is_pre_1_0(version: str) -> bool:
+    """True only for an epoch-0 version whose major release segment is 0.
+
+    Fail-closed by construction: an unparsable version is *not* pre-1.0, so it
+    falls through to the strictest policy rather than the cheapest one.
+    """
+
+    match = _VERSION_PREFIX.match(version.strip())
+    if match is None:
+        return False
+    if int(match.group("epoch") or 0) != 0:
+        return False
+    return int(match.group("release").split(".")[0]) == 0
+
+
+def accepted_qualification_tiers(version: str) -> tuple[str, ...]:
+    """Qualification tiers whose evidence may publish ``version``.
+
+    ``0.x`` accepts the pre-1.0 policy approved for issue #341 *and* the
+    stronger production one -- a release is never rejected for carrying more
+    evidence than its tag requires. Everything else accepts production only.
+    """
+
+    if release_version_is_pre_1_0(version):
+        return (PRODUCTION_QUALIFICATION_TIER, PRE_1_0_QUALIFICATION_TIER)
+    return (PRODUCTION_QUALIFICATION_TIER,)
+
+
+def describe_accepted_tiers(accepted: tuple[str, ...]) -> str:
+    """Render the accepted set for an error message."""
+
+    if len(accepted) == 1:
+        return accepted[0]
+    return "one of " + ", ".join(accepted)
+
 
 class ReleaseError(RuntimeError):
     """A release precondition failed and publication must not proceed."""
