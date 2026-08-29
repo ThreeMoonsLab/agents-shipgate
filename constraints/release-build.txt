@@ -2,7 +2,7 @@
 #
 # Wheels record `Generator: hatchling <version>` in `.dist-info/WHEEL`, so the
 # backend version is part of the archive's content. With the unpinned
-# `requires = ["hatchling>=1.31.0"]` build requirement in pyproject.toml, two
+# `requires = ["hatchling>=1.32.0"]` build requirement in pyproject.toml, two
 # machines that resolve different hatchling versions produce different bytes
 # for identical source — which would make byte-for-byte reproducibility
 # impossible and turn the source-to-wheel binding in
@@ -28,4 +28,4 @@
 # The same version is pinned inside constraints/release-seal.txt, which is what
 # the sealing job actually installs; scripts/verify_dependency_lock.py and the
 # release-pipeline suite keep the two in agreement.
-hatchling==1.31.0
+hatchling==1.32.0
