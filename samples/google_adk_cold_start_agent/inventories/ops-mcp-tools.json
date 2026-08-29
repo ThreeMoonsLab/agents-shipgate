@@ -1,0 +1,59 @@
+{
+  "tools": [
+    {
+      "name": "ops.queue_backfill",
+      "description": "Enqueue a backfill job for one support case.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "case_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "case_id"
+        ]
+      }
+    },
+    {
+      "name": "support.get_update_history",
+      "description": "Return the recorded update history for one support case.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "case_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "case_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "ops.export_case_bundle",
+      "description": "Build an export bundle for one support case.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "case_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "case_id"
+        ]
+      },
+      "auth": {
+        "mode": "scoped",
+        "type": "oauth2",
+        "scopes": [
+          "ops:cases:read"
+        ]
+      }
+    }
+  ]
+}

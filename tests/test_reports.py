@@ -22,6 +22,10 @@ LANGCHAIN_SAMPLE = Path("samples/simple_langchain_agent/shipgate.yaml")
 LANGCHAIN_EXPECTED_MARKDOWN = Path("samples/simple_langchain_agent/expected/report.md")
 CREWAI_SAMPLE = Path("samples/simple_crewai_agent/shipgate.yaml")
 CREWAI_EXPECTED_MARKDOWN = Path("samples/simple_crewai_agent/expected/report.md")
+COLD_START_SAMPLE = Path("samples/google_adk_cold_start_agent/shipgate.yaml")
+COLD_START_EXPECTED_MARKDOWN = Path(
+    "samples/google_adk_cold_start_agent/expected/report.md"
+)
 REPORT_SCHEMA = Path("docs/report-schema.v0.1.json")
 REPORT_SCHEMA_V02 = Path("docs/report-schema.v0.2.json")
 REPORT_SCHEMA_V04 = Path("docs/report-schema.v0.4.json")
@@ -130,6 +134,21 @@ def test_langchain_markdown_report_matches_golden(tmp_path):
     assert actual == expected
 
 
+def test_cold_start_markdown_report_matches_golden(tmp_path):
+    run_scan(
+        config_path=COLD_START_SAMPLE,
+        output_dir=tmp_path,
+        formats=["markdown", "json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+
+    actual = (tmp_path / "report.md").read_text(encoding="utf-8")
+    expected = COLD_START_EXPECTED_MARKDOWN.read_text(encoding="utf-8")
+
+    assert actual == expected
+
+
 def test_crewai_markdown_report_matches_golden(tmp_path):
     run_scan(
         config_path=CREWAI_SAMPLE,
@@ -152,6 +171,7 @@ def test_crewai_markdown_report_matches_golden(tmp_path):
         ("samples/simple_langchain_agent", "passed"),
         ("samples/simple_crewai_agent", "review_required"),
         ("samples/support_refund_agent", "blocked"),
+        ("samples/google_adk_cold_start_agent", "insufficient_evidence"),
     ],
 )
 def test_sample_expected_report_json_is_current(sample_dir, expected_decision):
@@ -187,6 +207,12 @@ def test_sample_expected_report_json_is_current(sample_dir, expected_decision):
         "samples/simple_langchain_agent",
         "samples/simple_crewai_agent",
         "samples/support_refund_agent",
+        # The one sample that stops at ``insufficient_evidence`` with open
+        # declaration questions. Without it ``open_questions`` is ``[]`` in
+        # every golden, so no ``open_questions[].*`` member reaches the
+        # compared path set and a field added to, removed from, or renamed on
+        # ``DeclarationQuestionRow`` is invisible to this test (#425).
+        "samples/google_adk_cold_start_agent",
     ],
 )
 def test_sample_expected_report_json_has_no_structural_drift(sample_dir, tmp_path):

@@ -1,0 +1,89 @@
+version: "0.1"
+
+# The cold-start sibling of samples/google_adk_agent. That one answers every
+# declaration question it is asked, so its questionnaire is `0/0` and nothing
+# committed beside it ever renders one. This one deliberately stops partway:
+# it reaches `insufficient_evidence` with open declaration questions, and
+# `expected/suggested-declarations.yaml` is the questionnaire an adopter reads
+# (#425).
+#
+# Each action below exists for one rung of the questionnaire's order, which
+# ranks by the ceiling of what an answer can establish rather than by what the
+# scan already inferred (#419). Nothing bounds the first four, so they lead,
+# ordered among themselves by the only thing left — the shape of the name:
+#
+#   update_case_index           nothing read; name bands as mutating   (+1)
+#   assemble_case_timeline      nothing read; name says nothing         (0)
+#   ops.export_case_bundle      nothing read beyond the MCP default, and its
+#                               declared authority contradicts what the export
+#                               publishes — so its second question is one the
+#                               counter counts and no block can answer   (0)
+#   ops.queue_backfill          only the MCP protocol default stands     (0)
+#   list_case_attachments       nothing read; name bands as retrieving  (-1)
+#
+# Then the ones the scan did read for itself, strongest first:
+#
+#   issue_goodwill_refund       read as a financial write, so proposed
+#   support.get_update_history  a proven read whose NAME looks like a write
+#
+# and two that ask nothing at all:
+#
+#   ops.append_case_note        established structurally by its POST method
+#   record_case_outcome         declared below, so both its questions are
+#                               answered rather than open
+#
+# The band is why `update_case_index` leads `assemble_case_timeline` and
+# `list_case_attachments` trails both, against alphabetical order — flatten
+# `name_shape_band` and the committed questionnaire changes.
+#
+# `support.get_update_history` is the #419 defect wearing its own hat: a
+# structurally proven read that ranks LAST, and would rank FIRST again the
+# moment `_reach` went back to asking whether a side effect was *measured*,
+# with its own name breaking the tie.
+
+project:
+  name: google-adk-cold-start-agent
+
+agent:
+  name: adk-ops-agent
+  declared_purpose:
+    - review support cases and route refunds
+
+environment:
+  target: production_like
+
+tool_sources:
+  - id: adk_ops
+    type: google_adk
+    path: agent.py
+
+action_surface:
+  actions:
+    # Deliberately wrong, and left wrong. The MCP export publishes this action
+    # as running with an `ops:cases:read` OAuth scope; this row says it needs
+    # no credential at all. A reviewed declaration does not get to overrule
+    # published evidence silently, so the resolver raises
+    # `conflicting_authority_evidence` — a question the counter counts and the
+    # questionnaire prints a note for, because the repair is to correct one of
+    # the two statements rather than to fill in a blank.
+    - tool: ops.export_case_bundle
+      authority:
+        mode: none
+    # The one action this adoption has answered. It is what makes the progress
+    # counter read "2 of N answered" rather than "0 of N": the counterfactual
+    # re-resolves this action with the declaration removed, finds that both
+    # dimensions gap without it, and credits the answer. Everything else is
+    # still open, which is the point of the fixture.
+    - tool: record_case_outcome
+      effect: write
+      authority:
+        mode: none
+
+ci:
+  mode: advisory
+
+output:
+  directory: agents-shipgate-reports
+  formats:
+    - markdown
+    - json
