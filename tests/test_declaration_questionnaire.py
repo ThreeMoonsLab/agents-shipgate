@@ -2050,38 +2050,138 @@ def test_cold_start_golden_open_questions_match_a_fresh_scan(tmp_path):
     assert _cold_start_coverage(fresh) == _cold_start_coverage(_cold_start_golden())
 
 
-def test_cold_start_golden_leads_with_the_first_question(tmp_path):
-    """One order, published three times, pinned once.
+def _questions_asked_by_gap_rows(report: dict) -> list[tuple[str, str | None, str]]:
+    """Which question each published gap row asks, in publication order.
+
+    Contiguous repeats collapse, because a row is not a question. Several rows
+    can ask for one blank — a ``declaration_drift`` beside a
+    ``declaration_below_inferred_evidence`` on one effect is two rows and one
+    edit — and ``_in_question_order`` sorts the question rows by ``(question,
+    original position)``, so every row asking one question lands in consecutive
+    question slots. Comparing raw row cardinality against the questionnaire
+    would therefore fail a perfectly ordered multi-gap fixture, which is the
+    same "a row is not a question" confusion the counter itself exists to
+    correct.
+
+    A key that comes back *after another one intervened* is the permutation
+    broken, and is deliberately left in place: it survives the collapse and
+    fails the comparison against ``open_questions``.
+    """
+
+    asked: list[tuple[str, str | None, str]] = []
+    for gap in report["release_decision"]["evidence_coverage"]["evidence_gaps"]:
+        dimension = DIMENSION_BY_GAP_KIND.get(gap["kind"])
+        if dimension is None:
+            continue
+        key = (gap["subject_kind"], gap["subject_id"], dimension)
+        if not asked or asked[-1] != key:
+            asked.append(key)
+    return asked
+
+
+def _gap_row(kind: str, subject_id: str) -> dict:
+    return {"kind": kind, "subject_kind": "action", "subject_id": subject_id}
+
+
+def test_several_rows_asking_one_question_collapse_to_one():
+    """The contract the fixture itself cannot show.
+
+    ``google_adk_cold_start_agent`` happens to raise one answerable gap per
+    blank, so the comparison in ``test_cold_start_leads_with_the_first_question``
+    would pass there even if it counted rows instead of questions. It is the
+    wrong thing to count: several rows can ask for one edit — a
+    ``declaration_drift`` beside a ``declaration_below_inferred_evidence`` on
+    one effect is two rows and one manifest row to fix — and the counter beside
+    them is deliberately built on blanks, not rows.
+
+    So the two halves are pinned here instead: a run of rows asking one
+    question is one entry, and a key that comes back after another intervened
+    is *not* collapsed, because that is the permutation broken rather than a
+    question asked twice.
+    """
+
+    contiguous = {
+        "release_decision": {
+            "evidence_coverage": {
+                "evidence_gaps": [
+                    _gap_row("missing_authority_evidence", "tool_a"),
+                    _gap_row("declaration_drift", "tool_b"),
+                    _gap_row("declaration_below_inferred_evidence", "tool_b"),
+                    _gap_row("incomplete_surface", "tool_b"),
+                    _gap_row("missing_effect_evidence", "tool_c"),
+                ]
+            }
+        }
+    }
+
+    # The two ``tool_b`` effect rows are one question; ``incomplete_surface``
+    # is not a declaration question at all and is dropped, not collapsed into
+    # the neighbour it sits between.
+    assert _questions_asked_by_gap_rows(contiguous) == [
+        ("action", "tool_a", "authority"),
+        ("action", "tool_b", "effect"),
+        ("action", "tool_c", "effect"),
+    ]
+
+    interleaved = {
+        "release_decision": {
+            "evidence_coverage": {
+                "evidence_gaps": [
+                    _gap_row("declaration_drift", "tool_b"),
+                    _gap_row("missing_effect_evidence", "tool_c"),
+                    _gap_row("declaration_below_inferred_evidence", "tool_b"),
+                ]
+            }
+        }
+    }
+
+    # Survives, so the comparison against ``open_questions`` — which carries
+    # ``tool_b`` once — fails, which is the point.
+    assert _questions_asked_by_gap_rows(interleaved) == [
+        ("action", "tool_b", "effect"),
+        ("action", "tool_c", "effect"),
+        ("action", "tool_b", "effect"),
+    ]
+
+
+def test_cold_start_leads_with_the_first_question(tmp_path):
+    """One order, published three times, checked against a live scan.
 
     ``_in_question_order`` permutes the published gap rows into the order the
     questionnaire asks them, and ``primary_evidence_gap`` — and so the decision
     reason and ``first_recommended_action`` — takes the first addressable row
     of that list. Nothing committed showed the two agreeing, because no sample
     had two declaration questions to put in an order.
+
+    Asserted on a **fresh** report, not on the golden. ``report.md`` does not
+    render ``first_recommended_action``, the drift test compares field paths
+    only, and the scaffold does not carry it either — so a producer that stopped
+    projecting the leading question into that field would leave every other
+    check on this fixture green while this one, reading the committed artifact,
+    proved only that the artifact agrees with itself.
     """
 
-    golden = _cold_start_golden()
-    coverage = _cold_start_coverage(golden)
-    gaps = golden["release_decision"]["evidence_coverage"]["evidence_gaps"]
+    out = _cold_start_scan(tmp_path)
+    live = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    coverage = _cold_start_coverage(live)
 
-    question_rows = [
-        (gap["subject_kind"], gap["subject_id"], DIMENSION_BY_GAP_KIND[gap["kind"]])
-        for gap in gaps
-        if gap["kind"] in DIMENSION_BY_GAP_KIND
-    ]
     expected = [
         (row["subject_kind"], row["subject_id"], row["dimension"])
         for row in coverage["open_questions"]
     ]
-
-    assert question_rows == expected
+    assert _questions_asked_by_gap_rows(live) == expected
 
     leader = coverage["open_questions"][0]
-    reason = golden["release_decision"]["reason"]
-    first_action = golden["agent_summary"]["first_recommended_action"]["why"]
+    reason = live["release_decision"]["reason"]
+    first_action = live["agent_summary"]["first_recommended_action"]["why"]
     assert leader["subject"] in reason
     assert leader["answer_path"] in reason
     assert leader["answer_path"] in first_action
+
+    # And the committed rows carry that same order, which no other comparison
+    # covers: the drift test reads field paths, and the coverage comparison
+    # reads ``declaration_questions`` rather than the gap list beside it.
+    assert _questions_asked_by_gap_rows(_cold_start_golden()) == expected
 
 
 def test_cold_start_scaffold_renders_both_halves_of_a_blank():

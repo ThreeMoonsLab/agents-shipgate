@@ -112,7 +112,7 @@ Run from the repository root, after any change that moves values:
 
 ```bash
 python - <<'PY'
-import os
+import json
 from pathlib import Path
 from agents_shipgate.cli.scan import run_scan
 
@@ -125,25 +125,44 @@ run_scan(
     packet_enabled=False,
 )
 (sample / "expected" / "current-control.json").unlink(missing_ok=True)
+
 golden = sample / "expected" / "report.json"
-golden.write_text(
-    golden.read_text(encoding="utf-8").replace(os.getcwd(), "<REPO>"),
-    encoding="utf-8",
-)
+payload = json.loads(golden.read_text(encoding="utf-8"))
+payload["manifest_dir"] = f"<REPO>/{sample.as_posix()}"
+payload["generated_reports"] = {
+    fmt: Path(written).as_posix()
+    for fmt, written in payload["generated_reports"].items()
+}
+golden.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 PY
 ```
 
-Two things that look like details and are not.
+Three things that look like details and are not.
 
-`output_dir` is the **relative** `"expected"`, which `run_scan` resolves under
+**The normalization is structural, not textual.** An earlier version of this
+recipe did `text.replace(os.getcwd(), "<REPO>")`, which works on POSIX and is a
+no-op on Windows: `json.dumps` escapes the separators, so the file holds
+`C:\\repo\\samples\\…` while `os.getcwd()` is `C:\repo\samples\…` and the
+two never match. The golden then keeps an absolute `manifest_dir` and fails
+`test_sample_expected_report_json_uses_repo_placeholder_for_manifest_dir` — on
+the machine that produced it. Assigning the field a POSIX value instead is
+correct on both, and `Path(written).as_posix()` does the same for
+`generated_reports`, which would otherwise commit `expected\report.json` and
+churn against every other platform.
+
+`json.dumps(payload, indent=2)` is exactly what `write_json_report` uses — no
+`sort_keys`, no trailing newline — so the round trip is byte-identical and
+nothing but the two normalized fields moves.
+
+**`output_dir` is the relative `"expected"`**, which `run_scan` resolves under
 the manifest directory rather than under the process directory. The report
 records where it wrote itself, so scanning into an absolute temporary directory
 and copying the files back bakes a contributor's `/var/folders/…/tmp…` path
-into `generated_reports` — a value no test compares, which is exactly why it
-would sit there churning on every regeneration.
+into `generated_reports` — a value no test compared, which is exactly why it
+sat there churning until #425's review.
 
-The `unlink` is not tidying. A scan also publishes `current-control.json`, and
-this fixture deliberately does not commit one: the hash-bound pointer path is
-covered by [`conductor_agent`](../conductor_agent/), and a second copy would
-have to be rebound *after* the `<REPO>` substitution every time, since that
-rewrite changes both the length and the digest of `report.json`.
+**The `unlink` is not tidying.** A scan also publishes `current-control.json`,
+and this fixture deliberately does not commit one: the hash-bound pointer path
+is covered by [`conductor_agent`](../conductor_agent/), and a second copy would
+have to be rebound *after* the normalization every time, since that rewrite
+changes both the length and the digest of `report.json`.

@@ -284,12 +284,24 @@ def test_sample_expected_report_json_uses_repo_placeholder_for_manifest_dir():
     compares that value, which is exactly why it would sit in the fixture
     churning on every regeneration (#425 review). Scan into the relative
     ``expected`` directory, which ``run_scan`` resolves under the manifest dir.
+
+    Separators are checked as well as absoluteness, and for the same reason
+    both spellings of "absolute" are: a golden regenerated on Windows records
+    ``expected\\report.json``, which is relative and passes every check above
+    while differing from the committed bytes on every other platform. The
+    committed goldens are POSIX, so the fixture regeneration normalizes with
+    ``Path(...).as_posix()`` rather than leaving the separator to whoever ran it.
     """
     for path in sorted(Path("samples").glob("*/expected/report.json")):
         text = path.read_text(encoding="utf-8")
         payload = json.loads(text)
         assert str(Path.cwd()) not in text
         assert payload["manifest_dir"].startswith("<REPO>/samples/")
+        assert "\\" not in payload["manifest_dir"], (
+            f"{path} records a Windows-separated manifest_dir "
+            f"({payload['manifest_dir']!r}). Normalize it to POSIX so the "
+            "golden reads the same on every platform."
+        )
         for fmt, written in (payload.get("generated_reports") or {}).items():
             # Both spellings, because `Path` is the *running* platform's and
             # the leak this catches is a POSIX temp path: `WindowsPath('/var/
@@ -304,6 +316,11 @@ def test_sample_expected_report_json_uses_repo_placeholder_for_manifest_dir():
                 f"{path} records an absolute path for its {fmt} report "
                 f"({written!r}). Regenerate it with a relative `output_dir` so "
                 "the golden does not carry the generating machine's temp dir."
+            )
+            assert "\\" not in written, (
+                f"{path} records a Windows-separated path for its {fmt} report "
+                f"({written!r}). Normalize it with `Path(...).as_posix()` so "
+                "the golden does not churn against other platforms."
             )
 
 
