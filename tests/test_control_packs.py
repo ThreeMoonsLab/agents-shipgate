@@ -1100,6 +1100,54 @@ policies:
         CONTROL_PACK_IDS
     )
 
+    # …and the route says so too. Reporting the delta in a payload field while
+    # routing onward as though nothing were outstanding is how the request got
+    # lost: `doctor` and `verify` both read a manifest that loads fine and
+    # advance under the pack that is *there*, so an envelope-only caller
+    # proceeded under `financial-strict` having asked for `read-only-agent`,
+    # with nothing in the route saying so (#323 review).
+    control = payload["control"]
+    assert control["decision"] == "setup_incomplete"
+    assert control["next_action"]["kind"] == "edit"
+    assert control["next_action"]["path"] == str(workspace / "shipgate.yaml")
+    assert "policies.control_pack" in control["next_action"]["expects"]
+    assert "read-only-agent" in control["next_action"]["expects"]
+    # The route names the request, not the manifest's current answer.
+    assert "read-only-agent" in control["next_action"]["why"]
+    assert "financial-strict" in control["next_action"]["why"]
+
+
+def test_a_pack_that_cannot_be_read_is_not_reported_as_a_difference() -> None:
+    """No answer is not a different answer.
+
+    The route for an unapplied `--control-pack` compares the request with
+    `_manifest_control_pack`, which returns `None` for a manifest that is not
+    there and for bytes it could not resolve a pack from. `None` is not a pack,
+    and treating it as one publishes an edit whose `why` reads "the manifest
+    still selects None".
+
+    The two conditions that would reach it are claimed by earlier routes today
+    — `_manifest_defect` runs the loader, and a manifest with an unknown pack
+    id fails schema validation there first. But that is the two functions
+    happening to agree, not a guarantee: `_manifest_control_pack` runs the
+    loader *and* `resolve_control_pack`, so it has a failure surface the other
+    does not. The guard is what makes the disagreement fall through to
+    `doctor` rather than become a route.
+    """
+
+    from agents_shipgate.cli._register_init import _unapplied_control_pack
+
+    assert _unapplied_control_pack(requested="financial-strict", on_disk=None) is False
+    # The reachable cases are unaffected.
+    assert _unapplied_control_pack(requested="financial-strict", on_disk="default") is True
+    assert (
+        _unapplied_control_pack(requested="financial-strict", on_disk="financial-strict")
+        is False
+    )
+    # An explicit default is not a request, on the same rule that decides
+    # whether a recovery command repeats the flag.
+    assert _unapplied_control_pack(requested="default", on_disk="financial-strict") is False
+
 
 def test_init_says_nothing_it_cannot_know_about_a_manifest_that_is_not_there(
     tmp_path: Path,

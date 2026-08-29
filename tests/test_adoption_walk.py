@@ -627,3 +627,140 @@ def test_every_command_publishes_the_shared_envelope(
         "merge",
         "report_complete",
     }
+
+
+# ---------------------------------------------------------------------------
+# Following the emitted routes, not reading them
+# ---------------------------------------------------------------------------
+
+# What `--minimal` writes and detection does not. The two templates differ in
+# more than this, but a scaffold tool source is the difference that decides
+# whether the request survived: `--minimal` writes placeholders, detection
+# writes the surface it read.
+SCAFFOLD_SOURCE = "type: CHANGE_ME"
+DETECTED_SOURCE = "type: google_adk"
+
+
+def test_a_failure_recovery_delivers_what_the_invocation_asked_for(
+    unadopted_repository: Path,
+) -> None:
+    """Run the recovery, then look at what it produced.
+
+    Asserting the *shape* of a recovery command says nothing about whether
+    following it completes the run it is correcting. This one did not: every
+    recovery was built from the flag list a rerun in a **different** workspace
+    may repeat, which omits `--minimal` (and `--allow-unresolved-scope`, an
+    explicit kit, and a raised parse cap). So `init --write --minimal
+    --control-pack <bad>` emitted a recovery without `--minimal`, and following
+    it wrote a detected manifest where a legacy template was asked for — while
+    reporting success.
+    """
+
+    workspace = unadopted_repository
+    walk = _Walk(workspace)
+
+    failure = walk.execute(
+        walk.cli(
+            "init",
+            "--workspace",
+            str(workspace),
+            "--write",
+            "--minimal",
+            "--control-pack",
+            "no-such-pack",
+            "--json",
+        )
+    )
+    assert failure.exit_code == 2
+    _assert_shared_envelope(failure)
+
+    recovery = failure.envelope["next_action"]
+    assert recovery["actor"] == "coding_agent"
+    answered = walk.execute(shlex.split(recovery["command"]))
+    _assert_shared_envelope(answered)
+
+    manifest = (workspace / "shipgate.yaml").read_text(encoding="utf-8")
+    assert SCAFFOLD_SOURCE in manifest, manifest
+    assert DETECTED_SOURCE not in manifest, manifest
+
+
+def test_the_recovery_carries_the_default_when_that_is_what_was_asked_for(
+    unadopted_repository: Path,
+) -> None:
+    """The other half of the pair, so the assertion above is not vacuous.
+
+    A recovery that dropped every option would also pass a test that only
+    checked the option it happens to carry. Without `--minimal` the same
+    recovery must write the detected surface.
+    """
+
+    workspace = unadopted_repository
+    walk = _Walk(workspace)
+
+    failure = walk.execute(
+        walk.cli(
+            "init",
+            "--workspace",
+            str(workspace),
+            "--write",
+            "--control-pack",
+            "no-such-pack",
+            "--json",
+        )
+    )
+    walk.execute(shlex.split(failure.envelope["next_action"]["command"]))
+
+    manifest = (workspace / "shipgate.yaml").read_text(encoding="utf-8")
+    assert DETECTED_SOURCE in manifest, manifest
+    assert SCAFFOLD_SOURCE not in manifest, manifest
+
+
+def test_an_unapplied_configuration_request_routes_somewhere_that_changes_it(
+    unadopted_repository: Path,
+) -> None:
+    """The route for a request a refused write did not apply, followed.
+
+    `init --write` over an existing manifest hands the caller onward. When this
+    invocation asked for a control pack the manifest does not select, both
+    onward routes advance under the pack that is *there* — so the request is
+    lost and nothing says so. The route has to name the field and the value,
+    and making that edit has to be what moves the answer.
+    """
+
+    workspace = unadopted_repository
+    walk = _Walk(workspace)
+    _adopted_repository(walk)
+
+    asked = walk.execute(
+        walk.cli(
+            "init",
+            "--workspace",
+            str(workspace),
+            "--write",
+            "--control-pack",
+            "financial-strict",
+            "--json",
+        )
+    )
+    _assert_shared_envelope(asked)
+    action = asked.envelope["next_action"]
+    assert action["actor"] == "coding_agent"
+    assert action["kind"] == "edit"
+    assert action["path"] == str(workspace / "shipgate.yaml")
+    assert "policies.control_pack" in action["expects"]
+    assert "financial-strict" in action["expects"]
+
+    # Make exactly the edit the route names, then ask again. The obligation has
+    # to be gone — a route whose postcondition holds and which still reports
+    # itself is the defect this PR exists to remove.
+    manifest = Path(action["path"])
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            "control_pack: default", "control_pack: financial-strict"
+        ),
+        encoding="utf-8",
+    )
+    again = walk.execute(asked.argv)
+    _assert_shared_envelope(again)
+    assert again.envelope["next_action"] != action
+    assert again.envelope["next_action"]["kind"] != "edit"

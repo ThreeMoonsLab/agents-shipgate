@@ -2284,3 +2284,363 @@ def test_a_discovery_failure_is_a_human_route_with_no_authority(
     assert control["next_action"]["command"] is None
     assert control["human_review"]["required"] is True
     assert set(control["permissions"].values()) == {False}
+
+
+# ---------------------------------------------------------------------------
+# What a recovery command owes the invocation it corrects
+# ---------------------------------------------------------------------------
+
+# Options that change what `init` produces and are only meaningful for a rerun
+# in this same workspace, with a value that is not the default.
+_SEMANTIC_OPTIONS: tuple[tuple[str, dict, list[str]], ...] = (
+    ("minimal", {"minimal": True}, ["--minimal"]),
+    ("ci", {"ci": True}, ["--ci"]),
+    ("claude_code", {"claude_code": True}, ["--claude-code"]),
+    (
+        "allow_unresolved_scope",
+        {"allow_unresolved_scope": True},
+        ["--allow-unresolved-scope"],
+    ),
+    (
+        "agent_instructions",
+        {"agent_instructions": "agents-md"},
+        ["--agent-instructions=agents-md"],
+    ),
+    (
+        "control_pack",
+        {"control_pack": "financial-strict"},
+        ["--control-pack=financial-strict"],
+    ),
+    (
+        "agent_instructions_kit",
+        {"agent_instructions_kit": Path("/ws/.agents-shipgate/kit.yaml")},
+        ["--agent-instructions-kit", "/ws/.agents-shipgate/kit.yaml"],
+    ),
+    (
+        "max_python_files",
+        {"max_python_files": 9999},
+        ["--max-python-files", "9999"],
+    ),
+)
+
+
+def _invocation_flag_defaults() -> dict:
+    from agents_shipgate.cli.discovery import DEFAULT_MAX_PYTHON_FILES
+    from agents_shipgate.core.control_packs import DEFAULT_CONTROL_PACK_ID
+
+    return {
+        "minimal": False,
+        "ci": False,
+        "claude_code": False,
+        "agent_instructions": None,
+        "control_pack": DEFAULT_CONTROL_PACK_ID,
+        "allow_unresolved_scope": False,
+        "agent_instructions_kit": None,
+        "max_python_files": DEFAULT_MAX_PYTHON_FILES,
+    }
+
+
+@pytest.mark.parametrize(
+    ("name", "override", "expected"),
+    _SEMANTIC_OPTIONS,
+    ids=[entry[0] for entry in _SEMANTIC_OPTIONS],
+)
+def test_every_semantic_option_survives_into_a_recovery(
+    name: str, override: dict, expected: list[str]
+):
+    """One option at a time, so a missing one cannot hide behind the others.
+
+    Every recovery `init` publishes is built from this list, and on the shared
+    envelope those commands are the step rather than a hint beside it — so an
+    option dropped here is work the caller asked for that the recovery reports
+    as done.
+    """
+
+    from agents_shipgate.cli._register_init import _invocation_flags
+
+    baseline = _invocation_flags(**_invocation_flag_defaults())
+    assert baseline == [], baseline
+
+    flags = _invocation_flags(**{**_invocation_flag_defaults(), **override})
+    assert flags == expected, name
+
+
+def test_a_default_valued_option_is_not_repeated():
+    """Omitting a flag whose value the command assumes completes what was asked.
+
+    The same rule `_requested_setup_flags` documents, checked here so the two
+    lists cannot drift into disagreeing about what counts as a request — which
+    is also the rule that decides whether an unapplied `--control-pack` is an
+    obligation.
+    """
+
+    from agents_shipgate.cli._register_init import _invocation_flags
+    from agents_shipgate.core.control_packs import DEFAULT_CONTROL_PACK_ID
+
+    flags = _invocation_flags(
+        **{**_invocation_flag_defaults(), "control_pack": DEFAULT_CONTROL_PACK_ID}
+    )
+    assert flags == []
+
+
+@pytest.mark.parametrize(
+    ("bad_option", "expected_correction"),
+    [
+        (["--control-pack", "no-such-pack"], []),
+        (["--agent-instructions=no-such-target"], ["--agent-instructions=default"]),
+    ],
+    ids=["control-pack", "agent-instructions"],
+)
+def test_a_failure_recovery_corrects_one_value_and_keeps_the_rest(
+    unadopted: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    bad_option: list[str],
+    expected_correction: list[str],
+):
+    """End to end, on the two early-validation routes that publish a command."""
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            "--workspace",
+            str(unadopted),
+            "--write",
+            "--minimal",
+            "--allow-unresolved-scope",
+            "--max-python-files",
+            "9999",
+            "--json",
+            *bad_option,
+        ],
+    )
+    assert result.exit_code == 2
+    lines = _error_lines(result.output)
+    assert len(lines) == 1, result.output
+    command = shlex.split(lines[0]["control"]["next_action"]["command"])
+
+    assert "--minimal" in command
+    assert "--allow-unresolved-scope" in command
+    assert command[command.index("--max-python-files") + 1] == "9999"
+    assert "--write" in command
+    assert "--json" in command
+    assert command[command.index("--workspace") + 1] == str(unadopted)
+    # The bad value is gone, replaced by whatever the correction is.
+    assert "no-such-pack" not in command
+    assert "no-such-target" not in command
+    for token in expected_correction:
+        assert token in command
+    # And the legacy field and the envelope name the same program.
+    assert lines[0]["next_actions"][0]["command"] == lines[0]["control"]["next_action"][
+        "command"
+    ]
+
+
+# ---------------------------------------------------------------------------
+# What every setup error line guarantees, and what it does not
+# ---------------------------------------------------------------------------
+
+
+def _setup_error_control(argv: list[str], monkeypatch: pytest.MonkeyPatch) -> dict:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    result = runner.invoke(app, argv)
+    lines = [line for line in _error_lines(result.output) if "control" in line]
+    assert lines, result.output
+    return lines[-1]
+
+
+def test_a_setup_error_line_never_authorizes_and_always_names_setup(
+    unadopted: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The invariants a v27 consumer may branch on, across both error shapes.
+
+    Every one of these is enforced by the published schema for any setup
+    operation, so it holds on the error stream for the same reason it holds on
+    stdout: there is one envelope, not a stdout one and a stderr one.
+    """
+
+    runner.invoke(app, ["init", "--workspace", str(unadopted), "--write", "--json"])
+
+    for argv in (
+        # Could not reach an answer.
+        ["init", "--workspace", str(unadopted), "--control-pack", "nope", "--json"],
+        # Reached one, and it is a refusal.
+        ["init", "--workspace", str(unadopted), "--write", "--json"],
+    ):
+        payload = _setup_error_control(argv, monkeypatch)
+        control = payload["control"]
+        assert control["decision_source"] == "setup", argv
+        assert control["decision"] in SETUP_DECISIONS, argv
+        assert set(control["permissions"].values()) == {False}, argv
+        assert control["control_state"] != "complete", argv
+        validate_agent_control_envelope(control)
+        assert not list(_PUBLISHED_SCHEMA.iter_errors(control)), argv
+
+
+def test_execution_says_whether_an_answer_was_reached_not_whether_it_is_an_error(
+    unadopted: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Both values occur on error lines, so `execution` is not a stream marker.
+
+    `STABILITY.md` said a setup error envelope always reports
+    `execution: "failed"`. The most common one does not: `init --write` over an
+    existing manifest reached an answer and refused, so it exits 2 with
+    `"succeeded"` — and a consumer that had taken the contract literally would
+    have rejected the core resume route of the adoption walk. The line between
+    them is whether the command reached an answer about the workspace, and the
+    `error` field is what says the line is an error.
+    """
+
+    runner.invoke(app, ["init", "--workspace", str(unadopted), "--write", "--json"])
+
+    could_not_answer = _setup_error_control(
+        ["init", "--workspace", str(unadopted), "--control-pack", "nope", "--json"],
+        monkeypatch,
+    )
+    assert could_not_answer["error"] == "config_error"
+    assert could_not_answer["control"]["execution"] == "failed"
+    assert could_not_answer["control"]["exit_code"] == 2
+
+    answered_a_refusal = _setup_error_control(
+        ["init", "--workspace", str(unadopted), "--write", "--json"], monkeypatch
+    )
+    assert answered_a_refusal["error"] == "config_already_exists"
+    assert answered_a_refusal["control"]["execution"] == "succeeded"
+    assert answered_a_refusal["control"]["exit_code"] == 2
+
+
+# ---------------------------------------------------------------------------
+# `input_id` covers every fact that selects the route
+# ---------------------------------------------------------------------------
+
+
+def test_the_action_kind_is_part_of_the_setup_failure_identity():
+    """It is not in the action, and it decides what the envelope publishes.
+
+    `action_kind` sets `next_action.kind` and `verify_required`, so two calls
+    differing only in it published different envelopes under one `input_id` —
+    and this PR makes that id the cache boundary for the answer.
+    """
+
+    from agents_shipgate.cli.setup_control import setup_failure_routing
+
+    def routing(kind: str):
+        return setup_failure_routing(
+            operation="init",
+            workspace=Path("/ws"),
+            reason="Setup could not finish.",
+            exit_code=2,
+            action=NextAction(
+                kind="command",
+                command="agents-shipgate init --workspace /ws",
+                why="Re-run it.",
+            ),
+            action_kind=kind,
+        )
+
+    configure, verify = routing("configure"), routing("verify")
+
+    assert configure.envelope.next_action.kind != verify.envelope.next_action.kind
+    assert configure.envelope.verify_required != verify.envelope.verify_required
+    assert configure.envelope.input_id != verify.envelope.input_id
+
+
+def test_a_diagnostic_identity_is_part_of_the_setup_failure_identity():
+    """Ownership and precedence come from the diagnostic, not from its action.
+
+    Hashing `top_next_actions` reduced each diagnostic to its rank-1 action, so
+    changing only the id — which is what `HUMAN_OWNED_SETUP_DIAGNOSTICS` keys
+    on, and what can flip an agent-executable edit to a human review — left the
+    identity where it was.
+    """
+
+    from agents_shipgate.cli.setup_control import setup_failure_routing
+    from agents_shipgate.schemas.diagnostics import (
+        DIAG_NO_PRODUCTION_PERMISSIONS,
+        DIAG_ZERO_TOOLS,
+    )
+
+    action = NextAction(
+        kind="edit",
+        path="/ws/shipgate.yaml",
+        why="Declare what this agent may do in production.",
+        expects="permissions.scopes lists the production scopes.",
+    )
+
+    def routing(diagnostic_id: str):
+        return setup_failure_routing(
+            operation="doctor",
+            workspace=Path("/ws"),
+            reason="Setup could not finish.",
+            exit_code=2,
+            diagnostics=[
+                Diagnostic(
+                    id=diagnostic_id,
+                    title="A condition.",
+                    severity="warn",
+                    next_actions=[action],
+                )
+            ],
+            recheck_command="agents-shipgate doctor --config /ws/shipgate.yaml --json",
+        )
+
+    human_owned = routing(DIAG_NO_PRODUCTION_PERMISSIONS)
+    agent_owned = routing(DIAG_ZERO_TOOLS)
+
+    # The same rank-1 action, routed to different actors …
+    assert human_owned.envelope.next_action.actor == "human"
+    assert agent_owned.envelope.next_action.actor == "coding_agent"
+    # … so the identity has to move with it.
+    assert human_owned.envelope.input_id != agent_owned.envelope.input_id
+
+
+# The two producers that select an ``advance_kind``. ``doctor`` is deliberately
+# absent: its advance kind is a constant, and `STABILITY.md` promises its
+# `input_id` is the identity of what it decided about a manifest — the same on
+# every machine — so folding an entry-point spelling into that particular id
+# would break a published claim.
+_ADVANCE_KIND_PRODUCERS = (
+    "src/agents_shipgate/cli/detect.py",
+    "src/agents_shipgate/cli/_register_init.py",
+)
+
+
+@pytest.mark.parametrize("module", _ADVANCE_KIND_PRODUCERS)
+def test_the_route_kind_reaches_the_published_identity(module: str):
+    """`advance_kind` is inside the `routing_facts` these commands hash.
+
+    Checked structurally, and the reason is worth stating: no *behavioural*
+    difference is reachable today, because every branch of `_init_advance` and
+    `_detect_advance` moves the action and the kind together, and the action is
+    already hashed. The guard is that the fact is in the identity at all — so
+    the day a branch varies one without the other, the identity moves instead
+    of two different envelopes sharing one. A behavioural test would pass today
+    for a reason that has nothing to do with the fix.
+
+    The behavioural half of this is pinned on `setup_failure_routing` above,
+    where `action_kind` genuinely is an independent input.
+    """
+
+    import ast
+
+    source = (REPO_ROOT / module).read_text(encoding="utf-8")
+    hashed: list[str] = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        name = node.func.id if isinstance(node.func, ast.Name) else None
+        if name != "setup_input_id":
+            continue
+        for keyword in node.keywords:
+            if keyword.arg == "routing_facts":
+                hashed.extend(
+                    inner.id
+                    for inner in ast.walk(keyword.value)
+                    if isinstance(inner, ast.Name)
+                )
+
+    assert hashed, f"{module} computes no setup identity"
+    assert "advance_kind" in hashed, (
+        f"{module} selects a route kind that its published identity does not cover"
+    )

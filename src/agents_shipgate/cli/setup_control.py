@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from agents_shipgate.cli.diagnostics import ranked_diagnostics, top_next_actions
+from agents_shipgate.cli.diagnostics import ranked_diagnostics
 from agents_shipgate.cli.discovery.placeholders import human_owned_placeholders
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.agent_control_envelope import envelope_from_setup
@@ -421,14 +421,28 @@ def setup_failure_routing(
             # and through an absolute path publishes different commands, and
             # `input_id` is the cache boundary for the answer. Every source a
             # route can come from is folded in — the recovery, the recheck, the
-            # diagnostics' own rank-1 actions — plus whatever the caller adds.
+            # diagnostics — plus whatever the caller adds.
+            #
+            # Two of these are here because hashing the *action* alone was not
+            # enough:
+            #
+            # * `action_kind` never appears in the action, and it decides
+            #   `next_action.kind` and `verify_required`. Two calls differing
+            #   only in `configure` versus `verify` published different
+            #   envelopes under one identity.
+            # * The **whole** diagnostic, not `top_next_actions`. A diagnostic's
+            #   id decides who owns its route (`HUMAN_OWNED_SETUP_DIAGNOSTICS`)
+            #   and its severity decides precedence, so changing only the id can
+            #   flip an agent-executable edit to a human review while every
+            #   rank-1 action stays byte-identical.
             routing_facts=(
                 reason,
                 exit_code,
                 placeholders,
                 recheck_command,
                 action.model_dump(mode="json") if action is not None else None,
-                [item.model_dump(mode="json") for item in top_next_actions(list(diagnostics))],
+                action_kind,
+                [item.model_dump(mode="json") for item in ranked_diagnostics(list(diagnostics))],
                 routing_facts,
             ),
         ),

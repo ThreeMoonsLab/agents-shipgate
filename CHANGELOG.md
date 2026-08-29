@@ -259,6 +259,30 @@
   invocation for the manifest on disk, which reports what that manifest still
   owes. The exit code and the sentence a person acts on are unchanged.
 
+  **A refused write must not lose what the run asked for.** `init --write`
+  over a manifest that already exists hands the caller onward — to the gate on
+  the refresh path, to `doctor` on the plain one. Both read a manifest that
+  loads fine and advance under the pack it selects, so
+  `init --write --control-pack financial-strict` over a `default` manifest
+  proceeded under `default` with nothing in the route saying the request had
+  been dropped. That route now names `policies.control_pack` and the exact
+  value, and only reaches the onward step when the manifest already matches.
+  For the same reason, every recovery command `init` publishes repeats the
+  **whole** invocation with only the invalid value corrected: they were built
+  from the smaller flag list a rerun in a *different* workspace may repeat, so
+  `init --write --minimal --control-pack <bad>` emitted a recovery without
+  `--minimal` and following it wrote a detected manifest where a legacy
+  template was asked for.
+
+  **`execution` is not a marker for "this line is an error".** The `error`
+  field is. `execution` says whether the command reached an answer about the
+  workspace, and both values occur on error lines: `"failed"` where it could
+  not, `"succeeded"` beside a non-zero `exit_code` where it did and the answer
+  is a refusal it can route past — `config_already_exists`, the resume of the
+  adoption walk itself. What every setup error line does guarantee, in the
+  published schema: `decision_source: "setup"`, a setup-vocabulary `decision`,
+  every `permissions` field false, and never `control_state: "complete"`.
+
   **Proved by walking it.** `tests/test_adoption_walk.py` takes an unadopted
   repository from `verify --preview` to a release decision as real
   subprocesses, choosing every step from the envelope alone — no
@@ -267,7 +291,9 @@
   asks for at each step (one vocabulary, one typed rank-1 action, setup and
   gate states naming their source, setup authorizing nothing, the gate's
   decision equal to `report.json`'s) and fails a step that hands back the same
-  action for an unchanged subject, which is how the route above was found.
+  action for an unchanged subject, which is how the route above was found. The
+  recovery routes are followed rather than read: the test runs the emitted
+  command and looks at the manifest it produced.
 
 - **The declaration continuation: a drafted proposal can now reach the person
   it was drafted for.** (#429 review) `apply-patches --kinds declare_action`

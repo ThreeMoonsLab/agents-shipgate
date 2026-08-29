@@ -448,14 +448,24 @@ obligation.
 (contract v27). A setup command that could not finish publishes the same
 envelope on stderr that it would have published on stdout, so one routing rule
 covers both documented streams; `next_action` / `next_actions[]` are unchanged
-beside it. Such an envelope always reports `execution: "failed"`,
-`decision: "setup_incomplete"`, and `permissions` all false. The one exception
-is the shared `--workspace` refusal, which fires before the workspace exists
-and therefore has no setup subject to describe: it carries
-`next_action`/`next_actions` only. Error lines from `scan`, `verify`, and
-`check` also carry no `control`: the first two answer through their control
-pointer (`agents-shipgate agent control`), and `check` through
-`--format agent-control-json`.
+beside it. Every such envelope reports `decision_source: "setup"`, a `decision`
+from the setup vocabulary, `permissions` all false, and never
+`control_state: "complete"`.
+
+**Do not use `execution` to tell an error line from an answer** — the `error`
+field does that. `execution` says whether the command reached an answer about
+the workspace, so an error line carries `"failed"` when it could not (a flag
+value it could not parse, discovery it could not bound, a manifest it could not
+open) and `"succeeded"` with a non-zero `exit_code` when it did and the answer
+is a refusal it can route past (`config_already_exists`, the unresolved-scope
+`config_error`). Both authorize nothing.
+
+The one setup line with no `control` is the shared `--workspace` refusal, which
+fires before the workspace exists and therefore has no setup subject to
+describe: it carries `next_action`/`next_actions` only. Error lines from
+`scan`, `verify`, and `check` also carry no `control`: the first two answer
+through their control pointer (`agents-shipgate agent control`), and `check`
+through `--format agent-control-json`.
 
 Every emitted command names the entry point that started the running process, so it is runnable where it was produced: a console-script run emits `agents-shipgate …`, and a `python -m agents_shipgate` run emits `<sys.executable> -m agents_shipgate …`. Set `AGENTS_SHIPGATE_CLI` to name the entry point explicitly; it wins over detection. **On `next_actions[]`, run `[*executable, *args]` (contract v23+) rather than parsing `command`** — it needs no shell and is computed from `command`, so it cannot disagree with it; it is omitted, never `null`, when the command has no faithful argv form. The operational control contracts (`control.next_action`, `allowed_next_commands`, verifier repairs) carry the string only: recover argv there with `shlex.split(command)`, which is exact on every platform because every emitted command is POSIX-rendered. Never use `shell=True`, and do not paste `command` into `cmd.exe` or PowerShell. Durable artifacts (`report.json`, `packet.*`) stay canonical so that same inputs still produce the same report. See [docs/diagnostics.md](docs/diagnostics.md#invocation-policy).
 

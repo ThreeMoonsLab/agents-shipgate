@@ -122,7 +122,15 @@ def detect(
                 result.model_dump(mode="json"),
                 advance_decision,
                 advance.model_dump(mode="json") if advance is not None else None,
+                # Not carried by the action, and it decides `next_action.kind`
+                # and `verify_required` — so the same detection advancing as
+                # `initialize` and as `discover` had one identity (#323 review).
+                advance_kind,
                 [action.model_dump(mode="json") for action in advance_alternatives],
+                # The diagnostics themselves, not only their rank-1 actions: an
+                # id decides who owns a route and a severity decides precedence,
+                # and neither appears in the action it produces.
+                [item.model_dump(mode="json") for item in diagnostics],
             ),
         ),
         reason=_detect_reason(result, has_manifest=has_manifest),

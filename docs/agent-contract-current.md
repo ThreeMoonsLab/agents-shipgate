@@ -19,12 +19,26 @@ route at all depended on which setup command had failed and on which of its
 failures — a caller cannot branch on that, and the run that most needs a route
 is the one that printed no payload to carry it.
 
-Nothing is removed. `next_action` (single string) and `next_actions[]` (ranked
+No field is removed. `next_action` (single string) and `next_actions[]` (ranked
 array) are unchanged on those lines, and are derived from the same selected
 route as `control.next_action`, so the three cannot send you to different work.
-The failure envelope is fail-closed by construction: `execution: "failed"`,
-`decision: "setup_incomplete"`, and — setup authorizing nothing — every field
-of `permissions` false.
+Three *command values* do move, and they are listed at the end of this section.
+
+**What every setup error line guarantees**, in the published schema and not
+only in the producer: `decision_source: "setup"`, a `decision` from
+`setup_complete | setup_incomplete | setup_not_applicable`, every field of
+`permissions` false, and `control_state` never `complete`. Setup authorizes
+nothing, on either stream.
+
+**Do not read `execution` as "this is an error line".** The `error` field says
+that. `execution` answers whether the command reached an answer about the
+workspace, and both values appear on error lines: `"failed"` when it could not
+(an unparseable flag value, discovery that could not be bounded, a manifest it
+could not open), and `"succeeded"` with a non-zero `exit_code` when it did and
+the answer is a refusal it can route past — `config_already_exists` from
+`init --write` declining to overwrite, and the unresolved-scope `config_error`.
+The second kind still carries `permissions` all false, because it is still a
+setup envelope.
 
 **One stated exception.** The shared `--workspace` refusal (`config_error`,
 exit 2, emitted by every command that takes a `--workspace`) carries
@@ -50,6 +64,24 @@ change, re-ran, and got the identical action back. It is now the `doctor`
 invocation for the manifest on disk, which reports what that manifest still
 owes. The exit code (2) and the "already exists — edit it directly or remove
 it" sentence are unchanged.
+
+**Unless the request was not applied.** `init --write --control-pack <id>` over
+a manifest that selects a different pack keeps an `edit` route, now naming
+`policies.control_pack` and the exact value. Both onward routes would otherwise
+advance under the pack that is *there*, and the request would be lost with
+nothing saying so — a recovery that completes with less than the caller asked
+for reports success for work it did not do. "Asked for" means `--control-pack`
+at other than its default, the same rule that decides whether a recovery
+command repeats the flag.
+
+**Two command values also move.** Every recovery `init` publishes now repeats
+the whole invocation with only the invalid value corrected — `--minimal`,
+`--allow-unresolved-scope`, `--agent-instructions-kit`, and a non-default
+`--max-python-files` ride along, where before they were dropped; and the
+`internal_error` fallback names this invocation with `--minimal` added instead
+of a bare `agents-shipgate init --minimal` that ran in the process directory.
+These are `command` value changes on `next_action`, `next_actions[0]`, and
+`control.next_action` alike, which are one route.
 
 Both the `AgentControl` union and `shipgate.agent_control/v1` are
 byte-identical to v26 — the same envelope reaches one more place — so

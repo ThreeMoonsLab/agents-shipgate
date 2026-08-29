@@ -473,14 +473,24 @@ obligation.
 (contract v27). A setup command that could not finish publishes the same
 envelope on stderr that it would have published on stdout, so one routing rule
 covers both documented streams; `next_action` / `next_actions[]` are unchanged
-beside it. Such an envelope always reports `execution: "failed"`,
-`decision: "setup_incomplete"`, and `permissions` all false. The one exception
-is the shared `--workspace` refusal, which fires before the workspace exists
-and therefore has no setup subject to describe: it carries
-`next_action`/`next_actions` only. Error lines from `scan`, `verify`, and
-`check` also carry no `control`: the first two answer through their control
-pointer (`agents-shipgate agent control`), and `check` through
-`--format agent-control-json`.
+beside it. Every such envelope reports `decision_source: "setup"`, a `decision`
+from the setup vocabulary, `permissions` all false, and never
+`control_state: "complete"`.
+
+**Do not use `execution` to tell an error line from an answer** — the `error`
+field does that. `execution` says whether the command reached an answer about
+the workspace, so an error line carries `"failed"` when it could not (a flag
+value it could not parse, discovery it could not bound, a manifest it could not
+open) and `"succeeded"` with a non-zero `exit_code` when it did and the answer
+is a refusal it can route past (`config_already_exists`, the unresolved-scope
+`config_error`). Both authorize nothing.
+
+The one setup line with no `control` is the shared `--workspace` refusal, which
+fires before the workspace exists and therefore has no setup subject to
+describe: it carries `next_action`/`next_actions` only. Error lines from
+`scan`, `verify`, and `check` also carry no `control`: the first two answer
+through their control pointer (`agents-shipgate agent control`), and `check`
+through `--format agent-control-json`.
 
 Every emitted command names the entry point that started the running process, so it is runnable where it was produced: a console-script run emits `agents-shipgate …`, and a `python -m agents_shipgate` run emits `<sys.executable> -m agents_shipgate …`. Set `AGENTS_SHIPGATE_CLI` to name the entry point explicitly; it wins over detection. **On `next_actions[]`, run `[*executable, *args]` (contract v23+) rather than parsing `command`** — it needs no shell and is computed from `command`, so it cannot disagree with it; it is omitted, never `null`, when the command has no faithful argv form. The operational control contracts (`control.next_action`, `allowed_next_commands`, verifier repairs) carry the string only: recover argv there with `shlex.split(command)`, which is exact on every platform because every emitted command is POSIX-rendered. Never use `shell=True`, and do not paste `command` into `cmd.exe` or PowerShell. Durable artifacts (`report.json`, `packet.*`) stay canonical so that same inputs still produce the same report. See [docs/diagnostics.md](docs/diagnostics.md#invocation-policy).
 
@@ -1447,12 +1457,26 @@ route at all depended on which setup command had failed and on which of its
 failures — a caller cannot branch on that, and the run that most needs a route
 is the one that printed no payload to carry it.
 
-Nothing is removed. `next_action` (single string) and `next_actions[]` (ranked
+No field is removed. `next_action` (single string) and `next_actions[]` (ranked
 array) are unchanged on those lines, and are derived from the same selected
 route as `control.next_action`, so the three cannot send you to different work.
-The failure envelope is fail-closed by construction: `execution: "failed"`,
-`decision: "setup_incomplete"`, and — setup authorizing nothing — every field
-of `permissions` false.
+Three *command values* do move, and they are listed at the end of this section.
+
+**What every setup error line guarantees**, in the published schema and not
+only in the producer: `decision_source: "setup"`, a `decision` from
+`setup_complete | setup_incomplete | setup_not_applicable`, every field of
+`permissions` false, and `control_state` never `complete`. Setup authorizes
+nothing, on either stream.
+
+**Do not read `execution` as "this is an error line".** The `error` field says
+that. `execution` answers whether the command reached an answer about the
+workspace, and both values appear on error lines: `"failed"` when it could not
+(an unparseable flag value, discovery that could not be bounded, a manifest it
+could not open), and `"succeeded"` with a non-zero `exit_code` when it did and
+the answer is a refusal it can route past — `config_already_exists` from
+`init --write` declining to overwrite, and the unresolved-scope `config_error`.
+The second kind still carries `permissions` all false, because it is still a
+setup envelope.
 
 **One stated exception.** The shared `--workspace` refusal (`config_error`,
 exit 2, emitted by every command that takes a `--workspace`) carries
@@ -1478,6 +1502,24 @@ change, re-ran, and got the identical action back. It is now the `doctor`
 invocation for the manifest on disk, which reports what that manifest still
 owes. The exit code (2) and the "already exists — edit it directly or remove
 it" sentence are unchanged.
+
+**Unless the request was not applied.** `init --write --control-pack <id>` over
+a manifest that selects a different pack keeps an `edit` route, now naming
+`policies.control_pack` and the exact value. Both onward routes would otherwise
+advance under the pack that is *there*, and the request would be lost with
+nothing saying so — a recovery that completes with less than the caller asked
+for reports success for work it did not do. "Asked for" means `--control-pack`
+at other than its default, the same rule that decides whether a recovery
+command repeats the flag.
+
+**Two command values also move.** Every recovery `init` publishes now repeats
+the whole invocation with only the invalid value corrected — `--minimal`,
+`--allow-unresolved-scope`, `--agent-instructions-kit`, and a non-default
+`--max-python-files` ride along, where before they were dropped; and the
+`internal_error` fallback names this invocation with `--minimal` added instead
+of a bare `agents-shipgate init --minimal` that ran in the process directory.
+These are `command` value changes on `next_action`, `next_actions[0]`, and
+`control.next_action` alike, which are one route.
 
 Both the `AgentControl` union and `shipgate.agent_control/v1` are
 byte-identical to v26 — the same envelope reaches one more place — so

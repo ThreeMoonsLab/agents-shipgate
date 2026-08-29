@@ -228,6 +228,72 @@ def _requested_setup_flags(
     return flags
 
 
+def _invocation_flags(
+    *,
+    minimal: bool,
+    ci: bool,
+    claude_code: bool,
+    agent_instructions: str | None,
+    control_pack: str,
+    allow_unresolved_scope: bool,
+    agent_instructions_kit: Path | None,
+    max_python_files: int,
+) -> list[str]:
+    """Every semantics-bearing option this invocation carried, as flags.
+
+    The list a *same-workspace* rerun must repeat. `_requested_setup_flags` is
+    the smaller answer to a different question — what a rerun in a **different**
+    workspace may repeat — and it deliberately omits
+    ``--agent-instructions-kit`` because a kit path is only meaningful relative
+    to a workspace. Every recovery this command publishes reruns the same
+    workspace, and building each one from the smaller list quietly dropped the
+    rest: ``init --write --minimal --control-pack bogus`` emitted a recovery
+    with no ``--minimal``, so following it wrote an auto-detected manifest
+    instead of the legacy template that was explicitly asked for, and an
+    explicit kit became the default kit.
+
+    That was survivable while these strings were hints beside a payload. It is
+    not now: on the shared envelope ``next_action.command`` *is* the step, so a
+    recovery that completes with less than the caller requested reports success
+    for work it did not do — and does it as the authoritative route.
+
+    Correcting a value means passing the corrected value here, not dropping the
+    flag: the caller overrides one argument and every other option rides along.
+    Defaults are omitted rather than spelled out, because omitting a flag whose
+    value the command already assumes completes exactly what was asked
+    (``_requested_setup_flags`` pins that rule for ``--control-pack``, and
+    ``STABILITY.md`` pins the manifest side of it).
+
+    ``--json`` is not here. It is the caller's *output* format rather than a
+    setup choice, and both builders that consume this list add it from
+    ``json_output`` themselves.
+    """
+
+    return [
+        *(["--minimal"] if minimal else []),
+        *_requested_setup_flags(
+            ci=ci,
+            claude_code=claude_code,
+            agent_instructions=agent_instructions,
+            control_pack=control_pack,
+        ),
+        *(["--allow-unresolved-scope"] if allow_unresolved_scope else []),
+        *(
+            ["--agent-instructions-kit", str(agent_instructions_kit)]
+            if agent_instructions_kit is not None
+            else []
+        ),
+        # A raised parse cap is why `--write` did not refuse on a large
+        # repository. A recovery that drops it re-runs under the default cap and
+        # refuses again, on a truncation the caller had already answered.
+        *(
+            ["--max-python-files", str(max_python_files)]
+            if max_python_files != DEFAULT_MAX_PYTHON_FILES
+            else []
+        ),
+    ]
+
+
 def _doctor_command(target: Path) -> str:
     """The invocation that inspects the manifest at ``target``.
 
@@ -657,6 +723,48 @@ def _init_reason(
     return "init made no manifest change."
 
 
+def _unapplied_control_pack(*, requested: str, on_disk: str | None) -> bool:
+    """Whether this invocation asked for a pack the manifest does not carry.
+
+    ``on_disk`` is ``None`` when there is no manifest, or when the bytes there
+    could not be resolved to a pack — neither is a delta this can speak to, and
+    the routes for both are decided above. Guarded here rather than left to
+    those earlier branches: they answer ``_manifest_defect``, which runs the
+    loader, while this reads ``_manifest_control_pack``, which runs the loader
+    *and* ``resolve_control_pack``. Two functions with two failure surfaces
+    happen to agree on every manifest reachable today, and "happen to agree" is
+    not a thing to route on — without the guard, a manifest that loads while
+    its pack does not resolve publishes an edit whose ``why`` reads "the
+    manifest still selects None".
+
+    "Asked for" is ``requested != DEFAULT_CONTROL_PACK_ID``, the same rule
+    ``_requested_setup_flags`` already applies when deciding whether to repeat
+    the flag: Typer cannot tell an omitted option from one passed at its
+    default, and ``STABILITY.md`` pins that omitting the manifest key means
+    ``default``. So an explicit ``--control-pack default`` over a manifest that
+    selects something else reads as "no request", exactly as it does when a
+    recovery command is spelled. One rule for what counts as a request, rather
+    than two that disagree at the boundary.
+
+    The control pack is the only *manifest-scoped* request a refused write can
+    be compared against, and the boundary is worth stating so the next option
+    added here is checked rather than assumed. ``--minimal`` selects a template
+    for a file this run did not write, and nothing on disk records which
+    template a manifest came from — there is no comparison to make, only the
+    refusal message's "remove it before re-running". ``--ci``,
+    ``--agent-instructions``, and ``--claude-code`` write *other* files, ran
+    independently of the manifest, and carry their own outcomes and exit
+    contributions. ``--allow-unresolved-scope`` and ``--max-python-files``
+    govern how the workspace was read, not what the manifest declares.
+    """
+
+    return (
+        on_disk is not None
+        and requested != DEFAULT_CONTROL_PACK_ID
+        and on_disk != requested
+    )
+
+
 def _init_advance(
     *,
     workspace: Path,
@@ -672,6 +780,8 @@ def _init_advance(
     workflow_status: str | None = None,
     tool_surface_origin: ToolSurfaceOrigin = "detected",
     scaffold_summary: str | None = None,
+    requested_control_pack: str = DEFAULT_CONTROL_PACK_ID,
+    manifest_control_pack: str | None = None,
 ) -> tuple[NextAction, AgentActionKind, str, bool]:
     """The step init already names, typed for the control envelope.
 
@@ -737,6 +847,42 @@ def _init_advance(
             "configure",
             SETUP_INCOMPLETE,
             True,
+        )
+    if manifest_status == "skipped_existing" and _unapplied_control_pack(
+        requested=requested_control_pack, on_disk=manifest_control_pack
+    ):
+        # The manifest was left alone, and this invocation asked for a
+        # configuration it does not carry. Both branches below hand the caller
+        # onward — one to the gate, one to `doctor` — and both would drop the
+        # request silently: `doctor` reads a manifest that loads and advances to
+        # verification under the pack that is *there*, so an envelope-only
+        # caller loses the pack it asked for without anything ever saying so.
+        # A recovery that completes with less than the caller requested reports
+        # success for work it did not do, and on this contract it does it as the
+        # authoritative route.
+        #
+        # This is an agent-owned edit, not a human review, because the value
+        # being written is the one the human typed on the command line. Nothing
+        # is inferred: the route names the field and the exact value, and
+        # `doctor` — the recheck — reports whether the manifest now carries it.
+        return (
+            NextAction(
+                kind="edit",
+                path=str(target),
+                why=(
+                    f"{target} already exists and was left unchanged, so the "
+                    f"--control-pack {requested_control_pack} this run asked "
+                    f"for was not applied: the manifest still selects "
+                    f"{manifest_control_pack}."
+                ),
+                expects=(
+                    f"policies.control_pack in {target} is "
+                    f"{requested_control_pack}."
+                ),
+            ),
+            "configure",
+            SETUP_INCOMPLETE,
+            False,
         )
     if manifest_status == "skipped_existing" and manifest_exit == 0:
         # The manifest was left alone *on purpose*: `--agent-instructions` makes
@@ -997,10 +1143,15 @@ def register(app: typer.Typer) -> None:
                     json_output=json_output,
                     # The rest of the requested setup, with the bad pack
                     # replaced by the one this command assumes.
-                    setup_flags=_requested_setup_flags(
+                    setup_flags=_invocation_flags(
+                        minimal=minimal,
                         ci=ci,
                         claude_code=claude_code,
                         agent_instructions=agent_instructions,
+                        control_pack=DEFAULT_CONTROL_PACK_ID,
+                        allow_unresolved_scope=allow_unresolved_scope,
+                        agent_instructions_kit=agent_instructions_kit,
+                        max_python_files=max_python_files,
                     ),
                 ),
                 why=message,
@@ -1042,11 +1193,15 @@ def register(app: typer.Typer) -> None:
                         workspace=workspace_resolved,
                         write=write,
                         json_output=json_output,
-                        setup_flags=_requested_setup_flags(
+                        setup_flags=_invocation_flags(
+                            minimal=minimal,
                             ci=ci,
                             claude_code=claude_code,
                             agent_instructions="default",
                             control_pack=control_pack,
+                            allow_unresolved_scope=allow_unresolved_scope,
+                            agent_instructions_kit=agent_instructions_kit,
+                            max_python_files=max_python_files,
                         ),
                     ),
                     why=str(exc),
@@ -1164,15 +1319,16 @@ def register(app: typer.Typer) -> None:
                         workspace=workspace_resolved,
                         write=write,
                         json_output=json_output,
-                        setup_flags=[
-                            "--minimal",
-                            *_requested_setup_flags(
-                                ci=ci,
-                                claude_code=claude_code,
-                                agent_instructions=agent_instructions,
-                                control_pack=control_pack,
-                            ),
-                        ],
+                        setup_flags=_invocation_flags(
+                            minimal=True,
+                            ci=ci,
+                            claude_code=claude_code,
+                            agent_instructions=agent_instructions,
+                            control_pack=control_pack,
+                            allow_unresolved_scope=allow_unresolved_scope,
+                            agent_instructions_kit=agent_instructions_kit,
+                            max_python_files=max_python_files,
+                        ),
                     ),
                     why=(
                         "Auto-detected manifest failed schema validation. "
@@ -1321,25 +1477,16 @@ def register(app: typer.Typer) -> None:
                             workspace=workspace_resolved,
                             write=write,
                             json_output=json_output,
-                            setup_flags=[
-                                *(["--minimal"] if minimal else []),
-                                *_requested_setup_flags(
-                                    ci=ci,
-                                    claude_code=claude_code,
-                                    agent_instructions=agent_instructions,
-                                    control_pack=control_pack,
-                                ),
-                                *(
-                                    ["--allow-unresolved-scope"]
-                                    if allow_unresolved_scope
-                                    else []
-                                ),
-                                *(
-                                    ["--agent-instructions-kit", str(agent_instructions_kit)]
-                                    if agent_instructions_kit is not None
-                                    else []
-                                ),
-                            ],
+                            setup_flags=_invocation_flags(
+                                minimal=minimal,
+                                ci=ci,
+                                claude_code=claude_code,
+                                agent_instructions=agent_instructions,
+                                control_pack=control_pack,
+                                allow_unresolved_scope=allow_unresolved_scope,
+                                agent_instructions_kit=agent_instructions_kit,
+                                max_python_files=max_python_files,
+                            ),
                         ),
                     ),
                     path=path,
@@ -1529,6 +1676,11 @@ def register(app: typer.Typer) -> None:
         control_placeholders, control_manifest_bytes, manifest_defect = _manifest_placeholders(
             target, template=template, placeholders=placeholders, write=write
         )
+        # One read of the pack the manifest on disk carries, shared by the route
+        # and by the `control_pack` block of the payload. Reading it twice would
+        # let a route be selected against one answer and reported beside
+        # another.
+        selected_control_pack = _manifest_control_pack(control_manifest_bytes)
         advance, advance_kind, advance_decision, advance_blocking = _init_advance(
             workspace=workspace,
             target=target,
@@ -1545,35 +1697,29 @@ def register(app: typer.Typer) -> None:
             scope_actions=scope_actions,
             manifest_defect=manifest_defect,
             # Everything this invocation asked for, so the follow-up is
-            # equivalent to the dry run it advances. `_requested_setup_flags`
-            # covers what the *scoped refusal* must repeat; the dry run re-runs
-            # this same workspace, so it owes more:
+            # equivalent to the dry run it advances — `_invocation_flags` is
+            # that list, shared with every failure recovery this command
+            # publishes so they cannot drop different options from each other.
+            # `--json` is added here rather than there: it is this caller's
+            # output format, not a setup choice, and dropping it would answer a
+            # JSON control loop in human prose.
             #
-            #   --minimal                 selects a different template, so
-            #                             dropping it writes something other
-            #                             than what was previewed;
-            #   --allow-unresolved-scope  the accepted root boundary, without
-            #                             which the command exits 2 in the very
-            #                             monorepo that needed it;
-            #   --agent-instructions-kit  the kit that was previewed;
-            #   --json                    the caller is in the JSON control
-            #                             loop and gets human prose back.
-            #
-            # The scoped refusal deliberately repeats none of the last three:
-            # there the point is to choose a *different* workspace.
+            # The *scoped refusal* is the one recovery that does not use the
+            # list, and deliberately: it is a rerun in a **different**
+            # workspace, where `--allow-unresolved-scope`, a workspace-relative
+            # `--agent-instructions-kit`, and `--json` are all wrong to repeat
+            # unchanged. It builds from `_requested_setup_flags` plus
+            # `rebased_kit_flags` instead.
             setup_flags=[
-                *(["--minimal"] if minimal else []),
-                *_requested_setup_flags(
+                *_invocation_flags(
+                    minimal=minimal,
                     ci=ci,
                     claude_code=claude_code,
                     agent_instructions=agent_instructions,
                     control_pack=control_pack,
-                ),
-                *(["--allow-unresolved-scope"] if allow_unresolved_scope else []),
-                *(
-                    ["--agent-instructions-kit", str(agent_instructions_kit)]
-                    if agent_instructions_kit is not None
-                    else []
+                    allow_unresolved_scope=allow_unresolved_scope,
+                    agent_instructions_kit=agent_instructions_kit,
+                    max_python_files=max_python_files,
                 ),
                 *(["--json"] if json_output else []),
             ],
@@ -1584,6 +1730,11 @@ def register(app: typer.Typer) -> None:
             ),
             tool_surface_origin=tool_surface_origin,
             scaffold_summary=scaffold_summary,
+            # What this invocation asked the manifest to select, and what the
+            # manifest on disk actually selects. A refused write leaves the two
+            # able to disagree, and the onward routes cannot see it.
+            requested_control_pack=control_pack,
+            manifest_control_pack=selected_control_pack,
         )
         routing = setup_control_envelope(
             operation="init",
@@ -1599,6 +1750,13 @@ def register(app: typer.Typer) -> None:
                     control_placeholders,
                     manifest_defect,
                     advance_decision,
+                    # Not carried by the action, and between them they decide
+                    # `next_action.kind`, `verify_required`, and whether this
+                    # route outranks an unresolved human-owned declaration —
+                    # so two runs publishing different envelopes could share
+                    # one identity (#323 review).
+                    advance_kind,
+                    advance_blocking,
                     # The selected route itself. On one unchanged empty
                     # workspace a plain dry run, `--ci`, and
                     # `--agent-instructions=agents-md` produced three different
@@ -1732,7 +1890,7 @@ def register(app: typer.Typer) -> None:
                 # is what this invocation asked for; on `skipped_existing`
                 # the two differ and reporting only the request would
                 # describe a file this run did not write.
-                "selected": _manifest_control_pack(control_manifest_bytes),
+                "selected": selected_control_pack,
                 "requested": control_pack,
                 "manifest_path": "policies.control_pack",
                 "available": [
