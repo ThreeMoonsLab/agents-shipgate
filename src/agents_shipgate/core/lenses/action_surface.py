@@ -25,7 +25,6 @@ from agents_shipgate.core.control_packs import (
     resolve_control_pack,
 )
 from agents_shipgate.core.domain import (
-    DECLARATION_CLAIM_SOURCES,
     Action,
     Scope,
     Tool,
@@ -47,6 +46,7 @@ from agents_shipgate.core.semantic_assessment import (
     acknowledged_effect_claim_ids,
     assess_tool_semantics,
     declaration_covers,
+    is_manifest_owned_effect_claim,
     resolve_action_scopes,
 )
 from agents_shipgate.core.surface_exclusions import (
@@ -1036,10 +1036,19 @@ def _declaration_downgrade_findings(
             # source bound without a second semantic evaluation.
             if action_assessment is None:
                 action_assessment = assess_tool_semantics(tool, declaration)
+            # Every claim a human wrote into the manifest, by *both* routes it
+            # reaches this dimension by — the action row (its ``effect``,
+            # ``risk_tags``, ``scopes``, and ``override``) and the
+            # ``risk_overrides.tags`` hint, which carries a
+            # ``reviewed_declaration`` basis rather than a declaration source.
+            # Excluding only the first named the reviewer's own
+            # ``risk_overrides`` tag as "the effect Shipgate inferred", in a
+            # recommendation telling them to declare what they had already
+            # written (#424 review).
             source_effects = [
                 claim.value
                 for claim in action_assessment.effect.claims
-                if claim.source not in DECLARATION_CLAIM_SOURCES
+                if not is_manifest_owned_effect_claim(claim)
                 and claim.value in ACTION_EFFECT_RANK
             ]
             source_effect = max(

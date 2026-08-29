@@ -45,6 +45,27 @@
   the boundary the fix draws, `declared_delete_scope_cannot_downgrade_to_read`,
   and the property it guarded is asserted in its new form beside it.
 
+  **Two more sites read the manifest as the source, found reviewing this
+  change.** The manifest reaches the effect dimension by two routes — the
+  action row, named by `DECLARATION_CLAIM_SOURCES`, and `risk_overrides.tags`,
+  which arrives as `risk_hint:manual` carrying a `reviewed_declaration` basis
+  and no declaration source. Two comparisons excluded the first only:
+
+  - `SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED` derives "the effect Shipgate
+    inferred" from the claims that are not the manifest's. A reviewed
+    `risk_overrides.tags: [destructive]` beside a source that says only `write`
+    was reported as Shipgate's own inference, in a recommendation telling the
+    reviewer to declare the value they had already written.
+  - `declaration_below_inferred_evidence` names the evidence that *agrees* with
+    the declaration, in a sentence that says "source evidence agrees with the
+    declaration" in so many words. A `risk_overrides.tags` entry matching the
+    declared effect was named there — the manifest confirming itself, which the
+    comment above that filter already forbade.
+
+  Both now ask one predicate, `is_manifest_owned_effect_claim`, promoted from
+  the private helper `_source_read_conflict` already used so a fourth site
+  cannot spell it a fifth way.
+
 - **The declaration continuation: a drafted proposal can now reach the person
   it was drafted for.** (#429 review) `apply-patches --kinds declare_action`
   writes into `shipgate.yaml`, which is the trust root — so the control that

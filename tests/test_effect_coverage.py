@@ -451,6 +451,67 @@ def test_the_other_spelling_of_a_reviewed_tag_reads_the_same_way() -> None:
     assert "destructive" in _policy_eligible_effects(assessment)
 
 
+def test_the_row_never_names_the_manifest_as_the_source_agreeing_with_it() -> None:
+    """A row saying the source agrees has to mean the source.
+
+    The row states both readings so an override is one line to write, and the
+    corroboration half says, in so many words, that *source* evidence agrees.
+    The filter behind it excluded the action row only, so a reviewed
+    `risk_overrides.tags` entry matching the declared effect was named to the
+    reviewer as the source agreeing with them — the manifest confirming itself,
+    which the comment above that filter already forbids (#424 review).
+    """
+
+    tool = _tool(
+        risk_hints=[
+            ToolRiskHint(
+                tag="financial_action",
+                source="name",
+                confidence="medium",
+                basis="inferred_keyword",
+            ),
+            # `risk_overrides.tags: [external_write]` — the same value the
+            # declaration below states.
+            ToolRiskHint(
+                tag="external_write",
+                source="manual",
+                confidence="high",
+                basis="reviewed_declaration",
+            ),
+        ]
+    )
+    assessment, _ = _issue_kinds(tool, _declaration(effect="external_communication"))
+    message = next(
+        item.message
+        for item in assessment.effect.issues
+        if item.kind == "declaration_below_inferred_evidence"
+    )
+
+    assert "source evidence agrees" not in message
+    assert "risk_hint:manual" not in message
+    # Negative control: a claim the source really did publish still corroborates.
+    annotated, _ = _issue_kinds(
+        _tool(
+            annotations={"httpMethod": "POST"},
+            risk_hints=[
+                ToolRiskHint(
+                    tag="financial_action",
+                    source="name",
+                    confidence="medium",
+                    basis="inferred_keyword",
+                )
+            ],
+        ),
+        _declaration(effect="write"),
+    )
+    corroborated = next(
+        item.message
+        for item in annotated.effect.issues
+        if item.kind == "declaration_below_inferred_evidence"
+    )
+    assert "source evidence agrees with the declaration (openapi_method)" in corroborated
+
+
 @pytest.mark.parametrize(
     ("tool_updates", "declaration_updates"),
     [

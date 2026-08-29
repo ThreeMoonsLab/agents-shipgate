@@ -1257,6 +1257,65 @@ def test_action_declaration_effect_downgrade_blocks_release(monkeypatch):
     assert finding.evidence["declared_effect"] == "read"
 
 
+def test_the_downgrade_row_never_quotes_the_reviewers_own_tag_back_at_them():
+    """An inferred effect has to be something this scan actually inferred.
+
+    The manifest reaches the effect dimension by two routes: the action row —
+    `DECLARATION_CLAIM_SOURCES` — and `risk_overrides.tags`, which arrives as
+    `risk_hint:manual` carrying a `reviewed_declaration` basis and no
+    declaration source. This bound excluded the first only, so a reviewed
+    `risk_overrides` tag of `destructive` on a tool whose source says `write`
+    was reported as Shipgate's own inference, in a recommendation telling the
+    reviewer to declare the value they had already written (#424 review).
+    """
+
+    manifest = _manifest(
+        {
+            "action_surface": {
+                "actions": [{"tool": "create_ticket", "effect": "read"}]
+            }
+        }
+    )
+    tool = Tool(
+        id="tool:create_ticket",
+        name="create_ticket",
+        source_type="openapi",
+        source_id="support-api",
+        annotations={"httpMethod": "POST", "path": "/tickets"},
+        extraction_confidence="high",
+        # Exactly what `_apply_manual_override` writes for a
+        # `risk_overrides.tags` entry.
+        risk_hints=[
+            ToolRiskHint(
+                tag="destructive",
+                source="manual",
+                confidence="high",
+                basis="reviewed_declaration",
+            )
+        ],
+    )
+    tools = attach_semantic_assessments(
+        [tool],
+        {tool.id: manifest.action_surface.actions[0]},
+    )
+    findings = evaluate_action_surface_policies(
+        manifest,
+        build_action_surface_facts(
+            manifest, agent_id="agent:action-test/agent", tools=tools
+        ),
+        ActionSurfaceDiff(),
+        agent_id="agent:action-test/agent",
+        tools=tools,
+    )
+
+    finding = next(
+        item for item in findings if item.check_id == "SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED"
+    )
+    # `POST` is what the source said; `destructive` is what the reviewer said.
+    assert finding.evidence["inferred_effect"] == "write"
+    assert "destructive" not in finding.recommendation
+
+
 def test_scan_diff_from_prior_report_does_not_launder_financial_keyword_into_blocker(
     tmp_path,
 ):

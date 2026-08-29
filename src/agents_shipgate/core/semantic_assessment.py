@@ -576,7 +576,8 @@ def _assess_effect(
         # fixed for the same reason; this branch never got the treatment.
         #
         # Narrow on purpose: only the two spellings of "declare this category
-        # as reviewed" are excluded, never ``_is_manifest_owned`` wholesale.
+        # as reviewed" are excluded, never ``is_manifest_owned_effect_claim``
+        # wholesale.
         # That predicate also covers ``action_scope``, and #417 deliberately
         # made a declared ``crm.delete`` grant bound the action's effect — a
         # grant asserts an independent fact, a tag refines the effect the same
@@ -600,13 +601,20 @@ def _assess_effect(
                 {claim.source for claim in below_declared if claim.value == below_effect}
             )
             # What the source says *for* the declared value, so the row can
-            # state both readings. Never the manifest row's own restatements
-            # of itself — a declaration confirming itself is not evidence.
+            # state both readings. Never the manifest's own restatements of
+            # itself — a declaration confirming itself is not evidence, and
+            # the sentence this feeds says "source evidence agrees with the
+            # declaration" in so many words.
+            #
+            # By both routes the manifest reaches this dimension, not just the
+            # action row: a reviewed ``risk_overrides.tags`` entry matching the
+            # declared effect was named to the reviewer as the *source*
+            # agreeing with them (#424 review).
             corroborating = [
                 claim
                 for claim in claims
                 if claim.policy_eligible
-                and claim.source not in DECLARATION_CLAIM_SOURCES
+                and not is_manifest_owned_effect_claim(claim)
                 and claim.value == declaration.effect
             ]
             # An acknowledged override is itself reviewed evidence: it records
@@ -848,8 +856,8 @@ def _assess_effect(
     )
 
 
-def _is_manifest_owned(claim: SemanticClaim) -> bool:
-    """True when a human wrote this claim into the manifest.
+def is_manifest_owned_effect_claim(claim: SemanticClaim) -> bool:
+    """True when a human wrote this effect claim into the manifest.
 
     Two tests, because the manifest reaches the effect dimension by two routes
     that carry different bases:
@@ -867,6 +875,15 @@ def _is_manifest_owned(claim: SemanticClaim) -> bool:
     *source* evidence: a reviewed ``risk_overrides`` tag of ``code_execution``
     on a tool published with ``readOnlyHint: true`` was reported as the source
     contradicting itself, and no declaration could clear it.
+
+    Public because the same question is asked outside this module.
+    ``SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED`` names "the effect Shipgate
+    inferred", and it derived that bound by excluding
+    :data:`DECLARATION_CLAIM_SOURCES` alone — the first route only. A reviewed
+    ``risk_overrides.tags`` entry of ``destructive`` beside a source that says
+    only ``write`` was therefore quoted back to the reviewer as Shipgate's own
+    inference, in a recommendation telling them to declare the value they had
+    already written (#424 review).
     """
 
     return (
@@ -901,7 +918,7 @@ def _source_read_conflict(structural: Sequence[SemanticClaim]) -> tuple[bool, bo
     high = [
         claim
         for claim in structural
-        if claim.confidence == "high" and not _is_manifest_owned(claim)
+        if claim.confidence == "high" and not is_manifest_owned_effect_claim(claim)
     ]
     return (
         any(claim.value == "read" for claim in high),
@@ -2309,4 +2326,5 @@ __all__ = [
     "claims_above_declared_effect",
     "EffectRepair",
     "effect_repair",
+    "is_manifest_owned_effect_claim",
 ]
