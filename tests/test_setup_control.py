@@ -740,9 +740,19 @@ def test_an_instruction_refresh_over_an_existing_manifest_is_not_an_obligation(
     assert refresh["decision"] == "setup_complete"
     assert refresh["next_action"]["kind"] == "verify"
 
+    # `init --write` on its own still exits 2 there, and still says the manifest
+    # was left alone. What it may not publish is a route that cannot change the
+    # answer: it used to be `edit shipgate.yaml`, whose `expects` — "the
+    # manifest reflects the desired tool sources, agent declared_purpose, and
+    # policies" — the file it named already satisfied, so an envelope-only
+    # caller opened it, found nothing to change, re-ran, and got the identical
+    # action back forever. It now hands the question to the command that reads
+    # the file on disk (#323).
     plain = _control(["init", "--workspace", str(unadopted), "--write", "--json"])
     assert plain["decision"] == "setup_incomplete"
-    assert plain["next_action"]["kind"] == "edit"
+    assert plain["next_action"]["kind"] == "configure"
+    assert "doctor" in shlex.split(plain["next_action"]["command"])
+    assert "already exists" in plain["next_action"]["why"]
     assert plain["exit_code"] == 2
 
 
@@ -2041,3 +2051,129 @@ def test_a_manifest_type_mismatch_routes_to_the_editor_not_the_tracker(
     assert "file an issue" not in json.dumps(payload)
     assert payload["next_actions"][0]["kind"] == "edit"
     assert payload["next_actions"][0]["path"] == str(manifest)
+
+
+# ---------------------------------------------------------------------------
+# Criterion 4: one shape across both documented streams
+# ---------------------------------------------------------------------------
+
+# The three command modules whose every agent-mode error line must carry the
+# shared envelope. `scan`, `verify`, and `check` are deliberately not here: they
+# publish a control *pointer* and their envelope is the promoted read, so their
+# error lines route on `next_action`/`next_actions` as before.
+_SETUP_COMMAND_MODULES = (
+    "src/agents_shipgate/cli/detect.py",
+    "src/agents_shipgate/cli/_register_init.py",
+    "src/agents_shipgate/cli/_register_doctor.py",
+)
+
+
+def _called_names(source: str) -> list[str]:
+    """Every function called in this module, under its *imported* name.
+
+    Both modules alias the emitters on import (`emit_agent_mode_error_routing
+    as _emit_agent_mode_error_routing`), so matching the call site's spelling
+    would let a rename hide the very call this test exists to find. Aliases are
+    resolved back through the import statements first.
+    """
+
+    import ast
+
+    tree = ast.parse(source)
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                aliases[alias.asname or alias.name] = alias.name
+    names: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name):
+            names.append(aliases.get(func.id, func.id))
+        elif isinstance(func, ast.Attribute):
+            names.append(func.attr)
+    return names
+
+
+@pytest.mark.parametrize("module", _SETUP_COMMAND_MODULES)
+def test_every_setup_error_line_goes_through_the_envelope_emitter(module: str):
+    """A new failure route cannot be added without the shared envelope.
+
+    Asserting the *shape* of the six error lines that exist today would say
+    nothing about the seventh. `emit_agent_mode_error` takes `control` as an
+    ordinary keyword, so a setup command reaching for it directly is a route
+    that compiles, runs, and publishes an error line an envelope-only caller
+    cannot act on — which is how five of `init`'s and `detect`'s ended up
+    without one while `doctor`'s two had them.
+
+    `emit_agent_mode_error_routing` is the only emitter these modules may use:
+    it derives `next_action`, `next_actions[]`, and `control` from one selected
+    route, so the three cannot disagree and none of them can be omitted.
+
+    `require_workspace` is the stated exception and is not in these modules: it
+    is shared by all nineteen commands and refuses *before* a workspace exists,
+    so there is no setup subject for an envelope to be computed against.
+    """
+
+    source = (REPO_ROOT / module).read_text(encoding="utf-8")
+    called = _called_names(source)
+
+    assert "emit_agent_mode_error_routing" in called, (
+        f"{module} emits no agent-mode error through the envelope emitter"
+    )
+    assert "emit_agent_mode_error" not in called, (
+        f"{module} emits an agent-mode error line without the shared envelope"
+    )
+    assert "emit_agent_mode_error_action" not in called, (
+        f"{module} emits an agent-mode error line without the shared envelope"
+    )
+
+
+def test_a_setup_failure_envelope_authorizes_nothing_and_says_it_failed():
+    """The fail-closed properties of the failure route, at the unit boundary."""
+
+    from agents_shipgate.cli.setup_control import setup_failure_routing
+
+    routing = setup_failure_routing(
+        operation="init",
+        workspace=Path("/ws"),
+        reason="Unknown control pack 'nope'.",
+        exit_code=2,
+        action=NextAction(
+            kind="command",
+            command="agents-shipgate init --workspace /ws",
+            why="Unknown control pack 'nope'.",
+        ),
+        action_kind="initialize",
+    )
+    payload = json.loads(render_agent_control_envelope(routing.envelope))
+
+    assert payload["execution"] == "failed"
+    assert payload["exit_code"] == 2
+    assert payload["decision"] == SETUP_INCOMPLETE
+    assert payload["decision_source"] == "setup"
+    assert set(payload["permissions"].values()) == {False}
+    assert payload["control_state"] != "complete"
+    validate_agent_control_envelope(payload)
+    assert not list(_PUBLISHED_SCHEMA.iter_errors(payload))
+
+
+def test_a_setup_failure_identity_moves_with_the_route_it_publishes():
+    """`input_id` is the cache boundary for the answer, so it covers the route."""
+
+    from agents_shipgate.cli.setup_control import setup_failure_routing
+
+    def identity(command: str) -> str:
+        return setup_failure_routing(
+            operation="init",
+            workspace=Path("/ws"),
+            reason="Unknown control pack 'nope'.",
+            exit_code=2,
+            action=NextAction(kind="command", command=command, why="Fix the flag."),
+        ).envelope.input_id
+
+    assert identity("agents-shipgate init --workspace /ws") != identity(
+        "/opt/custom/agents-shipgate init --workspace /ws"
+    )

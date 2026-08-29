@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from agents_shipgate.cli.diagnostics import ranked_diagnostics
+from agents_shipgate.cli.diagnostics import ranked_diagnostics, top_next_actions
 from agents_shipgate.cli.discovery.placeholders import human_owned_placeholders
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.agent_control_envelope import envelope_from_setup
@@ -359,6 +359,84 @@ def setup_control_envelope(
     )
 
 
+def setup_failure_routing(
+    *,
+    operation: SetupOperation,
+    workspace: Path,
+    reason: str,
+    exit_code: int,
+    action: NextAction | None = None,
+    action_kind: AgentActionKind = "configure",
+    diagnostics: Sequence[Diagnostic] = (),
+    placeholders: Sequence[Mapping[str, object]] | None = None,
+    manifest_path: Path | str | None = None,
+    manifest_bytes: bytes | None = None,
+    manifest_display_path: str | None = None,
+    recheck_command: str | None = None,
+    routing_facts: object = None,
+) -> SetupRouting:
+    """The shared envelope for a setup command that could not finish.
+
+    A setup command answers "what may I do next" on stdout and, when it fails,
+    on an agent-mode error line — and #323's fourth criterion is that those two
+    are not different shapes. They were: ``doctor`` carried ``control`` on its
+    two failure routes while ``detect`` and five of ``init``'s carried only
+    ``next_action``/``next_actions``, so whether an envelope-only caller could
+    route at all depended on *which* setup command had failed and on which of
+    its failures. One helper rather than one construction per call site,
+    because six independently-built envelopes is six chances for one of them to
+    report a state the command is not in.
+
+    Every failure envelope is fail-closed by construction: ``execution`` is
+    ``failed``, the decision is ``setup_incomplete`` — a run that could not
+    finish has not configured anything — and, setup authorizing nothing, no
+    field of ``permissions`` can be true whatever route is selected.
+
+    ``action`` is the recovery the command already publishes, and it is
+    ``advance_blocking``: it is an obligation *this run produced*, so it
+    outranks a standing diagnostic the way a refused ``init`` target does.
+    ``diagnostics`` and ``placeholders`` stay available for the failures that
+    have them — ``doctor`` reaches this with a diagnostic list and an
+    unresolved human-owned declaration and no recovery command at all.
+    """
+
+    return setup_control_envelope(
+        operation=operation,
+        input_id=setup_input_id(
+            operation=operation,
+            workspace=workspace,
+            manifest_path=Path(manifest_path) if manifest_path is not None else None,
+            manifest_bytes=manifest_bytes,
+            # The route, not only the state that produced it. `setup_input_id`
+            # documents why: the same failure read through the console script
+            # and through an absolute path publishes different commands, and
+            # `input_id` is the cache boundary for the answer. Every source a
+            # route can come from is folded in — the recovery, the recheck, the
+            # diagnostics' own rank-1 actions — plus whatever the caller adds.
+            routing_facts=(
+                reason,
+                exit_code,
+                placeholders,
+                recheck_command,
+                action.model_dump(mode="json") if action is not None else None,
+                [item.model_dump(mode="json") for item in top_next_actions(list(diagnostics))],
+                routing_facts,
+            ),
+        ),
+        reason=reason,
+        diagnostics=diagnostics,
+        advance=action,
+        advance_kind=action_kind,
+        advance_decision=SETUP_INCOMPLETE,
+        advance_blocking=action is not None,
+        placeholders=placeholders,
+        manifest_display_path=manifest_display_path,
+        recheck_command=recheck_command,
+        execution="failed",
+        exit_code=exit_code,
+    )
+
+
 def _route_for(diagnostic: Diagnostic) -> tuple[NextAction, AgentActionKind, str]:
     """The one route this diagnostic asks for, with its owner already applied.
 
@@ -617,5 +695,6 @@ __all__ = [
     "SetupOperation",
     "SetupRouting",
     "setup_control_envelope",
+    "setup_failure_routing",
     "setup_input_id",
 ]

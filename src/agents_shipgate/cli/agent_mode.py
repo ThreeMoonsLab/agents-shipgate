@@ -98,6 +98,42 @@ def emit_agent_mode_error_action(
     )
 
 
+def emit_agent_mode_error_routing(
+    error_kind: str,
+    *,
+    routing: Any,
+    message: object | None = None,
+    exit_code: int | None = None,
+    details: object | None = None,
+    **fields: object,
+) -> None:
+    """Emit a structured error whose recovery is one selected setup route.
+
+    The sibling of :func:`emit_agent_mode_error_action` one level up: that one
+    keeps ``next_action`` and ``next_actions`` from disagreeing, this one adds
+    the ``shipgate.agent_control/v1`` envelope to the same guarantee. The three
+    fields a caller can route on are projected here from one
+    :class:`~agents_shipgate.cli.setup_control.SetupRouting`, so an error line
+    cannot publish a control state that authorizes nothing beside a ranked list
+    that names a command — which is the split the stdout fields were unified to
+    remove, reproduced on the error stream.
+
+    Typed as ``Any`` for the same reason ``action`` is: this module is imported
+    by every command, and ``setup_control`` imports half of them back.
+    """
+
+    emit_agent_mode_error(
+        error_kind,
+        message=message,
+        exit_code=exit_code,
+        next_action=routing.legacy_next_action,
+        next_actions=routing.json_actions(),
+        control=routing.envelope.model_dump(mode="json"),
+        details=details,
+        **fields,
+    )
+
+
 def emit_agent_mode_error(
     error_kind: str,
     *,

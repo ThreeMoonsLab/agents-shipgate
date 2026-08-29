@@ -7,7 +7,9 @@ from pathlib import Path
 
 import typer
 
-from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
+from agents_shipgate.cli.agent_mode import (
+    emit_agent_mode_error_routing as _emit_agent_mode_error_routing,
+)
 from agents_shipgate.cli.discovery import (
     DEFAULT_MAX_PYTHON_FILES,
     detect_workspace,
@@ -44,6 +46,7 @@ from agents_shipgate.cli.setup_control import (
     SETUP_COMPLETE,
     SETUP_INCOMPLETE,
     setup_control_envelope,
+    setup_failure_routing,
     setup_input_id,
 )
 from agents_shipgate.cli.workspace_guard import require_workspace
@@ -223,6 +226,19 @@ def _requested_setup_flags(
     if agent_instructions is not None:
         flags.append(f"--agent-instructions={agent_instructions}")
     return flags
+
+
+def _doctor_command(target: Path) -> str:
+    """The invocation that inspects the manifest at ``target``.
+
+    One spelling, because it is used twice and for two different jobs: it is the
+    route `init` publishes when it declined to overwrite an existing manifest,
+    and it is the ``recheck_command`` an ``edit`` route is required to supply.
+    Two `render_command` calls that happen to agree today is the shape of a
+    difference nobody notices.
+    """
+
+    return render_command(["doctor", "--config", str(target.resolve()), "--json"])
 
 
 def _recovery_command(
@@ -743,17 +759,40 @@ def _init_advance(
             False,
         )
     if manifest_status == "skipped_existing":
+        # `init --write` refused to overwrite, and the file it refused to
+        # overwrite *loads*: the `manifest_defect` branch above has already
+        # claimed every existing manifest that does not. So there is nothing
+        # here for an edit to fix, and this branch published one anyway —
+        # `expects: "The manifest reflects the desired tool sources, agent
+        # declared_purpose, and policies"`, a postcondition the file already
+        # satisfies. A route whose postcondition already holds cannot change
+        # the answer, and the envelope contract says `next_action` *is* the
+        # step: an envelope-only consumer opened the manifest, found nothing to
+        # change, re-ran, and got the identical action back forever. That is
+        # the one place the #327 adoption walk could not leave stage 2, because
+        # re-running the command that stopped is the only resume an
+        # envelope-only caller has after a human resolves a declaration.
+        #
+        # Hand the question to the command that owns the file on disk instead.
+        # `doctor` inspects the manifest this run declined to replace and
+        # publishes the real outstanding step — the gate when nothing is wrong,
+        # a named repair when something is — so the route can change the
+        # answer, and it never claims the setup is complete on this run's
+        # behalf. The refusal itself is not softened: the exit code is
+        # unchanged, and the sentence a person acts on is carried verbatim
+        # into `why`.
         return (
             NextAction(
-                kind="edit",
-                path=str(target),
+                kind="command",
+                command=_doctor_command(target),
                 why=(
                     f"{target} already exists. Edit it directly or remove it "
-                    "before re-running init --write."
+                    "before re-running init --write. It was left unchanged, so "
+                    "doctor reports what the manifest on disk still owes."
                 ),
                 expects=(
-                    "The manifest reflects the desired tool sources, agent "
-                    "declared_purpose, and policies."
+                    "doctor reports the outstanding setup step for the "
+                    "manifest that already exists."
                 ),
             ),
             "configure",
@@ -970,11 +1009,18 @@ def register(app: typer.Typer) -> None:
                     "built-in pack id."
                 ),
             )
-            _emit_agent_mode_error(
+            _emit_agent_mode_error_routing(
                 "config_error",
+                routing=setup_failure_routing(
+                    operation="init",
+                    workspace=workspace_resolved,
+                    reason=message,
+                    exit_code=2,
+                    action=pack_action,
+                    action_kind="initialize",
+                ),
                 message=message,
-                next_action=pack_action.to_legacy_string(),
-                next_actions=[pack_action.model_dump(mode="json")],
+                exit_code=2,
             )
             raise typer.Exit(2)
 
@@ -988,37 +1034,40 @@ def register(app: typer.Typer) -> None:
                 requested_targets = parse_selector(agent_instructions)
             except InvalidSelector as exc:
                 typer.echo(str(exc), err=True)
-                _emit_agent_mode_error(
-                    "config_error",
-                    message=str(exc),
-                    next_action=(
-                        "Pass --agent-instructions=default, --agent-instructions=all, "
-                        "--agent-instructions=none, or a comma-separated subset."
+                selector_action = NextAction(
+                    kind="command",
+                    # Same rule as the control-pack route above: the recovery
+                    # repeats the run it is correcting.
+                    command=_recovery_command(
+                        workspace=workspace_resolved,
+                        write=write,
+                        json_output=json_output,
+                        setup_flags=_requested_setup_flags(
+                            ci=ci,
+                            claude_code=claude_code,
+                            agent_instructions="default",
+                            control_pack=control_pack,
+                        ),
                     ),
-                    next_actions=[
-                        NextAction(
-                            kind="command",
-                            # Same rule as the control-pack route above: the
-                            # recovery repeats the run it is correcting.
-                            command=_recovery_command(
-                                workspace=workspace_resolved,
-                                write=write,
-                                json_output=json_output,
-                                setup_flags=_requested_setup_flags(
-                                    ci=ci,
-                                    claude_code=claude_code,
-                                    agent_instructions="default",
-                                    control_pack=control_pack,
-                                ),
-                            ),
-                            why=str(exc),
-                            expects=(
-                                "Snippets render for the recommended downstream "
-                                "agent kit (AGENTS.md, Cursor rule, Claude "
-                                "command, and local contract)."
-                            ),
-                        ).model_dump(mode="json")
-                    ],
+                    why=str(exc),
+                    expects=(
+                        "Snippets render for the recommended downstream "
+                        "agent kit (AGENTS.md, Cursor rule, Claude "
+                        "command, and local contract)."
+                    ),
+                )
+                _emit_agent_mode_error_routing(
+                    "config_error",
+                    routing=setup_failure_routing(
+                        operation="init",
+                        workspace=workspace_resolved,
+                        reason=str(exc),
+                        exit_code=2,
+                        action=selector_action,
+                        action_kind="initialize",
+                    ),
+                    message=str(exc),
+                    exit_code=2,
                 )
                 raise typer.Exit(2) from exc
 
@@ -1076,11 +1125,17 @@ def register(app: typer.Typer) -> None:
                     ),
                 )
                 typer.echo(message, err=True)
-                _emit_agent_mode_error(
+                _emit_agent_mode_error_routing(
                     "other_error",
+                    routing=setup_failure_routing(
+                        operation="init",
+                        workspace=workspace_resolved,
+                        reason=message,
+                        exit_code=4,
+                        action=action,
+                    ),
                     message=message,
-                    next_action=action.to_legacy_string(),
-                    next_actions=[action.model_dump(mode="json")],
+                    exit_code=4,
                 )
                 raise typer.Exit(4) from exc
             rendered = render_auto_manifest(
@@ -1093,10 +1148,18 @@ def register(app: typer.Typer) -> None:
             try:
                 _validate_manifest_text(template)
             except Exception as exc:  # noqa: BLE001 - validation surface
-                typer.echo(f"Generated manifest failed validation: {exc}", err=True)
+                message = f"Generated manifest failed validation: {exc}"
+                typer.echo(message, err=True)
                 minimal_action = NextAction(
                     kind="command",
-                    command="agents-shipgate init --minimal",
+                    # Spelled for the invocation that produced it, like every
+                    # other emitted command (#322). The error line normalized
+                    # this literal on its way out; the envelope publishes
+                    # `next_action.command` verbatim, so the two forms would
+                    # have named different entry points from one route.
+                    command=render_command(
+                        ["init", "--workspace", str(workspace_resolved), "--minimal"]
+                    ),
                     why=(
                         "Auto-detected manifest failed schema validation. "
                         "Fall back to the legacy CHANGE_ME-heavy template."
@@ -1106,11 +1169,18 @@ def register(app: typer.Typer) -> None:
                         "you fill in manually."
                     ),
                 )
-                _emit_agent_mode_error(
+                _emit_agent_mode_error_routing(
                     "internal_error",
-                    message=f"Generated manifest failed validation: {exc}",
-                    next_action=minimal_action.to_legacy_string(),
-                    next_actions=[minimal_action.model_dump(mode="json")],
+                    routing=setup_failure_routing(
+                        operation="init",
+                        workspace=workspace_resolved,
+                        reason=message,
+                        exit_code=4,
+                        action=minimal_action,
+                        action_kind="initialize",
+                    ),
+                    message=message,
+                    exit_code=4,
                 )
                 raise typer.Exit(4) from exc
             placeholders = collect_placeholders(template)
@@ -1206,22 +1276,61 @@ def register(app: typer.Typer) -> None:
             except AdoptionKitError as exc:
                 path = str(exc.path or agent_instructions_kit or workspace_resolved)
                 typer.echo(str(exc), err=True)
-                _emit_agent_mode_error(
+                kit_action = NextAction(
+                    kind="edit",
+                    path=path,
+                    why=str(exc),
+                    expects=(
+                        "Adoption-kit config uses schema_version: 1 "
+                        "and each overrides_dir resolves under the workspace."
+                    ),
+                )
+                _emit_agent_mode_error_routing(
                     "config_error",
+                    routing=setup_failure_routing(
+                        operation="init",
+                        workspace=workspace_resolved,
+                        reason=str(exc),
+                        exit_code=2,
+                        action=kit_action,
+                        # The edit is the step; the recheck is the run it
+                        # corrects, which is what `_agent_route` puts on the
+                        # legacy control while the envelope carries the edit.
+                        # It repeats the whole invocation, `--minimal`, the
+                        # accepted scope boundary and the kit path included: a
+                        # recheck for a *kit* config that dropped
+                        # `--agent-instructions-kit` would not read the file it
+                        # just asked someone to fix. The path is repeated
+                        # verbatim because this rerun is the same workspace —
+                        # `rebased_kit_flags` is for the routes that move it.
+                        recheck_command=_recovery_command(
+                            workspace=workspace_resolved,
+                            write=write,
+                            json_output=json_output,
+                            setup_flags=[
+                                *(["--minimal"] if minimal else []),
+                                *_requested_setup_flags(
+                                    ci=ci,
+                                    claude_code=claude_code,
+                                    agent_instructions=agent_instructions,
+                                    control_pack=control_pack,
+                                ),
+                                *(
+                                    ["--allow-unresolved-scope"]
+                                    if allow_unresolved_scope
+                                    else []
+                                ),
+                                *(
+                                    ["--agent-instructions-kit", str(agent_instructions_kit)]
+                                    if agent_instructions_kit is not None
+                                    else []
+                                ),
+                            ],
+                        ),
+                    ),
                     path=path,
                     message=str(exc),
-                    next_action=f"Edit {path}",
-                    next_actions=[
-                        NextAction(
-                            kind="edit",
-                            path=path,
-                            why=str(exc),
-                            expects=(
-                                "Adoption-kit config uses schema_version: 1 "
-                                "and each overrides_dir resolves under the workspace."
-                            ),
-                        ).model_dump(mode="json")
-                    ],
+                    exit_code=2,
                 )
                 raise typer.Exit(2) from exc
 
@@ -1518,25 +1627,21 @@ def register(app: typer.Typer) -> None:
             advance_decision=advance_decision,
             advance_blocking=advance_blocking,
             advance_alternatives=scope_actions[1:],
-            recheck_command=render_command(
-                ["doctor", "--config", str(target.resolve()), "--json"]
-            ),
+            recheck_command=_doctor_command(target),
             placeholders=control_placeholders,
             manifest_display_path=str(target),
             exit_code=max(manifest_exit, agent_instructions_exit) or None,
         )
         if scope_refused:
-            _emit_agent_mode_error(
+            _emit_agent_mode_error_routing(
                 "config_error",
-                path=str(target),
-                message=manifest_message,
-                exit_code=manifest_exit,
                 # The one selected route, as everywhere else on this command.
                 # Composing an independent list here would put a different
                 # rank-1 on the error stream than the payload carries.
-                next_action=routing.legacy_next_action,
-                next_actions=routing.json_actions(),
-                control=routing.envelope.model_dump(mode="json"),
+                routing=routing,
+                path=str(target),
+                message=manifest_message,
+                exit_code=manifest_exit,
                 agent_scope=detected_scope,
                 agent_scope_truncated=scope_truncated,
                 project_root_count=scope_project_roots,
@@ -1550,12 +1655,10 @@ def register(app: typer.Typer) -> None:
             # split the stdout fields were just unified to remove: stdout said
             # `human_review_required` with no command while stderr handed the
             # agent `Edit shipgate.yaml` for a declaration only a person may make.
-            _emit_agent_mode_error(
+            _emit_agent_mode_error_routing(
                 "config_already_exists",
+                routing=routing,
                 path=str(target),
-                next_action=routing.legacy_next_action,
-                next_actions=routing.json_actions(),
-                control=routing.envelope.model_dump(mode="json"),
             )
 
 
@@ -1699,9 +1802,10 @@ def register(app: typer.Typer) -> None:
                 for line in _claude_code_outcome_lines(claude_code_outcome):
                     typer.echo(line)
 
-        # Surface a structured next_action JSON line for the rank-1 skipped target
-        # so coding-agent callers can route to a fix without scraping stdout. Gated
-        # on AGENTS_SHIPGATE_AGENT_MODE=1 by `_emit_agent_mode_error` itself.
+        # Surface the shared control envelope and the ranked actions for the
+        # rank-1 skipped target so coding-agent callers can route to a fix
+        # without scraping stdout. Gated on AGENTS_SHIPGATE_AGENT_MODE=1 by
+        # `emit_agent_mode_error` itself.
         if agent_instructions_exit:
             first_skip = next(
                 (t for t in agent_instructions_targets if t.status.startswith("skipped")),
@@ -1712,13 +1816,11 @@ def register(app: typer.Typer) -> None:
                 # envelope's rank-1 action *is* this obligation — unless an
                 # unresolved human-owned declaration outranks it, in which case
                 # that is the honest answer here too.
-                _emit_agent_mode_error(
+                _emit_agent_mode_error_routing(
                     "config_already_exists",
+                    routing=routing,
                     path=first_skip.path,
                     message=first_skip.message,
-                    next_action=routing.legacy_next_action,
-                    next_actions=routing.json_actions(),
-                    control=routing.envelope.model_dump(mode="json"),
                 )
 
         final_exit = max(manifest_exit, agent_instructions_exit)

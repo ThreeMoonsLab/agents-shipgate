@@ -49,6 +49,52 @@ It reduces evidence *coverage* only: the zero-unsafe-auto-pass rule, per-case
 receipts, the holdout fraction, the κ floor and `static_only` are unchanged, and
 every exact-match floor is the production rate rounded up. `1.0` and later still
 require the 100-case `beta` artifact, and there is no promotion shortcut.
+<a id="migration-note-unreleased-setup-error-envelope"></a>
+
+## Migration Note: unreleased — the setup control envelope reaches both streams
+
+`contract_version` moves **26 → 27**. `minimum_control_contract_version` stays
+at `21`, `report_schema_version` is unchanged, and no published schema document
+changes: both the `AgentControl` union and `shipgate.agent_control/v1` are
+byte-identical to v26. What moves is where an already-published object appears.
+
+**Every agent-mode error line from `detect`, `init`, and `doctor` now carries
+`control`.** v24 gave those commands the envelope on their `--json` payload and
+left the error stream out; two of `doctor`'s failure routes picked it up during
+that rollout, and `detect`'s and five of `init`'s did not. So whether a caller
+that routes on `control` could route at all depended on which setup command had
+failed and on which of its failures — and the run that most needs a route is
+the one that printed no payload to carry it. Additive: `next_action` and
+`next_actions[]` are unchanged on those lines and are derived from the same
+selected route as `control.next_action`.
+
+A setup failure envelope is fail-closed by construction, and a consumer may
+rely on it: `execution: "failed"`, `decision: "setup_incomplete"`,
+`decision_source: "setup"`, and every field of `permissions` false.
+
+**Two error lines still carry no `control`, by design.** The shared
+`--workspace` refusal (`config_error`, exit 2, emitted by all nineteen
+commands) fires because the workspace does not exist, so there is no setup
+subject for `input_id` to address; and `environment_error` is emitted before
+Agents Shipgate is running and carries `environment` instead. `scan`, `verify`,
+and `check` error lines are also unchanged — those commands publish a control
+pointer, and their envelope is the promoted read.
+
+**One routing behaviour changes, and it is not additive.** `init --write` over
+a manifest that already exists published `next_action.kind: "edit"` on
+`shipgate.yaml` with `expects: "The manifest reflects the desired tool sources,
+agent declared_purpose, and policies"`. That postcondition was already
+satisfied whenever the route was reached: a manifest that does *not* load is
+claimed by the repair route above it. On this contract `next_action` **is** the
+step, so the route could not change the answer — an envelope-only caller opened
+the file, found nothing to change, re-ran, and received the identical action.
+It is now `next_action.kind: "command"` naming the `doctor` invocation for the
+manifest on disk, which reports what that manifest still owes. Exit code 2 and
+the "already exists — edit it directly or remove it before re-running init
+--write" sentence are unchanged; a consumer that branched on
+`next_action.kind == "edit"` here now sees `"command"`.
+
+---
 
 <a id="migration-note-unreleased-adopter-vocabulary"></a>
 

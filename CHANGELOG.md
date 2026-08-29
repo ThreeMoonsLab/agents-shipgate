@@ -227,6 +227,47 @@
   holdout. The decision document, the schema docstring and the corpus runbook
   said "leaves each cell one tuning and one holdout case" as though that were
   checked; they now say what is actually enforced and why.
+- **One control vocabulary reaches both streams, and the adoption walk
+  composes end to end.** (#323) v24 rolled `shipgate.agent_control/v1` across
+  `detect`, `init`, and `doctor` on stdout and left the error stream out. Two
+  of `doctor`'s failure routes picked it up during that rollout; `detect`'s and
+  five of `init`'s did not. So whether a caller that routes on `control` could
+  route at all depended on which setup command had failed and on which of its
+  failures — and the run that most needs a route is the one that printed no
+  payload to carry it. Every agent-mode error line from those three commands
+  now carries the same envelope its `--json` payload would, projected from the
+  same selected route as `next_action` and `next_actions[]`, so the three
+  cannot disagree. A failure envelope is fail-closed by construction:
+  `execution: "failed"`, `decision: "setup_incomplete"`, and every field of
+  `permissions` false. Two lines still carry none, by design and by
+  documentation: the shared `--workspace` refusal fires before a workspace
+  exists, and `environment_error` is emitted before Agents Shipgate is running.
+  Runtime contract 26 → 27; both the `AgentControl` union and the envelope
+  schema are byte-identical, so `minimum_control_contract_version` stays at
+  `21`.
+
+  **The route that could not advance.** `init --write` over a manifest that
+  already exists published `edit shipgate.yaml`, `expects: "The manifest
+  reflects the desired tool sources, agent declared_purpose, and policies"` — a
+  postcondition the file already satisfied, because a manifest that does *not*
+  load is claimed by the repair route above it. On this contract `next_action`
+  **is** the step, so an envelope-only caller opened the file, found nothing to
+  change, re-ran, and got the identical action back forever. That is the one
+  place the #327 adoption walk could not leave stage 2: after a human resolves
+  the `declared_purpose` declaration, re-running the command that stopped is
+  the only resume an envelope-only caller has. The route is now the `doctor`
+  invocation for the manifest on disk, which reports what that manifest still
+  owes. The exit code and the sentence a person acts on are unchanged.
+
+  **Proved by walking it.** `tests/test_adoption_walk.py` takes an unadopted
+  repository from `verify --preview` to a release decision as real
+  subprocesses, choosing every step from the envelope alone — no
+  command-specific result field, no hand-built command, no look at the
+  workspace to work out which stage it is in. It asserts the invariants #323
+  asks for at each step (one vocabulary, one typed rank-1 action, setup and
+  gate states naming their source, setup authorizing nothing, the gate's
+  decision equal to `report.json`'s) and fails a step that hands back the same
+  action for an unchanged subject, which is how the route above was found.
 
 - **The declaration continuation: a drafted proposal can now reach the person
   it was drafted for.** (#429 review) `apply-patches --kinds declare_action`

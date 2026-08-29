@@ -10,6 +10,50 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
+Runtime contract v27 finishes the v24 rollout on the stream v24 left out.
+**Every** agent-mode error line from `detect`, `init`, and `doctor` now carries
+the same `shipgate.agent_control/v1` object those commands publish on
+`--json`. Before, `doctor`'s two failure routes carried one and `detect`'s and
+five of `init`'s did not, so whether a caller that routes on `control` could
+route at all depended on which setup command had failed and on which of its
+failures — a caller cannot branch on that, and the run that most needs a route
+is the one that printed no payload to carry it.
+
+Nothing is removed. `next_action` (single string) and `next_actions[]` (ranked
+array) are unchanged on those lines, and are derived from the same selected
+route as `control.next_action`, so the three cannot send you to different work.
+The failure envelope is fail-closed by construction: `execution: "failed"`,
+`decision: "setup_incomplete"`, and — setup authorizing nothing — every field
+of `permissions` false.
+
+**One stated exception.** The shared `--workspace` refusal (`config_error`,
+exit 2, emitted by every one of the nineteen commands) carries
+`next_action`/`next_actions[]` and no envelope. It fires because the workspace
+does not exist, so there is no setup subject for `input_id` to address and no
+setup facts for a state to be derived from. Treat an error line with no
+`control` as "this is not a setup answer", not as "route on something else".
+
+`scan`, `verify`, and `check` are unchanged and are deliberately not in this:
+they publish a control *pointer*, and their envelope is the promoted read
+(`agents-shipgate agent control`) or `--format control` /
+`--format agent-control-json`.
+
+`init --write` over a manifest that already exists also publishes a different
+route. It reported `next_action.kind: "edit"` on `shipgate.yaml` with
+`expects: "The manifest reflects the desired tool sources, agent
+declared_purpose, and policies"` — a postcondition the file already satisfied,
+because a manifest that does *not* load is claimed by the repair route above
+it. On this contract `next_action` **is** the step, so that route could not
+change the answer: an envelope-only caller opened the file, found nothing to
+change, re-ran, and got the identical action back. It is now the `doctor`
+invocation for the manifest on disk, which reports what that manifest still
+owes. The exit code (2) and the "already exists — edit it directly or remove
+it" sentence are unchanged.
+
+Both the `AgentControl` union and `shipgate.agent_control/v1` are
+byte-identical to v26 — the same envelope reaches one more place — so
+`minimum_control_contract_version` stays at `21`.
+
 Runtime contract v26 adds the **declaration continuation**: a receipt
 ``apply-patches`` writes beside the report it applied from
 (``declaration-continuation.json``, ``shipgate.declaration_continuation/v1``),
@@ -327,7 +371,7 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b7` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `26` (minimum control contract: `21`)
+- Runtime contract: `27` (minimum control contract: `21`)
 - Current report schema: `0.42` — [`docs/report-schema.v0.42.json`](report-schema.v0.42.json)
 - Current packet schema: `0.17` — [`docs/packet-schema.v0.17.json`](packet-schema.v0.17.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
