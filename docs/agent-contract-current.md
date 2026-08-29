@@ -13,8 +13,8 @@ agents-shipgate contract --json
 Runtime contract v27 finishes the v24 rollout on the stream v24 left out.
 **Every** agent-mode error line from `detect`, `init`, and `doctor` now carries
 the same `shipgate.agent_control/v1` object those commands publish on
-`--json`. Before, `doctor`'s two failure routes carried one and `detect`'s and
-five of `init`'s did not, so whether a caller that routes on `control` could
+`--json`. Before, `doctor`'s failure routes carried one and `detect`'s and five
+of `init`'s did not, so whether a caller that routes on `control` could
 route at all depended on which setup command had failed and on which of its
 failures — a caller cannot branch on that, and the run that most needs a route
 is the one that printed no payload to carry it.
@@ -27,16 +27,17 @@ The failure envelope is fail-closed by construction: `execution: "failed"`,
 of `permissions` false.
 
 **One stated exception.** The shared `--workspace` refusal (`config_error`,
-exit 2, emitted by every one of the nineteen commands) carries
+exit 2, emitted by every command that takes a `--workspace`) carries
 `next_action`/`next_actions[]` and no envelope. It fires because the workspace
 does not exist, so there is no setup subject for `input_id` to address and no
 setup facts for a state to be derived from. Treat an error line with no
 `control` as "this is not a setup answer", not as "route on something else".
 
-`scan`, `verify`, and `check` are unchanged and are deliberately not in this:
-they publish a control *pointer*, and their envelope is the promoted read
-(`agents-shipgate agent control`) or `--format control` /
-`--format agent-control-json`.
+`scan`, `verify`, and `check` are unchanged and are deliberately not in this.
+`scan` and `verify` publish a control *pointer*, so their envelope is the
+promoted read `agents-shipgate agent control` — or, for `verify`, `--format
+control` directly. `check` publishes no pointer at all and binds its authority
+to `input_id` instead; its envelope is `--format agent-control-json`.
 
 `init --write` over a manifest that already exists also publishes a different
 route. It reported `next_action.kind: "edit"` on `shipgate.yaml` with

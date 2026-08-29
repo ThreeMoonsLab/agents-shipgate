@@ -420,8 +420,8 @@ The kind is setup-only: `verify`, `check`, and `scan` never emit it, and both
 schema layers reject it on those operations.
 
 All six commands publish it; what differs is where, because a command that
-reaches a release decision publishes a control *pointer* rather than the
-envelope itself:
+publishes a control *pointer* names the envelope from that pointer rather than
+carrying it on its own result:
 
 | Command | Where the envelope is |
 | ------- | --------------------- |
@@ -478,8 +478,9 @@ beside it. Such an envelope always reports `execution: "failed"`,
 is the shared `--workspace` refusal, which fires before the workspace exists
 and therefore has no setup subject to describe: it carries
 `next_action`/`next_actions` only. Error lines from `scan`, `verify`, and
-`check` also carry no `control` — those commands publish a control pointer, and
-their envelope is `agents-shipgate agent control`.
+`check` also carry no `control`: the first two answer through their control
+pointer (`agents-shipgate agent control`), and `check` through
+`--format agent-control-json`.
 
 Every emitted command names the entry point that started the running process, so it is runnable where it was produced: a console-script run emits `agents-shipgate …`, and a `python -m agents_shipgate` run emits `<sys.executable> -m agents_shipgate …`. Set `AGENTS_SHIPGATE_CLI` to name the entry point explicitly; it wins over detection. **On `next_actions[]`, run `[*executable, *args]` (contract v23+) rather than parsing `command`** — it needs no shell and is computed from `command`, so it cannot disagree with it; it is omitted, never `null`, when the command has no faithful argv form. The operational control contracts (`control.next_action`, `allowed_next_commands`, verifier repairs) carry the string only: recover argv there with `shlex.split(command)`, which is exact on every platform because every emitted command is POSIX-rendered. Never use `shell=True`, and do not paste `command` into `cmd.exe` or PowerShell. Durable artifacts (`report.json`, `packet.*`) stay canonical so that same inputs still produce the same report. See [docs/diagnostics.md](docs/diagnostics.md#invocation-policy).
 
@@ -1440,8 +1441,8 @@ agents-shipgate contract --json
 Runtime contract v27 finishes the v24 rollout on the stream v24 left out.
 **Every** agent-mode error line from `detect`, `init`, and `doctor` now carries
 the same `shipgate.agent_control/v1` object those commands publish on
-`--json`. Before, `doctor`'s two failure routes carried one and `detect`'s and
-five of `init`'s did not, so whether a caller that routes on `control` could
+`--json`. Before, `doctor`'s failure routes carried one and `detect`'s and five
+of `init`'s did not, so whether a caller that routes on `control` could
 route at all depended on which setup command had failed and on which of its
 failures — a caller cannot branch on that, and the run that most needs a route
 is the one that printed no payload to carry it.
@@ -1454,16 +1455,17 @@ The failure envelope is fail-closed by construction: `execution: "failed"`,
 of `permissions` false.
 
 **One stated exception.** The shared `--workspace` refusal (`config_error`,
-exit 2, emitted by every one of the nineteen commands) carries
+exit 2, emitted by every command that takes a `--workspace`) carries
 `next_action`/`next_actions[]` and no envelope. It fires because the workspace
 does not exist, so there is no setup subject for `input_id` to address and no
 setup facts for a state to be derived from. Treat an error line with no
 `control` as "this is not a setup answer", not as "route on something else".
 
-`scan`, `verify`, and `check` are unchanged and are deliberately not in this:
-they publish a control *pointer*, and their envelope is the promoted read
-(`agents-shipgate agent control`) or `--format control` /
-`--format agent-control-json`.
+`scan`, `verify`, and `check` are unchanged and are deliberately not in this.
+`scan` and `verify` publish a control *pointer*, so their envelope is the
+promoted read `agents-shipgate agent control` — or, for `verify`, `--format
+control` directly. `check` publishes no pointer at all and binds its authority
+to `input_id` instead; its envelope is `--format agent-control-json`.
 
 `init --write` over a manifest that already exists also publishes a different
 route. It reported `next_action.kind: "edit"` on `shipgate.yaml` with

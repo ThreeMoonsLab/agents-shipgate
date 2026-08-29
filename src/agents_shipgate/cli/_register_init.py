@@ -1152,13 +1152,27 @@ def register(app: typer.Typer) -> None:
                 typer.echo(message, err=True)
                 minimal_action = NextAction(
                     kind="command",
-                    # Spelled for the invocation that produced it, like every
-                    # other emitted command (#322). The error line normalized
-                    # this literal on its way out; the envelope publishes
-                    # `next_action.command` verbatim, so the two forms would
-                    # have named different entry points from one route.
-                    command=render_command(
-                        ["init", "--workspace", str(workspace_resolved), "--minimal"]
+                    # Through the one recovery builder, like the two early
+                    # validation routes above. A bare `init --minimal` dropped
+                    # the workspace this run was pointed at, the `--write` that
+                    # made it a real run, and the `--json` the caller is
+                    # reading the answer through — so following the fallback
+                    # exactly produced a dry run against the process directory.
+                    # (The console-script spelling was never the problem:
+                    # `NextAction` retargets `command` on construction.)
+                    command=_recovery_command(
+                        workspace=workspace_resolved,
+                        write=write,
+                        json_output=json_output,
+                        setup_flags=[
+                            "--minimal",
+                            *_requested_setup_flags(
+                                ci=ci,
+                                claude_code=claude_code,
+                                agent_instructions=agent_instructions,
+                                control_pack=control_pack,
+                            ),
+                        ],
                     ),
                     why=(
                         "Auto-detected manifest failed schema validation. "

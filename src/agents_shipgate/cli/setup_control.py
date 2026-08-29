@@ -380,7 +380,7 @@ def setup_failure_routing(
     A setup command answers "what may I do next" on stdout and, when it fails,
     on an agent-mode error line — and #323's fourth criterion is that those two
     are not different shapes. They were: ``doctor`` carried ``control`` on its
-    two failure routes while ``detect`` and five of ``init``'s carried only
+    failure routes while ``detect``'s and five of ``init``'s carried only
     ``next_action``/``next_actions``, so whether an envelope-only caller could
     route at all depended on *which* setup command had failed and on which of
     its failures. One helper rather than one construction per call site,
@@ -391,6 +391,15 @@ def setup_failure_routing(
     ``failed``, the decision is ``setup_incomplete`` — a run that could not
     finish has not configured anything — and, setup authorizing nothing, no
     field of ``permissions`` can be true whatever route is selected.
+
+    ``failed`` is the narrower of the two exits a setup command can take, and
+    the line is where the *answer* is, not where the exit code is. A command
+    that reached an answer about the workspace and reported a refusal —
+    ``init --write`` declining to overwrite a manifest — exits 2 with
+    ``execution: "succeeded"``, because it ran and answered. This is for the
+    commands that could not get that far: a flag they could not parse, a
+    discovery they could not bound, a manifest they could not open. Both are
+    ``setup_incomplete``, and neither authorizes anything.
 
     ``action`` is the recovery the command already publishes, and it is
     ``advance_blocking``: it is an obligation *this run produced*, so it

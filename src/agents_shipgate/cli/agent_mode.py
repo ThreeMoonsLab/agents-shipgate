@@ -118,6 +118,12 @@ def emit_agent_mode_error_routing(
     that names a command — which is the split the stdout fields were unified to
     remove, reproduced on the error stream.
 
+    ``exit_code`` stays a parameter rather than being read off the envelope
+    because the two answer different questions on a command that does several
+    things: ``init --write --ci`` reports the *manifest's* exit on the line it
+    is explaining while the envelope carries the process exit the whole
+    invocation will end with. Pass the one the line is about.
+
     Typed as ``Any`` for the same reason ``action`` is: this module is imported
     by every command, and ``setup_control`` imports half of them back.
     """

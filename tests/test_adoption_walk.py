@@ -44,14 +44,23 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from agents_shipgate.schemas.agent_control_envelope import (
     AGENT_CONTROL_ENVELOPE_SCHEMA_VERSION,
     SETUP_DECISIONS,
     SETUP_OPERATIONS,
+    validate_agent_control_envelope,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# The document external consumers validate against. Every step of the walk is
+# checked against it as well as against the model, because a payload accepted
+# only in Python is published as valid to everyone reading the schema.
+_PUBLISHED_SCHEMA = Draft202012Validator(
+    json.loads((REPO_ROOT / "docs/agent-control-schema.v1.json").read_text(encoding="utf-8"))
+)
 
 # The walk is bounded so a routing cycle fails as a cycle rather than as a
 # timeout. The shipped walk is five steps — preview, init, the init resumed
@@ -152,8 +161,14 @@ class _Walk:
                 **os.environ,
                 "PYTHONPATH": str(REPO_ROOT / "src"),
                 "AGENTS_SHIPGATE_AGENT_MODE": "1",
-                # The walk must not be routed by whichever harness happens to
-                # be running the suite.
+                # The walk must not be routed by whichever harness, entry
+                # point, or adapter set happens to be configured where the
+                # suite runs. `AGENTS_SHIPGATE_CLI` is the load-bearing one:
+                # it names the entry point every emitted command is spelled
+                # for, and the walk *executes* those commands — an exported
+                # value would send the walk into a different install.
+                "AGENTS_SHIPGATE_CLI": "",
+                "AGENTS_SHIPGATE_ENABLE_PLUGINS": "",
                 "CLAUDECODE": "",
                 "CURSOR_TRACE_ID": "",
             },
@@ -259,6 +274,11 @@ def _assert_shared_envelope(step: _Step) -> None:
     envelope = step.envelope
     where = shlex.join(step.argv)
     assert envelope["schema_version"] == AGENT_CONTROL_ENVELOPE_SCHEMA_VERSION, where
+    # Both layers, on a real emission rather than a constructed one: the
+    # discriminated union is what makes a contradictory state unrepresentable,
+    # and only the published document proves that to a consumer outside Python.
+    validate_agent_control_envelope(envelope)
+    assert not list(_PUBLISHED_SCHEMA.iter_errors(envelope)), where
     # The five fields a caller routes on, present on every step regardless of
     # which command answered — criterion 1.
     for required in ("operation", "control_state", "permissions", "decision_source", "decision"):
@@ -356,6 +376,46 @@ def _resolve_human_declaration(workspace: Path) -> bool:
     return True
 
 
+def _fake_step(*, operation: str, input_id: str | None, action: dict | None) -> _Step:
+    return _Step(
+        argv=["shipgate", operation],
+        exit_code=0,
+        stdout="",
+        stderr="",
+        envelope={"operation": operation, "input_id": input_id, "next_action": action},
+        stream="stdout",
+    )
+
+
+def test_a_route_is_the_same_route_only_when_both_subject_and_step_are():
+    """The cycle detector, exercised directly rather than only in the walk.
+
+    A guard that never fires on the happy path is still a guard, but one whose
+    key does not actually discriminate would never fire at all. Both halves
+    matter: the same action for a *moved* subject is progress, and a different
+    action for the same subject is progress too.
+    """
+
+    edit = {"kind": "edit", "command": None, "path": "/ws/shipgate.yaml"}
+    repeated = _fake_step(operation="init", input_id="sha256:aa", action=edit)
+    identical = _fake_step(operation="init", input_id="sha256:aa", action=dict(edit))
+    moved_subject = _fake_step(operation="init", input_id="sha256:bb", action=dict(edit))
+    moved_step = _fake_step(
+        operation="init",
+        input_id="sha256:aa",
+        action={"kind": "command", "command": "shipgate doctor", "path": None},
+    )
+
+    assert _route_key(repeated) == _route_key(identical)
+    assert _route_key(repeated) != _route_key(moved_subject)
+    assert _route_key(repeated) != _route_key(moved_step)
+    # A terminal state carries no action and must not collide with a step that
+    # merely published no command.
+    assert _route_key(
+        _fake_step(operation="verify", input_id=None, action=None)
+    ) == ("verify", None, None, None, None)
+
+
 def test_the_adoption_walk_routes_end_to_end_on_the_envelope_alone(
     unadopted_repository: Path,
 ) -> None:
@@ -419,8 +479,11 @@ def test_the_adoption_walk_routes_end_to_end_on_the_envelope_alone(
         command = action["command"]
         assert command, "an agent_action_required route published no command"
         argv = shlex.split(command)
-        # `verify` publishes a control pointer rather than the envelope, so its
-        # answer is read back through the promoted read.
+        # A `verify` step publishes a control pointer rather than an envelope,
+        # so its answer is read back through the promoted read. The rule comes
+        # from the envelope's own typed `kind` — parsing the command string to
+        # work out which program it names would be a second grammar for
+        # something the route already states.
         step = walk.execute(argv, from_pointer=action["kind"] == "verify")
     else:  # pragma: no cover - the walk is expected to terminate
         pytest.fail(

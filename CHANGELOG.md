@@ -229,8 +229,8 @@
   checked; they now say what is actually enforced and why.
 - **One control vocabulary reaches both streams, and the adoption walk
   composes end to end.** (#323) v24 rolled `shipgate.agent_control/v1` across
-  `detect`, `init`, and `doctor` on stdout and left the error stream out. Two
-  of `doctor`'s failure routes picked it up during that rollout; `detect`'s and
+  `detect`, `init`, and `doctor` on stdout and left the error stream out.
+  `doctor`'s failure routes picked it up during that rollout; `detect`'s and
   five of `init`'s did not. So whether a caller that routes on `control` could
   route at all depended on which setup command had failed and on which of its
   failures — and the run that most needs a route is the one that printed no

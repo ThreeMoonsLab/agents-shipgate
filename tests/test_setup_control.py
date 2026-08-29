@@ -2058,9 +2058,10 @@ def test_a_manifest_type_mismatch_routes_to_the_editor_not_the_tracker(
 # ---------------------------------------------------------------------------
 
 # The three command modules whose every agent-mode error line must carry the
-# shared envelope. `scan`, `verify`, and `check` are deliberately not here: they
-# publish a control *pointer* and their envelope is the promoted read, so their
-# error lines route on `next_action`/`next_actions` as before.
+# shared envelope. `scan`, `verify`, and `check` are deliberately not here: the
+# first two answer through the control pointer they publish and `check` through
+# `--format agent-control-json`, so their error lines route on
+# `next_action`/`next_actions` as before.
 _SETUP_COMMAND_MODULES = (
     "src/agents_shipgate/cli/detect.py",
     "src/agents_shipgate/cli/_register_init.py",
@@ -2071,10 +2072,11 @@ _SETUP_COMMAND_MODULES = (
 def _called_names(source: str) -> list[str]:
     """Every function called in this module, under its *imported* name.
 
-    Both modules alias the emitters on import (`emit_agent_mode_error_routing
-    as _emit_agent_mode_error_routing`), so matching the call site's spelling
-    would let a rename hide the very call this test exists to find. Aliases are
-    resolved back through the import statements first.
+    Two of these modules alias the emitters on import
+    (`emit_agent_mode_error_routing as _emit_agent_mode_error_routing`), so
+    matching the call site's spelling would let a rename hide the very call
+    this test exists to find. Aliases are resolved back through the import
+    statements first.
     """
 
     import ast
@@ -2101,20 +2103,21 @@ def _called_names(source: str) -> list[str]:
 def test_every_setup_error_line_goes_through_the_envelope_emitter(module: str):
     """A new failure route cannot be added without the shared envelope.
 
-    Asserting the *shape* of the six error lines that exist today would say
-    nothing about the seventh. `emit_agent_mode_error` takes `control` as an
+    Asserting the *shape* of the twelve error lines that exist today would say
+    nothing about the thirteenth. `emit_agent_mode_error` takes `control` as an
     ordinary keyword, so a setup command reaching for it directly is a route
     that compiles, runs, and publishes an error line an envelope-only caller
     cannot act on — which is how five of `init`'s and `detect`'s ended up
-    without one while `doctor`'s two had them.
+    without one while `doctor`'s had them.
 
     `emit_agent_mode_error_routing` is the only emitter these modules may use:
     it derives `next_action`, `next_actions[]`, and `control` from one selected
     route, so the three cannot disagree and none of them can be omitted.
 
     `require_workspace` is the stated exception and is not in these modules: it
-    is shared by all nineteen commands and refuses *before* a workspace exists,
-    so there is no setup subject for an envelope to be computed against.
+    is shared by every command that takes a `--workspace` and refuses *before*
+    that workspace exists, so there is no setup subject for an envelope to be
+    computed against.
     """
 
     source = (REPO_ROOT / module).read_text(encoding="utf-8")
@@ -2160,20 +2163,124 @@ def test_a_setup_failure_envelope_authorizes_nothing_and_says_it_failed():
     assert not list(_PUBLISHED_SCHEMA.iter_errors(payload))
 
 
-def test_a_setup_failure_identity_moves_with_the_route_it_publishes():
-    """`input_id` is the cache boundary for the answer, so it covers the route."""
+def test_a_setup_failure_identity_moves_with_the_entry_point(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """`input_id` is the cache boundary for the answer, so it covers the route.
+
+    The same refusal read through two entry points publishes two different
+    `next_action.command` values (#322), and an identity that does not move
+    when the answer does invites reuse of the wrong one.
+
+    Both entry points are *pinned* rather than written into the two command
+    strings, because `NextAction` retargets `command` on construction: two
+    literals differing only in their program name collapse to one string
+    wherever `AGENTS_SHIPGATE_CLI` is already set, and the test would then pass
+    or fail on the developer's environment rather than on the identity.
+    """
 
     from agents_shipgate.cli.setup_control import setup_failure_routing
 
-    def identity(command: str) -> str:
+    def identity(cli: str) -> str:
+        monkeypatch.setenv("AGENTS_SHIPGATE_CLI", cli)
         return setup_failure_routing(
             operation="init",
             workspace=Path("/ws"),
             reason="Unknown control pack 'nope'.",
             exit_code=2,
-            action=NextAction(kind="command", command=command, why="Fix the flag."),
+            action=NextAction(
+                kind="command",
+                command="agents-shipgate init --workspace /ws",
+                why="Fix the flag.",
+            ),
         ).envelope.input_id
 
-    assert identity("agents-shipgate init --workspace /ws") != identity(
-        "/opt/custom/agents-shipgate init --workspace /ws"
+    assert identity("/usr/local/bin/agents-shipgate") != identity(
+        "/opt/custom/agents-shipgate"
     )
+
+
+def _error_lines(output: str) -> list[dict]:
+    return [json.loads(line) for line in output.splitlines() if line.startswith('{"error"')]
+
+
+def test_a_failed_render_routes_the_fallback_at_the_run_it_is_correcting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The `internal_error` route, which no fixture can reach without a fault.
+
+    Two things this pins. The error line carries the envelope at all — it is a
+    setup answer, and a run that produced no payload is exactly the run whose
+    caller has nothing else to route on. And the fallback repeats the
+    invocation it is correcting: a bare ``init --minimal`` dropped the
+    workspace, the ``--write`` that made it a real run, and the ``--json`` the
+    caller is reading the answer through, so following it exactly produced a
+    dry run against the process directory.
+    """
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    (tmp_path / "agents").mkdir()
+    (tmp_path / "agents" / "app.py").write_text(
+        "from google.adk.agents import LlmAgent\nroot_agent = LlmAgent(name='bot', tools=[])\n",
+        encoding="utf-8",
+    )
+    import agents_shipgate.cli._register_init as init_module
+
+    def refuse(_text: str) -> None:
+        raise ValueError("synthetic schema failure")
+
+    monkeypatch.setattr(init_module, "_validate_manifest_text", refuse)
+
+    result = runner.invoke(app, ["init", "--workspace", str(tmp_path), "--write", "--json"])
+    assert result.exit_code == 4
+    lines = _error_lines(result.output)
+    assert len(lines) == 1, result.output
+    payload = lines[0]
+    control = payload["control"]
+
+    assert payload["error"] == "internal_error"
+    assert control["operation"] == "init"
+    assert control["execution"] == "failed"
+    assert control["exit_code"] == 4
+    assert control["decision"] == SETUP_INCOMPLETE
+    assert control["decision_source"] == "setup"
+    assert set(control["permissions"].values()) == {False}
+    # One selected route across both fields on the line.
+    assert control["next_action"]["command"] == payload["next_actions"][0]["command"]
+    fallback = shlex.split(control["next_action"]["command"])
+    assert fallback[fallback.index("--workspace") + 1] == str(tmp_path)
+    assert "--write" in fallback
+    assert "--minimal" in fallback
+    assert "--json" in fallback
+
+
+def test_a_discovery_failure_is_a_human_route_with_no_authority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """`detect`'s only failure path, which also published no envelope."""
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    import agents_shipgate.cli.detect as detect_module
+    from agents_shipgate.core.errors import DiscoveryError
+
+    def refuse(*_args, **_kwargs):
+        raise DiscoveryError("synthetic git failure")
+
+    monkeypatch.setattr(detect_module, "detect_workspace", refuse)
+
+    result = runner.invoke(app, ["detect", "--workspace", str(tmp_path), "--json"])
+    assert result.exit_code == 4
+    lines = _error_lines(result.output)
+    assert len(lines) == 1, result.output
+    control = lines[0]["control"]
+
+    assert control["operation"] == "detect"
+    assert control["decision_source"] == "setup"
+    assert control["execution"] == "failed"
+    # A repository whose inventory could not be bounded is not something an
+    # agent fixes by running a command, so the route is a person's — and it
+    # carries no command, which is what keeps it from being taken as one.
+    assert control["control_state"] == "human_review_required"
+    assert control["next_action"]["command"] is None
+    assert control["human_review"]["required"] is True
+    assert set(control["permissions"].values()) == {False}

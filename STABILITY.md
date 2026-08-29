@@ -60,8 +60,8 @@ byte-identical to v26. What moves is where an already-published object appears.
 
 **Every agent-mode error line from `detect`, `init`, and `doctor` now carries
 `control`.** v24 gave those commands the envelope on their `--json` payload and
-left the error stream out; two of `doctor`'s failure routes picked it up during
-that rollout, and `detect`'s and five of `init`'s did not. So whether a caller
+left the error stream out; `doctor`'s failure routes picked it up during that
+rollout, and `detect`'s and five of `init`'s did not. So whether a caller
 that routes on `control` could route at all depended on which setup command had
 failed and on which of its failures — and the run that most needs a route is
 the one that printed no payload to carry it. Additive: `next_action` and
@@ -73,12 +73,13 @@ rely on it: `execution: "failed"`, `decision: "setup_incomplete"`,
 `decision_source: "setup"`, and every field of `permissions` false.
 
 **Two error lines still carry no `control`, by design.** The shared
-`--workspace` refusal (`config_error`, exit 2, emitted by all nineteen
-commands) fires because the workspace does not exist, so there is no setup
+`--workspace` refusal (`config_error`, exit 2, emitted by every command that
+takes a `--workspace`) fires because that workspace does not exist, so there is no setup
 subject for `input_id` to address; and `environment_error` is emitted before
 Agents Shipgate is running and carries `environment` instead. `scan`, `verify`,
-and `check` error lines are also unchanged — those commands publish a control
-pointer, and their envelope is the promoted read.
+and `check` error lines are also unchanged: the first two answer through their
+control pointer, and `check` — which publishes no pointer — through
+`--format agent-control-json`.
 
 **One routing behaviour changes, and it is not additive.** `init --write` over
 a manifest that already exists published `next_action.kind: "edit"` on
