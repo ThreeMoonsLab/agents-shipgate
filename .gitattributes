@@ -1,0 +1,8 @@
+# Sample goldens are hash-bound. `samples/*/expected/current-control.json`
+# records a sha256 and size_bytes for each artifact beside it, and
+# `read_current_control()` refuses the whole set when they disagree. EOL
+# translation on checkout rewrites those bytes -- under the Git for Windows
+# default (`core.autocrlf=true`), `report.json` gains 1427 bytes -- which
+# breaks the pointer for the reader, not just for the test that guards it.
+# Git must hand these files over exactly as committed on every platform.
+samples/**/expected/** -text

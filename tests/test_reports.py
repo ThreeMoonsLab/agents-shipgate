@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 
@@ -5,7 +6,12 @@ import pytest
 from jsonschema import validate
 
 from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.core.current_control import (
+    CurrentControlUnavailable,
+    read_current_control,
+)
 from agents_shipgate.report.markdown import _safe_markdown_text, render_markdown_report
+from agents_shipgate.schemas.current_control import CurrentControlPointer
 from agents_shipgate.schemas.report import ReadinessReport
 
 SAMPLE = Path("samples/support_refund_agent/shipgate.yaml")
@@ -247,6 +253,99 @@ def test_sample_expected_report_json_uses_repo_placeholder_for_manifest_dir():
         payload = json.loads(text)
         assert str(Path.cwd()) not in text
         assert payload["manifest_dir"].startswith("<REPO>/samples/")
+
+
+# What each hash-bound fixture's pointer must bind, declared per fixture rather
+# than read off the pointer itself.  An empty `artifacts` map is schema-valid
+# for a `scan` pointer -- `CurrentControlPointer` only requires a binding when
+# the operation is `verify` or `preview` -- so a pointer that dropped its refs
+# would sail through the loop below without checking anything.  Naming the keys
+# here is what makes removing one a test failure instead of a silent pass.
+EXPECTED_CURRENT_CONTROL_ARTIFACTS = {
+    "conductor_agent": {"report", "report_markdown"},
+}
+
+
+def test_sample_current_control_pointers_bind_the_committed_artifacts():
+    """A shipped pointer must hash the bytes committed beside it.
+
+    The goldens are written by a real run and *then* normalized -- the
+    contributor path under `manifest_dir` is replaced with `<REPO>` so the
+    fixtures do not churn on whose checkout produced them.  That rewrite
+    changes both the length and the digest of `report.json`, so a pointer
+    hashed before the substitution describes a file that is never committed
+    and drifts with the generating checkout's path length.
+
+    Two oracles, because neither one alone is enough.  The digests are recomputed
+    with plain `hashlib`, deliberately not with `bind_current_control_artifacts`:
+    an oracle that reuses the producer agrees with a broken producer.  Then the
+    real reader runs, because hashing here follows symlinks and `read_current_
+    control()` refuses them -- a fixture can satisfy every digest above while the
+    product still rejects it as unsafe to read.
+    """
+    pointers = sorted(Path("samples").glob("*/expected/current-control.json"))
+    assert pointers, (
+        "No samples/*/expected/current-control.json was found, so this "
+        "invariant is vacuous. If the sample moved, repoint the glob rather "
+        "than leaving the check to pass on an empty set."
+    )
+
+    for path in pointers:
+        sample = path.parent.parent.name
+        assert sample in EXPECTED_CURRENT_CONTROL_ARTIFACTS, (
+            f"{path} is a hash-bound fixture this guard does not know about. "
+            f"Add {sample!r} to EXPECTED_CURRENT_CONTROL_ARTIFACTS naming the "
+            "artifacts it binds, so the checks below have something to assert."
+        )
+        # Parsing through the model is part of the guard: `current_control_id`
+        # hashes the artifact refs, so a digest corrected by hand without a
+        # recomputed identity fails right here.
+        pointer = CurrentControlPointer.model_validate(
+            json.loads(path.read_text(encoding="utf-8"))
+        )
+        assert set(pointer.artifacts) == EXPECTED_CURRENT_CONTROL_ARTIFACTS[sample], (
+            f"{path} binds {sorted(pointer.artifacts)}, but this fixture is "
+            f"declared to bind {sorted(EXPECTED_CURRENT_CONTROL_ARTIFACTS[sample])}. "
+            "A scan pointer may legally bind nothing at all, so dropping a "
+            "binding is a deliberate change to make here, not a silent one."
+        )
+
+        for key, ref in sorted(pointer.artifacts.items()):
+            bound = path.parent / ref.path
+            # `is_file()` and `read_bytes()` below both follow symlinks; the
+            # reader does not. Rejecting the link here says which file is wrong.
+            assert not bound.is_symlink(), (
+                f"{path} binds {key!r} to {ref.path}, which is a symlink. The "
+                "reader refuses symlinked artifacts, so the bytes hashed here "
+                "would not be the bytes it agrees to read."
+            )
+            assert bound.is_file(), (
+                f"{path} binds {key!r} to {ref.path}, which is not committed "
+                f"beside it."
+            )
+            data = bound.read_bytes()
+            actual = "sha256:" + hashlib.sha256(data).hexdigest()
+            assert (actual, len(data)) == (ref.sha256, ref.size_bytes), (
+                f"{path} binds {key!r} to {ref.path} as {ref.sha256} "
+                f"({ref.size_bytes} bytes), but the committed file is "
+                f"{actual} ({len(data)} bytes). Regenerate the pointer after "
+                "the `<REPO>` substitution, not before it, and recompute "
+                "`current_control_id` with `current_control_identity_payload` "
+                "rather than editing the digest in place. If the size differs "
+                "by about one byte per line, the checkout translated the line "
+                "endings -- see the `-text` pin in `.gitattributes`."
+            )
+
+        # The end-to-end property the digests are only a proxy for: Shipgate
+        # accepts its own shipped sample. This is what actually broke, and it
+        # fails on safe-read rules the byte checks above cannot model.
+        try:
+            read_current_control(path.parent)
+        except CurrentControlUnavailable as exc:
+            raise AssertionError(
+                f"{path} binds digests that match the committed files, but "
+                f"read_current_control() still refuses the set: {exc}"
+            ) from exc
 
 
 def test_json_report_contains_integration_contract_keys(tmp_path):

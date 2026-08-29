@@ -37,6 +37,25 @@ The `support_refund_agent` fixture also includes the Release Evidence Packet at
 [`packet.json`](support_refund_agent/expected/packet.json), and
 [`packet.html`](support_refund_agent/expected/packet.html).
 
+`conductor_agent` also ships the control pointer a scan publishes,
+[`current-control.json`](conductor_agent/expected/current-control.json). It
+hash-binds the report artifacts beside it, which constrains the order in which
+the goldens are regenerated: run the scan, apply the `<REPO>` substitution that
+replaces the generating checkout's path in `report.json`, and only *then*
+rebind the pointer. Hashing before the substitution records a file that is
+never committed and a `size_bytes` that moves with the contributor's path
+length, so `agents-shipgate` refuses its own sample with `artifact_mismatch`.
+Because `current_control_id` covers the artifact refs, rebinding means
+recomputing that identity too — never editing a digest in place.
+`tests/test_reports.py::test_sample_current_control_pointers_bind_the_committed_artifacts`
+enforces this, and also runs `read_current_control()` over each fixture so a
+sample cannot satisfy the digests while the product still refuses it.
+
+Because those digests describe exact bytes, `.gitattributes` pins everything
+under `samples/*/expected/` with `-text`. Without it a checkout that translates
+line endings — the Git for Windows default — rewrites `report.json` and breaks
+the pointer for the reader, not merely for the test.
+
 ## Fixtures
 
 | Sample | Purpose |
