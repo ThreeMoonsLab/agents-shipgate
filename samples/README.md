@@ -48,7 +48,13 @@ length, so `agents-shipgate` refuses its own sample with `artifact_mismatch`.
 Because `current_control_id` covers the artifact refs, rebinding means
 recomputing that identity too — never editing a digest in place.
 `tests/test_reports.py::test_sample_current_control_pointers_bind_the_committed_artifacts`
-enforces this.
+enforces this, and also runs `read_current_control()` over each fixture so a
+sample cannot satisfy the digests while the product still refuses it.
+
+Because those digests describe exact bytes, `.gitattributes` pins everything
+under `samples/*/expected/` with `-text`. Without it a checkout that translates
+line endings — the Git for Windows default — rewrites `report.json` and breaks
+the pointer for the reader, not merely for the test.
 
 ## Fixtures
 
