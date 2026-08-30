@@ -174,9 +174,7 @@ def _write_suggested_declarations(
     redacted content reaches the scaffold.
     """
 
-    anchor = generated_paths.get("json") or next(
-        iter(generated_paths.values()), None
-    )
+    anchor = generated_paths.get("json") or next(iter(generated_paths.values()), None)
     if anchor is None:
         return
     out_path = anchor.parent / SUGGESTED_DECLARATIONS_FILENAME
@@ -265,7 +263,9 @@ def _write_suggested_inventory(
     tools by (name, source_type), then unresolved symbols by name, stable
     JSON.
     """
-    anchor = generated_paths.get("json") or next(iter(generated_paths.values()), None)
+    anchor = generated_paths.get("json") or next(
+        iter(generated_paths.values()), None
+    )
     if anchor is None:
         return
     low_confidence = sorted(

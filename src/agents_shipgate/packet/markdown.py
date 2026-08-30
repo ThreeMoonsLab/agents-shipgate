@@ -126,9 +126,14 @@ def render_packet_markdown(
     lines: list[str] = []
     _append_header(lines, packet)
     surface_first = bool(
-        cold_lead is not None and should_render_packet_surface_first(packet, context=human_context)
+        should_render_packet_surface_first(
+            packet,
+            context=human_context,
+            cold_lead=cold_lead,
+        )
     )
     if surface_first:
+        assert cold_lead is not None
         _append_cold_surface(lines, cold_lead)
         _append_high_risk_surface(lines, packet.high_risk_surface)
         _append_cold_delta(lines, cold_lead)

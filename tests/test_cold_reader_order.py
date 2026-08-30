@@ -322,6 +322,27 @@ def test_cold_block_tier_content_keeps_verdict_first(tmp_path, monkeypatch):
         "§3 High-risk tool surface"
     )
 
+    # Fail closed even if the serialized packet decision is inconsistent with
+    # the report finding substrate: active block-tier content still wins.
+    blocked.release_decision.decision = "review_required"
+    blocked.release_decision.blockers = []
+    packet.release_decision.decision = "review_required"
+    packet.release_decision.blockers = []
+    inconsistent_report = render_markdown_report(blocked, human_context=context)
+    inconsistent_markdown = render_packet_markdown(
+        packet,
+        human_context=context,
+        cold_lead=cold_reader_lead(blocked),
+    )
+    inconsistent_html = render_packet_html(
+        packet,
+        human_context=context,
+        cold_lead=cold_reader_lead(blocked),
+    )
+    assert "## Capability Surface" not in inconsistent_report
+    assert "## Capability surface" not in inconsistent_markdown
+    assert "<h2>Capability surface</h2>" not in inconsistent_html
+
 
 def test_cold_delta_is_grouped_by_subject_before_findings_and_gate(
     tmp_path,

@@ -113,9 +113,14 @@ def render_packet_html(
     parts.append("<h1>Release Evidence Packet</h1>")
     parts.append(_render_header(packet))
     surface_first = bool(
-        cold_lead is not None and should_render_packet_surface_first(packet, context=human_context)
+        should_render_packet_surface_first(
+            packet,
+            context=human_context,
+            cold_lead=cold_lead,
+        )
     )
     if surface_first:
+        assert cold_lead is not None
         parts.append(_render_cold_surface(cold_lead))
         parts.append(_render_high_risk_surface(packet.high_risk_surface))
         parts.append(_render_cold_delta(cold_lead))

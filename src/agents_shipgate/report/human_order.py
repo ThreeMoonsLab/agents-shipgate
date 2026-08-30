@@ -83,6 +83,7 @@ class ColdReaderLead:
     surface: SurfaceLead
     delta_subjects: tuple[CapabilityDeltaSubject, ...]
     finding_subjects: tuple[FindingSubject, ...]
+    has_active_block_tier: bool
 
 
 def should_render_surface_first(
@@ -117,15 +118,18 @@ def should_render_packet_surface_first(
     packet: EvidencePacket,
     *,
     context: HumanArtifactContext | None,
+    cold_lead: ColdReaderLead | None,
 ) -> bool:
-    """Packet equivalent using only its embedded decision substrate."""
+    """Packet equivalent using its decision and report-derived cold lead."""
 
     decision = packet.release_decision
     return bool(
         context is not None
+        and cold_lead is not None
         and context.is_cold
         and decision.decision in {"insufficient_evidence", "review_required"}
         and not decision.blockers
+        and not cold_lead.has_active_block_tier
     )
 
 
@@ -228,6 +232,10 @@ def cold_reader_lead(report: ReadinessReport) -> ColdReaderLead:
         surface=surface_lead(report),
         delta_subjects=tuple(capability_delta_by_subject(report)),
         finding_subjects=tuple(findings_by_subject(report)),
+        has_active_block_tier=any(
+            finding.blocks_release and not finding.suppressed
+            for finding in report.findings
+        ),
     )
 
 
