@@ -24,6 +24,14 @@
   the byte comparison, and regenerating the golden to make that pass fails the
   paste test instead, naming the row it reopened.
 
+  The same "publish the whole list" property is now asserted on the surface an
+  adopter reads *first*. #424 reached a reader as a sentence, not a YAML block,
+  and `EffectRepair.instruction` interpolates the whole list and the newly
+  added part separately — so `evidence_gaps[].next_action.expects` is joined to
+  the block's `risk_tags` here. This is the first row in the repo where the two
+  can disagree; the only other test pinning that sentence uses a row with no
+  pre-existing tags, where they are equal by construction.
+
   No engine, schema or check-ID change: goldens, registration and tests only.
 
 - **The declaration questionnaire is now pinned by something committed.**

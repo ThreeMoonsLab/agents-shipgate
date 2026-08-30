@@ -2111,9 +2111,9 @@ def test_cold_start_scaffold_matches_its_golden(tmp_path):
     # would report that as a path that does not exist rather than as the thing
     # it is.
     assert written.is_file(), (
-        "The scan wrote no suggested-declarations.yaml. This fixture is the "
-        "sample that renders the *blank* half of the questionnaire "
-        "(``declaration_repair_agent`` renders the challenged half); if its "
+        "The scan wrote no suggested-declarations.yaml. This fixture pins the "
+        "questionnaire a cold start produces (``declaration_repair_agent`` "
+        "pins the challenged-effect row it has no example of); if its "
         "questions were closed on purpose, the goldens beside it no longer "
         "pin anything and the fixture needs a new open question, not a "
         "regenerated golden."
@@ -2564,12 +2564,14 @@ def test_cold_start_questionnaire_covers_every_rung_it_claims_to():
 
 # ── The repair loop, pinned by committed artifacts ──────────────────────────
 #
-# ``google_adk_cold_start_agent`` above renders every questionnaire shape a
-# cold start can: blanks. It cannot render a *challenged* row, because a cold
-# start has no declaration to challenge — and a challenged row is the shape
-# #424 was about, where the route the row names is "declare the uncovered
-# category as a reviewed risk tag" and applying it verbatim used to replace the
-# review-tier row with a blocking conflict.
+# ``google_adk_cold_start_agent`` above renders the questionnaire a cold start
+# produces: mostly blanks, one pre-filled proposal, and one challenged
+# *authority* row printed as a note. What it has no example of is a declaration
+# challenged in the **effect** dimension — its questionnaire holds zero
+# ``risk_tags:`` blocks — and that is the shape #424 was about, where the route
+# the row names is "declare the uncovered category as a reviewed risk tag" and
+# applying it verbatim used to replace the review-tier row with a blocking
+# conflict.
 #
 # ``samples/declaration_repair_agent`` is the fixture that renders it. Both
 # halves of the loop are read out of committed files rather than assembled
@@ -2675,6 +2677,38 @@ def test_the_repair_golden_still_renders_a_challenged_row():
             "not a regenerated golden."
         )
 
+    # The sentence, joined to the value. #424 reached an adopter as *prose* —
+    # the issue names `ci/release_decision.py` templating it into the guidance
+    # they read — and `EffectRepair.instruction` interpolates the whole list
+    # and the newly added part separately, so the two can disagree. They
+    # cannot disagree anywhere else in the suite: the only other test pinning
+    # `expects` for this route uses a row with no pre-existing tags, where the
+    # two are equal by construction. `billing.cancel_invoice_email` is the
+    # first case where they differ, which makes this the one place the
+    # round-2 "publish the whole list" property can be asserted on the half an
+    # adopter reads first (#465 review).
+    joined = 0
+    for gap in golden["release_decision"]["evidence_coverage"]["evidence_gaps"]:
+        if gap["kind"] != "declaration_below_inferred_evidence":
+            continue
+        action = gap["next_action"]
+        published = blocks[action["declaration_template"]["tool"]]["risk_tags"]
+        assert f"risk_tags: [{', '.join(published)}]" in action["expects"], (
+            "The sentence this row publishes names a different list from the "
+            f"block it ships beside: {action['expects']!r} against "
+            f"{published!r}. An adopter reads the sentence first."
+        )
+        assert action["accepted_values"] == published, (
+            f"`accepted_values` is {action['accepted_values']!r}, not the "
+            f"published {published!r}."
+        )
+        joined += 1
+    assert joined == len(blocks), (
+        f"Joined {joined} sentences against {len(blocks)} blocks. Every "
+        "challenged row here publishes both, so a mismatch means one of the "
+        "two surfaces stopped being emitted rather than that they agree."
+    )
+
 
 def test_the_published_repair_keeps_the_tag_the_reviewer_already_wrote():
     """A block that names ``risk_tags`` replaces it, so it must publish it whole.
@@ -2685,13 +2719,18 @@ def test_the_published_repair_keeps_the_tag_the_reviewer_already_wrote():
     next scan reopened the row asking for it back — the defect surviving inside
     the case its own repair creates.
 
-    Deliberately a statement about the **shipped file**, not about the engine:
-    both sides are read out of committed artifacts, so it tracks the fixture
-    rather than a literal here, and it fails if a future regeneration ever
-    publishes a value that would delete a reviewed tag. It does not bite on a
-    source regression on its own — ``test_repair_scaffold_matches_its_golden``
-    is what holds that side — so pointing this at a fresh scan instead would
-    lose the only assertion anyone makes about the committed remedy.
+    Both sides are read out of committed artifacts, so it tracks the fixture
+    rather than a literal here.
+
+    It is not a restatement of the byte comparison, and the perturbation that
+    separates them is not deletion but **rewriting**: canonicalize the
+    reviewer's spelling — ``financial_write`` to ``financial_action``, one
+    category under two names, which is what the source comment beside the
+    verbatim copy warns against — and regenerate. The row still closes, the
+    sample still reaches ``passed``, the sentence still agrees with the block,
+    and every other guard here stays green. This is the only one that fails.
+    So it holds the second half of the round-2 fix — *never rewrite what the
+    reviewer wrote* — which nothing else in the suite asserts (#465 review).
     """
 
     declared = {

@@ -1,14 +1,17 @@
 version: "0.1"
 
-# The repair sibling of samples/google_adk_cold_start_agent. That fixture is a
-# cold start: nothing is declared, so every question it renders is a blank.
+# The repair sibling of samples/google_adk_cold_start_agent. That fixture
+# renders the questionnaire a cold start produces: mostly blanks, one
+# pre-filled proposal, and one challenged *authority* row printed as a note.
 # This one is the step after — a manifest that has already declared, already
 # controlled and already owned every action, and is held short of `passed` by
-# two *challenged* declarations: rows whose declared `effect` does not account
-# for everything the scan reads.
+# two rows whose declared `effect` does not account for everything the scan
+# reads.
 #
-# A challenged row is the one questionnaire shape a cold start cannot render,
-# and it is the shape #424 was about. `declaration_below_inferred_evidence`
+# That is the one shape the sibling has no example of: its questionnaire
+# contains zero `risk_tags:` blocks, so a declaration challenged in the
+# *effect* dimension appears in no committed artifact before this one. It is
+# also the shape #424 was about. `declaration_below_inferred_evidence`
 # publishes two routes, and where no single effect covers every reading the
 # route it names is "declare the uncovered category as a reviewed risk tag".
 # Applying that instruction verbatim used to replace the review-tier row with a
@@ -106,13 +109,15 @@ risk_overrides:
 # rather than the row's `safeguards.idempotency`.
 #
 # Between here and the rows above, every control both actions owe is declared
-# *after* the repair as well as before — `destructive` adds approval,
-# confirmation and rollback to what `external_communication` and
-# `financial_write` already obliged. Declaring the post-repair ones up front is
-# what leaves the two challenged rows as the only thing between this manifest
-# and `passed`, so the paste test measures the repair and nothing else. Each
-# line here was checked by dropping it: every one of them blocks or holds back
-# the *repaired* scan.
+# *after* the repair as well as before. Adding `destructive` newly obliges
+# `approval.required` and `safeguards.rollback` on `support.delete_case_message`
+# and only `safeguards.rollback` on `billing.cancel_invoice_email` — approval
+# already came from `financial_write` there, and `confirmation.required` came
+# from `external_communication` on both, so the repair does not introduce it.
+# Declaring the post-repair ones up front is what leaves the two challenged rows
+# as the only thing between this manifest and `passed`, so the paste test
+# measures the repair and nothing else. Each line here was checked by dropping
+# it: every one of them blocks or holds back the *repaired* scan.
 policies:
   require_confirmation_for_tools:
     - support.delete_case_message

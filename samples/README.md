@@ -39,16 +39,17 @@ ship `suggested-declarations.yaml` — the questionnaire an adopter is told to
 edit — as a byte-compared golden. They render the two halves of that file:
 
 - [`google_adk_cold_start_agent`](google_adk_cold_start_agent/expected/suggested-declarations.yaml)
-  is the cold start. Nothing is declared, so every question is a **blank**, and
-  the fixture exists to pin the order they are asked in. Read the diff before
-  regenerating it: a change in block *order* is a change in which question this
-  tool asks a human first.
+  is the cold start: mostly **blanks**, plus one pre-filled proposal and one
+  challenged authority row printed as a note. The fixture exists to pin the
+  order the questions are asked in. Read the diff before regenerating it: a
+  change in block *order* is a change in which question this tool asks a human
+  first.
 - [`declaration_repair_agent`](declaration_repair_agent/expected/suggested-declarations.yaml)
-  is the step after. Everything is declared, and two rows are **challenged** —
-  a declared effect that does not account for what the scan read. Read the diff
-  on the `risk_tags:` values: that value is the remedy this tool hands an
-  adopter, and pasting both blocks back must take the sample from
-  `insufficient_evidence` to `passed` (#424).
+  is the step after, and adds the one shape the cold start has no example of: a
+  declaration challenged in the **effect** dimension, whose repair is a
+  `risk_tags:` block. Read the diff on those values — that value is the remedy
+  this tool hands an adopter, and pasting both blocks back must take the sample
+  from `insufficient_evidence` to `passed` (#424).
 
 Each sample's own README says what its actions are there to pin.
 
