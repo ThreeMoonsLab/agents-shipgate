@@ -26,6 +26,7 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
+import typer
 from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 from typer.testing import CliRunner
@@ -2290,6 +2291,8 @@ def test_a_discovery_failure_is_a_human_route_with_no_authority(
 # What a recovery command owes the invocation it corrects
 # ---------------------------------------------------------------------------
 
+_KIT_PATH = Path("/ws") / ".agents-shipgate" / "kit.yaml"
+
 # Options that change what `init` produces and are only meaningful for a rerun
 # in this same workspace, with a value that is not the default.
 _SEMANTIC_OPTIONS: tuple[tuple[str, dict, list[str]], ...] = (
@@ -2313,8 +2316,11 @@ _SEMANTIC_OPTIONS: tuple[tuple[str, dict, list[str]], ...] = (
     ),
     (
         "agent_instructions_kit",
-        {"agent_instructions_kit": Path("/ws/.agents-shipgate/kit.yaml")},
-        ["--agent-instructions-kit", "/ws/.agents-shipgate/kit.yaml"],
+        {"agent_instructions_kit": _KIT_PATH},
+        # Derived rather than written out: `Path` stringifies with backslashes
+        # on Windows, and a hardcoded POSIX spelling fails there for a reason
+        # that has nothing to do with the flag being carried.
+        ["--agent-instructions-kit", str(_KIT_PATH)],
     ),
     (
         "max_python_files",
@@ -2644,3 +2650,95 @@ def test_the_route_kind_reaches_the_published_identity(module: str):
     assert "advance_kind" in hashed, (
         f"{module} selects a route kind that its published identity does not cover"
     )
+
+
+def test_the_portable_list_carries_what_transfers_and_drops_what_does_not():
+    """Two audiences, one derivation, and the difference is exactly two flags.
+
+    `_invocation_flags` is a rerun in *this* workspace; `_portable_setup_flags`
+    is a rerun in a candidate project. Building them side by side is how one of
+    them ends up missing an option the other has — so the first is derived from
+    the second, and this pins the two that separate them.
+
+    `--max-python-files` is deliberately in the portable list: it bounds how
+    much is read, not which directory, and a candidate that inherits the root's
+    truncation refuses again while its `expects` promises a manifest.
+    """
+
+    from agents_shipgate.cli._register_init import (
+        _invocation_flags,
+        _portable_setup_flags,
+    )
+
+    asked = {
+        **_invocation_flag_defaults(),
+        "minimal": True,
+        "ci": True,
+        "control_pack": "financial-strict",
+        "max_python_files": 9999,
+        "allow_unresolved_scope": True,
+        "agent_instructions_kit": _KIT_PATH,
+    }
+    portable = _portable_setup_flags(
+        **{k: v for k, v in asked.items() if k not in {"allow_unresolved_scope", "agent_instructions_kit"}}
+    )
+    everything = _invocation_flags(**asked)
+
+    assert "--minimal" in portable
+    assert "--ci" in portable
+    assert "--control-pack=financial-strict" in portable
+    assert portable[portable.index("--max-python-files") + 1] == "9999"
+    # A candidate is the resolved single project the ambiguity was about, and a
+    # kit path is resolved under the workspace — `rebased_kit_flags` rewrites
+    # that one per candidate or refuses.
+    assert "--allow-unresolved-scope" not in portable
+    assert "--agent-instructions-kit" not in portable
+
+    assert everything[: len(portable)] == portable
+    assert everything[len(portable) :] == [
+        "--allow-unresolved-scope",
+        "--agent-instructions-kit",
+        str(_KIT_PATH),
+    ]
+
+
+_PROBE_APP = typer.Typer()
+_PROBE_SEEN: dict[str, object] = {}
+
+
+@_PROBE_APP.command()
+def _probe_explicit_option(
+    ctx: typer.Context,
+    control_pack: str = typer.Option("default", "--control-pack"),
+) -> None:
+    """A one-option command, for reading back what the parser recorded."""
+
+    from agents_shipgate.cli._register_init import _explicit_option
+
+    _PROBE_SEEN["asked"] = _explicit_option(ctx, "control_pack", control_pack)
+    _PROBE_SEEN["unknown"] = _explicit_option(ctx, "no_such_option", control_pack)
+
+
+def test_an_option_is_requested_only_when_the_parser_says_it_was():
+    """The provenance read, and the enum trap under it.
+
+    Typer ships a vendored Click, so the `ParameterSource` that comes back is
+    not `click.core.ParameterSource` — `is` and `==` against that class are
+    both false. The failure is silent and in the safe-looking direction: every
+    option reads as unasked, and the route that depends on this simply never
+    fires. Comparing by member name is what makes it work under either class,
+    and this pins it so a later "tidy-up" into an identity check fails here
+    rather than in the field.
+    """
+
+    runner.invoke(_PROBE_APP, ["--control-pack", "financial-strict"])
+    assert _PROBE_SEEN["asked"] == "financial-strict"
+    # A name the parser has no record of is not "the caller passed it".
+    assert _PROBE_SEEN["unknown"] is None
+
+    # The value that a default-comparison cannot tell from silence.
+    runner.invoke(_PROBE_APP, ["--control-pack", "default"])
+    assert _PROBE_SEEN["asked"] == "default"
+
+    runner.invoke(_PROBE_APP, [])
+    assert _PROBE_SEEN["asked"] is None

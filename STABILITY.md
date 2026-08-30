@@ -114,11 +114,26 @@ the "already exists — edit it directly or remove it before re-running init
 `next_action.kind == "edit"` here now sees `"command"` — **except** when this
 invocation asked for a manifest configuration the existing manifest does not
 carry. `init --write --control-pack <id>` over a manifest selecting a different
-pack now routes to an `edit` naming `policies.control_pack` and the exact value,
-because both onward routes would otherwise advance under the pack that is
-*there* and the request would be lost without anything saying so. "Asked for"
-means `--control-pack` at other than its default, the same rule that decides
-whether a recovery command repeats the flag.
+pack routes to a reconciliation naming `policies.control_pack` and the exact
+value, because both onward routes would otherwise advance under the pack that
+is *there* and the request would be lost without anything saying so. The same
+reconciliation is published for a scoped **candidate** project whose manifest
+selects a different pack, where the candidate's `doctor` route had the same
+effect.
+
+"Asked for" is read from the argument parser rather than inferred by comparing
+against the default. An explicit `--control-pack default` over a
+`financial-strict` manifest is a request — and the only one that can *only*
+weaken — so a default-comparison could not see it.
+
+**The owner of that route is the direction, not the caller.** A governed coding
+agent writes its own argv, so command-line arguments are not authenticated
+human provenance for loosening a gate. A transition that keeps at least every
+obligation the manifest has today is `agent_action_required` with a typed
+`edit`. One that drops any obligation, or that names a pack this build cannot
+resolve, is `human_review_required` with no command and names what it would
+remove. The comparison is `weakened_pack_obligations`, shared with the
+`control_pack_weakened` check rather than restated.
 
 **2.** Every recovery command `init` publishes now repeats the **whole**
 invocation with only the invalid value corrected. They were built from the

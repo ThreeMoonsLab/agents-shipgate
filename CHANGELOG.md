@@ -237,9 +237,11 @@
   payload to carry it. Every agent-mode error line from those three commands
   now carries the same envelope its `--json` payload would, projected from the
   same selected route as `next_action` and `next_actions[]`, so the three
-  cannot disagree. A failure envelope is fail-closed by construction:
-  `execution: "failed"`, `decision: "setup_incomplete"`, and every field of
-  `permissions` false. Two lines still carry none, by design and by
+  cannot disagree. What every setup error line guarantees is what the schema
+  enforces for any setup envelope: `decision_source: "setup"`, a decision from
+  the setup vocabulary, every field of `permissions` false, and never
+  `control_state: "complete"` — the `execution` split is described below. Two
+  lines still carry none, by design and by
   documentation: the shared `--workspace` refusal fires before a workspace
   exists, and `environment_error` is emitted before Agents Shipgate is running.
   Runtime contract 26 → 27; both the `AgentControl` union and the envelope
@@ -273,6 +275,36 @@
   `init --write --minimal --control-pack <bad>` emitted a recovery without
   `--minimal` and following it wrote a detected manifest where a legacy
   template was asked for.
+
+  **A pack change an agent asked for is not a pack change a human approved.**
+  The reconciliation route above was published as a coding-agent `edit` because
+  the value came from the command line rather than from inference. A *governed*
+  coding agent composes its own argv, so that is not authenticated human
+  provenance: `init --write --control-pack read-only-agent` over a
+  `financial-strict` manifest drops `write` and `production_operation`
+  obligations, and an agent could have requested it for itself. The direction
+  decides the owner now — a transition that keeps every obligation the manifest
+  has today is an agent edit, one that drops any obligation (or names a pack
+  this build cannot resolve) is a human review naming what it would remove. The
+  comparison is `weakened_pack_obligations`, moved beside the packs it compares
+  and shared with the `control_pack_weakened` check rather than restated.
+
+  "Asked for" is read from the argument parser, not inferred by comparing
+  against the default: an explicit `--control-pack default` over a
+  `financial-strict` manifest is a request, and the only one that can *only*
+  weaken.
+
+  **Scoped routing owed the same two things.** The capped retry is the one
+  scope route that reruns the *same* workspace, and it was built from the list a
+  rerun in a different one may repeat — so it dropped
+  `--allow-unresolved-scope` and returned the refusal it was issued to resolve.
+  Candidate commands dropped a raised `--max-python-files`, which bounds how
+  much is read rather than which directory, so a candidate inherited the root's
+  truncation and refused again while its `expects` promised a manifest. And an
+  adopted candidate whose manifest selects a different pack went to `doctor`,
+  losing the request one directory down. There are now two lists with one
+  derivation — what transfers to another workspace, and that plus the two that
+  only make sense in this one.
 
   **`execution` is not a marker for "this line is an error".** The `error`
   field is. `execution` says whether the command reached an answer about the

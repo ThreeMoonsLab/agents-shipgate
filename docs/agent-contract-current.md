@@ -66,13 +66,27 @@ owes. The exit code (2) and the "already exists — edit it directly or remove
 it" sentence are unchanged.
 
 **Unless the request was not applied.** `init --write --control-pack <id>` over
-a manifest that selects a different pack keeps an `edit` route, now naming
+a manifest that selects a different pack keeps a reconciliation route naming
 `policies.control_pack` and the exact value. Both onward routes would otherwise
 advance under the pack that is *there*, and the request would be lost with
 nothing saying so — a recovery that completes with less than the caller asked
-for reports success for work it did not do. "Asked for" means `--control-pack`
-at other than its default, the same rule that decides whether a recovery
-command repeats the flag.
+for reports success for work it did not do. The same reconciliation is
+published for a scoped **candidate** whose manifest selects a different pack,
+where a bare `doctor` had the same effect one directory down.
+
+"Asked for" is read from the parser, not inferred: an explicit
+`--control-pack default` over a `financial-strict` manifest **is** a request,
+and it is the one that can only weaken.
+
+**Who owns that edit is decided by the direction, not by who typed the flag.**
+A governed coding agent composes its own argv, so process arguments are not
+authenticated human provenance. A transition that keeps at least every
+obligation the manifest has today is `agent_action_required` with a typed
+`edit`; one that drops any obligation — or names a pack this build cannot
+resolve, where the direction is unprovable — is `human_review_required` with no
+command, naming the effects and controls it would remove. That is the same
+direction `verify_policy` raises `control_pack_weakened` for, computed by the
+same function.
 
 **Two command values also move.** Every recovery `init` publishes now repeats
 the whole invocation with only the invalid value corrected — `--minimal`,

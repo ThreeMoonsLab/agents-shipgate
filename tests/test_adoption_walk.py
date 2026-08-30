@@ -48,6 +48,7 @@ from jsonschema import Draft202012Validator
 
 from agents_shipgate.schemas.agent_control_envelope import (
     AGENT_CONTROL_ENVELOPE_SCHEMA_VERSION,
+    PROSE_TRUNCATION_MARKER,
     SETUP_DECISIONS,
     SETUP_OPERATIONS,
     validate_agent_control_envelope,
@@ -322,7 +323,16 @@ def _assert_shared_envelope(step: _Step) -> None:
         if action["actor"] == "human":
             assert ranked[0]["kind"] in {"review", "stop"}, where
             assert ranked[0].get("command") is None, where
-            assert ranked[0]["why"] == action["why"], where
+            # Same route, and the envelope's copy may be the capped one: the
+            # ranked list is uncapped, `why` on the envelope is truncated at
+            # `MAX_ENVELOPE_PROSE_BYTES` with a visible marker. What must hold
+            # is that one is the other, whole or abridged — not that a long
+            # sentence is silently a different sentence.
+            envelope_why, ranked_why = action["why"], ranked[0]["why"]
+            if envelope_why != ranked_why:
+                assert envelope_why.endswith(PROSE_TRUNCATION_MARKER), where
+                head = envelope_why[: -len(PROSE_TRUNCATION_MARKER)].rstrip()
+                assert ranked_why.startswith(head), where
         elif action["kind"] == "edit":
             assert ranked[0]["kind"] == "edit", where
             assert ranked[0]["path"] == action["path"], where
@@ -764,3 +774,227 @@ def test_an_unapplied_configuration_request_routes_somewhere_that_changes_it(
     _assert_shared_envelope(again)
     assert again.envelope["next_action"] != action
     assert again.envelope["next_action"]["kind"] != "edit"
+
+
+# ---------------------------------------------------------------------------
+# Scoped routing: the emitted command has to do what its `expects` promises
+# ---------------------------------------------------------------------------
+
+_TWO_PROJECT_AGENT = '''from google.adk.agents import LlmAgent
+from google.adk.tools import FunctionTool
+
+
+def act(value: str) -> str:
+    """Do one thing."""
+
+    return value
+
+
+root_agent = LlmAgent(name="bot_{name}", model="gemini-2.0-flash", tools=[FunctionTool(act)])
+'''
+
+_ADOPTED_CANDIDATE_MANIFEST = """version: "0.1"
+project: {name: a}
+agent: {name: bot_a, declared_purpose: [act]}
+environment: {target: local}
+tool_sources: [{id: src, type: mcp, path: tools.json}]
+policies: {control_pack: default}
+"""
+
+
+@pytest.fixture
+def ambiguous_workspace(tmp_path: Path) -> Path:
+    """Two self-contained agent projects, so `init --write` refuses to choose."""
+
+    workspace = tmp_path / "mono"
+    for name in ("a", "b"):
+        project = workspace / name
+        project.mkdir(parents=True)
+        (project / "agent.py").write_text(
+            _TWO_PROJECT_AGENT.format(name=name), encoding="utf-8"
+        )
+        (project / "pyproject.toml").write_text(
+            f'[project]\nname = "{name}"\nversion = "0.1"\n', encoding="utf-8"
+        )
+    _git(workspace, "init", "-q", ".")
+    _git(workspace, "add", "-A")
+    _git(workspace, "commit", "-qm", "seed")
+    return workspace
+
+
+def _rank_one(step: _Step) -> dict:
+    return step.envelope["next_action"]
+
+
+def test_the_capped_retry_repeats_the_invocation_it_is_retrying(
+    ambiguous_workspace: Path,
+) -> None:
+    """The one scope route that reruns *this* workspace, followed to the end.
+
+    It replaces the parse cap and nothing else, so it owes every other option
+    this invocation carried. It was built from the flag list a rerun in a
+    *different* workspace may repeat, so `--allow-unresolved-scope` was
+    dropped — and following the retry exactly returned the same
+    `refused_unresolved_scope` it was issued to resolve, writing no manifest.
+    """
+
+    walk = _Walk(ambiguous_workspace)
+    refusal = walk.execute(
+        walk.cli(
+            "init",
+            "--workspace",
+            str(ambiguous_workspace),
+            "--write",
+            "--allow-unresolved-scope",
+            "--max-python-files",
+            "1",
+            "--json",
+        )
+    )
+    _assert_shared_envelope(refusal)
+    retry = _rank_one(refusal)
+    assert retry["actor"] == "coding_agent"
+    argv = shlex.split(retry["command"])
+    assert "--allow-unresolved-scope" in argv
+    # Only the cap is replaced, and it is replaced once.
+    assert argv.count("--max-python-files") == 1
+    assert argv[argv.index("--max-python-files") + 1] != "1"
+
+    walk.execute(argv)
+    assert (ambiguous_workspace / "shipgate.yaml").is_file(), (
+        "following the retry exactly did not produce the manifest it promised"
+    )
+
+
+def test_a_candidate_command_carries_the_bound_the_root_run_was_given(
+    ambiguous_workspace: Path,
+) -> None:
+    """A cap bounds how much is read, not which workspace, so it transfers.
+
+    Candidate commands were built from the smallest flag list, which omits it —
+    so a candidate inherited the root's truncation, refused again, and wrote no
+    manifest while its `expects` promised one.
+    """
+
+    walk = _Walk(ambiguous_workspace)
+    refusal = walk.execute(
+        walk.cli(
+            "init",
+            "--workspace",
+            str(ambiguous_workspace),
+            "--write",
+            "--max-python-files",
+            "4321",
+            "--json",
+        )
+    )
+    candidate_commands = [
+        shlex.split(action["command"])
+        for action in refusal.payload["next_actions"]
+        if action.get("command") and "init" in shlex.split(action["command"])
+    ]
+    assert candidate_commands, refusal.payload["next_actions"]
+    for argv in candidate_commands:
+        assert argv[argv.index("--max-python-files") + 1] == "4321", argv
+
+
+def test_an_adopted_candidate_reconciles_the_pack_before_handing_off(
+    ambiguous_workspace: Path,
+) -> None:
+    """The same loss as the workspace's own route, one directory down.
+
+    A candidate that already carries a manifest routes to `doctor`. `doctor`
+    reads a manifest that loads fine and advances to the gate under the pack
+    that is *there* — so a root run asking for a different pack lost the
+    request with nothing saying so.
+    """
+
+    project = ambiguous_workspace / "a"
+    (project / "tools.json").write_text(
+        json.dumps({"tools": [{"name": "act", "description": "An action."}]}),
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(_ADOPTED_CANDIDATE_MANIFEST, encoding="utf-8")
+
+    walk = _Walk(ambiguous_workspace)
+    refusal = walk.execute(
+        walk.cli(
+            "init",
+            "--workspace",
+            str(ambiguous_workspace),
+            "--write",
+            "--control-pack",
+            "financial-strict",
+            "--json",
+        )
+    )
+    routes = refusal.payload["next_actions"]
+    for_candidate = [
+        action
+        for action in routes
+        if action.get("path") == str(project / "shipgate.yaml")
+    ]
+    assert for_candidate, routes
+    action = for_candidate[0]
+    assert action["kind"] == "edit"
+    assert "policies.control_pack" in action["expects"]
+    assert "financial-strict" in action["expects"]
+    # And no route for that candidate hands it to `doctor` while the request
+    # is outstanding.
+    doctor_routes = [
+        action
+        for action in routes
+        if action.get("command") and str(project / "shipgate.yaml") in action["command"]
+    ]
+    assert not doctor_routes, doctor_routes
+
+
+def test_an_explicit_default_pack_is_a_request_and_a_weakening(
+    unadopted_repository: Path,
+) -> None:
+    """The request a default-comparison cannot see, and the direction rule.
+
+    `--control-pack default` over a `financial-strict` manifest asks for the
+    one transition that can only require less. Inferring "was this asked for?"
+    by comparing against the default made it invisible; and routing it as a
+    coding-agent edit would have let a governed agent loosen its own gate by
+    choosing its own argv.
+    """
+
+    workspace = unadopted_repository
+    walk = _Walk(workspace)
+    _adopted_repository(walk)
+    manifest = workspace / "shipgate.yaml"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            "control_pack: default", "control_pack: financial-strict"
+        ),
+        encoding="utf-8",
+    )
+
+    asked = walk.execute(
+        walk.cli(
+            "init",
+            "--workspace",
+            str(workspace),
+            "--write",
+            "--control-pack",
+            "default",
+            "--json",
+        )
+    )
+    _assert_shared_envelope(asked)
+    action = _rank_one(asked)
+    assert asked.envelope["control_state"] == "human_review_required"
+    assert action["actor"] == "human"
+    assert action["command"] is None
+    assert "financial-strict" in action["why"]
+    assert set(asked.envelope["permissions"].values()) == {False}
+
+    # …while omitting the option entirely is not a request at all.
+    quiet = walk.execute(
+        walk.cli("init", "--workspace", str(workspace), "--write", "--json")
+    )
+    _assert_shared_envelope(quiet)
+    assert quiet.envelope["control_state"] == "agent_action_required"
+    assert _rank_one(quiet)["kind"] == "configure"
