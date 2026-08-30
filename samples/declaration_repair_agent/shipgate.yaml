@@ -44,6 +44,12 @@ tool_sources:
         the ops MCP server publishes exactly these two tools and any connected
         client can call both
 
+# Both rows declare `authority: {mode: none}`. That is a fixture convenience,
+# not a modelling recommendation: the tools publish no `auth` block, and
+# declaring the authority dimension closed is what keeps every question this
+# sample asks in the *effect* dimension. Giving them a published credential
+# instead would add an `auth_scope` reading to their effects, and the readings
+# here are deliberately keyword-only — the shape #424 reproduces on.
 action_surface:
   actions:
     # Challenged, bare. The name reads `delete` (destructive) and `message`
