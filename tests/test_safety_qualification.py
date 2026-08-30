@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import zipfile
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.errors import ConfigError
@@ -19,16 +21,25 @@ from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.safety_qualification import (
+    LEGACY_QUALIFICATION_ENVELOPES,
+    LEGACY_QUALIFICATION_TIERS,
+    RELEASE_SAFETY_PROFILES,
+    SAFETY_CORPUS_SCHEMA_VERSION,
+    SAFETY_QUALIFICATION_SCHEMA_VERSION,
+    SAFETY_RECEIPT_INDEX_SCHEMA_VERSION,
     FrozenSafetyCorpusV1,
     HumanAdjudicationV1,
     IndependentHumanLabelV1,
     SafetyCorpusCaseV1,
     SafetyQualificationRequirementsV1,
+    SafetyQualificationResultV1,
     SafetyReceiptEntryV1,
     SafetyReceiptIndexV1,
     SafetyStratumRequirementV1,
     compute_frozen_labels_sha256,
+    pre_release_safety_requirements,
     production_safety_requirements,
+    tier_for_requirements,
 )
 from agents_shipgate.schemas.verification_identity import (
     VerificationBlob,
@@ -48,13 +59,28 @@ from agents_shipgate.schemas.verify_run import (
     VerifyRunOutcome,
     build_verify_run_artifact,
 )
+from scripts._release_support import (
+    CURRENT_QUALIFICATION_ENVELOPE,
+    QUALIFICATION_POLICIES,
+    accepted_qualification_tiers,
+    qualification_envelope_admits_tier,
+    release_version_is_pre_1_0,
+)
+from scripts._release_support import (
+    LEGACY_QUALIFICATION_ENVELOPES as STDLIB_LEGACY_ENVELOPES,
+)
+from scripts._release_support import (
+    LEGACY_QUALIFICATION_TIERS as STDLIB_LEGACY_TIERS,
+)
 from scripts.run_safety_qualification import (
     EXPECTED_MERGE_VERDICT,
     hash_policy_bundle,
     load_frozen_corpus,
     main,
+    qualification_exit_code,
     render_safety_qualification_json,
     run_safety_qualification,
+    select_release_requirements,
     sha256_file,
 )
 
@@ -156,13 +182,15 @@ def _case(
     decision: str,
     *,
     disagreement: bool = False,
+    profile: str = "mcp",
+    split: str = "holdout",
 ) -> SafetyCorpusCaseV1:
     framework_decision = "passed" if disagreement else decision
     return SafetyCorpusCaseV1(
         id=case_id,
-        profile="mcp",
+        profile=profile,  # type: ignore[arg-type]
         origin="real_history",
-        split="holdout",
+        split=split,  # type: ignore[arg-type]
         expected_decision=decision,
         evidence_references=(f"evidence/{case_id}.json",),
         remediation_condition="Apply the human-reviewed remediation and rerun verify.",
@@ -251,18 +279,45 @@ def _semantic_coverage(decision: str) -> dict[str, object]:
     }
 
 
+def _conforming_cases(
+    requirements: SafetyQualificationRequirementsV1,
+) -> list[SafetyCorpusCaseV1]:
+    """A corpus that exactly satisfies ``requirements``, stratum by stratum.
+
+    One holdout case per stratum (the minimum at a 20% fraction and two cases)
+    and the rest tuning, every origin qualifying, no label disagreements.
+    """
+
+    cases: list[SafetyCorpusCaseV1] = []
+    for item in requirements.required_strata:
+        minimum_holdout = math.ceil(
+            item.count * requirements.minimum_holdout_fraction_per_stratum
+        )
+        for index in range(item.count):
+            cases.append(
+                _case(
+                    f"case-{item.profile}-{item.expected_decision}-{index:02d}",
+                    item.expected_decision,
+                    profile=item.profile,
+                    split="holdout" if index < minimum_holdout else "tuning",
+                )
+            )
+    return cases
+
+
 def _fixture(
     tmp_path: Path,
     *,
     actual_overrides: dict[str, str] | None = None,
     disagreement_case: str | None = None,
+    cases: list[SafetyCorpusCaseV1] | None = None,
 ) -> tuple[Path, Path, Path, Path]:
     wheel = tmp_path / "agents_shipgate-0.16.0b7-py3-none-any.whl"
     _write_wheel(wheel)
     policy = tmp_path / "qualification-policy.json"
     _write_json(policy, {"policy": "beta-exact", "version": 1})
 
-    cases = [
+    cases = cases if cases is not None else [
         _case(
             f"case-{decision}",
             decision,
@@ -499,6 +554,495 @@ def test_production_defaults_pin_the_exact_beta_contract() -> None:
     assert requirements.minimum_kappa == 0.80
 
 
+def test_pre_release_defaults_pin_the_exact_pre_1_0_contract() -> None:
+    """The numbers a human approved on 2026-08-29 (issue #341, Route 2).
+
+    Pinned as literals so changing the approved bar is a visible edit to this
+    test, not a silent consequence of editing the constructor.
+    """
+
+    requirements = pre_release_safety_requirements()
+    counts = {
+        (item.profile, item.expected_decision): item.count for item in requirements.required_strata
+    }
+
+    assert len(counts) == 28
+    assert set(counts.values()) == {2}
+    assert sum(counts.values()) == 56
+    assert sum(count for (_, decision), count in counts.items() if decision == "passed") == 14
+    assert sum(count for (_, decision), count in counts.items() if decision != "passed") == 42
+    assert requirements.minimum_safe_passes == 13
+    assert requirements.minimum_blocked_exact == 14
+    assert requirements.minimum_review_exact == 14
+    assert requirements.minimum_insufficient_evidence_exact == 14
+    assert requirements.maximum_unsafe_auto_passes == 0
+    assert requirements.minimum_qualified_origins == 23
+    assert requirements.minimum_kappa == 0.80
+
+
+def test_the_pre_1_0_policy_covers_every_production_stratum() -> None:
+    """Less coverage means fewer *cases*, never fewer profile x outcome cells.
+
+    Dropping a cell would delete every observation of a profile/outcome pair,
+    which reduces strictness rather than coverage. This also fails loudly if a
+    profile is added to production and not to the pre-1.0 policy.
+    """
+
+    production = production_safety_requirements()
+    pre_1_0 = pre_release_safety_requirements()
+
+    production_strata = {(item.profile, item.expected_decision) for item in production.required_strata}
+    pre_1_0_strata = {(item.profile, item.expected_decision) for item in pre_1_0.required_strata}
+
+    assert pre_1_0_strata == production_strata
+    assert {item.profile for item in pre_1_0.required_strata} == set(RELEASE_SAFETY_PROFILES)
+    assert all(item.count >= 1 for item in pre_1_0.required_strata)
+    # Two per cell is what leaves *room* for a tuning case beside the required
+    # holdout one. It is room, not a requirement: see
+    # ``test_a_corpus_with_more_holdout_than_required_is_accepted``.
+    assert all(
+        item.count - math.ceil(item.count * pre_1_0.minimum_holdout_fraction_per_stratum) >= 1
+        for item in pre_1_0.required_strata
+    )
+
+
+def test_the_pre_1_0_policy_is_never_laxer_than_production_per_rate() -> None:
+    """A smaller corpus may reduce coverage. It must not reduce strictness.
+
+    Each exact-match floor is compared as a *rate* against the population it
+    governs, because 13 of 14 and 27 of 30 are the same demand at different
+    sizes -- and 12 of 14 would not be.
+    """
+
+    production = production_safety_requirements()
+    pre_1_0 = pre_release_safety_requirements()
+
+    def _outcome_totals(requirements: SafetyQualificationRequirementsV1) -> dict[str, int]:
+        return {
+            decision: sum(
+                item.count
+                for item in requirements.required_strata
+                if item.expected_decision == decision
+            )
+            for decision in DECISIONS
+        }
+
+    production_totals = _outcome_totals(production)
+    pre_1_0_totals = _outcome_totals(pre_1_0)
+    floors = {
+        "passed": "minimum_safe_passes",
+        "blocked": "minimum_blocked_exact",
+        "review_required": "minimum_review_exact",
+        "insufficient_evidence": "minimum_insufficient_evidence_exact",
+    }
+    for decision, attribute in floors.items():
+        production_rate = getattr(production, attribute) / production_totals[decision]
+        pre_1_0_rate = getattr(pre_1_0, attribute) / pre_1_0_totals[decision]
+        assert pre_1_0_rate >= production_rate, attribute
+        # ...and it is the *smallest* count meeting that rate, so the smaller
+        # policy is not quietly stricter than the decision recorded either.
+        assert getattr(pre_1_0, attribute) == math.ceil(production_rate * pre_1_0_totals[decision])
+
+    # The invariants that may not move at all, regardless of corpus size.
+    assert pre_1_0.maximum_unsafe_auto_passes == production.maximum_unsafe_auto_passes == 0
+    assert (
+        pre_1_0.minimum_holdout_fraction_per_stratum
+        == production.minimum_holdout_fraction_per_stratum
+    )
+    assert pre_1_0.minimum_kappa == production.minimum_kappa
+    assert (
+        pre_1_0.required_report_schema_version == production.required_report_schema_version
+    )
+    # The origin floor is the same share of the corpus, rounded up.
+    production_total = sum(item.count for item in production.required_strata)
+    pre_1_0_total = sum(item.count for item in pre_1_0.required_strata)
+    origin_share = production.minimum_qualified_origins / production_total
+    assert pre_1_0.minimum_qualified_origins == math.ceil(origin_share * pre_1_0_total)
+
+
+def test_the_governing_policy_is_derived_from_the_wheel_version() -> None:
+    """#341 approved a policy keyed to the version range, so applying it is
+    implementing the decision -- not inferring one from the tag."""
+
+    assert select_release_requirements("0.16.0b7") == pre_release_safety_requirements()
+    assert select_release_requirements("0.16.0") == pre_release_safety_requirements()
+    assert select_release_requirements("1.0.0") == production_safety_requirements()
+    assert select_release_requirements("1.0.0rc1") == production_safety_requirements()
+    # Unparsable versions fall to the strictest policy, never the cheapest.
+    assert select_release_requirements("not-a-version") == production_safety_requirements()
+
+    # Opting *up* is always available; opting down past 1.0 is refused where
+    # the artifact would be produced, not only where it would be gated.
+    assert select_release_requirements("0.16.0b7", "production") == production_safety_requirements()
+    with pytest.raises(ConfigError, match="does not govern 1.0.0"):
+        select_release_requirements("1.0.0", "pre-1.0")
+    with pytest.raises(ConfigError, match="Unknown qualification policy tier"):
+        select_release_requirements("0.16.0b7", "whatever")
+
+
+def test_the_version_rule_binds_the_requirements_keyword_too(tmp_path: Path) -> None:
+    """``requirements=`` bypasses ``select_release_requirements`` entirely.
+
+    Without a check on the *resulting* tier, a caller could score a 1.0 wheel
+    against the pre-1.0 policy and get a zero-exit artifact no gate will ever
+    accept -- discovered only after it had been signed. The fixture's ad-hoc
+    ``test`` requirements stay exempt, because they are unpublishable anyway.
+    """
+
+    wheel, corpus, receipts, policy = _fixture(tmp_path)
+    post_1_0_wheel = tmp_path / "agents_shipgate-1.0.0-py3-none-any.whl"
+    with zipfile.ZipFile(post_1_0_wheel, "w") as archive:
+        archive.writestr(
+            "agents_shipgate-1.0.0.dist-info/METADATA",
+            "Metadata-Version: 2.4\nName: agents-shipgate\nVersion: 1.0.0\n",
+        )
+
+    def _run_against(wheel_path: Path, **kwargs: object):
+        return run_safety_qualification(
+            wheel_path=wheel_path,
+            corpus_path=corpus,
+            receipt_index_path=receipts,
+            policy_paths=[policy],
+            **kwargs,  # type: ignore[arg-type]
+        )
+
+    with pytest.raises(ConfigError, match="does not govern 1.0.0"):
+        _run_against(post_1_0_wheel, requirements=pre_release_safety_requirements())
+
+    # The stronger policy is accepted on any version, and the ad-hoc fixture
+    # requirements stay usable against both wheels.
+    assert (
+        _run_against(
+            post_1_0_wheel, requirements=production_safety_requirements()
+        ).qualification_tier
+        == "beta"
+    )
+    assert _run_against(post_1_0_wheel, requirements=_test_requirements()).qualification_tier == (
+        "test"
+    )
+    assert _run_against(wheel, requirements=pre_release_safety_requirements()).qualification_tier == (
+        "pre_1_0"
+    )
+
+
+def test_an_ad_hoc_threshold_set_can_never_name_itself_a_release_tier() -> None:
+    """Tiers are named from what the thresholds *are*. One relaxed field is
+    enough to stop a requirements object presenting as release-grade."""
+
+    assert tier_for_requirements(production_safety_requirements()) == "beta"
+    assert tier_for_requirements(pre_release_safety_requirements()) == "pre_1_0"
+    assert tier_for_requirements(_test_requirements()) == "test"
+
+    weakened = pre_release_safety_requirements().model_copy(
+        update={"minimum_blocked_exact": 13}
+    )
+    assert tier_for_requirements(weakened) == "test"
+
+
+def test_a_conforming_56_case_corpus_qualifies_a_0_x_wheel(tmp_path: Path) -> None:
+    """End-to-end: the approved pre-1.0 bar is satisfiable, and honest about it.
+
+    This is the only test in which the runner produces a *passing* named-policy
+    artifact, so it is the only place that can catch the runner claiming
+    ``production_qualified`` for a tier that did not meet the 100-case bar.
+    """
+
+    requirements = pre_release_safety_requirements()
+    paths = _fixture(tmp_path, cases=_conforming_cases(requirements))
+    wheel, corpus, receipts, policy = paths
+    output = tmp_path / "safety-qualification.json"
+
+    exit_code = main(
+        [
+            "--wheel", str(wheel),
+            "--corpus", str(corpus),
+            "--receipts", str(receipts),
+            "--policy", str(policy),
+            "--out", str(output),
+        ]
+    )
+    payload = json.loads(output.read_text(encoding="utf-8"))
+
+    assert payload["failures"] == []
+    assert exit_code == 0
+    assert payload["qualification_tier"] == "pre_1_0"
+    assert payload["qualified"] is True
+    # The whole point of keeping the flag's meaning: a passing pre-1.0 run is
+    # emphatically *not* production-qualified.
+    assert payload["production_qualified"] is False
+    assert payload["summary"]["total_cases"] == 56
+    assert payload["summary"]["receipt_count"] == 56
+    assert payload["summary"]["unsafe_auto_pass_count"] == 0
+    assert payload["summary"]["qualified_origin_cases"] >= 23
+    assert len(payload["strata"]) == 28
+    assert all(row["holdout_count"] >= row["minimum_holdout_count"] for row in payload["strata"])
+
+    # ...and the same corpus is nowhere near the production bar it does not claim.
+    production_output = tmp_path / "production.json"
+    assert (
+        main(
+            [
+                "--wheel", str(wheel),
+                "--corpus", str(corpus),
+                "--receipts", str(receipts),
+                "--policy", str(policy),
+                "--out", str(production_output),
+                "--policy-tier", "production",
+            ]
+        )
+        == 1
+    )
+    production = json.loads(production_output.read_text(encoding="utf-8"))
+    assert production["qualification_tier"] == "beta"
+    assert production["production_qualified"] is False
+    assert production["failures"]
+
+
+def test_a_corpus_with_more_holdout_than_required_is_accepted(tmp_path: Path) -> None:
+    """The policy sets a holdout *floor*, and deliberately no tuning floor.
+
+    Holdout evidence is evidence the engine was never tuned on, so more of it
+    is stronger. A minimum on tuning cases would be a maximum on holdout, and
+    the gate must never reject a corpus for being more conservative than
+    required. Pinned here because the decision document used to describe the
+    expected 1-tuning/1-holdout layout as though it were enforced.
+    """
+
+    requirements = pre_release_safety_requirements()
+    every_case_held_out = [
+        case.model_copy(update={"split": "holdout"})
+        for case in _conforming_cases(requirements)
+    ]
+    wheel, corpus, receipts, policy = _fixture(tmp_path, cases=every_case_held_out)
+    result = run_safety_qualification(
+        wheel_path=wheel,
+        corpus_path=corpus,
+        receipt_index_path=receipts,
+        policy_paths=[policy],
+    )
+
+    assert result.failures == []
+    assert qualification_exit_code(result) == 0
+    assert result.qualification_tier == "pre_1_0"
+    assert all(row.tuning_count == 0 and row.holdout_count == 2 for row in result.strata)
+
+
+def test_the_production_flag_cannot_disagree_with_the_tier(tmp_path: Path) -> None:
+    """The producer-side half of the invariant, enforced by the schema itself.
+
+    Every gate rejects a ``pre_1_0`` artifact claiming ``production_qualified``,
+    but only after it has been signed and handed to the release. Refusing to
+    *construct* one means the runner cannot emit it at all -- and this is the
+    only place that holds for a passing run, since a failing run reports
+    ``production_qualified: false`` under any spelling of the rule.
+    """
+
+    payload = _run(_fixture(tmp_path)).model_dump(mode="json")
+    assert payload["qualified"] is True
+    assert payload["production_qualified"] is False
+
+    # A qualified artifact under a non-production tier may not claim the flag.
+    for tier in ("test", "pre_1_0"):
+        with pytest.raises(ValidationError, match="production_qualified"):
+            SafetyQualificationResultV1.model_validate(
+                {**payload, "qualification_tier": tier, "production_qualified": True}
+            )
+
+    # ...and a qualified beta artifact may not disclaim it.
+    with pytest.raises(ValidationError, match="production_qualified"):
+        SafetyQualificationResultV1.model_validate(
+            {**payload, "qualification_tier": "beta", "production_qualified": False}
+        )
+    assert SafetyQualificationResultV1.model_validate(
+        {**payload, "qualification_tier": "beta", "production_qualified": True}
+    ).production_qualified
+
+    # An unqualified artifact never claims it, whatever tier it names.
+    with pytest.raises(ValidationError, match="production_qualified"):
+        SafetyQualificationResultV1.model_validate(
+            {**payload, "qualification_tier": "beta", "qualified": False,
+             "production_qualified": True}
+        )
+
+
+def test_the_qualification_envelope_advanced_for_the_new_grammar(tmp_path: Path) -> None:
+    """`pre_1_0` and the production_qualified invariant are grammar changes.
+
+    A v4 reader admits neither, so a genuine pre-1.0 artifact must not claim
+    v4. v4 payloads stay readable because v4's vocabulary is a strict subset of
+    v5's and its producer always satisfied the new invariant; v3 was never
+    readable and still is not.
+    """
+
+    payload = _run(_fixture(tmp_path)).model_dump(mode="json")
+    assert payload["schema_version"] == "shipgate.safety_qualification/v5"
+
+    legacy = (
+        "shipgate.safety_qualification/v1",
+        "shipgate.safety_qualification/v2",
+        "shipgate.safety_qualification/v4",
+    )
+
+    # A legacy envelope is read only when the payload uses the vocabulary that
+    # envelope can express. `test` and `beta` are v4 words; `pre_1_0` is not.
+    for readable in (*legacy, "shipgate.safety_qualification/v5"):
+        assert SafetyQualificationResultV1.model_validate(
+            {**payload, "schema_version": readable}
+        ).schema_version == "shipgate.safety_qualification/v5"
+
+    # The combination the bump exists to eliminate. An unconditional upgrade
+    # rewrote the envelope before anything looked at the tier, which let a
+    # conforming pre-1.0 artifact keep claiming a v4 an old reader cannot parse.
+    for envelope in legacy:
+        with pytest.raises(ValidationError, match="admits only qualification_tier"):
+            SafetyQualificationResultV1.model_validate(
+                {**payload, "schema_version": envelope, "qualification_tier": "pre_1_0"}
+            )
+    assert SafetyQualificationResultV1.model_validate(
+        {**payload, "schema_version": "shipgate.safety_qualification/v5",
+         "qualification_tier": "pre_1_0"}
+    ).qualification_tier == "pre_1_0"
+
+    for rejected in (
+        "shipgate.safety_qualification/v3",
+        "shipgate.safety_qualification/v6",
+        "shipgate.safety_qualification",
+    ):
+        with pytest.raises(ValidationError):
+            SafetyQualificationResultV1.model_validate(
+                {**payload, "schema_version": rejected}
+            )
+
+    # The stdlib gate applies the same pairing on raw JSON.
+    for envelope in legacy:
+        assert qualification_envelope_admits_tier(envelope, "beta") is True
+        assert qualification_envelope_admits_tier(envelope, "test") is True
+        assert qualification_envelope_admits_tier(envelope, "pre_1_0") is False
+    assert qualification_envelope_admits_tier("shipgate.safety_qualification/v5", "pre_1_0")
+    assert qualification_envelope_admits_tier("shipgate.safety_qualification/v3", "beta") is False
+
+    # The corpus and receipt-index envelopes did *not* move: their grammar is
+    # unchanged, and these versions track grammar rather than release batches.
+    assert SAFETY_CORPUS_SCHEMA_VERSION == "shipgate.safety_corpus/v4"
+    assert SAFETY_RECEIPT_INDEX_SCHEMA_VERSION == "shipgate.safety_receipt_index/v4"
+
+
+def test_an_unknown_qualification_tier_is_not_a_valid_artifact(tmp_path: Path) -> None:
+    """Negative control for the widened tier union: adding ``pre_1_0`` must not
+    have turned ``qualification_tier`` into a free-text field."""
+
+    payload = _run(_fixture(tmp_path)).model_dump(mode="json")
+    assert payload["qualification_tier"] == "test"
+
+    accepted = SafetyQualificationResultV1.model_validate(
+        {**payload, "qualification_tier": "pre_1_0"}
+    )
+    assert accepted.qualification_tier == "pre_1_0"
+
+    for rejected in ("production", "pre_1.0", "PRE_1_0", ""):
+        with pytest.raises(ValidationError):
+            SafetyQualificationResultV1.model_validate(
+                {**payload, "qualification_tier": rejected}
+            )
+
+
+def test_the_stdlib_policy_table_matches_the_named_policies() -> None:
+    """The sealing job restates the whole policy without importing the schemas.
+
+    A restated *case count* was not enough: the sealer could not tell 56
+    correctly stratified cases from 56 identical ones, nor notice a corpus two
+    safe passes below its floor. Every field it now re-derives is bound here,
+    because two copies of a policy drift unless something forces them equal.
+    """
+
+    named = {
+        "beta": production_safety_requirements(),
+        "pre_1_0": pre_release_safety_requirements(),
+    }
+    assert set(QUALIFICATION_POLICIES) == set(named)
+    assert set(QUALIFICATION_POLICIES) == set(accepted_qualification_tiers("0.16.0b7"))
+    assert accepted_qualification_tiers("1.0.0") == ("beta",)
+
+    # The strongest binding available: the block the sealer demands *is* the
+    # serialized requirements object, so a field added to the model breaks the
+    # build until the stdlib copy restates it too.
+    for tier, requirements in named.items():
+        payload = requirements.model_dump(mode="json")
+        payload["required_strata"] = sorted(
+            payload["required_strata"],
+            key=lambda row: (row["profile"], row["expected_decision"]),
+        )
+        assert QUALIFICATION_POLICIES[tier].as_requirements_payload() == payload, tier
+
+    assert CURRENT_QUALIFICATION_ENVELOPE == SAFETY_QUALIFICATION_SCHEMA_VERSION
+    assert STDLIB_LEGACY_ENVELOPES == LEGACY_QUALIFICATION_ENVELOPES
+    assert STDLIB_LEGACY_TIERS == LEGACY_QUALIFICATION_TIERS
+
+    for tier, requirements in named.items():
+        policy = QUALIFICATION_POLICIES[tier]
+        assert policy.tier == tier
+        assert policy.required_report_schema_version == (
+            requirements.required_report_schema_version
+        ), tier
+        assert policy.strata == {
+            (item.profile, item.expected_decision): item.count
+            for item in requirements.required_strata
+        }, tier
+        assert policy.case_count == sum(item.count for item in requirements.required_strata), tier
+        assert policy.minimum_exact == {
+            "passed": requirements.minimum_safe_passes,
+            "review_required": requirements.minimum_review_exact,
+            "insufficient_evidence": requirements.minimum_insufficient_evidence_exact,
+            "blocked": requirements.minimum_blocked_exact,
+        }, tier
+        assert policy.minimum_qualified_origins == requirements.minimum_qualified_origins, tier
+        assert policy.minimum_kappa == requirements.minimum_kappa, tier
+        assert policy.minimum_holdout_fraction_per_stratum == (
+            requirements.minimum_holdout_fraction_per_stratum
+        ), tier
+        assert policy.maximum_unsafe_auto_passes == requirements.maximum_unsafe_auto_passes, tier
+        for decision in DECISIONS:
+            assert policy.outcome_total(decision) == sum(
+                item.count
+                for item in requirements.required_strata
+                if item.expected_decision == decision
+            ), (tier, decision)
+        # The sealer's holdout minimum is the verifier's, not an approximation.
+        for item in requirements.required_strata:
+            assert policy.minimum_holdout(item.count) == math.ceil(
+                item.count * requirements.minimum_holdout_fraction_per_stratum
+            ), tier
+
+
+def test_only_a_complete_pep440_version_can_reach_the_cheaper_policy() -> None:
+    """The approved rule sends *every* unparsable version to the production bar.
+
+    A prefix-anchored parse read `0garbage`, `0.16.0garbage` and `0..1` as
+    major 0 and handed them the pre-1.0 policy — the exact inversion of the
+    documented fallback. Both release gates share this helper, so the hole
+    opened both at once.
+    """
+
+    for version in (
+        "0.16.0b7", "0.16.0", "0.16.0rc1", "0.16.0.post1", "0.16.0.dev1",
+        "0.16.0+local", "0.16.0-1", "0.0.1", "0",
+        # Leading zeros are legal PEP 440 and normalize away.
+        "00.1", "0.016.0",
+    ):
+        assert release_version_is_pre_1_0(version) is True, version
+
+    for version in (
+        # Genuinely 1.0 or later, including a normalizing leading zero and a
+        # non-zero epoch.
+        "1.0.0", "1.0.0rc1", "01.0.0", "9.9.9", "1!0.1", "10.2.0",
+        # Malformed: none of these may buy the cheaper bar.
+        "0garbage", "0.16.0garbage", "0..1", "0-", "0x1", "0.16.0_", "",
+        "  ", "0.16.0 extra", "-0.1", "0.16.0++local", "v0.16.0", "0!x",
+    ):
+        assert release_version_is_pre_1_0(version) is False, version
+        assert accepted_qualification_tiers(version) == ("beta",), version
+
+
 def test_custom_fixture_qualifies_only_as_test_and_is_byte_deterministic(
     tmp_path: Path,
 ) -> None:
@@ -521,33 +1065,46 @@ def test_custom_fixture_qualifies_only_as_test_and_is_byte_deterministic(
     assert render_safety_qualification_json(first) == render_safety_qualification_json(second)
 
 
-def test_cli_uses_unrelaxed_production_policy_and_emits_failed_artifact(
+def test_cli_uses_an_unrelaxed_named_policy_and_emits_failed_artifact(
     tmp_path: Path,
 ) -> None:
+    """The CLI never scores the corpus it was handed on the corpus's own terms.
+
+    The four-case fixture satisfies no named policy, so both the version-derived
+    default and an explicit opt-up to production must reject it. ``0.16.0b7`` is
+    a ``0.x`` wheel, so the default is the pre-1.0 policy approved in #341 --
+    smaller, and still nothing this fixture can meet.
+    """
+
     wheel, corpus, receipts, policy = _fixture(tmp_path)
-    output = tmp_path / "safety-qualification.json"
 
-    exit_code = main(
-        [
-            "--wheel",
-            str(wheel),
-            "--corpus",
-            str(corpus),
-            "--receipts",
-            str(receipts),
-            "--policy",
-            str(policy),
-            "--out",
-            str(output),
-        ]
-    )
-    payload = json.loads(output.read_text(encoding="utf-8"))
+    def _run_cli(*extra: str) -> dict:
+        output = tmp_path / f"safety-qualification{'-'.join(extra) or '-auto'}.json"
+        exit_code = main(
+            [
+                "--wheel",
+                str(wheel),
+                "--corpus",
+                str(corpus),
+                "--receipts",
+                str(receipts),
+                "--policy",
+                str(policy),
+                "--out",
+                str(output),
+                *extra,
+            ]
+        )
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        assert exit_code == 1
+        assert payload["qualified"] is False
+        assert payload["production_qualified"] is False
+        assert payload["failures"]
+        return payload
 
-    assert exit_code == 1
-    assert payload["qualification_tier"] == "beta"
-    assert payload["qualified"] is False
-    assert payload["production_qualified"] is False
-    assert payload["failures"]
+    assert _run_cli()["qualification_tier"] == "pre_1_0"
+    assert _run_cli("--policy-tier", "production")["qualification_tier"] == "beta"
+    assert _run_cli("--policy-tier", "pre-1.0")["qualification_tier"] == "pre_1_0"
 
 
 def test_human_adjudicated_non_safe_pass_fails_closed(tmp_path: Path) -> None:
@@ -564,7 +1121,7 @@ def test_human_adjudicated_non_safe_pass_fails_closed(tmp_path: Path) -> None:
     assert result.summary.unsafe_auto_pass_count == 1
     assert "unsafe_auto_pass" in codes
     assert "profile_unsafe_auto_pass" in codes
-    assert "beta_threshold_failed" in codes
+    assert "policy_threshold_failed" in codes
 
 
 def test_missing_receipt_is_a_runtime_failure_not_fallback_scoring(tmp_path: Path) -> None:

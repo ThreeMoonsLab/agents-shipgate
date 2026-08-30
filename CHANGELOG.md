@@ -100,6 +100,100 @@
 
   [#461]: https://github.com/ThreeMoonsLab/agents-shipgate/issues/461
 
+- **A `0.x` tag now has an evidence bar it can actually meet, and it is not a
+  weaker judgement.** (#341) The only release policy was 100 adjudicated,
+  receipt-bound cases — the claim `1.0` should make — enforced for every tag.
+  No corpus met it, so nothing published, and evaluators kept installing
+  `v0.15.0`: an older, less-verified build than the one being withheld.
+
+  A second **named** policy, `pre_1_0`, governs `0.x` tags: 56 cases, two in
+  each of the same 28 profile × decision strata, with the origin floor at the
+  same 40% share. Everything that decides whether evidence is *believed* is
+  byte-identical to the production policy — zero unsafe auto-passes per profile
+  and overall, a unique terminal verifier receipt per case, the 20% holdout
+  fraction, the κ floor, `static_only`, and full re-derivation by the verifier.
+  Every exact-match floor is the production rate rounded up, which at 56 cases
+  means three of the four land on 100%: a smaller corpus buys less tolerance
+  for error, not more. The route, the numbers, the rejected alternatives and
+  the promotion path are recorded by a named owner in
+  [`docs/release-evidence-policy-decision.md`](docs/release-evidence-policy-decision.md).
+
+  **The version decides the policy; the artifact never does.** Epoch 0 with
+  major 0 admits `pre_1_0` or the stronger `beta`; everything else — including
+  a version that will not parse — admits `beta` only. Both release gates derive
+  this independently, and an artifact naming a tier its version does not admit
+  is rejected *and* then measured against the production counts, so a bad tier
+  cannot shrink what is checked. `production_qualified` keeps meaning "met the
+  100-case bar": a `pre_1_0` artifact reports it `false`, and claiming
+  otherwise is itself a rejection.
+
+  **The sealing gate was the sixth definition site, not the fifth.** The
+  standing brief listed five places the bar is defined; `verify_qualification_binding.py`
+  — the standard-library gate that seals a release without importing the
+  project — hard-coded `REQUIRED_CASE_COUNT = 100` and `tier == "beta"`
+  independently. A change that moved the other five would have failed there,
+  at the last step before publication, with a bare case-count error. It is
+  per-tier now, and `test_the_stdlib_case_counts_match_the_named_policies`
+  binds its restated numbers to the real constructors so the two copies cannot
+  drift. Along the way the exhaustive verifier stopped hard-coding `100` in six
+  places and now derives every count, metric denominator and confusion-matrix
+  profile from the governing policy. Review turned up a **seventh**:
+  `benchmark/safety-qualification/README.md`, the corpus owner's runbook, which
+  decides what actually gets built — a change that left it behind would have
+  aimed the whole corpus effort at the wrong shape, which no gate can detect.
+  It now documents both policies, and its pre-existing claim that receipts must
+  carry report schema `0.40` (the gate pins `0.42`) is corrected.
+
+  **`production_qualified` is now unrepresentable when it disagrees with the
+  tier.** Every gate rejected such an artifact, but only after it had been
+  signed and handed to the release. `SafetyQualificationResultV1` refuses to
+  construct one, so the producer cannot emit it — and the version rule binds
+  the `requirements=` keyword too, not just `--policy-tier`, which previously
+  let a caller score a `1.0` wheel against the pre-1.0 policy and exit `0`.
+
+  **Review found three more, all in the parts that decide what publishes.**
+  The sealing gate restated only a *case count*, so it could not tell 56
+  correctly stratified cases from 56 identical ones, and accepted a corpus two
+  safe passes below its floor that the exhaustive gate rejected — the
+  dependency-compromise boundary it exists to hold was decorative. It now
+  restates each tier's strata, exact-match floors, per-stratum holdout, and the
+  origin and κ floors, re-derives them from the raw cases, and has every field
+  bound to the real constructors by test. The version→tier rule was anchored
+  only at the start of the string, so `0garbage`, `0.16.0garbage` and `0..1`
+  bought the *cheaper* policy — the exact inversion of the documented fallback,
+  in a helper both gates share; it now requires a complete PEP 440 parse. And
+  `qualification_tier: pre_1_0` plus the new cross-field invariant are grammar
+  changes emitted under a frozen envelope id, so
+  `shipgate.safety_qualification` advances **v4 → v5**, with v4 still readable
+  (its vocabulary is a strict subset) and the corpus and receipt-index
+  envelopes deliberately unmoved, since their grammar did not change.
+
+  **A second review round found the bump had a hole and the sealer had four
+  more.** Upgrading a legacy envelope *unconditionally* rewrote v4 to v5 before
+  anything looked at the tier, so a conforming pre-1.0 artifact could keep
+  claiming a v4 an old reader cannot parse — the exact combination the bump
+  existed to eliminate. A legacy envelope is now read only when the payload
+  uses the vocabulary that envelope can express, and both gates enforce the
+  pairing. In the sealer: floors count *matches*, so a case with a null
+  `actual_decision` merely failed to count toward its floor rather than being
+  rejected, and 56 rows sharing one id looked like 56 cases — case identity and
+  terminal decisions are now checked before any floor. `>= 0.80` admitted
+  `inf`, since the JSON literal `1e309` loads as a float that satisfies every
+  lower bound; κ and the origin count are now bounded on both sides and
+  required to be finite and integral respectively. And the report schema
+  version has no representation in `cases` at all, so the approved `0.42` could
+  be restated as `0.1` and still seal — the sealer now compares the artifact's
+  whole declared `requirements` block, field for field, against its
+  restatement of the policy.
+
+  **The 1-tuning/1-holdout split was documentation, not policy.** What is
+  enforced is a per-cell holdout *floor*; a corpus that marks more cases
+  holdout is accepted, deliberately — holdout evidence was never tuned on, so
+  more of it is stronger, and a floor on tuning cases would be a ceiling on
+  holdout. The decision document, the schema docstring and the corpus runbook
+  said "leaves each cell one tuning and one holdout case" as though that were
+  checked; they now say what is actually enforced and why.
+
 - **The declaration continuation: a drafted proposal can now reach the person
   it was drafted for.** (#429 review) `apply-patches --kinds declare_action`
   writes into `shipgate.yaml`, which is the trust root — so the control that

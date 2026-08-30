@@ -11,10 +11,21 @@ dependency there could rewrite the verifier itself.
 This module exists so the sealing job can restate the claims that actually
 delegate publication authority, using nothing but the standard library:
 
-* the artifact is a **beta**, **qualified**, **production_qualified** result;
+* the artifact is **qualified** under a policy the tag's version admits --
+  the 100-case ``beta`` policy, or, for a ``0.x`` tag only, the 56-case
+  ``pre_1_0`` policy approved in
+  ``docs/release-evidence-policy-decision.md`` (issue #341);
+* it claims ``production_qualified`` exactly when it claims the ``beta`` tier;
 * it is static-only and does not claim runtime behaviour was proven;
-* it carries no failures, exactly 100 cases, and 100 receipts;
-* it reports **zero** unsafe auto-passes;
+* it carries no failures, and exactly as many cases and receipts as that
+  policy requires, in exactly that policy's 28 profile x outcome strata;
+* every case has a unique, non-blank id and a terminal verifier decision;
+* it meets that policy's per-outcome exact-match floors and per-stratum
+  holdout minimum, both re-derived from the raw cases;
+* its declared ``requirements`` block *is* that policy, field for field --
+  including the report schema version, which nothing in ``cases`` can attest;
+* the envelope it claims can express the tier it claims;
+* it reports **zero** unsafe auto-passes, overall and per profile;
 * and — the binding that matters — its recorded wheel name, version and
   SHA-256 are the wheel about to be published.
 
@@ -36,21 +47,101 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
 if __package__:
-    from scripts._release_support import SHA256_PATTERN, ReleaseError, inspect_wheel
+    from scripts._release_support import (
+        PRODUCTION_QUALIFICATION_TIER,
+        QUALIFICATION_DECISIONS,
+        SHA256_PATTERN,
+        ReleaseError,
+        accepted_qualification_tiers,
+        describe_accepted_tiers,
+        inspect_wheel,
+        qualification_envelope_admits_tier,
+        qualification_policy,
+    )
 else:  # ``python scripts/verify_qualification_binding.py``
-    from _release_support import SHA256_PATTERN, ReleaseError, inspect_wheel
-
-REQUIRED_CASE_COUNT = 100
+    from _release_support import (
+        PRODUCTION_QUALIFICATION_TIER,
+        QUALIFICATION_DECISIONS,
+        SHA256_PATTERN,
+        ReleaseError,
+        accepted_qualification_tiers,
+        describe_accepted_tiers,
+        inspect_wheel,
+        qualification_envelope_admits_tier,
+        qualification_policy,
+    )
 
 
 def _require(errors: list[str], condition: bool, message: str) -> None:
     if not condition:
         errors.append(message)
+
+
+def _is_rate(value: Any, *, low: float, high: float) -> bool:
+    """A finite JSON number inside ``[low, high]``.
+
+    ``True`` is an ``int`` in Python and is not a number here. Neither is
+    ``inf``: the JSON literal ``1e309`` loads as ``inf``, which satisfies any
+    ``>=`` floor while the exhaustive gate rejects it against its ``<= 1.0``
+    invariant.
+    """
+
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    return math.isfinite(value) and low <= value <= high
+
+
+def _is_count(value: Any, *, low: int, high: int) -> bool:
+    """A genuine integer count inside ``[low, high]``."""
+
+    return isinstance(value, int) and not isinstance(value, bool) and low <= value <= high
+
+
+def _requirements_errors(declared: Any, policy: Any) -> list[str]:
+    """Compare the artifact's own ``requirements`` block against the policy.
+
+    The sealer re-derives the strata and floors from the cases, but the report
+    schema version has no representation in the cases at all -- so without this
+    an artifact could restate the approved ``0.42`` as ``0.1`` and still seal.
+    """
+
+    if not isinstance(declared, dict):
+        return ["artifact has no requirements object"]
+    expected = policy.as_requirements_payload()
+    if set(declared) != set(expected):
+        return [f"requirements block does not carry exactly the {policy.tier} policy's fields"]
+    errors: list[str] = []
+    for key, want in expected.items():
+        got = declared[key]
+        if key == "required_strata":
+            rows = (
+                sorted(
+                    (row.get("profile"), row.get("expected_decision"), row.get("count"))
+                    for row in got
+                    if isinstance(row, dict)
+                )
+                if isinstance(got, list)
+                else None
+            )
+            if rows != sorted(
+                (row["profile"], row["expected_decision"], row["count"]) for row in want
+            ):
+                errors.append(
+                    f"requirements required_strata differ from the {policy.tier} policy"
+                )
+            continue
+        if got != want:
+            errors.append(
+                f"requirements {key} is {got!r}, not the {policy.tier} policy's {want!r}"
+            )
+    return errors
 
 
 def verify_qualification_binding(
@@ -81,11 +172,45 @@ def verify_qualification_binding(
 
     assert isinstance(inputs, dict) and isinstance(summary, dict) and isinstance(cases, list)
 
-    _require(errors, payload.get("qualification_tier") == "beta", "qualification tier is not beta")
-    _require(errors, payload.get("qualified") is True, "artifact is not qualified")
+    # Which policy governs is decided by the wheel's version, never by the
+    # artifact. An artifact naming a tier this version does not admit is
+    # rejected *and* falls back to the production policy, so a bad tier can
+    # never shrink the population checked below.
+    accepted_tiers = accepted_qualification_tiers(wheel_version)
+    tier = payload.get("qualification_tier")
+    tier_accepted = tier in accepted_tiers
+    policy = qualification_policy(tier if tier_accepted else PRODUCTION_QUALIFICATION_TIER)
+    required_case_count = policy.case_count
+    declared_envelope = payload.get("schema_version")
+
     _require(
-        errors, payload.get("production_qualified") is True, "artifact is not production_qualified"
+        errors,
+        tier_accepted,
+        f"qualification tier is not {describe_accepted_tiers(accepted_tiers)}",
     )
+    # A legacy envelope's reader admits `beta` and `test` only, so labelling a
+    # pre-1.0 artifact with one hands an old reader something it cannot parse.
+    # The pydantic model refuses the same pairing; this is the raw-JSON half,
+    # because nothing else here looks at the envelope at all.
+    _require(
+        errors,
+        qualification_envelope_admits_tier(declared_envelope, tier),
+        f"qualification envelope {declared_envelope!r} cannot carry "
+        f"qualification_tier {tier!r}",
+    )
+    _require(errors, payload.get("qualified") is True, "artifact is not qualified")
+    if tier == PRODUCTION_QUALIFICATION_TIER:
+        _require(
+            errors,
+            payload.get("production_qualified") is True,
+            "artifact is not production_qualified",
+        )
+    else:
+        _require(
+            errors,
+            payload.get("production_qualified") is False,
+            "artifact claims production_qualified without the production policy",
+        )
     _require(errors, payload.get("static_only") is True, "artifact is not static-only")
     _require(
         errors,
@@ -96,18 +221,18 @@ def verify_qualification_binding(
 
     _require(
         errors,
-        len(cases) == REQUIRED_CASE_COUNT,
-        f"artifact carries {len(cases)} cases, not {REQUIRED_CASE_COUNT}",
+        len(cases) == required_case_count,
+        f"artifact carries {len(cases)} cases, not {required_case_count}",
     )
     _require(
         errors,
-        summary.get("total_cases") == REQUIRED_CASE_COUNT,
-        "summary total_cases is not 100",
+        summary.get("total_cases") == required_case_count,
+        f"summary total_cases is not {required_case_count}",
     )
     _require(
         errors,
-        summary.get("receipt_count") == REQUIRED_CASE_COUNT,
-        "summary receipt_count is not 100",
+        summary.get("receipt_count") == required_case_count,
+        f"summary receipt_count is not {required_case_count}",
     )
 
     # Derived from the cases, not read from the summary. The summary is a
@@ -132,10 +257,112 @@ def verify_qualification_binding(
 
     _require(errors, derived_unsafe == 0, "cases contain an unsafe auto-pass")
     _require(errors, derived_runtime_failures == 0, "cases contain a runtime failure")
+
+    # A total case count is not a policy. Without the strata and the
+    # exact-match floors below, 56 cases in no stratum at all, or 56 correctly
+    # stratified cases with two safe passes missing, passed here while the
+    # exhaustive gate rejected them -- so the dependency-compromise boundary
+    # this file exists to hold would have been decorative.
+    objects = [case for case in cases if isinstance(case, dict)]
+    _require(errors, len(objects) == len(cases), "a case entry is not a JSON object")
+
+    # Identity and terminality come first: the floors below count *matches*, so
+    # a case with a null `actual_decision` merely fails to count toward its
+    # floor rather than being rejected, and 56 rows sharing one id look like 56
+    # distinct cases as long as their receipt digests differ.
+    identifiers = [case.get("id") for case in objects]
+    named = [value for value in identifiers if isinstance(value, str) and value.strip()]
+    _require(
+        errors, len(named) == len(identifiers), "a case id is missing, blank, or not a string"
+    )
+    _require(errors, len(set(named)) == len(named), "case ids are not unique")
     _require(
         errors,
-        len(receipts) == REQUIRED_CASE_COUNT,
-        f"cases carry {len(receipts)} receipts, not {REQUIRED_CASE_COUNT}",
+        all(case.get("expected_decision") in QUALIFICATION_DECISIONS for case in objects),
+        "a case expected_decision is not one of the four terminal decisions",
+    )
+    _require(
+        errors,
+        all(case.get("actual_decision") in QUALIFICATION_DECISIONS for case in objects),
+        "a case has no terminal actual verifier decision",
+    )
+
+    errors.extend(_requirements_errors(payload.get("requirements"), policy))
+
+    strata = Counter(
+        (str(case.get("profile")), str(case.get("expected_decision"))) for case in objects
+    )
+    _require(
+        errors,
+        dict(strata) == policy.strata,
+        f"case profile/outcome strata do not match the {policy.tier} policy",
+    )
+
+    for decision in QUALIFICATION_DECISIONS:
+        exact = sum(
+            1
+            for case in objects
+            if case.get("expected_decision") == decision
+            and case.get("actual_decision") == decision
+        )
+        floor = policy.minimum_exact[decision]
+        _require(
+            errors,
+            exact >= floor,
+            f"{decision} exact-match floor failed: {exact} of "
+            f"{policy.outcome_total(decision)}, need {floor}",
+        )
+
+    for profile in sorted(policy.profile_counts):
+        _require(
+            errors,
+            not any(
+                case.get("profile") == profile
+                and case.get("expected_decision") != "passed"
+                and case.get("actual_decision") == "passed"
+                for case in objects
+            ),
+            f"profile {profile} contains an unsafe auto-pass",
+        )
+
+    for (profile, decision), stratum_size in sorted(policy.strata.items()):
+        holdout = sum(
+            1
+            for case in objects
+            if case.get("profile") == profile
+            and case.get("expected_decision") == decision
+            and case.get("split") == "holdout"
+        )
+        _require(
+            errors,
+            holdout >= policy.minimum_holdout(stratum_size),
+            f"stratum {profile}/{decision} holdout requirement failed",
+        )
+
+    # The only two policy floors that are *not* derivable from ``cases``: no
+    # case row carries its origin or the label agreement it came from. They are
+    # read from the summary and named as such, rather than silently skipped
+    # because they are inconvenient to re-derive here.
+    _require(
+        errors,
+        _is_count(
+            summary.get("qualified_origin_cases"),
+            low=policy.minimum_qualified_origins,
+            high=policy.case_count,
+        ),
+        f"summary qualified_origin_cases is not an integer between the {policy.tier} "
+        f"minimum of {policy.minimum_qualified_origins} and {policy.case_count}",
+    )
+    _require(
+        errors,
+        _is_rate(summary.get("cohen_kappa"), low=policy.minimum_kappa, high=1.0),
+        f"summary cohen_kappa is not a finite value between the {policy.tier} floor "
+        f"of {policy.minimum_kappa} and 1.0",
+    )
+    _require(
+        errors,
+        len(receipts) == required_case_count,
+        f"cases carry {len(receipts)} receipts, not {required_case_count}",
     )
     _require(
         errors,
@@ -181,7 +408,7 @@ def verify_qualification_binding(
             "Release safety qualification rejected: " + "; ".join(sorted(set(errors)))
         )
     return {
-        "qualification_tier": payload.get("qualification_tier"),
+        "qualification_tier": tier,
         "wheel_name": wheel_name,
         "wheel_version": wheel_version,
         "wheel_sha256": wheel_sha256,

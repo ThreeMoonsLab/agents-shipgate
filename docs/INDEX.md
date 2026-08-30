@@ -177,7 +177,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`troubleshooting.md`](troubleshooting.md) — error messages → fixes
 - [`distribution.md`](distribution.md) — release process and SBOM/signature verification
 - [`release-runbook.md`](release-runbook.md) — cutting a tag: mandatory rehearsal, the two-job publication transaction, provenance bindings, and the recovery path when PyPI succeeds but finalization fails
-- [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) — open decision brief for the pre-1.0 qualification evidence bar (awaiting a named human owner; no route selected)
+- [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) — the approved release evidence bar: the 56-case `pre_1_0` policy for `0.x` tags, the 100-case `beta` policy from 1.0 on, and the promotion path between them (decided 2026-08-29, #341)
 - [`decisions.md`](decisions.md) — architectural decisions
 
 ## For agents

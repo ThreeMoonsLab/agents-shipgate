@@ -488,18 +488,25 @@ jobs:
         # and confusion matrix) imports the project's pydantic schemas, so it
         # runs in the `policy` job where the project is installed. What is
         # restated here, with the standard library only, are the claims that
-        # actually delegate publication authority: beta/qualified/
-        # production_qualified, static-only, no failures, 100 cases and
-        # receipts, zero unsafe auto-passes, and the wheel name/version/digest
-        # binding. A signed-but-weakened artifact therefore cannot pass on the
-        # strength of its signature alone.
+        # actually delegate publication authority: a qualification tier the
+        # tag's version admits, static-only, no failures, exactly as many cases
+        # and receipts as that tier requires, zero unsafe auto-passes, and the
+        # wheel name/version/digest binding. A signed-but-weakened artifact
+        # therefore cannot pass on the strength of its signature alone. Which
+        # tier a version admits is in docs/release-evidence-policy-decision.md.
+        id: binding
         env:
           RELEASE_TAG: ${{ steps.candidate.outputs.release_tag }}
         run: |
+          set -euo pipefail
           python scripts/verify_qualification_binding.py \
             --qualification qualified-dist/safety-qualification.json \
             --wheel "${QUALIFIED_WHEEL}" \
             --tag "${RELEASE_TAG}"
+          # Read back only for the run summary, and only after the gate above
+          # accepted the tier. Nothing downstream trusts this value.
+          tier="$(python -c 'import json,sys; sys.stdout.write(str(json.load(open("qualified-dist/safety-qualification.json")).get("qualification_tier")))')"
+          echo "qualification_tier=${tier}" >> "${GITHUB_OUTPUT}"
 
       - name: Bind the qualified wheel to the tagged source tree
         # Without this the pipeline tests the checkout and publishes a wheel
@@ -613,6 +620,7 @@ jobs:
           WHEEL_FILENAME: ${{ steps.qualified.outputs.wheel_filename }}
           WHEEL_SHA256: ${{ steps.handoff.outputs.wheel_sha256 }}
           MANIFEST_SHA256: ${{ steps.handoff.outputs.manifest_sha256 }}
+          QUALIFICATION_TIER: ${{ steps.binding.outputs.qualification_tier }}
         run: |
           {
             echo "## Release candidate ${RELEASE_TAG} (${MODE})"
@@ -623,7 +631,7 @@ jobs:
             echo "| CHANGELOG section for the tag | pass |"
             echo "| Dependency locks match declarations | pass |"
             echo "| Qualification signature identity | pass |"
-            echo "| Production qualification policy | pass |"
+            echo "| Qualification policy (${QUALIFICATION_TIER}) for this version | pass |"
             echo "| Wheel bound to tagged source | $(python -c 'import json,sys; sys.stdout.write(json.load(open("provenance.json"))["provenance_mode"])') |"
             echo "| Correctness suite (-n auto, not perf) | pass |"
             echo "| Dependency audit | pass |"
