@@ -1,0 +1,38 @@
+{
+  "tools": [
+    {
+      "name": "support.delete_case_message",
+      "description": "Delete one customer-visible message from a support case thread.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "case_id": {
+            "type": "string"
+          },
+          "message_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "case_id",
+          "message_id"
+        ]
+      }
+    },
+    {
+      "name": "billing.cancel_invoice_email",
+      "description": "Cancel one queued invoice email before it reaches the customer.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "invoice_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoice_id"
+        ]
+      }
+    }
+  ]
+}

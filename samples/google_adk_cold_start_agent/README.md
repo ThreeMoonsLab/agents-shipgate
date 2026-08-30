@@ -8,6 +8,13 @@ partway on purpose: it reaches `insufficient_evidence` with **ten open
 declaration questions**, and ships the questionnaire an adopter actually reads
 as a byte-compared golden.
 
+For the step after this one, see
+[`declaration_repair_agent`](../declaration_repair_agent/): a manifest that has
+already declared everything and is held short of `passed` by two rows whose
+declared `effect` is challenged by the evidence. That is the one questionnaire
+shape this fixture has no example of — its own golden holds zero `risk_tags:`
+blocks, so the `declare_risk_tags` repair route appears here nowhere (#424).
+
 ```bash
 agents-shipgate scan -c samples/google_adk_cold_start_agent/shipgate.yaml
 ```

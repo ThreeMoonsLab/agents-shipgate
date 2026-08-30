@@ -23,6 +23,10 @@ LANGCHAIN_EXPECTED_MARKDOWN = Path("samples/simple_langchain_agent/expected/repo
 CREWAI_SAMPLE = Path("samples/simple_crewai_agent/shipgate.yaml")
 CREWAI_EXPECTED_MARKDOWN = Path("samples/simple_crewai_agent/expected/report.md")
 COLD_START_SAMPLE = Path("samples/google_adk_cold_start_agent/shipgate.yaml")
+REPAIR_SAMPLE = Path("samples/declaration_repair_agent/shipgate.yaml")
+REPAIR_EXPECTED_MARKDOWN = Path(
+    "samples/declaration_repair_agent/expected/report.md"
+)
 COLD_START_EXPECTED_MARKDOWN = Path(
     "samples/google_adk_cold_start_agent/expected/report.md"
 )
@@ -149,6 +153,28 @@ def test_cold_start_markdown_report_matches_golden(tmp_path):
     assert actual == expected
 
 
+def test_repair_markdown_report_matches_golden(tmp_path):
+    """The human-readable half of the challenged-declaration fixture.
+
+    Its `report.json` is only compared for schema, decision and field shape,
+    so without this the committed `report.md` beside it is the one artifact in
+    that sample nothing reads — and a stale golden is worse than no golden.
+    """
+
+    run_scan(
+        config_path=REPAIR_SAMPLE,
+        output_dir=tmp_path,
+        formats=["markdown", "json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+
+    actual = (tmp_path / "report.md").read_text(encoding="utf-8")
+    expected = REPAIR_EXPECTED_MARKDOWN.read_text(encoding="utf-8")
+
+    assert actual == expected
+
+
 def test_crewai_markdown_report_matches_golden(tmp_path):
     run_scan(
         config_path=CREWAI_SAMPLE,
@@ -172,6 +198,7 @@ def test_crewai_markdown_report_matches_golden(tmp_path):
         ("samples/simple_crewai_agent", "review_required"),
         ("samples/support_refund_agent", "blocked"),
         ("samples/google_adk_cold_start_agent", "insufficient_evidence"),
+        ("samples/declaration_repair_agent", "insufficient_evidence"),
     ],
 )
 def test_sample_expected_report_json_is_current(sample_dir, expected_decision):
@@ -207,12 +234,16 @@ def test_sample_expected_report_json_is_current(sample_dir, expected_decision):
         "samples/simple_langchain_agent",
         "samples/simple_crewai_agent",
         "samples/support_refund_agent",
-        # The one sample that stops at ``insufficient_evidence`` with open
-        # declaration questions. Without it ``open_questions`` is ``[]`` in
-        # every golden, so no ``open_questions[].*`` member reaches the
-        # compared path set and a field added to, removed from, or renamed on
+        # The two samples that stop with open declaration questions. Without
+        # them ``open_questions`` is ``[]`` in every golden, so no
+        # ``open_questions[].*`` member reaches the compared path set and a
+        # field added to, removed from, or renamed on
         # ``DeclarationQuestionRow`` is invisible to this test (#425).
         "samples/google_adk_cold_start_agent",
+        # The challenged-declaration half of that surface: its gaps carry a
+        # ``declaration_template`` with ``risk_tags``, a member no cold-start
+        # blank produces (#424).
+        "samples/declaration_repair_agent",
     ],
 )
 def test_sample_expected_report_json_has_no_structural_drift(sample_dir, tmp_path):

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -2110,8 +2111,9 @@ def test_cold_start_scaffold_matches_its_golden(tmp_path):
     # would report that as a path that does not exist rather than as the thing
     # it is.
     assert written.is_file(), (
-        "The scan wrote no suggested-declarations.yaml. This fixture is the "
-        "only sample that renders a declaration questionnaire; if its "
+        "The scan wrote no suggested-declarations.yaml. This fixture pins the "
+        "questionnaire a cold start produces (``declaration_repair_agent`` "
+        "pins the challenged-effect row it has no example of); if its "
         "questions were closed on purpose, the goldens beside it no longer "
         "pin anything and the fixture needs a new open question, not a "
         "regenerated golden."
@@ -2144,8 +2146,8 @@ def test_cold_start_golden_still_asks_open_questions():
     coverage = _cold_start_coverage(_cold_start_golden())
 
     assert coverage["open"] > 0, (
-        "samples/google_adk_cold_start_agent is the only sample that renders a "
-        "declaration questionnaire. With no open questions its goldens pin "
+        "samples/google_adk_cold_start_agent is the sample that renders a "
+        "questionnaire of blanks. With no open questions its goldens pin "
         "nothing about ordering, numbering, or the progress counter."
     )
     assert coverage["answered"] > 0, (
@@ -2558,3 +2560,263 @@ def test_cold_start_questionnaire_covers_every_rung_it_claims_to():
         "than one action is waiting on that single block."
     )
     assert not absorbed & asked_separately
+
+
+# ── The repair loop, pinned by committed artifacts ──────────────────────────
+#
+# ``google_adk_cold_start_agent`` above renders the questionnaire a cold start
+# produces: mostly blanks, one pre-filled proposal, and one challenged
+# *authority* row printed as a note. What it has no example of is a declaration
+# challenged in the **effect** dimension — its questionnaire holds zero
+# ``risk_tags:`` blocks — and that is the shape #424 was about, where the route
+# the row names is "declare the uncovered category as a reviewed risk tag" and
+# applying it verbatim used to replace the review-tier row with a blocking
+# conflict.
+#
+# ``samples/declaration_repair_agent`` is the fixture that renders it. Both
+# halves of the loop are read out of committed files rather than assembled
+# here: the class shipped once already under a green suite whose repair sweep
+# only ever ran against tools built in-test.
+
+REPAIR_MANIFEST = Path("samples/declaration_repair_agent/shipgate.yaml")
+REPAIR_EXPECTED = REPAIR_MANIFEST.parent / "expected"
+REPAIR_SCAFFOLD = REPAIR_EXPECTED / "suggested-declarations.yaml"
+REPAIR_REPORT = REPAIR_EXPECTED / "report.json"
+
+
+def _repair_blocks() -> dict[str, dict]:
+    """The committed questionnaire's blocks, keyed by the action they name.
+
+    ``override:`` is dropped exactly as the block's own comments instruct: it
+    is the *other* route, the one a reviewer takes instead of keeping the
+    pre-filled tags, and it is the only part of the block still carrying
+    ``<REVIEW_REQUIRED>``.
+    """
+
+    blocks: dict[str, dict] = {}
+    for document in yaml.safe_load_all(REPAIR_SCAFFOLD.read_text(encoding="utf-8")):
+        if not isinstance(document, dict) or "tool" not in document:
+            continue
+        block = {key: value for key, value in document.items() if key != "override"}
+        blocks[document["tool"]] = block
+    return blocks
+
+
+def _repair_manifest() -> dict:
+    return yaml.safe_load(REPAIR_MANIFEST.read_text(encoding="utf-8"))
+
+
+def test_repair_scaffold_matches_its_golden(tmp_path):
+    """The questionnaire an adopter reads on a challenged row, byte for byte.
+
+    The cold-start golden pins the blank shapes; this pins the repair shape.
+    What matters most in the diff is the ``risk_tags:`` value each block
+    publishes — that value *is* the remedy this tool hands an adopter, and the
+    #424 class is precisely a remedy that does not close the row it sits on.
+    """
+
+    run_scan(
+        config_path=REPAIR_MANIFEST,
+        output_dir=tmp_path,
+        formats=["json", "markdown"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+
+    written = tmp_path / "suggested-declarations.yaml"
+    assert written.is_file(), (
+        "The scan wrote no suggested-declarations.yaml. This fixture exists to "
+        "render a challenged declaration row; if its questions were closed on "
+        "purpose the goldens beside it pin nothing, and the fixture needs a "
+        "new challenged row rather than a regenerated golden."
+    )
+    assert written.read_text(encoding="utf-8") == REPAIR_SCAFFOLD.read_text(
+        encoding="utf-8"
+    ), (
+        "samples/declaration_repair_agent/expected/suggested-declarations.yaml "
+        "is stale. Regenerate it with a real scan — see that sample's README."
+    )
+
+
+def test_the_repair_golden_still_renders_a_challenged_row():
+    """Named rather than assumed, the way the cold-start properties are.
+
+    A byte comparison against a golden that stopped rendering challenged rows
+    passes just as happily as one against a golden that renders both. If the
+    row kind this fixture is for stops being raised here, this fails instead
+    of the goldens quietly emptying.
+    """
+
+    golden = json.loads(REPAIR_REPORT.read_text(encoding="utf-8"))
+    coverage = golden["release_decision"]["evidence_coverage"]["semantic_coverage"][
+        "declaration_questions"
+    ]
+    kinds = {
+        gap["kind"]
+        for gap in golden["release_decision"]["evidence_coverage"]["evidence_gaps"]
+    }
+
+    blocks = _repair_blocks()
+    assert coverage["open"] == len(blocks) > 0
+    assert "declaration_below_inferred_evidence" in kinds, (
+        "samples/declaration_repair_agent is the fixture that commits a "
+        "challenged declaration row. Without one it is a slower copy of every "
+        "other sample."
+    )
+    # The *route*, not just the row. ``declaration_below_inferred_evidence``
+    # publishes two, and only the ``declare_risk_tags`` one was broken by #424.
+    # A future change that answered these rows by raising ``effect:`` instead
+    # would still close them, so the paste test would stay green while the
+    # fixture quietly stopped exercising the route it exists for.
+    for tool, block in blocks.items():
+        assert block.get("risk_tags"), (
+            f"The block published for {tool} takes the `raise_effect` route "
+            f"({block}). This fixture is the committed artifact for the "
+            "`declare_risk_tags` route; if the engine now prefers the other "
+            "one here, the fixture needs a row the other route cannot answer, "
+            "not a regenerated golden."
+        )
+
+    # The sentence, joined to the value. #424 reached an adopter as *prose* —
+    # the issue names `ci/release_decision.py` templating it into the guidance
+    # they read — and `EffectRepair.instruction` interpolates the whole list
+    # and the newly added part separately, so the two can disagree. They
+    # cannot disagree anywhere else in the suite: the only other test pinning
+    # `expects` for this route uses a row with no pre-existing tags, where the
+    # two are equal by construction. `billing.cancel_invoice_email` is the
+    # first case where they differ, which makes this the one place the
+    # round-2 "publish the whole list" property can be asserted on the half an
+    # adopter reads first (#465 review).
+    joined = 0
+    for gap in golden["release_decision"]["evidence_coverage"]["evidence_gaps"]:
+        if gap["kind"] != "declaration_below_inferred_evidence":
+            continue
+        action = gap["next_action"]
+        published = blocks[action["declaration_template"]["tool"]]["risk_tags"]
+        assert f"risk_tags: [{', '.join(published)}]" in action["expects"], (
+            "The sentence this row publishes names a different list from the "
+            f"block it ships beside: {action['expects']!r} against "
+            f"{published!r}. An adopter reads the sentence first."
+        )
+        assert action["accepted_values"] == published, (
+            f"`accepted_values` is {action['accepted_values']!r}, not the "
+            f"published {published!r}."
+        )
+        joined += 1
+    assert joined == len(blocks), (
+        f"Joined {joined} sentences against {len(blocks)} blocks. Every "
+        "challenged row here publishes both, so a mismatch means one of the "
+        "two surfaces stopped being emitted rather than that they agree."
+    )
+
+
+def test_the_published_repair_keeps_the_tag_the_reviewer_already_wrote():
+    """A block that names ``risk_tags`` replaces it, so it must publish it whole.
+
+    ``billing.cancel_invoice_email`` already declares one reviewed tag. The
+    first draft of the #424 repair named only the newly uncovered category, so
+    pasting it deleted the tag covering the reading it was written for and the
+    next scan reopened the row asking for it back — the defect surviving inside
+    the case its own repair creates.
+
+    Both sides are read out of committed artifacts, so it tracks the fixture
+    rather than a literal here.
+
+    It is not a restatement of the byte comparison, and the perturbation that
+    separates them is not deletion but **rewriting**: canonicalize the
+    reviewer's spelling — ``financial_write`` to ``financial_action``, one
+    category under two names, which is what the source comment beside the
+    verbatim copy warns against — and regenerate. The row still closes, the
+    sample still reaches ``passed``, the sentence still agrees with the block,
+    and every other guard here stays green. This is the only one that fails.
+    So it holds the second half of the round-2 fix — *never rewrite what the
+    reviewer wrote* — which nothing else in the suite asserts (#465 review).
+    """
+
+    declared = {
+        action["tool"]: list(action.get("risk_tags") or ())
+        for action in _repair_manifest()["action_surface"]["actions"]
+    }
+    already_tagged = [tool for tool, tags in declared.items() if tags]
+    assert already_tagged, (
+        "This fixture only pins the whole-value property while one of its "
+        "challenged rows already carries a reviewed tag."
+    )
+
+    for tool in already_tagged:
+        published = _repair_blocks()[tool]["risk_tags"]
+        assert set(published) > set(declared[tool]), (
+            f"The repair published for {tool} is {published!r}, which does not "
+            f"keep every tag the manifest already declares ({declared[tool]!r}) "
+            "and add at least one. Pasting it would delete a reviewed tag."
+        )
+
+
+def test_pasting_the_committed_repair_blocks_reaches_passed(tmp_path):
+    """The loop, end to end, driven entirely by committed artifacts.
+
+    Take the blocks out of the committed questionnaire, merge each into the
+    action it names — the one edit each block asks for and nothing else — and
+    rescan. Every declaration question closes and the repository reaches
+    ``passed``. Before #424 this same paste replaced a review-tier row with a
+    blocking ``conflicting_effect_evidence`` blaming the reviewer's own
+    manifest, so this asserts the verdict rather than the absence of one kind.
+    """
+
+    workspace = tmp_path / "workspace"
+    shutil.copytree(REPAIR_MANIFEST.parent, workspace)
+    shutil.rmtree(workspace / "expected")
+
+    manifest = yaml.safe_load((workspace / "shipgate.yaml").read_text(encoding="utf-8"))
+    blocks = _repair_blocks()
+    # Named before anything is merged. Every assertion below is also satisfied
+    # by pasting *nothing*, so a parse that silently stopped finding blocks
+    # would turn this into a test that the fixture is broken.
+    assert len(blocks) > 1, (
+        f"Parsed {len(blocks)} blocks out of the committed questionnaire. This "
+        "test pastes what it finds, so finding nothing makes it a no-op — fix "
+        "the parse, or the fixture, rather than the assertions below."
+    )
+    for action in manifest["action_surface"]["actions"]:
+        block = blocks.pop(action["tool"], None)
+        if block is not None:
+            # ``update``, not a merge: a block that names ``risk_tags``
+            # replaces that key, which is how a reviewer pastes one and why
+            # the published value has to be complete (#424 review).
+            action.update(block)
+    assert not blocks, f"a published block named no action in the manifest: {blocks}"
+
+    merged = yaml.safe_dump(manifest, sort_keys=False)
+    assert REVIEW_REQUIRED_SENTINEL not in merged, (
+        "Keeping the pre-filled tags is supposed to be a complete answer. A "
+        "sentinel survived the merge, so the block cannot be pasted without "
+        "further review and this test is measuring something else."
+    )
+    (workspace / "shipgate.yaml").write_text(merged, encoding="utf-8")
+
+    out = tmp_path / "out"
+    run_scan(
+        config_path=workspace / "shipgate.yaml",
+        output_dir=out,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+
+    report = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    coverage = report["release_decision"]["evidence_coverage"]["semantic_coverage"][
+        "declaration_questions"
+    ]
+    assert coverage["open"] == 0, (
+        "Pasting every published block left a declaration question open: "
+        f"{coverage['open_questions']}. A remedy that does not close the row "
+        "it is printed on is the #424 class."
+    )
+    assert not (out / "suggested-declarations.yaml").exists()
+    assert report["release_decision"]["decision"] == "passed", (
+        "The committed fixture declares every control both actions owe after "
+        "the repair, so the challenged rows are the only thing between it and "
+        "`passed`. Anything else here means the paste bought something other "
+        "than the two rows it was printed for: "
+        f"{report['release_decision'].get('reason')}"
+    )

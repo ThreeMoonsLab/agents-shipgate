@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+- **The #424 repair loop is now pinned by a committed artifact.** (#424)
+  `declaration_below_inferred_evidence` publishes a `declare_risk_tags` route,
+  and every guard on it ran against tools built in-test — the same blind spot
+  that let the class ship in the first place. `samples/google_adk_cold_start_agent`
+  could not close it: a cold start has no declaration to challenge, so a
+  *challenged* row is the one questionnaire shape it cannot render.
+
+  `samples/declaration_repair_agent` is the step after that cold start. Every
+  action is declared, controlled and owned, and two rows are challenged — one
+  bare, one already carrying a reviewed `risk_tags` entry — so the sample sits
+  at `insufficient_evidence` with exactly two open questions. Pasting the two
+  blocks its committed `expected/suggested-declarations.yaml` publishes, each
+  into the action it names and nothing else, reaches `passed`.
+
+  The already-tagged row is the one that earns the second slot: `risk_tags` is
+  one YAML key, so a block naming it *replaces* it, and a repair publishing
+  only the newly uncovered category would tell that reviewer to delete their
+  own reviewed tag. The committed golden publishes the complete value, and the
+  guards close over both routes a regression can take — reverting the fix fails
+  the byte comparison, and regenerating the golden to make that pass fails the
+  paste test instead, naming the row it reopened.
+
+  The same "publish the whole list" property is now asserted on the surface an
+  adopter reads *first*. #424 reached a reader as a sentence, not a YAML block,
+  and `EffectRepair.instruction` interpolates the whole list and the newly
+  added part separately — so `evidence_gaps[].next_action.expects` is joined to
+  the block's `risk_tags` here. This is the first row in the repo where the two
+  can disagree; the only other test pinning that sentence uses a row with no
+  pre-existing tags, where they are equal by construction.
+
+  No engine, schema or check-ID change: goldens, registration and tests only.
+
 - **The declaration questionnaire is now pinned by something committed.**
   (#425) It is the primary cold-start surface — what an adopter at
   `insufficient_evidence` reads, in order, to reach a verdict — and no shipped

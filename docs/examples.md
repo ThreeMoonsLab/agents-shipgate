@@ -32,6 +32,7 @@ Useful fixtures:
 - [`simple_anthropic_agent`](../samples/simple_anthropic_agent/) — Anthropic Messages API tool-use artifacts.
 - [`google_adk_agent`](../samples/google_adk_agent/) — Google ADK Python and YAML config with eval references and explicit tool inventory.
 - [`google_adk_cold_start_agent`](../samples/google_adk_cold_start_agent/) — the same shape stopped partway: `insufficient_evidence` with open declaration questions, and the generated `suggested-declarations.yaml` committed as a golden.
+- [`declaration_repair_agent`](../samples/declaration_repair_agent/) — the step after a cold start: every action declared, controlled and owned, held at `insufficient_evidence` by two *challenged* effect declarations. Pasting the two blocks its committed questionnaire publishes reaches `passed`.
 - [`simple_langchain_agent`](../samples/simple_langchain_agent/) — static LangChain/LangGraph extraction paired with a reviewed bound-tool inventory.
 - [`simple_crewai_agent`](../samples/simple_crewai_agent/) — static CrewAI extraction paired with a reviewed inventory; ambient filesystem authority remains review-required.
 - [`multi_agent_workspace`](../samples/multi_agent_workspace/) — multiple manifests in one workspace.
