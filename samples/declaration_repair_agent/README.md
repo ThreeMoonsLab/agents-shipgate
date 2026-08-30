@@ -21,9 +21,10 @@ shape a cold start cannot produce, because a cold start has no declaration to
 challenge. It is also the shape [#424](https://github.com/ThreeMoonsLab/agents-shipgate/issues/424)
 was about.
 
-That row publishes two routes. Where no single effect covers every reading,
-the route it names is *"declare the uncovered category as a reviewed risk
-tag"* — and applying that instruction verbatim used to replace the review-tier
+`effect_repair` answers that row one of two ways: raise `effect:` to something
+that covers every reading, or — where no single effect does — *"declare the
+uncovered category as a reviewed risk tag"*. Both actions here are the second
+case, and applying that instruction verbatim used to replace the review-tier
 row with a **blocking** `conflicting_effect_evidence` whose message blamed the
 reviewer's own manifest. A published remedy that could not close the row it
 was printed on.
@@ -43,13 +44,14 @@ assembled in-test, which is the point — the class this guards shipped once
 already under a green suite that only ever asked its questions of hand-built
 tools.
 
-Each block publishes both of the row's routes, so pasting one means choosing
-between them, exactly as its comments say: keep the pre-filled `risk_tags:` and
-delete the `override:` stanza, or delete the tags and fill the override in.
-This fixture takes the first route, and `override:` is the only part of either
-block still carrying `<REVIEW_REQUIRED>` — the test asserts that no sentinel
-survives its merge, so "keep the tags" really is a complete answer rather than
-one that quietly needs more review.
+A block also offers a second, different choice — not the repair route above,
+but what a reviewer *does* about the reading. Account for it by keeping the
+pre-filled `risk_tags:` and deleting the `override:` stanza, or reject it by
+deleting the tags and filling the override in. This fixture takes the first,
+and `override:` is the only part of either block still carrying
+`<REVIEW_REQUIRED>` — the test asserts that no sentinel survives its merge, so
+"keep the tags" really is a complete answer rather than one that quietly needs
+more review.
 
 ## The two actions
 
