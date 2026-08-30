@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agents_shipgate.core.findings.subject_rollup import top_findings_block
 from agents_shipgate.core.privacy import sanitize_packet
 from agents_shipgate.core.source_warnings import group_source_warnings
 from agents_shipgate.report.human_order import (
@@ -225,19 +226,17 @@ def _append_cold_delta(lines: list[str], lead: ColdReaderLead) -> None:
 
 def _append_cold_findings(lines: list[str], lead: ColdReaderLead) -> None:
     lines.extend(["## Findings by subject", ""])
-    if not lead.finding_subjects:
-        lines.extend(["- none", ""])
-        return
-    for subject in lead.finding_subjects[:8]:
-        lines.append(f"- `{_escape(subject.subject)}` — {_escape(subject.summary)}")
-        for finding in subject.findings[:5]:
-            lines.append(f"  - {_escape(finding)}")
-        hidden = len(subject.findings) - 5
-        if hidden:
-            lines.append(f"  - … and {hidden} more finding{'s' if hidden != 1 else ''}")
-    hidden_subjects = len(lead.finding_subjects) - 8
-    if hidden_subjects:
-        lines.append(f"- … and {hidden_subjects} more subject{'s' if hidden_subjects != 1 else ''}")
+    lines.extend(
+        top_findings_block(
+            lead.finding_groups,
+            group_limit=8,
+            row_limit=5,
+            escape=_escape,
+            heading=None,
+            bullet="- ",
+            row_prefix="  - ",
+        )
+    )
     lines.append("")
 
 

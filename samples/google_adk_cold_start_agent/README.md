@@ -156,6 +156,57 @@ for name in ("report.md", "suggested-declarations.yaml"):
 PY
 ```
 
+### Regenerating the cold report
+
+`expected/cold-report.md` comes from a different repository state than the
+ordinary goldens: the agent sources are committed, while `shipgate.yaml`
+exists only in the worktree. Recreate that state in a temporary repository;
+running the ordinary recipe above cannot produce the cold-reader order.
+
+```bash
+python - <<'PY'
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
+
+from agents_shipgate.cli.scan import run_scan
+
+source = Path("samples/google_adk_cold_start_agent").resolve()
+golden = source / "expected" / "cold-report.md"
+
+with tempfile.TemporaryDirectory(prefix="shipgate-cold-golden-") as temp:
+    repo = Path(temp) / "repo"
+    shutil.copytree(source, repo, ignore=shutil.ignore_patterns("expected"))
+
+    def git(*args: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(repo), *args],
+            check=True,
+            capture_output=True,
+        )
+
+    git("init", "-q")
+    git("config", "user.name", "Shipgate Golden")
+    git("config", "user.email", "shipgate@example.invalid")
+    git("add", "agent.py", "inventories", "specs")
+    git("commit", "-qm", "base without manifest")
+
+    out = repo / "reports"
+    run_scan(
+        config_path=repo / "shipgate.yaml",
+        output_dir=out,
+        formats=["markdown", "json"],
+        ci_mode="advisory",
+    )
+    golden.write_text(
+        (out / "report.md").read_text(encoding="utf-8"),
+        encoding="utf-8",
+        newline="\n",
+    )
+PY
+```
+
 Four things that look like details and are not.
 
 **Newlines are forced, not inherited.** `Path.write_text(..., encoding="utf-8")`

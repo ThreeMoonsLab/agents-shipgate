@@ -163,7 +163,7 @@ def render_markdown_report(
     _append_capability_intent_diff(
         lines,
         report,
-        include_decision=not surface_first,
+        include_legacy_consequence_decision=not surface_first,
     )
     _append_baseline(lines, report)
     _append_recommended_actions(lines, report.recommended_actions)
@@ -172,12 +172,10 @@ def render_markdown_report(
     _append_loaded_policy_packs(lines, report)
     _append_loaded_plugins(lines, report)
     _append_loaded_adapters(lines, report)
-    if not surface_first:
-        _append_tool_surface(lines, report)
-        _append_action_surface_diff(lines, report)
+    _append_tool_surface(lines, report)
+    _append_action_surface_diff(lines, report)
     _append_capability_runtime_evidence(lines, report)
-    if not surface_first:
-        _append_tool_surface_diff(lines, report)
+    _append_tool_surface_diff(lines, report)
     _append_api_surface(lines, report)
     _append_frameworks(lines, report)
     _append_codex_plugin_surface(lines, report)
@@ -415,7 +413,7 @@ def _append_capability_intent_diff(
     lines: list[str],
     report: ReadinessReport,
     *,
-    include_decision: bool = True,
+    include_legacy_consequence_decision: bool = True,
 ) -> None:
     lines.extend(["## Capability <-> Intent Diff", ""])
     if not report.misalignments:
@@ -494,7 +492,10 @@ def _append_capability_intent_diff(
     if consequence is None:
         lines.append("- No release consequence recorded.")
     else:
-        if include_decision:
+        # Adopted reports retain this pre-existing consequence projection byte
+        # for byte. Cold reports omit it so the primary release decision is
+        # the only ``Decision:`` line above the newly reordered detail.
+        if include_legacy_consequence_decision:
             lines.append(f"- Decision: {_safe_markdown_text(consequence.decision)}")
         lines.append(f"- {_safe_markdown_text(consequence.summary)}")
     lines.append("")

@@ -14,7 +14,6 @@ from agents_shipgate.cli.diagnostics import (
     diagnose_missing_manifest,
 )
 from agents_shipgate.cli.discovery import discover_manifest_paths
-from agents_shipgate.cli.scan.human_order import human_artifact_context
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.action_semantics import effect_phrase, join_phrases
 from agents_shipgate.core.control_packs import control_rule_summaries
@@ -374,6 +373,7 @@ def _run_multi_scan(
         if out is not None:
             output_dir = out / _safe_output_name(config_path)
         try:
+            captured_contexts: list[HumanArtifactContext] = []
             report, scan_exit_code = run_scan(
                 config_path=config_path,
                 output_dir=output_dir,
@@ -391,7 +391,9 @@ def _run_multi_scan(
                 packet_enabled=packet_enabled,
                 packet_formats=packet_formats,
                 no_heuristics=no_heuristics,
+                human_context_callback=captured_contexts.append,
             )
+            human_context = captured_contexts[-1]
         except ConfigError as exc:
             scan_exit_code = 2
             typer.echo(f"{config_path}: config_error - {exc}", err=True)
@@ -422,8 +424,7 @@ def _run_multi_scan(
             # release_decision (older baselines loaded for diff, etc.).
             decision = report.release_decision
             if decision is not None:
-                context = human_artifact_context(config_path, None)
-                if should_render_surface_first(report, context=context):
+                if should_render_surface_first(report, context=human_context):
                     _print_multi_cold_reader_lead(config_path, report)
                 typer.echo(
                     f"{config_path}: {decision.decision} "
@@ -519,7 +520,7 @@ def _print_cli_summary(
             f"{'; '.join(parts)}"
         )
     action_diff = report.action_surface_diff
-    if action_diff.enabled and not surface_first:
+    if action_diff.enabled:
         if _action_surface_has_signal(action_diff.summary):
             typer.echo(
                 "Action-surface diff: "
@@ -530,10 +531,10 @@ def _print_cli_summary(
             )
         else:
             typer.echo("Action-surface diff: no changes")
-    elif action_diff.notes and not surface_first:
+    elif action_diff.notes:
         typer.echo(f"Action-surface diff: disabled ({action_diff.notes[0]})")
     diff = report.tool_surface_diff
-    if diff.enabled and not surface_first:
+    if diff.enabled:
         if _tool_surface_diff_has_changes(diff.summary):
             typer.echo(
                 "Tool-surface diff: "
@@ -545,7 +546,7 @@ def _print_cli_summary(
             )
         else:
             typer.echo("Tool-surface diff: no changes")
-    elif diff.notes and not surface_first:
+    elif diff.notes:
         typer.echo(f"Tool-surface diff: disabled ({diff.notes[0]})")
     # Grouped by mechanism: six warnings that differ only in the symbol they
     # name are one thing to fix. The raw count is what gates, so both numbers

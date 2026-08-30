@@ -23,7 +23,11 @@ from agents_shipgate.core.domain import Tool
 from agents_shipgate.core.evidence_actions import yaml_scalar
 from agents_shipgate.core.privacy import sanitize_packet
 from agents_shipgate.packet.builder import build_packet
-from agents_shipgate.report.human_order import HumanArtifactContext, cold_reader_lead
+from agents_shipgate.report.human_order import (
+    HumanArtifactContext,
+    cold_reader_lead,
+    should_render_surface_first,
+)
 from agents_shipgate.schemas.current_control import (
     AgentActionRequiredCurrentControl,
     CurrentControlWorkspaceIdentity,
@@ -112,12 +116,18 @@ def _write_outputs(
             generated_at=packet_generated_at,
             config_ref=config_path.resolve().name,
         )
+        packet_cold_lead = None
+        if (
+            plan.packet_format_set & {"md", "html", "pdf"}
+            and should_render_surface_first(public_report, context=human_context)
+        ):
+            packet_cold_lead = cold_reader_lead(public_report)
         _write_packet(
             sanitize_packet(packet),
             plan.generated_paths,
             plan.packet_format_set,
             human_context=human_context,
-            cold_lead=cold_reader_lead(public_report),
+            cold_lead=packet_cold_lead,
         )
     if owns_control:
         # A scan inventories a workspace; it never establishes merge authority.

@@ -10,13 +10,11 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from typing import Literal
 
 from agents_shipgate.core.action_semantics import ACTION_EFFECT_RANK, effect_phrase
-from agents_shipgate.core.findings.subject_rollup import (
-    finding_line,
-    group_summary,
-    roll_up_findings,
-)
+from agents_shipgate.core.evidence_actions import display_literal
+from agents_shipgate.core.findings.subject_rollup import SubjectGroup, roll_up_findings
 from agents_shipgate.core.policy_reason_codes import is_adoption_evidence
 from agents_shipgate.schemas.capability_change import CapabilityChangeMember
 from agents_shipgate.schemas.packet import EvidencePacket
@@ -29,13 +27,13 @@ class HumanArtifactContext:
 
     manifest_committed: bool | None = None
     manifest_introduced: bool = False
-    local_review: bool = False
 
     @property
     def is_cold(self) -> bool:
-        return bool(
-            self.manifest_committed is False or self.manifest_introduced or self.local_review
-        )
+        return bool(self.manifest_committed is False or self.manifest_introduced)
+
+
+_SURFACE_WRITE_ACTION_LIMIT = 8
 
 
 @dataclass(frozen=True)
@@ -44,9 +42,10 @@ class SurfaceLead:
     source_count: int
     effect_counts: tuple[tuple[str, int], ...]
     write_actions: tuple[tuple[str, str], ...]
+    source_unit: Literal["source", "source type"] = "source"
 
     def text_lines(self) -> list[str]:
-        source_noun = "source" if self.source_count == 1 else "sources"
+        source_noun = self.source_unit if self.source_count == 1 else f"{self.source_unit}s"
         lines = [f"Surface: {self.tool_count} tools from {self.source_count} {source_noun}."]
         if self.effect_counts:
             effects = ", ".join(
@@ -57,8 +56,12 @@ class SurfaceLead:
             lines.append("Effects: no root-reachable action effects were classified.")
         if self.write_actions:
             actions = ", ".join(
-                f"{name} ({effect_phrase(effect)})" for name, effect in self.write_actions
+                f"{display_literal(name)} ({effect_phrase(effect)})"
+                for name, effect in self.write_actions[:_SURFACE_WRITE_ACTION_LIMIT]
             )
+            hidden = len(self.write_actions) - _SURFACE_WRITE_ACTION_LIMIT
+            if hidden > 0:
+                actions += f", … and {hidden} more action{'s' if hidden != 1 else ''}"
             lines.append(f"Write/destructive actions: {actions}.")
         else:
             lines.append("Write/destructive actions: none.")
@@ -72,17 +75,10 @@ class CapabilityDeltaSubject:
 
 
 @dataclass(frozen=True)
-class FindingSubject:
-    subject: str
-    summary: str
-    findings: tuple[str, ...]
-
-
-@dataclass(frozen=True)
 class ColdReaderLead:
     surface: SurfaceLead
     delta_subjects: tuple[CapabilityDeltaSubject, ...]
-    finding_subjects: tuple[FindingSubject, ...]
+    finding_groups: tuple[SubjectGroup, ...]
     has_active_block_tier: bool
 
 
@@ -140,6 +136,7 @@ def surface_lead(report: ReadinessReport) -> SurfaceLead:
         (fact.source_type, fact.source_id or fact.provider)
         for fact in report.tool_surface_facts.tools
     }
+    source_unit: Literal["source", "source type"] = "source"
     if not sources:
         sources = {
             (action.source_type, action.source_id or action.provider)
@@ -147,6 +144,7 @@ def surface_lead(report: ReadinessReport) -> SurfaceLead:
         }
     if not sources:
         sources = {(source_type, source_type) for source_type in report.tool_surface.sources}
+        source_unit = "source type"
 
     counts = Counter(action.effect for action in report.action_surface_facts.actions)
     effect_counts = tuple(
@@ -175,6 +173,7 @@ def surface_lead(report: ReadinessReport) -> SurfaceLead:
     return SurfaceLead(
         tool_count=report.tool_surface.total_tools,
         source_count=len(sources),
+        source_unit=source_unit,
         effect_counts=effect_counts,
         write_actions=write_actions,
     )
@@ -197,32 +196,12 @@ def capability_delta_by_subject(
     ):
         grouped[member.tool].append(_delta_description(member))
     return [
-        CapabilityDeltaSubject(subject=subject, changes=tuple(grouped[subject]))
+        CapabilityDeltaSubject(
+            subject=display_literal(subject),
+            changes=tuple(grouped[subject]),
+        )
         for subject in sorted(grouped)
     ]
-
-
-def findings_by_subject(report: ReadinessReport) -> list[FindingSubject]:
-    """The release-relevant finding projection grouped by review subject."""
-
-    subjects: list[FindingSubject] = []
-    for group in roll_up_findings(report):
-        rows = tuple(
-            finding_line(
-                finding,
-                blocks_release=blocks,
-                group_location=group.location,
-            )
-            for finding, blocks in group.rows()
-        )
-        subjects.append(
-            FindingSubject(
-                subject=f"{group.subject}{group.location}",
-                summary=group_summary(group),
-                findings=rows,
-            )
-        )
-    return subjects
 
 
 def cold_reader_lead(report: ReadinessReport) -> ColdReaderLead:
@@ -231,7 +210,7 @@ def cold_reader_lead(report: ReadinessReport) -> ColdReaderLead:
     return ColdReaderLead(
         surface=surface_lead(report),
         delta_subjects=tuple(capability_delta_by_subject(report)),
-        finding_subjects=tuple(findings_by_subject(report)),
+        finding_groups=tuple(roll_up_findings(report)),
         has_active_block_tier=any(
             finding.blocks_release and not finding.suppressed
             for finding in report.findings
@@ -240,10 +219,12 @@ def cold_reader_lead(report: ReadinessReport) -> ColdReaderLead:
 
 
 def _delta_description(member: CapabilityChangeMember) -> str:
-    target = member.action or member.scope or member.tool
+    target = display_literal(member.action or member.scope or member.tool)
     detail = f"{member.direction} {member.subject_kind} {target}"
     if member.before_scope is not None or member.after_scope is not None:
-        detail += f" ({member.before_scope or 'none'} -> {member.after_scope or 'none'})"
+        before = display_literal(member.before_scope or "none")
+        after = display_literal(member.after_scope or "none")
+        detail += f" ({before} -> {after})"
     if member.release_impact not in {"none", "informational"}:
         detail += f" — {effect_phrase(member.release_impact)}"
     return detail

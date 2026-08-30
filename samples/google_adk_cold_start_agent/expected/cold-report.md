@@ -89,9 +89,27 @@ Next validation:
 
 - Declare ADK eval files that cover expected responses and tool-use trajectories for this release.
 
+## Tool Surface Summary
+
+- Total tools: 9
+- High-risk tools: 1
+- Wildcard tools: 0
+- Missing descriptions: 0
+- Sources: google_adk_function=5, mcp=3, openapi=1
+
+## Action Surface Diff
+
+- Status: disabled - No action-surface comparison source was provided.
+- Base: none
+
 ## Capability Runtime Evidence
 
 No local runtime trace artifacts were declared for capability evidence.
+
+## Tool Surface Diff
+
+- Status: disabled - No --diff-from report or v0.3 baseline snapshot was provided.
+- Base: none
 
 ## Google ADK Surface Summary
 

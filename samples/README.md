@@ -31,7 +31,7 @@ running a scan first:
 | [`simple_openai_api_agent`](simple_openai_api_agent/) | [`report.md`](simple_openai_api_agent/expected/report.md) | [`report.json`](simple_openai_api_agent/expected/report.json) |
 | [`simple_langchain_agent`](simple_langchain_agent/) | [`report.md`](simple_langchain_agent/expected/report.md) | [`report.json`](simple_langchain_agent/expected/report.json) |
 | [`conductor_agent`](conductor_agent/) | [`report.md`](conductor_agent/expected/report.md) | [`report.json`](conductor_agent/expected/report.json) |
-| [`google_adk_cold_start_agent`](google_adk_cold_start_agent/) | [`report.md`](google_adk_cold_start_agent/expected/report.md) | [`report.json`](google_adk_cold_start_agent/expected/report.json) |
+| [`google_adk_cold_start_agent`](google_adk_cold_start_agent/) | [`report.md`](google_adk_cold_start_agent/expected/report.md) ([cold first contact](google_adk_cold_start_agent/expected/cold-report.md)) | [`report.json`](google_adk_cold_start_agent/expected/report.json) |
 | [`declaration_repair_agent`](declaration_repair_agent/) | [`report.md`](declaration_repair_agent/expected/report.md) | [`report.json`](declaration_repair_agent/expected/report.json) |
 
 Two samples stop with **open declaration questions**, so they are the two that
@@ -43,7 +43,8 @@ edit — as a byte-compared golden. They render the two halves of that file:
   challenged authority row printed as a note. The fixture exists to pin the
   order the questions are asked in. Read the diff before regenerating it: a
   change in block *order* is a change in which question this tool asks a human
-  first.
+  first. Its own [README](google_adk_cold_start_agent/README.md) documents the
+  [cold-report regeneration procedure](google_adk_cold_start_agent/README.md#regenerating-the-cold-report).
 - [`declaration_repair_agent`](declaration_repair_agent/expected/suggested-declarations.yaml)
   is the step after, and adds the one shape the cold start has no example of: a
   declaration challenged in the **effect** dimension, whose repair is a

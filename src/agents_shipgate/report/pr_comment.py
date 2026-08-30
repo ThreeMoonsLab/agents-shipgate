@@ -38,6 +38,8 @@ _IMPACT_LABELS = {
     "none": "none",
 }
 _COMMENT_MAX_CHARS = 6000
+_COLD_READER_LEAD_MAX_CHARS = 2000
+_COLD_READER_OMISSION = "- … additional capability detail omitted; see report.md."
 
 # Budget for the grouped summary inside a comment that is truncated at
 # ``_COMMENT_MAX_CHARS``. Narrower than ``report.md`` on purpose: this block
@@ -177,7 +179,7 @@ def _human_summary_lines(
     )
     lines.append(f"- Static-verdict boundary: {_escape(STATIC_VERDICT_DISCLAIMER)}")
     lines.extend(_next_actor_lines(verifier))
-    if review.top_changes and not surface_first:
+    if review.top_changes:
         lines.append("- Top capability changes:")
         for change in review.top_changes[:5]:
             source = _source_suffix(change.source_path, change.source_start_line)
@@ -186,7 +188,7 @@ def _human_summary_lines(
                 f"`{change.subject}`: {_escape(_impact(change))}; "
                 f"{_escape(change.rationale)}{source}"
             )
-    elif review.notes and not surface_first:
+    elif review.notes:
         lines.append(f"- Capability delta note: {_escape(review.notes[0])}")
     if not surface_first:
         lines.extend(_subject_rollup_lines(report))
@@ -210,7 +212,24 @@ def _cold_reader_lines(report: ReadinessReport) -> list[str]:
             for change in group.changes:
                 lines.append(f"    - {_escape(change)}")
     lines.extend(_subject_rollup_lines(report))
-    return lines
+    return _bounded_cold_reader_lines(lines)
+
+
+def _bounded_cold_reader_lines(lines: list[str]) -> list[str]:
+    """Reserve PR-comment space for the verdict/control block that follows."""
+
+    if len("\n".join(lines)) <= _COLD_READER_LEAD_MAX_CHARS:
+        return lines
+    budget = _COLD_READER_LEAD_MAX_CHARS - len(_COLD_READER_OMISSION) - 1
+    shown: list[str] = []
+    used = 0
+    for line in lines:
+        added = len(line) + (1 if shown else 0)
+        if used + added > budget:
+            break
+        shown.append(line)
+        used += added
+    return [*shown, _COLD_READER_OMISSION]
 
 
 def _subject_rollup_lines(report: ReadinessReport) -> list[str]:
@@ -389,7 +408,12 @@ def _render_findings_comment(
     lines = [STICKY_MARKER, title]
     if surface_first and report is not None:
         lines.extend(["", *_cold_reader_lines(report)])
-    lines.extend(_verifier_lead(verifier))
+    lines.extend(
+        _verifier_lead(
+            verifier,
+            include_release_gate=report is None or not surface_first,
+        )
+    )
     lines.append("")
     lines.append(f"Trigger: {_escape(verifier.trigger.get('rationale') or 'not evaluated')}")
     if verifier.base_status != "not_requested":
@@ -429,8 +453,7 @@ def _render_findings_comment(
         surface = report.reviewer_summary.first_recommended_surface
         lines.append(f"Reviewer start: `{surface.name}` - {_escape(surface.why)}")
 
-    if not surface_first:
-        lines.extend(_diff_lines(report))
+    lines.extend(_diff_lines(report))
     groups = roll_up_findings(report)
     lines.append("")
     if groups and not surface_first:
@@ -453,13 +476,17 @@ def _render_findings_comment(
     return _truncate("\n".join(lines), 6000)
 
 
-def _verifier_lead(verifier: VerifierArtifact) -> list[str]:
+def _verifier_lead(
+    verifier: VerifierArtifact,
+    *,
+    include_release_gate: bool = True,
+) -> list[str]:
     lines = [
         "",
         f"Merge verdict: `{verifier.merge_verdict}`",
         f"Can merge without human: `{str(verifier.can_merge_without_human).lower()}`",
     ]
-    if verifier.decision:
+    if include_release_gate and verifier.decision:
         lines.append(f"Release gate: `{verifier.decision}`")
     if verifier.human_review is not None and verifier.human_review.required:
         why = verifier.human_review.why or "Human review required before merge."

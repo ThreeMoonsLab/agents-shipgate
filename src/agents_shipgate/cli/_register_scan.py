@@ -20,7 +20,6 @@ from agents_shipgate.cli._helpers import (
 )
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
 from agents_shipgate.cli.diagnostics import input_parse_recovery, top_next_actions
-from agents_shipgate.cli.scan.human_order import human_artifact_context
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_controls import git_root_for
@@ -392,6 +391,7 @@ def register(app: typer.Typer) -> None:
                     }
                 )
             if len(config_paths) == 1:
+                captured_contexts = []
                 report, exit_code = run_scan(
                     config_path=config_paths[0],
                     output_dir=out,
@@ -410,7 +410,9 @@ def register(app: typer.Typer) -> None:
                     packet_formats=parsed_packet_formats,
                     no_heuristics=no_heuristics,
                     verification_context=verification_context,
+                    human_context_callback=captured_contexts.append,
                 )
+                human_context = captured_contexts[-1]
                 exit_code = _apply_strict_plugins(
                     report, exit_code, strict_plugins=strict_plugins
                 )
@@ -419,7 +421,7 @@ def register(app: typer.Typer) -> None:
                     ci_mode or "advisory",
                     exit_code,
                     verbose=verbose,
-                    human_context=human_artifact_context(config_paths[0], verification_context),
+                    human_context=human_context,
                 )
                 raise typer.Exit(exit_code)
             exit_code = _run_multi_scan(

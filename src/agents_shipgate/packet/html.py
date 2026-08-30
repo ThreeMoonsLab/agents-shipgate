@@ -18,6 +18,11 @@ from __future__ import annotations
 from html import escape
 from pathlib import Path
 
+from agents_shipgate.core.findings.subject_rollup import (
+    finding_line,
+    group_summary,
+    project_top_findings,
+)
 from agents_shipgate.core.privacy import sanitize_packet
 from agents_shipgate.core.source_warnings import group_source_warnings
 from agents_shipgate.report.human_order import (
@@ -210,21 +215,38 @@ def _render_cold_delta(lead: ColdReaderLead) -> str:
 
 def _render_cold_findings(lead: ColdReaderLead) -> str:
     parts = ["<h2>Findings by subject</h2><ul>"]
-    if not lead.finding_subjects:
+    if not lead.finding_groups:
         parts.append("<li>none</li>")
-    for subject in lead.finding_subjects[:8]:
-        parts.append(f"<li><code>{escape(subject.subject)}</code> — {escape(subject.summary)}<ul>")
-        for finding in subject.findings[:5]:
-            parts.append(f"<li>{escape(finding)}</li>")
-        hidden = len(subject.findings) - 5
-        if hidden:
-            suffix = "s" if hidden != 1 else ""
-            parts.append(f"<li>… and {hidden} more finding{suffix}</li>")
+    projection = project_top_findings(
+        lead.finding_groups,
+        group_limit=8,
+        row_limit=5,
+    )
+    for projected in projection.groups:
+        group = projected.group
+        parts.append(
+            f"<li><code>{escape(group.subject + group.location)}</code> — "
+            f"{escape(group_summary(group))}<ul>"
+        )
+        for finding, blocks in projected.rows:
+            row = finding_line(
+                finding,
+                blocks_release=blocks,
+                group_location=group.location,
+            )
+            parts.append(f"<li>{escape(row)}</li>")
+        if projected.hidden_findings > 0:
+            suffix = "s" if projected.hidden_findings != 1 else ""
+            parts.append(
+                f"<li>… and {projected.hidden_findings} more finding{suffix} "
+                "for this subject</li>"
+            )
         parts.append("</ul></li>")
-    hidden_subjects = len(lead.finding_subjects) - 8
-    if hidden_subjects:
-        suffix = "s" if hidden_subjects != 1 else ""
-        parts.append(f"<li>… and {hidden_subjects} more subject{suffix}</li>")
+    if projection.hidden_subjects > 0:
+        suffix = "s" if projection.hidden_subjects != 1 else ""
+        parts.append(
+            f"<li>… and {projection.hidden_subjects} more subject{suffix}</li>"
+        )
     parts.append("</ul>")
     return "".join(parts)
 

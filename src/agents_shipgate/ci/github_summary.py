@@ -76,7 +76,7 @@ def write_github_step_summary(
         lines.append(f"Policy audit: {' · '.join(parts)}.")
     diff = report.tool_surface_diff
     action_diff = report.action_surface_diff
-    if action_diff.enabled and not surface_first:
+    if action_diff.enabled:
         lines.extend(
             [
                 "",
@@ -92,9 +92,9 @@ def write_github_step_summary(
         )
         for item in _action_diff_highlights(report):
             lines.append(f"- {item}")
-    elif action_diff.notes and not surface_first:
+    elif action_diff.notes:
         lines.extend(["", f"Action-surface diff: {action_diff.notes[0]}"])
-    if diff.enabled and not surface_first:
+    if diff.enabled:
         lines.extend(
             [
                 "",
@@ -112,7 +112,7 @@ def write_github_step_summary(
         )
         for item in _diff_highlights(report):
             lines.append(f"- {item}")
-    elif diff.notes and not surface_first:
+    elif diff.notes:
         lines.extend(["", f"Tool-surface diff: {diff.notes[0]}"])
         if (
             diff.summary.new_findings

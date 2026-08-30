@@ -8,6 +8,7 @@ from agents_shipgate.ci.github_summary import write_github_step_summary
 from agents_shipgate.cli.discovery.placeholders import manifest_placeholder_fields
 from agents_shipgate.core.capability_lock import build_capability_lock
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError
+from agents_shipgate.report.human_order import HumanArtifactContext
 from agents_shipgate.schemas.capabilities import CapabilityLockFileV1
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verification import VerificationContext
@@ -45,13 +46,16 @@ def run_scan(
     packet_generated_at: str | None = None,
     verification_context: VerificationContext | None = None,
     capability_lock_callback: Callable[[CapabilityLockFileV1], None] | None = None,
+    human_context_callback: Callable[[HumanArtifactContext], None] | None = None,
     manifest_text: str | None = None,
 ) -> tuple[ReadinessReport, int]:
     """Run a full scan pipeline. Returns ``(report, exit_code)``.
 
     Orchestrates nine sequential phases (see the phase helpers above).
     Public signature, exit-code contract, and ``_run_id`` hash inputs
-    are stable across the v0.19 R-3 decomposition refactor.
+    are stable across the v0.19 R-3 decomposition refactor. When supplied,
+    ``human_context_callback`` is invoked exactly once after the presentation
+    context is derived; that ephemeral value is never serialized.
     """
     if deep_import:
         raise ConfigError("Deep import is intentionally deferred and is not supported.")
@@ -76,6 +80,7 @@ def run_scan(
             packet_generated_at=packet_generated_at,
             verification_context=verification_context,
             capability_lock_callback=capability_lock_callback,
+            human_context_callback=human_context_callback,
             manifest_text=manifest_text,
         )
     except AgentsShipgateError as exc:
@@ -136,6 +141,7 @@ def _run_scan(
     packet_generated_at: str | None,
     verification_context: VerificationContext | None,
     capability_lock_callback: Callable[[CapabilityLockFileV1], None] | None,
+    human_context_callback: Callable[[HumanArtifactContext], None] | None,
     manifest_text: str | None,
 ) -> tuple[ReadinessReport, int]:
     """The pipeline itself. Split from :func:`run_scan` so the manifest the
@@ -232,6 +238,8 @@ def _run_scan(
             declared_ci=resolved.declared_ci,
         )
     human_context = human_artifact_context(config_path, verification_context)
+    if human_context_callback is not None:
+        human_context_callback(human_context)
     with _perf.phase("write_outputs"):
         _write_outputs(
             report=report,
