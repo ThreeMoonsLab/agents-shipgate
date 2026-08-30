@@ -324,6 +324,49 @@ def test_sample_expected_report_json_uses_repo_placeholder_for_manifest_dir():
             )
 
 
+def test_sample_expected_goldens_are_committed_with_lf_newlines():
+    """Read as bytes, because every other comparison in this repo cannot.
+
+    `.gitattributes` pins `samples/**/expected/** -text` so Git hands these
+    files over exactly as committed — which is what the hash-bound pointer
+    beside `conductor_agent` needs, and what makes a byte comparison mean
+    anything. But every writer involved opens in text mode with
+    ``newline=None``: `write_json_report`, the Markdown writer, the
+    questionnaire writer, and any regeneration recipe that calls
+    ``Path.write_text``. On Windows each of them emits CRLF, Git stores it
+    verbatim, and the golden is committed with different bytes from everyone
+    else's.
+
+    No existing test can see that. `Path.read_text` applies universal newlines
+    and normalizes CRLF back to LF on the way in, so the markdown goldens, the
+    packet goldens and the questionnaire golden all compare equal to a fresh
+    scan while their committed bytes have moved (#425 review). Hence bytes
+    here, and hence the regeneration recipes force ``newline="\n"``.
+    """
+
+    goldens = sorted(
+        path
+        for path in Path("samples").glob("*/expected/*")
+        if path.is_file()
+    )
+    assert goldens, (
+        "No samples/*/expected/* files were found, so this invariant is "
+        "vacuous. If the goldens moved, repoint the glob rather than leaving "
+        "the check to pass on an empty set."
+    )
+    carriage_returns = {
+        str(path): path.read_bytes().count(b"\r")
+        for path in goldens
+        if b"\r" in path.read_bytes()
+    }
+    assert not carriage_returns, (
+        f"Committed goldens carry CR bytes: {carriage_returns}. These paths "
+        "are `-text` in .gitattributes, so Git preserves whatever the "
+        "generating platform wrote and the text-mode comparisons cannot see "
+        "the difference. Regenerate with `newline=\"\\n\"`."
+    )
+
+
 # What each hash-bound fixture's pointer must bind, declared per fixture rather
 # than read off the pointer itself.  An empty `artifacts` map is schema-valid
 # for a `scan` pointer -- `CurrentControlPointer` only requires a binding when

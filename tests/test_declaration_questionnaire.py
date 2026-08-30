@@ -2189,27 +2189,46 @@ def test_cold_start_golden_open_questions_match_a_fresh_scan(tmp_path):
 def _questions_asked_by_gap_rows(report: dict) -> list[tuple[str, str | None, str]]:
     """Which question each published gap row asks, in publication order.
 
-    Contiguous repeats collapse, because a row is not a question. Several rows
-    can ask for one blank — a ``declaration_drift`` beside a
+    Two reductions, and each of them is ``_in_question_order``'s own rule read
+    back off the artifact.
+
+    **A mapped kind is not a question.** ``DIMENSION_BY_GAP_KIND`` answers
+    "which dimension does this kind ride on", which is not the same question as
+    "can a reviewed declaration close this row". A
+    ``conflicting_effect_evidence`` the resolver blames on the *source* maps to
+    ``effect`` and is deliberately excluded by ``is_declaration_answerable`` —
+    no declaration touches a source that contradicts itself. Counting it here
+    would invent a key ``open_questions`` never carries and fail the comparison
+    on a correct report. The producer avoids exactly this by filtering its
+    permutation through the open-question rank rather than through the kind
+    map, so this filters through the report's own ``open_questions`` too.
+
+    **A row is not a question.** Contiguous repeats collapse: several rows can
+    ask for one blank — a ``declaration_drift`` beside a
     ``declaration_below_inferred_evidence`` on one effect is two rows and one
-    edit — and ``_in_question_order`` sorts the question rows by ``(question,
-    original position)``, so every row asking one question lands in consecutive
-    question slots. Comparing raw row cardinality against the questionnaire
-    would therefore fail a perfectly ordered multi-gap fixture, which is the
-    same "a row is not a question" confusion the counter itself exists to
-    correct.
+    edit — and the permutation sorts question rows by ``(question, original
+    position)``, so every row asking one question lands in consecutive question
+    slots. Comparing raw row cardinality would fail a perfectly ordered
+    multi-gap fixture, which is the same "a row is not a question" confusion
+    the counter itself exists to correct.
 
     A key that comes back *after another one intervened* is the permutation
     broken, and is deliberately left in place: it survives the collapse and
     fails the comparison against ``open_questions``.
     """
 
+    open_keys = {
+        (row["subject_kind"], row["subject_id"], row["dimension"])
+        for row in _cold_start_coverage(report)["open_questions"]
+    }
     asked: list[tuple[str, str | None, str]] = []
     for gap in report["release_decision"]["evidence_coverage"]["evidence_gaps"]:
         dimension = DIMENSION_BY_GAP_KIND.get(gap["kind"])
         if dimension is None:
             continue
         key = (gap["subject_kind"], gap["subject_id"], dimension)
+        if key not in open_keys:
+            continue
         if not asked or asked[-1] != key:
             asked.append(key)
     return asked
@@ -2219,60 +2238,95 @@ def _gap_row(kind: str, subject_id: str) -> dict:
     return {"kind": kind, "subject_kind": "action", "subject_id": subject_id}
 
 
-def test_several_rows_asking_one_question_collapse_to_one():
-    """The contract the fixture itself cannot show.
+def _question_row(subject_id: str, dimension: str) -> dict:
+    return {
+        "subject_kind": "action",
+        "subject_id": subject_id,
+        "dimension": dimension,
+    }
 
-    ``google_adk_cold_start_agent`` happens to raise one answerable gap per
-    blank, so the comparison in ``test_cold_start_leads_with_the_first_question``
-    would pass there even if it counted rows instead of questions. It is the
-    wrong thing to count: several rows can ask for one edit — a
-    ``declaration_drift`` beside a ``declaration_below_inferred_evidence`` on
-    one effect is two rows and one manifest row to fix — and the counter beside
-    them is deliberately built on blanks, not rows.
 
-    So the two halves are pinned here instead: a run of rows asking one
-    question is one entry, and a key that comes back after another intervened
-    is *not* collapsed, because that is the permutation broken rather than a
-    question asked twice.
-    """
-
-    contiguous = {
+def _synthetic_report(gaps: list[dict], questions: list[dict]) -> dict:
+    return {
         "release_decision": {
             "evidence_coverage": {
-                "evidence_gaps": [
-                    _gap_row("missing_authority_evidence", "tool_a"),
-                    _gap_row("declaration_drift", "tool_b"),
-                    _gap_row("declaration_below_inferred_evidence", "tool_b"),
-                    _gap_row("incomplete_surface", "tool_b"),
-                    _gap_row("missing_effect_evidence", "tool_c"),
-                ]
+                "evidence_gaps": gaps,
+                "semantic_coverage": {
+                    "declaration_questions": {"open_questions": questions}
+                },
             }
         }
     }
 
-    # The two ``tool_b`` effect rows are one question; ``incomplete_surface``
-    # is not a declaration question at all and is dropped, not collapsed into
-    # the neighbour it sits between.
+
+def test_gap_rows_reduce_to_the_questions_they_ask():
+    """The two reductions the fixture itself cannot show.
+
+    ``google_adk_cold_start_agent`` raises one answerable row per blank and no
+    source-owned conflict, so the comparison in
+    ``test_cold_start_leads_with_the_first_question`` would pass there even if
+    it counted rows, and even if it counted every kind the dimension map knows.
+    Both are the wrong thing to count, so both are pinned here.
+    """
+
+    # A row is not a question: the two `tool_b` effect rows are one blank.
+    # `incomplete_surface` is not a declaration question at all and is dropped,
+    # not collapsed into the neighbour it sits between.
+    contiguous = _synthetic_report(
+        [
+            _gap_row("missing_authority_evidence", "tool_a"),
+            _gap_row("declaration_drift", "tool_b"),
+            _gap_row("declaration_below_inferred_evidence", "tool_b"),
+            _gap_row("incomplete_surface", "tool_b"),
+            _gap_row("missing_effect_evidence", "tool_c"),
+        ],
+        [
+            _question_row("tool_a", "authority"),
+            _question_row("tool_b", "effect"),
+            _question_row("tool_c", "effect"),
+        ],
+    )
     assert _questions_asked_by_gap_rows(contiguous) == [
         ("action", "tool_a", "authority"),
         ("action", "tool_b", "effect"),
         ("action", "tool_c", "effect"),
     ]
 
-    interleaved = {
-        "release_decision": {
-            "evidence_coverage": {
-                "evidence_gaps": [
-                    _gap_row("declaration_drift", "tool_b"),
-                    _gap_row("missing_effect_evidence", "tool_c"),
-                    _gap_row("declaration_below_inferred_evidence", "tool_b"),
-                ]
-            }
-        }
-    }
+    # A mapped kind is not a question: `conflicting_effect_evidence` rides on
+    # the effect dimension, but the resolver blames the source rather than the
+    # manifest for it, so no declaration closes it and `open_questions` never
+    # carries it. Counting it would invent a key and fail a correct report.
+    unanswerable = _synthetic_report(
+        [
+            _gap_row("conflicting_effect_evidence", "tool_a"),
+            _gap_row("missing_effect_evidence", "tool_b"),
+        ],
+        [_question_row("tool_b", "effect")],
+    )
+    assert _questions_asked_by_gap_rows(unanswerable) == [
+        ("action", "tool_b", "effect"),
+    ]
+    # And the same kind IS counted where the resolver did blame the manifest,
+    # which is the only thing that tells the two branches apart on the wire.
+    answerable = _synthetic_report(
+        [_gap_row("conflicting_effect_evidence", "tool_a")],
+        [_question_row("tool_a", "effect")],
+    )
+    assert _questions_asked_by_gap_rows(answerable) == [
+        ("action", "tool_a", "effect"),
+    ]
 
-    # Survives, so the comparison against ``open_questions`` — which carries
-    # ``tool_b`` once — fails, which is the point.
+    # A key that comes back after another intervened survives, so the
+    # comparison against `open_questions` — which carries `tool_b` once —
+    # fails, which is the point.
+    interleaved = _synthetic_report(
+        [
+            _gap_row("declaration_drift", "tool_b"),
+            _gap_row("missing_effect_evidence", "tool_c"),
+            _gap_row("declaration_below_inferred_evidence", "tool_b"),
+        ],
+        [_question_row("tool_b", "effect"), _question_row("tool_c", "effect")],
+    )
     assert _questions_asked_by_gap_rows(interleaved) == [
         ("action", "tool_b", "effect"),
         ("action", "tool_c", "effect"),

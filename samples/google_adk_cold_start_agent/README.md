@@ -117,6 +117,7 @@ from pathlib import Path
 from agents_shipgate.cli.scan import run_scan
 
 sample = Path("samples/google_adk_cold_start_agent")
+expected = sample / "expected"
 run_scan(
     config_path=sample / "shipgate.yaml",
     output_dir=Path("expected"),
@@ -124,31 +125,50 @@ run_scan(
     ci_mode="advisory",
     packet_enabled=False,
 )
-(sample / "expected" / "current-control.json").unlink(missing_ok=True)
+(expected / "current-control.json").unlink(missing_ok=True)
 
-golden = sample / "expected" / "report.json"
+golden = expected / "report.json"
 payload = json.loads(golden.read_text(encoding="utf-8"))
 payload["manifest_dir"] = f"<REPO>/{sample.as_posix()}"
 payload["generated_reports"] = {
     fmt: Path(written).as_posix()
     for fmt, written in payload["generated_reports"].items()
 }
-golden.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+golden.write_text(json.dumps(payload, indent=2), encoding="utf-8", newline="\n")
+
+# The scan's own writers use the platform newline. Rewrite every golden with
+# an explicit LF, whoever produced it.
+for name in ("report.md", "suggested-declarations.yaml"):
+    path = expected / name
+    path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
 PY
 ```
 
-Three things that look like details and are not.
+Four things that look like details and are not.
 
-**The normalization is structural, not textual.** An earlier version of this
-recipe did `text.replace(os.getcwd(), "<REPO>")`, which works on POSIX and is a
-no-op on Windows: `json.dumps` escapes the separators, so the file holds
-`C:\\repo\\samples\\…` while `os.getcwd()` is `C:\repo\samples\…` and the
-two never match. The golden then keeps an absolute `manifest_dir` and fails
+**Newlines are forced, not inherited.** `Path.write_text(..., encoding="utf-8")`
+opens in text mode with `newline=None`, so on Windows every `\n` is written as
+`\r\n` — by the recipe *and* by `write_json_report`, the Markdown writer and the
+questionnaire writer. `.gitattributes` pins `samples/**/expected/** -text`
+precisely so Git hands those bytes over unchanged, so a golden regenerated on
+Windows would be committed as CRLF against everyone else's LF. The tests cannot
+see it: `read_text()` applies universal newlines and normalizes CRLF back to LF
+on the way in, so every byte comparison in this repo passes on a file whose
+bytes moved. `newline="\n"` on all three is what makes the artifact the same
+artifact everywhere, and
+`test_sample_expected_goldens_are_committed_with_lf_newlines` reads the raw
+bytes so the guard does not share the blindness.
+
+**The path normalization is structural, not textual.** An earlier version did
+`text.replace(os.getcwd(), "<REPO>")`, which works on POSIX and is a no-op on
+Windows: `json.dumps` escapes the separators, so the file holds
+`C:\\repo\\samples\\…` while `os.getcwd()` is `C:\repo\samples\…` and the two
+never match. The golden then keeps an absolute `manifest_dir` and fails
 `test_sample_expected_report_json_uses_repo_placeholder_for_manifest_dir` — on
-the machine that produced it. Assigning the field a POSIX value instead is
-correct on both, and `Path(written).as_posix()` does the same for
-`generated_reports`, which would otherwise commit `expected\report.json` and
-churn against every other platform.
+the machine that produced it. Assigning the field a POSIX value is correct on
+both, and `Path(written).as_posix()` does the same for `generated_reports`,
+which would otherwise commit `expected\report.json` and churn against every
+other platform.
 
 `json.dumps(payload, indent=2)` is exactly what `write_json_report` uses — no
 `sort_keys`, no trailing newline — so the round trip is byte-identical and
