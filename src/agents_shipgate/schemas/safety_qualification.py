@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -38,6 +38,18 @@ SafetyCorpusSplit = Literal["tuning", "holdout"]
 SafetyLabelRole = Literal["security_governance", "framework_tooling"]
 SafetyAdjudicationState = Literal["agreement", "adjudicated_disagreement"]
 QualificationTier = Literal["beta", "pre_1_0", "test"]
+
+# Envelopes whose readers predate ``pre_1_0`` and the production_qualified/tier
+# invariant. They are still *read*, but only when the payload actually uses the
+# vocabulary they can express -- see ``_upgrade_prior_envelopes``.
+LEGACY_QUALIFICATION_ENVELOPES = frozenset(
+    {
+        "shipgate.safety_qualification/v1",
+        "shipgate.safety_qualification/v2",
+        "shipgate.safety_qualification/v4",
+    }
+)
+LEGACY_QUALIFICATION_TIERS: frozenset[str] = frozenset({"beta", "test"})
 
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
 
@@ -446,10 +458,16 @@ def pre_release_safety_requirements() -> SafetyQualificationRequirementsV1:
     production policy, and this constructor is never selected for them.
 
     Two cases per stratum is the smallest allocation that keeps all 28
-    profile x decision cells non-empty *and* leaves each cell one tuning and
-    one holdout case. Dropping a cell to zero would delete coverage of a
+    profile x decision cells non-empty *and* leaves room for a tuning/holdout
+    split in every cell: at one case per cell, ``ceil(1 x 0.20) = 1`` forces
+    that case to be holdout. Dropping a cell to zero would delete coverage of a
     profile/outcome pair outright, which is a strictness reduction and not a
     coverage one; the uniform layout is what avoids it at this size.
+
+    What is *enforced* is the holdout floor, not a one-of-each split. A corpus
+    that marks more cases holdout is accepted: holdout evidence was never tuned
+    on, so more of it is stronger, and a floor on tuning cases would be a
+    ceiling on holdout.
 
     Every threshold below is at least as strict, *as a rate*, as its
     production counterpart -- checked by
@@ -644,33 +662,35 @@ class SafetyQualificationResultV1(BaseModel):
     cases: list[SafetyQualificationCaseResultV1]
     failures: list[SafetyQualificationFailureV1]
 
-    @field_validator("schema_version", mode="before")
+    @model_validator(mode="before")
     @classmethod
-    def _upgrade_prior_envelopes(cls, value: str) -> str:
-        """Read the earlier envelopes; emit only the current one.
+    def _upgrade_prior_envelopes(cls, data: Any) -> Any:
+        """Read an earlier envelope only when its own vocabulary is used.
 
-        v4 is accepted and read as v5 because every v4 payload *is* a v5
-        payload with identical meaning: v4's tier vocabulary (``beta``,
-        ``test``) is a strict subset of v5's, and the producer that emitted v4
-        always satisfied v5's production_qualified/tier invariant. Upgrading
-        grants nothing -- the payload still has to satisfy every v5 rule, and
-        `schema_version` is attacker-controlled text either way.
+        A legacy envelope is upgraded to the current one *conditionally*: its
+        reader admits ``beta`` and ``test`` and nothing else, so a payload
+        carrying ``pre_1_0`` is not a legacy payload however it is labelled.
 
-        The reverse direction is why the version had to move at all: a genuine
-        ``pre_1_0`` artifact is *not* readable by a v4 reader, so it must not
-        claim to be v4.
+        Doing this as a bare ``schema_version`` field validator was wrong, and
+        wrong in the direction the version bump existed to close: the field
+        validator rewrote v4 to v5 *before* anything could look at
+        ``qualification_tier``, so relabelling a conforming ``pre_1_0``
+        artifact as v4 was accepted -- recreating the exact v4/``pre_1_0``
+        combination an old v4 reader cannot parse.
         """
 
-        return (
-            SAFETY_QUALIFICATION_SCHEMA_VERSION
-            if value
-            in {
-                "shipgate.safety_qualification/v1",
-                "shipgate.safety_qualification/v2",
-                "shipgate.safety_qualification/v4",
-            }
-            else value
-        )
+        if not isinstance(data, dict):
+            return data
+        declared = data.get("schema_version")
+        if declared not in LEGACY_QUALIFICATION_ENVELOPES:
+            return data
+        if data.get("qualification_tier") not in LEGACY_QUALIFICATION_TIERS:
+            raise ValueError(
+                f"{declared} admits only qualification_tier "
+                f"{sorted(LEGACY_QUALIFICATION_TIERS)}; this payload requires "
+                f"{SAFETY_QUALIFICATION_SCHEMA_VERSION}"
+            )
+        return {**data, "schema_version": SAFETY_QUALIFICATION_SCHEMA_VERSION}
 
     @model_validator(mode="after")
     def _production_claim_matches_the_tier(self) -> SafetyQualificationResultV1:
@@ -709,6 +729,8 @@ class SafetyQualificationResultV1(BaseModel):
 
 
 __all__ = [
+    "LEGACY_QUALIFICATION_ENVELOPES",
+    "LEGACY_QUALIFICATION_TIERS",
     "RELEASE_SAFETY_PROFILES",
     "SAFETY_CORPUS_SCHEMA_VERSION",
     "SAFETY_QUALIFICATION_SCHEMA_VERSION",

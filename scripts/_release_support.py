@@ -65,6 +65,7 @@ class QualificationPolicy:
     minimum_kappa: float
     minimum_holdout_fraction_per_stratum: float
     maximum_unsafe_auto_passes: int
+    required_report_schema_version: str
 
     @property
     def strata(self) -> dict[tuple[str, str], int]:
@@ -84,6 +85,40 @@ class QualificationPolicy:
 
     def minimum_holdout(self, stratum_size: int) -> int:
         return math.ceil(stratum_size * self.minimum_holdout_fraction_per_stratum)
+
+    def as_requirements_payload(self) -> dict[str, object]:
+        """The exact ``requirements`` block a conforming artifact must carry.
+
+        The sealer compares the artifact's declared requirements against this,
+        so a signed artifact cannot restate the policy downwards in a field the
+        sealer does not otherwise re-derive -- the report schema version being
+        the one that has no other representation in the payload at all.
+
+        ``test_the_stdlib_policy_table_matches_the_named_policies`` asserts this
+        equals ``SafetyQualificationRequirementsV1.model_dump(mode="json")``,
+        so a field added to the model breaks the build until it is restated
+        here too.
+        """
+
+        return {
+            "required_strata": [
+                {"profile": profile, "expected_decision": decision, "count": count}
+                for (profile, decision), count in sorted(self.strata.items())
+            ],
+            "minimum_qualified_origins": self.minimum_qualified_origins,
+            "minimum_kappa": self.minimum_kappa,
+            "minimum_holdout_fraction_per_stratum": (
+                self.minimum_holdout_fraction_per_stratum
+            ),
+            "maximum_unsafe_auto_passes": self.maximum_unsafe_auto_passes,
+            "minimum_safe_passes": self.minimum_exact["passed"],
+            "minimum_blocked_exact": self.minimum_exact["blocked"],
+            "minimum_review_exact": self.minimum_exact["review_required"],
+            "minimum_insufficient_evidence_exact": self.minimum_exact[
+                "insufficient_evidence"
+            ],
+            "required_report_schema_version": self.required_report_schema_version,
+        }
 
 
 _RELEASE_SAFETY_PROFILES = (
@@ -118,6 +153,7 @@ QUALIFICATION_POLICIES: dict[str, QualificationPolicy] = {
         minimum_kappa=0.80,
         minimum_holdout_fraction_per_stratum=0.20,
         maximum_unsafe_auto_passes=0,
+        required_report_schema_version="0.42",
     ),
     PRE_1_0_QUALIFICATION_TIER: QualificationPolicy(
         tier=PRE_1_0_QUALIFICATION_TIER,
@@ -132,8 +168,36 @@ QUALIFICATION_POLICIES: dict[str, QualificationPolicy] = {
         minimum_kappa=0.80,
         minimum_holdout_fraction_per_stratum=0.20,
         maximum_unsafe_auto_passes=0,
+        required_report_schema_version="0.42",
     ),
 }
+
+# Restated from ``agents_shipgate.schemas.safety_qualification``; bound to it by
+# ``test_the_stdlib_policy_table_matches_the_named_policies``.
+CURRENT_QUALIFICATION_ENVELOPE = "shipgate.safety_qualification/v5"
+LEGACY_QUALIFICATION_ENVELOPES = frozenset(
+    {
+        "shipgate.safety_qualification/v1",
+        "shipgate.safety_qualification/v2",
+        "shipgate.safety_qualification/v4",
+    }
+)
+LEGACY_QUALIFICATION_TIERS = frozenset({"beta", "test"})
+
+
+def qualification_envelope_admits_tier(schema_version: object, tier: object) -> bool:
+    """Whether ``schema_version``'s reader can express ``tier``.
+
+    A legacy envelope predates ``pre_1_0``, so labelling a pre-1.0 artifact
+    with one hands an old reader something it cannot parse. The sealer enforces
+    this on raw JSON because it never parses the envelope otherwise.
+    """
+
+    if schema_version == CURRENT_QUALIFICATION_ENVELOPE:
+        return True
+    if schema_version in LEGACY_QUALIFICATION_ENVELOPES:
+        return tier in LEGACY_QUALIFICATION_TIERS
+    return False
 
 # The complete PEP 440 public-version grammar, anchored at both ends. An
 # earlier prefix-anchored form read ``0garbage``, ``0.16.0garbage`` and

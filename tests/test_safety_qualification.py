@@ -21,8 +21,11 @@ from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.safety_qualification import (
+    LEGACY_QUALIFICATION_ENVELOPES,
+    LEGACY_QUALIFICATION_TIERS,
     RELEASE_SAFETY_PROFILES,
     SAFETY_CORPUS_SCHEMA_VERSION,
+    SAFETY_QUALIFICATION_SCHEMA_VERSION,
     SAFETY_RECEIPT_INDEX_SCHEMA_VERSION,
     FrozenSafetyCorpusV1,
     HumanAdjudicationV1,
@@ -57,15 +60,24 @@ from agents_shipgate.schemas.verify_run import (
     build_verify_run_artifact,
 )
 from scripts._release_support import (
+    CURRENT_QUALIFICATION_ENVELOPE,
     QUALIFICATION_POLICIES,
     accepted_qualification_tiers,
+    qualification_envelope_admits_tier,
     release_version_is_pre_1_0,
+)
+from scripts._release_support import (
+    LEGACY_QUALIFICATION_ENVELOPES as STDLIB_LEGACY_ENVELOPES,
+)
+from scripts._release_support import (
+    LEGACY_QUALIFICATION_TIERS as STDLIB_LEGACY_TIERS,
 )
 from scripts.run_safety_qualification import (
     EXPECTED_MERGE_VERDICT,
     hash_policy_bundle,
     load_frozen_corpus,
     main,
+    qualification_exit_code,
     render_safety_qualification_json,
     run_safety_qualification,
     select_release_requirements,
@@ -585,7 +597,9 @@ def test_the_pre_1_0_policy_covers_every_production_stratum() -> None:
     assert pre_1_0_strata == production_strata
     assert {item.profile for item in pre_1_0.required_strata} == set(RELEASE_SAFETY_PROFILES)
     assert all(item.count >= 1 for item in pre_1_0.required_strata)
-    # Two per cell is what leaves each one a tuning case *and* a holdout case.
+    # Two per cell is what leaves *room* for a tuning case beside the required
+    # holdout one. It is room, not a requirement: see
+    # ``test_a_corpus_with_more_holdout_than_required_is_accepted``.
     assert all(
         item.count - math.ceil(item.count * pre_1_0.minimum_holdout_fraction_per_stratum) >= 1
         for item in pre_1_0.required_strata
@@ -784,6 +798,35 @@ def test_a_conforming_56_case_corpus_qualifies_a_0_x_wheel(tmp_path: Path) -> No
     assert production["failures"]
 
 
+def test_a_corpus_with_more_holdout_than_required_is_accepted(tmp_path: Path) -> None:
+    """The policy sets a holdout *floor*, and deliberately no tuning floor.
+
+    Holdout evidence is evidence the engine was never tuned on, so more of it
+    is stronger. A minimum on tuning cases would be a maximum on holdout, and
+    the gate must never reject a corpus for being more conservative than
+    required. Pinned here because the decision document used to describe the
+    expected 1-tuning/1-holdout layout as though it were enforced.
+    """
+
+    requirements = pre_release_safety_requirements()
+    every_case_held_out = [
+        case.model_copy(update={"split": "holdout"})
+        for case in _conforming_cases(requirements)
+    ]
+    wheel, corpus, receipts, policy = _fixture(tmp_path, cases=every_case_held_out)
+    result = run_safety_qualification(
+        wheel_path=wheel,
+        corpus_path=corpus,
+        receipt_index_path=receipts,
+        policy_paths=[policy],
+    )
+
+    assert result.failures == []
+    assert qualification_exit_code(result) == 0
+    assert result.qualification_tier == "pre_1_0"
+    assert all(row.tuning_count == 0 and row.holdout_count == 2 for row in result.strata)
+
+
 def test_the_production_flag_cannot_disagree_with_the_tier(tmp_path: Path) -> None:
     """The producer-side half of the invariant, enforced by the schema itself.
 
@@ -834,15 +877,31 @@ def test_the_qualification_envelope_advanced_for_the_new_grammar(tmp_path: Path)
     payload = _run(_fixture(tmp_path)).model_dump(mode="json")
     assert payload["schema_version"] == "shipgate.safety_qualification/v5"
 
-    for readable in (
+    legacy = (
         "shipgate.safety_qualification/v1",
         "shipgate.safety_qualification/v2",
         "shipgate.safety_qualification/v4",
-        "shipgate.safety_qualification/v5",
-    ):
+    )
+
+    # A legacy envelope is read only when the payload uses the vocabulary that
+    # envelope can express. `test` and `beta` are v4 words; `pre_1_0` is not.
+    for readable in (*legacy, "shipgate.safety_qualification/v5"):
         assert SafetyQualificationResultV1.model_validate(
             {**payload, "schema_version": readable}
         ).schema_version == "shipgate.safety_qualification/v5"
+
+    # The combination the bump exists to eliminate. An unconditional upgrade
+    # rewrote the envelope before anything looked at the tier, which let a
+    # conforming pre-1.0 artifact keep claiming a v4 an old reader cannot parse.
+    for envelope in legacy:
+        with pytest.raises(ValidationError, match="admits only qualification_tier"):
+            SafetyQualificationResultV1.model_validate(
+                {**payload, "schema_version": envelope, "qualification_tier": "pre_1_0"}
+            )
+    assert SafetyQualificationResultV1.model_validate(
+        {**payload, "schema_version": "shipgate.safety_qualification/v5",
+         "qualification_tier": "pre_1_0"}
+    ).qualification_tier == "pre_1_0"
 
     for rejected in (
         "shipgate.safety_qualification/v3",
@@ -853,6 +912,14 @@ def test_the_qualification_envelope_advanced_for_the_new_grammar(tmp_path: Path)
             SafetyQualificationResultV1.model_validate(
                 {**payload, "schema_version": rejected}
             )
+
+    # The stdlib gate applies the same pairing on raw JSON.
+    for envelope in legacy:
+        assert qualification_envelope_admits_tier(envelope, "beta") is True
+        assert qualification_envelope_admits_tier(envelope, "test") is True
+        assert qualification_envelope_admits_tier(envelope, "pre_1_0") is False
+    assert qualification_envelope_admits_tier("shipgate.safety_qualification/v5", "pre_1_0")
+    assert qualification_envelope_admits_tier("shipgate.safety_qualification/v3", "beta") is False
 
     # The corpus and receipt-index envelopes did *not* move: their grammar is
     # unchanged, and these versions track grammar rather than release batches.
@@ -896,9 +963,27 @@ def test_the_stdlib_policy_table_matches_the_named_policies() -> None:
     assert set(QUALIFICATION_POLICIES) == set(accepted_qualification_tiers("0.16.0b7"))
     assert accepted_qualification_tiers("1.0.0") == ("beta",)
 
+    # The strongest binding available: the block the sealer demands *is* the
+    # serialized requirements object, so a field added to the model breaks the
+    # build until the stdlib copy restates it too.
+    for tier, requirements in named.items():
+        payload = requirements.model_dump(mode="json")
+        payload["required_strata"] = sorted(
+            payload["required_strata"],
+            key=lambda row: (row["profile"], row["expected_decision"]),
+        )
+        assert QUALIFICATION_POLICIES[tier].as_requirements_payload() == payload, tier
+
+    assert CURRENT_QUALIFICATION_ENVELOPE == SAFETY_QUALIFICATION_SCHEMA_VERSION
+    assert STDLIB_LEGACY_ENVELOPES == LEGACY_QUALIFICATION_ENVELOPES
+    assert STDLIB_LEGACY_TIERS == LEGACY_QUALIFICATION_TIERS
+
     for tier, requirements in named.items():
         policy = QUALIFICATION_POLICIES[tier]
         assert policy.tier == tier
+        assert policy.required_report_schema_version == (
+            requirements.required_report_schema_version
+        ), tier
         assert policy.strata == {
             (item.profile, item.expected_decision): item.count
             for item in requirements.required_strata

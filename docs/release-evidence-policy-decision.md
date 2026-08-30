@@ -45,8 +45,17 @@ to `google_adk`. Scaling that shape to 56 pushes the smallest cells to zero or
 one. A zero-count cell deletes every observation of a profile × outcome pair,
 which is a reduction in *strictness*, not in coverage: the gate stops being able
 to fail for that combination at all. Two per cell is the smallest allocation
-that keeps all 28 cells non-empty **and** leaves each cell one tuning case and
-one holdout case at the unchanged 20% holdout fraction.
+that keeps all 28 cells non-empty **and** leaves room for a tuning/holdout split
+in every cell at the unchanged 20% holdout fraction — at one case per cell,
+`ceil(1 × 0.20) = 1` forces the single case to be holdout and no cell can hold a
+tuning case at all.
+
+**What is enforced is a holdout floor, not a 1/1 split.** Each cell must carry
+at least `ceil(size × 0.20)` holdout cases — one, at this size. A corpus that
+marks *more* cases holdout is accepted, and deliberately so: holdout evidence is
+evidence the engine was never tuned on, so more of it is stronger, and a
+minimum on tuning cases would be a *maximum* on holdout. The gate must never
+reject a corpus for being more conservative than required.
 
 **Exact-match floors are the production rates, rounded up.** 27 of 30 and 13 of
 14 are the same 90% demand at two sizes; 12 of 14 would not be. Rounding up
@@ -127,7 +136,8 @@ the wrong shape.
   names a tier from what the thresholds *are*, so an ad-hoc threshold set scores
   as `test` and can never release. `SafetyQualificationResultV1` additionally
   refuses to construct an artifact whose `production_qualified` disagrees with
-  its tier. Both are grammar changes, so the envelope advances
+  its tier, or one that claims a legacy envelope while carrying `pre_1_0`. Both
+  are grammar changes, so the envelope advances
   `shipgate.safety_qualification/v4 → v5`; see the migration note in
   [`STABILITY.md`](../STABILITY.md).
 - `scripts/run_safety_qualification.py` — produces the artifact, and selects the
@@ -137,9 +147,11 @@ the wrong shape.
   Re-derives every count, interval and confusion matrix from the governing
   policy.
 - `scripts/verify_qualification_binding.py` — **the sealing gate.** Standard
-  library only, so it *restates* each tier's strata, exact-match floors,
-  holdout minimum and origin/κ floors rather than importing them, and
-  re-derives them from the raw cases;
+  library only, so it *restates* each tier's whole `requirements` block —
+  strata, exact-match floors, holdout minimum, origin and κ floors, and the
+  report schema version — rather than importing it, re-derives from the raw
+  cases everything the cases can attest, and compares the artifact's own
+  declared `requirements` against the restatement for the rest;
   `test_the_stdlib_policy_table_matches_the_named_policies` binds every field
   of the two copies. Restating only a case count is not enough — it cannot
   tell 56 correctly stratified cases from 56 identical ones, nor notice a

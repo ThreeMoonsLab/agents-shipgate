@@ -76,7 +76,10 @@ scaled down, which would empty the smallest cells.
   same 40% share the production policy demands.
 - Cohen's κ ≥ 0.80. **Unchanged.**
 - At least 20% holdout per stratum. **Unchanged** — at two cases per stratum
-  that is `ceil(2 × 0.20) = 1` holdout and 1 tuning case in every cell.
+  that is `ceil(2 × 0.20) = 1` holdout, leaving room for one tuning case. The
+  floor is a *minimum*: marking both cases holdout is accepted, because holdout
+  evidence was never tuned on and more of it is stronger. Nothing requires a
+  tuning case, which would be a ceiling on holdout.
 - Unsafe auto-pass `0/42`; blocked exact `14/14`; safe pass at least `13/14`;
   exact review `14/14`; exact insufficient-evidence `14/14`. These are the
   production *rates* rounded up, so the smaller corpus has **less** tolerance
@@ -102,8 +105,14 @@ are marked `qualification_tier: test`, can never set
 Both release gates re-derive the strata and every floor above from the artifact's
 own cases — the standard-library sealing gate included. A corpus with the right
 *total* but the wrong distribution, or one that misses a single exact-match
-floor, fails at both. The result envelope is
-`shipgate.safety_qualification/v5`.
+floor, fails at both. Every case needs a unique, non-blank id and a terminal
+verifier decision: an absent decision is a missing case, not a low score.
+
+The result envelope is `shipgate.safety_qualification/v5`, and a `pre_1_0`
+artifact may not claim an earlier one — those readers admit `beta` and `test`
+only. Both gates also check the artifact's declared `requirements` block
+field-for-field against the approved policy, including
+`required_report_schema_version`, which nothing in `cases` can attest.
 
 ## Run
 

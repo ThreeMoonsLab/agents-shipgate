@@ -349,6 +349,45 @@ def test_a_pre_1_0_artifact_publishes_a_0_x_tag_and_nothing_later(
         )
 
 
+def test_a_pre_1_0_artifact_may_not_claim_a_legacy_envelope(tmp_path: Path) -> None:
+    """The exhaustive gate rejects it while parsing, not after.
+
+    A v4 reader admits `beta` and `test` only. Relabelling a conforming
+    56-case artifact as v4 recreates exactly the combination the v5 bump exists
+    to eliminate, so an old reader could still be handed something it cannot
+    parse. A legacy envelope carrying legacy vocabulary is still read.
+    """
+
+    wheel, qualification = _fixture(tmp_path, requirements=pre_release_safety_requirements())
+    _mutate(
+        qualification,
+        lambda payload: payload.__setitem__(
+            "schema_version", "shipgate.safety_qualification/v4"
+        ),
+    )
+
+    with pytest.raises(ConfigError, match="admits only qualification_tier"):
+        verify_release_qualification(
+            wheel_path=wheel, qualification_path=qualification, tag=f"v{VERSION}"
+        )
+
+    wheel, qualification = _fixture(
+        tmp_path / "beta", requirements=production_safety_requirements()
+    )
+    _mutate(
+        qualification,
+        lambda payload: payload.__setitem__(
+            "schema_version", "shipgate.safety_qualification/v4"
+        ),
+    )
+    assert (
+        verify_release_qualification(
+            wheel_path=wheel, qualification_path=qualification, tag=f"v{VERSION}"
+        ).schema_version
+        == "shipgate.safety_qualification/v5"
+    )
+
+
 def test_a_production_artifact_still_publishes_a_0_x_tag(tmp_path: Path) -> None:
     """Carrying more evidence than the tag requires is never a rejection."""
 

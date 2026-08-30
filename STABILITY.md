@@ -30,12 +30,16 @@ invariant: `production_qualified` is true exactly when a `qualified` artifact
 claims the `beta` tier. A v4 reader admits neither, so a genuine `pre_1_0`
 artifact must not claim to be v4.
 
-**Reader behaviour.** The v5 reader accepts `shipgate.safety_qualification/v4`
-and reads it as v5, because every v4 payload is a v5 payload with identical
-meaning: v4's tier vocabulary is a strict subset of v5's, and the producer that
-emitted v4 always satisfied the new invariant. Upgrading grants nothing — the
-payload must still satisfy every v5 rule. Nothing emits v4 any more. v1 and v2
-continue to be read, as before; v3 is not, also as before.
+**Reader behaviour.** The v5 reader accepts `shipgate.safety_qualification/v1`,
+`/v2` and `/v4` **only when the payload uses the vocabulary that envelope can
+express** — that is, `qualification_tier` of `beta` or `test`. Such a payload is
+read as v5, because it is a v5 payload with identical meaning. A payload
+carrying `pre_1_0` under a legacy envelope is *rejected*, not upgraded: an
+unconditional upgrade would recreate the v4/`pre_1_0` combination this bump
+exists to eliminate, leaving an old v4 reader able to receive an artifact it
+cannot parse. Both release gates enforce the pairing — the standard-library
+sealer on raw JSON, since it never parses the envelope otherwise. Nothing emits
+v4 any more, and v3 is still not read, as before.
 
 **What this is for.** `0.x` tags are now governed by a named 56-case `pre_1_0`
 policy, decided under

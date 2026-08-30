@@ -168,6 +168,32 @@
   (its vocabulary is a strict subset) and the corpus and receipt-index
   envelopes deliberately unmoved, since their grammar did not change.
 
+  **A second review round found the bump had a hole and the sealer had four
+  more.** Upgrading a legacy envelope *unconditionally* rewrote v4 to v5 before
+  anything looked at the tier, so a conforming pre-1.0 artifact could keep
+  claiming a v4 an old reader cannot parse — the exact combination the bump
+  existed to eliminate. A legacy envelope is now read only when the payload
+  uses the vocabulary that envelope can express, and both gates enforce the
+  pairing. In the sealer: floors count *matches*, so a case with a null
+  `actual_decision` merely failed to count toward its floor rather than being
+  rejected, and 56 rows sharing one id looked like 56 cases — case identity and
+  terminal decisions are now checked before any floor. `>= 0.80` admitted
+  `inf`, since the JSON literal `1e309` loads as a float that satisfies every
+  lower bound; κ and the origin count are now bounded on both sides and
+  required to be finite and integral respectively. And the report schema
+  version has no representation in `cases` at all, so the approved `0.42` could
+  be restated as `0.1` and still seal — the sealer now compares the artifact's
+  whole declared `requirements` block, field for field, against its
+  restatement of the policy.
+
+  **The 1-tuning/1-holdout split was documentation, not policy.** What is
+  enforced is a per-cell holdout *floor*; a corpus that marks more cases
+  holdout is accepted, deliberately — holdout evidence was never tuned on, so
+  more of it is stronger, and a floor on tuning cases would be a ceiling on
+  holdout. The decision document, the schema docstring and the corpus runbook
+  said "leaves each cell one tuning and one holdout case" as though that were
+  checked; they now say what is actually enforced and why.
+
 - **The declaration continuation: a drafted proposal can now reach the person
   it was drafted for.** (#429 review) `apply-patches --kinds declare_action`
   writes into `shipgate.yaml`, which is the trust root — so the control that
