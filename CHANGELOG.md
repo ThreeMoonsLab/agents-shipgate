@@ -34,6 +34,26 @@
 
   No engine, schema or check-ID change: goldens, registration and tests only.
 
+- **MCP clients can now see when a server's reassuring annotation contradicts
+  the evidence beside it.** (#462) A tool that publishes `readOnlyHint: true`
+  while independent structural or explicitly labeled inferred evidence says it
+  can write, or `destructiveHint: false` while evidence says it can destroy,
+  now raises `SHIP-MCP-ANNOTATION-CONTRADICTION`. The finding is review-tier:
+  it does not weaken or replace the conservative permission verdict the engine
+  already computes, but it names the hint, the contradicting evidence and its
+  basis, the tool's source pointer, and the under-prompting consequence for MCP
+  clients that consume the annotation directly.
+
+  Absence still follows the MCP defaults and never fires. A source's
+  `tool_sources[].trust` setting cannot make a published contradiction true,
+  while a reviewed action override suppresses only the exact inferred claim
+  IDs it answers. With a base report, the delta form proves a hint-only flip by
+  reconstructing the possible prior boolean states and matching them against
+  the base annotation hash; no raw annotation field or report-schema change is
+  required. Static, hint-only-delta, default, corroboration, trust, reviewed
+  override, source-provenance, catalog, and adopter-vocabulary regressions pin
+  the behavior.
+
 - **The declaration questionnaire is now pinned by something committed.**
   (#425) It is the primary cold-start surface — what an adopter at
   `insufficient_evidence` reads, in order, to reach a verdict — and no shipped

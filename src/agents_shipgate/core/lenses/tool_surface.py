@@ -343,11 +343,17 @@ def _tool_facts(tools: list[Tool]) -> list[ToolSurfaceToolFact]:
                 input_schema=_stable_hash(tool.input_schema),
                 output_schema=_stable_hash(tool.output_schema),
                 parameters=_stable_hash(_parameter_facts(tool)),
-                annotations=_stable_hash(tool.annotations),
+                annotations=tool_annotation_hash(tool.annotations),
             ),
         )
         for tool in sorted(tools, key=lambda item: item.id)
     ]
+
+
+def tool_annotation_hash(annotations: dict[str, Any]) -> str:
+    """Hash the public MCP/tool annotation map exactly as surface facts do."""
+
+    return _stable_hash(annotations)
 
 
 def _parameter_facts(tool: Tool) -> list[dict[str, Any]]:

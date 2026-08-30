@@ -27,6 +27,22 @@ checks:
     production has approval mode approve.
   evidence_fields: [permission_classes, risk_score, approval_mode]
   recommendation: Do not auto-approve side-effecting MCP tools.
+- id: SHIP-MCP-ANNOTATION-CONTRADICTION
+  default_severity: high
+  floor_severity: medium
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: MCP narrowing annotation contradicts side-effect evidence.
+  rationale: MCP clients can use read-only and destructive annotations to reduce
+    confirmation prompts even when independent evidence indicates the call can write
+    or destroy data.
+  fires_when: An explicit readOnlyHint true or destructiveHint false contradicts
+    independent structural or clearly labeled inferred evidence on the same MCP tool.
+  evidence_fields: [form, published_annotations, contradictions,
+    independent_evidence, annotation_changes, independent_evidence_unchanged,
+    client_consequence]
+  recommendation: Review or correct the MCP annotation before clients use it to reduce
+    confirmation prompts.
 - id: SHIP-MCP-UNKNOWN-TOOL-SCHEMA
   default_severity: high
   floor_severity: medium

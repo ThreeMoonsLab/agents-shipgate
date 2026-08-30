@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+from itertools import product
+
 from agents_shipgate.checks.base import tool_finding
 from agents_shipgate.core.capabilities import capability_fact_from_action_fact
 from agents_shipgate.core.capability_delta import (
@@ -9,9 +12,16 @@ from agents_shipgate.core.capability_delta import (
 )
 from agents_shipgate.core.capability_lattice import classify_tool_permission
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.domain import Tool
+from agents_shipgate.core.domain import DECLARATION_OVERRIDE_SOURCE, SemanticClaim, Tool
+from agents_shipgate.core.lenses.tool_surface import (
+    ToolSurfaceDiffReference,
+    tool_annotation_hash,
+)
+from agents_shipgate.core.semantic_assessment import assess_tool_semantics
 from agents_shipgate.schemas.capabilities import CapabilityFactV1
+from agents_shipgate.schemas.common import Confidence, ProvenanceKind, confidence_rank
 from agents_shipgate.schemas.report import Finding
+from agents_shipgate.schemas.semantic import SemanticClaimEvidence
 from agents_shipgate.schemas.surfaces import ActionFact, ActionSurfaceFacts
 
 MCP_SOURCE_TYPES = frozenset(
@@ -24,6 +34,25 @@ MCP_SOURCE_TYPES = frozenset(
     }
 )
 CapabilityKey = tuple[str | None, str]
+EffectClaim = SemanticClaim | SemanticClaimEvidence
+
+_INDEPENDENT_EFFECT_BASES = frozenset(
+    {
+        "protocol_structure",
+        "typed_provider_fact",
+        "structural_scope",
+        "inferred_keyword",
+        "inferred_regex",
+    }
+)
+_EFFECT_BASIS_LABELS = {
+    "protocol_structure": "protocol structure",
+    "typed_provider_fact": "typed provider evidence",
+    "structural_scope": "declared scope evidence",
+    "inferred_keyword": "inferred keyword evidence",
+    "inferred_regex": "inferred pattern evidence",
+}
+_ABSENT = object()
 
 
 def run(context: ScanContext) -> list[Finding]:
@@ -37,6 +66,13 @@ def run(context: ScanContext) -> list[Finding]:
 
     findings.extend(_env_secret_findings(context, mcp_tools, fact_by_tool))
     findings.extend(_auto_approve_findings(context, mcp_tools, fact_by_tool))
+    findings.extend(
+        _annotation_contradiction_findings(
+            context,
+            mcp_tools,
+            fact_by_tool,
+        )
+    )
 
     diff_available = (
         context.diff_reference is not None and context.diff_reference.action_facts is not None
@@ -94,6 +130,254 @@ def run(context: ScanContext) -> list[Finding]:
             )
         )
     return _dedupe(findings)
+
+
+def _annotation_contradiction_findings(
+    context: ScanContext,
+    tools: list[Tool],
+    fact_by_tool: dict[CapabilityKey, CapabilityFactV1],
+) -> list[Finding]:
+    findings: list[Finding] = []
+    for tool in tools:
+        claims = _independent_effect_claims(
+            (tool.semantic_assessment or assess_tool_semantics(tool)).effect.claims
+        )
+        contradictions: list[dict[str, object]] = []
+        used_claims: list[EffectClaim] = []
+
+        if tool.annotations.get("readOnlyHint") is True:
+            read_only_conflicts = [claim for claim in claims if claim.value != "read"]
+            if read_only_conflicts:
+                contradictions.append(
+                    {
+                        "annotation": "readOnlyHint",
+                        "published_value": True,
+                        "contradicting_effects": sorted(
+                            {claim.value for claim in read_only_conflicts}
+                        ),
+                    }
+                )
+                used_claims.extend(read_only_conflicts)
+
+        # MCP defaults destructiveHint to true. Only an explicit false value
+        # narrows what a client is told, and only destructive evidence
+        # contradicts that assertion; ordinary write evidence does not.
+        if tool.annotations.get("destructiveHint") is False:
+            destructive_conflicts = [claim for claim in claims if claim.value == "destructive"]
+            if destructive_conflicts:
+                contradictions.append(
+                    {
+                        "annotation": "destructiveHint",
+                        "published_value": False,
+                        "contradicting_effects": ["destructive"],
+                    }
+                )
+                used_claims.extend(destructive_conflicts)
+
+        if not contradictions:
+            continue
+
+        used_claims = _dedupe_claims(used_claims)
+        annotation_changes = _unchanged_evidence_annotation_changes(
+            tool, claims, context.diff_reference
+        )
+        bases = sorted({claim.basis for claim in used_claims})
+        published_annotations = {
+            str(item["annotation"]): item["published_value"] for item in contradictions
+        }
+        consequence = (
+            "MCP clients that honor these annotations may show too little "
+            "confirmation before a side-effecting call."
+        )
+        finding = tool_finding(
+            tool=tool,
+            check_id="SHIP-MCP-ANNOTATION-CONTRADICTION",
+            title="MCP narrowing annotation contradicts side-effect evidence",
+            severity="high",
+            category="mcp_permissions",
+            evidence={
+                "form": "delta" if annotation_changes else "static",
+                "published_annotations": published_annotations,
+                "contradictions": contradictions,
+                "independent_evidence": [_claim_evidence(claim) for claim in used_claims],
+                "annotation_changes": annotation_changes,
+                "independent_evidence_unchanged": bool(annotation_changes),
+                "client_consequence": consequence,
+            },
+            confidence=_strongest_confidence(used_claims),
+            recommendation=(
+                f"Review {', '.join(f'{name}: {str(value).lower()}' for name, value in published_annotations.items())} "
+                f"against {_basis_phrase(bases)}; {consequence}"
+            ),
+            context=context,
+            provenance_kind=_finding_provenance(used_claims),
+            capability_refs=_capability_ref(tool, fact_by_tool),
+        )
+        findings.append(finding)
+    return findings
+
+
+def _independent_effect_claims(claims: Iterable[EffectClaim]) -> list[EffectClaim]:
+    claim_list = list(claims)
+    overridden_claim_ids = {
+        str(claim_id)
+        for claim in claim_list
+        if claim.source == DECLARATION_OVERRIDE_SOURCE
+        for claim_id in claim.evidence.get("overridden_claim_ids", [])
+    }
+    return [
+        claim
+        for claim in claim_list
+        if claim.value != "read"
+        and claim.basis in _INDEPENDENT_EFFECT_BASES
+        and claim.source != "mcp_annotation"
+        and claim.claim_id not in overridden_claim_ids
+    ]
+
+
+def _dedupe_claims(claims: Iterable[EffectClaim]) -> list[EffectClaim]:
+    by_key = {
+        (
+            claim.value,
+            claim.confidence,
+            claim.basis,
+            claim.source,
+            repr(sorted(claim.evidence.items())),
+        ): claim
+        for claim in claims
+    }
+    return [by_key[key] for key in sorted(by_key)]
+
+
+def _claim_evidence(claim: EffectClaim) -> dict[str, object]:
+    return {
+        "effect": claim.value,
+        "confidence": claim.confidence,
+        "basis": claim.basis,
+        "source": claim.source,
+        "source_pointer": claim.source_pointer,
+        "details": claim.evidence,
+    }
+
+
+def _unchanged_evidence_annotation_changes(
+    tool: Tool,
+    current_claims: list[EffectClaim],
+    reference: ToolSurfaceDiffReference | None,
+) -> list[dict[str, object]]:
+    if reference is None or reference.action_facts is None or reference.facts is None:
+        return []
+    base_action = next(
+        (action for action in reference.action_facts.actions if action.tool_id == tool.id),
+        None,
+    )
+    if base_action is None:
+        matches = [
+            action
+            for action in reference.action_facts.actions
+            if action.source_id == tool.source_id and action.tool_name == tool.name
+        ]
+        if len(matches) != 1:
+            return []
+        base_action = matches[0]
+    if base_action.semantic_assessment is None:
+        return []
+
+    base_claims = _independent_effect_claims(base_action.semantic_assessment.effect.claims)
+    if _claim_signature(base_claims) != _claim_signature(current_claims):
+        return []
+
+    base_tool = next(
+        (fact for fact in reference.facts.tools if fact.tool_id == tool.id),
+        None,
+    )
+    if base_tool is None:
+        matches = [
+            fact
+            for fact in reference.facts.tools
+            if fact.source_id == tool.source_id and fact.name == tool.name
+        ]
+        if len(matches) != 1:
+            return []
+        base_tool = matches[0]
+    if base_tool.hashes.annotations is None:
+        return []
+
+    # Tool-surface facts already bind the complete base annotation map by
+    # hash. Rebuild only the tiny set of possible prior values for the two
+    # explicit narrowing hints and accept a delta only when one candidate
+    # reproduces that hash exactly. This proves the hint flip without adding
+    # raw annotations to the report schema or guessing from a changed hash.
+    dimensions: list[tuple[str, object, tuple[object, ...]]] = []
+    if tool.annotations.get("readOnlyHint") is True:
+        dimensions.append(("readOnlyHint", True, (True, False, _ABSENT)))
+    if tool.annotations.get("destructiveHint") is False:
+        dimensions.append(("destructiveHint", False, (False, True, _ABSENT)))
+    for before_values in product(*(options for _, _, options in dimensions)):
+        candidate = dict(tool.annotations)
+        changes: list[dict[str, object]] = []
+        for (name, after, _), before in zip(dimensions, before_values, strict=True):
+            if before is _ABSENT:
+                candidate.pop(name, None)
+                rendered_before: object = "absent"
+            else:
+                candidate[name] = before
+                rendered_before = before
+            if before != after:
+                changes.append(
+                    {
+                        "annotation": name,
+                        "before": rendered_before,
+                        "after": after,
+                    }
+                )
+        if changes and tool_annotation_hash(candidate) == base_tool.hashes.annotations:
+            return changes
+    return []
+
+
+def _claim_signature(claims: Iterable[EffectClaim]) -> tuple[tuple[str, ...], ...]:
+    return tuple(
+        sorted(
+            (
+                claim.value,
+                claim.confidence,
+                claim.basis,
+                claim.source,
+                repr(sorted(claim.evidence.items())),
+            )
+            for claim in claims
+        )
+    )
+
+
+def _strongest_confidence(claims: Iterable[EffectClaim]) -> Confidence:
+    return max(
+        (claim.confidence for claim in claims),
+        key=confidence_rank,
+        default="low",
+    )
+
+
+def _finding_provenance(claims: Iterable[EffectClaim]) -> ProvenanceKind:
+    ordered = sorted(
+        claims,
+        key=lambda claim: (
+            claim.provenance_kind in {"keyword_heuristic", "regex_heuristic"},
+            -confidence_rank(claim.confidence),
+            claim.provenance_kind,
+        ),
+    )
+    return ordered[0].provenance_kind if ordered else "static_declaration"
+
+
+def _basis_phrase(bases: list[str]) -> str:
+    labels = [_EFFECT_BASIS_LABELS.get(basis, basis.replace("_", " ")) for basis in bases]
+    if len(labels) == 1:
+        return labels[0]
+    if len(labels) == 2:
+        return f"{labels[0]} and {labels[1]}"
+    return f"{', '.join(labels[:-1])}, and {labels[-1]}"
 
 
 def _env_secret_findings(

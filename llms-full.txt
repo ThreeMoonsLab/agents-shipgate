@@ -3776,6 +3776,19 @@ financial, or production is configured with approval mode `approve`. This is
 an explicit release blocker because auto-approved side-effecting MCP tools
 can let an agent act outside the review boundary.
 
+### SHIP-MCP-ANNOTATION-CONTRADICTION
+
+Fires when an explicit MCP narrowing annotation conflicts with independent
+side-effect evidence on the same tool: `readOnlyHint: true` beside write or
+destructive evidence, or `destructiveHint: false` beside destructive evidence.
+Absent annotations follow the MCP defaults and never trigger this check. The
+evidence names structural support as structural and keyword or pattern evidence
+as inferred. When a diff proves only the hint changed while that independent
+evidence stayed the same, the finding records the annotation flip explicitly.
+The finding routes to review because MCP clients may use these advisory hints to
+reduce confirmation prompts; it does not change the engine's conservative
+permission verdict.
+
 ### SHIP-MCP-UNKNOWN-TOOL-SCHEMA
 
 Fires for new or changed MCP capabilities whose static metadata cannot prove
