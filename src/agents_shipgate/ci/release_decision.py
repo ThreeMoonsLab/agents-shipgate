@@ -48,6 +48,8 @@ from agents_shipgate.core.semantic_assessment import (
     effect_repair,
     propose_effect_declaration,
     render_effect_readings,
+    reviewed_risk_tag_constraints,
+    reviewed_risk_tag_effects,
 )
 from agents_shipgate.core.source_warnings import unresolved_adk_tool_symbols
 from agents_shipgate.core.surface_exclusions import (
@@ -1623,6 +1625,8 @@ def _semantic_gap(
     action_kind: str
     accepted_values: list[str]
     declaration_template: dict[str, object] | None = None
+    proposal_replaces_declared_risk_tags = False
+    proposal_uses_reviewed_constraints = False
     # Where the answer to this row is written. One derivation, shared with the
     # questionnaire, so the block a reviewer is sent to and the question the
     # counter numbers are the same thing (#410 increment 3).
@@ -1758,13 +1762,42 @@ def _semantic_gap(
         # reviewed edit to the manifest makes any of it operative, and the
         # proposed value is drawn from the closed ``ActionEffect`` vocabulary,
         # never from source content. It is also never weaker than any reading
-        # (see ``propose_effect_declaration``), so a reviewer who confirms it
-        # without thinking over-declares — the safe direction — instead of
-        # under-declaring, which the monotone rule (#409) would catch anyway.
-        proposal = (
-            propose_effect_declaration(observed_readings)
+        # or reviewed risk tag (see ``propose_effect_declaration``), so a
+        # reviewer who confirms it without thinking over-declares — the safe
+        # direction — instead of under-declaring, which the monotone rule (#409)
+        # would catch anyway.
+        effect_assessment = (
+            tool.semantic_assessment.effect
             if tool.semantic_assessment is not None
             else None
+        )
+        reviewed_effects = (
+            reviewed_risk_tag_effects(effect_assessment)
+            if effect_assessment is not None
+            else ()
+        )
+        evidence_only_proposal = propose_effect_declaration(observed_readings)
+        proposal = (
+            propose_effect_declaration(
+                observed_readings,
+                reviewed_effects=reviewed_effects,
+                declared_risk_tags=effect_assessment.declared_risk_tags,
+            )
+            if effect_assessment is not None
+            else None
+        )
+        # Authorship follows the complete value, not the mere presence of a
+        # reviewed tag. A redundant constraint leaves the independently
+        # evidence-derived proposal agent-authorable; any effect change or
+        # exact tag-list preservation makes it a human proposal. Comparing the
+        # dataclasses includes aliases and unmapped action tags, which coverage
+        # math alone deliberately cannot see.
+        proposal_uses_reviewed_constraints = proposal != evidence_only_proposal
+        reviewed_constraints = (
+            reviewed_risk_tag_constraints(effect_assessment)
+            if effect_assessment is not None
+            and proposal_uses_reviewed_constraints
+            else ()
         )
         if proposal is None:
             expects = (
@@ -1790,12 +1823,51 @@ def _semantic_gap(
                 # ``effect_repair`` publishes for the post-declaration case.
                 declaration_template["risk_tags"] = list(proposal.risk_tags)
                 tags = f" with risk_tags: [{', '.join(proposal.risk_tags)}]"
-            expects = (
-                f"Confirm effect: {proposal.effect}{tags} — the conservative "
-                "reading of the evidence this row lists — under "
-                "action_surface.actions in shipgate.yaml, or replace it with an "
-                "effect you can defend, then rerun verification."
+                proposal_replaces_declared_risk_tags = bool(
+                    effect_assessment is not None
+                    and effect_assessment.risk_tags_declared
+                    and tuple(proposal.risk_tags)
+                    != effect_assessment.declared_risk_tags
+                )
+            constraints = (
+                " Existing reviewed manifest constraints included in this "
+                f"proposal: risk_tags: [{', '.join(reviewed_constraints)}]."
+                if reviewed_constraints
+                else ""
             )
+            ownership_reasons: list[str] = []
+            if proposal_uses_reviewed_constraints:
+                ownership_reasons.append(
+                    "reviewed manifest constraints materially change the "
+                    "evidence-only proposal"
+                )
+            if proposal_replaces_declared_risk_tags:
+                ownership_reasons.append("it changes an existing risk_tags field")
+            ownership = (
+                " A human must merge this proposal because "
+                + " and ".join(ownership_reasons)
+                + "; no coding-agent patch is published."
+                if ownership_reasons
+                else ""
+            )
+            if reviewed_constraints:
+                expects = (
+                    f"Confirm effect: {proposal.effect}{tags} — the conservative "
+                    "result of the evidence this row lists and the existing "
+                    "reviewed manifest constraints named next."
+                    f"{constraints} Under "
+                    "action_surface.actions in shipgate.yaml, or replace it with "
+                    "an effect you can defend, then rerun verification."
+                    f"{ownership}"
+                )
+            else:
+                expects = (
+                    f"Confirm effect: {proposal.effect}{tags} — the conservative "
+                    "reading of the evidence this row lists — under "
+                    "action_surface.actions in shipgate.yaml, or replace it with "
+                    "an effect you can defend, then rerun verification."
+                    f"{ownership}"
+                )
     elif kind == "declaration_below_inferred_evidence":
         # Two routes close this row, and the reviewer owns the choice: account
         # for every observation, or state on the record that they do not apply
@@ -2107,6 +2179,8 @@ def _semantic_gap(
                 "coding_agent"
                 if action_kind in AGENT_AUTHORABLE_GAP_ACTION_KINDS
                 and kind not in HUMAN_ONLY_GAP_KINDS
+                and not proposal_replaces_declared_risk_tags
+                and not proposal_uses_reviewed_constraints
                 and template_is_complete(declaration_template)
                 else "human"
             ),

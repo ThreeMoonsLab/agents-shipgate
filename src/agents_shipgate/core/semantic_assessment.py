@@ -309,10 +309,11 @@ def _assess_effect(
                 # claim, so a list rebuilt from claims would drop what a
                 # reviewer wrote (#424 review).
                 #
-                # Recorded on this claim rather than a new assessment field
-                # because this branch is the exact condition under which the
-                # repair can be published: no declared ``effect``, no
-                # ``declaration_below_inferred_evidence`` row.
+                # Kept on the declared-effect claim for ``effect_repair``,
+                # whose post-declaration path already anchors its comparison
+                # on that claim. ``EffectSemanticAssessment.declared_risk_tags``
+                # carries the same exact list for the pre-declaration proposal
+                # path, where no declared-effect claim exists to hold it.
                 {"declared_risk_tags": list(declaration.risk_tags)}
                 if declaration.risk_tags
                 else None,
@@ -866,6 +867,13 @@ def _assess_effect(
             confidence=confidence,
             claims=claims,
             issues=_sorted_issues(issues),
+            declared_risk_tags=(
+                tuple(declaration.risk_tags) if declaration is not None else ()
+            ),
+            risk_tags_declared=(
+                declaration is not None
+                and "risk_tags" in declaration.model_fields_set
+            ),
         ),
         conservative,
     )
@@ -1203,12 +1211,12 @@ class EffectReading:
     an observation may seed a proposal.
 
     ``policy_eligible`` is the *strength* of the reading: true when at least one
-    claim behind it is evidence this scanner may act on — a reviewed
-    declaration, protocol structure, a typed provider fact, a structural scope —
-    rather than a heuristic that may only challenge. It is the strongest class
-    among the claims, not a per-producer flag, because that is what makes it
-    stable: a second heuristic agreeing with an annotation changes nothing about
-    what the reading is worth.
+    claim behind it is evidence this scanner may act on — protocol structure, a
+    typed provider fact, or a source-owned structural scope — rather than a
+    heuristic that may only challenge. Manifest-owned claims are not readings
+    at all. Strength is the strongest class among the remaining claims, not a
+    per-producer flag, because that is what makes it stable: a second heuristic
+    agreeing with an annotation changes nothing about what the reading is worth.
     """
 
     effect: ActionEffect
@@ -1219,7 +1227,7 @@ class EffectReading:
 
 @dataclass(frozen=True)
 class EffectProposal:
-    """A conservative declaration that accounts for every reading.
+    """A conservative declaration covering every reading and reviewed tag.
 
     ``risk_tags`` is non-empty exactly when no single effect covers the set —
     the same two-route model :class:`EffectRepair` publishes, because it is the
@@ -1332,10 +1340,12 @@ def effect_is_bounded(effect: EffectSemanticAssessment) -> bool:
 def effect_readings(effect: EffectSemanticAssessment) -> list[EffectReading]:
     """Group this action's non-declaration effect claims into readings.
 
-    Declaration-sourced claims are excluded for the reason
-    :data:`DECLARATION_CLAIM_SOURCES` exists: they restate the manifest row, and
-    a row is not evidence about itself. What is left is what the scan saw,
-    which is what a reviewer needs in front of them to answer the question.
+    Manifest-owned claims are excluded because they restate the trust root, and
+    a manifest is not evidence about itself. The manifest reaches this
+    dimension through both the action row and ``risk_overrides.tags``; asking
+    :func:`is_manifest_owned_effect_claim` keeps both spellings out. What is
+    left is what the scan saw, which is what a reviewer needs in front of them
+    to answer the question.
 
     Ordered weakest reading first so a consumer rendering a prefix never drops
     the strongest one.
@@ -1355,7 +1365,7 @@ def _readings_from_claims(claims: Sequence[SemanticClaim]) -> list[EffectReading
     sources: dict[tuple[ActionEffect, bool], set[str]] = {}
     eligible: set[tuple[ActionEffect, bool]] = set()
     for claim in claims:
-        if claim.source in DECLARATION_CLAIM_SOURCES:
+        if is_manifest_owned_effect_claim(claim):
             continue
         if claim.value not in _EFFECT_VALUES:
             continue
@@ -1400,11 +1410,12 @@ def effect_derivation_id(readings: Sequence[EffectReading]) -> str:
       evidence that justified it" is then literal rather than approximate.
     * **It does not move when the answer arrives.** The readings are the same
       set before and after the declaration is written, because declaration
-      claims are excluded by :func:`effect_readings` and the one claim whose
-      *presence* depends on a declaration — the MCP protocol default, emitted
-      only when nothing is declared — is not an observation and is filtered
-      here. Without that a reviewer would confirm a proposal and get a drift
-      row back on the very next scan, which is the one thing a pin may not do.
+      claims are excluded by :func:`effect_readings`, including the sibling
+      ``risk_overrides.tags`` route, and the one claim whose *presence* depends
+      on a declaration — the MCP protocol default, emitted only when nothing is
+      declared — is not an observation and is filtered here. Without that a
+      reviewer would confirm a proposal and get a drift row back on the very
+      next scan, which is the one thing a pin may not do.
 
     What is digested is the reading **and its strength**, and both halves are
     load-bearing.
@@ -1487,10 +1498,70 @@ def render_effect_readings(readings: Sequence[EffectReading]) -> str:
     )
 
 
+def reviewed_risk_tag_effects(
+    effect: EffectSemanticAssessment,
+) -> tuple[ActionEffect, ...]:
+    """Effects the manifest's reviewed risk tags already apply to this action.
+
+    These values constrain a proposal but are deliberately not
+    :class:`EffectReading` rows. They came from the trust root rather than the
+    scanned tool, so presenting them under "what this scan read" would turn a
+    declaration into its own evidence and would also move the declaration's
+    derivation pin.
+
+    Both reviewed-tag spellings are included: ``action_surface.actions[].risk_tags``
+    and a matching ``risk_overrides.tags`` entry. An invalid claim merely using
+    one of their source labels is not included; it must also pass the shared
+    manifest-ownership test.
+    """
+
+    return tuple(
+        sorted(
+            {
+                _as_effect(claim.value)
+                for claim in effect.claims
+                if claim.source in REVIEWED_RISK_TAG_CLAIM_SOURCES
+                and is_manifest_owned_effect_claim(claim)
+                and claim.value in _EFFECT_VALUES
+            },
+            key=lambda value: (_EFFECT_RANK[value], value),
+        )
+    )
+
+
+def reviewed_risk_tag_constraints(
+    effect: EffectSemanticAssessment,
+) -> tuple[str, ...]:
+    """Exact reviewed tag spellings that constrain an effect proposal.
+
+    Coverage math uses normalized effects, but the audit surface must name what
+    the manifest actually says. Start with the action row's complete ordered
+    list — including unmapped tags — then add the exact spelling of matching
+    ``risk_overrides.tags`` claims. De-duplicate without sorting the action
+    row, because its bytes are the reviewed answer a replacement must preserve.
+    """
+
+    tags = list(effect.declared_risk_tags)
+    seen = set(tags)
+    for claim in effect.claims:
+        if claim.source != "risk_hint:manual" or not is_manifest_owned_effect_claim(
+            claim
+        ):
+            continue
+        tag = claim.evidence.get("tag")
+        if isinstance(tag, str) and tag and tag not in seen:
+            tags.append(tag)
+            seen.add(tag)
+    return tuple(tags)
+
+
 def propose_effect_declaration(
     readings: Sequence[EffectReading],
+    *,
+    reviewed_effects: Iterable[ActionEffect] = (),
+    declared_risk_tags: Sequence[str] = (),
 ) -> EffectProposal | None:
-    """The weakest declaration that accounts for every reading, or ``None``.
+    """The weakest declaration covering the evidence and reviewed tags.
 
     ``None`` — keep the blank — in exactly the two cases
     :func:`effect_is_measured` rules out, and both are the point of an
@@ -1507,17 +1578,23 @@ def propose_effect_declaration(
       thinking can do is over-declare — the safe direction, and one the
       monotone rule (#409) leaves visible rather than silent.
 
-    The covering computation spans **all** readings, defaults included: the
+    The covering computation spans **all** readings, defaults included, plus
+    the effects of reviewed risk tags already present in the manifest. The
     declaration has to close the row it is printed on, and an unaccounted
     protocol default is as much a challenger to a declaration as a keyword hint
     is (both are non-policy-eligible; see :func:`claims_above_declared_effect`).
-    The gate above only decides whether to propose at all.
+    A reviewed tag also has to survive in the proposed answer, but it never
+    unlocks a proposal by itself: the gate above reads only ``readings``, so a
+    manifest entry cannot masquerade as an observation.
     """
 
     if not effect_is_measured(readings):
         return None
     values = sorted(
-        {reading.effect for reading in readings},
+        {
+            *(reading.effect for reading in readings),
+            *(value for value in reviewed_effects if value in _EFFECT_VALUES),
+        },
         key=lambda item: (_EFFECT_RANK[item], item),
     )
     covering = [
@@ -1535,9 +1612,17 @@ def propose_effect_declaration(
     # reviewed risk tag accounts for all of them and makes each category's
     # built-in controls apply, which is what an uncovered obligation is asking
     # for.
-    tags = tuple(value for value in values if value in _ACTION_RISK_TAG_VALUES)
-    if not tags:  # pragma: no cover - only ``read`` has no matching tag
+    added = tuple(value for value in values if value in _ACTION_RISK_TAG_VALUES)
+    if not added:  # pragma: no cover - only ``read`` has no matching tag
         return None
+    # ``risk_tags`` is one YAML key, so the proposal replaces its whole value.
+    # Preserve the action row's exact spelling and order, including tags that
+    # map to no effect at all; rebuilding it from ``reviewed_effects`` turned
+    # ``financial_action`` into ``financial_write`` and silently deleted
+    # ``network_access``. Add only categories no existing spelling covers.
+    declared = tuple(str(tag) for tag in declared_risk_tags)
+    declared_effects = {_TAG_EFFECTS.get(tag) for tag in declared}
+    tags = (*declared, *(value for value in added if value not in declared_effects))
     return EffectProposal(effect=values[-1], risk_tags=tags)
 
 
@@ -2372,6 +2457,8 @@ __all__ = [
     "risk_tag_answers_effect",
     "effect_derivation_id",
     "render_effect_readings",
+    "reviewed_risk_tag_constraints",
+    "reviewed_risk_tag_effects",
     "reviewed_authority",
     "claims_above_declared_effect",
     "EffectRepair",

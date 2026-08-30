@@ -277,6 +277,34 @@ def test_a_new_or_removed_reading_moves_the_pin() -> None:
     assert _pin(_tool()) != base
 
 
+def test_adding_a_reviewed_risk_override_does_not_reopen_a_pinned_answer() -> None:
+    """A manifest edit is not new source evidence for the answer it decorates.
+
+    ``risk_overrides.tags`` reaches the effect claims as ``risk_hint:manual``
+    rather than through the action row. Counting that claim as a reading moved
+    the pin when the reviewed tag arrived, immediately reopening an otherwise
+    unchanged answer as ``declaration_drift``.
+    """
+
+    before = _observing("write")
+    basis = _pin(before)
+    declaration = ActionDeclarationConfig(
+        tool="send_email", effect="write", basis=basis
+    )
+    after = _observing("write")
+    after.risk_hints.append(
+        ToolRiskHint(
+            tag="destructive",
+            source="manual",
+            confidence="high",
+            basis="reviewed_declaration",
+        )
+    )
+
+    assert _pin(after, declaration) == basis
+    assert "declaration_drift" not in _issue_kinds(after, declaration)
+
+
 def test_the_derivation_id_is_short_and_stable() -> None:
     """It is written into a manifest a human reads and a reviewer diffs."""
 

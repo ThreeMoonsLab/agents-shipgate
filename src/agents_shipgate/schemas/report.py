@@ -380,11 +380,13 @@ class EvidenceReading(BaseModel):
     observation of the tool.
 
     v0.39: ``policy_eligible`` is the reading's *strength* — true when at least
-    one claim behind it is evidence the scanner may act on (a reviewed
-    declaration, protocol structure, a typed provider fact, a structural scope)
-    rather than a heuristic that may only challenge. It is the strongest class
-    among the claims, never a per-producer flag. Published because it is half of
-    what ``action_surface.actions[].basis`` pins: without it, a reading whose
+    one non-manifest claim behind it is evidence the scanner may act on
+    (protocol structure, a typed provider fact, or a source-owned structural
+    scope) rather than a heuristic that may only challenge. Reviewed manifest
+    declarations are constraints, not observations, and therefore never
+    produce a reading. Strength is the strongest class among the remaining
+    claims, never a per-producer flag. Published because it is half of what
+    ``action_surface.actions[].basis`` pins: without it, a reading whose
     authoritative half was deleted is indistinguishable from one that never had
     it, and a consumer cannot reproduce the pin from the row it is printed on.
     """
@@ -504,13 +506,15 @@ class EvidenceGapAction(BaseModel):
     # pinned ``true``: the manifest is the trust root, so *every* declaration
     # reaches the gate through a human merge, whoever typed it. What this
     # field adds is whether the scan already knows the answer well enough for
-    # an agent to propose it — "an agent may propose what evidence supports;
+    # an agent to propose it from its own observations. Existing reviewed
+    # manifest constraints may shape a human-visible proposal, but never grant
+    # coding-agent authorship. "An agent may propose what evidence supports;
     # only a human may assert against it" (#410 §D).
     #
     # It is decided by content, never by authorship: ``coding_agent`` exactly
     # where the scan filled every blank in ``declaration_template`` from its
     # own observations, using the closed effect vocabulary and a value never
-    # weaker than any reading it saw. A template still carrying a
+    # weaker than any reading. A template still carrying a
     # ``<REVIEW_REQUIRED>`` blank — every authority block, every override —
     # is an assertion an agent would have to invent, so it stays ``human``.
     authorable_by: Literal["coding_agent", "human"] = "human"
@@ -535,9 +539,11 @@ class EvidenceGapAction(BaseModel):
     # answered without opening ``action_surface_facts`` to find out. Populated
     # for effect gaps; empty everywhere else. Where the readings support one
     # conservative answer, ``declaration_template`` carries it pre-filled
-    # instead of a ``<REVIEW_REQUIRED>`` blank — a proposal to confirm, never
-    # an assertion: nothing consumes this template, and only a reviewed edit to
-    # the manifest can make any of it operative.
+    # instead of a ``<REVIEW_REQUIRED>`` blank. Existing reviewed manifest
+    # constraints may strengthen that proposal and are named separately in
+    # ``expects``; they never appear here. The template is a proposal to
+    # confirm, never an assertion: nothing consumes it, and only a reviewed
+    # edit to the manifest can make any of it operative.
     observed_readings: list[EvidenceReading] = Field(default_factory=list)
     auto_apply: Literal[False] = False
     requires_human_review: Literal[True] = True

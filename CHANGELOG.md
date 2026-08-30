@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Reviewed risk overrides no longer masquerade as scan observations.** (#460)
+  `risk_overrides.tags` is excluded from `effect_readings` and the derived
+  action `basis`, so adding or removing a reviewed tag no longer reopens a
+  pinned declaration. A tag still constrains any proposal unlocked by genuine
+  source evidence, but cannot seed one by itself. Declarations pinned by an
+  older release while an override was present may surface one deliberate
+  `declaration_drift` so a reviewer can confirm the corrected source-only pin.
+
 - **Cold-reader artifacts now lead with what the agent can do.** (#463) On a
   repository with no committed Shipgate manifest, human output starts with the
   root-reachable tool surface, its effect breakdown and write/destructive

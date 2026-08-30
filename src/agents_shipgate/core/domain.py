@@ -235,6 +235,18 @@ class EffectSemanticAssessment(BaseModel):
     confidence: Confidence
     claims: list[SemanticClaim] = Field(default_factory=list)
     issues: list[SemanticIssue] = Field(default_factory=list)
+    #: The action row's complete reviewed ``risk_tags`` value, in manifest
+    #: order and spelling. Proposal rendering needs it only when it publishes a
+    #: replacement for that YAML key: reconstructing the list from effect
+    #: claims drops unmapped tags and rewrites aliases. Routing state rather
+    #: than semantic evidence, so it is excluded from every published dump.
+    declared_risk_tags: tuple[str, ...] = Field(default=(), exclude=True)
+    #: Whether the action row explicitly carried the ``risk_tags`` key. An
+    #: absent key and ``risk_tags: []`` resolve to the same effects but differ
+    #: at the patch boundary: the latter is an existing reviewed answer that a
+    #: coding-agent proposal may not replace. Excluded for the same reason as
+    #: :attr:`declared_risk_tags`.
+    risk_tags_declared: bool = Field(default=False, exclude=True)
 
 
 class AuthoritySemanticAssessment(BaseModel):
