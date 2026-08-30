@@ -378,7 +378,7 @@ Every `doctor --json` payload carries an `environment` block, and so does every 
 
 `mismatches[]` codes: `interpreter_unsupported`, `import_outside_source_tree`, `source_tree_version_differs`, `installed_version_differs`, `console_script_interpreter_missing`, `console_script_runs_other_interpreter`. Nothing here executes an interpreter or a console script to find out — a stale wrapper is identified by reading it, because a wrapper that cannot start is exactly the one that cannot report on itself.
 
-### One control vocabulary across the setup commands
+### One control vocabulary across the commands
 
 `detect --json`, `init --json`, and each `doctor --json` payload carry a
 `control` field holding the same `shipgate.agent_control/v1` envelope that
@@ -394,11 +394,24 @@ When that step is a file edit, `control.next_action` is
 The kind is setup-only: `verify`, `check`, and `scan` never emit it, and both
 schema layers reject it on those operations.
 
-`scan` is **not** part of this: `agents-shipgate agent control` after a scan
-reports `decision: null` with a `reason` saying the verdict is withheld. A scan
-pointer binds no reconfirmable snapshot of the inputs it read, so no artifact in
-that directory can show its verdict still describes the workspace. Run `verify`
-for one that can.
+All six commands publish it; what differs is where, because a command that
+publishes a control *pointer* names the envelope from that pointer rather than
+carrying it on its own result:
+
+| Command | Where the envelope is |
+| ------- | --------------------- |
+| `detect` | `--json` payload, `control` |
+| `init` | `--json` payload, `control` |
+| `doctor` | each `--json` payload, `control` |
+| `check` | `--format agent-control-json` (the document *is* the envelope) |
+| `verify` | `--format control` (same), or `agents-shipgate agent control` after a `--json` run |
+| `scan` | `agents-shipgate agent control` after the run |
+
+`scan`'s answer is the one that withholds a verdict: it reports
+`decision: null` with a `reason` saying so. A scan pointer binds no
+reconfirmable snapshot of the inputs it read, so no artifact in that directory
+can show its verdict still describes the workspace. Run `verify` for one that
+can.
 
 Read `control.decision_source` before `control.decision`. Setup commands run
 before a release decision exists, so they report `setup` and a verdict from
@@ -428,8 +441,31 @@ is not a contradiction — a setup route authorizes only its own `next_action`.
 as `control.next_action`, so the compact envelope and the ranked list can never
 send you to different work. Where the route is human-owned, that list holds
 exactly one action and no command: an alternative would be a way around the
-obligation. Agent-mode *error* lines still carry `next_action`/`next_actions`
-rather than a `control` object.
+obligation.
+
+**Agent-mode error lines from `detect`, `init`, and `doctor` carry
+`control` too**
+(contract v27). A setup command that could not finish publishes the same
+envelope on stderr that it would have published on stdout, so one routing rule
+covers both documented streams; `next_action` / `next_actions[]` are unchanged
+beside it. Every such envelope reports `decision_source: "setup"`, a `decision`
+from the setup vocabulary, `permissions` all false, and never
+`control_state: "complete"`.
+
+**Do not use `execution` to tell an error line from an answer** — the `error`
+field does that. `execution` says whether the command reached an answer about
+the workspace, so an error line carries `"failed"` when it could not (a flag
+value it could not parse, discovery it could not bound, a manifest it could not
+open) and `"succeeded"` with a non-zero `exit_code` when it did and the answer
+is a refusal it can route past (`config_already_exists`, the unresolved-scope
+`config_error`). Both authorize nothing.
+
+The one setup line with no `control` is the shared `--workspace` refusal, which
+fires before the workspace exists and therefore has no setup subject to
+describe: it carries `next_action`/`next_actions` only. Error lines from
+`scan`, `verify`, and `check` also carry no `control`: the first two answer
+through their control pointer (`agents-shipgate agent control`), and `check`
+through `--format agent-control-json`.
 
 Every emitted command names the entry point that started the running process, so it is runnable where it was produced: a console-script run emits `agents-shipgate …`, and a `python -m agents_shipgate` run emits `<sys.executable> -m agents_shipgate …`. Set `AGENTS_SHIPGATE_CLI` to name the entry point explicitly; it wins over detection. **On `next_actions[]`, run `[*executable, *args]` (contract v23+) rather than parsing `command`** — it needs no shell and is computed from `command`, so it cannot disagree with it; it is omitted, never `null`, when the command has no faithful argv form. The operational control contracts (`control.next_action`, `allowed_next_commands`, verifier repairs) carry the string only: recover argv there with `shlex.split(command)`, which is exact on every platform because every emitted command is POSIX-rendered. Never use `shell=True`, and do not paste `command` into `cmd.exe` or PowerShell. Durable artifacts (`report.json`, `packet.*`) stay canonical so that same inputs still produce the same report. See [docs/diagnostics.md](docs/diagnostics.md#invocation-policy).
 

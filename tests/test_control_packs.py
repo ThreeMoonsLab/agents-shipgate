@@ -1100,6 +1100,117 @@ policies:
         CONTROL_PACK_IDS
     )
 
+    # …and the route says so too. Reporting the delta in a payload field while
+    # routing onward as though nothing were outstanding is how the request got
+    # lost: `doctor` and `verify` both read a manifest that loads fine and
+    # advance under the pack that is *there*, so an envelope-only caller
+    # proceeded under `financial-strict` having asked for `read-only-agent`,
+    # with nothing in the route saying so (#323 review).
+    #
+    # And this direction goes to a *human*. `financial-strict -> read-only-agent`
+    # drops `write` and `production_operation` obligations, and the request came
+    # from argv — which a governed coding agent writes for itself, so it is not
+    # a human approval for loosening the gate it is judged by.
+    control = payload["control"]
+    assert control["decision"] == "setup_incomplete"
+    assert control["control_state"] == "human_review_required"
+    assert control["next_actor"] == "human"
+    assert control["next_action"]["kind"] == "review"
+    assert control["next_action"]["command"] is None
+    assert set(control["permissions"].values()) == {False}
+    # The route names both packs and what the change would remove.
+    why = control["next_action"]["why"]
+    assert "read-only-agent" in why
+    assert "financial-strict" in why
+    assert "write" in why
+
+
+def test_a_strengthening_pack_request_is_a_coding_agent_edit(tmp_path: Path) -> None:
+    """The other direction, so "always human" cannot pass this pair.
+
+    `default -> financial-strict` drops no obligation from any effect — every
+    pack requires at least what `default` does — so following it can only
+    tighten the gate the agent is judged by, and it needs no human to approve
+    that. Routing it to a person as well would make the route unactionable for
+    the case it is most useful in.
+    """
+
+    workspace = tmp_path / "tighten"
+    workspace.mkdir()
+    (workspace / "tools.json").write_text(
+        json.dumps({"tools": [{"name": "act", "description": "An action."}]}),
+        encoding="utf-8",
+    )
+    (workspace / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project: {name: tighten}
+agent:
+  name: agent
+  declared_purpose: [act]
+environment: {target: local}
+tool_sources:
+  - id: src
+    type: mcp
+    path: tools.json
+policies:
+  control_pack: default
+""",
+        encoding="utf-8",
+    )
+    result = runner.invoke(
+        app,
+        [
+            "init", "--workspace", str(workspace), "--write", "--json",
+            "--control-pack", "financial-strict",
+        ],
+    )
+    control = json.loads(result.stdout)["control"]
+
+    assert control["control_state"] == "agent_action_required"
+    assert control["next_action"]["kind"] == "edit"
+    assert control["next_action"]["path"] == str(workspace / "shipgate.yaml")
+    assert control["next_action"]["expects"] == (
+        f"policies.control_pack in {workspace / 'shipgate.yaml'} is financial-strict."
+    )
+    # Setup still authorizes nothing; the edit is the published step, not a
+    # permission (`permissions.edit` is false beside it on every setup route).
+    assert set(control["permissions"].values()) == {False}
+
+
+def test_a_pack_that_cannot_be_read_is_not_reported_as_a_difference() -> None:
+    """No answer is not a different answer.
+
+    The route for an unapplied `--control-pack` compares the request with
+    `_manifest_control_pack`, which returns `None` for a manifest that is not
+    there and for bytes it could not resolve a pack from. `None` is not a pack,
+    and treating it as one publishes an edit whose `why` reads "the manifest
+    still selects None".
+
+    The two conditions that would reach it are claimed by earlier routes today
+    — `_manifest_defect` runs the loader, and a manifest with an unknown pack
+    id fails schema validation there first. But that is the two functions
+    happening to agree, not a guarantee: `_manifest_control_pack` runs the
+    loader *and* `resolve_control_pack`, so it has a failure surface the other
+    does not. The guard is what makes the disagreement fall through to
+    `doctor` rather than become a route.
+    """
+
+    from agents_shipgate.cli.control_pack_routing import unapplied_control_pack
+
+    assert unapplied_control_pack(requested="financial-strict", on_disk=None) is False
+    # The reachable cases are unaffected.
+    assert unapplied_control_pack(requested="financial-strict", on_disk="default") is True
+    assert (
+        unapplied_control_pack(requested="financial-strict", on_disk="financial-strict")
+        is False
+    )
+    # An option nobody passed is not a request …
+    assert unapplied_control_pack(requested=None, on_disk="financial-strict") is False
+    # … but an explicit `--control-pack default` is, and it is the one that can
+    # only weaken an existing non-default manifest.
+    assert unapplied_control_pack(requested="default", on_disk="financial-strict") is True
+
 
 def test_init_says_nothing_it_cannot_know_about_a_manifest_that_is_not_there(
     tmp_path: Path,
@@ -1558,3 +1669,64 @@ def _control_rows(report) -> dict[tuple[str, str], set[str]]:
             elif isinstance(item, dict) and isinstance(item.get("path"), str):
                 paths.add(item["path"])
     return rows
+
+
+def test_an_unresolvable_pack_is_a_human_route_rather_than_an_edit() -> None:
+    """The fail-safe on the reconciliation route, exercised directly.
+
+    Unreachable from `init` today: `--control-pack` is validated against
+    `CONTROL_PACK_IDS` before any filesystem work, and the manifest schema
+    rejects an unknown id. It is not decoration, though — it is the branch that
+    keeps "cannot compare" from reading as "nothing was removed".
+    `weakened_pack_obligations` returns `[]` for a pack it cannot resolve, so
+    without this the route would fall through to the coding-agent `edit`: a
+    fail-open, on exactly the input where the direction is unknown.
+    """
+
+    from agents_shipgate.cli.control_pack_routing import control_pack_route
+
+    for requested, on_disk in (
+        ("not-a-pack", "financial-strict"),
+        ("financial-strict", "not-a-pack"),
+    ):
+        action = control_pack_route(
+            manifest=Path("/ws/shipgate.yaml"), requested=requested, on_disk=on_disk
+        )
+        assert action.kind == "review", (requested, on_disk)
+        assert action.command is None
+        assert "not-a-pack" in action.why
+
+
+def test_one_reader_answers_which_pack_governs_a_manifest(tmp_path: Path) -> None:
+    """Bytes and path are the same question, and must not drift apart.
+
+    There were briefly two readers — one for the workspace's own manifest and
+    one for a scoped candidate's — running the same loader over the same file.
+    """
+
+    from agents_shipgate.cli.control_pack_routing import (
+        manifest_control_pack,
+        manifest_control_pack_at,
+    )
+
+    (tmp_path / "tools.json").write_text(
+        json.dumps({"tools": [{"name": "act", "description": "An action."}]}),
+        encoding="utf-8",
+    )
+    manifest = tmp_path / "shipgate.yaml"
+    text = """
+version: "0.1"
+project: {name: p}
+agent: {name: a, declared_purpose: [act]}
+environment: {target: local}
+tool_sources: [{id: src, type: mcp, path: tools.json}]
+policies: {control_pack: read-only-agent}
+"""
+    manifest.write_text(text, encoding="utf-8")
+
+    assert manifest_control_pack(text.encode("utf-8")) == "read-only-agent"
+    assert manifest_control_pack_at(manifest) == "read-only-agent"
+    # And "cannot say" is the same answer through either door.
+    assert manifest_control_pack(None) is None
+    assert manifest_control_pack(b"not a manifest") is None
+    assert manifest_control_pack_at(tmp_path / "absent.yaml") is None

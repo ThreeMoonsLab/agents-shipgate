@@ -569,6 +569,43 @@ def pack_only_effect_groups(
     )
 
 
+def weakened_pack_obligations(
+    base_pack_id: str | None,
+    head_pack_id: str | None,
+) -> list[tuple[str, list[str]]]:
+    """Effects the head pack requires less of than the base pack did.
+
+    ``None`` on either side means "the field is absent", which is by
+    construction the ``default`` rule set — a build that could not load a
+    manifest naming a pack. It is resolved to ``default`` and compared rather
+    than skipped, so the "no pack is weaker than default" invariant is enforced
+    here instead of assumed: if a weaker pack were ever added, this comparison
+    would report it rather than stay silent.
+
+    An id this build cannot resolve returns ``[]`` — "cannot compare" is not
+    "nothing changed", and every caller has to route that fail-safe itself
+    because what to do about it differs: ``verify_policy`` raises a finding
+    that says the direction is unprovable, while a setup route hands the
+    manifest to a person.
+
+    It lives here rather than in the check that first needed it because the
+    setup routes need the same answer, and this is the module that owns what a
+    pack requires. Two implementations of "did this get weaker?" is how one of
+    them ends up not seeing a downgrade (#410 §F).
+    """
+
+    base_pack = BUILTIN_CONTROL_PACKS.get(base_pack_id or DEFAULT_CONTROL_PACK_ID)
+    head_pack = BUILTIN_CONTROL_PACKS.get(head_pack_id or DEFAULT_CONTROL_PACK_ID)
+    if base_pack is None or head_pack is None or base_pack.id == head_pack.id:
+        return []
+    weakened: list[tuple[str, list[str]]] = []
+    for effect in sorted(base_pack.obligations):
+        dropped = base_pack.obligations_for(effect) - head_pack.obligations_for(effect)
+        if dropped:
+            weakened.append((effect, ordered_controls(dropped)))
+    return weakened
+
+
 def control_pack_by_id(pack_id: str | None) -> ControlPack:
     """The pack ``pack_id`` names, or ``default`` when the manifest is silent.
 
@@ -619,4 +656,5 @@ __all__ = [
     "is_control_pack_finding",
     "is_mandatory_current_control",
     "resolve_control_pack",
+    "weakened_pack_obligations",
 ]

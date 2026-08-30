@@ -16,7 +16,7 @@ from pathlib import Path
 
 import typer
 
-from agents_shipgate.cli.agent_mode import emit_agent_mode_error
+from agents_shipgate.cli.agent_mode import emit_agent_mode_error_routing
 from agents_shipgate.cli.diagnostics import diagnose_detect
 from agents_shipgate.cli.discovery import (
     DEFAULT_MAX_PYTHON_FILES,
@@ -32,6 +32,7 @@ from agents_shipgate.cli.scope_routing import (
 from agents_shipgate.cli.setup_control import (
     SETUP_INCOMPLETE,
     setup_control_envelope,
+    setup_failure_routing,
     setup_input_id,
 )
 from agents_shipgate.cli.workspace_guard import require_workspace
@@ -79,11 +80,21 @@ def detect(
             ),
         )
         typer.echo(message, err=True)
-        emit_agent_mode_error(
+        # The same envelope the `--json` payload would have carried. A caller
+        # that routes on `control` gets it whether this command answered or
+        # failed; without it, the one run that most needs a route — the one
+        # that produced no payload at all — was the run with none (#323).
+        emit_agent_mode_error_routing(
             "other_error",
+            routing=setup_failure_routing(
+                operation="detect",
+                workspace=workspace_resolved,
+                reason=message,
+                exit_code=4,
+                action=action,
+            ),
             message=message,
-            next_action=action.to_legacy_string(),
-            next_actions=[action.model_dump(mode="json")],
+            exit_code=4,
         )
         raise typer.Exit(4) from exc
     has_manifest = (workspace_resolved / "shipgate.yaml").is_file()
@@ -111,7 +122,15 @@ def detect(
                 result.model_dump(mode="json"),
                 advance_decision,
                 advance.model_dump(mode="json") if advance is not None else None,
+                # Not carried by the action, and it decides `next_action.kind`
+                # and `verify_required` — so the same detection advancing as
+                # `initialize` and as `discover` had one identity (#323 review).
+                advance_kind,
                 [action.model_dump(mode="json") for action in advance_alternatives],
+                # The diagnostics themselves, not only their rank-1 actions: an
+                # id decides who owns a route and a severity decides precedence,
+                # and neither appears in the action it produces.
+                [item.model_dump(mode="json") for item in diagnostics],
             ),
         ),
         reason=_detect_reason(result, has_manifest=has_manifest),

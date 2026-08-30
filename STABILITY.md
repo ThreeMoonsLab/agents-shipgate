@@ -49,6 +49,110 @@ It reduces evidence *coverage* only: the zero-unsafe-auto-pass rule, per-case
 receipts, the holdout fraction, the κ floor and `static_only` are unchanged, and
 every exact-match floor is the production rate rounded up. `1.0` and later still
 require the 100-case `beta` artifact, and there is no promotion shortcut.
+<a id="migration-note-unreleased-setup-error-envelope"></a>
+
+## Migration Note: unreleased — the setup control envelope reaches both streams
+
+`contract_version` moves **26 → 27**. `minimum_control_contract_version` stays
+at `21`, `report_schema_version` is unchanged, and no published schema document
+changes: both the `AgentControl` union and `shipgate.agent_control/v1` are
+byte-identical to v26. What moves is where an already-published object appears.
+
+**Every agent-mode error line from `detect`, `init`, and `doctor` now carries
+`control`.** v24 gave those commands the envelope on their `--json` payload and
+left the error stream out; `doctor`'s failure routes picked it up during that
+rollout, and `detect`'s and five of `init`'s did not. So whether a caller
+that routes on `control` could route at all depended on which setup command had
+failed and on which of its failures — and the run that most needs a route is
+the one that printed no payload to carry it. The `next_action` and
+`next_actions[]` **fields** are unchanged on those lines, and are derived from
+the same selected route as `control.next_action`; two of their command *values*
+move, and both are listed under "Routing behaviour" below.
+
+**What a consumer may rely on across every setup error line**, enforced by the
+published schema and not only by the producer: `decision_source: "setup"`, a
+`decision` from `setup_complete | setup_incomplete | setup_not_applicable`,
+every field of `permissions` false, and `control_state` never `complete`.
+Setup authorizes nothing, on either stream.
+
+**`execution` is not a stream marker, and must not be read as one.** The
+`error` field is what says a line is an error. `execution` answers a different
+question — whether the command reached an answer about the workspace — and both
+values occur on error lines:
+
+| `execution` | When | Examples |
+| ----------- | ---- | -------- |
+| `"failed"` | The command could not reach an answer. | An unparseable `--control-pack` or `--agent-instructions` value, discovery that could not be bounded, a manifest that could not be opened or decoded, a generated manifest that failed validation. |
+| `"succeeded"`, with a non-zero `exit_code` | The command reached an answer and that answer is a refusal it can route past. | `config_already_exists` (`init --write` declining to overwrite), and the unresolved-scope `config_error`. |
+
+Do not infer authority from either value: the row above that says `"succeeded"`
+still carries `permissions` all false, because it is a setup envelope.
+
+**Two error lines still carry no `control`, by design.** The shared
+`--workspace` refusal (`config_error`, exit 2, emitted by every command that
+takes a `--workspace`) fires because that workspace does not exist, so there is no setup
+subject for `input_id` to address; and `environment_error` is emitted before
+Agents Shipgate is running and carries `environment` instead. `scan`, `verify`,
+and `check` error lines are also unchanged: the first two answer through their
+control pointer, and `check` — which publishes no pointer — through
+`--format agent-control-json`.
+
+**Routing behaviour: three changes, none of them additive.**
+
+**1.** `init --write` over
+a manifest that already exists published `next_action.kind: "edit"` on
+`shipgate.yaml` with `expects: "The manifest reflects the desired tool sources,
+agent declared_purpose, and policies"`. That postcondition was already
+satisfied whenever the route was reached: a manifest that does *not* load is
+claimed by the repair route above it. On this contract `next_action` **is** the
+step, so the route could not change the answer — an envelope-only caller opened
+the file, found nothing to change, re-ran, and received the identical action.
+It is now `next_action.kind: "command"` naming the `doctor` invocation for the
+manifest on disk, which reports what that manifest still owes. Exit code 2 and
+the "already exists — edit it directly or remove it before re-running init
+--write" sentence are unchanged; a consumer that branched on
+`next_action.kind == "edit"` here now sees `"command"` — **except** when this
+invocation asked for a manifest configuration the existing manifest does not
+carry. `init --write --control-pack <id>` over a manifest selecting a different
+pack routes to a reconciliation naming `policies.control_pack` and the exact
+value, because both onward routes would otherwise advance under the pack that
+is *there* and the request would be lost without anything saying so. The same
+reconciliation is published for a scoped **candidate** project whose manifest
+selects a different pack, where the candidate's `doctor` route had the same
+effect.
+
+"Asked for" is read from the argument parser rather than inferred by comparing
+against the default. An explicit `--control-pack default` over a
+`financial-strict` manifest is a request — and the only one that can *only*
+weaken — so a default-comparison could not see it.
+
+**The owner of that route is the direction, not the caller.** A governed coding
+agent writes its own argv, so command-line arguments are not authenticated
+human provenance for loosening a gate. A transition that keeps at least every
+obligation the manifest has today is `agent_action_required` with a typed
+`edit`. One that drops any obligation, or that names a pack this build cannot
+resolve, is `human_review_required` with no command and names what it would
+remove. The comparison is `weakened_pack_obligations`, shared with the
+`control_pack_weakened` check rather than restated.
+
+**2.** Every recovery command `init` publishes now repeats the **whole**
+invocation with only the invalid value corrected. They were built from the
+smaller flag list that a rerun in a *different* workspace may repeat, so
+`init --write --minimal --control-pack <bad>` emitted a recovery without
+`--minimal` — following it wrote an auto-detected manifest instead of the legacy
+template that was asked for. `--minimal`, `--allow-unresolved-scope`,
+`--agent-instructions-kit`, and a non-default `--max-python-files` now ride
+along. Command *values* change; no field is added or removed.
+
+**3.** The `internal_error` route for a generated manifest that fails validation
+named a bare `agents-shipgate init --minimal`. It now names the same invocation
+with `--minimal` added — the workspace, `--write`, and `--json` are carried
+through, so following it writes the fallback template where the caller asked
+for it rather than in the process directory. This is a `next_action` /
+`next_actions[0].command` value change on a route that is now also
+`control.next_action.command`.
+
+---
 
 <a id="migration-note-unreleased-adopter-vocabulary"></a>
 

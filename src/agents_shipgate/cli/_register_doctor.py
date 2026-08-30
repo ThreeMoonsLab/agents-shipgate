@@ -11,7 +11,9 @@ from agents_shipgate.cli._helpers import (
     _missing_manifest_workspace,
     _resolve_config_paths,
 )
-from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
+from agents_shipgate.cli.agent_mode import (
+    emit_agent_mode_error_routing as _emit_agent_mode_error_routing,
+)
 from agents_shipgate.cli.diagnostics import diagnose_doctor, top_next_actions
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
 from agents_shipgate.cli.scan.inspect import (
@@ -22,6 +24,7 @@ from agents_shipgate.cli.scan.inspect import (
 from agents_shipgate.cli.setup_control import (
     SETUP_COMPLETE,
     setup_control_envelope,
+    setup_failure_routing,
     setup_input_id,
 )
 from agents_shipgate.cli.workspace_guard import require_workspace
@@ -115,10 +118,12 @@ def _doctor_failure_routing(
     instead of the field, the line, and the fact that a person owes the value.
 
     Fail-closed by construction: setup authorizes nothing, and a run that could
-    not inspect anything reports ``setup_incomplete``.
+    not inspect anything reports ``setup_incomplete``. Everything past locating
+    the manifest's placeholders is :func:`setup_failure_routing`, which every
+    setup command's failure now goes through; what stays here is the one thing
+    only ``doctor`` knows — that the bytes it was handed are a manifest, so a
+    human-owned declaration can be located inside them.
     """
-
-    from agents_shipgate.cli.setup_control import SETUP_INCOMPLETE
 
     path = Path(manifest_path)
     # The bytes the inspection actually rejected, handed in by the caller.
@@ -134,43 +139,24 @@ def _doctor_failure_routing(
     recheck = recheck_command or render_command(
         ["doctor", "--config", str(path.resolve()), "--json"]
     )
-    return setup_control_envelope(
+    return setup_failure_routing(
         operation="doctor",
-        input_id=setup_input_id(
-            operation="doctor",
-            workspace=workspace,
-            manifest_path=path,
-            manifest_bytes=manifest_bytes,
-            # The route, not only the workspace state that produced it. Hashing
-            # `(reason, exit_code, placeholders)` alone described *what is wrong*
-            # and nothing about *what this run answers*: the same unknown-adapter
-            # manifest read through the console script and through an absolute
-            # path emits two different `next_action.command` values (#322 spells
-            # a command for the entry point that produced it) under one identity,
-            # and `input_id` is the cache boundary for the answer. Both command
-            # sources are folded in — the diagnostics' own rank-1 actions and the
-            # recheck this routing supplies — so the identity moves with either.
-            routing_facts=(
-                reason,
-                exit_code,
-                placeholders,
-                recheck,
-                [action.model_dump(mode="json") for action in top_next_actions(diagnostics)],
-            ),
-        ),
+        workspace=workspace,
         reason=reason,
+        exit_code=exit_code,
+        # No recovery command: `doctor` diagnoses rather than repairs, so the
+        # route comes from the diagnostics and the placeholders below.
+        action=None,
         diagnostics=diagnostics,
         # An unresolved *human-owned* declaration outranks the loader's
         # complaint about it: `validation.evidence...path: CHANGE_ME` fails to
         # open precisely because nobody has supplied it yet, and telling the
         # agent to inspect a file named `CHANGE_ME` is not the answer.
         placeholders=placeholders,
+        manifest_path=path,
+        manifest_bytes=manifest_bytes,
         manifest_display_path=str(path),
-        advance=None,
-        advance_decision=SETUP_INCOMPLETE,
         recheck_command=recheck,
-        execution="failed",
-        exit_code=exit_code,
     )
 
 
@@ -250,13 +236,11 @@ def register(app: typer.Typer) -> None:
                     ["doctor", "--config", config, "--json"]
                 ),
             )
-            _emit_agent_mode_error(
+            _emit_agent_mode_error_routing(
                 "config_error",
+                routing=routing,
                 message=str(exc),
                 exit_code=2,
-                next_action=routing.legacy_next_action,
-                next_actions=routing.json_actions(),
-                control=routing.envelope.model_dump(mode="json"),
                 # `--json` prints no payload on this route, and a caller whose
                 # manifest cannot be found is exactly the caller who may be
                 # running the wrong build. The diagnosis rides the error line so
@@ -326,13 +310,11 @@ def register(app: typer.Typer) -> None:
                         reason=str(exc),
                         exit_code=2,
                     )
-                    _emit_agent_mode_error(
+                    _emit_agent_mode_error_routing(
                         "config_error",
+                        routing=routing,
                         message=str(exc),
                         exit_code=2,
-                        next_action=routing.legacy_next_action,
-                        next_actions=routing.json_actions(),
-                        control=routing.envelope.model_dump(mode="json"),
                         environment=environment,
                     )
                     raise typer.Exit(2) from exc
@@ -353,13 +335,11 @@ def register(app: typer.Typer) -> None:
                 reason=f"{guidance} {exc}",
                 exit_code=3,
             )
-            _emit_agent_mode_error(
+            _emit_agent_mode_error_routing(
                 "input_parse_error",
+                routing=routing,
                 message=str(exc),
                 exit_code=3,
-                next_action=routing.legacy_next_action,
-                next_actions=routing.json_actions(),
-                control=routing.envelope.model_dump(mode="json"),
                 environment=environment,
             )
             raise typer.Exit(3) from exc
