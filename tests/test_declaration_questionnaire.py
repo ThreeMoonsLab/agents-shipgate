@@ -2654,12 +2654,26 @@ def test_the_repair_golden_still_renders_a_challenged_row():
         for gap in golden["release_decision"]["evidence_coverage"]["evidence_gaps"]
     }
 
-    assert coverage["open"] == len(_repair_blocks()) > 0
+    blocks = _repair_blocks()
+    assert coverage["open"] == len(blocks) > 0
     assert "declaration_below_inferred_evidence" in kinds, (
         "samples/declaration_repair_agent is the fixture that commits a "
         "challenged declaration row. Without one it is a slower copy of every "
         "other sample."
     )
+    # The *route*, not just the row. ``declaration_below_inferred_evidence``
+    # publishes two, and only the ``declare_risk_tags`` one was broken by #424.
+    # A future change that answered these rows by raising ``effect:`` instead
+    # would still close them, so the paste test would stay green while the
+    # fixture quietly stopped exercising the route it exists for.
+    for tool, block in blocks.items():
+        assert block.get("risk_tags"), (
+            f"The block published for {tool} takes the `raise_effect` route "
+            f"({block}). This fixture is the committed artifact for the "
+            "`declare_risk_tags` route; if the engine now prefers the other "
+            "one here, the fixture needs a row the other route cannot answer, "
+            "not a regenerated golden."
+        )
 
 
 def test_the_published_repair_keeps_the_tag_the_reviewer_already_wrote():
