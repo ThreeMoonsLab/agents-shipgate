@@ -2456,6 +2456,7 @@
         "contradictions",
         "independent_evidence",
         "annotation_changes",
+        "annotation_surface_changed",
         "independent_evidence_unchanged",
         "client_consequence"
       ],

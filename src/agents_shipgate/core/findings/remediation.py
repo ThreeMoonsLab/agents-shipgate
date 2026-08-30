@@ -40,6 +40,10 @@ def annotate_remediation(
       entry, with the safe-closed fallback for unknown check IDs.
     - ``docs_url`` is always sourced from CheckMetadata (or None for
       unknown check IDs). Patches don't carry per-instance doc URLs.
+    - A finding retained solely because its catalog entry opts into
+      ``publish_when_policy_ineligible`` is informational for remediation.
+      Its unsupported evidence may still produce an evidence gap, but the
+      finding itself cannot create a second human-review route.
 
     Caller (`scan.run_scan`) builds the metadata lookup from the
     catalog with the scan's actual ``plugins_enabled`` setting, so this
@@ -94,6 +98,22 @@ def annotate_remediation(
         if meta is not None and meta.requires_human_review_regardless_of_patch:
             autofix_safe = False
             requires_human_review = True
+
+        # A catalog check may deliberately publish an observer-facing finding
+        # even when this particular instance has only policy-ineligible
+        # evidence. That instance must stay informational everywhere: the
+        # release-decision support guard already excludes it from gates, and
+        # the agent summary must not reintroduce a human-review obligation via
+        # catalog-level remediation defaults that describe supported instances.
+        if (
+            meta is not None
+            and meta.publish_when_policy_ineligible
+            and finding.support is not None
+            and not finding.support.policy_eligible
+        ):
+            autofix_safe = False
+            requires_human_review = False
+            suggested_patch_kind = "none"
 
         finding.autofix_safe = autofix_safe
         finding.requires_human_review = requires_human_review

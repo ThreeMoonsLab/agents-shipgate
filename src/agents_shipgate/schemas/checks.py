@@ -46,6 +46,14 @@ class CheckMetadata(BaseModel):
     # non-manual patch must not auto-apply without explicit human review.
     # In-process only (not serialised in ``report.json``).
     requires_human_review_regardless_of_patch: bool = False
+    # Advisory observer findings can be worth publishing even when their
+    # predicate support is intentionally too weak for release policy. The scan
+    # still emits an evidence gap and release_decision still excludes the
+    # finding through ``support.policy_eligible=False``; this flag only keeps
+    # the detailed finding in ``report.findings`` so its non-gating audience
+    # does not lose the evidence. In-process routing metadata, not catalog
+    # wire surface.
+    publish_when_policy_ineligible: bool = Field(default=False, exclude=True)
     # v0.17 (M1 + M5): hard severity floor used by two callers.
     # M1 (manifest-side): ``checks.severity_overrides`` cannot resolve
     # to a weaker severity than ``floor_severity``; the resolver raises

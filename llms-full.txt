@@ -3781,13 +3781,34 @@ can let an agent act outside the review boundary.
 Fires when an explicit MCP narrowing annotation conflicts with independent
 side-effect evidence on the same tool: `readOnlyHint: true` beside write or
 destructive evidence, or `destructiveHint: false` beside destructive evidence.
-Absent annotations follow the MCP defaults and never trigger this check. The
-evidence names structural support as structural and keyword or pattern evidence
-as inferred. When a diff proves only the hint changed while that independent
-evidence stayed the same, the finding records the annotation flip explicitly.
-The finding routes to review because MCP clients may use these advisory hints to
-reduce confirmation prompts; it does not change the engine's conservative
-permission verdict.
+Absent annotations follow the MCP defaults and never trigger this check.
+Policy-eligible protocol, provider, or scope evidence outranks a conflicting
+keyword or pattern inference: for example, an OpenAPI `GET` does not become a
+contradiction merely because its description mentions a later delete. Structural
+side-effect evidence still triggers the check.
+
+Only source observations independent of the published MCP annotation contribute.
+Reviewed `action_surface.actions[].effect` declarations are deliberately excluded:
+they are human trust-root assertions, not a second observation of the server.
+Likewise, a source that publishes both `readOnlyHint: true` and
+`destructiveHint: true` remains a `conflicting_effect_evidence` semantic gap; this
+check does not relabel that same-source contradiction as independent evidence.
+
+Supported structural instances route to review because MCP clients may use these
+advisory hints to reduce confirmation prompts. Inferred-only instances remain
+visible in `report.findings` with `support.policy_eligible: false` and
+`agent_action: informational`; they also produce an evidence gap, but are excluded
+from blockers, named review items, and release contribution. The check never
+changes the engine's conservative permission verdict.
+
+With a base report, `annotation_surface_changed` compares the exact complete
+annotation map (including otherwise unrecognized keys and list order), while
+`independent_evidence_unchanged` compares the independent semantic evidence. The
+finding uses `form: delta` and fills `annotation_changes` only when reconstruction
+proves the exact narrowing-hint flip against the base hash; unrelated co-changes
+remain the static form. This semantic check runs in the normal
+`scan`/`check`/`verify` path. It is intentionally not duplicated in the narrower
+`mcp audit` host/config-diff rule table.
 
 ### SHIP-MCP-UNKNOWN-TOOL-SCHEMA
 

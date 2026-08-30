@@ -47,12 +47,22 @@
   Absence still follows the MCP defaults and never fires. A source's
   `tool_sources[].trust` setting cannot make a published contradiction true,
   while a reviewed action override suppresses only the exact inferred claim
-  IDs it answers. With a base report, the delta form proves a hint-only flip by
-  reconstructing the possible prior boolean states and matching them against
-  the base annotation hash; no raw annotation field or report-schema change is
-  required. Static, hint-only-delta, default, corroboration, trust, reviewed
-  override, source-provenance, catalog, and adopter-vocabulary regressions pin
-  the behavior.
+  IDs it answers. Policy-eligible structural evidence now corroborates a
+  narrowing hint against weaker keyword or pattern noise, while structural
+  side-effect evidence still triggers review. Reviewed effect declarations and
+  mutually conflicting hints from the same source stay on their existing
+  semantic-evidence routes instead of being counted as independent evidence.
+
+  Inferred-only instances remain detailed, informational findings with
+  `support.policy_eligible: false`; the scan also emits their evidence gap, but
+  release accounting excludes them from blockers and named review items. With
+  a base report, the delta form separately proves that independent evidence is
+  unchanged, detects any exact client-visible annotation-map change, and names
+  a hint flip only when reconstruction matches the base hash. The hash no
+  longer uses finding-fingerprint normalization, so otherwise ignored keys and
+  list order cannot produce a false proof. Static, exact-delta, co-change,
+  corroboration, trust, reviewed-override, source-provenance, end-to-end scan
+  publication, and adopter-vocabulary regressions pin the behavior.
 
 - **The declaration questionnaire is now pinned by something committed.**
   (#425) It is the primary cold-start surface — what an adopter at
