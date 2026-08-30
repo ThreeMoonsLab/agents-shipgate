@@ -103,7 +103,21 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # form, exactly as ``edit`` does for setup — so
 # ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21 for the third time and for
 # the same reason.
-CONTRACT_VERSION: Literal["26"] = "26"
+#
+# v27 finishes the v24 rollout on the stream v24 left out. ``detect``, ``init``
+# and ``doctor`` publish ``shipgate.agent_control/v1`` on **every** agent-mode
+# error line, not only the two ``doctor`` routes that already carried one — so
+# whether an envelope-only caller can route no longer depends on which setup
+# command failed and on which of its failures. Nothing is removed:
+# ``next_action`` and ``next_actions[]`` are unchanged on those lines. The one
+# stated exception is the shared ``--workspace`` refusal, which fires before a
+# workspace exists and therefore has no setup subject to compute an identity
+# against.
+#
+# ``AgentControl`` and ``shipgate.agent_control/v1`` are both byte-identical to
+# v26 — the same envelope reaches one more place — so
+# ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21 for the fourth time.
+CONTRACT_VERSION: Literal["27"] = "27"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"

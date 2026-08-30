@@ -26,6 +26,7 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
+import typer
 from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 from typer.testing import CliRunner
@@ -740,9 +741,19 @@ def test_an_instruction_refresh_over_an_existing_manifest_is_not_an_obligation(
     assert refresh["decision"] == "setup_complete"
     assert refresh["next_action"]["kind"] == "verify"
 
+    # `init --write` on its own still exits 2 there, and still says the manifest
+    # was left alone. What it may not publish is a route that cannot change the
+    # answer: it used to be `edit shipgate.yaml`, whose `expects` — "the
+    # manifest reflects the desired tool sources, agent declared_purpose, and
+    # policies" — the file it named already satisfied, so an envelope-only
+    # caller opened it, found nothing to change, re-ran, and got the identical
+    # action back forever. It now hands the question to the command that reads
+    # the file on disk (#323).
     plain = _control(["init", "--workspace", str(unadopted), "--write", "--json"])
     assert plain["decision"] == "setup_incomplete"
-    assert plain["next_action"]["kind"] == "edit"
+    assert plain["next_action"]["kind"] == "configure"
+    assert "doctor" in shlex.split(plain["next_action"]["command"])
+    assert "already exists" in plain["next_action"]["why"]
     assert plain["exit_code"] == 2
 
 
@@ -2041,3 +2052,693 @@ def test_a_manifest_type_mismatch_routes_to_the_editor_not_the_tracker(
     assert "file an issue" not in json.dumps(payload)
     assert payload["next_actions"][0]["kind"] == "edit"
     assert payload["next_actions"][0]["path"] == str(manifest)
+
+
+# ---------------------------------------------------------------------------
+# Criterion 4: one shape across both documented streams
+# ---------------------------------------------------------------------------
+
+# The three command modules whose every agent-mode error line must carry the
+# shared envelope. `scan`, `verify`, and `check` are deliberately not here: the
+# first two answer through the control pointer they publish and `check` through
+# `--format agent-control-json`, so their error lines route on
+# `next_action`/`next_actions` as before.
+_SETUP_COMMAND_MODULES = (
+    "src/agents_shipgate/cli/detect.py",
+    "src/agents_shipgate/cli/_register_init.py",
+    "src/agents_shipgate/cli/_register_doctor.py",
+)
+
+
+def _called_names(source: str) -> list[str]:
+    """Every function called in this module, under its *imported* name.
+
+    Two of these modules alias the emitters on import
+    (`emit_agent_mode_error_routing as _emit_agent_mode_error_routing`), so
+    matching the call site's spelling would let a rename hide the very call
+    this test exists to find. Aliases are resolved back through the import
+    statements first.
+    """
+
+    import ast
+
+    tree = ast.parse(source)
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                aliases[alias.asname or alias.name] = alias.name
+    names: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name):
+            names.append(aliases.get(func.id, func.id))
+        elif isinstance(func, ast.Attribute):
+            names.append(func.attr)
+    return names
+
+
+@pytest.mark.parametrize("module", _SETUP_COMMAND_MODULES)
+def test_every_setup_error_line_goes_through_the_envelope_emitter(module: str):
+    """A new failure route cannot be added without the shared envelope.
+
+    Asserting the *shape* of the twelve error lines that exist today would say
+    nothing about the thirteenth. `emit_agent_mode_error` takes `control` as an
+    ordinary keyword, so a setup command reaching for it directly is a route
+    that compiles, runs, and publishes an error line an envelope-only caller
+    cannot act on — which is how five of `init`'s and `detect`'s ended up
+    without one while `doctor`'s had them.
+
+    `emit_agent_mode_error_routing` is the only emitter these modules may use:
+    it derives `next_action`, `next_actions[]`, and `control` from one selected
+    route, so the three cannot disagree and none of them can be omitted.
+
+    `require_workspace` is the stated exception and is not in these modules: it
+    is shared by every command that takes a `--workspace` and refuses *before*
+    that workspace exists, so there is no setup subject for an envelope to be
+    computed against.
+    """
+
+    source = (REPO_ROOT / module).read_text(encoding="utf-8")
+    called = _called_names(source)
+
+    assert "emit_agent_mode_error_routing" in called, (
+        f"{module} emits no agent-mode error through the envelope emitter"
+    )
+    assert "emit_agent_mode_error" not in called, (
+        f"{module} emits an agent-mode error line without the shared envelope"
+    )
+    assert "emit_agent_mode_error_action" not in called, (
+        f"{module} emits an agent-mode error line without the shared envelope"
+    )
+
+
+def test_a_setup_failure_envelope_authorizes_nothing_and_says_it_failed():
+    """The fail-closed properties of the failure route, at the unit boundary."""
+
+    from agents_shipgate.cli.setup_control import setup_failure_routing
+
+    routing = setup_failure_routing(
+        operation="init",
+        workspace=Path("/ws"),
+        reason="Unknown control pack 'nope'.",
+        exit_code=2,
+        action=NextAction(
+            kind="command",
+            command="agents-shipgate init --workspace /ws",
+            why="Unknown control pack 'nope'.",
+        ),
+        action_kind="initialize",
+    )
+    payload = json.loads(render_agent_control_envelope(routing.envelope))
+
+    assert payload["execution"] == "failed"
+    assert payload["exit_code"] == 2
+    assert payload["decision"] == SETUP_INCOMPLETE
+    assert payload["decision_source"] == "setup"
+    assert set(payload["permissions"].values()) == {False}
+    assert payload["control_state"] != "complete"
+    validate_agent_control_envelope(payload)
+    assert not list(_PUBLISHED_SCHEMA.iter_errors(payload))
+
+
+def test_a_setup_failure_identity_moves_with_the_entry_point(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """`input_id` is the cache boundary for the answer, so it covers the route.
+
+    The same refusal read through two entry points publishes two different
+    `next_action.command` values (#322), and an identity that does not move
+    when the answer does invites reuse of the wrong one.
+
+    Both entry points are *pinned* rather than written into the two command
+    strings, because `NextAction` retargets `command` on construction: two
+    literals differing only in their program name collapse to one string
+    wherever `AGENTS_SHIPGATE_CLI` is already set, and the test would then pass
+    or fail on the developer's environment rather than on the identity.
+    """
+
+    from agents_shipgate.cli.setup_control import setup_failure_routing
+
+    def identity(cli: str) -> str:
+        monkeypatch.setenv("AGENTS_SHIPGATE_CLI", cli)
+        return setup_failure_routing(
+            operation="init",
+            workspace=Path("/ws"),
+            reason="Unknown control pack 'nope'.",
+            exit_code=2,
+            action=NextAction(
+                kind="command",
+                command="agents-shipgate init --workspace /ws",
+                why="Fix the flag.",
+            ),
+        ).envelope.input_id
+
+    assert identity("/usr/local/bin/agents-shipgate") != identity(
+        "/opt/custom/agents-shipgate"
+    )
+
+
+def _error_lines(output: str) -> list[dict]:
+    return [json.loads(line) for line in output.splitlines() if line.startswith('{"error"')]
+
+
+def test_a_failed_render_routes_the_fallback_at_the_run_it_is_correcting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The `internal_error` route, which no fixture can reach without a fault.
+
+    Two things this pins. The error line carries the envelope at all — it is a
+    setup answer, and a run that produced no payload is exactly the run whose
+    caller has nothing else to route on. And the fallback repeats the
+    invocation it is correcting: a bare ``init --minimal`` dropped the
+    workspace, the ``--write`` that made it a real run, and the ``--json`` the
+    caller is reading the answer through, so following it exactly produced a
+    dry run against the process directory.
+    """
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    (tmp_path / "agents").mkdir()
+    (tmp_path / "agents" / "app.py").write_text(
+        "from google.adk.agents import LlmAgent\nroot_agent = LlmAgent(name='bot', tools=[])\n",
+        encoding="utf-8",
+    )
+    import agents_shipgate.cli._register_init as init_module
+
+    def refuse(_text: str) -> None:
+        raise ValueError("synthetic schema failure")
+
+    monkeypatch.setattr(init_module, "_validate_manifest_text", refuse)
+
+    result = runner.invoke(app, ["init", "--workspace", str(tmp_path), "--write", "--json"])
+    assert result.exit_code == 4
+    lines = _error_lines(result.output)
+    assert len(lines) == 1, result.output
+    payload = lines[0]
+    control = payload["control"]
+
+    assert payload["error"] == "internal_error"
+    assert control["operation"] == "init"
+    assert control["execution"] == "failed"
+    assert control["exit_code"] == 4
+    assert control["decision"] == SETUP_INCOMPLETE
+    assert control["decision_source"] == "setup"
+    assert set(control["permissions"].values()) == {False}
+    # One selected route across both fields on the line.
+    assert control["next_action"]["command"] == payload["next_actions"][0]["command"]
+    fallback = shlex.split(control["next_action"]["command"])
+    assert fallback[fallback.index("--workspace") + 1] == str(tmp_path)
+    assert "--write" in fallback
+    assert "--minimal" in fallback
+    assert "--json" in fallback
+
+
+def test_a_discovery_failure_is_a_human_route_with_no_authority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """`detect`'s only failure path, which also published no envelope."""
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    import agents_shipgate.cli.detect as detect_module
+    from agents_shipgate.core.errors import DiscoveryError
+
+    def refuse(*_args, **_kwargs):
+        raise DiscoveryError("synthetic git failure")
+
+    monkeypatch.setattr(detect_module, "detect_workspace", refuse)
+
+    result = runner.invoke(app, ["detect", "--workspace", str(tmp_path), "--json"])
+    assert result.exit_code == 4
+    lines = _error_lines(result.output)
+    assert len(lines) == 1, result.output
+    control = lines[0]["control"]
+
+    assert control["operation"] == "detect"
+    assert control["decision_source"] == "setup"
+    assert control["execution"] == "failed"
+    # A repository whose inventory could not be bounded is not something an
+    # agent fixes by running a command, so the route is a person's — and it
+    # carries no command, which is what keeps it from being taken as one.
+    assert control["control_state"] == "human_review_required"
+    assert control["next_action"]["command"] is None
+    assert control["human_review"]["required"] is True
+    assert set(control["permissions"].values()) == {False}
+
+
+# ---------------------------------------------------------------------------
+# What a recovery command owes the invocation it corrects
+# ---------------------------------------------------------------------------
+
+_KIT_PATH = Path("/ws") / ".agents-shipgate" / "kit.yaml"
+
+# Options that change what `init` produces and are only meaningful for a rerun
+# in this same workspace, with a value that is not the default.
+_SEMANTIC_OPTIONS: tuple[tuple[str, dict, list[str]], ...] = (
+    ("minimal", {"minimal": True}, ["--minimal"]),
+    ("ci", {"ci": True}, ["--ci"]),
+    ("claude_code", {"claude_code": True}, ["--claude-code"]),
+    (
+        "allow_unresolved_scope",
+        {"allow_unresolved_scope": True},
+        ["--allow-unresolved-scope"],
+    ),
+    (
+        "agent_instructions",
+        {"agent_instructions": "agents-md"},
+        ["--agent-instructions=agents-md"],
+    ),
+    (
+        "control_pack",
+        {"control_pack": "financial-strict"},
+        ["--control-pack=financial-strict"],
+    ),
+    (
+        "agent_instructions_kit",
+        {"agent_instructions_kit": _KIT_PATH},
+        # Derived rather than written out: `Path` stringifies with backslashes
+        # on Windows, and a hardcoded POSIX spelling fails there for a reason
+        # that has nothing to do with the flag being carried.
+        ["--agent-instructions-kit", str(_KIT_PATH)],
+    ),
+    (
+        "max_python_files",
+        {"max_python_files": 9999},
+        ["--max-python-files", "9999"],
+    ),
+)
+
+
+def _invocation_flag_defaults() -> dict:
+    from agents_shipgate.cli.discovery import DEFAULT_MAX_PYTHON_FILES
+    from agents_shipgate.core.control_packs import DEFAULT_CONTROL_PACK_ID
+
+    return {
+        "minimal": False,
+        "ci": False,
+        "claude_code": False,
+        "agent_instructions": None,
+        "control_pack": DEFAULT_CONTROL_PACK_ID,
+        "allow_unresolved_scope": False,
+        "agent_instructions_kit": None,
+        "max_python_files": DEFAULT_MAX_PYTHON_FILES,
+    }
+
+
+@pytest.mark.parametrize(
+    ("name", "override", "expected"),
+    _SEMANTIC_OPTIONS,
+    ids=[entry[0] for entry in _SEMANTIC_OPTIONS],
+)
+def test_every_semantic_option_survives_into_a_recovery(
+    name: str, override: dict, expected: list[str]
+):
+    """One option at a time, so a missing one cannot hide behind the others.
+
+    Every recovery `init` publishes is built from this list, and on the shared
+    envelope those commands are the step rather than a hint beside it — so an
+    option dropped here is work the caller asked for that the recovery reports
+    as done.
+    """
+
+    from agents_shipgate.cli._register_init import _invocation_flags
+
+    baseline = _invocation_flags(**_invocation_flag_defaults())
+    assert baseline == [], baseline
+
+    flags = _invocation_flags(**{**_invocation_flag_defaults(), **override})
+    assert flags == expected, name
+
+
+def test_a_default_valued_option_is_not_repeated():
+    """Omitting a flag whose value the command assumes completes what was asked.
+
+    The same rule `_requested_setup_flags` documents, checked here so the two
+    lists cannot drift into disagreeing about what counts as a request — which
+    is also the rule that decides whether an unapplied `--control-pack` is an
+    obligation.
+    """
+
+    from agents_shipgate.cli._register_init import _invocation_flags
+    from agents_shipgate.core.control_packs import DEFAULT_CONTROL_PACK_ID
+
+    flags = _invocation_flags(
+        **{**_invocation_flag_defaults(), "control_pack": DEFAULT_CONTROL_PACK_ID}
+    )
+    assert flags == []
+
+
+@pytest.mark.parametrize(
+    ("bad_option", "expected_correction"),
+    [
+        (["--control-pack", "no-such-pack"], []),
+        (["--agent-instructions=no-such-target"], ["--agent-instructions=default"]),
+    ],
+    ids=["control-pack", "agent-instructions"],
+)
+def test_a_failure_recovery_corrects_one_value_and_keeps_the_rest(
+    unadopted: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    bad_option: list[str],
+    expected_correction: list[str],
+):
+    """End to end, on the two early-validation routes that publish a command."""
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            "--workspace",
+            str(unadopted),
+            "--write",
+            "--minimal",
+            "--allow-unresolved-scope",
+            "--max-python-files",
+            "9999",
+            "--json",
+            *bad_option,
+        ],
+    )
+    assert result.exit_code == 2
+    lines = _error_lines(result.output)
+    assert len(lines) == 1, result.output
+    command = shlex.split(lines[0]["control"]["next_action"]["command"])
+
+    assert "--minimal" in command
+    assert "--allow-unresolved-scope" in command
+    assert command[command.index("--max-python-files") + 1] == "9999"
+    assert "--write" in command
+    assert "--json" in command
+    assert command[command.index("--workspace") + 1] == str(unadopted)
+    # The bad value is gone, replaced by whatever the correction is.
+    assert "no-such-pack" not in command
+    assert "no-such-target" not in command
+    for token in expected_correction:
+        assert token in command
+    # And the legacy field and the envelope name the same program.
+    assert lines[0]["next_actions"][0]["command"] == lines[0]["control"]["next_action"][
+        "command"
+    ]
+
+
+# ---------------------------------------------------------------------------
+# What every setup error line guarantees, and what it does not
+# ---------------------------------------------------------------------------
+
+
+def _setup_error_control(argv: list[str], monkeypatch: pytest.MonkeyPatch) -> dict:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    result = runner.invoke(app, argv)
+    lines = [line for line in _error_lines(result.output) if "control" in line]
+    assert lines, result.output
+    return lines[-1]
+
+
+def test_a_setup_error_line_never_authorizes_and_always_names_setup(
+    unadopted: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The invariants a v27 consumer may branch on, across both error shapes.
+
+    Every one of these is enforced by the published schema for any setup
+    operation, so it holds on the error stream for the same reason it holds on
+    stdout: there is one envelope, not a stdout one and a stderr one.
+    """
+
+    runner.invoke(app, ["init", "--workspace", str(unadopted), "--write", "--json"])
+
+    for argv in (
+        # Could not reach an answer.
+        ["init", "--workspace", str(unadopted), "--control-pack", "nope", "--json"],
+        # Reached one, and it is a refusal.
+        ["init", "--workspace", str(unadopted), "--write", "--json"],
+    ):
+        payload = _setup_error_control(argv, monkeypatch)
+        control = payload["control"]
+        assert control["decision_source"] == "setup", argv
+        assert control["decision"] in SETUP_DECISIONS, argv
+        assert set(control["permissions"].values()) == {False}, argv
+        assert control["control_state"] != "complete", argv
+        validate_agent_control_envelope(control)
+        assert not list(_PUBLISHED_SCHEMA.iter_errors(control)), argv
+
+
+def test_execution_says_whether_an_answer_was_reached_not_whether_it_is_an_error(
+    unadopted: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Both values occur on error lines, so `execution` is not a stream marker.
+
+    `STABILITY.md` said a setup error envelope always reports
+    `execution: "failed"`. The most common one does not: `init --write` over an
+    existing manifest reached an answer and refused, so it exits 2 with
+    `"succeeded"` — and a consumer that had taken the contract literally would
+    have rejected the core resume route of the adoption walk. The line between
+    them is whether the command reached an answer about the workspace, and the
+    `error` field is what says the line is an error.
+    """
+
+    runner.invoke(app, ["init", "--workspace", str(unadopted), "--write", "--json"])
+
+    could_not_answer = _setup_error_control(
+        ["init", "--workspace", str(unadopted), "--control-pack", "nope", "--json"],
+        monkeypatch,
+    )
+    assert could_not_answer["error"] == "config_error"
+    assert could_not_answer["control"]["execution"] == "failed"
+    assert could_not_answer["control"]["exit_code"] == 2
+
+    answered_a_refusal = _setup_error_control(
+        ["init", "--workspace", str(unadopted), "--write", "--json"], monkeypatch
+    )
+    assert answered_a_refusal["error"] == "config_already_exists"
+    assert answered_a_refusal["control"]["execution"] == "succeeded"
+    assert answered_a_refusal["control"]["exit_code"] == 2
+
+
+# ---------------------------------------------------------------------------
+# `input_id` covers every fact that selects the route
+# ---------------------------------------------------------------------------
+
+
+def test_the_action_kind_is_part_of_the_setup_failure_identity():
+    """It is not in the action, and it decides what the envelope publishes.
+
+    `action_kind` sets `next_action.kind` and `verify_required`, so two calls
+    differing only in it published different envelopes under one `input_id` —
+    and this PR makes that id the cache boundary for the answer.
+    """
+
+    from agents_shipgate.cli.setup_control import setup_failure_routing
+
+    def routing(kind: str):
+        return setup_failure_routing(
+            operation="init",
+            workspace=Path("/ws"),
+            reason="Setup could not finish.",
+            exit_code=2,
+            action=NextAction(
+                kind="command",
+                command="agents-shipgate init --workspace /ws",
+                why="Re-run it.",
+            ),
+            action_kind=kind,
+        )
+
+    configure, verify = routing("configure"), routing("verify")
+
+    assert configure.envelope.next_action.kind != verify.envelope.next_action.kind
+    assert configure.envelope.verify_required != verify.envelope.verify_required
+    assert configure.envelope.input_id != verify.envelope.input_id
+
+
+def test_a_diagnostic_identity_is_part_of_the_setup_failure_identity():
+    """Ownership and precedence come from the diagnostic, not from its action.
+
+    Hashing `top_next_actions` reduced each diagnostic to its rank-1 action, so
+    changing only the id — which is what `HUMAN_OWNED_SETUP_DIAGNOSTICS` keys
+    on, and what can flip an agent-executable edit to a human review — left the
+    identity where it was.
+    """
+
+    from agents_shipgate.cli.setup_control import setup_failure_routing
+    from agents_shipgate.schemas.diagnostics import (
+        DIAG_NO_PRODUCTION_PERMISSIONS,
+        DIAG_ZERO_TOOLS,
+    )
+
+    action = NextAction(
+        kind="edit",
+        path="/ws/shipgate.yaml",
+        why="Declare what this agent may do in production.",
+        expects="permissions.scopes lists the production scopes.",
+    )
+
+    def routing(diagnostic_id: str):
+        return setup_failure_routing(
+            operation="doctor",
+            workspace=Path("/ws"),
+            reason="Setup could not finish.",
+            exit_code=2,
+            diagnostics=[
+                Diagnostic(
+                    id=diagnostic_id,
+                    title="A condition.",
+                    severity="warn",
+                    next_actions=[action],
+                )
+            ],
+            recheck_command="agents-shipgate doctor --config /ws/shipgate.yaml --json",
+        )
+
+    human_owned = routing(DIAG_NO_PRODUCTION_PERMISSIONS)
+    agent_owned = routing(DIAG_ZERO_TOOLS)
+
+    # The same rank-1 action, routed to different actors …
+    assert human_owned.envelope.next_action.actor == "human"
+    assert agent_owned.envelope.next_action.actor == "coding_agent"
+    # … so the identity has to move with it.
+    assert human_owned.envelope.input_id != agent_owned.envelope.input_id
+
+
+# The two producers that select an ``advance_kind``. ``doctor`` is deliberately
+# absent: its advance kind is a constant, and `STABILITY.md` promises its
+# `input_id` is the identity of what it decided about a manifest — the same on
+# every machine — so folding an entry-point spelling into that particular id
+# would break a published claim.
+_ADVANCE_KIND_PRODUCERS = (
+    "src/agents_shipgate/cli/detect.py",
+    "src/agents_shipgate/cli/_register_init.py",
+)
+
+
+@pytest.mark.parametrize("module", _ADVANCE_KIND_PRODUCERS)
+def test_the_route_kind_reaches_the_published_identity(module: str):
+    """`advance_kind` is inside the `routing_facts` these commands hash.
+
+    Checked structurally, and the reason is worth stating: no *behavioural*
+    difference is reachable today, because every branch of `_init_advance` and
+    `_detect_advance` moves the action and the kind together, and the action is
+    already hashed. The guard is that the fact is in the identity at all — so
+    the day a branch varies one without the other, the identity moves instead
+    of two different envelopes sharing one. A behavioural test would pass today
+    for a reason that has nothing to do with the fix.
+
+    The behavioural half of this is pinned on `setup_failure_routing` above,
+    where `action_kind` genuinely is an independent input.
+    """
+
+    import ast
+
+    source = (REPO_ROOT / module).read_text(encoding="utf-8")
+    hashed: list[str] = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        name = node.func.id if isinstance(node.func, ast.Name) else None
+        if name != "setup_input_id":
+            continue
+        for keyword in node.keywords:
+            if keyword.arg == "routing_facts":
+                hashed.extend(
+                    inner.id
+                    for inner in ast.walk(keyword.value)
+                    if isinstance(inner, ast.Name)
+                )
+
+    assert hashed, f"{module} computes no setup identity"
+    assert "advance_kind" in hashed, (
+        f"{module} selects a route kind that its published identity does not cover"
+    )
+
+
+def test_the_portable_list_carries_what_transfers_and_drops_what_does_not():
+    """Two audiences, one derivation, and the difference is exactly two flags.
+
+    `_invocation_flags` is a rerun in *this* workspace; `_portable_setup_flags`
+    is a rerun in a candidate project. Building them side by side is how one of
+    them ends up missing an option the other has — so the first is derived from
+    the second, and this pins the two that separate them.
+
+    `--max-python-files` is deliberately in the portable list: it bounds how
+    much is read, not which directory, and a candidate that inherits the root's
+    truncation refuses again while its `expects` promises a manifest.
+    """
+
+    from agents_shipgate.cli._register_init import (
+        _invocation_flags,
+        _portable_setup_flags,
+    )
+
+    asked = {
+        **_invocation_flag_defaults(),
+        "minimal": True,
+        "ci": True,
+        "control_pack": "financial-strict",
+        "max_python_files": 9999,
+        "allow_unresolved_scope": True,
+        "agent_instructions_kit": _KIT_PATH,
+    }
+    portable = _portable_setup_flags(
+        **{k: v for k, v in asked.items() if k not in {"allow_unresolved_scope", "agent_instructions_kit"}}
+    )
+    everything = _invocation_flags(**asked)
+
+    assert "--minimal" in portable
+    assert "--ci" in portable
+    assert "--control-pack=financial-strict" in portable
+    assert portable[portable.index("--max-python-files") + 1] == "9999"
+    # A candidate is the resolved single project the ambiguity was about, and a
+    # kit path is resolved under the workspace — `rebased_kit_flags` rewrites
+    # that one per candidate or refuses.
+    assert "--allow-unresolved-scope" not in portable
+    assert "--agent-instructions-kit" not in portable
+
+    assert everything[: len(portable)] == portable
+    assert everything[len(portable) :] == [
+        "--allow-unresolved-scope",
+        "--agent-instructions-kit",
+        str(_KIT_PATH),
+    ]
+
+
+_PROBE_APP = typer.Typer()
+_PROBE_SEEN: dict[str, object] = {}
+
+
+@_PROBE_APP.command()
+def _probe_explicit_option(
+    ctx: typer.Context,
+    control_pack: str = typer.Option("default", "--control-pack"),
+) -> None:
+    """A one-option command, for reading back what the parser recorded."""
+
+    from agents_shipgate.cli._register_init import _explicit_option
+
+    _PROBE_SEEN["asked"] = _explicit_option(ctx, "control_pack", control_pack)
+    _PROBE_SEEN["unknown"] = _explicit_option(ctx, "no_such_option", control_pack)
+
+
+def test_an_option_is_requested_only_when_the_parser_says_it_was():
+    """The provenance read, and the enum trap under it.
+
+    Typer ships a vendored Click, so the `ParameterSource` that comes back is
+    not `click.core.ParameterSource` — `is` and `==` against that class are
+    both false. The failure is silent and in the safe-looking direction: every
+    option reads as unasked, and the route that depends on this simply never
+    fires. Comparing by member name is what makes it work under either class,
+    and this pins it so a later "tidy-up" into an identity check fails here
+    rather than in the field.
+    """
+
+    runner.invoke(_PROBE_APP, ["--control-pack", "financial-strict"])
+    assert _PROBE_SEEN["asked"] == "financial-strict"
+    # A name the parser has no record of is not "the caller passed it".
+    assert _PROBE_SEEN["unknown"] is None
+
+    # The value that a default-comparison cannot tell from silence.
+    runner.invoke(_PROBE_APP, ["--control-pack", "default"])
+    assert _PROBE_SEEN["asked"] == "default"
+
+    runner.invoke(_PROBE_APP, [])
+    assert _PROBE_SEEN["asked"] is None

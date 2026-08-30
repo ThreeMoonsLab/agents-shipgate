@@ -30,6 +30,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
+from agents_shipgate.cli.control_pack_routing import (
+    control_pack_route,
+    manifest_control_pack_at,
+    unapplied_control_pack,
+)
 from agents_shipgate.invocation import render_command
 from agents_shipgate.schemas.detect import AgentProjectCandidate
 from agents_shipgate.schemas.diagnostics import NextAction
@@ -164,6 +169,7 @@ def scope_candidate_actions(
     adopted_setup_flags: Sequence[str] = (),
     kit: Path | None = None,
     init_refreshes_existing: bool = False,
+    requested_control_pack: str | None = None,
 ) -> list[NextAction]:
     """One exact command per candidate project, in the caller's order.
 
@@ -212,6 +218,16 @@ def scope_candidate_actions(
     silently drops ``--ci`` or an agent-instruction selection completes with
     less than the caller asked for. ``detect`` passes none: it asked for no
     setup, so promising any here would be inventing it.
+
+    ``requested_control_pack`` is the same obligation one level down. An
+    adopted candidate's manifest selects a pack, and this run may have asked
+    for a different one — so handing back a bare ``doctor`` sends the caller
+    to a command that reads that manifest, finds nothing wrong, and advances
+    to the gate under the pack that is *there*. The request is gone and
+    nothing said so. When the two differ, the route for that candidate is the
+    reconciliation instead, owned by whoever the *direction* says owns it (see
+    :mod:`agents_shipgate.cli.control_pack_routing`). ``detect`` passes none,
+    for the same reason it passes no setup flags.
     """
 
     actions: list[NextAction] = []
@@ -245,6 +261,31 @@ def scope_candidate_actions(
         defines = ", ".join(candidate.agent_names)
         manifest = is_adopted(target)
         if manifest is not None and not init_refreshes_existing:
+            candidate_pack = manifest_control_pack_at(manifest)
+            if (
+                requested_control_pack is not None
+                and candidate_pack is not None
+                and unapplied_control_pack(
+                    requested=requested_control_pack, on_disk=candidate_pack
+                )
+            ):
+                # Reconcile before handing off, exactly as the workspace's own
+                # `init` route does. Ranked here, among the candidate commands,
+                # because it belongs to this candidate rather than to the
+                # decision above them.
+                #
+                # Both operands are re-tested rather than asserted: `assert` is
+                # stripped under `-O`, and what it would be narrowing here is
+                # the difference between naming a pack and printing "None".
+                actions.append(
+                    control_pack_route(
+                        manifest=manifest,
+                        requested=requested_control_pack,
+                        on_disk=candidate_pack,
+                        display_path=candidate.path,
+                    )
+                )
+                continue
             if adopted_setup_flags:
                 # The manifest is not the outstanding work here; the setup the
                 # caller asked for is. Without `--write` these flags do their

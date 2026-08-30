@@ -975,9 +975,18 @@ def _emitted_error_kinds_in_source() -> set[str]:
     """Walk the CLI's emit sites and return every literal error kind.
 
     Every literal string passed as the first argument to
-    `emit_agent_mode_error(...)` or to `_emit_input_error(...)` (the
-    apply-patches helper that uses the same one-line stderr format).
-    Source-of-truth for which kinds the runtime actually emits.
+    `emit_agent_mode_error(...)`, its two projecting wrappers
+    `emit_agent_mode_error_action(...)` / `emit_agent_mode_error_routing(...)`,
+    or `_emit_input_error(...)` (the apply-patches helper that uses the same
+    one-line stderr format). Source-of-truth for which kinds the runtime
+    actually emits.
+
+    All three emitter spellings are matched, and that is load-bearing rather
+    than tidy: matching only the base name made a kind invisible to this guard
+    the moment its call site moved to a wrapper. `config_already_exists`
+    dropped out of the scan when `init` moved to the routing emitter, and it
+    would have dropped out silently had `config_error` not still had a direct
+    call site keeping the same *set* covered.
 
     The repository launcher is included because it is one of those sites: it
     reports an environment that cannot start Shipgate at all, which is the one
@@ -985,7 +994,8 @@ def _emitted_error_kinds_in_source() -> set[str]:
     `src/` would let that kind stay out of the published catalog forever.
     """
     pattern = re.compile(
-        r"(?:emit_agent_mode_error|_emit_input_error)\(\s*\n?\s*\"([a-z_]+)\"",
+        r"(?:emit_agent_mode_error(?:_action|_routing)?|_emit_input_error)"
+        r"\(\s*\n?\s*\"([a-z_]+)\"",
         re.MULTILINE,
     )
     sources = [

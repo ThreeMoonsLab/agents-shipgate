@@ -59,7 +59,6 @@ from agents_shipgate.core.action_semantics import (
     control_phrase,
     effect_phrase,
     join_phrases,
-    ordered_controls,
 )
 from agents_shipgate.core.check_ids import (
     SPLIT_CHECK_ID_ALIASES,
@@ -69,6 +68,7 @@ from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.control_packs import (
     BUILTIN_CONTROL_PACKS,
     DEFAULT_CONTROL_PACK_ID,
+    weakened_pack_obligations,
 )
 from agents_shipgate.core.policy_reason_codes import (
     POLICY_BASE_ABSENT_CHECK_ID,
@@ -368,29 +368,17 @@ def _weakened_pack_rules(
 ) -> list[tuple[str, list[str]]]:
     """Effects the head pack requires less of than the base pack did.
 
-    ``None`` on the base side means the snapshot predates the field, which is
-    by construction the ``default`` rule set — that build could not have
-    loaded a manifest naming a pack. It is resolved to ``default`` and
-    compared rather than skipped, so the "no pack is weaker than default"
-    invariant is enforced here instead of assumed: if a weaker pack were ever
-    added, this comparison would report it rather than stay silent.
+    Delegates to :func:`weakened_pack_obligations`, which is where the rule
+    lives now that the setup routes ask the same question: ``init`` deciding
+    whether a requested pack change may be an agent-owned edit needs exactly
+    this answer, and two implementations of "did this get weaker?" is how one
+    of them ends up not seeing a downgrade (#410 §F).
 
-    An id neither side's build knows is handled before this is called: see
-    ``_unrecognized_pack_ids`` and the fail-safe branch in ``_compare``.
+    Unresolvable ids never reach here — ``_compare`` routes them to the
+    fail-safe first, because "cannot compare" is not "nothing changed".
     """
 
-    base_pack = BUILTIN_CONTROL_PACKS.get(base_pack_id or DEFAULT_CONTROL_PACK_ID)
-    head_pack = BUILTIN_CONTROL_PACKS.get(head_pack_id or DEFAULT_CONTROL_PACK_ID)
-    # Unresolvable ids never reach here — ``_compare`` routes them to the
-    # fail-safe first, because "cannot compare" is not "nothing changed".
-    if base_pack is None or head_pack is None or base_pack.id == head_pack.id:
-        return []
-    weakened: list[tuple[str, list[str]]] = []
-    for effect in sorted(base_pack.obligations):
-        dropped = base_pack.obligations_for(effect) - head_pack.obligations_for(effect)
-        if dropped:
-            weakened.append((effect, ordered_controls(dropped)))
-    return weakened
+    return weakened_pack_obligations(base_pack_id, head_pack_id)
 
 
 @lru_cache(maxsize=1)
