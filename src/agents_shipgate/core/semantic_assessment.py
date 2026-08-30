@@ -17,6 +17,7 @@ from agents_shipgate.core.domain import (
     DECLARED_EFFECT_SOURCE,
     DECLARED_SOURCE_AUTHORITY_SOURCE,
     ENVIRONMENT_TEMPLATE_AUTHORITY_SOURCE,
+    REVIEWED_RISK_TAG_CLAIM_SOURCES,
     SURFACE_ENUMERATED,
     AuthorityMode,
     AuthoritySemanticAssessment,
@@ -299,6 +300,22 @@ def _assess_effect(
                 "reviewed_declaration",
                 "action_surface_declaration",
                 f"action_surface.actions[tool={tool.name!r}].effect",
+                # The reviewed tag list *verbatim*, because a repair that
+                # publishes ``risk_tags`` publishes the whole value of that key
+                # and has to be able to write back what is already there. It
+                # cannot be rebuilt from the tag claims below: three members of
+                # the vocabulary — ``read_only``, ``network_access`` and
+                # ``customer_data`` — map to no positive effect and produce no
+                # claim, so a list rebuilt from claims would drop what a
+                # reviewer wrote (#424 review).
+                #
+                # Recorded on this claim rather than a new assessment field
+                # because this branch is the exact condition under which the
+                # repair can be published: no declared ``effect``, no
+                # ``declaration_below_inferred_evidence`` row.
+                {"declared_risk_tags": list(declaration.risk_tags)}
+                if declaration.risk_tags
+                else None,
             )
         )
     if declaration is not None:
@@ -504,8 +521,7 @@ def _assess_effect(
         authoritative.extend(
             claim
             for claim in claims
-            if claim.source in {"risk_hint:manual", "action_risk_tag_declaration"}
-            and claim.value != "read"
+            if claim.source in REVIEWED_RISK_TAG_CLAIM_SOURCES and claim.value != "read"
         )
     declared = [
         claim for claim in authoritative if claim.source == DECLARED_EFFECT_SOURCE
@@ -560,12 +576,32 @@ def _assess_effect(
     below_sources: list[str] = []
     if declaration is not None and declaration.effect is not None:
         declared_rank = _EFFECT_RANK[declaration.effect]
-        # Unchanged: policy-eligible evidence outranking the declaration is a
-        # blocking conflict, and no override may acknowledge it away.
+        # Unchanged: policy-eligible *source* evidence outranking the
+        # declaration is a blocking conflict, and no override may acknowledge
+        # it away.
+        #
+        # #424 — but a reviewed risk tag is not source evidence. The row this
+        # branch pre-empts publishes exactly one non-raise route: "add
+        # ``risk_tags: [X]`` so the X controls apply to this action". Reading
+        # that tag back as evidence contradicting the ``effect`` beside it
+        # turned the published repair into a *blocking* conflict whose message
+        # blamed the reviewer's own manifest — 281 of the 390 declared/observed
+        # pairs that take the tag route could not close the row they were
+        # printed on. :func:`claims_above_declared_effect` had already decided
+        # the other way one branch over, and ``_source_read_conflict`` was
+        # fixed for the same reason; this branch never got the treatment.
+        #
+        # Narrow on purpose: only the two spellings of "declare this category
+        # as reviewed" are excluded, never every manifest-owned claim. That
+        # wider set covers ``action_scope`` too, and #417 deliberately made a
+        # declared ``crm.delete`` grant bound the action's effect — a grant
+        # asserts an independent fact, a tag refines the effect the same person
+        # wrote.
         contradictory = [
             claim
             for claim in [*structural, *inferred]
             if claim.policy_eligible
+            and claim.source not in REVIEWED_RISK_TAG_CLAIM_SOURCES
             and _EFFECT_RANK[_as_effect(claim.value)] > declared_rank
         ]
         if not contradictory:
@@ -580,13 +616,20 @@ def _assess_effect(
                 {claim.source for claim in below_declared if claim.value == below_effect}
             )
             # What the source says *for* the declared value, so the row can
-            # state both readings. Never the manifest row's own restatements
-            # of itself — a declaration confirming itself is not evidence.
+            # state both readings. Never the manifest's own restatements of
+            # itself — a declaration confirming itself is not evidence, and
+            # the sentence this feeds says "source evidence agrees with the
+            # declaration" in so many words.
+            #
+            # By both routes the manifest reaches this dimension, not just the
+            # action row: a reviewed ``risk_overrides.tags`` entry matching the
+            # declared effect was named to the reviewer as the *source*
+            # agreeing with them (#424 review).
             corroborating = [
                 claim
                 for claim in claims
                 if claim.policy_eligible
-                and claim.source not in DECLARATION_CLAIM_SOURCES
+                and not is_manifest_owned_effect_claim(claim)
                 and claim.value == declaration.effect
             ]
             # An acknowledged override is itself reviewed evidence: it records
@@ -828,8 +871,8 @@ def _assess_effect(
     )
 
 
-def _is_manifest_owned(claim: SemanticClaim) -> bool:
-    """True when a human wrote this claim into the manifest.
+def is_manifest_owned_effect_claim(claim: SemanticClaim) -> bool:
+    """True when a human wrote this effect claim into the manifest.
 
     Two tests, because the manifest reaches the effect dimension by two routes
     that carry different bases:
@@ -847,6 +890,15 @@ def _is_manifest_owned(claim: SemanticClaim) -> bool:
     *source* evidence: a reviewed ``risk_overrides`` tag of ``code_execution``
     on a tool published with ``readOnlyHint: true`` was reported as the source
     contradicting itself, and no declaration could clear it.
+
+    Public because the same question is asked outside this module.
+    ``SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED`` names "the effect Shipgate
+    inferred", and it derived that bound by excluding
+    :data:`DECLARATION_CLAIM_SOURCES` alone — the first route only. A reviewed
+    ``risk_overrides.tags`` entry of ``destructive`` beside a source that says
+    only ``write`` was therefore quoted back to the reviewer as Shipgate's own
+    inference, in a recommendation telling them to declare the value they had
+    already written (#424 review).
     """
 
     return (
@@ -881,7 +933,7 @@ def _source_read_conflict(structural: Sequence[SemanticClaim]) -> tuple[bool, bo
     high = [
         claim
         for claim in structural
-        if claim.confidence == "high" and not _is_manifest_owned(claim)
+        if claim.confidence == "high" and not is_manifest_owned_effect_claim(claim)
     ]
     return (
         any(claim.value == "read" for claim in high),
@@ -999,6 +1051,14 @@ def effect_repair(effect: EffectSemanticAssessment) -> EffectRepair:
     policy-eligible evidence, so it both accounts for the observation *and*
     makes that category's built-in controls apply, which is the outcome the
     uncovered obligation was asking for.
+
+    A third way it could not close its own row, and the reason ``risk_tags``
+    is the *whole* list rather than the additions: ``risk_tags`` is one YAML
+    key, so a template naming it replaces it. Publishing ``[destructive]`` for
+    a row already reading ``risk_tags: [financial_write]`` asked the reviewer
+    to delete the tag covering the financial reading, and the next scan
+    reopened the row asking for it back (#424 review). ``added_risk_tags``
+    carries what changed, so the sentence and the value cannot disagree.
     """
 
     declared = next(
@@ -1029,17 +1089,35 @@ def effect_repair(effect: EffectSemanticAssessment) -> EffectRepair:
             instruction=f"Raise action_surface.actions[].effect to {target!r}",
             effect=target,
         )
-    tags = [value for value in uncovered if value in _ACTION_RISK_TAG_VALUES]
-    if not tags:  # pragma: no cover - every non-read effect has a matching tag
+    added = [value for value in uncovered if value in _ACTION_RISK_TAG_VALUES]
+    if not added:  # pragma: no cover - every non-read effect has a matching tag
         return EffectRepair(kind="raise_effect", instruction=_GENERIC_RAISE)
-    rendered = ", ".join(tags)
+    # The whole list, not just the new part. ``risk_tags`` is one YAML key, so
+    # a template naming it replaces it: publishing ``[destructive]`` for a row
+    # that already reads ``risk_tags: [financial_write]`` asked the reviewer to
+    # delete the tag that was covering the financial reading, and the next scan
+    # reopened the row asking for it back — the #424 defect surviving in the
+    # case #424's own repair created (#424 review).
+    #
+    # Declared tags keep the reviewer's own spelling and order:
+    # ``financial_action`` and ``financial_write`` are one category under two
+    # names, and rewriting one to the other is a change nobody asked for.
+    declared_tags = [
+        str(tag)
+        for tag in (declared.evidence.get("declared_risk_tags") or [])
+        if isinstance(tag, str)
+    ]
+    declared_effects = {_TAG_EFFECTS.get(tag) for tag in declared_tags}
+    tags = [*declared_tags, *(value for value in added if value not in declared_effects)]
+    rendered_added = ", ".join(added)
     return EffectRepair(
         kind="declare_risk_tags",
         instruction=(
-            f"Add action_surface.actions[].risk_tags: [{rendered}] so the "
-            f"{rendered} controls apply to this action"
+            f"Set action_surface.actions[].risk_tags: [{', '.join(tags)}] so the "
+            f"{rendered_added} controls apply to this action"
         ),
         risk_tags=tuple(tags),
+        added_risk_tags=tuple(added),
     )
 
 
@@ -1090,7 +1168,16 @@ class EffectRepair:
     kind: Literal["raise_effect", "declare_risk_tags"]
     instruction: str
     effect: ActionEffect | None = None
+    #: The **complete** value to write to ``risk_tags`` — every tag the row
+    #: already declares, plus the categories this repair adds. A template
+    #: carrying only the additions replaces the key it is merged into, so on an
+    #: already-tagged action the published repair dropped a covering tag and
+    #: reopened the same row on the next scan (#424 review).
     risk_tags: tuple[str, ...] = ()
+    #: The categories being added, which is what the instruction's "so the X
+    #: controls apply" clause names and what ``accepted_values`` publishes.
+    #: Equal to :attr:`risk_tags` when the row declared none.
+    added_risk_tags: tuple[str, ...] = ()
 
 
 #: Evidence bases that state a *default* rather than an observation of the
@@ -2289,4 +2376,5 @@ __all__ = [
     "claims_above_declared_effect",
     "EffectRepair",
     "effect_repair",
+    "is_manifest_owned_effect_claim",
 ]

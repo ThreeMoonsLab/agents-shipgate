@@ -826,6 +826,31 @@ never count as agreeing evidence for itself. Manual positive risk tags may escal
 but cannot prove read-only safety or independently close an effect gap. Setting
 inherited approval or safeguards from `true` to `false` emits
 `SHIP-ACTION-CONTROL-DOWNGRADE`.
+
+A reviewed `risk_tags` entry — and the `risk_overrides.tags` entry that says
+the same thing once for a whole selector — is the manifest **refining** the row
+it sits in, never source evidence contradicting it. Declaring
+`risk_tags: [destructive]` beside `effect: read` accounts for a destructive
+observation *and* makes the destructive controls apply. It is not a downgrade
+and it is not a conflict, which is what makes the second route out of
+`declaration_below_inferred_evidence` — "set `risk_tags: [X]` so the X controls
+apply to this action" — an edit that closes the row it is printed on.
+
+A tag **adds** a category to the declared effect rather than replacing it, so
+the obligations of both stand. Beside `effect: read`, which obliges nothing,
+that is the same answer as declaring the category as the effect; beside a
+positive effect it is not — `effect: external_communication` with a financial
+tag owes confirmation as well as approval, audit, and idempotency, where
+`effect: financial_write` alone owes no confirmation. The row's own repair
+therefore names the **whole** intended `risk_tags` value, existing entries
+included: `risk_tags` is one key, and a block naming it replaces it.
+
+A declared `scopes` grant is a different kind of statement and keeps its
+blocking behaviour: it asserts an independent fact about what the action is
+permitted to do, so a write-verb grant beside a weaker `effect` stays
+`conflicting_effect_evidence`. So does anything the source itself supplies —
+protocol annotations, the source's own scopes, a typed provider fact.
+
 ### Pinning an answer to its evidence
 
 Declarations are matched by name, so without a pin a year-old `effect: write`

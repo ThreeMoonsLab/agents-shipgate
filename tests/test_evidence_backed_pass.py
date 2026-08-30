@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import json
 from pathlib import Path
 
@@ -361,6 +362,17 @@ def test_control_union_preserves_financial_and_destructive_claims(
 def test_manual_positive_action_tag_cannot_hide_behind_read_effect(
     tmp_path: Path,
 ) -> None:
+    """A declared tag applies its category's controls; it does not soften.
+
+    The tag used to be reported as `conflicting_effect_evidence` — the
+    manifest read as contradicting itself — which is the #424 defect: the
+    same reading made the `declare_risk_tags` repair unable to close the row
+    that published it. What must hold is that the tag cannot *hide* anything,
+    and the stronger form of that is what the gate now says: the
+    financial-write controls apply, they are missing, and the run is blocked
+    for that reason rather than for the shape of the manifest.
+    """
+
     config = _write_project(
         tmp_path,
         tools=[_tool("settle_order")],
@@ -383,11 +395,185 @@ def test_manual_positive_action_tag_cannot_hide_behind_read_effect(
     )
 
     assert report.release_decision is not None
-    assert report.release_decision.decision != "passed"
+    assert report.release_decision.decision == "blocked"
     assert any(
-        gap.kind == "conflicting_effect_evidence"
-        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        finding.check_id == "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING"
+        for finding in report.findings
     )
+
+
+def _without_claims(value):
+    """The same fact with its provenance record removed.
+
+    The two spellings are genuinely different reviewed statements, so their
+    claim lists must differ — that is the audit trail saying *where* each
+    answer was written. Everything else a scan publishes about the action is
+    supposed to be the same, and that is what this strips down to.
+    """
+
+    if isinstance(value, dict):
+        return {
+            key: _without_claims(item)
+            for key, item in value.items()
+            if key != "claims"
+        }
+    if isinstance(value, list):
+        return [_without_claims(item) for item in value]
+    return value
+
+
+def test_a_tag_on_a_read_row_publishes_what_declaring_the_effect_publishes(
+    tmp_path: Path,
+) -> None:
+    """`effect: read` + a tag is now pass-eligible, so it must publish the truth.
+
+    Comparing the decision and the check IDs is not enough: a false *fact* can
+    ride into a passing artifact without changing either. This spelling emitted
+    a synthesized `read_only` risk tag beside the positive one, which
+    `derive_side_effect` reads as evidence — publishing `reversibility:
+    reversible` for a `financial_write` action, and diverging action and
+    capability facts from the direct declaration (#461, folded in on review
+    because this PR is what moves the wrong claim into a report that can pass).
+
+    Facts are compared rather than diffs: equal facts are equal against every
+    base, so this is the stronger statement.
+
+    Scoped to `effect: read` on purpose — see
+    `test_a_tag_unions_obligations_with_the_declared_effect` for why the
+    equivalence is not general.
+    """
+
+    controls = [
+        ("approval", {"required": True}),
+        ("safeguards", {"audit_log": True, "idempotency": True}),
+    ]
+    counter = itertools.count()
+
+    def _scan(action: dict[str, object]):
+        root = tmp_path / f"case{next(counter)}"
+        root.mkdir()
+        report, _ = run_scan(
+            config_path=_write_project(
+                root, tools=[_tool("settle_order")], actions=[action]
+            ),
+            output_dir=root / "reports",
+            formats=["json"],
+            ci_mode="advisory",
+            packet_enabled=False,
+        )
+        assert report.release_decision is not None
+        return report
+
+    def _spellings(**extra: object):
+        base: dict[str, object] = {
+            "tool": "settle_order",
+            "authority": {"mode": "none"},
+            **extra,
+        }
+        return (
+            _scan({**base, "effect": "read", "risk_tags": ["financial_write"]}),
+            _scan({**base, "effect": "financial_write"}),
+        )
+
+    for reports in (_spellings(controls=controls), _spellings()):
+        tagged, declared = reports
+        gates = [
+            (
+                report.release_decision.decision,
+                frozenset(finding.check_id for finding in report.findings),
+            )
+            for report in reports
+        ]
+        assert gates[0] == gates[1]
+
+        facts = [
+            (
+                _without_claims(report.action_surface_facts.model_dump(mode="json")),
+                _without_claims(
+                    [fact.model_dump(mode="json") for fact in report.capability_facts]
+                ),
+            )
+            for report in reports
+        ]
+        assert facts[0] == facts[1]
+
+        # And the provenance really was the only difference: the claim lists
+        # say where each answer was written, and they are not the same.
+        assert (
+            tagged.action_surface_facts.actions[0].semantic_assessment.effect.claims
+            != declared.action_surface_facts.actions[0].semantic_assessment.effect.claims
+        )
+
+    # The controls were the whole gate difference: without them both spellings
+    # block on the same missing financial-write control.
+    bare, _ = _spellings()
+    assert bare.release_decision.decision == "blocked"
+    assert any(
+        finding.check_id == "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING"
+        for finding in bare.findings
+    )
+
+
+def test_a_tag_unions_obligations_with_the_declared_effect(tmp_path: Path) -> None:
+    """A tag adds a category; it does not replace the one already declared.
+
+    The `effect: read` equivalence above holds because `read` obliges nothing.
+    Beside a positive effect the two spellings are not the same statement:
+    `external_communication` + a financial tag owes confirmation *and* audit
+    *and* approval *and* idempotency, while `effect: financial_write` alone
+    drops the confirmation the outward communication required. Stating the
+    equivalence generally would have sent a reviewer to replace an effect and
+    lose a category (#424 review).
+    """
+
+    controls = [
+        ("approval", {"required": True}),
+        ("safeguards", {"audit_log": True, "idempotency": True}),
+    ]
+    counter = itertools.count()
+
+    def _gate(action: dict[str, object]) -> tuple[str, frozenset[str]]:
+        root = tmp_path / f"union{next(counter)}"
+        root.mkdir()
+        report, _ = run_scan(
+            config_path=_write_project(
+                root, tools=[_tool("settle_order")], actions=[action]
+            ),
+            output_dir=root / "reports",
+            formats=["json"],
+            ci_mode="advisory",
+            packet_enabled=False,
+        )
+        assert report.release_decision is not None
+        return report.release_decision.decision, frozenset(
+            finding.check_id for finding in report.findings
+        )
+
+    tagged = _gate(
+        {
+            "tool": "settle_order",
+            "effect": "external_communication",
+            "risk_tags": ["financial_write"],
+            "authority": {"mode": "none"},
+            "controls": controls,
+        }
+    )
+    replaced = _gate(
+        {
+            "tool": "settle_order",
+            "effect": "financial_write",
+            "authority": {"mode": "none"},
+            "controls": controls,
+        }
+    )
+
+    assert tagged != replaced
+    assert tagged[0] == "blocked"
+    assert "SHIP-POLICY-CONFIRMATION-MISSING" in tagged[1]
+    assert "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING" in tagged[1]
+    # Replacing the effect drops the category the row had already declared.
+    assert replaced[0] != "blocked"
+    assert "SHIP-POLICY-CONFIRMATION-MISSING" not in replaced[1]
 
 
 def test_suppression_cannot_waive_mandatory_destructive_control(

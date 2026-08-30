@@ -2,6 +2,104 @@
 
 ## Unreleased
 
+- **A reviewed risk tag is the manifest refining its own row, not source
+  evidence contradicting it.** (#424) `declaration_below_inferred_evidence`
+  publishes two routes, and the second is the one the row names: *"add
+  `action_surface.actions[].risk_tags: [X]` so the X controls apply to this
+  action"*. Applying it exactly as instructed replaced the review-tier row with
+  a **blocking** `conflicting_effect_evidence` whose message blamed the
+  reviewer's own manifest — the published next step could not close the row it
+  was printed on. Measured over every declared effect against every one-, two-,
+  and three-observation combination: 281 of the 390 pairs that take the tag
+  route. First-time adoption was never affected; a proposal always raises the
+  effect or names a covering set, so only the post-declaration repair was
+  broken, and it was broken exactly where the two published rank tables
+  disagree — the case the two-route design exists for.
+
+  Two branches of the resolver disagreed about what a reviewed `risk_tags`
+  entry is. `claims_above_declared_effect` treats it as **covering**,
+  deliberately: a declared tag is policy-eligible, so it both accounts for the
+  observation and makes that category's built-in controls apply. The
+  `contradictory` filter ran first and read the same claim as source evidence
+  outranking the declaration. It now excludes the two spellings of "declare
+  this category as reviewed" — the action row's `risk_tags` and the
+  `risk_overrides.tags` hint that says it once for a whole selector. This is
+  the same class already fixed one branch over in `_source_read_conflict`.
+
+  **Deliberately narrow.** The exclusion is *not* `_is_manifest_owned`
+  wholesale. That predicate also covers `action_scope`, and a declared
+  permission list is a different kind of statement: #417 made a declared
+  `crm.delete` grant bound the action's effect, so excluding it would re-open
+  that fail-open. A declared tag refines the effect the same person wrote; a
+  declared grant asserts an independent fact that bounds it. Protocol
+  annotations, a source's own scopes, and typed provider facts keep
+  contradicting a weaker declaration exactly as before.
+
+  **The repair names the whole `risk_tags` value, not the additions.**
+  `risk_tags` is one key, so a published block naming it replaces it. Naming
+  only the newly uncovered category asked a reviewer whose row already read
+  `risk_tags: [financial_write]` to delete the tag covering the financial
+  reading, and the next scan reopened the row asking for it back — the same
+  defect, in the case the repair itself creates. The declared list is now
+  carried verbatim on the declared-effect claim (it cannot be rebuilt from the
+  tag claims: `read_only`, `network_access`, and `customer_data` map to no
+  positive effect and produce none), and `EffectRepair.added_risk_tags` carries
+  what changed so the sentence and the value cannot disagree.
+
+  **The gate verdict this moves.** `effect: read` + `risk_tags: [destructive]`
+  goes from blocking to pass-eligible. It is not a downgrade: the action still
+  resolves to `destructive`, the destructive claim is still policy-eligible,
+  and beside `effect: read` — which obliges nothing — the two spellings publish
+  identical action and capability facts and reach the same decision and
+  findings. Beside a *positive* effect they are not interchangeable, and the
+  contract now says so: a tag **adds** its category, so
+  `effect: external_communication` with a financial tag owes confirmation as
+  well as approval, audit, and idempotency, where `effect: financial_write`
+  alone does not. The P0 canary that pinned the old outcome
+  (`manual_financial_tag_cannot_downgrade_to_read`) is replaced in its slot by
+  the boundary the fix draws, `declared_delete_scope_cannot_downgrade_to_read`,
+  and the property it guarded is asserted in its new form beside it.
+
+  **A read claim no longer synthesizes a `read_only` tag** ([#461]). The action
+  fact unions a risk tag for every policy-eligible effect claim, and `read` is
+  not a category — it is the assertion that none apply. A row declaring
+  `effect: read` beside `risk_tags: [financial_write]` therefore published
+  `read_only` on a `financial_write` action, and `derive_side_effect` reads
+  that tag as positive evidence: `reversibility: reversible`, the one thing
+  that helper's own docstring says a declared read must not buy. Pre-existing,
+  and folded in here because this change is what moves the wrong fact into a
+  report that can pass. Actions with that spelling lose the `read_only` entry
+  from their published `risk_tags`, so a stored lock covering one shows a
+  single `risk_changed` / `narrowed` row on the first scan after upgrading —
+  the safe direction, and correct: the action stops claiming to be read-only.
+  Carrying the declared tag list on the declared-effect claim likewise moves
+  that claim's `evidence` and `claim_id` for rows declaring both an `effect`
+  and `risk_tags`; an `evidence_hash`-only change is classified `evidence_only`
+  by design and carries no direction.
+
+  **Two more sites read the manifest as the source, found reviewing this
+  change.** The manifest reaches the effect dimension by two routes — the
+  action row, named by `DECLARATION_CLAIM_SOURCES`, and `risk_overrides.tags`,
+  which arrives as `risk_hint:manual` carrying a `reviewed_declaration` basis
+  and no declaration source. Two comparisons excluded the first only:
+
+  - `SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED` derives "the effect Shipgate
+    inferred" from the claims that are not the manifest's. A reviewed
+    `risk_overrides.tags: [destructive]` beside a source that says only `write`
+    was reported as Shipgate's own inference, in a recommendation telling the
+    reviewer to declare the value they had already written.
+  - `declaration_below_inferred_evidence` names the evidence that *agrees* with
+    the declaration, in a sentence that says "source evidence agrees with the
+    declaration" in so many words. A `risk_overrides.tags` entry matching the
+    declared effect was named there — the manifest confirming itself, which the
+    comment above that filter already forbade.
+
+  Both now ask one predicate, `is_manifest_owned_effect_claim`, promoted from
+  the private helper `_source_read_conflict` already used so a fourth site
+  cannot spell it a fifth way.
+
+  [#461]: https://github.com/ThreeMoonsLab/agents-shipgate/issues/461
+
 - **The declaration continuation: a drafted proposal can now reach the person
   it was drafted for.** (#429 review) `apply-patches --kinds declare_action`
   writes into `shipgate.yaml`, which is the trust root — so the control that
