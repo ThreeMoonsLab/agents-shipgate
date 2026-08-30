@@ -6,7 +6,12 @@ nothing open — so a scan of it writes no `suggested-declarations.yaml` at all
 and no committed artifact beside it ever renders one. This fixture stops
 partway on purpose: it reaches `insufficient_evidence` with **ten open
 declaration questions**, and ships the questionnaire an adopter actually reads
-as a byte-compared golden.
+as a byte-compared golden. It also ships
+[`expected/cold-report.md`](expected/cold-report.md), rendered from a temporary
+Git repository where the agent sources are committed and `shipgate.yaml` is
+not, to pin the surface-first first-contact order from #463. The ordinary
+[`expected/report.md`](expected/report.md) remains the committed-manifest,
+verdict-first golden.
 
 For the step after this one, see
 [`declaration_repair_agent`](../declaration_repair_agent/): a manifest that has
@@ -148,6 +153,57 @@ golden.write_text(json.dumps(payload, indent=2), encoding="utf-8", newline="\n")
 for name in ("report.md", "suggested-declarations.yaml"):
     path = expected / name
     path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
+PY
+```
+
+### Regenerating the cold report
+
+`expected/cold-report.md` comes from a different repository state than the
+ordinary goldens: the agent sources are committed, while `shipgate.yaml`
+exists only in the worktree. Recreate that state in a temporary repository;
+running the ordinary recipe above cannot produce the cold-reader order.
+
+```bash
+python - <<'PY'
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
+
+from agents_shipgate.cli.scan import run_scan
+
+source = Path("samples/google_adk_cold_start_agent").resolve()
+golden = source / "expected" / "cold-report.md"
+
+with tempfile.TemporaryDirectory(prefix="shipgate-cold-golden-") as temp:
+    repo = Path(temp) / "repo"
+    shutil.copytree(source, repo, ignore=shutil.ignore_patterns("expected"))
+
+    def git(*args: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(repo), *args],
+            check=True,
+            capture_output=True,
+        )
+
+    git("init", "-q")
+    git("config", "user.name", "Shipgate Golden")
+    git("config", "user.email", "shipgate@example.invalid")
+    git("add", "agent.py", "inventories", "specs")
+    git("commit", "-qm", "base without manifest")
+
+    out = repo / "reports"
+    run_scan(
+        config_path=repo / "shipgate.yaml",
+        output_dir=out,
+        formats=["markdown", "json"],
+        ci_mode="advisory",
+    )
+    golden.write_text(
+        (out / "report.md").read_text(encoding="utf-8"),
+        encoding="utf-8",
+        newline="\n",
+    )
 PY
 ```
 

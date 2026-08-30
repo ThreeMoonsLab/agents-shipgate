@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+- **Cold-reader artifacts now lead with what the agent can do.** (#463) On a
+  repository with no committed Shipgate manifest, human output starts with the
+  root-reachable tool surface, its effect breakdown and write/destructive
+  action names; then shows a subject-grouped capability delta when one exists,
+  subject-grouped findings, and the unchanged release decision. Console,
+  multi-manifest console rows, `report.md`, GitHub step summaries, PR comments,
+  and packet Markdown/HTML/PDF share that ordering. A cold run carrying any
+  active block-tier content remains verdict-first, and committed-manifest
+  repositories retain their prior bytes and verdict-first order. Cold reports
+  render the primary decision exactly once; adopted reports preserve the
+  pre-existing capability-consequence projection as part of their byte-stable
+  layout. Machine JSON, schemas, contracts, and decision computation are
+  unchanged.
+
+  The ordering is lossless: tool-surface and action/tool-diff detail still
+  appears below the decision. Compact packet finding lists share one bounded
+  truncation projection, write/destructive action names are capped with an
+  explicit omission count, and repository-owned names are display-encoded so
+  they cannot forge a decision line. PR comments consume the scan's exact
+  ephemeral repository context, including manifest introduction, rather than
+  re-probing or depending on report-evidence fallback.
+
+  `samples/google_adk_cold_start_agent/expected/cold-report.md` is the committed
+  first-contact golden: its test creates a Git repository whose agent sources
+  are committed while `shipgate.yaml` is not, then byte-compares the rendered
+  artifact. The same suite pins an empty repository, first-adoption verifier
+  output, packet ordering, cold exact-once decision rendering, the block-tier
+  override, and adopted-sample byte stability.
+
+  This release covers report-backed scan and verify artifacts. `verify
+  --preview` remains a routing-only operation and produces no readiness report
+  to reorder; the local-review surface described in #326 is not implemented by
+  this change.
+
 - **The #424 repair loop is now pinned by a committed artifact.** (#424)
   `declaration_below_inferred_evidence` publishes a `declare_risk_tags` route,
   and every guard on it ran against tools built in-test — the same blind spot

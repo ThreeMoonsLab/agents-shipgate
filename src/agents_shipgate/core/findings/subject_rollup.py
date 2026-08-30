@@ -36,10 +36,13 @@ from .constants import SEVERITY_ORDER
 
 __all__ = [
     "AGENT_WIDE_SUBJECT",
+    "ProjectedSubjectGroup",
     "SubjectGroup",
+    "TopFindingsProjection",
     "finding_line",
     "group_summary",
     "missing_items",
+    "project_top_findings",
     "roll_up_findings",
     "rollup_detail",
     "rollup_headline",
@@ -114,6 +117,23 @@ class SubjectGroup:
         """Findings paired with whether the release decision blocks on each."""
 
         return tuple(zip(self.findings, self.blocking, strict=True))
+
+
+@dataclass(frozen=True)
+class ProjectedSubjectGroup:
+    """One subject and the bounded rows a compact human surface will show."""
+
+    group: SubjectGroup
+    rows: tuple[tuple[Finding, bool], ...]
+    hidden_findings: int
+
+
+@dataclass(frozen=True)
+class TopFindingsProjection:
+    """The shared, non-negative truncation result for compact renderers."""
+
+    groups: tuple[ProjectedSubjectGroup, ...]
+    hidden_subjects: int
 
 
 def missing_items(finding: Finding) -> list[str]:
@@ -511,6 +531,40 @@ def rollup_headline(groups: Sequence[SubjectGroup]) -> str:
     return f"{_finding_count(groups)} across {_subject_count(groups)}"
 
 
+def project_top_findings(
+    groups: Sequence[SubjectGroup],
+    *,
+    group_limit: int,
+    row_limit: int,
+) -> TopFindingsProjection:
+    """Select compact subject rows once for every renderer.
+
+    Hidden counts are derived from what was actually selected rather than
+    from the configured cap.  That keeps counts non-negative for empty and
+    below-cap inputs, and prevents Markdown, HTML, and PDF packet renderers
+    from drifting apart at the truncation boundary.
+    """
+
+    bounded_group_limit = max(0, group_limit)
+    bounded_row_limit = max(0, row_limit)
+    shown_groups = tuple(groups[:bounded_group_limit])
+    projected: list[ProjectedSubjectGroup] = []
+    for group in shown_groups:
+        rows = group.rows()
+        shown_rows = tuple(rows[:bounded_row_limit])
+        projected.append(
+            ProjectedSubjectGroup(
+                group=group,
+                rows=shown_rows,
+                hidden_findings=max(0, len(rows) - len(shown_rows)),
+            )
+        )
+    return TopFindingsProjection(
+        groups=tuple(projected),
+        hidden_subjects=max(0, len(groups) - len(shown_groups)),
+    )
+
+
 def top_findings_block(
     groups: Sequence[SubjectGroup],
     *,
@@ -550,14 +604,18 @@ def top_findings_block(
     if not groups:
         lines.append(f"{bullet}none")
         return lines
-    shown = list(groups[:group_limit])
-    for group in shown:
+    projection = project_top_findings(
+        groups,
+        group_limit=group_limit,
+        row_limit=row_limit,
+    )
+    for projected in projection.groups:
+        group = projected.group
         lines.append(
             f"{bullet}{escape(group.subject + group.location)} — "
             f"{escape(group_summary(group))}"
         )
-        rows = group.rows()
-        for finding, blocks in rows[:row_limit]:
+        for finding, blocks in projected.rows:
             row = finding_line(
                 finding,
                 blocks_release=blocks,
@@ -566,14 +624,15 @@ def top_findings_block(
             lines.append(f"{row_prefix}{escape(row)}")
             for note in annotate(finding):
                 lines.append(f"{note_prefix}{escape(note)}")
-        hidden = len(rows) - row_limit
-        if hidden > 0:
+        if projected.hidden_findings > 0:
             lines.append(
-                f"{row_prefix}… and {_plural(hidden, 'more finding')} for this subject"
+                f"{row_prefix}… and "
+                f"{_plural(projected.hidden_findings, 'more finding')} for this subject"
             )
-    hidden_groups = len(groups) - len(shown)
-    if hidden_groups > 0:
-        lines.append(f"{bullet}… and {_plural(hidden_groups, 'more subject')}")
+    if projection.hidden_subjects > 0:
+        lines.append(
+            f"{bullet}… and {_plural(projection.hidden_subjects, 'more subject')}"
+        )
     return lines
 
 

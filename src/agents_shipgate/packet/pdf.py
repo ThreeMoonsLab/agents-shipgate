@@ -12,6 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agents_shipgate.packet.html import render_packet_html
+from agents_shipgate.report.human_order import ColdReaderLead, HumanArtifactContext
 from agents_shipgate.schemas.packet import EvidencePacket
 
 
@@ -28,6 +29,8 @@ def render_packet_pdf(
     out_path: Path,
     *,
     sanitize_output: bool = True,
+    human_context: HumanArtifactContext | None = None,
+    cold_lead: ColdReaderLead | None = None,
 ) -> Path:
     """Render the packet as a PDF and write it to ``out_path``.
 
@@ -44,7 +47,12 @@ def render_packet_pdf(
         ) from exc
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    html_str = render_packet_html(packet, sanitize_output=sanitize_output)
+    html_str = render_packet_html(
+        packet,
+        sanitize_output=sanitize_output,
+        human_context=human_context,
+        cold_lead=cold_lead,
+    )
     HTML(string=html_str).write_pdf(str(out_path))
     return out_path
 

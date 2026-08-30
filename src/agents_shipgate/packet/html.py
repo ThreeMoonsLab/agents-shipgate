@@ -18,8 +18,18 @@ from __future__ import annotations
 from html import escape
 from pathlib import Path
 
+from agents_shipgate.core.findings.subject_rollup import (
+    finding_line,
+    group_summary,
+    project_top_findings,
+)
 from agents_shipgate.core.privacy import sanitize_packet
 from agents_shipgate.core.source_warnings import group_source_warnings
+from agents_shipgate.report.human_order import (
+    ColdReaderLead,
+    HumanArtifactContext,
+    should_render_packet_surface_first,
+)
 from agents_shipgate.schemas.packet import (
     ActionSurfaceDiffSection,
     ApprovalCoverageSection,
@@ -90,6 +100,8 @@ def render_packet_html(
     packet: EvidencePacket,
     *,
     sanitize_output: bool = True,
+    human_context: HumanArtifactContext | None = None,
+    cold_lead: ColdReaderLead | None = None,
 ) -> str:
     """Return the packet rendered as a self-contained HTML document."""
 
@@ -105,10 +117,24 @@ def render_packet_html(
     parts.append("</head><body>")
     parts.append("<h1>Release Evidence Packet</h1>")
     parts.append(_render_header(packet))
+    surface_first = bool(
+        should_render_packet_surface_first(
+            packet,
+            context=human_context,
+            cold_lead=cold_lead,
+        )
+    )
+    if surface_first:
+        assert cold_lead is not None
+        parts.append(_render_cold_surface(cold_lead))
+        parts.append(_render_high_risk_surface(packet.high_risk_surface))
+        parts.append(_render_cold_delta(cold_lead))
+        parts.append(_render_cold_findings(cold_lead))
     parts.append(_render_release_decision(packet.release_decision))
     parts.append(_render_evidence_matrix(packet.evidence_matrix))
     parts.append(_render_capability_intent(packet.capability_intent))
-    parts.append(_render_high_risk_surface(packet.high_risk_surface))
+    if not surface_first:
+        parts.append(_render_high_risk_surface(packet.high_risk_surface))
     parts.append(_render_tool_surface_diff(packet.tool_surface_diff))
     parts.append(_render_action_surface_diff(packet.action_surface_diff))
     parts.append(_render_approval_coverage(packet.approval_coverage))
@@ -127,10 +153,17 @@ def write_packet_html(
     path: Path,
     *,
     sanitize_output: bool = True,
+    human_context: HumanArtifactContext | None = None,
+    cold_lead: ColdReaderLead | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        render_packet_html(packet, sanitize_output=sanitize_output),
+        render_packet_html(
+            packet,
+            sanitize_output=sanitize_output,
+            human_context=human_context,
+            cold_lead=cold_lead,
+        ),
         encoding="utf-8",
     )
 
@@ -157,6 +190,65 @@ def _render_header(packet: EvidencePacket) -> str:
         "Agents Shipgate scan. See §10 for what the packet does "
         "<em>not</em> prove.</p>"
     )
+
+
+def _render_cold_surface(lead: ColdReaderLead) -> str:
+    parts = ["<h2>Capability surface</h2><ul>"]
+    for line in lead.surface.text_lines():
+        parts.append(f"<li>{escape(line)}</li>")
+    parts.append("</ul>")
+    return "".join(parts)
+
+
+def _render_cold_delta(lead: ColdReaderLead) -> str:
+    if not lead.delta_subjects:
+        return ""
+    parts = ["<h2>Capability delta by subject</h2><ul>"]
+    for subject in lead.delta_subjects:
+        parts.append(f"<li><code>{escape(subject.subject)}</code><ul>")
+        for change in subject.changes:
+            parts.append(f"<li>{escape(change)}</li>")
+        parts.append("</ul></li>")
+    parts.append("</ul>")
+    return "".join(parts)
+
+
+def _render_cold_findings(lead: ColdReaderLead) -> str:
+    parts = ["<h2>Findings by subject</h2><ul>"]
+    if not lead.finding_groups:
+        parts.append("<li>none</li>")
+    projection = project_top_findings(
+        lead.finding_groups,
+        group_limit=8,
+        row_limit=5,
+    )
+    for projected in projection.groups:
+        group = projected.group
+        parts.append(
+            f"<li><code>{escape(group.subject + group.location)}</code> — "
+            f"{escape(group_summary(group))}<ul>"
+        )
+        for finding, blocks in projected.rows:
+            row = finding_line(
+                finding,
+                blocks_release=blocks,
+                group_location=group.location,
+            )
+            parts.append(f"<li>{escape(row)}</li>")
+        if projected.hidden_findings > 0:
+            suffix = "s" if projected.hidden_findings != 1 else ""
+            parts.append(
+                f"<li>… and {projected.hidden_findings} more finding{suffix} "
+                "for this subject</li>"
+            )
+        parts.append("</ul></li>")
+    if projection.hidden_subjects > 0:
+        suffix = "s" if projection.hidden_subjects != 1 else ""
+        parts.append(
+            f"<li>… and {projection.hidden_subjects} more subject{suffix}</li>"
+        )
+    parts.append("</ul>")
+    return "".join(parts)
 
 
 def _heading(number: int, title: str, status: SectionStatus) -> str:

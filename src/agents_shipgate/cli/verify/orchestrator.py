@@ -31,6 +31,7 @@ from agents_shipgate.cli.discovery.scope import (
     resolve_change_scope,
 )
 from agents_shipgate.cli.discovery.signals import weak_marker_evidence_dirs
+from agents_shipgate.cli.scan.human_order import override_human_manifest_committed
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.config.loader import load_manifest_text
 from agents_shipgate.core.agent_control import derive_agent_control
@@ -89,6 +90,7 @@ from agents_shipgate.packet.json_packet import load_packet_json, write_packet_js
 from agents_shipgate.report.capability_lock_diff_markdown import (
     render_capability_lock_diff_markdown,
 )
+from agents_shipgate.report.human_order import HumanArtifactContext
 from agents_shipgate.report.json_report import report_json_payload
 from agents_shipgate.report.pr_comment import render_pr_comment
 from agents_shipgate.schemas.agent_control import (
@@ -810,10 +812,15 @@ def run_verify(
     head_manifest_text: str | None = None
     head_capability_lock: CapabilityLockFileV1 | None = None
     capability_lock_diff: CapabilityLockDiffV1 | None = None
+    head_human_context: HumanArtifactContext | None = None
 
     def capture_capability_lock(lock: CapabilityLockFileV1) -> None:
         nonlocal head_capability_lock
         head_capability_lock = lock
+
+    def capture_human_context(context: HumanArtifactContext) -> None:
+        nonlocal head_human_context
+        head_human_context = context
 
     external_snapshot_paths = [
         path
@@ -989,7 +996,14 @@ def run_verify(
                 root=head_tree_dir,
                 relative_paths=changed_files,
             )
-        with use_evaluation_date(date.fromisoformat(verification_date)):
+        # An archived head is a committed tree even though its temporary
+        # extraction directory is not itself a Git checkout. Keep that
+        # presentation-only provenance beside the scan without changing the
+        # public two-value return contract or serializing the context.
+        with (
+            use_evaluation_date(date.fromisoformat(verification_date)),
+            override_human_manifest_committed(True if archive_head else None),
+        ):
             head_snapshot_token = (
                 activate_static_input_snapshot(head_snapshot)
                 if head_snapshot is not None
@@ -1040,6 +1054,7 @@ def run_verify(
                         in _BASE_COMPARISON_FAILURES,
                     ),
                     capability_lock_callback=capture_capability_lock,
+                    human_context_callback=capture_human_context,
                     manifest_text=(
                         head_manifest_text if archive_head else worktree_manifest_text
                     ),
@@ -1186,6 +1201,7 @@ def run_verify(
                     fail_on=fail_on,
                     pr_comment_style=pr_comment_style,
                     capability_lock_diff=capability_lock_diff,
+                    human_context=head_human_context,
                     input_root=head_input_root,
                     input_snapshot=head_snapshot,
                     diff_text=diff_text,
@@ -3894,6 +3910,7 @@ def _write_artifacts(
     fail_on: list[str] | None,
     pr_comment_style: str,
     capability_lock_diff: CapabilityLockDiffV1 | None = None,
+    human_context: HumanArtifactContext | None = None,
     input_root: Path | None = None,
     input_snapshot: StaticInputSnapshot | None = None,
     diff_text: str = "",
@@ -3931,6 +3948,7 @@ def _write_artifacts(
             report=report,
             style=pr_comment_style,
             capability_lock_diff=capability_lock_diff,
+            human_context=human_context,
         ),
         encoding="utf-8",
     )
@@ -4234,6 +4252,7 @@ def _write_artifacts(
             report=report,
             style=pr_comment_style,
             capability_lock_diff=capability_lock_diff,
+            human_context=human_context,
         ),
         encoding="utf-8",
     )

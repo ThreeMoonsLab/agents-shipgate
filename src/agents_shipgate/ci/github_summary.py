@@ -4,7 +4,17 @@ import os
 from pathlib import Path
 
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
+from agents_shipgate.core.findings.subject_rollup import (
+    roll_up_findings,
+    top_findings_block,
+)
 from agents_shipgate.core.privacy import sanitize_report
+from agents_shipgate.report.human_order import (
+    HumanArtifactContext,
+    capability_delta_by_subject,
+    should_render_surface_first,
+    surface_lead,
+)
 from agents_shipgate.report.markdown import _safe_markdown_text
 from agents_shipgate.report.summary_text import (
     evidence_coverage_text,
@@ -13,71 +23,25 @@ from agents_shipgate.report.summary_text import (
 from agents_shipgate.schemas.report import ReadinessReport
 
 
-def write_github_step_summary(report: ReadinessReport) -> None:
+def write_github_step_summary(
+    report: ReadinessReport,
+    *,
+    human_context: HumanArtifactContext | None = None,
+) -> None:
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary_path:
         return
     report = sanitize_report(report)
     path = Path(summary_path)
     summary = report.summary
-    decision = report.release_decision
-    agent_summary = report.agent_summary
     reviewer_summary = report.reviewer_summary
     formats = ", ".join(sorted(report.generated_reports)) or "configured"
     lines = ["## Agents Shipgate", ""]
-    if decision is not None:
-        lines.extend(
-            [
-                f"Decision: `{decision.decision}`",
-                *(
-                    [f"Summary: {_safe_markdown_text(agent_summary.headline)}"]
-                    if agent_summary
-                    else []
-                ),
-                # The reason carries repository-derived text on an evidence
-                # verdict (a gap subject is a tool name or agent id), so it
-                # gets the same Markdown escaping report.md has always
-                # applied to it. Unescaped, a crafted tool name renders as
-                # markup in the step summary (#362 review).
-                f"Reason: {_safe_markdown_text(decision.reason)}",
-                (
-                    f"Blockers: {len(decision.blockers)} · "
-                    f"Review items: {len(decision.review_items)}"
-                ),
-                f"Evidence coverage: {evidence_coverage_text(decision.evidence_coverage)}",
-            ]
-        )
-        if decision.decision == "insufficient_evidence":
-            lines.append(
-                "Improve evidence: "
-                f"{_safe_markdown_text(primary_evidence_remediation_text(decision.evidence_coverage))}"
-            )
-        if agent_summary and agent_summary.first_recommended_action:
-            lines.append(_agent_next_action_line(agent_summary.first_recommended_action))
-        fp = decision.fail_policy
-        lines.append(
-            f"Fail policy: ci_mode=`{fp.ci_mode}`, "
-            f"would_fail_ci=`{str(fp.would_fail_ci).lower()}` "
-            f"(exit `{fp.exit_code}`)"
-        )
-        lines.append(f"Static-verdict boundary: {STATIC_VERDICT_DISCLAIMER}")
-    else:
-        # Defensive fallback for older reports loaded without
-        # release_decision (e.g., baselines from <v0.8).
-        lines.extend(
-            [
-                f"Status: `{summary.status}`",
-                (
-                    f"Critical: {summary.critical_count} · "
-                    f"High: {summary.high_count} · "
-                    f"Medium: {summary.medium_count}"
-                ),
-                (
-                    "Human review: "
-                    f"{'recommended' if summary.human_review_recommended else 'not required'}"
-                ),
-            ]
-        )
+    surface_first = should_render_surface_first(report, context=human_context)
+    decision_lines = _decision_lines(report)
+    if surface_first:
+        _append_cold_reader_lead(lines, report)
+    lines.extend(decision_lines)
     if reviewer_summary and reviewer_summary.first_recommended_surface:
         surface = reviewer_summary.first_recommended_surface
         lines.append(
@@ -164,6 +128,75 @@ def write_github_step_summary(report: ReadinessReport) -> None:
     lines.extend(["", f"Generated reports: {formats}.", ""])
     with path.open("a", encoding="utf-8") as handle:
         handle.write("\n".join(lines))
+
+
+def _decision_lines(report: ReadinessReport) -> list[str]:
+    summary = report.summary
+    decision = report.release_decision
+    agent_summary = report.agent_summary
+    if decision is None:
+        # Defensive fallback for older reports loaded without
+        # release_decision (e.g., baselines from <v0.8).
+        return [
+            f"Status: `{summary.status}`",
+            (
+                f"Critical: {summary.critical_count} · "
+                f"High: {summary.high_count} · "
+                f"Medium: {summary.medium_count}"
+            ),
+            (
+                "Human review: "
+                f"{'recommended' if summary.human_review_recommended else 'not required'}"
+            ),
+        ]
+    lines = [
+        f"Decision: `{decision.decision}`",
+        *([f"Summary: {_safe_markdown_text(agent_summary.headline)}"] if agent_summary else []),
+        # The reason carries repository-derived text on an evidence verdict
+        # (a gap subject is a tool name or agent id), so it gets the same
+        # Markdown escaping report.md has always applied to it.
+        f"Reason: {_safe_markdown_text(decision.reason)}",
+        (f"Blockers: {len(decision.blockers)} · Review items: {len(decision.review_items)}"),
+        f"Evidence coverage: {evidence_coverage_text(decision.evidence_coverage)}",
+    ]
+    if decision.decision == "insufficient_evidence":
+        lines.append(
+            "Improve evidence: "
+            f"{_safe_markdown_text(primary_evidence_remediation_text(decision.evidence_coverage))}"
+        )
+    if agent_summary and agent_summary.first_recommended_action:
+        lines.append(_agent_next_action_line(agent_summary.first_recommended_action))
+    fp = decision.fail_policy
+    lines.append(
+        f"Fail policy: ci_mode=`{fp.ci_mode}`, "
+        f"would_fail_ci=`{str(fp.would_fail_ci).lower()}` "
+        f"(exit `{fp.exit_code}`)"
+    )
+    lines.append(f"Static-verdict boundary: {STATIC_VERDICT_DISCLAIMER}")
+    return lines
+
+
+def _append_cold_reader_lead(lines: list[str], report: ReadinessReport) -> None:
+    lines.append("### Capability surface")
+    for line in surface_lead(report).text_lines():
+        lines.append(_safe_markdown_text(line))
+    groups = capability_delta_by_subject(report)
+    if groups:
+        lines.extend(["", "### Capability delta by subject"])
+        for group in groups:
+            lines.append(f"- `{_safe_markdown_text(group.subject)}`")
+            for change in group.changes:
+                lines.append(f"  - {_safe_markdown_text(change)}")
+    finding_lines = top_findings_block(
+        roll_up_findings(report),
+        group_limit=4,
+        row_limit=3,
+        escape=_safe_markdown_text,
+        heading="Findings by subject",
+        bullet="- ",
+        row_prefix="  - ",
+    )
+    lines.extend(["", "### Findings", *finding_lines, ""])
 
 
 def _agent_next_action_line(action) -> str:

@@ -25,6 +25,12 @@ from agents_shipgate.core.findings.subject_rollup import (
     top_findings_block,
 )
 from agents_shipgate.core.source_warnings import group_source_warnings
+from agents_shipgate.report.human_order import (
+    HumanArtifactContext,
+    capability_delta_by_subject,
+    should_render_surface_first,
+    surface_lead,
+)
 from agents_shipgate.report.summary_text import (
     evidence_coverage_text,
     primary_evidence_remediation_text,
@@ -367,6 +373,7 @@ def _run_multi_scan(
         if out is not None:
             output_dir = out / _safe_output_name(config_path)
         try:
+            captured_contexts: list[HumanArtifactContext] = []
             report, scan_exit_code = run_scan(
                 config_path=config_path,
                 output_dir=output_dir,
@@ -384,7 +391,9 @@ def _run_multi_scan(
                 packet_enabled=packet_enabled,
                 packet_formats=packet_formats,
                 no_heuristics=no_heuristics,
+                human_context_callback=captured_contexts.append,
             )
+            human_context = captured_contexts[-1]
         except ConfigError as exc:
             scan_exit_code = 2
             typer.echo(f"{config_path}: config_error - {exc}", err=True)
@@ -415,6 +424,8 @@ def _run_multi_scan(
             # release_decision (older baselines loaded for diff, etc.).
             decision = report.release_decision
             if decision is not None:
+                if should_render_surface_first(report, context=human_context):
+                    _print_multi_cold_reader_lead(config_path, report)
                 typer.echo(
                     f"{config_path}: {decision.decision} "
                     f"(blockers={len(decision.blockers)}, "
@@ -434,6 +445,23 @@ def _run_multi_scan(
     return exit_code
 
 
+def _print_multi_cold_reader_lead(config_path: Path, report) -> None:
+    prefix = f"{config_path}: "
+    for line in surface_lead(report).text_lines():
+        typer.echo(f"{prefix}{line}")
+    for group in capability_delta_by_subject(report):
+        typer.echo(f"{prefix}Delta — {group.subject}")
+        for change in group.changes:
+            typer.echo(f"{prefix}  - {change}")
+    for line in top_findings_block(
+        roll_up_findings(report),
+        group_limit=_CLI_SUBJECT_LIMIT,
+        row_limit=_CLI_ROW_LIMIT,
+        heading="Findings by subject",
+    ):
+        typer.echo(f"{prefix}{line}")
+
+
 def _safe_output_name(config_path: Path) -> str:
     parent = config_path.parent
     try:
@@ -447,59 +475,25 @@ def _safe_output_name(config_path: Path) -> str:
     return safe or "root"
 
 
-def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = False) -> None:
+def _print_cli_summary(
+    report,
+    ci_mode: str,
+    exit_code: int,
+    *,
+    verbose: bool = False,
+    human_context: HumanArtifactContext | None = None,
+) -> None:
     summary = report.summary
-    decision = report.release_decision
     typer.echo(f"Agents Shipgate {__version__}")
     typer.echo("")
     typer.echo(f"Project: {report.project.get('name')}")
     typer.echo(f"Agent: {report.agent.get('name')}")
     typer.echo(f"Target: {report.environment.get('target')}")
     typer.echo("")
-    if decision is not None:
-        typer.echo(f"Decision: {decision.decision}")
-        if report.agent_summary:
-            typer.echo(f"Summary: {report.agent_summary.headline}")
-        typer.echo(f"Reason: {decision.reason}")
-        typer.echo(f"Blockers: {len(decision.blockers)}")
-        typer.echo(f"Review items: {len(decision.review_items)}")
-        ev = decision.evidence_coverage
-        typer.echo(f"Evidence coverage: {evidence_coverage_text(ev)}")
-        # The finish line, on its own line. A gap count says how much is wrong;
-        # this says how much is left, which is the only one of the two a person
-        # adopting the tool can act on (#410 increment 2). Printed for every
-        # verdict, including `passed`: "N of N answered" is the sentence that
-        # tells a reviewer the declarations behind a green run are complete.
-        declarations = progress_sentence(ev.semantic_coverage.declaration_questions)
-        if declarations:
-            typer.echo(declarations)
-        if decision.decision == "insufficient_evidence":
-            typer.echo(f"Improve evidence: {primary_evidence_remediation_text(ev)}")
-        if report.agent_summary and report.agent_summary.first_recommended_action:
-            action = report.agent_summary.first_recommended_action
-            if action.command:
-                typer.echo(f"Next action: {action.command}")
-            else:
-                typer.echo(f"Next action: {action.why}")
-        bd = decision.baseline_delta
-        if bd.enabled:
-            typer.echo(
-                "Baseline delta: "
-                f"matched={bd.matched_count}, new={bd.new_count}, "
-                f"resolved={bd.resolved_count}"
-            )
-        else:
-            typer.echo("Baseline delta: not enabled")
-        fp = decision.fail_policy
-        fail_on_text = ", ".join(fp.fail_on) if fp.fail_on else "none"
-        typer.echo(
-            f"Fail policy: ci_mode={fp.ci_mode}, fail_on=[{fail_on_text}], "
-            f"new_findings_only={str(fp.new_findings_only).lower()}, "
-            f"would_fail_ci={str(fp.would_fail_ci).lower()}"
-        )
-        typer.echo(f"Static-verdict boundary: {STATIC_VERDICT_DISCLAIMER}")
-    else:
-        typer.echo("Decision: (not recorded)")
+    surface_first = should_render_surface_first(report, context=human_context)
+    if surface_first:
+        _print_cold_reader_lead(report)
+    _print_decision_summary(report)
     typer.echo("")
     typer.echo(
         f"Counts: critical={summary.critical_count}, high={summary.high_count}, "
@@ -566,17 +560,18 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
             distinct = f" ({len(warning_groups)} distinct {noun})"
         typer.echo(f"Source warnings: {len(report.source_warnings)}{distinct}")
     typer.echo("")
-    # Grouped by subject, not by severity (#364). Five subjects with their
-    # rows beats three rows of one check family repeated over sibling tools:
-    # the reader picks a tool to open, and severity is what it says about that
-    # tool rather than what orders the list.
-    for line in top_findings_block(
-        roll_up_findings(report),
-        group_limit=_CLI_SUBJECT_LIMIT,
-        row_limit=_CLI_ROW_LIMIT,
-    ):
-        typer.echo(line)
-    typer.echo("")
+    if not surface_first:
+        # Grouped by subject, not by severity (#364). Five subjects with their
+        # rows beats three rows of one check family repeated over sibling tools:
+        # the reader picks a tool to open, and severity is what it says about that
+        # tool rather than what orders the list.
+        for line in top_findings_block(
+            roll_up_findings(report),
+            group_limit=_CLI_SUBJECT_LIMIT,
+            row_limit=_CLI_ROW_LIMIT,
+        ):
+            typer.echo(line)
+        typer.echo("")
     typer.echo("Reports:")
     for path in report.generated_reports.values():
         typer.echo(f"- {path}")
@@ -589,6 +584,76 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
     typer.echo("")
     typer.echo(f"CI mode: {ci_mode}")
     typer.echo(f"Exit code: {exit_code}")
+
+
+def _print_decision_summary(report) -> None:
+    decision = report.release_decision
+    if decision is not None:
+        typer.echo(f"Decision: {decision.decision}")
+        if report.agent_summary:
+            typer.echo(f"Summary: {report.agent_summary.headline}")
+        typer.echo(f"Reason: {decision.reason}")
+        typer.echo(f"Blockers: {len(decision.blockers)}")
+        typer.echo(f"Review items: {len(decision.review_items)}")
+        ev = decision.evidence_coverage
+        typer.echo(f"Evidence coverage: {evidence_coverage_text(ev)}")
+        # The finish line, on its own line. A gap count says how much is wrong;
+        # this says how much is left, which is the only one of the two a person
+        # adopting the tool can act on (#410 increment 2). Printed for every
+        # verdict, including `passed`: "N of N answered" is the sentence that
+        # tells a reviewer the declarations behind a green run are complete.
+        declarations = progress_sentence(ev.semantic_coverage.declaration_questions)
+        if declarations:
+            typer.echo(declarations)
+        if decision.decision == "insufficient_evidence":
+            typer.echo(f"Improve evidence: {primary_evidence_remediation_text(ev)}")
+        if report.agent_summary and report.agent_summary.first_recommended_action:
+            action = report.agent_summary.first_recommended_action
+            if action.command:
+                typer.echo(f"Next action: {action.command}")
+            else:
+                typer.echo(f"Next action: {action.why}")
+        bd = decision.baseline_delta
+        if bd.enabled:
+            typer.echo(
+                "Baseline delta: "
+                f"matched={bd.matched_count}, new={bd.new_count}, "
+                f"resolved={bd.resolved_count}"
+            )
+        else:
+            typer.echo("Baseline delta: not enabled")
+        fp = decision.fail_policy
+        fail_on_text = ", ".join(fp.fail_on) if fp.fail_on else "none"
+        typer.echo(
+            f"Fail policy: ci_mode={fp.ci_mode}, fail_on=[{fail_on_text}], "
+            f"new_findings_only={str(fp.new_findings_only).lower()}, "
+            f"would_fail_ci={str(fp.would_fail_ci).lower()}"
+        )
+        typer.echo(f"Static-verdict boundary: {STATIC_VERDICT_DISCLAIMER}")
+    else:
+        typer.echo("Decision: (not recorded)")
+
+
+def _print_cold_reader_lead(report) -> None:
+    for line in surface_lead(report).text_lines():
+        typer.echo(line)
+    groups = capability_delta_by_subject(report)
+    if groups:
+        typer.echo("")
+        typer.echo("Capability delta by subject:")
+        for group in groups:
+            typer.echo(f"- {group.subject}")
+            for change in group.changes:
+                typer.echo(f"  - {change}")
+    typer.echo("")
+    for line in top_findings_block(
+        roll_up_findings(report),
+        group_limit=_CLI_SUBJECT_LIMIT,
+        row_limit=_CLI_ROW_LIMIT,
+        heading="Findings by subject",
+    ):
+        typer.echo(line)
+    typer.echo("")
 
 
 def _tool_surface_diff_has_changes(summary) -> bool:
@@ -628,4 +693,3 @@ def _action_surface_has_signal(summary) -> bool:
             summary.blocking_findings,
         )
     )
-

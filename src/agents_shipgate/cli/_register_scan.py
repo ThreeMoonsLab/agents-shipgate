@@ -391,6 +391,7 @@ def register(app: typer.Typer) -> None:
                     }
                 )
             if len(config_paths) == 1:
+                captured_contexts = []
                 report, exit_code = run_scan(
                     config_path=config_paths[0],
                     output_dir=out,
@@ -409,11 +410,19 @@ def register(app: typer.Typer) -> None:
                     packet_formats=parsed_packet_formats,
                     no_heuristics=no_heuristics,
                     verification_context=verification_context,
+                    human_context_callback=captured_contexts.append,
                 )
+                human_context = captured_contexts[-1]
                 exit_code = _apply_strict_plugins(
                     report, exit_code, strict_plugins=strict_plugins
                 )
-                _print_cli_summary(report, ci_mode or "advisory", exit_code, verbose=verbose)
+                _print_cli_summary(
+                    report,
+                    ci_mode or "advisory",
+                    exit_code,
+                    verbose=verbose,
+                    human_context=human_context,
+                )
                 raise typer.Exit(exit_code)
             exit_code = _run_multi_scan(
                 config_paths=config_paths,
