@@ -1,0 +1,2596 @@
+{
+  "schema_version": "0.1",
+  "report_schema_version": "0.42",
+  "run_id": "agents_shipgate_036ea97ed643dd47",
+  "request_id": null,
+  "subject_id": null,
+  "input_set_id": null,
+  "engine_requirement_id": null,
+  "decision_id": null,
+  "manifest_dir": "<REPO>/samples/declaration_repair_agent",
+  "project": {
+    "name": "declaration-repair-agent"
+  },
+  "agent": {
+    "id": "agent:declaration-repair-agent/support-billing-agent",
+    "name": "support-billing-agent",
+    "source": {
+      "source": "manifest"
+    },
+    "instructions": {
+      "value_preview": null,
+      "source": "dynamic_unknown",
+      "confidence": "medium"
+    },
+    "declared_purpose": [
+      "close support cases and stop queued billing mail"
+    ],
+    "prohibited_actions": [],
+    "tools": [
+      "support.delete_case_message",
+      "billing.cancel_invoice_email"
+    ],
+    "tool_ids": [
+      "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+      "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296"
+    ],
+    "handoffs": [],
+    "guardrails": {
+      "input": "unknown",
+      "output": "unknown",
+      "tool": "unknown",
+      "source": "unknown"
+    },
+    "extraction": {
+      "method": "config_assisted",
+      "confidence": "medium",
+      "missing_fields": [
+        "runtime_traces"
+      ],
+      "dynamic_fields": []
+    }
+  },
+  "environment": {
+    "target": "production_like"
+  },
+  "summary": {
+    "status": "no_release_blockers_detected",
+    "critical_count": 0,
+    "high_count": 0,
+    "medium_count": 0,
+    "low_count": 0,
+    "info_count": 0,
+    "suppressed_count": 0,
+    "human_review_recommended": false,
+    "evidence_coverage": "static"
+  },
+  "release_decision": {
+    "decision": "insufficient_evidence",
+    "reason": "Insufficient evidence: a declared effect does not account for the evidence inferred for it (billing.cancel_invoice_email [ops_tools]). Fix at shipgate.yaml#action_surface.actions[tool='billing.cancel_invoice_email']. Context: 2 semantic evidence gap(s); scan results are not trustworthy enough to gate release.",
+    "blockers": [],
+    "review_items": [],
+    "evidence_coverage": {
+      "level": "static",
+      "human_review_recommended": false,
+      "source_warning_count": 0,
+      "low_confidence_tool_count": 0,
+      "evidence_gaps": [
+        {
+          "kind": "declaration_below_inferred_evidence",
+          "subject": "billing.cancel_invoice_email [ops_tools]",
+          "subject_id": "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+          "subject_kind": "action",
+          "source_type": "mcp",
+          "source_ref": "action_surface.actions[tool='billing.cancel_invoice_email'].effect",
+          "why": "declared effect 'external_communication' is weaker than inferred 'destructive' evidence (risk_hint:keyword)",
+          "next_action": {
+            "kind": "resolve_semantic_conflict",
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "path": "shipgate.yaml#action_surface.actions[tool='billing.cancel_invoice_email']",
+            "why": "A declaration that does not account for inferred evidence is accepted, but not silently.",
+            "expects": "Set action_surface.actions[].risk_tags: [financial_write, destructive] so the destructive controls apply to this action, or acknowledge the difference with an override naming the evidence you checked and why it does not apply, then rerun verification. A ready-to-review block is written to suggested-declarations.yaml next to report.json.",
+            "accepted_values": [
+              "financial_write",
+              "destructive"
+            ],
+            "authorable_by": "human",
+            "suggested_patch_kind": "manual",
+            "declaration_template": {
+              "tool": "billing.cancel_invoice_email",
+              "tool_id": "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+              "source_id": "ops_tools",
+              "risk_tags": [
+                "financial_write",
+                "destructive"
+              ],
+              "override": {
+                "evidence": "<REVIEW_REQUIRED>",
+                "reason": "<REVIEW_REQUIRED>"
+              },
+              "basis": "confirmed:b0a27d56c3ac"
+            },
+            "patch": null,
+            "observed_readings": [
+              {
+                "effect": "external_communication",
+                "sources": [
+                  "risk_hint:keyword"
+                ],
+                "observed": true,
+                "policy_eligible": false
+              },
+              {
+                "effect": "financial_write",
+                "sources": [
+                  "risk_hint:keyword"
+                ],
+                "observed": true,
+                "policy_eligible": false
+              },
+              {
+                "effect": "destructive",
+                "sources": [
+                  "risk_hint:keyword"
+                ],
+                "observed": true,
+                "policy_eligible": false
+              }
+            ],
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
+        {
+          "kind": "declaration_below_inferred_evidence",
+          "subject": "support.delete_case_message [ops_tools]",
+          "subject_id": "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+          "subject_kind": "action",
+          "source_type": "mcp",
+          "source_ref": "action_surface.actions[tool='support.delete_case_message'].effect",
+          "why": "declared effect 'external_communication' is weaker than inferred 'destructive' evidence (risk_hint:keyword)",
+          "next_action": {
+            "kind": "resolve_semantic_conflict",
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "path": "shipgate.yaml#action_surface.actions[tool='support.delete_case_message']",
+            "why": "A declaration that does not account for inferred evidence is accepted, but not silently.",
+            "expects": "Set action_surface.actions[].risk_tags: [destructive] so the destructive controls apply to this action, or acknowledge the difference with an override naming the evidence you checked and why it does not apply, then rerun verification. A ready-to-review block is written to suggested-declarations.yaml next to report.json.",
+            "accepted_values": [
+              "destructive"
+            ],
+            "authorable_by": "human",
+            "suggested_patch_kind": "manual",
+            "declaration_template": {
+              "tool": "support.delete_case_message",
+              "tool_id": "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+              "source_id": "ops_tools",
+              "risk_tags": [
+                "destructive"
+              ],
+              "override": {
+                "evidence": "<REVIEW_REQUIRED>",
+                "reason": "<REVIEW_REQUIRED>"
+              },
+              "basis": "confirmed:c409e3602533"
+            },
+            "patch": null,
+            "observed_readings": [
+              {
+                "effect": "external_communication",
+                "sources": [
+                  "risk_hint:keyword"
+                ],
+                "observed": true,
+                "policy_eligible": false
+              },
+              {
+                "effect": "destructive",
+                "sources": [
+                  "risk_hint:keyword"
+                ],
+                "observed": true,
+                "policy_eligible": false
+              }
+            ],
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
+        {
+          "kind": "mixed_policy_evidence",
+          "subject": "billing.cancel_invoice_email [ops_tools]",
+          "subject_id": "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+          "subject_kind": "action",
+          "source_type": null,
+          "source_ref": "tools.json",
+          "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
+          "next_action": {
+            "kind": "review_policy_evidence",
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "path": "shipgate.yaml#action_surface.actions[tool='billing.cancel_invoice_email'].effect",
+            "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
+            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+            "accepted_values": [
+              "reviewed_declaration",
+              "protocol_structure",
+              "typed_provider_fact",
+              "structural_scope"
+            ],
+            "authorable_by": "human",
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
+            "patch": null,
+            "observed_readings": [],
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
+        {
+          "kind": "mixed_policy_evidence",
+          "subject": "support.delete_case_message [ops_tools]",
+          "subject_id": "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+          "subject_kind": "action",
+          "source_type": null,
+          "source_ref": "tools.json",
+          "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
+          "next_action": {
+            "kind": "review_policy_evidence",
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "path": "shipgate.yaml#action_surface.actions[tool='support.delete_case_message'].effect",
+            "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
+            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+            "accepted_values": [
+              "reviewed_declaration",
+              "protocol_structure",
+              "typed_provider_fact",
+              "structural_scope"
+            ],
+            "authorable_by": "human",
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
+            "patch": null,
+            "observed_readings": [],
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        }
+      ],
+      "semantic_coverage": {
+        "total_actions": 2,
+        "pass_eligible_actions": 0,
+        "gap_count": 2,
+        "review_concern_count": 0,
+        "reason_counts": {
+          "declaration_below_inferred_evidence": 2
+        },
+        "acknowledged_overrides": [],
+        "declaration_questions": {
+          "total": 4,
+          "answered": 2,
+          "open": 2,
+          "open_by_dimension": {
+            "effect": 2
+          },
+          "open_questions": [
+            {
+              "subject": "billing.cancel_invoice_email [ops_tools]",
+              "subject_id": "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+              "subject_kind": "action",
+              "answer_path": "shipgate.yaml#action_surface.actions[tool='billing.cancel_invoice_email']",
+              "dimension": "effect",
+              "authorable_by": "human"
+            },
+            {
+              "subject": "support.delete_case_message [ops_tools]",
+              "subject_id": "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+              "subject_kind": "action",
+              "answer_path": "shipgate.yaml#action_surface.actions[tool='support.delete_case_message']",
+              "dimension": "effect",
+              "authorable_by": "human"
+            }
+          ]
+        }
+      },
+      "identity_coverage": {
+        "total_observations": 2,
+        "canonical_tools": 2,
+        "bound_tools": 0,
+        "pass_eligible_tools": 2,
+        "ambiguous_name_count": 0,
+        "gap_count": 0,
+        "reason_counts": {}
+      },
+      "binding_coverage": {
+        "total_catalog_tools": 2,
+        "reachable_tools": 2,
+        "possible_tools": 0,
+        "unbound_tools": 0,
+        "pass_eligible": true,
+        "gap_count": 0,
+        "reason_counts": {}
+      },
+      "policy_gap_count": 2
+    },
+    "baseline_delta": {
+      "enabled": false,
+      "path": null,
+      "matched_count": 0,
+      "new_count": 0,
+      "resolved_count": 0
+    },
+    "fail_policy": {
+      "ci_mode": "advisory",
+      "fail_on": [],
+      "new_findings_only": false,
+      "would_fail_ci": false,
+      "exit_code": 0
+    },
+    "static_analysis_only": true,
+    "runtime_behavior_verified": false,
+    "static_verdict_disclaimer": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
+    "contribution_rules": []
+  },
+  "capability_facts": [
+    {
+      "id": "cap_37df55479a1ae66b",
+      "tool_id": "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+      "tool_name": "billing.cancel_invoice_email",
+      "source_type": "mcp",
+      "source_id": "ops_tools",
+      "source_ref": "tools.json",
+      "capability": "financial_action",
+      "effect": "destructive",
+      "semantic_assessment": {
+        "conservative_effect": "destructive",
+        "identity": {
+          "tool_id": "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+          "status": "structural",
+          "provider": "ops_tools",
+          "binding_id": null,
+          "primary_observation_id": "obs_v1_b5a221bad84caac9323894bb007b465bd5c93d0839871e0a346f1723fc627e0f",
+          "observation_ids": [
+            "obs_v1_b5a221bad84caac9323894bb007b465bd5c93d0839871e0a346f1723fc627e0f"
+          ],
+          "claims": [
+            {
+              "claim_id": "clm_9c8b87ef9b7aba9531b8",
+              "dimension": "identity",
+              "value": "obs_v1_b5a221bad84caac9323894bb007b465bd5c93d0839871e0a346f1723fc627e0f",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
+              "source": "source_observation",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "source_type": "mcp",
+                "source_id": "ops_tools",
+                "native_locator": "billing.cancel_invoice_email"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:1c086880a0b384cb0ab5dbe0",
+          "reachable_path": [
+            "agent_v1:1c086880a0b384cb0ab5dbe0",
+            "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296"
+          ],
+          "claims": [
+            {
+              "claim_id": "clm_105a19fb16f4d400a59b",
+              "dimension": "binding",
+              "value": "agent_v1:1c086880a0b384cb0ab5dbe0->tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "tool_source_binding_declaration",
+              "source_pointer": "/tool_sources/0/binding",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "claim_id": "clm_ae2346a2c45cb1c93269",
+              "dimension": "effect",
+              "value": "financial_write",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "action_risk_tag_declaration",
+              "source_pointer": "action_surface.actions[tool='billing.cancel_invoice_email'].risk_tags",
+              "evidence": {
+                "tag": "financial_write"
+              }
+            },
+            {
+              "claim_id": "clm_9fb961d366a64fc99cb7",
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='billing.cancel_invoice_email'].effect",
+              "evidence": {
+                "declared_risk_tags": [
+                  "financial_write"
+                ]
+              }
+            },
+            {
+              "claim_id": "clm_15eedd39b4c31f328de7",
+              "dimension": "effect",
+              "value": "destructive",
+              "confidence": "medium",
+              "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "destructive",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "claim_id": "clm_f0196c0c4caab8cd8ecd",
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "customer_communication",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "claim_id": "clm_b56eed6a901658bae650",
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "external_write",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "claim_id": "clm_2b65289d9beaa84b8bad",
+              "dimension": "effect",
+              "value": "financial_write",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "financial_action",
+                "hint_source": "keyword",
+                "scopes": []
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "declaration_below_inferred_evidence",
+              "dimension": "effect",
+              "message": "declared effect 'external_communication' is weaker than inferred 'destructive' evidence (risk_hint:keyword)",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='billing.cancel_invoice_email'].effect"
+            }
+          ]
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "none",
+          "auth_type": null,
+          "credential_mode": null,
+          "scopes": [],
+          "claims": [
+            {
+              "claim_id": "clm_8dc16a5a64fdf69f84dc",
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='billing.cancel_invoice_email'].authority",
+              "evidence": {
+                "auth_type": null,
+                "credential_mode": null,
+                "scopes": []
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      },
+      "risk_tags": [
+        "customer_communication",
+        "destructive",
+        "external_write",
+        "financial_action"
+      ],
+      "auth_scopes": [],
+      "owner": "billing-platform",
+      "included_reason": "high_risk_tag",
+      "control_status": "present",
+      "related_findings": []
+    },
+    {
+      "id": "cap_4e9ff2665fe753f5",
+      "tool_id": "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+      "tool_name": "support.delete_case_message",
+      "source_type": "mcp",
+      "source_id": "ops_tools",
+      "source_ref": "tools.json",
+      "capability": "destructive",
+      "effect": "destructive",
+      "semantic_assessment": {
+        "conservative_effect": "destructive",
+        "identity": {
+          "tool_id": "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+          "status": "structural",
+          "provider": "ops_tools",
+          "binding_id": null,
+          "primary_observation_id": "obs_v1_ac0d2cf1134d6e56cc88794c759309ab52f0cb150d5e3a131125c733dd79a043",
+          "observation_ids": [
+            "obs_v1_ac0d2cf1134d6e56cc88794c759309ab52f0cb150d5e3a131125c733dd79a043"
+          ],
+          "claims": [
+            {
+              "claim_id": "clm_61ca2441971ac2bf2364",
+              "dimension": "identity",
+              "value": "obs_v1_ac0d2cf1134d6e56cc88794c759309ab52f0cb150d5e3a131125c733dd79a043",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
+              "source": "source_observation",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "source_type": "mcp",
+                "source_id": "ops_tools",
+                "native_locator": "support.delete_case_message"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:1c086880a0b384cb0ab5dbe0",
+          "reachable_path": [
+            "agent_v1:1c086880a0b384cb0ab5dbe0",
+            "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408"
+          ],
+          "claims": [
+            {
+              "claim_id": "clm_b49648ed926ee6ba3faa",
+              "dimension": "binding",
+              "value": "agent_v1:1c086880a0b384cb0ab5dbe0->tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "tool_source_binding_declaration",
+              "source_pointer": "/tool_sources/0/binding",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "claim_id": "clm_c64cc3e4a99c5aaa0e6d",
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='support.delete_case_message'].effect",
+              "evidence": {}
+            },
+            {
+              "claim_id": "clm_e9285b9307ebccf37292",
+              "dimension": "effect",
+              "value": "destructive",
+              "confidence": "medium",
+              "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "tag": "destructive",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "claim_id": "clm_2677532ed73518be05c3",
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "tag": "customer_communication",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "claim_id": "clm_37f20db694e5781dc257",
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "tag": "external_write",
+                "hint_source": "keyword"
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "declaration_below_inferred_evidence",
+              "dimension": "effect",
+              "message": "declared effect 'external_communication' is weaker than inferred 'destructive' evidence (risk_hint:keyword)",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='support.delete_case_message'].effect"
+            }
+          ]
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "none",
+          "auth_type": null,
+          "credential_mode": null,
+          "scopes": [],
+          "claims": [
+            {
+              "claim_id": "clm_69eac0594a047634506f",
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='support.delete_case_message'].authority",
+              "evidence": {
+                "auth_type": null,
+                "credential_mode": null,
+                "scopes": []
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      },
+      "risk_tags": [
+        "customer_communication",
+        "destructive",
+        "external_write"
+      ],
+      "auth_scopes": [],
+      "owner": "support-ops",
+      "included_reason": "high_risk_tag",
+      "control_status": "present",
+      "related_findings": []
+    }
+  ],
+  "declared_intentions": [
+    {
+      "id": "int_1a09d01d36531b1f",
+      "kind": "declared_purpose",
+      "text": "close support cases and stop queued billing mail",
+      "source": "agent.declared_purpose",
+      "intent_tags": [
+        "financial_action"
+      ]
+    }
+  ],
+  "misalignments": [],
+  "release_consequence": {
+    "decision": "insufficient_evidence",
+    "summary": "Static evidence is incomplete; capability/intent analysis may miss release-relevant signal \u2014 gather deeper sources before shipping.",
+    "blocker_misalignment_count": 0,
+    "review_misalignment_count": 0,
+    "fail_policy": {
+      "ci_mode": "advisory",
+      "fail_on": [],
+      "new_findings_only": false,
+      "would_fail_ci": false,
+      "exit_code": 0
+    }
+  },
+  "suggested_scenarios": [],
+  "tool_surface": {
+    "total_tools": 2,
+    "high_risk_tools": 2,
+    "sources": {
+      "mcp": 2
+    },
+    "wildcard_tools": 0,
+    "missing_descriptions": 0
+  },
+  "tool_surface_facts": {
+    "tools": [
+      {
+        "tool_id": "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+        "name": "support.delete_case_message",
+        "provider": "ops_tools",
+        "source_type": "mcp",
+        "source_id": "ops_tools",
+        "source_ref": "tools.json",
+        "risk_tags": [
+          "customer_communication",
+          "destructive",
+          "external_write"
+        ],
+        "auth_scopes": [],
+        "owner": "support-ops",
+        "extraction_confidence": "high",
+        "has_description": true,
+        "hashes": {
+          "source_ref": "c337467633a32f4e",
+          "description": "6ee43fc7e30825d2",
+          "input_schema": "4afee0e7504c0dcf",
+          "output_schema": "44136fa355b3678a",
+          "parameters": "2161471c1dbc3bde",
+          "annotations": "44136fa355b3678a"
+        }
+      },
+      {
+        "tool_id": "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+        "name": "billing.cancel_invoice_email",
+        "provider": "ops_tools",
+        "source_type": "mcp",
+        "source_id": "ops_tools",
+        "source_ref": "tools.json",
+        "risk_tags": [
+          "customer_communication",
+          "destructive",
+          "external_write",
+          "financial_action"
+        ],
+        "auth_scopes": [],
+        "owner": "billing-platform",
+        "extraction_confidence": "high",
+        "has_description": true,
+        "hashes": {
+          "source_ref": "c337467633a32f4e",
+          "description": "47729b4cd8a5203e",
+          "input_schema": "f49f3c4fb662c89c",
+          "output_schema": "44136fa355b3678a",
+          "parameters": "8d9e460729410aa8",
+          "annotations": "44136fa355b3678a"
+        }
+      }
+    ],
+    "scopes": [],
+    "controls": [
+      {
+        "kind": "confirmation_policy",
+        "tool": "support.delete_case_message",
+        "tool_id": "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+        "source": "manifest",
+        "reason": null
+      },
+      {
+        "kind": "confirmation_policy",
+        "tool": "billing.cancel_invoice_email",
+        "tool_id": "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+        "source": "manifest",
+        "reason": null
+      },
+      {
+        "kind": "idempotency_evidence",
+        "tool": "billing.cancel_invoice_email",
+        "tool_id": "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+        "source": "manifest",
+        "reason": null
+      }
+    ],
+    "policies": [
+      {
+        "kind": "policy.confirmation",
+        "key": "billing.cancel_invoice_email",
+        "value_hash": "d6130ad9059f8d02",
+        "summary": null
+      },
+      {
+        "kind": "policy.confirmation",
+        "key": "support.delete_case_message",
+        "value_hash": "6c3801ca78214478",
+        "summary": null
+      },
+      {
+        "kind": "policy.idempotency",
+        "key": "billing.cancel_invoice_email",
+        "value_hash": "d6130ad9059f8d02",
+        "summary": null
+      },
+      {
+        "kind": "risk_override",
+        "key": "billing.cancel_invoice_email",
+        "value_hash": "a23d9ce4c856a448",
+        "summary": "owns the invoice mail queue"
+      },
+      {
+        "kind": "risk_override",
+        "key": "support.delete_case_message",
+        "value_hash": "36bb1bb07d092ff0",
+        "summary": "owns the support case thread and its retention rules"
+      }
+    ]
+  },
+  "tool_surface_diff": {
+    "enabled": false,
+    "base": {
+      "kind": "none",
+      "path": null,
+      "report_schema_version": null,
+      "baseline_schema_version": null
+    },
+    "summary": {
+      "tools_added": 0,
+      "tools_removed": 0,
+      "tools_changed": 0,
+      "new_scopes": 0,
+      "removed_scopes": 0,
+      "new_high_risk_effects": 0,
+      "removed_high_risk_effects": 0,
+      "controls_added": 0,
+      "controls_removed": 0,
+      "metadata_changes": 0,
+      "policy_drift_items": 0,
+      "new_findings": 0,
+      "resolved_findings": 0,
+      "unchanged_findings": 0,
+      "accepted_debt": 0
+    },
+    "tools": [],
+    "high_risk_effects": [],
+    "scopes": [],
+    "controls": [],
+    "metadata_changes": [],
+    "policy_drift": [],
+    "finding_deltas": {
+      "new_findings": [],
+      "resolved_findings": [],
+      "unchanged_findings": [],
+      "accepted_debt": []
+    },
+    "notes": [
+      "No --diff-from report or v0.3 baseline snapshot was provided."
+    ]
+  },
+  "action_surface_facts": {
+    "snapshot_version": "0.4",
+    "actions": [
+      {
+        "action_id": "agent:declaration-repair-agent/support-billing-agent:action_v2_6361325c0b89dd5e50bd7069e42ace38e86c5a8ab6f3429513449fc2c043b381",
+        "agent_id": "agent:declaration-repair-agent/support-billing-agent",
+        "tool_id": "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+        "tool_name": "billing.cancel_invoice_email",
+        "provider": "ops_tools",
+        "source_type": "mcp",
+        "source_id": "ops_tools",
+        "source_ref": "tools.json",
+        "source_location": null,
+        "source_path": "tools.json",
+        "source_start_line": null,
+        "source_end_line": null,
+        "source_start_column": null,
+        "source_pointer": "/tools/1",
+        "operation": "billing.cancel_invoice_email",
+        "effect": "destructive",
+        "semantic_assessment": {
+          "conservative_effect": "destructive",
+          "identity": {
+            "tool_id": "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+            "status": "structural",
+            "provider": "ops_tools",
+            "binding_id": null,
+            "primary_observation_id": "obs_v1_b5a221bad84caac9323894bb007b465bd5c93d0839871e0a346f1723fc627e0f",
+            "observation_ids": [
+              "obs_v1_b5a221bad84caac9323894bb007b465bd5c93d0839871e0a346f1723fc627e0f"
+            ],
+            "claims": [
+              {
+                "claim_id": "clm_9c8b87ef9b7aba9531b8",
+                "dimension": "identity",
+                "value": "obs_v1_b5a221bad84caac9323894bb007b465bd5c93d0839871e0a346f1723fc627e0f",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "basis": "protocol_structure",
+                "policy_eligible": true,
+                "source": "source_observation",
+                "source_pointer": "/tools/1",
+                "evidence": {
+                  "source_type": "mcp",
+                  "source_id": "ops_tools",
+                  "native_locator": "billing.cancel_invoice_email"
+                }
+              }
+            ],
+            "issues": [],
+            "pass_eligible": true
+          },
+          "binding": {
+            "status": "declared",
+            "confidence": "high",
+            "root_agent_id": "agent_v1:1c086880a0b384cb0ab5dbe0",
+            "reachable_path": [
+              "agent_v1:1c086880a0b384cb0ab5dbe0",
+              "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296"
+            ],
+            "claims": [
+              {
+                "claim_id": "clm_105a19fb16f4d400a59b",
+                "dimension": "binding",
+                "value": "agent_v1:1c086880a0b384cb0ab5dbe0->tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
+                "source": "tool_source_binding_declaration",
+                "source_pointer": "/tool_sources/0/binding",
+                "evidence": {
+                  "edge_type": "direct_tool",
+                  "complete": true
+                }
+              }
+            ],
+            "issues": [],
+            "pass_eligible": true
+          },
+          "effect": {
+            "status": "declared",
+            "confidence": "high",
+            "claims": [
+              {
+                "claim_id": "clm_ae2346a2c45cb1c93269",
+                "dimension": "effect",
+                "value": "financial_write",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
+                "source": "action_risk_tag_declaration",
+                "source_pointer": "action_surface.actions[tool='billing.cancel_invoice_email'].risk_tags",
+                "evidence": {
+                  "tag": "financial_write"
+                }
+              },
+              {
+                "claim_id": "clm_9fb961d366a64fc99cb7",
+                "dimension": "effect",
+                "value": "external_communication",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
+                "source": "action_surface_declaration",
+                "source_pointer": "action_surface.actions[tool='billing.cancel_invoice_email'].effect",
+                "evidence": {
+                  "declared_risk_tags": [
+                    "financial_write"
+                  ]
+                }
+              },
+              {
+                "claim_id": "clm_15eedd39b4c31f328de7",
+                "dimension": "effect",
+                "value": "destructive",
+                "confidence": "medium",
+                "provenance_kind": "keyword_heuristic",
+                "basis": "inferred_keyword",
+                "policy_eligible": false,
+                "source": "risk_hint:keyword",
+                "source_pointer": "/tools/1",
+                "evidence": {
+                  "tag": "destructive",
+                  "hint_source": "keyword"
+                }
+              },
+              {
+                "claim_id": "clm_f0196c0c4caab8cd8ecd",
+                "dimension": "effect",
+                "value": "external_communication",
+                "confidence": "high",
+                "provenance_kind": "keyword_heuristic",
+                "basis": "inferred_keyword",
+                "policy_eligible": false,
+                "source": "risk_hint:keyword",
+                "source_pointer": "/tools/1",
+                "evidence": {
+                  "tag": "customer_communication",
+                  "hint_source": "keyword"
+                }
+              },
+              {
+                "claim_id": "clm_b56eed6a901658bae650",
+                "dimension": "effect",
+                "value": "external_communication",
+                "confidence": "high",
+                "provenance_kind": "keyword_heuristic",
+                "basis": "inferred_keyword",
+                "policy_eligible": false,
+                "source": "risk_hint:keyword",
+                "source_pointer": "/tools/1",
+                "evidence": {
+                  "tag": "external_write",
+                  "hint_source": "keyword"
+                }
+              },
+              {
+                "claim_id": "clm_2b65289d9beaa84b8bad",
+                "dimension": "effect",
+                "value": "financial_write",
+                "confidence": "high",
+                "provenance_kind": "keyword_heuristic",
+                "basis": "inferred_keyword",
+                "policy_eligible": false,
+                "source": "risk_hint:keyword",
+                "source_pointer": "/tools/1",
+                "evidence": {
+                  "tag": "financial_action",
+                  "hint_source": "keyword",
+                  "scopes": []
+                }
+              }
+            ],
+            "issues": [
+              {
+                "kind": "declaration_below_inferred_evidence",
+                "dimension": "effect",
+                "message": "declared effect 'external_communication' is weaker than inferred 'destructive' evidence (risk_hint:keyword)",
+                "source": "action_surface_declaration",
+                "source_pointer": "action_surface.actions[tool='billing.cancel_invoice_email'].effect"
+              }
+            ]
+          },
+          "authority": {
+            "status": "declared",
+            "mode": "none",
+            "auth_type": null,
+            "credential_mode": null,
+            "scopes": [],
+            "claims": [
+              {
+                "claim_id": "clm_8dc16a5a64fdf69f84dc",
+                "dimension": "authority",
+                "value": "none",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
+                "source": "action_surface_declaration",
+                "source_pointer": "action_surface.actions[tool='billing.cancel_invoice_email'].authority",
+                "evidence": {
+                  "auth_type": null,
+                  "credential_mode": null,
+                  "scopes": []
+                }
+              }
+            ],
+            "issues": []
+          },
+          "pass_eligible": false
+        },
+        "risk_tags": [
+          "destructive",
+          "external_communication",
+          "financial_write"
+        ],
+        "required_scopes": [],
+        "approval_policy": {
+          "required": true,
+          "threshold": null
+        },
+        "safeguards": {
+          "idempotency": true,
+          "audit_log": true,
+          "rollback": true,
+          "dry_run": null
+        },
+        "evidence": {
+          "owner": "billing-platform",
+          "runbook": null,
+          "approval_ticket": null
+        },
+        "input_fields": [
+          "invoice_id"
+        ],
+        "required_input_fields": [
+          "invoice_id"
+        ],
+        "input_schema_hash": "df3960af9d26ae41",
+        "hashes": {
+          "identity_hash": "fadf2a689fa15a76",
+          "schema_hash": "df3960af9d26ae41",
+          "policy_hash": "f980400a201fe243",
+          "risk_hash": "f2ca9e20fae91bfc"
+        }
+      },
+      {
+        "action_id": "agent:declaration-repair-agent/support-billing-agent:action_v2_afc9b517e112533f47139b2349d1755a0200bb155c1f2015aefce6d060114853",
+        "agent_id": "agent:declaration-repair-agent/support-billing-agent",
+        "tool_id": "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+        "tool_name": "support.delete_case_message",
+        "provider": "ops_tools",
+        "source_type": "mcp",
+        "source_id": "ops_tools",
+        "source_ref": "tools.json",
+        "source_location": null,
+        "source_path": "tools.json",
+        "source_start_line": null,
+        "source_end_line": null,
+        "source_start_column": null,
+        "source_pointer": "/tools/0",
+        "operation": "support.delete_case_message",
+        "effect": "destructive",
+        "semantic_assessment": {
+          "conservative_effect": "destructive",
+          "identity": {
+            "tool_id": "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+            "status": "structural",
+            "provider": "ops_tools",
+            "binding_id": null,
+            "primary_observation_id": "obs_v1_ac0d2cf1134d6e56cc88794c759309ab52f0cb150d5e3a131125c733dd79a043",
+            "observation_ids": [
+              "obs_v1_ac0d2cf1134d6e56cc88794c759309ab52f0cb150d5e3a131125c733dd79a043"
+            ],
+            "claims": [
+              {
+                "claim_id": "clm_61ca2441971ac2bf2364",
+                "dimension": "identity",
+                "value": "obs_v1_ac0d2cf1134d6e56cc88794c759309ab52f0cb150d5e3a131125c733dd79a043",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "basis": "protocol_structure",
+                "policy_eligible": true,
+                "source": "source_observation",
+                "source_pointer": "/tools/0",
+                "evidence": {
+                  "source_type": "mcp",
+                  "source_id": "ops_tools",
+                  "native_locator": "support.delete_case_message"
+                }
+              }
+            ],
+            "issues": [],
+            "pass_eligible": true
+          },
+          "binding": {
+            "status": "declared",
+            "confidence": "high",
+            "root_agent_id": "agent_v1:1c086880a0b384cb0ab5dbe0",
+            "reachable_path": [
+              "agent_v1:1c086880a0b384cb0ab5dbe0",
+              "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408"
+            ],
+            "claims": [
+              {
+                "claim_id": "clm_b49648ed926ee6ba3faa",
+                "dimension": "binding",
+                "value": "agent_v1:1c086880a0b384cb0ab5dbe0->tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
+                "source": "tool_source_binding_declaration",
+                "source_pointer": "/tool_sources/0/binding",
+                "evidence": {
+                  "edge_type": "direct_tool",
+                  "complete": true
+                }
+              }
+            ],
+            "issues": [],
+            "pass_eligible": true
+          },
+          "effect": {
+            "status": "declared",
+            "confidence": "high",
+            "claims": [
+              {
+                "claim_id": "clm_c64cc3e4a99c5aaa0e6d",
+                "dimension": "effect",
+                "value": "external_communication",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
+                "source": "action_surface_declaration",
+                "source_pointer": "action_surface.actions[tool='support.delete_case_message'].effect",
+                "evidence": {}
+              },
+              {
+                "claim_id": "clm_e9285b9307ebccf37292",
+                "dimension": "effect",
+                "value": "destructive",
+                "confidence": "medium",
+                "provenance_kind": "keyword_heuristic",
+                "basis": "inferred_keyword",
+                "policy_eligible": false,
+                "source": "risk_hint:keyword",
+                "source_pointer": "/tools/0",
+                "evidence": {
+                  "tag": "destructive",
+                  "hint_source": "keyword"
+                }
+              },
+              {
+                "claim_id": "clm_2677532ed73518be05c3",
+                "dimension": "effect",
+                "value": "external_communication",
+                "confidence": "high",
+                "provenance_kind": "keyword_heuristic",
+                "basis": "inferred_keyword",
+                "policy_eligible": false,
+                "source": "risk_hint:keyword",
+                "source_pointer": "/tools/0",
+                "evidence": {
+                  "tag": "customer_communication",
+                  "hint_source": "keyword"
+                }
+              },
+              {
+                "claim_id": "clm_37f20db694e5781dc257",
+                "dimension": "effect",
+                "value": "external_communication",
+                "confidence": "high",
+                "provenance_kind": "keyword_heuristic",
+                "basis": "inferred_keyword",
+                "policy_eligible": false,
+                "source": "risk_hint:keyword",
+                "source_pointer": "/tools/0",
+                "evidence": {
+                  "tag": "external_write",
+                  "hint_source": "keyword"
+                }
+              }
+            ],
+            "issues": [
+              {
+                "kind": "declaration_below_inferred_evidence",
+                "dimension": "effect",
+                "message": "declared effect 'external_communication' is weaker than inferred 'destructive' evidence (risk_hint:keyword)",
+                "source": "action_surface_declaration",
+                "source_pointer": "action_surface.actions[tool='support.delete_case_message'].effect"
+              }
+            ]
+          },
+          "authority": {
+            "status": "declared",
+            "mode": "none",
+            "auth_type": null,
+            "credential_mode": null,
+            "scopes": [],
+            "claims": [
+              {
+                "claim_id": "clm_69eac0594a047634506f",
+                "dimension": "authority",
+                "value": "none",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
+                "source": "action_surface_declaration",
+                "source_pointer": "action_surface.actions[tool='support.delete_case_message'].authority",
+                "evidence": {
+                  "auth_type": null,
+                  "credential_mode": null,
+                  "scopes": []
+                }
+              }
+            ],
+            "issues": []
+          },
+          "pass_eligible": false
+        },
+        "risk_tags": [
+          "destructive",
+          "external_communication"
+        ],
+        "required_scopes": [],
+        "approval_policy": {
+          "required": true,
+          "threshold": null
+        },
+        "safeguards": {
+          "idempotency": false,
+          "audit_log": true,
+          "rollback": true,
+          "dry_run": null
+        },
+        "evidence": {
+          "owner": "support-ops",
+          "runbook": null,
+          "approval_ticket": null
+        },
+        "input_fields": [
+          "case_id",
+          "message_id"
+        ],
+        "required_input_fields": [
+          "case_id",
+          "message_id"
+        ],
+        "input_schema_hash": "d8db32dbd3521df4",
+        "hashes": {
+          "identity_hash": "e48ad6b16a6371dd",
+          "schema_hash": "d8db32dbd3521df4",
+          "policy_hash": "118d14bd22ad1be6",
+          "risk_hash": "b01a49537682ea68"
+        }
+      }
+    ]
+  },
+  "action_surface_diff": {
+    "enabled": false,
+    "base": {
+      "kind": "none",
+      "path": null,
+      "report_schema_version": null,
+      "baseline_schema_version": null
+    },
+    "summary": {
+      "actions_added": 0,
+      "actions_removed": 0,
+      "actions_modified": 0,
+      "scope_expansions": 0,
+      "effect_escalations": 0,
+      "risk_tags_added": 0,
+      "approvals_removed": 0,
+      "safeguards_removed": 0,
+      "input_schema_expansions": 0,
+      "blocking_findings": 0
+    },
+    "added": [],
+    "removed": [],
+    "modified": [],
+    "notes": [
+      "No action-surface comparison source was provided."
+    ]
+  },
+  "binding_surface_facts": {
+    "root_agent_id": "agent_v1:1c086880a0b384cb0ab5dbe0",
+    "entry_point_agent_ids": [
+      "agent_v1:1c086880a0b384cb0ab5dbe0"
+    ],
+    "status": "declared",
+    "agents": [
+      {
+        "agent_id": "agent_v1:1c086880a0b384cb0ab5dbe0",
+        "name": "ops_tools",
+        "kind": "tool_source",
+        "source_id": "ops_tools",
+        "source_ref": "shipgate.yaml",
+        "source_pointer": "/tool_sources/0/binding"
+      }
+    ],
+    "tool_edges": [
+      {
+        "agent_id": "agent_v1:1c086880a0b384cb0ab5dbe0",
+        "tool_id": "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+        "edge_type": "direct_tool",
+        "confidence": "high",
+        "provenance_kind": "static_declaration",
+        "source": "tool_source_binding_declaration",
+        "source_pointer": "/tool_sources/0/binding",
+        "complete": true
+      },
+      {
+        "agent_id": "agent_v1:1c086880a0b384cb0ab5dbe0",
+        "tool_id": "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+        "edge_type": "direct_tool",
+        "confidence": "high",
+        "provenance_kind": "static_declaration",
+        "source": "tool_source_binding_declaration",
+        "source_pointer": "/tool_sources/0/binding",
+        "complete": true
+      }
+    ],
+    "handoff_edges": [],
+    "reachable_tool_ids": [
+      "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+      "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296"
+    ],
+    "possible_tool_ids": [],
+    "unbound_tool_ids": [],
+    "issues": [],
+    "pass_eligible": true
+  },
+  "binding_surface_diff": {
+    "enabled": false,
+    "base_comparison_requested": false,
+    "base_report_schema_version": null,
+    "added_reachable_tool_ids": [],
+    "removed_reachable_tool_ids": [],
+    "added_unbound_tool_ids": [],
+    "added_handoffs": [],
+    "removed_handoffs": [],
+    "notes": []
+  },
+  "capability_runtime_evidence": {
+    "enabled": false,
+    "summary": {
+      "source_count": 0,
+      "trace_count": 0,
+      "matched_trace_count": 0,
+      "unmatched_trace_count": 0,
+      "approval_trace_count": 0,
+      "agent_trace_count": 0,
+      "api_trace_count": 0,
+      "warning_count": 0
+    },
+    "matched": [],
+    "unmatched": [],
+    "source_provenance": [],
+    "notes": []
+  },
+  "api_surface": null,
+  "anthropic_surface": null,
+  "frameworks": {},
+  "codex_plugin_surface": null,
+  "baseline": null,
+  "findings": [],
+  "recommended_actions": [],
+  "generated_reports": {
+    "markdown": "expected/report.md",
+    "json": "expected/report.json"
+  },
+  "loaded_policy_packs": [],
+  "loaded_plugins": [],
+  "loaded_adapters": [],
+  "tool_inventory": [
+    {
+      "tool_id": "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+      "name": "support.delete_case_message",
+      "provider": "ops_tools",
+      "observation_ids": [
+        "obs_v1_ac0d2cf1134d6e56cc88794c759309ab52f0cb150d5e3a131125c733dd79a043"
+      ],
+      "source_type": "mcp",
+      "source_ref": "tools.json",
+      "source_path": "tools.json",
+      "source_start_line": null,
+      "source_pointer": "/tools/0",
+      "risk_tags": [
+        "customer_communication",
+        "destructive",
+        "external_write"
+      ],
+      "risk_tag_confidence": {
+        "customer_communication": "high",
+        "destructive": "medium",
+        "external_write": "high"
+      },
+      "auth_scopes": [],
+      "owner": "support-ops",
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "destructive",
+        "identity": {
+          "tool_id": "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+          "status": "structural",
+          "provider": "ops_tools",
+          "binding_id": null,
+          "primary_observation_id": "obs_v1_ac0d2cf1134d6e56cc88794c759309ab52f0cb150d5e3a131125c733dd79a043",
+          "observation_ids": [
+            "obs_v1_ac0d2cf1134d6e56cc88794c759309ab52f0cb150d5e3a131125c733dd79a043"
+          ],
+          "claims": [
+            {
+              "claim_id": "clm_61ca2441971ac2bf2364",
+              "dimension": "identity",
+              "value": "obs_v1_ac0d2cf1134d6e56cc88794c759309ab52f0cb150d5e3a131125c733dd79a043",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
+              "source": "source_observation",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "source_type": "mcp",
+                "source_id": "ops_tools",
+                "native_locator": "support.delete_case_message"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:1c086880a0b384cb0ab5dbe0",
+          "reachable_path": [
+            "agent_v1:1c086880a0b384cb0ab5dbe0",
+            "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408"
+          ],
+          "claims": [
+            {
+              "claim_id": "clm_b49648ed926ee6ba3faa",
+              "dimension": "binding",
+              "value": "agent_v1:1c086880a0b384cb0ab5dbe0->tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "tool_source_binding_declaration",
+              "source_pointer": "/tool_sources/0/binding",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "claim_id": "clm_c64cc3e4a99c5aaa0e6d",
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='support.delete_case_message'].effect",
+              "evidence": {}
+            },
+            {
+              "claim_id": "clm_e9285b9307ebccf37292",
+              "dimension": "effect",
+              "value": "destructive",
+              "confidence": "medium",
+              "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "tag": "destructive",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "claim_id": "clm_2677532ed73518be05c3",
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "tag": "customer_communication",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "claim_id": "clm_37f20db694e5781dc257",
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "tag": "external_write",
+                "hint_source": "keyword"
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "declaration_below_inferred_evidence",
+              "dimension": "effect",
+              "message": "declared effect 'external_communication' is weaker than inferred 'destructive' evidence (risk_hint:keyword)",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='support.delete_case_message'].effect"
+            }
+          ]
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "none",
+          "auth_type": null,
+          "credential_mode": null,
+          "scopes": [],
+          "claims": [
+            {
+              "claim_id": "clm_69eac0594a047634506f",
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='support.delete_case_message'].authority",
+              "evidence": {
+                "auth_type": null,
+                "credential_mode": null,
+                "scopes": []
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:1c086880a0b384cb0ab5dbe0",
+        "reachable_path": [
+          "agent_v1:1c086880a0b384cb0ab5dbe0",
+          "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408"
+        ],
+        "claims": [
+          {
+            "claim_id": "clm_b49648ed926ee6ba3faa",
+            "dimension": "binding",
+            "value": "agent_v1:1c086880a0b384cb0ab5dbe0->tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "basis": "reviewed_declaration",
+            "policy_eligible": true,
+            "source": "tool_source_binding_declaration",
+            "source_pointer": "/tool_sources/0/binding",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
+        "pass_eligible": true
+      }
+    },
+    {
+      "tool_id": "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+      "name": "billing.cancel_invoice_email",
+      "provider": "ops_tools",
+      "observation_ids": [
+        "obs_v1_b5a221bad84caac9323894bb007b465bd5c93d0839871e0a346f1723fc627e0f"
+      ],
+      "source_type": "mcp",
+      "source_ref": "tools.json",
+      "source_path": "tools.json",
+      "source_start_line": null,
+      "source_pointer": "/tools/1",
+      "risk_tags": [
+        "customer_communication",
+        "destructive",
+        "external_write",
+        "financial_action"
+      ],
+      "risk_tag_confidence": {
+        "customer_communication": "high",
+        "destructive": "medium",
+        "external_write": "high",
+        "financial_action": "high"
+      },
+      "auth_scopes": [],
+      "owner": "billing-platform",
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "destructive",
+        "identity": {
+          "tool_id": "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+          "status": "structural",
+          "provider": "ops_tools",
+          "binding_id": null,
+          "primary_observation_id": "obs_v1_b5a221bad84caac9323894bb007b465bd5c93d0839871e0a346f1723fc627e0f",
+          "observation_ids": [
+            "obs_v1_b5a221bad84caac9323894bb007b465bd5c93d0839871e0a346f1723fc627e0f"
+          ],
+          "claims": [
+            {
+              "claim_id": "clm_9c8b87ef9b7aba9531b8",
+              "dimension": "identity",
+              "value": "obs_v1_b5a221bad84caac9323894bb007b465bd5c93d0839871e0a346f1723fc627e0f",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
+              "source": "source_observation",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "source_type": "mcp",
+                "source_id": "ops_tools",
+                "native_locator": "billing.cancel_invoice_email"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:1c086880a0b384cb0ab5dbe0",
+          "reachable_path": [
+            "agent_v1:1c086880a0b384cb0ab5dbe0",
+            "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296"
+          ],
+          "claims": [
+            {
+              "claim_id": "clm_105a19fb16f4d400a59b",
+              "dimension": "binding",
+              "value": "agent_v1:1c086880a0b384cb0ab5dbe0->tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "tool_source_binding_declaration",
+              "source_pointer": "/tool_sources/0/binding",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "claim_id": "clm_ae2346a2c45cb1c93269",
+              "dimension": "effect",
+              "value": "financial_write",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "action_risk_tag_declaration",
+              "source_pointer": "action_surface.actions[tool='billing.cancel_invoice_email'].risk_tags",
+              "evidence": {
+                "tag": "financial_write"
+              }
+            },
+            {
+              "claim_id": "clm_9fb961d366a64fc99cb7",
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='billing.cancel_invoice_email'].effect",
+              "evidence": {
+                "declared_risk_tags": [
+                  "financial_write"
+                ]
+              }
+            },
+            {
+              "claim_id": "clm_15eedd39b4c31f328de7",
+              "dimension": "effect",
+              "value": "destructive",
+              "confidence": "medium",
+              "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "destructive",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "claim_id": "clm_f0196c0c4caab8cd8ecd",
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "customer_communication",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "claim_id": "clm_b56eed6a901658bae650",
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "external_write",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "claim_id": "clm_2b65289d9beaa84b8bad",
+              "dimension": "effect",
+              "value": "financial_write",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "financial_action",
+                "hint_source": "keyword",
+                "scopes": []
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "declaration_below_inferred_evidence",
+              "dimension": "effect",
+              "message": "declared effect 'external_communication' is weaker than inferred 'destructive' evidence (risk_hint:keyword)",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='billing.cancel_invoice_email'].effect"
+            }
+          ]
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "none",
+          "auth_type": null,
+          "credential_mode": null,
+          "scopes": [],
+          "claims": [
+            {
+              "claim_id": "clm_8dc16a5a64fdf69f84dc",
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='billing.cancel_invoice_email'].authority",
+              "evidence": {
+                "auth_type": null,
+                "credential_mode": null,
+                "scopes": []
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:1c086880a0b384cb0ab5dbe0",
+        "reachable_path": [
+          "agent_v1:1c086880a0b384cb0ab5dbe0",
+          "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296"
+        ],
+        "claims": [
+          {
+            "claim_id": "clm_105a19fb16f4d400a59b",
+            "dimension": "binding",
+            "value": "agent_v1:1c086880a0b384cb0ab5dbe0->tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "basis": "reviewed_declaration",
+            "policy_eligible": true,
+            "source": "tool_source_binding_declaration",
+            "source_pointer": "/tool_sources/0/binding",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
+        "pass_eligible": true
+      }
+    }
+  ],
+  "tool_catalog": [
+    {
+      "tool_id": "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+      "name": "support.delete_case_message",
+      "provider": "ops_tools",
+      "observation_ids": [
+        "obs_v1_ac0d2cf1134d6e56cc88794c759309ab52f0cb150d5e3a131125c733dd79a043"
+      ],
+      "source_type": "mcp",
+      "source_ref": "tools.json",
+      "source_path": "tools.json",
+      "source_start_line": null,
+      "source_pointer": "/tools/0",
+      "risk_tags": [
+        "customer_communication",
+        "destructive",
+        "external_write"
+      ],
+      "risk_tag_confidence": {
+        "customer_communication": "high",
+        "destructive": "medium",
+        "external_write": "high"
+      },
+      "auth_scopes": [],
+      "owner": "support-ops",
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "destructive",
+        "identity": {
+          "tool_id": "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+          "status": "structural",
+          "provider": "ops_tools",
+          "binding_id": null,
+          "primary_observation_id": "obs_v1_ac0d2cf1134d6e56cc88794c759309ab52f0cb150d5e3a131125c733dd79a043",
+          "observation_ids": [
+            "obs_v1_ac0d2cf1134d6e56cc88794c759309ab52f0cb150d5e3a131125c733dd79a043"
+          ],
+          "claims": [
+            {
+              "claim_id": "clm_61ca2441971ac2bf2364",
+              "dimension": "identity",
+              "value": "obs_v1_ac0d2cf1134d6e56cc88794c759309ab52f0cb150d5e3a131125c733dd79a043",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
+              "source": "source_observation",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "source_type": "mcp",
+                "source_id": "ops_tools",
+                "native_locator": "support.delete_case_message"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:1c086880a0b384cb0ab5dbe0",
+          "reachable_path": [
+            "agent_v1:1c086880a0b384cb0ab5dbe0",
+            "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408"
+          ],
+          "claims": [
+            {
+              "claim_id": "clm_b49648ed926ee6ba3faa",
+              "dimension": "binding",
+              "value": "agent_v1:1c086880a0b384cb0ab5dbe0->tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "tool_source_binding_declaration",
+              "source_pointer": "/tool_sources/0/binding",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "claim_id": "clm_c64cc3e4a99c5aaa0e6d",
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='support.delete_case_message'].effect",
+              "evidence": {}
+            },
+            {
+              "claim_id": "clm_e9285b9307ebccf37292",
+              "dimension": "effect",
+              "value": "destructive",
+              "confidence": "medium",
+              "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "tag": "destructive",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "claim_id": "clm_2677532ed73518be05c3",
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "tag": "customer_communication",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "claim_id": "clm_37f20db694e5781dc257",
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "tag": "external_write",
+                "hint_source": "keyword"
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "declaration_below_inferred_evidence",
+              "dimension": "effect",
+              "message": "declared effect 'external_communication' is weaker than inferred 'destructive' evidence (risk_hint:keyword)",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='support.delete_case_message'].effect"
+            }
+          ]
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "none",
+          "auth_type": null,
+          "credential_mode": null,
+          "scopes": [],
+          "claims": [
+            {
+              "claim_id": "clm_69eac0594a047634506f",
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='support.delete_case_message'].authority",
+              "evidence": {
+                "auth_type": null,
+                "credential_mode": null,
+                "scopes": []
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:1c086880a0b384cb0ab5dbe0",
+        "reachable_path": [
+          "agent_v1:1c086880a0b384cb0ab5dbe0",
+          "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408"
+        ],
+        "claims": [
+          {
+            "claim_id": "clm_b49648ed926ee6ba3faa",
+            "dimension": "binding",
+            "value": "agent_v1:1c086880a0b384cb0ab5dbe0->tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "basis": "reviewed_declaration",
+            "policy_eligible": true,
+            "source": "tool_source_binding_declaration",
+            "source_pointer": "/tool_sources/0/binding",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
+        "pass_eligible": true
+      }
+    },
+    {
+      "tool_id": "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+      "name": "billing.cancel_invoice_email",
+      "provider": "ops_tools",
+      "observation_ids": [
+        "obs_v1_b5a221bad84caac9323894bb007b465bd5c93d0839871e0a346f1723fc627e0f"
+      ],
+      "source_type": "mcp",
+      "source_ref": "tools.json",
+      "source_path": "tools.json",
+      "source_start_line": null,
+      "source_pointer": "/tools/1",
+      "risk_tags": [
+        "customer_communication",
+        "destructive",
+        "external_write",
+        "financial_action"
+      ],
+      "risk_tag_confidence": {
+        "customer_communication": "high",
+        "destructive": "medium",
+        "external_write": "high",
+        "financial_action": "high"
+      },
+      "auth_scopes": [],
+      "owner": "billing-platform",
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "destructive",
+        "identity": {
+          "tool_id": "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+          "status": "structural",
+          "provider": "ops_tools",
+          "binding_id": null,
+          "primary_observation_id": "obs_v1_b5a221bad84caac9323894bb007b465bd5c93d0839871e0a346f1723fc627e0f",
+          "observation_ids": [
+            "obs_v1_b5a221bad84caac9323894bb007b465bd5c93d0839871e0a346f1723fc627e0f"
+          ],
+          "claims": [
+            {
+              "claim_id": "clm_9c8b87ef9b7aba9531b8",
+              "dimension": "identity",
+              "value": "obs_v1_b5a221bad84caac9323894bb007b465bd5c93d0839871e0a346f1723fc627e0f",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
+              "source": "source_observation",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "source_type": "mcp",
+                "source_id": "ops_tools",
+                "native_locator": "billing.cancel_invoice_email"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:1c086880a0b384cb0ab5dbe0",
+          "reachable_path": [
+            "agent_v1:1c086880a0b384cb0ab5dbe0",
+            "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296"
+          ],
+          "claims": [
+            {
+              "claim_id": "clm_105a19fb16f4d400a59b",
+              "dimension": "binding",
+              "value": "agent_v1:1c086880a0b384cb0ab5dbe0->tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "tool_source_binding_declaration",
+              "source_pointer": "/tool_sources/0/binding",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "claim_id": "clm_ae2346a2c45cb1c93269",
+              "dimension": "effect",
+              "value": "financial_write",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "action_risk_tag_declaration",
+              "source_pointer": "action_surface.actions[tool='billing.cancel_invoice_email'].risk_tags",
+              "evidence": {
+                "tag": "financial_write"
+              }
+            },
+            {
+              "claim_id": "clm_9fb961d366a64fc99cb7",
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='billing.cancel_invoice_email'].effect",
+              "evidence": {
+                "declared_risk_tags": [
+                  "financial_write"
+                ]
+              }
+            },
+            {
+              "claim_id": "clm_15eedd39b4c31f328de7",
+              "dimension": "effect",
+              "value": "destructive",
+              "confidence": "medium",
+              "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "destructive",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "claim_id": "clm_f0196c0c4caab8cd8ecd",
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "customer_communication",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "claim_id": "clm_b56eed6a901658bae650",
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "external_write",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "claim_id": "clm_2b65289d9beaa84b8bad",
+              "dimension": "effect",
+              "value": "financial_write",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "financial_action",
+                "hint_source": "keyword",
+                "scopes": []
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "declaration_below_inferred_evidence",
+              "dimension": "effect",
+              "message": "declared effect 'external_communication' is weaker than inferred 'destructive' evidence (risk_hint:keyword)",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='billing.cancel_invoice_email'].effect"
+            }
+          ]
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "none",
+          "auth_type": null,
+          "credential_mode": null,
+          "scopes": [],
+          "claims": [
+            {
+              "claim_id": "clm_8dc16a5a64fdf69f84dc",
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='billing.cancel_invoice_email'].authority",
+              "evidence": {
+                "auth_type": null,
+                "credential_mode": null,
+                "scopes": []
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:1c086880a0b384cb0ab5dbe0",
+        "reachable_path": [
+          "agent_v1:1c086880a0b384cb0ab5dbe0",
+          "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296"
+        ],
+        "claims": [
+          {
+            "claim_id": "clm_105a19fb16f4d400a59b",
+            "dimension": "binding",
+            "value": "agent_v1:1c086880a0b384cb0ab5dbe0->tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "basis": "reviewed_declaration",
+            "policy_eligible": true,
+            "source": "tool_source_binding_declaration",
+            "source_pointer": "/tool_sources/0/binding",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
+        "pass_eligible": true
+      }
+    }
+  ],
+  "source_warnings": [],
+  "policy_evidence_gaps": [
+    {
+      "kind": "mixed_policy_evidence",
+      "subject": "billing.cancel_invoice_email [ops_tools]",
+      "subject_id": "tool_v2_8a75127354118f12a00e5b71549422378c4c534511d5ac7098d660062ac21296",
+      "subject_kind": "action",
+      "source_type": null,
+      "source_ref": "tools.json",
+      "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
+      "next_action": {
+        "kind": "review_policy_evidence",
+        "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+        "path": "shipgate.yaml#action_surface.actions[tool='billing.cancel_invoice_email'].effect",
+        "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
+        "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+        "accepted_values": [
+          "reviewed_declaration",
+          "protocol_structure",
+          "typed_provider_fact",
+          "structural_scope"
+        ],
+        "authorable_by": "human",
+        "suggested_patch_kind": "manual",
+        "declaration_template": null,
+        "patch": null,
+        "observed_readings": [],
+        "auto_apply": false,
+        "requires_human_review": true
+      }
+    },
+    {
+      "kind": "mixed_policy_evidence",
+      "subject": "support.delete_case_message [ops_tools]",
+      "subject_id": "tool_v2_0e8bdc2099c8991c98dcce3d2c14808bd4030603947cd1390922be657075b408",
+      "subject_kind": "action",
+      "source_type": null,
+      "source_ref": "tools.json",
+      "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
+      "next_action": {
+        "kind": "review_policy_evidence",
+        "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+        "path": "shipgate.yaml#action_surface.actions[tool='support.delete_case_message'].effect",
+        "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
+        "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+        "accepted_values": [
+          "reviewed_declaration",
+          "protocol_structure",
+          "typed_provider_fact",
+          "structural_scope"
+        ],
+        "authorable_by": "human",
+        "suggested_patch_kind": "manual",
+        "declaration_template": null,
+        "patch": null,
+        "observed_readings": [],
+        "auto_apply": false,
+        "requires_human_review": true
+      }
+    }
+  ],
+  "agent_summary": {
+    "verdict": "insufficient_evidence",
+    "headline": "Insufficient evidence: a declared effect does not account for the evidence inferred for it (billing.cancel_invoice_email [ops_tools]). Fix at shipgate.yaml#action_surface.actions[tool='billing.cancel_invoice_email']. Context: 2 semantic evidence gap(s); scan results are not trustworthy enough to gate release.",
+    "blocker_count": 0,
+    "review_item_count": 0,
+    "auto_appliable_patches": 0,
+    "needs_human_review": 0,
+    "first_recommended_action": {
+      "kind": "info",
+      "command": null,
+      "why": "Set action_surface.actions[].risk_tags: [financial_write, destructive] so the destructive controls apply to this action, or acknowledge the difference with an override naming the evidence you checked and why it does not apply, then rerun verification. A ready-to-review block is written to suggested-declarations.yaml next to report.json. Target: shipgate.yaml#action_surface.actions[tool='billing.cancel_invoice_email']. That is the gap this verdict names: a declared effect does not account for the evidence inferred for it (billing.cancel_invoice_email [ops_tools]). Applying patches does not clear an evidence verdict, so close this gap and re-run verification."
+    }
+  },
+  "policy_audit": {
+    "severity_overrides_applied": []
+  },
+  "privacy_audit": {
+    "enabled": true,
+    "rules_version": "0.1",
+    "sensitive_field_inventory_version": "0.1",
+    "redacted_occurrence_count": 0,
+    "redacted_paths": [],
+    "output_surfaces": [
+      "json",
+      "markdown"
+    ],
+    "notes": [
+      "Default-on best-effort pattern/key redaction ran before public artifacts were written.",
+      "Redaction audit paths contain counts and secret kinds only; raw values and raw hashes are not emitted."
+    ]
+  },
+  "heuristics_filter": {
+    "enabled": false,
+    "excluded_provenance_kinds": [
+      "keyword_heuristic",
+      "regex_heuristic"
+    ],
+    "filtered_finding_count": 0,
+    "filtered_by_kind": {}
+  },
+  "reviewer_summary": {
+    "verdict": "insufficient_evidence",
+    "headline": "Evidence coverage below threshold: no reviewer signals (lenses + audits all clean). Start at release_decision.",
+    "tool_surface_changes": 0,
+    "capability_misalignments": 0,
+    "action_surface_changes": 0,
+    "evidence_matrix_gaps": 0,
+    "severity_overrides_applied": 0,
+    "severity_overrides_tier_crossed": 0,
+    "privacy_redactions": 0,
+    "baseline_integrity_issues": 0,
+    "first_recommended_surface": {
+      "kind": "release_decision",
+      "name": "release_decision",
+      "path": "report.release_decision",
+      "why": "Evidence coverage is below threshold; read release_decision.reason and evidence_coverage."
+    }
+  },
+  "capability_change": {
+    "enabled": false,
+    "added": [],
+    "removed": [],
+    "broadened": [],
+    "narrowed": []
+  },
+  "protected_surface_changes": [],
+  "effective_policy": {
+    "ci_mode": "advisory",
+    "fail_on": [],
+    "suppressed_check_ids": [],
+    "waiver_scopes": [],
+    "severity_overrides": {},
+    "baseline_integrity_mode": "warn",
+    "baseline_fingerprints": [],
+    "ci_gate_present": true,
+    "control_pack": "default"
+  },
+  "human_ack": {
+    "required": false,
+    "satisfied": true,
+    "acks": [],
+    "outstanding": []
+  },
+  "verifier_summary": {
+    "verdict": "insufficient_evidence",
+    "by_severity": {},
+    "by_reason_code": {},
+    "capability_delta_summary": {
+      "added": 0,
+      "removed": 0,
+      "broadened": 0,
+      "narrowed": 0
+    },
+    "protected_surface_touched": false,
+    "policy_weakened": false,
+    "human_ack_required": false,
+    "human_ack_satisfied": true,
+    "top_reason_codes": []
+  },
+  "surface_exclusions": {
+    "entries": [],
+    "total": 0,
+    "gated": 0,
+    "gap_backed": 0,
+    "truncated": false
+  }
+}

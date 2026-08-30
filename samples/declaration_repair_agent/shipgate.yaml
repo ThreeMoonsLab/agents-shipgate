@@ -1,0 +1,124 @@
+version: "0.1"
+
+# The repair sibling of samples/google_adk_cold_start_agent. That fixture is a
+# cold start: nothing is declared, so every question it renders is a blank.
+# This one is the step after — a manifest that has already declared, already
+# controlled and already owned every action, and is held short of `passed` by
+# two *challenged* declarations: rows whose declared `effect` does not account
+# for everything the scan reads.
+#
+# A challenged row is the one questionnaire shape a cold start cannot render,
+# and it is the shape #424 was about. `declaration_below_inferred_evidence`
+# publishes two routes, and where no single effect covers every reading the
+# route it names is "declare the uncovered category as a reviewed risk tag".
+# Applying that instruction verbatim used to replace the review-tier row with a
+# *blocking* `conflicting_effect_evidence` whose message blamed the reviewer's
+# own manifest — a published remedy that could not close the row it was printed
+# on.
+#
+# So the fixture is a loop, not a snapshot: `expected/suggested-declarations.yaml`
+# is the questionnaire an adopter reads here, and pasting its two blocks back
+# into this file — the one edit each block names, nothing else — takes this
+# repository from `insufficient_evidence` to `passed`.
+# `test_pasting_the_committed_repair_blocks_reaches_passed` is that paste,
+# driven from the committed golden rather than from a fixture built in-test.
+
+project:
+  name: declaration-repair-agent
+
+agent:
+  name: support-billing-agent
+  declared_purpose:
+    - close support cases and stop queued billing mail
+
+environment:
+  target: production_like
+
+tool_sources:
+  - id: ops_tools
+    type: mcp
+    path: tools.json
+    binding:
+      complete: true
+      reason: >-
+        the ops MCP server publishes exactly these two tools and any connected
+        client can call both
+
+action_surface:
+  actions:
+    # Challenged, bare. The name reads `delete` (destructive) and `message`
+    # (customer communication), and the declaration accounts for only the
+    # second. The published repair is one new tag: `risk_tags: [destructive]`.
+    - tool: support.delete_case_message
+      effect: external_communication
+      authority:
+        mode: none
+      approval:
+        required: true
+      safeguards:
+        audit_log: true
+        rollback: true
+    # Challenged, and already carrying a tag the reviewer wrote. Three
+    # readings — `external_communication`, `financial_write`, `destructive` —
+    # and the declaration accounts for two of them.
+    #
+    # This row is here for the defect the #424 review found second: `risk_tags`
+    # is one YAML key, so a block that names it *replaces* it. A repair naming
+    # only the newly uncovered category would tell this reviewer to delete the
+    # `financial_write` tag they already reviewed, and the next scan would
+    # reopen the row asking for it back. The committed questionnaire must
+    # publish the *complete* value — `[financial_write, destructive]` — and
+    # `test_the_published_repair_keeps_the_tag_the_reviewer_already_wrote`
+    # pins exactly that against this golden.
+    - tool: billing.cancel_invoice_email
+      effect: external_communication
+      risk_tags:
+        - financial_write
+      authority:
+        mode: none
+      approval:
+        required: true
+      safeguards:
+        audit_log: true
+        rollback: true
+
+# Owners only. Deliberately no `tags:` here: a `risk_overrides.tags` entry is
+# the manifest's *other* route into the effect dimension, and pinning the
+# action-row route is what this fixture is for. Keeping the two apart also
+# keeps this golden out of the way of #460.
+risk_overrides:
+  tools:
+    support.delete_case_message:
+      owner: support-ops
+      reason: owns the support case thread and its retention rules
+    billing.cancel_invoice_email:
+      owner: billing-platform
+      reason: owns the invoice mail queue
+
+# What no `action_surface.actions[]` key can say. `confirmation.required` has
+# no row spelling at all, and `SHIP-SIDEFX-IDEMPOTENCY-MISSING` reads this list
+# rather than the row's `safeguards.idempotency`.
+#
+# Between here and the rows above, every control both actions owe is declared
+# *after* the repair as well as before — `destructive` adds approval,
+# confirmation and rollback to what `external_communication` and
+# `financial_write` already obliged. Declaring the post-repair ones up front is
+# what leaves the two challenged rows as the only thing between this manifest
+# and `passed`, so the paste test measures the repair and nothing else. Each
+# line here was checked by dropping it: every one of them blocks or holds back
+# the *repaired* scan.
+policies:
+  require_confirmation_for_tools:
+    - support.delete_case_message
+    - billing.cancel_invoice_email
+  require_idempotency_for_tools:
+    - billing.cancel_invoice_email
+
+ci:
+  mode: advisory
+
+output:
+  directory: agents-shipgate-reports
+  formats:
+    - markdown
+    - json

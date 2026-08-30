@@ -32,16 +32,25 @@ running a scan first:
 | [`simple_langchain_agent`](simple_langchain_agent/) | [`report.md`](simple_langchain_agent/expected/report.md) | [`report.json`](simple_langchain_agent/expected/report.json) |
 | [`conductor_agent`](conductor_agent/) | [`report.md`](conductor_agent/expected/report.md) | [`report.json`](conductor_agent/expected/report.json) |
 | [`google_adk_cold_start_agent`](google_adk_cold_start_agent/) | [`report.md`](google_adk_cold_start_agent/expected/report.md) | [`report.json`](google_adk_cold_start_agent/expected/report.json) |
+| [`declaration_repair_agent`](declaration_repair_agent/) | [`report.md`](declaration_repair_agent/expected/report.md) | [`report.json`](declaration_repair_agent/expected/report.json) |
 
-`google_adk_cold_start_agent` is the only sample that stops at
-`insufficient_evidence` with **open declaration questions**, so it is the only
-one that ships
-[`suggested-declarations.yaml`](google_adk_cold_start_agent/expected/suggested-declarations.yaml)
-— the questionnaire an adopter is told to edit — as a byte-compared golden.
-Read the diff on that file before regenerating it: a change in block *order* is
-a change in which question this tool asks a human first. Its own
-[README](google_adk_cold_start_agent/README.md) says what each action is there
-to pin.
+Two samples stop with **open declaration questions**, so they are the two that
+ship `suggested-declarations.yaml` — the questionnaire an adopter is told to
+edit — as a byte-compared golden. They render the two halves of that file:
+
+- [`google_adk_cold_start_agent`](google_adk_cold_start_agent/expected/suggested-declarations.yaml)
+  is the cold start. Nothing is declared, so every question is a **blank**, and
+  the fixture exists to pin the order they are asked in. Read the diff before
+  regenerating it: a change in block *order* is a change in which question this
+  tool asks a human first.
+- [`declaration_repair_agent`](declaration_repair_agent/expected/suggested-declarations.yaml)
+  is the step after. Everything is declared, and two rows are **challenged** —
+  a declared effect that does not account for what the scan read. Read the diff
+  on the `risk_tags:` values: that value is the remedy this tool hands an
+  adopter, and pasting both blocks back must take the sample from
+  `insufficient_evidence` to `passed` (#424).
+
+Each sample's own README says what its actions are there to pin.
 
 The `support_refund_agent` fixture also includes the Release Evidence Packet at
 [`packet.md`](support_refund_agent/expected/packet.md),
@@ -81,6 +90,7 @@ the pointer for the reader, not merely for the test.
 | [`simple_anthropic_agent`](simple_anthropic_agent/) | Anthropic Messages API tool-use artifacts. |
 | [`google_adk_agent`](google_adk_agent/) | Google ADK Python and YAML config. |
 | [`google_adk_cold_start_agent`](google_adk_cold_start_agent/) | The cold-start ADK sibling: stops at `insufficient_evidence` with ten open declaration questions, and ships the generated questionnaire as a golden. |
+| [`declaration_repair_agent`](declaration_repair_agent/) | The repair sibling: everything declared and controlled, held at `insufficient_evidence` by two challenged effect declarations. Pasting the two published blocks back reaches `passed` (#424). |
 | [`hitl_evidence_agent`](hitl_evidence_agent/) | HITL validation evidence gaps for limited auto-approval review posture. |
 | [`hitl_evidence_covered_agent`](hitl_evidence_covered_agent/) | HITL validation evidence with local provenance for limited auto-approval review posture. |
 | [`simple_langchain_agent`](simple_langchain_agent/) | LangChain/LangGraph static Python extraction plus a reviewed tool inventory. |
