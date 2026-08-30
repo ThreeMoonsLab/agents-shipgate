@@ -2226,6 +2226,47 @@ def staged_paths_under(workspace: Path, subdir: str) -> list[str]:
     return [line.strip() for line in result.stdout.splitlines() if line.strip().startswith(prefix)]
 
 
+def _commit_present_at_ref(workspace: Path, ref: str) -> bool | None:
+    """Whether ``ref`` resolves to a commit, preserving Git's error state.
+
+    Unlike :func:`commit_sha`, an unborn ref is ``False`` while an operational
+    Git failure is ``None``.  Human-artifact ordering needs that distinction:
+    a repository with no first commit is cold by construction, but an
+    unreadable repository must fail closed to the established verdict-first
+    order.
+    """
+
+    _validate_ref_token(ref)
+    result = _run_git(
+        workspace,
+        [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--end-of-options",
+            f"{ref}^{{commit}}",
+        ],
+        check=False,
+    )
+    if result.returncode == 0:
+        return bool(result.stdout.strip()) or None
+    if result.returncode == 1:
+        return False
+    return None
+
+
+def path_committed_at_head(workspace: Path, path: Path) -> bool | None:
+    """Whether ``path`` is a blob at ``HEAD``, with errors kept unknown."""
+
+    try:
+        head_present = _commit_present_at_ref(workspace, "HEAD")
+        if head_present is not True:
+            return head_present
+        return path_present_at_ref(workspace, "HEAD", path)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
 __all__ = [
     "active_replace_refs",
     "archive_tree",
@@ -2245,6 +2286,7 @@ __all__ = [
     "git_path",
     "GitPushEndpoint",
     "merge_base_sha",
+    "path_committed_at_head",
     "path_present_at_ref",
     "read_bytes_at_ref",
     "read_file_at_ref",

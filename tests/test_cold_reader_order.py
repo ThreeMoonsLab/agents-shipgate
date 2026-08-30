@@ -6,6 +6,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 from agents_shipgate.cli._helpers import _print_cli_summary, _run_multi_scan
 from agents_shipgate.cli.scan import run_scan
@@ -140,6 +141,23 @@ def test_empty_repository_is_cold(tmp_path):
 
     assert context.manifest_committed is False
     assert context.is_cold
+
+
+def test_git_probe_failure_keeps_manifest_provenance_unknown(tmp_path, monkeypatch):
+    repo = tmp_path / "unreadable-repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    config = repo / "shipgate.yaml"
+    config.write_text("version: 1\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "agents_shipgate.cli.verify.git._run_git",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=128, stdout=""),
+    )
+
+    context = human_artifact_context(config, None)
+
+    assert context.manifest_committed is None
+    assert not context.is_cold
 
 
 def test_surface_lead_spells_out_destructive_actions(tmp_path, monkeypatch):

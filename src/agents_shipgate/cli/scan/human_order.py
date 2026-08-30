@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -62,50 +60,11 @@ def _manifest_committed_at_head(config_path: Path) -> bool | None:
         relative = config_path.resolve().relative_to(root)
     except (OSError, ValueError):
         return False
-    env = dict(os.environ)
-    env.update({"GIT_NO_LAZY_FETCH": "1", "GIT_OPTIONAL_LOCKS": "0"})
-    try:
-        head = subprocess.run(
-            [
-                "git",
-                "--no-replace-objects",
-                "-C",
-                str(root),
-                "rev-parse",
-                "--verify",
-                "--quiet",
-                "HEAD^{commit}",
-            ],
-            capture_output=True,
-            check=False,
-            env=env,
-            timeout=60,
-        )
-        if head.returncode == 1:
-            return False
-        if head.returncode != 0:
-            return None
-        result = subprocess.run(
-            [
-                "git",
-                "--no-replace-objects",
-                "-C",
-                str(root),
-                "ls-tree",
-                "-z",
-                "--full-tree",
-                "HEAD",
-                "--",
-                relative.as_posix(),
-            ],
-            capture_output=True,
-            check=False,
-            env=env,
-            timeout=60,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if result.returncode != 0:
-        return None
-    records = [record for record in result.stdout.split(b"\0") if record]
-    return any(record.partition(b"\t")[0].split()[1:2] == [b"blob"] for record in records)
+
+    # Local import avoids the ``cli.verify.__init__`` -> orchestrator -> scan
+    # cycle during module initialization.  More importantly, both probes go
+    # through verify's single audited, bounded, no-shell Git boundary rather
+    # than introducing a second process-execution surface in scan code.
+    from agents_shipgate.cli.verify.git import path_committed_at_head
+
+    return path_committed_at_head(root, relative)
