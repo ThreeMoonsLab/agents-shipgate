@@ -15,6 +15,7 @@ from agents_shipgate.schemas.verification import VerificationContext
 from .decision import _run_checks_and_decide
 from .diffs import _load_diff_references
 from .final_report import _build_final_report
+from .human_order import human_artifact_context
 from .inputs import _load_inputs
 from .output_planning import _plan_outputs
 from .prepare import _prepare_scan
@@ -230,6 +231,7 @@ def _run_scan(
             config_path=config_path,
             declared_ci=resolved.declared_ci,
         )
+    human_context = human_artifact_context(config_path, verification_context)
     with _perf.phase("write_outputs"):
         _write_outputs(
             report=report,
@@ -239,7 +241,8 @@ def _run_scan(
             manifest=resolved.manifest,
             config_path=config_path,
             packet_generated_at=packet_generated_at,
+            human_context=human_context,
         )
-    write_github_step_summary(report)
+    write_github_step_summary(report, human_context=human_context)
     assert report.release_decision is not None  # build_report always populates it
     return report, report.release_decision.fail_policy.exit_code

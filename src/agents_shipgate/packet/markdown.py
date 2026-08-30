@@ -18,6 +18,11 @@ from pathlib import Path
 
 from agents_shipgate.core.privacy import sanitize_packet
 from agents_shipgate.core.source_warnings import group_source_warnings
+from agents_shipgate.report.human_order import (
+    ColdReaderLead,
+    HumanArtifactContext,
+    should_render_packet_surface_first,
+)
 from agents_shipgate.report.markdown import _safe_markdown_text
 from agents_shipgate.schemas.packet import (
     ActionSurfaceDiffSection,
@@ -111,6 +116,8 @@ def render_packet_markdown(
     packet: EvidencePacket,
     *,
     sanitize_output: bool = True,
+    human_context: HumanArtifactContext | None = None,
+    cold_lead: ColdReaderLead | None = None,
 ) -> str:
     """Return the packet rendered as Markdown."""
 
@@ -118,10 +125,19 @@ def render_packet_markdown(
         packet = sanitize_packet(packet)
     lines: list[str] = []
     _append_header(lines, packet)
+    surface_first = bool(
+        cold_lead is not None and should_render_packet_surface_first(packet, context=human_context)
+    )
+    if surface_first:
+        _append_cold_surface(lines, cold_lead)
+        _append_high_risk_surface(lines, packet.high_risk_surface)
+        _append_cold_delta(lines, cold_lead)
+        _append_cold_findings(lines, cold_lead)
     _append_release_decision(lines, packet.release_decision)
     _append_evidence_matrix(lines, packet.evidence_matrix)
     _append_capability_intent(lines, packet.capability_intent)
-    _append_high_risk_surface(lines, packet.high_risk_surface)
+    if not surface_first:
+        _append_high_risk_surface(lines, packet.high_risk_surface)
     _append_tool_surface_diff(lines, packet.tool_surface_diff)
     _append_action_surface_diff(lines, packet.action_surface_diff)
     _append_approval_coverage(lines, packet.approval_coverage)
@@ -139,10 +155,17 @@ def write_packet_markdown(
     path: Path,
     *,
     sanitize_output: bool = True,
+    human_context: HumanArtifactContext | None = None,
+    cold_lead: ColdReaderLead | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        render_packet_markdown(packet, sanitize_output=sanitize_output),
+        render_packet_markdown(
+            packet,
+            sanitize_output=sanitize_output,
+            human_context=human_context,
+            cold_lead=cold_lead,
+        ),
         encoding="utf-8",
     )
 
@@ -175,6 +198,42 @@ def _append_header(lines: list[str], packet: EvidencePacket) -> None:
             "",
         ]
     )
+
+
+def _append_cold_surface(lines: list[str], lead: ColdReaderLead) -> None:
+    lines.extend(["## Capability surface", ""])
+    for line in lead.surface.text_lines():
+        lines.append(f"- {_escape(line)}")
+    lines.append("")
+
+
+def _append_cold_delta(lines: list[str], lead: ColdReaderLead) -> None:
+    if not lead.delta_subjects:
+        return
+    lines.extend(["## Capability delta by subject", ""])
+    for subject in lead.delta_subjects:
+        lines.append(f"- `{_escape(subject.subject)}`")
+        for change in subject.changes:
+            lines.append(f"  - {_escape(change)}")
+    lines.append("")
+
+
+def _append_cold_findings(lines: list[str], lead: ColdReaderLead) -> None:
+    lines.extend(["## Findings by subject", ""])
+    if not lead.finding_subjects:
+        lines.extend(["- none", ""])
+        return
+    for subject in lead.finding_subjects[:8]:
+        lines.append(f"- `{_escape(subject.subject)}` — {_escape(subject.summary)}")
+        for finding in subject.findings[:5]:
+            lines.append(f"  - {_escape(finding)}")
+        hidden = len(subject.findings) - 5
+        if hidden:
+            lines.append(f"  - … and {hidden} more finding{'s' if hidden != 1 else ''}")
+    hidden_subjects = len(lead.finding_subjects) - 8
+    if hidden_subjects:
+        lines.append(f"- … and {hidden_subjects} more subject{'s' if hidden_subjects != 1 else ''}")
+    lines.append("")
 
 
 def _section_heading(number: int, title: str, status: SectionStatus) -> str:

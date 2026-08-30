@@ -6,7 +6,12 @@ nothing open — so a scan of it writes no `suggested-declarations.yaml` at all
 and no committed artifact beside it ever renders one. This fixture stops
 partway on purpose: it reaches `insufficient_evidence` with **ten open
 declaration questions**, and ships the questionnaire an adopter actually reads
-as a byte-compared golden.
+as a byte-compared golden. It also ships
+[`expected/cold-report.md`](expected/cold-report.md), rendered from a temporary
+Git repository where the agent sources are committed and `shipgate.yaml` is
+not, to pin the surface-first first-contact order from #463. The ordinary
+[`expected/report.md`](expected/report.md) remains the committed-manifest,
+verdict-first golden.
 
 For the step after this one, see
 [`declaration_repair_agent`](../declaration_repair_agent/): a manifest that has

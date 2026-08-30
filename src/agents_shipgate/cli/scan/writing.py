@@ -23,6 +23,7 @@ from agents_shipgate.core.domain import Tool
 from agents_shipgate.core.evidence_actions import yaml_scalar
 from agents_shipgate.core.privacy import sanitize_packet
 from agents_shipgate.packet.builder import build_packet
+from agents_shipgate.report.human_order import HumanArtifactContext, cold_reader_lead
 from agents_shipgate.schemas.current_control import (
     AgentActionRequiredCurrentControl,
     CurrentControlWorkspaceIdentity,
@@ -44,6 +45,7 @@ def _write_outputs(
     manifest: AgentsShipgateManifest,
     config_path: Path,
     packet_generated_at: str | None,
+    human_context: HumanArtifactContext,
 ) -> None:
     """Phase 9: write report (md/json/sarif) + packet (md/json/html/pdf).
 
@@ -77,6 +79,7 @@ def _write_outputs(
         plan.generated_paths,
         manifest.output.formats,
         sanitized_payload=public_report_payload,
+        human_context=human_context,
     )
     _write_suggested_inventory(
         sanitized_tools=sanitized.tools,
@@ -113,6 +116,8 @@ def _write_outputs(
             sanitize_packet(packet),
             plan.generated_paths,
             plan.packet_format_set,
+            human_context=human_context,
+            cold_lead=cold_reader_lead(public_report),
         )
     if owns_control:
         # A scan inventories a workspace; it never establishes merge authority.
@@ -169,7 +174,9 @@ def _write_suggested_declarations(
     redacted content reaches the scaffold.
     """
 
-    anchor = generated_paths.get("json") or next(iter(generated_paths.values()), None)
+    anchor = generated_paths.get("json") or next(
+        iter(generated_paths.values()), None
+    )
     if anchor is None:
         return
     out_path = anchor.parent / SUGGESTED_DECLARATIONS_FILENAME
@@ -258,9 +265,7 @@ def _write_suggested_inventory(
     tools by (name, source_type), then unresolved symbols by name, stable
     JSON.
     """
-    anchor = generated_paths.get("json") or next(
-        iter(generated_paths.values()), None
-    )
+    anchor = generated_paths.get("json") or next(iter(generated_paths.values()), None)
     if anchor is None:
         return
     low_confidence = sorted(

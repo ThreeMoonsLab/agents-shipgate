@@ -26,6 +26,12 @@ from agents_shipgate.core.findings.subject_rollup import (
 from agents_shipgate.core.privacy import sanitize_report
 from agents_shipgate.core.source_warnings import group_source_warnings
 from agents_shipgate.core.surface_exclusions import agent_label_index
+from agents_shipgate.report.human_order import (
+    HumanArtifactContext,
+    capability_delta_by_subject,
+    should_render_surface_first,
+    surface_lead,
+)
 from agents_shipgate.report.summary_text import evidence_coverage_text
 from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment
 from agents_shipgate.schemas.report import (
@@ -88,10 +94,15 @@ def write_markdown_report(
     path: Path,
     *,
     sanitize_output: bool = True,
+    human_context: HumanArtifactContext | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        render_markdown_report(report, sanitize_output=sanitize_output),
+        render_markdown_report(
+            report,
+            sanitize_output=sanitize_output,
+            human_context=human_context,
+        ),
         encoding="utf-8",
     )
 
@@ -100,6 +111,7 @@ def render_markdown_report(
     report: ReadinessReport,
     *,
     sanitize_output: bool = True,
+    human_context: HumanArtifactContext | None = None,
 ) -> str:
     if sanitize_output:
         report = sanitize_report(report)
@@ -122,6 +134,11 @@ def render_markdown_report(
                 "",
             ]
         )
+    surface_first = should_render_surface_first(report, context=human_context)
+    if surface_first:
+        _append_cold_reader_surface(lines, report)
+        _append_cold_reader_delta(lines, report)
+        _append_top_findings(lines, report)
     _append_release_decision(lines, report)
     _append_policy_audit(lines, report)
     lines.extend(
@@ -140,9 +157,14 @@ def render_markdown_report(
             "",
         ]
     )
-    _append_top_findings(lines, report)
+    if not surface_first:
+        _append_top_findings(lines, report)
     _append_finding_provenance(lines, report.findings)
-    _append_capability_intent_diff(lines, report)
+    _append_capability_intent_diff(
+        lines,
+        report,
+        include_decision=not surface_first,
+    )
     _append_baseline(lines, report)
     _append_recommended_actions(lines, report.recommended_actions)
     _append_source_warnings(lines, report)
@@ -150,10 +172,12 @@ def render_markdown_report(
     _append_loaded_policy_packs(lines, report)
     _append_loaded_plugins(lines, report)
     _append_loaded_adapters(lines, report)
-    _append_tool_surface(lines, report)
-    _append_action_surface_diff(lines, report)
+    if not surface_first:
+        _append_tool_surface(lines, report)
+        _append_action_surface_diff(lines, report)
     _append_capability_runtime_evidence(lines, report)
-    _append_tool_surface_diff(lines, report)
+    if not surface_first:
+        _append_tool_surface_diff(lines, report)
     _append_api_surface(lines, report)
     _append_frameworks(lines, report)
     _append_codex_plugin_surface(lines, report)
@@ -162,6 +186,25 @@ def render_markdown_report(
     _append_inventory(lines, report)
     lines.extend(["", "## Disclaimer", "", DISCLAIMER, ""])
     return "\n".join(lines)
+
+
+def _append_cold_reader_surface(lines: list[str], report: ReadinessReport) -> None:
+    lines.extend(["## Capability Surface", ""])
+    for line in surface_lead(report).text_lines():
+        lines.append(_safe_markdown_text(line))
+    lines.append("")
+
+
+def _append_cold_reader_delta(lines: list[str], report: ReadinessReport) -> None:
+    groups = capability_delta_by_subject(report)
+    if not groups:
+        return
+    lines.extend(["## Capability Delta By Subject", ""])
+    for group in groups:
+        lines.append(f"- {_safe_markdown_text(group.subject)}")
+        for change in group.changes:
+            lines.append(f"  - {_safe_markdown_text(change)}")
+    lines.append("")
 
 
 def _append_release_decision(lines: list[str], report: ReadinessReport) -> None:
@@ -371,6 +414,8 @@ def _append_finding_provenance(lines: list[str], findings: list[Finding]) -> Non
 def _append_capability_intent_diff(
     lines: list[str],
     report: ReadinessReport,
+    *,
+    include_decision: bool = True,
 ) -> None:
     lines.extend(["## Capability <-> Intent Diff", ""])
     if not report.misalignments:
@@ -449,7 +494,8 @@ def _append_capability_intent_diff(
     if consequence is None:
         lines.append("- No release consequence recorded.")
     else:
-        lines.append(f"- Decision: {_safe_markdown_text(consequence.decision)}")
+        if include_decision:
+            lines.append(f"- Decision: {_safe_markdown_text(consequence.decision)}")
         lines.append(f"- {_safe_markdown_text(consequence.summary)}")
     lines.append("")
 

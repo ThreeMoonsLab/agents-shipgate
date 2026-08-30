@@ -530,6 +530,15 @@ def test_clean_adoption_collapses_same_manifest_rows_into_one_human_act(
         "review_trust_root",
     } & {repair.id for repair in verifier.fix_task.allowed_repairs}
 
+    report_markdown = (repo / "agents-shipgate-reports" / "report.md").read_text(encoding="utf-8")
+    pr_comment = (repo / "agents-shipgate-reports" / "pr-comment.md").read_text(encoding="utf-8")
+    assert report_markdown.index("## Capability Surface") < report_markdown.index(
+        "## Release Decision"
+    )
+    assert report_markdown.count("Decision: review_required") == 1
+    assert pr_comment.index("Surface:") < pr_comment.index("- Release gate: `review_required`")
+    assert pr_comment.count("- Release gate: `review_required`") == 1
+
 
 def test_failed_head_scan_never_emits_adoption_or_merge_guidance(tmp_path):
     repo = _repo_adopting_shipgate(tmp_path)

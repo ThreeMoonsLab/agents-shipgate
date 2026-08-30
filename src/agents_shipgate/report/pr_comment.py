@@ -12,6 +12,12 @@ from agents_shipgate.core.findings.subject_rollup import (
 from agents_shipgate.report.capability_lock_diff_markdown import (
     render_capability_lock_diff_markdown,
 )
+from agents_shipgate.report.human_order import (
+    HumanArtifactContext,
+    capability_delta_by_subject,
+    should_render_surface_first,
+    surface_lead,
+)
 from agents_shipgate.schemas.capabilities import CapabilityLockDiffV1
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verifier import (
@@ -48,16 +54,19 @@ def render_pr_comment(
     report: ReadinessReport | None,
     style: str = "capability-review",
     capability_lock_diff: CapabilityLockDiffV1 | None = None,
+    human_context: HumanArtifactContext | None = None,
 ) -> str:
     if style == "findings":
         return _render_findings_comment(
             verifier,
             report=report,
+            human_context=human_context,
         )
     return _render_capability_review_comment(
         verifier,
         report=report,
         capability_lock_diff=capability_lock_diff,
+        human_context=human_context,
     )
 
 
@@ -66,6 +75,7 @@ def _render_capability_review_comment(
     *,
     report: ReadinessReport | None,
     capability_lock_diff: CapabilityLockDiffV1 | None,
+    human_context: HumanArtifactContext | None,
 ) -> str:
     prose_lines = [
         STICKY_MARKER,
@@ -74,6 +84,7 @@ def _render_capability_review_comment(
             verifier,
             report=report,
             capability_lock_diff=capability_lock_diff,
+            human_context=human_context,
         ),
     ]
     agent_block = _agent_instruction_block(verifier)
@@ -94,8 +105,14 @@ def _human_summary_lines(
     *,
     report: ReadinessReport | None,
     capability_lock_diff: CapabilityLockDiffV1 | None,
+    human_context: HumanArtifactContext | None,
 ) -> list[str]:
     lines = ["", "### Human summary"]
+    surface_first = bool(
+        report is not None and should_render_surface_first(report, context=human_context)
+    )
+    if surface_first and report is not None:
+        lines.extend(_cold_reader_lines(report))
     lines.append(f"- Merge verdict: `{verifier.merge_verdict}`")
     lines.append(f"- Can merge without human: `{str(verifier.can_merge_without_human).lower()}`")
     lines.append(f"- Agent control state: `{verifier.control.state}`")
@@ -160,7 +177,7 @@ def _human_summary_lines(
     )
     lines.append(f"- Static-verdict boundary: {_escape(STATIC_VERDICT_DISCLAIMER)}")
     lines.extend(_next_actor_lines(verifier))
-    if review.top_changes:
+    if review.top_changes and not surface_first:
         lines.append("- Top capability changes:")
         for change in review.top_changes[:5]:
             source = _source_suffix(change.source_path, change.source_start_line)
@@ -169,9 +186,10 @@ def _human_summary_lines(
                 f"`{change.subject}`: {_escape(_impact(change))}; "
                 f"{_escape(change.rationale)}{source}"
             )
-    elif review.notes:
+    elif review.notes and not surface_first:
         lines.append(f"- Capability delta note: {_escape(review.notes[0])}")
-    lines.extend(_subject_rollup_lines(report))
+    if not surface_first:
+        lines.extend(_subject_rollup_lines(report))
     if review.trust_root_touched or review.policy_weakened:
         if review.trust_root_touched:
             lines.append("- Trust root touched: `true`")
@@ -179,6 +197,19 @@ def _human_summary_lines(
             lines.extend(_policy_change_lines(review))
     lines.extend(_trigger_and_base_summary(verifier))
     lines.extend(_artifact_summary_lines(verifier))
+    return lines
+
+
+def _cold_reader_lines(report: ReadinessReport) -> list[str]:
+    lines = [f"- {_escape(line)}" for line in surface_lead(report).text_lines()]
+    groups = capability_delta_by_subject(report)
+    if groups:
+        lines.append("- Capability changes by subject:")
+        for group in groups:
+            lines.append(f"  - `{_escape(group.subject)}`")
+            for change in group.changes:
+                lines.append(f"    - {_escape(change)}")
+    lines.extend(_subject_rollup_lines(report))
     return lines
 
 
@@ -345,8 +376,19 @@ def _render_findings_comment(
     verifier: VerifierArtifact,
     *,
     report: ReadinessReport | None,
+    human_context: HumanArtifactContext | None,
 ) -> str:
-    lines = [STICKY_MARKER, f"## Agents Shipgate result: {verifier.merge_verdict}"]
+    surface_first = bool(
+        report is not None and should_render_surface_first(report, context=human_context)
+    )
+    title = (
+        "## Agents Shipgate"
+        if surface_first
+        else f"## Agents Shipgate result: {verifier.merge_verdict}"
+    )
+    lines = [STICKY_MARKER, title]
+    if surface_first and report is not None:
+        lines.extend(["", *_cold_reader_lines(report)])
     lines.extend(_verifier_lead(verifier))
     lines.append("")
     lines.append(f"Trigger: {_escape(verifier.trigger.get('rationale') or 'not evaluated')}")
@@ -387,10 +429,11 @@ def _render_findings_comment(
         surface = report.reviewer_summary.first_recommended_surface
         lines.append(f"Reviewer start: `{surface.name}` - {_escape(surface.why)}")
 
-    lines.extend(_diff_lines(report))
+    if not surface_first:
+        lines.extend(_diff_lines(report))
     groups = roll_up_findings(report)
     lines.append("")
-    if groups:
+    if groups and not surface_first:
         # Grouped by subject (#364). A reviewer reads this comment to decide
         # what to look at, and three rows of one check family on three sibling
         # tools names one thing to look at while the other four go unmentioned.
@@ -404,7 +447,7 @@ def _render_findings_comment(
                 row_prefix="  - ",
             )
         )
-    else:
+    elif not surface_first:
         lines.append("No critical or high findings.")
     lines.extend(_artifact_lines(verifier, links=False))
     return _truncate("\n".join(lines), 6000)

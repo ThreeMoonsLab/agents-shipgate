@@ -31,6 +31,7 @@ from agents_shipgate.cli.discovery.scope import (
     resolve_change_scope,
 )
 from agents_shipgate.cli.discovery.signals import weak_marker_evidence_dirs
+from agents_shipgate.cli.scan.human_order import override_human_manifest_committed
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.config.loader import load_manifest_text
 from agents_shipgate.core.agent_control import derive_agent_control
@@ -989,7 +990,14 @@ def run_verify(
                 root=head_tree_dir,
                 relative_paths=changed_files,
             )
-        with use_evaluation_date(date.fromisoformat(verification_date)):
+        # An archived head is a committed tree even though its temporary
+        # extraction directory is not itself a Git checkout. Keep that
+        # presentation-only provenance beside the scan without widening the
+        # public run_scan signature or any serialized context.
+        with (
+            use_evaluation_date(date.fromisoformat(verification_date)),
+            override_human_manifest_committed(True if archive_head else None),
+        ):
             head_snapshot_token = (
                 activate_static_input_snapshot(head_snapshot)
                 if head_snapshot is not None

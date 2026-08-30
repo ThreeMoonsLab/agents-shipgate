@@ -11,6 +11,7 @@ from agents_shipgate.packet.pdf import (
     is_pdf_available,
     render_packet_pdf,
 )
+from agents_shipgate.report.human_order import ColdReaderLead, HumanArtifactContext
 from agents_shipgate.report.json_report import write_json_report
 from agents_shipgate.report.markdown import write_markdown_report
 from agents_shipgate.report.sarif import write_sarif_report
@@ -54,9 +55,15 @@ def _write_reports(
     formats: list[str],
     *,
     sanitized_payload: dict | None = None,
+    human_context: HumanArtifactContext | None = None,
 ) -> None:
     if "markdown" in formats and "markdown" in paths:
-        write_markdown_report(report, paths["markdown"], sanitize_output=False)
+        write_markdown_report(
+            report,
+            paths["markdown"],
+            sanitize_output=False,
+            human_context=human_context,
+        )
     if "json" in formats and "json" in paths:
         write_json_report(
             report,
@@ -67,16 +74,41 @@ def _write_reports(
         write_sarif_report(report, paths["sarif"])
 
 
-def _write_packet(packet, paths: dict[str, Path], packet_formats: set[str]) -> None:
+def _write_packet(
+    packet,
+    paths: dict[str, Path],
+    packet_formats: set[str],
+    *,
+    human_context: HumanArtifactContext | None = None,
+    cold_lead: ColdReaderLead | None = None,
+) -> None:
     if "md" in packet_formats and "packet_md" in paths:
-        write_packet_markdown(packet, paths["packet_md"], sanitize_output=False)
+        write_packet_markdown(
+            packet,
+            paths["packet_md"],
+            sanitize_output=False,
+            human_context=human_context,
+            cold_lead=cold_lead,
+        )
     if "json" in packet_formats and "packet_json" in paths:
         write_packet_json(packet, paths["packet_json"], sanitize_output=False)
     if "html" in packet_formats and "packet_html" in paths:
-        write_packet_html(packet, paths["packet_html"], sanitize_output=False)
+        write_packet_html(
+            packet,
+            paths["packet_html"],
+            sanitize_output=False,
+            human_context=human_context,
+            cold_lead=cold_lead,
+        )
     if "pdf" in packet_formats and "packet_pdf" in paths:
         try:
-            render_packet_pdf(packet, paths["packet_pdf"], sanitize_output=False)
+            render_packet_pdf(
+                packet,
+                paths["packet_pdf"],
+                sanitize_output=False,
+                human_context=human_context,
+                cold_lead=cold_lead,
+            )
         except PdfRendererUnavailable as exc:
             logger.warning("packet.pdf skipped: %s", exc)
 

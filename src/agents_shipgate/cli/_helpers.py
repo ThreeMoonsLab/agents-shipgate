@@ -14,6 +14,7 @@ from agents_shipgate.cli.diagnostics import (
     diagnose_missing_manifest,
 )
 from agents_shipgate.cli.discovery import discover_manifest_paths
+from agents_shipgate.cli.scan.human_order import human_artifact_context
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.action_semantics import effect_phrase, join_phrases
 from agents_shipgate.core.control_packs import control_rule_summaries
@@ -25,6 +26,12 @@ from agents_shipgate.core.findings.subject_rollup import (
     top_findings_block,
 )
 from agents_shipgate.core.source_warnings import group_source_warnings
+from agents_shipgate.report.human_order import (
+    HumanArtifactContext,
+    capability_delta_by_subject,
+    should_render_surface_first,
+    surface_lead,
+)
 from agents_shipgate.report.summary_text import (
     evidence_coverage_text,
     primary_evidence_remediation_text,
@@ -415,6 +422,9 @@ def _run_multi_scan(
             # release_decision (older baselines loaded for diff, etc.).
             decision = report.release_decision
             if decision is not None:
+                context = human_artifact_context(config_path, None)
+                if should_render_surface_first(report, context=context):
+                    _print_multi_cold_reader_lead(config_path, report)
                 typer.echo(
                     f"{config_path}: {decision.decision} "
                     f"(blockers={len(decision.blockers)}, "
@@ -434,6 +444,23 @@ def _run_multi_scan(
     return exit_code
 
 
+def _print_multi_cold_reader_lead(config_path: Path, report) -> None:
+    prefix = f"{config_path}: "
+    for line in surface_lead(report).text_lines():
+        typer.echo(f"{prefix}{line}")
+    for group in capability_delta_by_subject(report):
+        typer.echo(f"{prefix}Delta — {group.subject}")
+        for change in group.changes:
+            typer.echo(f"{prefix}  - {change}")
+    for line in top_findings_block(
+        roll_up_findings(report),
+        group_limit=_CLI_SUBJECT_LIMIT,
+        row_limit=_CLI_ROW_LIMIT,
+        heading="Findings by subject",
+    ):
+        typer.echo(f"{prefix}{line}")
+
+
 def _safe_output_name(config_path: Path) -> str:
     parent = config_path.parent
     try:
@@ -447,15 +474,119 @@ def _safe_output_name(config_path: Path) -> str:
     return safe or "root"
 
 
-def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = False) -> None:
+def _print_cli_summary(
+    report,
+    ci_mode: str,
+    exit_code: int,
+    *,
+    verbose: bool = False,
+    human_context: HumanArtifactContext | None = None,
+) -> None:
     summary = report.summary
-    decision = report.release_decision
     typer.echo(f"Agents Shipgate {__version__}")
     typer.echo("")
     typer.echo(f"Project: {report.project.get('name')}")
     typer.echo(f"Agent: {report.agent.get('name')}")
     typer.echo(f"Target: {report.environment.get('target')}")
     typer.echo("")
+    surface_first = should_render_surface_first(report, context=human_context)
+    if surface_first:
+        _print_cold_reader_lead(report)
+    _print_decision_summary(report)
+    typer.echo("")
+    typer.echo(
+        f"Counts: critical={summary.critical_count}, high={summary.high_count}, "
+        f"medium={summary.medium_count}, low={summary.low_count}, "
+        f"suppressed={summary.suppressed_count}"
+    )
+    # Which rule wanted the missing controls, named once instead of implied
+    # by N per-tool rows (#410 §F). Same projection the report section reads,
+    # so the console and report.md cannot disagree on the count.
+    control_rules = control_rule_summaries(report.findings)
+    if control_rules:
+        shown = control_rules[:_CLI_CONTROL_RULE_LIMIT]
+        parts = [
+            f"{join_phrases([effect_phrase(e) for e in row.effects])} "
+            f"({row.action_count})"
+            for row in shown
+        ]
+        hidden = len(control_rules) - len(shown)
+        if hidden:
+            noun = "rule" if hidden == 1 else "rules"
+            parts.append(f"and {hidden} more {noun}")
+        typer.echo(
+            f"Control pack: {control_rules[0].pack.id} — actions short of: "
+            f"{'; '.join(parts)}"
+        )
+    action_diff = report.action_surface_diff
+    if action_diff.enabled and not surface_first:
+        if _action_surface_has_signal(action_diff.summary):
+            typer.echo(
+                "Action-surface diff: "
+                f"+{action_diff.summary.actions_added} actions, "
+                f"-{action_diff.summary.actions_removed} actions, "
+                f"{action_diff.summary.actions_modified} modified, "
+                f"{action_diff.summary.blocking_findings} blocking finding(s)"
+            )
+        else:
+            typer.echo("Action-surface diff: no changes")
+    elif action_diff.notes and not surface_first:
+        typer.echo(f"Action-surface diff: disabled ({action_diff.notes[0]})")
+    diff = report.tool_surface_diff
+    if diff.enabled and not surface_first:
+        if _tool_surface_diff_has_changes(diff.summary):
+            typer.echo(
+                "Tool-surface diff: "
+                f"+{diff.summary.tools_added} tools, "
+                f"-{diff.summary.tools_removed} tools, "
+                f"{diff.summary.tools_changed} changed, "
+                f"{diff.summary.new_high_risk_effects} new high-risk effect(s), "
+                f"{diff.summary.controls_removed} removed control(s)"
+            )
+        else:
+            typer.echo("Tool-surface diff: no changes")
+    elif diff.notes and not surface_first:
+        typer.echo(f"Tool-surface diff: disabled ({diff.notes[0]})")
+    # Grouped by mechanism: six warnings that differ only in the symbol they
+    # name are one thing to fix. The raw count is what gates, so both numbers
+    # are printed and report.json keeps every warning (#362).
+    warning_groups = group_source_warnings(report.source_warnings)
+    if verbose:
+        typer.echo(f"Tool count: {report.tool_surface.total_tools}")
+        distinct = ""
+        if len(warning_groups) < len(report.source_warnings):
+            noun = "mechanism" if len(warning_groups) == 1 else "mechanisms"
+            distinct = f" ({len(warning_groups)} distinct {noun})"
+        typer.echo(f"Source warnings: {len(report.source_warnings)}{distinct}")
+    typer.echo("")
+    if not surface_first:
+        # Grouped by subject, not by severity (#364). Five subjects with their
+        # rows beats three rows of one check family repeated over sibling tools:
+        # the reader picks a tool to open, and severity is what it says about that
+        # tool rather than what orders the list.
+        for line in top_findings_block(
+            roll_up_findings(report),
+            group_limit=_CLI_SUBJECT_LIMIT,
+            row_limit=_CLI_ROW_LIMIT,
+        ):
+            typer.echo(line)
+        typer.echo("")
+    typer.echo("Reports:")
+    for path in report.generated_reports.values():
+        typer.echo(f"- {path}")
+    if verbose and report.source_warnings:
+        typer.echo("")
+        typer.echo("Source warnings:")
+        for group in warning_groups:
+            suffix = f" ({group.count} warnings)" if group.count > 1 else ""
+            typer.echo(f"- {group.message}{suffix}")
+    typer.echo("")
+    typer.echo(f"CI mode: {ci_mode}")
+    typer.echo(f"Exit code: {exit_code}")
+
+
+def _print_decision_summary(report) -> None:
+    decision = report.release_decision
     if decision is not None:
         typer.echo(f"Decision: {decision.decision}")
         if report.agent_summary:
@@ -500,95 +631,28 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
         typer.echo(f"Static-verdict boundary: {STATIC_VERDICT_DISCLAIMER}")
     else:
         typer.echo("Decision: (not recorded)")
+
+
+def _print_cold_reader_lead(report) -> None:
+    for line in surface_lead(report).text_lines():
+        typer.echo(line)
+    groups = capability_delta_by_subject(report)
+    if groups:
+        typer.echo("")
+        typer.echo("Capability delta by subject:")
+        for group in groups:
+            typer.echo(f"- {group.subject}")
+            for change in group.changes:
+                typer.echo(f"  - {change}")
     typer.echo("")
-    typer.echo(
-        f"Counts: critical={summary.critical_count}, high={summary.high_count}, "
-        f"medium={summary.medium_count}, low={summary.low_count}, "
-        f"suppressed={summary.suppressed_count}"
-    )
-    # Which rule wanted the missing controls, named once instead of implied
-    # by N per-tool rows (#410 §F). Same projection the report section reads,
-    # so the console and report.md cannot disagree on the count.
-    control_rules = control_rule_summaries(report.findings)
-    if control_rules:
-        shown = control_rules[:_CLI_CONTROL_RULE_LIMIT]
-        parts = [
-            f"{join_phrases([effect_phrase(e) for e in row.effects])} "
-            f"({row.action_count})"
-            for row in shown
-        ]
-        hidden = len(control_rules) - len(shown)
-        if hidden:
-            noun = "rule" if hidden == 1 else "rules"
-            parts.append(f"and {hidden} more {noun}")
-        typer.echo(
-            f"Control pack: {control_rules[0].pack.id} — actions short of: "
-            f"{'; '.join(parts)}"
-        )
-    action_diff = report.action_surface_diff
-    if action_diff.enabled:
-        if _action_surface_has_signal(action_diff.summary):
-            typer.echo(
-                "Action-surface diff: "
-                f"+{action_diff.summary.actions_added} actions, "
-                f"-{action_diff.summary.actions_removed} actions, "
-                f"{action_diff.summary.actions_modified} modified, "
-                f"{action_diff.summary.blocking_findings} blocking finding(s)"
-            )
-        else:
-            typer.echo("Action-surface diff: no changes")
-    elif action_diff.notes:
-        typer.echo(f"Action-surface diff: disabled ({action_diff.notes[0]})")
-    diff = report.tool_surface_diff
-    if diff.enabled:
-        if _tool_surface_diff_has_changes(diff.summary):
-            typer.echo(
-                "Tool-surface diff: "
-                f"+{diff.summary.tools_added} tools, "
-                f"-{diff.summary.tools_removed} tools, "
-                f"{diff.summary.tools_changed} changed, "
-                f"{diff.summary.new_high_risk_effects} new high-risk effect(s), "
-                f"{diff.summary.controls_removed} removed control(s)"
-            )
-        else:
-            typer.echo("Tool-surface diff: no changes")
-    elif diff.notes:
-        typer.echo(f"Tool-surface diff: disabled ({diff.notes[0]})")
-    # Grouped by mechanism: six warnings that differ only in the symbol they
-    # name are one thing to fix. The raw count is what gates, so both numbers
-    # are printed and report.json keeps every warning (#362).
-    warning_groups = group_source_warnings(report.source_warnings)
-    if verbose:
-        typer.echo(f"Tool count: {report.tool_surface.total_tools}")
-        distinct = ""
-        if len(warning_groups) < len(report.source_warnings):
-            noun = "mechanism" if len(warning_groups) == 1 else "mechanisms"
-            distinct = f" ({len(warning_groups)} distinct {noun})"
-        typer.echo(f"Source warnings: {len(report.source_warnings)}{distinct}")
-    typer.echo("")
-    # Grouped by subject, not by severity (#364). Five subjects with their
-    # rows beats three rows of one check family repeated over sibling tools:
-    # the reader picks a tool to open, and severity is what it says about that
-    # tool rather than what orders the list.
     for line in top_findings_block(
         roll_up_findings(report),
         group_limit=_CLI_SUBJECT_LIMIT,
         row_limit=_CLI_ROW_LIMIT,
+        heading="Findings by subject",
     ):
         typer.echo(line)
     typer.echo("")
-    typer.echo("Reports:")
-    for path in report.generated_reports.values():
-        typer.echo(f"- {path}")
-    if verbose and report.source_warnings:
-        typer.echo("")
-        typer.echo("Source warnings:")
-        for group in warning_groups:
-            suffix = f" ({group.count} warnings)" if group.count > 1 else ""
-            typer.echo(f"- {group.message}{suffix}")
-    typer.echo("")
-    typer.echo(f"CI mode: {ci_mode}")
-    typer.echo(f"Exit code: {exit_code}")
 
 
 def _tool_surface_diff_has_changes(summary) -> bool:
@@ -628,4 +692,3 @@ def _action_surface_has_signal(summary) -> bool:
             summary.blocking_findings,
         )
     )
-

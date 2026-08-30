@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **Cold-reader artifacts now lead with what the agent can do.** (#463) On a
+  repository with no committed Shipgate manifest, human output starts with the
+  root-reachable tool surface, its effect breakdown and write/destructive
+  action names; then shows a subject-grouped capability delta when one exists,
+  subject-grouped findings, and the unchanged release decision. Console,
+  multi-manifest console rows, `report.md`, GitHub step summaries, PR comments,
+  and packet Markdown/HTML/PDF share that ordering. A cold run carrying any
+  active block-tier content remains verdict-first, and committed-manifest
+  repositories retain their prior bytes and verdict-first order. Machine JSON,
+  schemas, contracts, and decision computation are unchanged.
+
+  `samples/google_adk_cold_start_agent/expected/cold-report.md` is the committed
+  first-contact golden: its test creates a Git repository whose agent sources
+  are committed while `shipgate.yaml` is not, then byte-compares the rendered
+  artifact. The same suite pins an empty repository, first-adoption verifier
+  output, packet ordering, exact-once decision rendering, the block-tier
+  override, and adopted-sample byte stability.
+
 - **The #424 repair loop is now pinned by a committed artifact.** (#424)
   `declaration_below_inferred_evidence` publishes a `declare_risk_tags` route,
   and every guard on it ran against tools built in-test — the same blind spot
