@@ -318,3 +318,52 @@ def test_destructive_hint_only_delta_names_absent_to_false_flip() -> None:
             "after": False,
         }
     ]
+
+
+def test_delta_requires_only_the_contradicting_hint_to_change() -> None:
+    manifest = _manifest()
+    base_tool = _assessed(
+        _mcp_tool(name="update_account", annotations={"httpMethod": "POST"}),
+        manifest=manifest,
+    )
+    base_action_facts = build_action_surface_facts(
+        manifest,
+        agent_id="agent:mcp",
+        tools=[base_tool],
+    )
+    base_tool_facts = build_tool_surface_facts(
+        manifest,
+        [base_tool],
+        [],
+        None,
+        None,
+    )
+    head_tool = _assessed(
+        _mcp_tool(
+            name="update_account",
+            annotations={
+                "httpMethod": "POST",
+                "readOnlyHint": True,
+                "destructiveHint": False,
+            },
+        ),
+        manifest=manifest,
+    )
+
+    findings = mcp_permissions.run(
+        _context(
+            tool=head_tool,
+            manifest=manifest,
+            diff_reference=ToolSurfaceDiffReference(
+                kind="report",
+                facts=base_tool_facts,
+                action_facts=base_action_facts,
+            ),
+        )
+    )
+
+    [finding] = [item for item in findings if item.check_id == "SHIP-MCP-ANNOTATION-CONTRADICTION"]
+    assert finding.evidence["published_annotations"] == {"readOnlyHint": True}
+    assert finding.evidence["form"] == "static"
+    assert finding.evidence["annotation_changes"] == []
+    assert finding.evidence["independent_evidence_unchanged"] is False

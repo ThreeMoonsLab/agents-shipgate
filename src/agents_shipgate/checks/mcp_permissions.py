@@ -12,12 +12,15 @@ from agents_shipgate.core.capability_delta import (
 )
 from agents_shipgate.core.capability_lattice import classify_tool_permission
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.domain import DECLARATION_OVERRIDE_SOURCE, SemanticClaim, Tool
+from agents_shipgate.core.domain import SemanticClaim, Tool
 from agents_shipgate.core.lenses.tool_surface import (
     ToolSurfaceDiffReference,
     tool_annotation_hash,
 )
-from agents_shipgate.core.semantic_assessment import assess_tool_semantics
+from agents_shipgate.core.semantic_assessment import (
+    acknowledged_effect_claim_ids,
+    assess_tool_semantics,
+)
 from agents_shipgate.schemas.capabilities import CapabilityFactV1
 from agents_shipgate.schemas.common import Confidence, ProvenanceKind, confidence_rank
 from agents_shipgate.schemas.report import Finding
@@ -178,13 +181,16 @@ def _annotation_contradiction_findings(
             continue
 
         used_claims = _dedupe_claims(used_claims)
-        annotation_changes = _unchanged_evidence_annotation_changes(
-            tool, claims, context.diff_reference
-        )
-        bases = sorted({claim.basis for claim in used_claims})
         published_annotations = {
             str(item["annotation"]): item["published_value"] for item in contradictions
         }
+        annotation_changes = _unchanged_evidence_annotation_changes(
+            tool,
+            claims,
+            published_annotations,
+            context.diff_reference,
+        )
+        bases = sorted({claim.basis for claim in used_claims})
         consequence = (
             "MCP clients that honor these annotations may show too little "
             "confirmation before a side-effecting call."
@@ -219,12 +225,7 @@ def _annotation_contradiction_findings(
 
 def _independent_effect_claims(claims: Iterable[EffectClaim]) -> list[EffectClaim]:
     claim_list = list(claims)
-    overridden_claim_ids = {
-        str(claim_id)
-        for claim in claim_list
-        if claim.source == DECLARATION_OVERRIDE_SOURCE
-        for claim_id in claim.evidence.get("overridden_claim_ids", [])
-    }
+    overridden_claim_ids = acknowledged_effect_claim_ids(claim_list)
     return [
         claim
         for claim in claim_list
@@ -263,6 +264,7 @@ def _claim_evidence(claim: EffectClaim) -> dict[str, object]:
 def _unchanged_evidence_annotation_changes(
     tool: Tool,
     current_claims: list[EffectClaim],
+    contradicted_annotations: dict[str, object],
     reference: ToolSurfaceDiffReference | None,
 ) -> list[dict[str, object]]:
     if reference is None or reference.action_facts is None or reference.facts is None:
@@ -309,9 +311,9 @@ def _unchanged_evidence_annotation_changes(
     # reproduces that hash exactly. This proves the hint flip without adding
     # raw annotations to the report schema or guessing from a changed hash.
     dimensions: list[tuple[str, object, tuple[object, ...]]] = []
-    if tool.annotations.get("readOnlyHint") is True:
+    if "readOnlyHint" in contradicted_annotations:
         dimensions.append(("readOnlyHint", True, (True, False, _ABSENT)))
-    if tool.annotations.get("destructiveHint") is False:
+    if "destructiveHint" in contradicted_annotations:
         dimensions.append(("destructiveHint", False, (False, True, _ABSENT)))
     for before_values in product(*(options for _, _, options in dimensions)):
         candidate = dict(tool.annotations)
