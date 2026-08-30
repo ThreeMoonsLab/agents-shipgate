@@ -56,6 +56,25 @@ DECLARATION_CLAIM_SOURCES = frozenset(
     }
 )
 
+#: The two spellings of "this risk category is reviewed and applies here" —
+#: the action row's ``risk_tags`` and the ``risk_overrides.tags`` hint, which
+#: says the same thing once for a whole selector. Both are policy-eligible, so
+#: both make that category's built-in controls apply; neither is a second
+#: opinion about the action, and neither may be read as *source* evidence
+#: contradicting the ``effect`` the same person wrote (#424).
+#:
+#: Deliberately narrower than :data:`DECLARATION_CLAIM_SOURCES`, which also
+#: covers ``action_scope``. A declared permission list is a different kind of
+#: statement: a declared ``crm.delete`` grant asserts an independent fact that
+#: bounds the action's effect (#417), so it must keep contradicting a weaker
+#: declaration.
+REVIEWED_RISK_TAG_CLAIM_SOURCES = frozenset(
+    {
+        "action_risk_tag_declaration",
+        "risk_hint:manual",
+    }
+)
+
 #: Claim source for ``tool_sources[].authority`` — one reviewed authority for
 #: every action a source contributes (#410 increment 3). A separate spelling
 #: from ``DECLARED_EFFECT_SOURCE`` because an audit reading the claims has to

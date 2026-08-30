@@ -17,6 +17,7 @@ verifiable rather than merely automated:
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import zipfile
 from pathlib import Path
@@ -84,6 +85,63 @@ def _wheel_pair(
 
 def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _policy_cases(tier: str) -> list[dict[str, Any]]:
+    """Cases that exactly satisfy a named policy's strata, floors and holdout.
+
+    The sealer now re-derives the policy, so a pile of identical rows is no
+    longer a valid artifact for it to accept -- which was the point of the
+    change, and means these fixtures have to be real corpora.
+    """
+
+    from scripts._release_support import QUALIFICATION_POLICIES
+
+    policy = QUALIFICATION_POLICIES[tier]
+    cases: list[dict[str, Any]] = []
+    for (profile, decision), count in sorted(policy.strata.items()):
+        holdout = policy.minimum_holdout(count)
+        for index in range(count):
+            cases.append(
+                {
+                    "id": f"c{len(cases)}",
+                    "profile": profile,
+                    "split": "holdout" if index < holdout else "tuning",
+                    "expected_decision": decision,
+                    "actual_decision": decision,
+                    "receipt_sha256": f"{len(cases) + 1:064x}",
+                    "runtime_failure": False,
+                }
+            )
+    return cases
+
+
+def _policy_summary(cases: list[dict[str, Any]], tier: str) -> dict[str, Any]:
+    from scripts._release_support import QUALIFICATION_POLICIES
+
+    policy = QUALIFICATION_POLICIES[tier]
+    return {
+        "total_cases": len(cases),
+        "receipt_count": len(cases),
+        "unsafe_auto_pass_count": 0,
+        "runtime_failure_count": 0,
+        "qualified_origin_cases": policy.minimum_qualified_origins,
+        "cohen_kappa": 1.0,
+    }
+
+
+def _policy_envelope(tier: str) -> dict[str, Any]:
+    """The envelope and declared requirements a conforming artifact carries."""
+
+    from scripts._release_support import (
+        CURRENT_QUALIFICATION_ENVELOPE,
+        QUALIFICATION_POLICIES,
+    )
+
+    return {
+        "schema_version": CURRENT_QUALIFICATION_ENVELOPE,
+        "requirements": QUALIFICATION_POLICIES[tier].as_requirements_payload(),
+    }
 
 
 def _load_workflow(name: str) -> dict[str, Any]:
@@ -1161,22 +1219,9 @@ def test_the_stdlib_invariant_checker_rejects_a_weakened_signed_artifact(
             "static_only": True,
             "runtime_behavior_proven": False,
             "failures": [],
-            "cases": [
-                {
-                    "id": f"c{i}",
-                    "expected_decision": "blocked",
-                    "actual_decision": "blocked",
-                    "receipt_sha256": f"{i:064x}",
-                    "runtime_failure": False,
-                }
-                for i in range(100)
-            ],
-            "summary": {
-                "total_cases": 100,
-                "receipt_count": 100,
-                "unsafe_auto_pass_count": 0,
-                "runtime_failure_count": 0,
-            },
+            "cases": _policy_cases("beta"),
+            "summary": _policy_summary(_policy_cases("beta"), "beta"),
+            **_policy_envelope("beta"),
             "inputs": {
                 "wheel_name": "agents-shipgate",
                 "wheel_version": "9.9.9",
@@ -1211,6 +1256,355 @@ def test_the_stdlib_invariant_checker_rejects_a_weakened_signed_artifact(
     other = _write_wheel(tmp_path / "other" / WHEEL_FILENAME, {"agents_shipgate/_x.py": "y = 1\n"})
     with pytest.raises(ReleaseError, match="SHA-256 mismatch"):
         verify_qualification_binding(qualification_path=_artifact(), wheel_path=other, tag="v9.9.9")
+
+
+def test_the_sealer_reads_the_governing_policy_from_the_version_not_the_artifact(
+    tmp_path: Path,
+) -> None:
+    """The stdlib gate must apply the #341 decision on its own.
+
+    It cannot import the schemas, so it restates the case count per tier. What
+    it must never do is let the artifact choose which count applies: the same
+    56-case ``pre_1_0`` payload has to pass on a ``0.x`` wheel and fail on a
+    ``9.9.9`` one.
+    """
+
+    from scripts.verify_qualification_binding import verify_qualification_binding
+
+    pre_1_0_version = "0.16.0b7"
+    pre_1_0_wheel = tmp_path / "pre" / f"agents_shipgate-{pre_1_0_version}-py3-none-any.whl"
+    pre_1_0_wheel.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(pre_1_0_wheel, "w") as archive:
+        archive.writestr(
+            f"agents_shipgate-{pre_1_0_version}.dist-info/METADATA",
+            f"Metadata-Version: 2.4\nName: agents-shipgate\nVersion: {pre_1_0_version}\n",
+        )
+        archive.writestr("agents_shipgate/__init__.py", "x = 1\n")
+    post_1_0_wheel = _write_wheel(tmp_path / "post" / WHEEL_FILENAME)
+
+    serial = itertools.count()
+
+    def _artifact(
+        wheel: Path, version: str, tier: str = "pre_1_0", **overrides: Any
+    ) -> Path:
+        cases = _policy_cases(tier)
+        payload: dict[str, Any] = {
+            "qualification_tier": "pre_1_0",
+            "qualified": True,
+            "production_qualified": False,
+            "static_only": True,
+            "runtime_behavior_proven": False,
+            "failures": [],
+            "cases": cases,
+            "summary": _policy_summary(cases, tier),
+            **_policy_envelope(tier),
+            "inputs": {
+                "wheel_name": "agents-shipgate",
+                "wheel_version": version,
+                "engine_version": version,
+                "wheel_sha256": _digest(wheel),
+            },
+        }
+        payload.update(overrides)
+        path = tmp_path / f"qualification-{next(serial)}.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return path
+
+    # The approved pre-1.0 evidence publishes a 0.x tag.
+    record = verify_qualification_binding(
+        qualification_path=_artifact(pre_1_0_wheel, pre_1_0_version),
+        wheel_path=pre_1_0_wheel,
+        tag=f"v{pre_1_0_version}",
+    )
+    assert record["qualification_tier"] == "pre_1_0"
+
+    # The identical claim does not publish anything from 1.0 onwards -- and the
+    # rejected tier does not get to pick the population either: the policy falls
+    # back to production, so the same artifact is also short 44 cases.
+    with pytest.raises(ReleaseError) as excinfo:
+        verify_qualification_binding(
+            qualification_path=_artifact(post_1_0_wheel, "9.9.9"),
+            wheel_path=post_1_0_wheel,
+            tag="v9.9.9",
+        )
+    assert "tier is not beta" in str(excinfo.value)
+    assert "carries 56 cases, not 100" in str(excinfo.value)
+
+    for overrides, tier, expected in [
+        # A tier the version admits still owns its own policy, in both
+        # directions: 56 is not enough for `beta`, and 100 is not `pre_1_0`.
+        (
+            {"qualification_tier": "beta", "production_qualified": True},
+            "pre_1_0",
+            "cases, not 100",
+        ),
+        ({"qualification_tier": "pre_1_0"}, "beta", "cases, not 56"),
+        # `production_qualified` keeps meaning the 100-case bar.
+        ({"production_qualified": True}, "pre_1_0", "without the production policy"),
+        ({"qualified": False}, "pre_1_0", "not qualified"),
+    ]:
+        with pytest.raises(ReleaseError, match=expected):
+            verify_qualification_binding(
+                qualification_path=_artifact(
+                    pre_1_0_wheel, pre_1_0_version, tier, **overrides
+                ),
+                wheel_path=pre_1_0_wheel,
+                tag=f"v{pre_1_0_version}",
+            )
+
+
+def test_the_sealer_enforces_the_strata_and_floors_not_just_a_case_count(
+    tmp_path: Path,
+) -> None:
+    """A total case count is not a policy.
+
+    The sealer exists so a compromised dependency in the gate job cannot let a
+    weakened artifact through. Restating only the case count left it accepting
+    56 cases in no stratum at all, and 56 correctly stratified cases two safe
+    passes short -- both of which the exhaustive gate rejects.
+    """
+
+    from scripts.verify_qualification_binding import verify_qualification_binding
+
+    version = "0.16.0b7"
+    wheel = tmp_path / f"agents_shipgate-{version}-py3-none-any.whl"
+    wheel.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr(
+            f"agents_shipgate-{version}.dist-info/METADATA",
+            f"Metadata-Version: 2.4\nName: agents-shipgate\nVersion: {version}\n",
+        )
+
+    def _write(cases: list[dict[str, Any]], **summary: Any) -> Path:
+        payload = {
+            "qualification_tier": "pre_1_0",
+            "qualified": True,
+            "production_qualified": False,
+            "static_only": True,
+            "runtime_behavior_proven": False,
+            "failures": [],
+            "cases": cases,
+            "summary": {**_policy_summary(cases, "pre_1_0"), **summary},
+            **_policy_envelope("pre_1_0"),
+            "inputs": {
+                "wheel_name": "agents-shipgate",
+                "wheel_version": version,
+                "engine_version": version,
+                "wheel_sha256": _digest(wheel),
+            },
+        }
+        path = tmp_path / "q.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return path
+
+    conforming = _policy_cases("pre_1_0")
+    assert verify_qualification_binding(
+        qualification_path=_write(conforming), wheel_path=wheel, tag=f"v{version}"
+    )
+
+    # 56 cases, right count, no strata at all.
+    flat = [dict(case, profile="n8n", expected_decision="blocked", actual_decision="blocked")
+            for case in conforming]
+    with pytest.raises(ReleaseError, match="strata do not match the pre_1_0 policy"):
+        verify_qualification_binding(
+            qualification_path=_write(flat), wheel_path=wheel, tag=f"v{version}"
+        )
+
+    # Correct strata, two safe passes short of the 13/14 floor.
+    degraded = [dict(case) for case in conforming]
+    for case in [c for c in degraded if c["expected_decision"] == "passed"][:2]:
+        case["actual_decision"] = "review_required"
+    with pytest.raises(ReleaseError, match=r"passed exact-match floor failed: 12 of 14"):
+        verify_qualification_binding(
+            qualification_path=_write(degraded), wheel_path=wheel, tag=f"v{version}"
+        )
+
+    # Every stratum keeps its holdout case.
+    no_holdout = [dict(case, split="tuning") for case in conforming]
+    with pytest.raises(ReleaseError, match="holdout requirement failed"):
+        verify_qualification_binding(
+            qualification_path=_write(no_holdout), wheel_path=wheel, tag=f"v{version}"
+        )
+
+    # The two floors that cannot be derived from the cases are still checked --
+    # and bounded on both sides, because ">= floor" alone admits values no real
+    # measurement can produce: `True`, and the JSON literal `1e309`, which
+    # loads as `inf` and satisfies any lower bound while the exhaustive gate
+    # rejects it for exceeding 1.0.
+    for summary_override, expected in (
+        ({"qualified_origin_cases": 22}, "qualified_origin_cases is not an integer"),
+        ({"qualified_origin_cases": 57}, "qualified_origin_cases is not an integer"),
+        ({"qualified_origin_cases": True}, "qualified_origin_cases is not an integer"),
+        ({"qualified_origin_cases": 23.0}, "qualified_origin_cases is not an integer"),
+        ({"cohen_kappa": 0.79}, "cohen_kappa is not a finite value"),
+        ({"cohen_kappa": float("inf")}, "cohen_kappa is not a finite value"),
+        ({"cohen_kappa": 1.5}, "cohen_kappa is not a finite value"),
+        ({"cohen_kappa": True}, "cohen_kappa is not a finite value"),
+    ):
+        with pytest.raises(ReleaseError, match=expected):
+            verify_qualification_binding(
+                qualification_path=_write(conforming, **summary_override),
+                wheel_path=wheel,
+                tag=f"v{version}",
+            )
+
+
+def test_the_sealer_rejects_evidence_that_is_not_identified_or_terminal(
+    tmp_path: Path,
+) -> None:
+    """The floors count *matches*, so absent evidence is not a low score.
+
+    A case whose `actual_decision` is null simply fails to count toward its
+    floor, leaving 13 of 14 safe matches — enough. And 56 rows sharing one id
+    look like 56 distinct cases as long as their receipt digests differ. Both
+    passed the sealer while the exhaustive gate rejected them.
+    """
+
+    from scripts.verify_qualification_binding import verify_qualification_binding
+
+    version = "0.16.0b7"
+    wheel = tmp_path / f"agents_shipgate-{version}-py3-none-any.whl"
+    wheel.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr(
+            f"agents_shipgate-{version}.dist-info/METADATA",
+            f"Metadata-Version: 2.4\nName: agents-shipgate\nVersion: {version}\n",
+        )
+
+    conforming = _policy_cases("pre_1_0")
+
+    def _write(cases: list[dict[str, Any]], **overrides: Any) -> Path:
+        payload = {
+            "qualification_tier": "pre_1_0",
+            "qualified": True,
+            "production_qualified": False,
+            "static_only": True,
+            "runtime_behavior_proven": False,
+            "failures": [],
+            "cases": cases,
+            "summary": _policy_summary(cases, "pre_1_0"),
+            **_policy_envelope("pre_1_0"),
+            "inputs": {
+                "wheel_name": "agents-shipgate",
+                "wheel_version": version,
+                "engine_version": version,
+                "wheel_sha256": _digest(wheel),
+            },
+        }
+        payload.update(overrides)
+        path = tmp_path / "q.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return path
+
+    assert verify_qualification_binding(
+        qualification_path=_write(conforming), wheel_path=wheel, tag=f"v{version}"
+    )
+
+    def _mutate(index_of: str, **changes: Any) -> list[dict[str, Any]]:
+        rows = [dict(case) for case in conforming]
+        rows[next(i for i, c in enumerate(rows) if c["expected_decision"] == index_of)].update(
+            changes
+        )
+        return rows
+
+    cases_and_errors = [
+        (_mutate("passed", actual_decision=None), "no terminal actual verifier decision"),
+        (_mutate("passed", actual_decision="mergeable"), "no terminal actual verifier decision"),
+        (_mutate("blocked", expected_decision="unknown"), "expected_decision is not one of"),
+        ([dict(case, id="same") for case in conforming], "case ids are not unique"),
+        ([dict(case, id="  ") for case in conforming], "case id is missing, blank"),
+        ([dict(case, id=7) for case in conforming], "case id is missing, blank"),
+    ]
+    for rows, expected in cases_and_errors:
+        with pytest.raises(ReleaseError, match=expected):
+            verify_qualification_binding(
+                qualification_path=_write(rows), wheel_path=wheel, tag=f"v{version}"
+            )
+
+
+def test_the_sealer_binds_the_declared_requirements_and_the_envelope(
+    tmp_path: Path,
+) -> None:
+    """Two claims the cases cannot attest, so nothing else here checks them.
+
+    The report schema version has no representation in `cases` at all, so an
+    artifact could restate the approved `0.42` as `0.1` and still seal. And a
+    legacy envelope's reader admits `beta`/`test` only, so labelling a pre-1.0
+    artifact v4 hands an old reader something it cannot parse -- the exact
+    combination the v5 bump exists to eliminate.
+    """
+
+    from scripts._release_support import QUALIFICATION_POLICIES
+    from scripts.verify_qualification_binding import verify_qualification_binding
+
+    version = "0.16.0b7"
+    wheel = tmp_path / f"agents_shipgate-{version}-py3-none-any.whl"
+    wheel.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr(
+            f"agents_shipgate-{version}.dist-info/METADATA",
+            f"Metadata-Version: 2.4\nName: agents-shipgate\nVersion: {version}\n",
+        )
+
+    cases = _policy_cases("pre_1_0")
+
+    def _write(**overrides: Any) -> Path:
+        payload = {
+            "qualification_tier": "pre_1_0",
+            "qualified": True,
+            "production_qualified": False,
+            "static_only": True,
+            "runtime_behavior_proven": False,
+            "failures": [],
+            "cases": cases,
+            "summary": _policy_summary(cases, "pre_1_0"),
+            **_policy_envelope("pre_1_0"),
+            "inputs": {
+                "wheel_name": "agents-shipgate",
+                "wheel_version": version,
+                "engine_version": version,
+                "wheel_sha256": _digest(wheel),
+            },
+        }
+        payload.update(overrides)
+        path = tmp_path / "q.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return path
+
+    assert verify_qualification_binding(
+        qualification_path=_write(), wheel_path=wheel, tag=f"v{version}"
+    )
+
+    approved = QUALIFICATION_POLICIES["pre_1_0"].as_requirements_payload()
+    for requirements, expected in (
+        ({**approved, "required_report_schema_version": "0.1"}, "required_report_schema_version"),
+        ({**approved, "minimum_blocked_exact": 1}, "minimum_blocked_exact"),
+        ({**approved, "minimum_kappa": 0.1}, "minimum_kappa"),
+        ({**approved, "required_strata": approved["required_strata"][:-1]}, "required_strata"),
+        ({k: v for k, v in approved.items() if k != "minimum_kappa"}, "exactly the pre_1_0"),
+        ({**approved, "extra": 1}, "exactly the pre_1_0"),
+        ("not-an-object", "no requirements object"),
+    ):
+        with pytest.raises(ReleaseError, match=expected):
+            verify_qualification_binding(
+                qualification_path=_write(requirements=requirements),
+                wheel_path=wheel,
+                tag=f"v{version}",
+            )
+
+    for envelope in (
+        "shipgate.safety_qualification/v1",
+        "shipgate.safety_qualification/v2",
+        "shipgate.safety_qualification/v4",
+        "shipgate.safety_qualification/v3",
+        "not-an-envelope",
+    ):
+        with pytest.raises(ReleaseError, match="cannot carry"):
+            verify_qualification_binding(
+                qualification_path=_write(schema_version=envelope),
+                wheel_path=wheel,
+                tag=f"v{version}",
+            )
 
 
 def test_the_suite_and_the_sealer_must_agree_on_the_commit() -> None:
@@ -1376,16 +1770,7 @@ def test_qualification_counts_are_derived_from_cases_not_the_summary(tmp_path: P
     from scripts.verify_qualification_binding import verify_qualification_binding
 
     wheel = _write_wheel(tmp_path / WHEEL_FILENAME)
-    cases = [
-        {
-            "id": f"c{index}",
-            "expected_decision": "blocked",
-            "actual_decision": "blocked",
-            "receipt_sha256": f"{index:064x}",
-            "runtime_failure": False,
-        }
-        for index in range(100)
-    ]
+    cases = _policy_cases("beta")
     payload = {
         "qualification_tier": "beta",
         "qualified": True,
@@ -1394,12 +1779,8 @@ def test_qualification_counts_are_derived_from_cases_not_the_summary(tmp_path: P
         "runtime_behavior_proven": False,
         "failures": [],
         "cases": cases,
-        "summary": {
-            "total_cases": 100,
-            "receipt_count": 100,
-            "unsafe_auto_pass_count": 0,
-            "runtime_failure_count": 0,
-        },
+        "summary": _policy_summary(cases, "beta"),
+        **_policy_envelope("beta"),
         "inputs": {
             "wheel_name": "agents-shipgate",
             "wheel_version": "9.9.9",
@@ -1412,21 +1793,23 @@ def test_qualification_counts_are_derived_from_cases_not_the_summary(tmp_path: P
     assert verify_qualification_binding(qualification_path=path, wheel_path=wheel, tag="v9.9.9")
 
     # A case that auto-passed something it should not have, with the summary
-    # still claiming zero.
-    payload["cases"][0] = {
-        "id": "c0",
-        "expected_decision": "blocked",
-        "actual_decision": "passed",
-        "receipt_sha256": f"{0:064x}",
-        "runtime_failure": False,
-    }
+    # still claiming zero. Only `actual_decision` moves, so the strata stay
+    # intact and the unsafe auto-pass is what the artifact is rejected for.
+    blocked = next(
+        index
+        for index, case in enumerate(payload["cases"])
+        if case["expected_decision"] == "blocked"
+    )
+    payload["cases"] = [dict(case) for case in cases]
+    payload["cases"][blocked]["actual_decision"] = "passed"
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ReleaseError, match="cases contain an unsafe auto-pass"):
         verify_qualification_binding(qualification_path=path, wheel_path=wheel, tag="v9.9.9")
 
-    # Duplicated receipts are not 100 distinct receipts.
-    payload["cases"][0] = dict(cases[0])
-    payload["cases"][1] = dict(cases[0], id="c1")
+    # Duplicated receipts are not 100 distinct receipts. Again only the digest
+    # moves: every stratum and floor is still satisfied.
+    payload["cases"] = [dict(case) for case in cases]
+    payload["cases"][1]["receipt_sha256"] = payload["cases"][0]["receipt_sha256"]
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ReleaseError, match="receipt digests are not unique"):
         verify_qualification_binding(qualification_path=path, wheel_path=wheel, tag="v9.9.9")

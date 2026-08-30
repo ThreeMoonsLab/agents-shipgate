@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Fail-closed release validation for a signed safety qualification artifact."""
+"""Fail-closed release validation for a signed safety qualification artifact.
+
+The wheel version selects the governing policy -- the 56-case ``pre_1_0``
+policy for ``0.x``, the 100-case production policy from ``1.0`` on -- and every
+count, interval and confusion matrix below is re-derived from that policy
+rather than read from the artifact. See
+``docs/release-evidence-policy-decision.md``.
+"""
 
 from __future__ import annotations
 
@@ -16,13 +23,17 @@ from pydantic import ValidationError
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.schemas.common import ReleaseDecisionStatus
 from agents_shipgate.schemas.safety_qualification import (
+    SafetyQualificationRequirementsV1,
     SafetyQualificationResultV1,
     production_safety_requirements,
+    requirements_for_tier,
 )
 
 if __package__:
+    from scripts._release_support import accepted_qualification_tiers, describe_accepted_tiers
     from scripts.run_safety_qualification import DECISIONS, inspect_wheel, wilson_interval
 else:  # ``python scripts/verify_safety_qualification_release.py``
+    from _release_support import accepted_qualification_tiers, describe_accepted_tiers
     from run_safety_qualification import DECISIONS, inspect_wheel, wilson_interval
 
 
@@ -41,10 +52,12 @@ def _append(errors: list[str], condition: bool, message: str) -> None:
         errors.append(message)
 
 
-def _expected_counts() -> dict[tuple[str, ReleaseDecisionStatus], int]:
+def _expected_counts(
+    requirements: SafetyQualificationRequirementsV1,
+) -> dict[tuple[str, ReleaseDecisionStatus], int]:
     return {
         (item.profile, item.expected_decision): item.count
-        for item in production_safety_requirements().required_strata
+        for item in requirements.required_strata
     }
 
 
@@ -54,7 +67,15 @@ def verify_release_qualification(
     qualification_path: Path,
     tag: str,
 ) -> SafetyQualificationResultV1:
-    """Validate the signed payload's production claim and exact wheel binding.
+    """Validate the signed payload's policy claim and exact wheel binding.
+
+    The governing policy is derived from the wheel's own version, never read
+    from the artifact: a ``0.x`` wheel may publish on the pre-1.0 policy
+    approved for issue #341 or on the stronger production one, and anything
+    from ``1.0`` upwards requires production. An artifact naming a tier the
+    version does not admit is rejected, and its claims are then re-derived
+    against the *strictest* policy so a rejected tier can never widen what the
+    rest of this function accepts.
 
     Signature verification intentionally stays outside this function: the
     release workflow verifies the Sigstore identity before parsing the signed
@@ -63,18 +84,30 @@ def verify_release_qualification(
 
     result = _load_qualification(qualification_path)
     wheel_name, wheel_version, wheel_sha256 = inspect_wheel(wheel_path)
-    requirements = production_safety_requirements()
     errors: list[str] = []
+
+    accepted_tiers = accepted_qualification_tiers(wheel_version)
+    tier = result.qualification_tier
+    tier_accepted = tier in accepted_tiers
+    _append(
+        errors,
+        tier_accepted,
+        f"qualification tier is not {describe_accepted_tiers(accepted_tiers)}",
+    )
+    # ``requirements_for_tier`` returns ``None`` for the unnamed ``test`` tier;
+    # falling back to production keeps every downstream count on the strictest
+    # policy rather than skipping the checks that follow.
+    requirements = (
+        requirements_for_tier(tier) if tier_accepted else None
+    ) or production_safety_requirements()
 
     _append(errors, bool(tag), "release tag is empty")
     _append(errors, tag == f"v{wheel_version}", "release tag does not match wheel version")
-    _append(errors, result.qualification_tier == "beta", "qualification tier is not beta")
+    # ``production_qualified`` is not re-checked here: the artifact schema
+    # refuses to construct one where it disagrees with ``qualified`` and the
+    # tier, so ``_load_qualification`` above has already rejected it. The
+    # standard-library sealing gate, which parses raw JSON, restates it.
     _append(errors, result.qualified is True, "qualification artifact is not qualified")
-    _append(
-        errors,
-        result.production_qualified is True,
-        "qualification artifact is not production_qualified",
-    )
     _append(errors, result.static_only is True, "qualification must be static-only")
     _append(
         errors,
@@ -85,7 +118,9 @@ def verify_release_qualification(
     _append(
         errors,
         result.requirements == requirements,
-        "qualification requirements differ from the production beta policy",
+        f"qualification requirements differ from the {tier} policy"
+        if tier_accepted
+        else "qualification requirements differ from the production beta policy",
     )
 
     inputs = result.inputs
@@ -94,7 +129,8 @@ def verify_release_qualification(
     _append(errors, inputs.engine_version == wheel_version, "qualified engine version mismatch")
     _append(errors, inputs.wheel_sha256 == wheel_sha256, "qualified wheel SHA-256 mismatch")
 
-    expected_strata = _expected_counts()
+    expected_strata = _expected_counts(requirements)
+    expected_total = sum(expected_strata.values())
     expected_outcomes: dict[ReleaseDecisionStatus, int] = {
         decision: sum(
             count
@@ -105,14 +141,18 @@ def verify_release_qualification(
     }
     cases = result.cases
     case_ids = [case.id for case in cases]
-    _append(errors, len(cases) == 100, "qualification must contain exactly 100 cases")
+    _append(
+        errors,
+        len(cases) == expected_total,
+        f"qualification must contain exactly {expected_total} cases",
+    )
     _append(errors, len(set(case_ids)) == len(case_ids), "qualification case ids are not unique")
 
     actual_expected_counts = Counter((case.profile, case.expected_decision) for case in cases)
     _append(
         errors,
         dict(actual_expected_counts) == expected_strata,
-        "qualification case profile/outcome strata differ from production policy",
+        f"qualification case profile/outcome strata differ from the {tier} policy",
     )
     _append(
         errors,
@@ -204,7 +244,11 @@ def verify_release_qualification(
         )
 
     summary = result.summary
-    _append(errors, summary.total_cases == 100, "qualification summary total is not 100")
+    _append(
+        errors,
+        summary.total_cases == expected_total,
+        f"qualification summary total is not {expected_total}",
+    )
     _append(
         errors,
         summary.qualified_origin_cases >= requirements.minimum_qualified_origins,
@@ -225,7 +269,11 @@ def verify_release_qualification(
         requirements.minimum_kappa <= summary.cohen_kappa <= 1.0,
         "qualification Cohen's kappa is outside its valid production range",
     )
-    _append(errors, summary.receipt_count == 100, "qualification receipt count is not 100")
+    _append(
+        errors,
+        summary.receipt_count == expected_total,
+        f"qualification receipt count is not {expected_total}",
+    )
     _append(errors, summary.runtime_failure_count == 0, "qualification reports runtime failures")
     _append(
         errors,
@@ -303,13 +351,22 @@ def verify_release_qualification(
         all(metric.passed for metric in result.intervals),
         "qualification contains a failed metric interval",
     )
+    # Denominators come from the governing policy's strata, not from the
+    # artifact: reading them from the payload would let a weakened artifact
+    # choose the population its own rates are measured against.
     expected_metric_counts = {
-        "unsafe_auto_pass_rate": (unsafe_auto_passes, 70),
-        "safe_pass_rate": (safe_passes, 30),
-        "blocked_exact_rate": (blocked_exact, 30),
-        "review_exact_rate": (review_exact, 20),
-        "insufficient_evidence_exact_rate": (ie_exact, 20),
-        "overall_exact_rate": (exact_count, 100),
+        "unsafe_auto_pass_rate": (
+            unsafe_auto_passes,
+            expected_total - expected_outcomes["passed"],
+        ),
+        "safe_pass_rate": (safe_passes, expected_outcomes["passed"]),
+        "blocked_exact_rate": (blocked_exact, expected_outcomes["blocked"]),
+        "review_exact_rate": (review_exact, expected_outcomes["review_required"]),
+        "insufficient_evidence_exact_rate": (
+            ie_exact,
+            expected_outcomes["insufficient_evidence"],
+        ),
+        "overall_exact_rate": (exact_count, expected_total),
     }
     for metric in result.intervals:
         _append(
@@ -335,16 +392,7 @@ def verify_release_qualification(
             f"qualification metric {metric.name} has an invalid interval",
         )
 
-    expected_matrix_profiles = {
-        "all",
-        "mcp_openapi_declared_binding",
-        "openai_agents_sdk",
-        "langchain_crewai",
-        "google_adk",
-        "n8n",
-        "multi_agent_handoffs",
-        "coding_agent_trust_roots",
-    }
+    expected_matrix_profiles = {"all"} | {profile for profile, _decision in expected_strata}
     matrices = {matrix.profile: matrix for matrix in result.confusion_matrices}
     _append(
         errors,
@@ -391,7 +439,10 @@ def verify_release_qualification(
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Verify production safety qualification and exact release-wheel binding."
+        description=(
+            "Verify the safety qualification the tag's version requires, and the "
+            "exact release-wheel binding."
+        )
     )
     parser.add_argument("--wheel", type=Path, required=True)
     parser.add_argument("--qualification", type=Path, required=True)
@@ -411,8 +462,8 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write(f"Release safety qualification error: {exc}\n")
         return 1
     sys.stdout.write(
-        "OK: production safety qualification is internally consistent and bound to "
-        f"{result.inputs.wheel_name} {result.inputs.wheel_version} "
+        f"OK: {result.qualification_tier} safety qualification is internally consistent and "
+        f"bound to {result.inputs.wheel_name} {result.inputs.wheel_version} "
         f"({result.inputs.wheel_sha256}); signature verification remains a separate prerequisite.\n"
     )
     return 0

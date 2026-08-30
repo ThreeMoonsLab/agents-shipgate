@@ -102,6 +102,43 @@ Binding 4 is the one that was missing. Without it, any wheel declaring
 `Name: agents-shipgate` and the right `Version` satisfied every check, so the
 pipeline tested one artifact and published another.
 
+### Which evidence bar the tag must meet
+
+Two named qualification policies exist, and the **version decides which one
+applies** — nothing in the artifact does:
+
+| Version | Accepted qualification | Cases |
+|---|---|---|
+| `0.x` (epoch 0, major 0) | `pre_1_0`, or the stronger `beta` | 56, or 100 |
+| `1.0` and later | `beta` only | 100 |
+| unparsable | `beta` only | 100 |
+
+The `pre_1_0` policy was approved for issue #341 and is recorded, with its
+thresholds and rationale, in
+[`release-evidence-policy-decision.md`](release-evidence-policy-decision.md). It
+buys a smaller corpus, not a laxer judgement: zero unsafe auto-passes, a
+per-case verifier receipt, the 20% holdout fraction and the κ floor are
+identical to the production policy, and every exact-match floor is the
+production rate rounded up.
+
+Both gates apply the rule independently — the exhaustive
+`scripts/verify_safety_qualification_release.py` in the `tests` job, and the
+standard-library `scripts/verify_qualification_binding.py` in the sealing job.
+The sealing gate cannot import the project, so it *restates* each tier's
+strata, exact-match floors, per-stratum holdout, and origin and κ floors, and
+re-derives them from the raw cases; a case count alone would let 56 identical
+rows through. An artifact naming a tier the version does not admit is rejected
+by both, and is then measured against the *production* policy, so a bad tier
+can never shrink what is checked.
+
+"Unparsable" is decided by a complete PEP 440 parse, not a prefix: `0garbage`
+is not a `0.x` version and gets the production bar.
+
+To produce the artifact, `scripts/run_safety_qualification.py` selects the same
+way. `--policy-tier production` opts up to the 100-case bar on a `0.x` wheel;
+`--policy-tier pre-1.0` is refused for a `1.0`-or-later wheel, at the point of
+production rather than at the gate.
+
 ### Build reproducibility
 
 Byte equality is only achievable because the build backend is pinned in
