@@ -2047,3 +2047,514 @@ def test_confirming_one_proposal_reaches_a_verdict(
     )
     assert questions.answered == 1
     assert "effect" not in questions.open_by_dimension
+
+
+# --- the committed questionnaire (#425) --------------------------------------
+#
+# Everything above this line is in-process: synthetic tools, hand-built
+# coverage models, workspaces assembled in ``tmp_path``. That is what let #419
+# ship an ordering that sent a structurally proven ``GET`` named
+# ``delete_account`` to the top of the file, against a fully green suite —
+# every sample answered every question it was asked, so no committed artifact
+# rendered a questionnaire at all and none of them could disagree with one.
+#
+# ``samples/google_adk_cold_start_agent`` is the fixture that does. The
+# assertions below are what stop it from quietly becoming another ``0 of 0``
+# sample: a golden that renders nothing still byte-compares equal to a scan
+# that renders nothing.
+
+COLD_START_MANIFEST = Path("samples/google_adk_cold_start_agent/shipgate.yaml")
+COLD_START_EXPECTED = COLD_START_MANIFEST.parent / "expected"
+COLD_START_SCAFFOLD = COLD_START_EXPECTED / "suggested-declarations.yaml"
+COLD_START_REPORT = COLD_START_EXPECTED / "report.json"
+
+
+def _cold_start_golden() -> dict:
+    return json.loads(COLD_START_REPORT.read_text(encoding="utf-8"))
+
+
+def _cold_start_coverage(report: dict) -> dict:
+    return report["release_decision"]["evidence_coverage"]["semantic_coverage"][
+        "declaration_questions"
+    ]
+
+
+def _cold_start_scan(tmp_path: Path) -> Path:
+    """Scan the fixture with the formats the goldens were generated with."""
+
+    run_scan(
+        config_path=COLD_START_MANIFEST,
+        output_dir=tmp_path,
+        formats=["json", "markdown"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+    return tmp_path
+
+
+def test_cold_start_scaffold_matches_its_golden(tmp_path):
+    """The file an adopter is told to edit, byte for byte.
+
+    ``report.md`` and ``packet.*`` have had this for releases;
+    ``suggested-declarations.yaml`` had no golden at all, so the header, the
+    ``Question N of M`` banners, the reading lines, the proposal annotations
+    and the block ordering were pinned by nothing committed.
+    """
+
+    out = _cold_start_scan(tmp_path)
+
+    written = out / "suggested-declarations.yaml"
+    # Named before it is read. ``_write_suggested_declarations`` *deletes* the
+    # file rather than writing one when no gap carries a template, so the
+    # likeliest regression here is its absence — and reading it unconditionally
+    # would report that as a path that does not exist rather than as the thing
+    # it is.
+    assert written.is_file(), (
+        "The scan wrote no suggested-declarations.yaml. This fixture is the "
+        "only sample that renders a declaration questionnaire; if its "
+        "questions were closed on purpose, the goldens beside it no longer "
+        "pin anything and the fixture needs a new open question, not a "
+        "regenerated golden."
+    )
+
+    actual = written.read_text(encoding="utf-8")
+    expected = COLD_START_SCAFFOLD.read_text(encoding="utf-8")
+
+    assert actual == expected, (
+        "samples/google_adk_cold_start_agent/expected/suggested-declarations.yaml "
+        "is stale. Regenerate it with a real scan — see that sample's README — "
+        "and read the diff: a change in block ORDER is a change in which "
+        "question this tool asks a human first."
+    )
+
+
+def test_cold_start_golden_still_asks_open_questions():
+    """The fixture's whole job, asserted rather than assumed.
+
+    Every other sample answers everything it is asked, and a byte comparison
+    against a questionnaire that renders nothing passes just as happily as one
+    against a questionnaire that renders every rung. So the properties that
+    make the golden worth having are named here rather than left to a count
+    that goes stale: if a future change to the engine, or an over-helpful edit
+    to the manifest, closes these questions, this fails instead of the goldens
+    silently emptying. ``COLD_START_QUESTION_ORDER`` below is what pins how
+    many there are, and what each of them is for.
+    """
+
+    coverage = _cold_start_coverage(_cold_start_golden())
+
+    assert coverage["open"] > 0, (
+        "samples/google_adk_cold_start_agent is the only sample that renders a "
+        "declaration questionnaire. With no open questions its goldens pin "
+        "nothing about ordering, numbering, or the progress counter."
+    )
+    assert coverage["answered"] > 0, (
+        "The progress sentence is only interesting between the endpoints. With "
+        "0 answered it reads the same as every unstarted repository, and the "
+        "counterfactual that decides `answered` is not exercised at all."
+    )
+    assert coverage["total"] == coverage["answered"] + coverage["open"]
+    assert len(coverage["open_questions"]) == coverage["open"]
+    assert sum(coverage["open_by_dimension"].values()) == coverage["open"]
+
+    rows = coverage["open_questions"]
+    # Every field of the model, present on at least one row, because
+    # ``test_sample_expected_report_json_has_no_structural_drift`` compares
+    # field PATHS: a member no golden carries is a member that test cannot see.
+    assert set(DeclarationQuestionRow.model_fields) <= {
+        key for row in rows for key in row
+    }
+    # Both id spaces and both dimensions, so a consumer joining one against the
+    # other has a committed counterexample.
+    assert {row["subject_kind"] for row in rows} == {"action", "tool_source"}
+    assert {row["dimension"] for row in rows} == set(DIMENSION_BY_GAP_KIND.values())
+
+
+def test_cold_start_golden_open_questions_match_a_fresh_scan(tmp_path):
+    """The order, by value, not only by field path.
+
+    The scaffold comparison above already fails on a reordering, but it fails
+    as a wall of diff. This one names the permutation directly, and it is the
+    assertion that would have caught #419: revert ``_reach`` in
+    ``core/declaration_questions.py`` to rank by ``conservative_effect`` and
+    the list below changes.
+    """
+
+    out = _cold_start_scan(tmp_path)
+    fresh = json.loads((out / "report.json").read_text(encoding="utf-8"))
+
+    assert _cold_start_coverage(fresh) == _cold_start_coverage(_cold_start_golden())
+
+
+def _questions_asked_by_gap_rows(report: dict) -> list[tuple[str, str | None, str]]:
+    """Which question each published gap row asks, in publication order.
+
+    Two reductions, and each of them is ``_in_question_order``'s own rule read
+    back off the artifact.
+
+    **A mapped kind is not a question.** ``DIMENSION_BY_GAP_KIND`` answers
+    "which dimension does this kind ride on", which is not the same question as
+    "can a reviewed declaration close this row". A
+    ``conflicting_effect_evidence`` the resolver blames on the *source* maps to
+    ``effect`` and is deliberately excluded by ``is_declaration_answerable`` —
+    no declaration touches a source that contradicts itself. Counting it here
+    would invent a key ``open_questions`` never carries and fail the comparison
+    on a correct report. The producer avoids exactly this by filtering its
+    permutation through the open-question rank rather than through the kind
+    map, so this filters through the report's own ``open_questions`` too.
+
+    **A row is not a question.** Contiguous repeats collapse: several rows can
+    ask for one blank — a ``declaration_drift`` beside a
+    ``declaration_below_inferred_evidence`` on one effect is two rows and one
+    edit — and the permutation sorts question rows by ``(question, original
+    position)``, so every row asking one question lands in consecutive question
+    slots. Comparing raw row cardinality would fail a perfectly ordered
+    multi-gap fixture, which is the same "a row is not a question" confusion
+    the counter itself exists to correct.
+
+    A key that comes back *after another one intervened* is the permutation
+    broken, and is deliberately left in place: it survives the collapse and
+    fails the comparison against ``open_questions``.
+    """
+
+    open_keys = {
+        (row["subject_kind"], row["subject_id"], row["dimension"])
+        for row in _cold_start_coverage(report)["open_questions"]
+    }
+    asked: list[tuple[str, str | None, str]] = []
+    for gap in report["release_decision"]["evidence_coverage"]["evidence_gaps"]:
+        dimension = DIMENSION_BY_GAP_KIND.get(gap["kind"])
+        if dimension is None:
+            continue
+        key = (gap["subject_kind"], gap["subject_id"], dimension)
+        if key not in open_keys:
+            continue
+        if not asked or asked[-1] != key:
+            asked.append(key)
+    return asked
+
+
+def _gap_row(kind: str, subject_id: str) -> dict:
+    return {"kind": kind, "subject_kind": "action", "subject_id": subject_id}
+
+
+def _question_row(subject_id: str, dimension: str) -> dict:
+    return {
+        "subject_kind": "action",
+        "subject_id": subject_id,
+        "dimension": dimension,
+    }
+
+
+def _synthetic_report(gaps: list[dict], questions: list[dict]) -> dict:
+    return {
+        "release_decision": {
+            "evidence_coverage": {
+                "evidence_gaps": gaps,
+                "semantic_coverage": {
+                    "declaration_questions": {"open_questions": questions}
+                },
+            }
+        }
+    }
+
+
+def test_gap_rows_reduce_to_the_questions_they_ask():
+    """The two reductions the fixture itself cannot show.
+
+    ``google_adk_cold_start_agent`` raises one answerable row per blank and no
+    source-owned conflict, so the comparison in
+    ``test_cold_start_leads_with_the_first_question`` would pass there even if
+    it counted rows, and even if it counted every kind the dimension map knows.
+    Both are the wrong thing to count, so both are pinned here.
+    """
+
+    # A row is not a question: the two `tool_b` effect rows are one blank.
+    # `incomplete_surface` is not a declaration question at all and is dropped,
+    # not collapsed into the neighbour it sits between.
+    contiguous = _synthetic_report(
+        [
+            _gap_row("missing_authority_evidence", "tool_a"),
+            _gap_row("declaration_drift", "tool_b"),
+            _gap_row("declaration_below_inferred_evidence", "tool_b"),
+            _gap_row("incomplete_surface", "tool_b"),
+            _gap_row("missing_effect_evidence", "tool_c"),
+        ],
+        [
+            _question_row("tool_a", "authority"),
+            _question_row("tool_b", "effect"),
+            _question_row("tool_c", "effect"),
+        ],
+    )
+    assert _questions_asked_by_gap_rows(contiguous) == [
+        ("action", "tool_a", "authority"),
+        ("action", "tool_b", "effect"),
+        ("action", "tool_c", "effect"),
+    ]
+
+    # A mapped kind is not a question: `conflicting_effect_evidence` rides on
+    # the effect dimension, but the resolver blames the source rather than the
+    # manifest for it, so no declaration closes it and `open_questions` never
+    # carries it. Counting it would invent a key and fail a correct report.
+    unanswerable = _synthetic_report(
+        [
+            _gap_row("conflicting_effect_evidence", "tool_a"),
+            _gap_row("missing_effect_evidence", "tool_b"),
+        ],
+        [_question_row("tool_b", "effect")],
+    )
+    assert _questions_asked_by_gap_rows(unanswerable) == [
+        ("action", "tool_b", "effect"),
+    ]
+    # And the same kind IS counted where the resolver did blame the manifest,
+    # which is the only thing that tells the two branches apart on the wire.
+    answerable = _synthetic_report(
+        [_gap_row("conflicting_effect_evidence", "tool_a")],
+        [_question_row("tool_a", "effect")],
+    )
+    assert _questions_asked_by_gap_rows(answerable) == [
+        ("action", "tool_a", "effect"),
+    ]
+
+    # A key that comes back after another intervened survives, so the
+    # comparison against `open_questions` — which carries `tool_b` once —
+    # fails, which is the point.
+    interleaved = _synthetic_report(
+        [
+            _gap_row("declaration_drift", "tool_b"),
+            _gap_row("missing_effect_evidence", "tool_c"),
+            _gap_row("declaration_below_inferred_evidence", "tool_b"),
+        ],
+        [_question_row("tool_b", "effect"), _question_row("tool_c", "effect")],
+    )
+    assert _questions_asked_by_gap_rows(interleaved) == [
+        ("action", "tool_b", "effect"),
+        ("action", "tool_c", "effect"),
+        ("action", "tool_b", "effect"),
+    ]
+
+
+def test_cold_start_leads_with_the_first_question(tmp_path):
+    """One order, published three times, checked against a live scan.
+
+    ``_in_question_order`` permutes the published gap rows into the order the
+    questionnaire asks them, and ``primary_evidence_gap`` — and so the decision
+    reason and ``first_recommended_action`` — takes the first addressable row
+    of that list. Nothing committed showed the two agreeing, because no sample
+    had two declaration questions to put in an order.
+
+    Asserted on a **fresh** report, not on the golden. ``report.md`` does not
+    render ``first_recommended_action``, the drift test compares field paths
+    only, and the scaffold does not carry it either — so a producer that stopped
+    projecting the leading question into that field would leave every other
+    check on this fixture green while this one, reading the committed artifact,
+    proved only that the artifact agrees with itself.
+    """
+
+    out = _cold_start_scan(tmp_path)
+    live = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    coverage = _cold_start_coverage(live)
+
+    expected = [
+        (row["subject_kind"], row["subject_id"], row["dimension"])
+        for row in coverage["open_questions"]
+    ]
+    assert _questions_asked_by_gap_rows(live) == expected
+
+    leader = coverage["open_questions"][0]
+    reason = live["release_decision"]["reason"]
+    first_action = live["agent_summary"]["first_recommended_action"]["why"]
+    assert leader["subject"] in reason
+    assert leader["answer_path"] in reason
+    assert leader["answer_path"] in first_action
+
+    # And the committed rows carry that same order, which no other comparison
+    # covers: the drift test reads field paths, and the coverage comparison
+    # reads ``declaration_questions`` rather than the gap list beside it.
+    assert _questions_asked_by_gap_rows(_cold_start_golden()) == expected
+
+
+def test_cold_start_scaffold_renders_both_halves_of_a_blank():
+    """A proposal and a blank, in one committed file.
+
+    The two are rendered by different branches and mean opposite things: a
+    pre-filled value is a reading the scan is willing to stand behind, and
+    ``<REVIEW_REQUIRED>`` is one it refuses to guess. A golden carrying only
+    one of them would let the other regress unnoticed.
+    """
+
+    scaffold = COLD_START_SCAFFOLD.read_text(encoding="utf-8")
+
+    assert REVIEW_REQUIRED_SENTINEL in scaffold
+    assert "effect: financial_write" in scaffold
+    assert "proposed from the evidence above" in scaffold
+    # The counter, rendered at neither endpoint. Matched against the flowed
+    # comment text rather than the raw file: the header is wrapped, so a
+    # sentence that grew past one line would fail this for the wrong reason.
+    flowed = " ".join(
+        line.lstrip("#").strip()
+        for line in scaffold.splitlines()
+        if line.startswith("#")
+    )
+    assert (
+        progress_sentence(
+            DeclarationQuestionCoverage.model_validate(
+                _cold_start_coverage(_cold_start_golden())
+            )
+        )
+        in flowed
+    )
+
+
+#: The order the fixture exists to hold, stated where a reviewer can read it.
+#:
+#: A byte comparison against a 250-line YAML file fails loudly but says nothing
+#: about *what* moved. This says it: ``(subject, dimension)`` in the order the
+#: questionnaire asks them, annotated with the ``(reach, name band)`` each row
+#: is there to hold. Alphabetical order is deliberately wrong twice — the band
+#: is the only reason ``update_case_index`` precedes ``assemble_case_timeline``
+#: and ``list_case_attachments`` follows both.
+COLD_START_QUESTION_ORDER: tuple[tuple[str, str], ...] = (
+    # Unbounded, name bands as mutating (+1). The source block inherits the
+    # strongest reach of the actions it answers for, so it leads.
+    ("adk_ops [tool_source]", "authority"),
+    ("update_case_index [adk_ops]", "effect"),
+    # Unbounded, name says nothing (0). ``ops.export_case_bundle`` brings the
+    # one question no block answers, and it sits between its own effect block
+    # and the next subject's rather than after every block in the file.
+    ("assemble_case_timeline [adk_ops]", "effect"),
+    ("ops.export_case_bundle [adk_ops:mcp:1]", "effect"),
+    ("ops.export_case_bundle [adk_ops:mcp:1]", "authority"),
+    ("ops.queue_backfill [adk_ops:mcp:1]", "effect"),
+    ("ops.queue_backfill [adk_ops:mcp:1]", "authority"),
+    # Unbounded, name bands as retrieving (-1).
+    ("list_case_attachments [adk_ops]", "effect"),
+    # Bounded: the scan read a financial write for itself.
+    ("issue_goodwill_refund [adk_ops]", "effect"),
+    # Bounded at the floor: a structurally proven read. Its name bands as
+    # mutating, so ranking on "was a side effect measured" would put it first.
+    ("support.get_update_history [adk_ops:mcp:1]", "authority"),
+)
+
+
+def test_cold_start_golden_asks_its_questions_in_the_pinned_order():
+    """The permutation, spelled out rather than left in a diff.
+
+    Deliberately against the *golden* and not against a fresh scan — the two
+    comparisons above already fail the moment a scan disagrees with the
+    committed file. This one fails one step later, when someone regenerates the
+    goldens to make those pass: the order has to be restated here, next to the
+    reason each row holds its place, rather than absorbed into a YAML diff
+    nobody reads. Flatten ``name_shape_band`` and the unbounded rows collapse
+    into plain alphabetical order; go back to ranking on whether a side effect
+    was *measured* rather than *bounded* and the proven read at the end jumps
+    to the front.
+    """
+
+    coverage = _cold_start_coverage(_cold_start_golden())
+    realised = tuple(
+        (row["subject"], row["dimension"]) for row in coverage["open_questions"]
+    )
+
+    assert realised == COLD_START_QUESTION_ORDER
+
+
+def test_cold_start_questionnaire_covers_every_rung_it_claims_to():
+    """A regenerated golden must not quietly lose the reason it exists.
+
+    The order is only proven by a fixture that has something to order, and the
+    rungs are what give it that. Read off the published rows rather than the
+    rendered prose, so this keeps meaning what it says when the wording of a
+    banner changes.
+    """
+
+    golden = _cold_start_golden()
+    coverage = _cold_start_coverage(golden)
+    # Indexed to lists, not to single rows. One question is one blank a
+    # reviewer fills, and several published rows can ask for it: five kinds map
+    # to the ``effect`` dimension alone, so a dict of one row per key would
+    # keep whichever was emitted last and quietly evaluate every assertion
+    # below against a row nobody named.
+    gaps: dict[tuple[str, str | None, str], list[dict]] = {}
+    for gap in golden["release_decision"]["evidence_coverage"]["evidence_gaps"]:
+        dimension = DIMENSION_BY_GAP_KIND.get(gap["kind"])
+        if dimension is None:
+            continue
+        key = (gap["subject_kind"], gap["subject_id"], dimension)
+        gaps.setdefault(key, []).append(gap)
+    effect_actions = [
+        gap["next_action"]
+        for row in coverage["open_questions"]
+        if row["dimension"] == "effect"
+        for gap in gaps[(row["subject_kind"], row["subject_id"], "effect")]
+    ]
+    readings = [action["observed_readings"] for action in effect_actions]
+
+    # Nothing read at all: the blank whose answer is the only bound there is.
+    assert any(not reading for reading in readings)
+    # A protocol default: a value standing in for the absence of evidence, and
+    # the one reading nothing is ever proposed from.
+    assert any(
+        reading and not any(item["observed"] for item in reading)
+        for reading in readings
+    )
+    # Read as risky, so the block arrives with a proposal instead of a blank.
+    proposals = [
+        action["declaration_template"]["effect"]
+        for action in effect_actions
+        if action.get("declaration_template")
+    ]
+    assert REVIEW_REQUIRED_SENTINEL in proposals
+    assert [value for value in proposals if value != REVIEW_REQUIRED_SENTINEL] == [
+        "financial_write"
+    ]
+    # A question the counter counts and no block can answer: the repair is to
+    # correct one of two disagreeing statements, not to fill in a blank, so the
+    # questionnaire prints a note in its numbered place instead of a template.
+    open_keys = {
+        (row["subject_kind"], row["subject_id"], row["dimension"])
+        for row in coverage["open_questions"]
+    }
+    unfillable = [
+        gap
+        for key, rows in gaps.items()
+        if key in open_keys
+        for gap in rows
+        if gap["next_action"].get("declaration_template") is None
+    ]
+    assert unfillable
+    assert {gap["kind"] for gap in unfillable} == {"conflicting_authority_evidence"}
+
+    # One block a reviewer edits once, answering for several actions. Asserted
+    # as the *absence* of the per-action rows it replaces: the source question
+    # is only worth having if the actions behind it are not asked separately.
+    source_rows = [
+        row
+        for row in coverage["open_questions"]
+        if row["subject_kind"] == "tool_source"
+    ]
+    assert len(source_rows) == 1
+    assert source_rows[0]["answer_path"].endswith("].authority")
+    asked_separately = {
+        row["subject_id"]
+        for row in coverage["open_questions"]
+        if row["dimension"] == "authority" and row["subject_kind"] == "action"
+    }
+    # Restricted to the configured source the block belongs to: the MCP tools
+    # this agent also reaches come from a per-scan surface with no
+    # ``tool_sources`` row, so no source block can answer for them and they
+    # rightly keep their own rows.
+    absorbed = {
+        action["tool_id"]
+        for action in golden["action_surface_facts"]["actions"]
+        if action["source_id"] == source_rows[0]["subject_id"]
+        and any(
+            issue["kind"] == "missing_authority_evidence"
+            for issue in action["semantic_assessment"]["authority"]["issues"]
+        )
+    }
+    assert len(absorbed) > 1, (
+        "The source-wide authority question is only worth committing if more "
+        "than one action is waiting on that single block."
+    )
+    assert not absorbed & asked_separately

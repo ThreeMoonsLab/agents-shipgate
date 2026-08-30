@@ -1,0 +1,18 @@
+openapi: 3.1.0
+info:
+  title: ADK Ops API
+  version: "1.0"
+paths:
+  /cases/{case_id}/notes:
+    post:
+      operationId: ops.append_case_note
+      summary: Append an internal note to a support case.
+      parameters:
+        - name: case_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ok

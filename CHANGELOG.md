@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+- **The declaration questionnaire is now pinned by something committed.**
+  (#425) It is the primary cold-start surface — what an adopter at
+  `insufficient_evidence` reads, in order, to reach a verdict — and no shipped
+  sample exercised it. Every sample answered every question it was asked, so
+  `open_questions` was `[]` in all five goldens, `suggested-declarations.yaml`
+  had no golden at all, and the progress sentence was only ever rendered at
+  zero. That is how #419 shipped an ordering that put a structurally proven
+  OpenAPI `GET` named `delete_account` at the top of the file, ahead of a
+  genuinely unknown effect, against a fully green suite.
+
+  `samples/google_adk_cold_start_agent` is the sibling of
+  `samples/google_adk_agent` that deliberately stops partway: ten open
+  questions across the rungs the ordering distinguishes — actions nothing was
+  read about, one where only the MCP protocol default stands in for evidence,
+  one read as a financial write so its block arrives with a proposed answer,
+  one source-wide `tool_sources[].authority` block answering for four actions
+  at once, one the counter counts but no block can answer, and a structurally
+  proven read whose *name* bands as a write. Both
+  halves of #419's fix are held: the unbounded questions lead the bounded ones,
+  and among the unbounded the name band orders them against alphabetical order
+  in both directions, so flattening `name_shape_band` moves the committed file
+  too.
+
+  Its `expected/suggested-declarations.yaml` is byte-compared the way
+  `report.md` already was, `open_questions[].*` now reaches
+  `test_sample_expected_report_json_has_no_structural_drift`, and the gap order
+  the decision reason and `first_recommended_action` project is asserted
+  against the questionnaire's own numbering. Reverting `_reach` in
+  `core/declaration_questions.py` to rank by `conservative_effect` fails two
+  committed-artifact tests instead of nothing.
+
+  Test evidence only: no CLI command, schema version, report block, discovery
+  surface, or adapter changes.
+
 - **A reviewed risk tag is the manifest refining its own row, not source
   evidence contradicting it.** (#424) `declaration_below_inferred_evidence`
   publishes two routes, and the second is the one the row names: *"add
