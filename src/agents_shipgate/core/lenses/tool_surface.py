@@ -343,11 +343,26 @@ def _tool_facts(tools: list[Tool]) -> list[ToolSurfaceToolFact]:
                 input_schema=_stable_hash(tool.input_schema),
                 output_schema=_stable_hash(tool.output_schema),
                 parameters=_stable_hash(_parameter_facts(tool)),
-                annotations=_stable_hash(tool.annotations),
+                annotations=tool_annotation_hash(tool.annotations),
             ),
         )
         for tool in sorted(tools, key=lambda item: item.id)
     ]
+
+
+def tool_annotation_hash(annotations: dict[str, Any]) -> str:
+    """Hash the complete public MCP/tool annotation map without evidence filtering.
+
+    ``_stable_hash`` intentionally reuses the finding-fingerprint
+    canonicalizer, which drops finding-only keys and normalizes list order.
+    Annotation delta proof needs byte-semantic map identity instead: a key the
+    fingerprint path ignores is still something an MCP client can consume.
+    Keep the legacy JSON rendering for common maps so only values the old
+    canonicalizer changed receive a different hash.
+    """
+
+    payload = json.dumps(annotations, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 def _parameter_facts(tool: Tool) -> list[dict[str, Any]]:

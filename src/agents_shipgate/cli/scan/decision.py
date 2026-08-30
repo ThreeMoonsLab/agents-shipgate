@@ -173,12 +173,14 @@ def _run_checks_and_decide(
         )
     )
     findings = dedupe_findings(findings)
+    catalog = check_catalog(plugins_enabled=plugins_enabled)
+    catalog_by_id = {metadata.id: metadata for metadata in catalog}
     labels = catalog_label_index(tools_and_agent.tool_catalog)
-    policy_eligible_findings = []
+    retained_findings = []
     for finding in findings:
         support = finding.support
         if support is None or support.policy_eligible:
-            policy_eligible_findings.append(finding)
+            retained_findings.append(finding)
             continue
         source = finding.policy_evidence_source or finding.source
         context.policy_evidence_gaps.append(
@@ -196,12 +198,18 @@ def _run_checks_and_decide(
                 ),
             )
         )
-    findings = policy_eligible_findings
+        metadata = catalog_by_id.get(finding.check_id)
+        if metadata is not None and metadata.publish_when_policy_ineligible:
+            # The finding remains explicitly non-policy-eligible. Keeping it
+            # here publishes its observer-facing evidence; release_decision's
+            # support guard still prevents it becoming a blocker or named
+            # policy review item.
+            retained_findings.append(finding)
+    findings = retained_findings
     # v0.17 (M1) + v0.18 (PR #1): centralized aggregator covers every
     # catalog check with ``dynamic_default=True``. See
     # ``core/dynamic_defaults.py`` and ``severity_overrides.py`` for the
     # tier-crossing / floor-enforcement contract.
-    catalog = check_catalog(plugins_enabled=plugins_enabled)
     effective_dynamic_defaults = dynamic_check_defaults(
         manifest, inputs.policy_packs, catalog=catalog
     )

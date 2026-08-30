@@ -2446,6 +2446,33 @@
     {
       "autofix_safe": false,
       "category": "mcp_permissions",
+      "default_severity": "high",
+      "description": "MCP narrowing annotation contradicts side-effect evidence.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-mcp-annotation-contradiction",
+      "dynamic_default": false,
+      "evidence_fields": [
+        "form",
+        "published_annotations",
+        "contradictions",
+        "independent_evidence",
+        "annotation_changes",
+        "annotation_surface_changed",
+        "independent_evidence_unchanged",
+        "client_consequence"
+      ],
+      "fires_when": "An explicit readOnlyHint true or destructiveHint false contradicts independent structural or clearly labeled inferred evidence on the same MCP tool.",
+      "floor_severity": "medium",
+      "id": "SHIP-MCP-ANNOTATION-CONTRADICTION",
+      "mvp_tier": "lifecycle",
+      "rationale": "MCP clients can use read-only and destructive annotations to reduce confirmation prompts even when independent evidence indicates the call can write or destroy data.",
+      "recommendation": "Review or correct the MCP annotation before clients use it to reduce confirmation prompts.",
+      "requires_human_review": true,
+      "requires_human_review_regardless_of_patch": false,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "mcp_permissions",
       "default_severity": "critical",
       "description": "MCP side-effecting tool is auto-approved.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-mcp-auto-approve-side-effect",

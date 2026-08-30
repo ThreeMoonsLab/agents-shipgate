@@ -68,6 +68,36 @@
 
   No engine, schema or check-ID change: goldens, registration and tests only.
 
+- **MCP clients can now see when a server's reassuring annotation contradicts
+  the evidence beside it.** (#462) A tool that publishes `readOnlyHint: true`
+  while independent structural or explicitly labeled inferred evidence says it
+  can write, or `destructiveHint: false` while evidence says it can destroy,
+  now raises `SHIP-MCP-ANNOTATION-CONTRADICTION`. The finding is review-tier:
+  it does not weaken or replace the conservative permission verdict the engine
+  already computes, but it names the hint, the contradicting evidence and its
+  basis, the tool's source pointer, and the under-prompting consequence for MCP
+  clients that consume the annotation directly.
+
+  Absence still follows the MCP defaults and never fires. A source's
+  `tool_sources[].trust` setting cannot make a published contradiction true,
+  while a reviewed action override suppresses only the exact inferred claim
+  IDs it answers. Policy-eligible structural evidence now corroborates a
+  narrowing hint against weaker keyword or pattern noise, while structural
+  side-effect evidence still triggers review. Reviewed effect declarations and
+  mutually conflicting hints from the same source stay on their existing
+  semantic-evidence routes instead of being counted as independent evidence.
+
+  Inferred-only instances remain detailed, informational findings with
+  `support.policy_eligible: false`; the scan also emits their evidence gap, but
+  release accounting excludes them from blockers and named review items. With
+  a base report, the delta form separately proves that independent evidence is
+  unchanged, detects any exact client-visible annotation-map change, and names
+  a hint flip only when reconstruction matches the base hash. The hash no
+  longer uses finding-fingerprint normalization, so otherwise ignored keys and
+  list order cannot produce a false proof. Static, exact-delta, co-change,
+  corroboration, trust, reviewed-override, source-provenance, end-to-end scan
+  publication, and adopter-vocabulary regressions pin the behavior.
+
 - **The declaration questionnaire is now pinned by something committed.**
   (#425) It is the primary cold-start surface — what an adopter at
   `insufficient_evidence` reads, in order, to reach a verdict — and no shipped

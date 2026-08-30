@@ -61,6 +61,11 @@ _COMPLETE_INPUT_DIAGNOSTICS: frozenset[str] = frozenset(
 )
 _DECISION_RANK = {"allow": 0, "warn": 1, "require_review": 2, "block": 3}
 _RISK_RANK = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+# `mcp audit` evaluates changed host/config capability rows. Full-scan semantic
+# checks that need normalized tool claims — notably
+# SHIP-MCP-ANNOTATION-CONTRADICTION — intentionally live in
+# `checks/mcp_permissions.py` only. Duplicating them here and in the audit policy
+# would create two evidence and release-accounting implementations.
 _RULES: dict[str, dict[str, str]] = {
     "MCP-ENV-SECRET-PASSTHROUGH": {
         "check_id": "SHIP-MCP-ENV-SECRET-PASSTHROUGH",
