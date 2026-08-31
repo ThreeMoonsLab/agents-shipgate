@@ -140,7 +140,12 @@ def test_a_destructive_tool_added_by_the_diff_is_gated(tmp_path):
     assert len(graph.unbound_tool_ids) == 1, "the new tool is still excluded from analysis"
     assert report.binding_surface_diff.enabled is True
     assert report.binding_surface_diff.added_unbound_tool_ids == graph.unbound_tool_ids
-    outside = capability_delta_subject_rollup(report).outside_analysis
+    rollup = capability_delta_subject_rollup(report)
+    outside = rollup.outside_analysis
+    # The excluded tool is reported only on the binding-diff axis. It has no
+    # analysed capability row and must not inflate the +added subject count.
+    assert rollup.total_subjects == 0
+    assert rollup.added_subjects == 0
     assert outside.status == "complete"
     assert outside.newly_outside_subjects == 1
 

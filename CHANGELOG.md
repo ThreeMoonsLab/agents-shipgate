@@ -40,6 +40,15 @@
   and `top_changes[]` fields remain change-record compatibility fields, and
   verifier/report schemas, release decisions, and gate behavior are unchanged.
 
+  The human projection recovers canonical tool identity from the report's
+  existing action/tool facts and diffs, so same-named tools from different
+  providers remain distinct while a legacy row with ambiguous identity is not
+  guessed onto either tool. Reader detail resolves canonical action hashes to
+  operation names and retains semantic rationale. Group provenance is labelled
+  explicitly and rendered as Markdown-safe code spans; exact hidden counts are
+  emitted before bounded subject rows, so long repository-controlled names
+  cannot erase the truncation disclosure.
+
 - **Cold-reader artifacts now lead with what the agent can do.** (#463) On a
   repository with no committed Shipgate manifest, human output starts with the
   root-reachable tool surface, its effect breakdown and write/destructive

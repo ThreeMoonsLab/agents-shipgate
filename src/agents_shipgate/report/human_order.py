@@ -21,10 +21,12 @@ from agents_shipgate.schemas.capability_change import (
     CapabilityChangeBlock,
     CapabilityChangeDirection,
     CapabilityChangeMember,
+    CapabilityReleaseImpact,
 )
 from agents_shipgate.schemas.common import SourceReference
 from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.report import ReadinessReport
+from agents_shipgate.schemas.surfaces import ActionSurfaceChange
 from agents_shipgate.schemas.text import has_visible_content
 
 
@@ -172,6 +174,44 @@ class CapabilityDeltaSubjectRollup:
     subjects: tuple[CapabilityDeltaSubjectGroup, ...]
     hidden_subjects: int
     outside_analysis: CapabilityDeltaOutsideAnalysis
+
+
+@dataclass(frozen=True)
+class _CapabilityReaderSubject:
+    """Canonical grouping identity plus the deliberately separate label."""
+
+    key: str
+    name: str
+    label: str
+
+
+_CapabilityMemberSignature = tuple[str, str, str, str, str]
+
+
+@dataclass(frozen=True)
+class _CapabilitySubjectIndex:
+    """Ephemeral bridge from compatibility rows to canonical tool identity.
+
+    ``CapabilityChangeMember`` intentionally keeps its established wire shape,
+    which names the owning tool but does not repeat ``tool_id`` or provider.
+    The complete report already carries those identities in its action/tool
+    facts and diffs.  This index joins them only for the human projection, so
+    same-named tools from different providers stay separate without changing
+    verifier.json.
+    """
+
+    subjects_by_key: dict[str, _CapabilityReaderSubject]
+    keys_by_name: dict[str, tuple[str, ...]]
+    keys_by_signature: dict[_CapabilityMemberSignature, tuple[str, ...]]
+    key_by_tool_id: dict[str, str]
+    key_by_action_id: dict[str, str]
+    operation_by_action_id: dict[str, str]
+    sources_by_member_key: dict[
+        tuple[_CapabilityMemberSignature, str],
+        tuple[CapabilityDeltaSource, ...],
+    ]
+    colliding_keys: frozenset[str]
+    blocking_keys: frozenset[str]
 
 
 @dataclass(frozen=True)
@@ -330,34 +370,64 @@ def capability_delta_subject_rollup(
 
     grouped: dict[str, list[CapabilityChangeMember]] = defaultdict(list)
     labels: dict[str, str] = {}
+    group_names: dict[str, str] = {}
     bucket_subjects: dict[CapabilityDeltaBucket, set[str]] = {
         "added": set(),
         "modified": set(),
         "removed": set(),
     }
     members = _capability_change_members(change)
+    subject_index = _capability_subject_index(report)
     source_by_finding_id = {
-        finding.id: finding.source
+        finding.id: (
+            finding.source,
+            subject_index.key_by_tool_id.get(finding.tool_id or ""),
+        )
         for finding in report.findings
         if finding.id and finding.source is not None and finding.source.path
     }
     for member in members:
-        subject_key, subject_label = _capability_reader_subject(member)
-        grouped[subject_key].append(member)
-        labels.setdefault(subject_key, subject_label)
-        bucket_subjects[_DIRECTION_TO_BUCKET[member.direction]].add(subject_key)
+        for subject in _capability_reader_subjects(member, index=subject_index):
+            grouped[subject.key].append(member)
+            labels.setdefault(subject.key, subject.label)
+            group_names.setdefault(subject.key, subject.name)
+            bucket_subjects[_DIRECTION_TO_BUCKET[member.direction]].add(subject.key)
+    labels = _injective_capability_labels(labels)
 
     all_subjects: list[CapabilityDeltaSubjectGroup] = []
     for subject_key in sorted(
         grouped,
-        key=lambda key: _capability_group_sort_key(key, grouped[key]),
+        key=lambda key: _capability_group_sort_key(
+            key,
+            grouped[key],
+            index=subject_index,
+        ),
     ):
-        subject_members = sorted(grouped[subject_key], key=_capability_member_sort_key)
+        subject_members = sorted(
+            grouped[subject_key],
+            key=lambda member: _capability_member_sort_key(
+                member,
+                release_impact=_capability_reader_impact(
+                    member,
+                    subject_key=subject_key,
+                    index=subject_index,
+                ),
+            ),
+        )
         all_subjects.append(
             CapabilityDeltaSubjectGroup(
                 subject=labels[subject_key],
                 changes=tuple(
-                    _delta_description(member, group_subject=subject_key)
+                    _delta_description(
+                        member,
+                        group_subject=group_names[subject_key],
+                        operation_by_action_id=subject_index.operation_by_action_id,
+                        release_impact=_capability_reader_impact(
+                            member,
+                            subject_key=subject_key,
+                            index=subject_index,
+                        ),
+                    )
                     for member in subject_members
                 ),
                 change_types=tuple(_delta_change_type(member) for member in subject_members),
@@ -367,6 +437,13 @@ def capability_delta_subject_rollup(
                 sources=_capability_group_sources(
                     subject_members,
                     source_by_finding_id=source_by_finding_id,
+                    canonical_sources=_capability_member_sources(
+                        subject_members,
+                        subject_key=subject_key,
+                        index=subject_index,
+                    ),
+                    subject_key=subject_key,
+                    colliding_keys=subject_index.colliding_keys,
                 ),
             )
         )
@@ -378,7 +455,11 @@ def capability_delta_subject_rollup(
         added_subjects=len(bucket_subjects["added"]),
         modified_subjects=len(bucket_subjects["modified"]),
         removed_subjects=len(bucket_subjects["removed"]),
-        change_count=len(members),
+        # A compatibility member that omitted canonical identity may represent
+        # more than one same-named provider tool.  Count the complete human
+        # associations rendered above, while verifier.json keeps its existing
+        # change-record counts unchanged.
+        change_count=sum(len(subject_members) for subject_members in grouped.values()),
         subjects=shown_subjects,
         hidden_subjects=max(0, len(all_subjects) - len(shown_subjects)),
         outside_analysis=outside_analysis,
@@ -408,11 +489,23 @@ def _capability_change_members(
 def _capability_group_sort_key(
     subject_key: str,
     members: list[CapabilityChangeMember],
+    *,
+    index: _CapabilitySubjectIndex,
 ) -> tuple[int, int, str, str]:
     """Keep the most consequential complete subject groups inside the limit."""
 
     return (
-        min(_CAPABILITY_IMPACT_ORDER.get(member.release_impact, 99) for member in members),
+        min(
+            _CAPABILITY_IMPACT_ORDER.get(
+                _capability_reader_impact(
+                    member,
+                    subject_key=subject_key,
+                    index=index,
+                ),
+                99,
+            )
+            for member in members
+        ),
         min(_CAPABILITY_DIRECTION_ORDER.get(member.direction, 99) for member in members),
         subject_key,
         min(member.id for member in members),
@@ -421,11 +514,13 @@ def _capability_group_sort_key(
 
 def _capability_member_sort_key(
     member: CapabilityChangeMember,
+    *,
+    release_impact: str | None = None,
 ) -> tuple[int, int, str, str, str, str, str]:
     """Keep each selected subject's highest-signal details visible first."""
 
     return (
-        _CAPABILITY_IMPACT_ORDER.get(member.release_impact, 99),
+        _CAPABILITY_IMPACT_ORDER.get(release_impact or member.release_impact, 99),
         _CAPABILITY_DIRECTION_ORDER.get(member.direction, 99),
         member.subject_kind,
         member.action or "",
@@ -435,19 +530,53 @@ def _capability_member_sort_key(
     )
 
 
+def _capability_reader_impact(
+    member: CapabilityChangeMember,
+    *,
+    subject_key: str,
+    index: _CapabilitySubjectIndex,
+) -> CapabilityReleaseImpact:
+    """Remove name-scoped blocker bleed after canonical subject splitting."""
+
+    if subject_key not in index.colliding_keys:
+        return member.release_impact
+    if subject_key in index.blocking_keys:
+        return "blocks_release"
+    if member.release_impact != "blocks_release":
+        return member.release_impact
+    # The compatibility builder related findings by display name. Once that
+    # name resolves to several canonical tools, only an exact finding.tool_id
+    # can keep the blocking label on one split group.
+    if member.direction in {"added", "broadened"}:
+        return "review_required"
+    return "informational"
+
+
 def _capability_group_sources(
     members: list[CapabilityChangeMember],
     *,
-    source_by_finding_id: dict[str, SourceReference],
+    source_by_finding_id: dict[str, tuple[SourceReference, str | None]],
+    canonical_sources: tuple[CapabilityDeltaSource, ...] = (),
+    subject_key: str,
+    colliding_keys: frozenset[str],
 ) -> tuple[CapabilityDeltaSource, ...]:
     """Retain provenance without depending on the truncated verifier projection."""
 
-    sources: list[CapabilityDeltaSource] = []
-    seen: set[tuple[str, int | None]] = set()
+    sources: list[CapabilityDeltaSource] = list(canonical_sources)
+    seen: set[tuple[str, int | None]] = {
+        (source.path, source.start_line) for source in canonical_sources
+    }
     for member in members:
         for finding_id in member.related_finding_ids:
-            source = source_by_finding_id.get(finding_id)
-            if source is None or not source.path:
+            source_entry = source_by_finding_id.get(finding_id)
+            if source_entry is None:
+                continue
+            source, finding_subject_key = source_entry
+            if subject_key in colliding_keys and finding_subject_key != subject_key:
+                # A name-only relation cannot identify one of several
+                # same-named providers. Preserve an exact finding.tool_id
+                # source for its own group, while refusing to bleed that
+                # provenance into its siblings.
                 continue
             key = (source.path, source.start_line)
             if key not in seen:
@@ -464,23 +593,451 @@ def _capability_group_sources(
     return tuple(sources)
 
 
-def _capability_reader_subject(member: CapabilityChangeMember) -> tuple[str, str]:
-    """Stable group key plus a visible, injective display label.
+def _capability_member_sources(
+    members: list[CapabilityChangeMember],
+    *,
+    subject_key: str,
+    index: _CapabilitySubjectIndex,
+) -> tuple[CapabilityDeltaSource, ...]:
+    """Return only sources that evidence these changes on this subject.
 
-    ``tool`` is the reader's unit for ordinary changes: it intentionally folds
-    the tool-catalog and action-surface rows #439 observed.  A policy-drift row
-    may carry no tool at all, so fall through to its scope/action and finally
-    its stable member id instead of rendering an empty heading.
+    Action facts establish identity, but unchanged sibling actions are not
+    provenance for a changed member. Sources are therefore indexed by both
+    the compatibility-member signature and canonical subject. An action diff
+    may fall back to the matching action fact when its enriched source is
+    absent; unrelated action facts never enter this map.
     """
 
+    sources: list[CapabilityDeltaSource] = []
+    seen: set[tuple[str, int | None]] = set()
+    for member in members:
+        signature = _capability_member_signature(
+            member.direction,
+            member.subject_kind,
+            member.tool,
+            member.action,
+            member.scope,
+        )
+        for source in index.sources_by_member_key.get((signature, subject_key), ()):
+            key = (source.path, source.start_line)
+            if key not in seen:
+                seen.add(key)
+                sources.append(source)
+    return tuple(sources)
+
+
+def _capability_subject_index(report: ReadinessReport) -> _CapabilitySubjectIndex:
+    """Join compatibility rows to canonical identities already in the report."""
+
+    records: dict[str, dict[str, str]] = {}
+    raw_keys_by_name: dict[str, set[str]] = defaultdict(set)
+    raw_keys_by_signature: dict[_CapabilityMemberSignature, set[str]] = defaultdict(set)
+    raw_key_by_action_id: dict[str, str] = {}
+    operation_by_action_id: dict[str, str] = {}
+    raw_sources_by_member_key: dict[
+        tuple[_CapabilityMemberSignature, str],
+        set[tuple[str, int | None]],
+    ] = defaultdict(set)
+    action_fact_source_by_id: dict[str, tuple[str, int | None]] = {}
+
+    def add_subject(
+        *,
+        tool_id: str | None,
+        name: str | None,
+        qualifier: str | None = None,
+    ) -> str | None:
+        clean_name = name if isinstance(name, str) and has_visible_content(name) else ""
+        if not clean_name:
+            return None
+        clean_qualifier = (
+            qualifier if isinstance(qualifier, str) and has_visible_content(qualifier) else ""
+        )
+        clean_tool_id = (
+            tool_id if isinstance(tool_id, str) and has_visible_content(tool_id) else ""
+        )
+        existing_name_keys = raw_keys_by_name.get(clean_name, set())
+        if clean_tool_id:
+            raw_key = clean_tool_id
+        elif clean_qualifier:
+            matching_qualifier_keys = tuple(
+                key
+                for key in existing_name_keys
+                if records[key]["qualifier"] == clean_qualifier
+            )
+            raw_key = (
+                matching_qualifier_keys[0]
+                if len(matching_qualifier_keys) == 1
+                else f"legacy:{clean_qualifier}:{clean_name}"
+            )
+        elif len(existing_name_keys) == 1:
+            # Older action diffs omitted tool_id. If the complete report names
+            # exactly one canonical tool with this display name, join it rather
+            # than manufacturing a second legacy subject (#439).
+            raw_key = next(iter(existing_name_keys))
+        elif existing_name_keys:
+            # More than one canonical provider owns this display name and the
+            # row supplies no identity capable of choosing between them. Keep
+            # the signature unresolved so the reader sees the explicit
+            # ``identity unavailable`` group, never this implementation key.
+            return None
+        else:
+            raw_key = f"legacy:{clean_qualifier}:{clean_name}"
+        record = records.setdefault(
+            raw_key,
+            {"name": clean_name, "qualifier": clean_qualifier},
+        )
+        # Conflicting display metadata on one canonical id is not identity.
+        # Pick a stable visible spelling; the key still prevents a false join.
+        record["name"] = min(value for value in (record["name"], clean_name) if value)
+        qualifiers = [value for value in (record["qualifier"], clean_qualifier) if value]
+        record["qualifier"] = min(qualifiers) if qualifiers else ""
+        raw_keys_by_name[clean_name].add(raw_key)
+        return raw_key
+
+    def add_signature(
+        signature: _CapabilityMemberSignature,
+        raw_key: str | None,
+        *,
+        source_path: str | None = None,
+        source_start_line: int | None = None,
+    ) -> None:
+        if raw_key is not None:
+            raw_keys_by_signature[signature].add(raw_key)
+            if source_path and has_visible_content(source_path):
+                raw_sources_by_member_key[(signature, raw_key)].add(
+                    (source_path, source_start_line)
+                )
+
+    for tool in report.tool_surface_facts.tools:
+        add_subject(
+            tool_id=tool.tool_id,
+            name=tool.name,
+            qualifier=tool.provider or tool.source_id or tool.source_type,
+        )
+    for change in report.tool_surface_diff.tools:
+        raw_key = add_subject(
+            tool_id=change.tool_id,
+            name=change.name,
+            qualifier=change.provider or change.source_id or change.source_type,
+        )
+        direction = {
+            "added": "added",
+            "removed": "removed",
+            "changed": "broadened",
+        }[change.kind]
+        add_signature(
+            _capability_member_signature(direction, "tool", change.name, None, None),
+            raw_key,
+            source_path=change.source_path,
+            source_start_line=change.source_start_line,
+        )
+
+    for action in report.action_surface_facts.actions:
+        raw_key = add_subject(
+            tool_id=action.tool_id,
+            name=action.tool_name,
+            qualifier=action.provider or action.source_id or action.source_type,
+        )
+        if raw_key is not None:
+            raw_key_by_action_id[action.action_id] = raw_key
+        if has_visible_content(action.operation):
+            operation_by_action_id[action.action_id] = action.operation
+        if action.source_path and has_visible_content(action.source_path):
+            action_fact_source_by_id[action.action_id] = (
+                action.source_path,
+                action.source_start_line,
+            )
+
+    action_changes: tuple[tuple[str, list[ActionSurfaceChange]], ...] = (
+        ("added", report.action_surface_diff.added),
+        ("removed", report.action_surface_diff.removed),
+        ("broadened", report.action_surface_diff.modified),
+    )
+    for direction, changes in action_changes:
+        for change in changes:
+            existing_action_key = raw_key_by_action_id.get(change.action_id)
+            compatible_existing_key = (
+                existing_action_key
+                if existing_action_key is not None
+                and not change.tool_id
+                and (
+                    not change.tool_name
+                    or records[existing_action_key]["name"] == change.tool_name
+                )
+                else None
+            )
+            raw_key = compatible_existing_key or add_subject(
+                tool_id=change.tool_id,
+                name=change.tool_name,
+            )
+            if raw_key is not None and (
+                existing_action_key is None or raw_key == existing_action_key
+            ):
+                # An ID-less diff may enrich a compatible fact mapping but may
+                # not replace exact action identity. Conflicting explicit ids
+                # remain separate evidence instead of silently changing owner.
+                raw_key_by_action_id[change.action_id] = raw_key
+            if change.operation and has_visible_content(change.operation):
+                operation_by_action_id[change.action_id] = change.operation
+            signature = _capability_member_signature(
+                direction,
+                "action",
+                change.tool_name or "",
+                change.action_id,
+                None,
+            )
+            fallback_source = action_fact_source_by_id.get(change.action_id)
+            add_signature(
+                signature,
+                raw_key,
+                source_path=(
+                    change.source_path
+                    or (fallback_source[0] if fallback_source is not None else None)
+                ),
+                source_start_line=(
+                    change.source_start_line
+                    if change.source_path
+                    else (fallback_source[1] if fallback_source is not None else None)
+                ),
+            )
+
+    def keys_for_tool_reference(name: str, tool_id: str | None) -> tuple[str, ...]:
+        if tool_id:
+            # An explicit canonical id is identity even when this is the first
+            # complete-report row that mentions it. Register it before any
+            # display-name fallback; fanning an unseen id across same-named
+            # providers discards the strongest evidence the diff carries.
+            raw_key = add_subject(tool_id=tool_id, name=name)
+            return (raw_key,) if raw_key is not None else ()
+        candidates = raw_keys_by_name.get(name, set())
+        if candidates:
+            return tuple(sorted(candidates))
+        raw_key = add_subject(tool_id=tool_id, name=name)
+        return (raw_key,) if raw_key is not None else ()
+
+    for scope_change in report.tool_surface_diff.scopes:
+        direction = "narrowed" if scope_change.kind == "removed" else "broadened"
+        # ``tool_names`` and ``tool_ids`` are independently sorted by the
+        # producer, not parallel arrays. Resolve ids through their canonical
+        # records instead of zipping two unrelated orders.
+        for name in scope_change.tool_names:
+            matching_ids = tuple(
+                sorted(
+                    tool_id
+                    for tool_id in scope_change.tool_ids
+                    if records.get(tool_id, {}).get("name") == name
+                )
+            )
+            raw_keys = (
+                matching_ids
+                if matching_ids
+                else keys_for_tool_reference(name, None)
+            )
+            for raw_key in raw_keys:
+                add_signature(
+                    _capability_member_signature(
+                        direction,
+                        "scope",
+                        name,
+                        None,
+                        scope_change.scope,
+                    ),
+                    raw_key,
+                )
+
+    for control_change in report.tool_surface_diff.controls:
+        direction = "narrowed" if control_change.kind == "added" else "broadened"
+        for raw_key in keys_for_tool_reference(
+            control_change.tool,
+            control_change.tool_id,
+        ):
+            add_signature(
+                _capability_member_signature(
+                    direction,
+                    "policy",
+                    control_change.tool,
+                    control_change.control,
+                    None,
+                ),
+                raw_key,
+                source_path=control_change.source_path,
+                source_start_line=control_change.source_start_line,
+            )
+
+    for effect_change in report.tool_surface_diff.high_risk_effects:
+        direction = "narrowed" if effect_change.kind == "removed" else "broadened"
+        for raw_key in keys_for_tool_reference(effect_change.tool, effect_change.tool_id):
+            add_signature(
+                _capability_member_signature(
+                    direction,
+                    "action",
+                    effect_change.tool,
+                    effect_change.tag,
+                    None,
+                ),
+                raw_key,
+                source_path=effect_change.source_path,
+                source_start_line=effect_change.source_start_line,
+            )
+
+    qualifier_counts = Counter(
+        (record["name"], record["qualifier"])
+        for record in records.values()
+        if record["qualifier"]
+    )
+    subjects_by_key: dict[str, _CapabilityReaderSubject] = {}
+    raw_to_group_key: dict[str, str] = {}
+    for raw_key, record in sorted(records.items()):
+        name = record["name"]
+        qualifier = record["qualifier"]
+        collides = len(raw_keys_by_name[name]) > 1
+        if not collides:
+            label = name
+        elif qualifier and qualifier_counts[(name, qualifier)] == 1:
+            label = f"{name} [{qualifier}]"
+        else:
+            identity = f"{qualifier}; {raw_key}" if qualifier else raw_key
+            label = f"{name} [{identity}]"
+        group_key = f"canonical:{raw_key}"
+        raw_to_group_key[raw_key] = group_key
+        subjects_by_key[group_key] = _CapabilityReaderSubject(
+            key=group_key,
+            name=name,
+            label=display_literal(label),
+        )
+
+    return _CapabilitySubjectIndex(
+        subjects_by_key=subjects_by_key,
+        keys_by_name={
+            name: tuple(raw_to_group_key[key] for key in sorted(raw_keys))
+            for name, raw_keys in raw_keys_by_name.items()
+        },
+        keys_by_signature={
+            signature: tuple(raw_to_group_key[key] for key in sorted(raw_keys))
+            for signature, raw_keys in raw_keys_by_signature.items()
+        },
+        key_by_tool_id=dict(raw_to_group_key),
+        key_by_action_id={
+            action_id: raw_to_group_key[raw_key]
+            for action_id, raw_key in raw_key_by_action_id.items()
+            if raw_key in raw_to_group_key
+        },
+        operation_by_action_id=operation_by_action_id,
+        sources_by_member_key={
+            (signature, raw_to_group_key[raw_key]): tuple(
+                CapabilityDeltaSource(
+                    path=display_literal(path),
+                    start_line=start_line,
+                )
+                for path, start_line in sorted(
+                    sources,
+                    key=lambda item: (item[0], item[1] if item[1] is not None else -1),
+                )
+            )
+            for (signature, raw_key), sources in raw_sources_by_member_key.items()
+            if raw_key in raw_to_group_key
+        },
+        colliding_keys=frozenset(
+            raw_to_group_key[raw_key]
+            for raw_keys in raw_keys_by_name.values()
+            if len(raw_keys) > 1
+            for raw_key in raw_keys
+        ),
+        blocking_keys=frozenset(
+            raw_to_group_key[finding.tool_id]
+            for finding in report.findings
+            if not finding.suppressed
+            and finding.blocks_release
+            and finding.tool_id in raw_to_group_key
+        ),
+    )
+
+
+def _capability_member_signature(
+    direction: str,
+    subject_kind: str,
+    tool: str,
+    action: str | None,
+    scope: str | None,
+) -> _CapabilityMemberSignature:
+    return direction, subject_kind, tool, action or "", scope or ""
+
+
+def _capability_reader_subjects(
+    member: CapabilityChangeMember,
+    *,
+    index: _CapabilitySubjectIndex,
+) -> tuple[_CapabilityReaderSubject, ...]:
+    """Resolve one compatibility member to one or more canonical subjects."""
+
+    keys: tuple[str, ...] = ()
+    if member.action and member.action in index.key_by_action_id:
+        keys = (index.key_by_action_id[member.action],)
+    if not keys:
+        signature = _capability_member_signature(
+            member.direction,
+            member.subject_kind,
+            member.tool,
+            member.action,
+            member.scope,
+        )
+        keys = index.keys_by_signature.get(signature, ())
+    if not keys and member.tool:
+        name_keys = index.keys_by_name.get(member.tool, ())
+        if len(name_keys) == 1:
+            keys = name_keys
+    if keys:
+        return tuple(index.subjects_by_key[key] for key in dict.fromkeys(keys))
+
+    if member.tool and len(index.keys_by_name.get(member.tool, ())) > 1:
+        label = display_literal(f"{member.tool} [identity unavailable]")
+        return (
+            _CapabilityReaderSubject(
+                key=f"legacy-ambiguous:{member.tool}",
+                name=member.tool,
+                label=label,
+            ),
+        )
+
+    # Policy drift and frozen legacy reports may have no canonical tool
+    # identity to join.  Keep the historical visible fallback without letting
+    # it collide with a real canonical key.
     for candidate in (member.tool, member.scope, member.action, member.id):
         if not isinstance(candidate, str):
             continue
         rendered = display_literal(candidate)
         if has_visible_content(rendered):
-            return candidate, rendered
+            return (
+                _CapabilityReaderSubject(
+                    key=f"legacy-display:{candidate}",
+                    name=candidate,
+                    label=rendered,
+                ),
+            )
     fallback = "unknown capability"
-    return fallback, fallback
+    return (
+        _CapabilityReaderSubject(
+            key=f"legacy-display:{fallback}",
+            name=fallback,
+            label=fallback,
+        ),
+    )
+
+
+def _injective_capability_labels(labels: dict[str, str]) -> dict[str, str]:
+    """Make the final rendered headings unique without changing group keys."""
+
+    unique: dict[str, str] = {}
+    used: set[str] = set()
+    for key, base_label in sorted(labels.items(), key=lambda item: (item[1], item[0])):
+        label = base_label
+        ordinal = 2
+        while label in used:
+            label = f"{base_label} [subject {ordinal}]"
+            ordinal += 1
+        unique[key] = label
+        used.add(label)
+    return unique
 
 
 def _delta_change_type(member: CapabilityChangeMember) -> str:
@@ -525,11 +1082,23 @@ def _delta_description(
     member: CapabilityChangeMember,
     *,
     group_subject: str | None = None,
+    operation_by_action_id: dict[str, str] | None = None,
+    release_impact: CapabilityReleaseImpact | None = None,
 ) -> str:
+    operation_by_action_id = operation_by_action_id or {}
+    action = member.action
+    if action in operation_by_action_id:
+        action = operation_by_action_id[action]
+    elif action and ":action_v2_" in action:
+        # Canonical ids are useful machine join keys, not reader operations.
+        # When a frozen report has no action diff/fact to resolve the id, the
+        # rationale below still states the semantic change without leaking a
+        # long opaque digest into the review.
+        action = None
     target_value = next(
         (
             candidate
-            for candidate in (member.action, member.scope, member.tool, member.id)
+            for candidate in (action, member.scope, member.tool, member.id)
             if isinstance(candidate, str) and has_visible_content(candidate)
         ),
         "unknown capability",
@@ -541,9 +1110,34 @@ def _delta_description(
         before = display_literal(member.before_scope or "none")
         after = display_literal(member.after_scope or "none")
         detail += f" ({before} -> {after})"
-    if member.release_impact not in {"none", "informational"}:
-        detail += f" — {effect_phrase(member.release_impact)}"
+    qualifiers: list[str] = []
+    rationale = display_literal(member.rationale)
+    if has_visible_content(rationale) and _rationale_adds_detail(member, rationale):
+        qualifiers.append(rationale.rstrip("."))
+    effective_impact = release_impact or member.release_impact
+    if effective_impact not in {"none", "informational"}:
+        qualifiers.append(effect_phrase(effective_impact))
+    if qualifiers:
+        detail += f" — {'; '.join(qualifiers)}"
     return detail
+
+
+def _rationale_adds_detail(member: CapabilityChangeMember, rationale: str) -> bool:
+    """Suppress tautologies while retaining semantic field-level changes."""
+
+    normalized = " ".join(rationale.casefold().rstrip(".").split())
+    generic = {
+        f"{member.subject_kind} {member.direction}",
+        f"{member.direction} {member.subject_kind}",
+        f"capability {member.direction}",
+    }
+    if normalized in generic:
+        return False
+    if member.direction in {"added", "removed"} and normalized.startswith(
+        f"{member.subject_kind} {member.direction}:"
+    ):
+        return False
+    return True
 
 
 def _report_proves_manifest_introduction(report: ReadinessReport) -> bool:
