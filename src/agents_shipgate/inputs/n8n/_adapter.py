@@ -254,6 +254,7 @@ class N8nAdapter:
         cells=(
             BoundaryCell(
                 shape="export_artifact",
+                variant="reviewed inventory",
                 status="extracted",
                 reads=(
                     "A reviewed tool inventory in MCP export form, read as a "
@@ -261,6 +262,20 @@ class N8nAdapter:
                 ),
                 emits=("n8n_inventory",),
                 ceiling="high",
+            ),
+            BoundaryCell(
+                shape="export_artifact",
+                variant="wildcard inventory",
+                status="extracted",
+                reads=(
+                    "An inventory that declares `wildcard: true` instead of "
+                    "listing tools. It is a reviewed file and still names "
+                    "nothing, so it loads at `high` and proves no surface — a "
+                    "reviewed statement that says nothing is not evidence."
+                ),
+                emits=("n8n_inventory",),
+                ceiling="high",
+                surface_flags=("wildcard_tools",),
             ),
             BoundaryCell(
                 shape="literal_registration",
@@ -291,6 +306,21 @@ class N8nAdapter:
             ),
             BoundaryCell(
                 shape="dynamic_construction",
+                variant="expression-backed tool name",
+                status="extracted",
+                reads=(
+                    "A tool node whose `toolName` (or workflow target) is an "
+                    "n8n expression. The node still enters the catalog under "
+                    "the expression text at `medium`, and the unresolved name "
+                    "is recorded as a dynamic fact — the action is not hidden, "
+                    "its identity is."
+                ),
+                emits=("n8n_workflow_tool",),
+                ceiling="medium",
+            ),
+            BoundaryCell(
+                shape="dynamic_construction",
+                variant="MCP client wildcard",
                 status="extracted",
                 reads=(
                     "An MCP client node whose tool selection is `all`, `all_except`, "

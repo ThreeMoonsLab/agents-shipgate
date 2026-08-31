@@ -29,6 +29,7 @@ from agents_shipgate.core.semantic_assessment import (
     surface_is_complete,
 )
 from agents_shipgate.inputs import coverage as coverage_module
+from agents_shipgate.inputs.conductor import load_conductor_artifacts
 from agents_shipgate.inputs.coverage import (
     DECLARATION_SHAPE_ORDER,
     BoundaryCell,
@@ -42,6 +43,7 @@ from agents_shipgate.inputs.google_adk import load_google_adk_artifacts
 from agents_shipgate.inputs.langchain import load_langchain_artifacts
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.mcp_manifest import load_codex_config_mcp_sources
+from agents_shipgate.inputs.n8n import load_n8n_artifacts
 from agents_shipgate.inputs.openapi import load_openapi_tools
 from agents_shipgate.inputs.protocol import REGISTRY, AdapterRegistry
 from agents_shipgate.schemas.manifest import ToolSourceConfig
@@ -87,7 +89,7 @@ class _Manifest:
 
     def __init__(self, **sections: Any) -> None:
         self.tool_sources: list[ToolSourceConfig] = sections.pop("tool_sources", [])
-        for name in ("google_adk", "langchain", "crewai"):
+        for name in ("google_adk", "langchain", "crewai", "n8n", "codex_plugins"):
             setattr(self, name, sections.pop(name, None))
         assert not sections, sections
 
@@ -263,6 +265,7 @@ def test_every_published_configuration_route_is_reachable():
         ), source.adapter
         assert ("manifest_section" in source.configured_as) == (
             source.manifest_section is not None
+            and source.manifest_section_role == "activates"
         ), source.adapter
         if source.manifest_section is not None:
             assert source.manifest_section in AgentsShipgateManifest.model_fields
@@ -531,7 +534,7 @@ def test_an_unresolved_adk_expression_caps_the_module_at_the_published_medium(tm
     """
 
     tools = _adk_tools(tmp_path, "agent.py", ADK_DYNAMIC_MODULE)
-    cell = _cell("google_adk", "dynamic_construction")
+    cell = _cell("google_adk", "dynamic_construction", "module function")
     assert cell.ceiling == "medium"
     assert cell.extraction_permits_pass is False
     _assert_matches_published(tools[0], cell)
@@ -628,3 +631,240 @@ def test_a_codex_config_server_splits_on_whether_it_names_its_tools(tmp_path):
     opaque = _cell("codex_config", "dynamic_construction")
     assert opaque.extraction_permits_pass is False
     _assert_matches_published(by_name["opaque.*"], opaque)
+
+
+# --- #478 review: routes the first draft of the page got wrong --------------
+
+
+def test_a_wildcard_inventory_is_reviewed_and_still_proves_nothing(tmp_path):
+    """A reviewed file that names no tools loads at `high` and is not `proven`.
+
+    The first draft published one `export_artifact` row per input at `proven`,
+    which was false for exactly the inventory an adopter is most likely to
+    write first.
+    """
+
+    from agents_shipgate.schemas.manifest.langchain import LangChainConfig
+
+    (tmp_path / "inv.json").write_text(json.dumps({"wildcard": True}), encoding="utf-8")
+    manifest = _Manifest(
+        langchain=LangChainConfig.model_validate({"tool_inventories": ["inv.json"]})
+    )
+    loaded, _ = load_langchain_artifacts(manifest, tmp_path)
+    tools = [tool for source in loaded for tool in source.tools]
+
+    cell = _cell("langchain", "export_artifact", "wildcard inventory")
+    assert cell.ceiling == "high"
+    assert cell.outcome == "set_unproven"
+    assert cell.extraction_permits_pass is False
+    _assert_matches_published(tools[0], cell)
+
+    # And the reviewed route beside it still reaches `proven`, so the split is
+    # a real distinction rather than a blanket downgrade.
+    assert _cell("langchain", "export_artifact", "reviewed inventory").outcome == "proven"
+
+
+def test_every_inventory_input_publishes_the_wildcard_route():
+    """The wrapper behaviour is shared, so no input may omit the row."""
+
+    for adapter in ("langchain", "crewai", "google_adk", "n8n", "codex_plugin"):
+        cell = _cell(adapter, "export_artifact", "wildcard inventory")
+        assert cell.outcome == "set_unproven", adapter
+
+
+def test_a_module_gap_lowers_the_actions_a_resolved_toolset_contributed(tmp_path):
+    """The downgrade is module-wide, so the page must publish it per emitted type."""
+
+    (tmp_path / "inv.json").write_text(
+        json.dumps(
+            {
+                "tools": [
+                    {
+                        "name": "search_cases",
+                        "description": "Search.",
+                        "inputSchema": {"type": "object", "properties": {}},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    tools = _adk_tools(
+        tmp_path,
+        "agent.py",
+        """
+from google.adk.agents import LlmAgent
+from google.adk.tools.mcp_tool import McpToolset
+
+support = McpToolset(inventory_path="inv.json")
+
+root_agent = LlmAgent(name="a", instruction="x", tools=[support, *load_more()])
+""",
+    )
+    contributed = next(tool for tool in tools if tool.source_type == "mcp")
+    assert contributed.extraction_confidence == "medium"
+
+    cell = _cell("google_adk", "dynamic_construction", "resolved toolset actions in the same module")
+    assert cell.emits == ("mcp", "openapi")
+    assert cell.ceiling == "medium"
+    assert extraction_is_complete(contributed) is cell.extraction_complete
+
+
+def test_an_n8n_expression_tool_name_still_enters_the_catalog(tmp_path):
+    """The dynamic n8n route is a *catalog* path, not an omission."""
+
+    from agents_shipgate.schemas.manifest.n8n import N8nConfig
+
+    workflow = {
+        "id": "wf1",
+        "name": "Agent Flow",
+        "nodes": [
+            {
+                "id": "agent",
+                "name": "AI Agent",
+                "type": "@n8n/n8n-nodes-langchain.agent",
+                "parameters": {},
+            },
+            {
+                "id": "t1",
+                "name": "Dyn Tool",
+                "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+                "parameters": {"toolName": "={{ $json.tool_name }}", "workflowId": "sub-1"},
+            },
+        ],
+        "connections": {
+            "Dyn Tool": {"ai_tool": [[{"node": "AI Agent", "type": "ai_tool", "index": 0}]]}
+        },
+    }
+    (tmp_path / "wf.json").write_text(json.dumps(workflow), encoding="utf-8")
+    manifest = _Manifest(n8n=N8nConfig.model_validate({"workflows": ["wf.json"]}))
+    loaded, artifacts = load_n8n_artifacts(manifest, tmp_path)
+    tools = [tool for source in loaded for tool in source.tools]
+
+    assert artifacts.dynamic_tool_surfaces, "the expression must be recorded"
+    _assert_matches_published(
+        tools[0], _cell("n8n", "dynamic_construction", "expression-backed tool name")
+    )
+
+
+def test_conductor_dynamic_method_and_dynamic_server_differ(tmp_path):
+    """Only a non-literal `method` withholds the action; the server does not."""
+
+    workflow = [
+        {
+            "name": "order_flow",
+            "version": 1,
+            "tasks": [
+                {
+                    "name": "a",
+                    "taskReferenceName": "a",
+                    "type": "CALL_MCP_TOOL",
+                    "inputParameters": {
+                        "method": "refund_order",
+                        "mcpServer": "${wf.input.server}",
+                    },
+                },
+                {
+                    "name": "b",
+                    "taskReferenceName": "b",
+                    "type": "CALL_MCP_TOOL",
+                    "inputParameters": {
+                        "method": "${wf.input.m}",
+                        "mcpServer": "https://x.invalid",
+                    },
+                },
+            ],
+        }
+    ]
+    (tmp_path / "wf.json").write_text(json.dumps(workflow), encoding="utf-8")
+    manifest = _Manifest(
+        tool_sources=[ToolSourceConfig(id="c", type="conductor", path="wf.json")]
+    )
+    loaded, _ = load_conductor_artifacts(manifest, tmp_path)
+    tools = [tool for source in loaded for tool in source.tools]
+
+    # The expression-backed *server* kept its action.
+    assert [tool.name for tool in tools] == ["refund_order"]
+    _assert_matches_published(
+        tools[0], _cell("conductor", "dynamic_construction", "expression-backed server")
+    )
+    # The expression-backed *method* produced none.
+    assert _cell(
+        "conductor", "dynamic_construction", "expression-backed method"
+    ).status == "not_extracted"
+
+
+def test_a_not_extracted_route_may_still_raise_a_check():
+    """`not_extracted` never meant "unseen", and the page no longer says so."""
+
+    from agents_shipgate.checks.registry import check_catalog
+    from agents_shipgate.inputs.coverage import CELL_OUTCOME_VERDICTS
+
+    cell = _cell("conductor", "dynamic_construction", "expression-backed method")
+    assert cell.raises == ("SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",)
+    assert cell.raises[0] in {check.id for check in check_catalog(plugins_enabled=False)}
+    assert "no check runs" not in CELL_OUTCOME_VERDICTS["not_extracted"]
+
+
+def test_a_published_check_id_must_resolve(monkeypatch):
+    """Negative control: a renamed check breaks generation, not the page."""
+
+    import agents_shipgate.checks.registry as registry
+
+    monkeypatch.setattr(registry, "check_catalog", lambda **_kwargs: [])
+    with pytest.raises(BoundaryCoverageError) as excinfo:
+        build_boundary_matrix()
+    assert "no registered check owns" in str(excinfo.value)
+
+
+def test_a_supplemental_section_is_not_a_configuration_route():
+    """`codex_plugins:` cannot start the adapter, so it is not advertised as a route."""
+
+    matrix = build_boundary_matrix()
+    plugin = next(item for item in matrix.sources if item.adapter == "codex_plugin")
+    assert plugin.manifest_section == "codex_plugins"
+    assert plugin.manifest_section_role == "supplements"
+    assert plugin.configured_as == ("tool_sources",)
+
+    # The loader is why: no `tool_sources[]` row, no artifacts at all.
+    from agents_shipgate.inputs.codex_plugin import load_codex_plugin_artifacts
+
+    loaded, artifacts = load_codex_plugin_artifacts(_Manifest(), Path("."))
+    assert loaded == [] and artifacts is None
+
+
+def test_the_inventory_remedy_is_published_only_where_one_exists():
+    """`inventory_manifest_key()` decides, not a blanket promise."""
+
+    from agents_shipgate.ci.release_decision import inventory_manifest_key
+
+    for source in build_boundary_matrix().sources:
+        emitted = {value for cell in source.cells for value in cell.emits}
+        expected = next(
+            (
+                key
+                for value in sorted(emitted)
+                if (key := inventory_manifest_key(value)) is not None
+            ),
+            None,
+        )
+        assert source.inventory_key == expected, source.adapter
+
+    # The inputs the engine has no inventory route for must not claim one.
+    for adapter in ("openai_agents_sdk", "conductor", "codex_config", "mcp"):
+        source = next(
+            item for item in build_boundary_matrix().sources if item.adapter == adapter
+        )
+        assert source.inventory_key is None, adapter
+
+
+def test_the_page_dates_itself_to_a_release():
+    """An archived report's link must be checkable against the scanner that ran."""
+
+    from agents_shipgate import __version__
+
+    matrix = build_boundary_matrix()
+    assert matrix.generated_for_version == __version__
+    page = (REPO_ROOT / "docs" / "determinism-boundary.md").read_text(encoding="utf-8")
+    assert f"agents-shipgate {__version__}" in page
+    assert "blob/v<your-version>/docs/determinism-boundary.md" in page

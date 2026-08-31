@@ -373,6 +373,7 @@ class LangChainAdapter:
         cells=(
             BoundaryCell(
                 shape="export_artifact",
+                variant="reviewed inventory",
                 status="extracted",
                 reads=(
                     "A reviewed tool inventory in MCP export form. It is read as a "
@@ -381,6 +382,20 @@ class LangChainAdapter:
                 ),
                 emits=("langchain_inventory",),
                 ceiling="high",
+            ),
+            BoundaryCell(
+                shape="export_artifact",
+                variant="wildcard inventory",
+                status="extracted",
+                reads=(
+                    "An inventory that declares `wildcard: true` instead of "
+                    "listing tools. It is a reviewed file and still names "
+                    "nothing, so it loads at `high` and proves no surface — a "
+                    "reviewed statement that says nothing is not evidence."
+                ),
+                emits=("langchain_inventory",),
+                ceiling="high",
+                surface_flags=("wildcard_tools",),
             ),
             BoundaryCell(
                 shape="literal_registration",

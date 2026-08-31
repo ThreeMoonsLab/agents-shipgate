@@ -113,6 +113,11 @@ CellStatus = Literal["extracted", "not_extracted", "not_applicable"]
 #: reader looking for a key the page never named (#473 review).
 ConfigurationRoute = Literal["tool_sources", "manifest_section"]
 
+#: What a top-level section does for its input. ``supplements`` means the
+#: section enriches what a ``tool_sources[]`` row already found and cannot make
+#: the adapter run by itself.
+ManifestSectionRole = Literal["activates", "supplements"]
+
 #: The ``extraction["surface"]`` evidence an adapter writes for a shape.
 #: ``None`` means the adapter writes no answer at all, which every consumer
 #: reads as incomplete — absence is not ``partial`` with extra steps.
@@ -139,6 +144,12 @@ CELL_OUTCOME_RANK: dict[CellOutcome, int] = {
     "set_unproven": 3,
     "proven": 4,
 }
+
+
+def _running_version() -> str:
+    from agents_shipgate import __version__
+
+    return __version__
 
 
 class BoundaryCoverageError(RuntimeError):
@@ -174,6 +185,14 @@ class BoundaryCell(BaseModel):
     ceiling: Confidence | None = None
     #: The ``extraction["surface"]`` value the adapter writes for this route.
     surface: SurfaceEvidence | None = None
+    #: Check IDs this route can raise even when it contributes no action.
+    #: "Nothing enters the catalog" is not "nothing is seen": a dynamic
+    #: Conductor `CALL_MCP_TOOL` emits no `Tool` and still raises a HIGH
+    #: `SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE`, which withholds
+    #: the release verdict. Validated against the check catalog at generation
+    #: time, so a renamed check breaks the build rather than publishing a
+    #: finding nobody can look up (#478 review).
+    raises: tuple[str, ...] = ()
     #: ``Tool.annotations`` keys this route sets to ``True`` that bear on
     #: surface completeness (``wildcard_tools``, ``mcp_unknown_schema``, …).
     #: Checked against the set the engine reads: a key it ignores is inert on
@@ -272,6 +291,12 @@ class SourceCoverage(BaseModel):
     #: ``tool_sources[]`` — including ``conductor``, which is per-scan and
     #: still has no section of its own.
     manifest_section: str | None = None
+    #: Whether that section can activate this input on its own.
+    #: ``load_codex_plugin_artifacts`` returns nothing without a
+    #: ``tool_sources[]`` row, so ``codex_plugins:`` only *supplements*
+    #: sources discovered through that row — publishing it as an alternative
+    #: advertised a route that cannot start the adapter (#478 review).
+    manifest_section_role: ManifestSectionRole = "activates"
     cells: tuple[BoundaryCell, ...]
 
     @model_validator(mode="after")
@@ -284,6 +309,13 @@ class SourceCoverage(BaseModel):
                 f"{self.adapter}: manifest section {section!r} is not a field on "
                 "AgentsShipgateManifest, so the page would name a key nobody "
                 "can write"
+            )
+        if self.manifest_section_role == "supplements" and (
+            self.adapter not in BUILTIN_TOOL_SOURCE_TYPES
+        ):
+            raise ValueError(
+                f"{self.adapter}: a section that only supplements leaves no way "
+                "to configure this input at all"
             )
         if section is None and self.adapter not in BUILTIN_TOOL_SOURCE_TYPES:
             raise ValueError(
@@ -334,9 +366,11 @@ class SourceCoverage(BaseModel):
 CELL_OUTCOME_VERDICTS: dict[CellOutcome, str] = {
     "not_applicable": "No such declaration exists for this input.",
     "not_extracted": (
-        "Nothing enters the catalog, so no check runs on it and no verdict "
-        "covers it. The scan records that it read and refused this, rather "
-        "than reporting an empty surface."
+        "No action enters the catalog, so nothing here carries an "
+        "action-level ceiling. That is not the same as unseen: the scan "
+        "records that it read this construct and refused to guess what it "
+        "produces, and a framework check may raise a finding on the record "
+        "itself — see the row's own `Raises` column."
     ),
     "proven": (
         "Extraction evidence is complete: an action from this route can be "
@@ -374,6 +408,7 @@ class ResolvedCell(BaseModel):
     ceiling: Confidence | None
     surface: SurfaceEvidence | None
     surface_flags: tuple[str, ...]
+    raises: tuple[str, ...]
     #: Derived — ``extraction_is_complete`` on this route's tools.
     extraction_complete: bool
     #: Derived — ``surface_is_complete`` on this route's tools.
@@ -405,8 +440,13 @@ class ResolvedSource(BaseModel):
     #: Derived — every way a manifest can ask for this input, in the order a
     #: reader should try them.
     configured_as: tuple[ConfigurationRoute, ...]
-    #: The top-level manifest key, when the input has one.
+    #: The top-level manifest key, when the input has one, and whether it can
+    #: activate the input by itself.
     manifest_section: str | None
+    manifest_section_role: ManifestSectionRole
+    #: Derived — the ``<framework>.tool_inventories`` key that can promote this
+    #: input's rows, or ``None`` when the engine offers none.
+    inventory_key: str | None
     cells: tuple[ResolvedCell, ...]
 
 
@@ -416,6 +456,16 @@ class BoundaryMatrix(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: str = BOUNDARY_SCHEMA_VERSION
+    #: The scanner release this matrix describes.
+    #:
+    #: ``schema_version`` versions the *shape* of this document; the routes
+    #: themselves move as adapters do. A released report embeds a link to this
+    #: page, so without a version stamp an archived report could send its
+    #: reader to a matrix describing routes its scanner never implemented
+    #: (#478 review). Stamped from the running package, which makes the
+    #: committed copy churn once per release — the same contract
+    #: ``.well-known``, ``llms.txt``, and ``STABILITY.md`` already carry.
+    generated_for_version: str = Field(default_factory=_running_version)
     declaration_shapes: dict[str, str] = Field(
         default_factory=lambda: dict(DECLARATION_SHAPE_DEFINITIONS)
     )
@@ -503,6 +553,7 @@ def _resolve_cell(cell: BoundaryCell) -> ResolvedCell:
         ceiling=cell.ceiling,
         surface=cell.surface,
         surface_flags=cell.surface_flags,
+        raises=cell.raises,
         extraction_complete=extraction_complete,
         surface_complete=surface_complete,
         extraction_permits_pass=extraction_complete and surface_complete,
@@ -514,6 +565,26 @@ def _resolve_cell(cell: BoundaryCell) -> ResolvedCell:
         outcome=outcome,
         verdict=CELL_OUTCOME_VERDICTS[outcome],
     )
+
+
+def _inventory_key(cells: tuple[ResolvedCell, ...]) -> str | None:
+    """The ``<framework>.tool_inventories`` key that can promote these rows.
+
+    Read from :func:`~agents_shipgate.ci.release_decision.inventory_manifest_key`
+    rather than assumed, because the promise is not universal: there is no
+    inventory route for ``sdk_function``, ``conductor_mcp_call``, or
+    ``codex_config_mcp``, and telling those adopters to write one sends them
+    after a manifest key that does not exist (#478 review).
+    """
+
+    from agents_shipgate.ci.release_decision import inventory_manifest_key
+
+    for cell in cells:
+        for source_type in cell.emits:
+            key = inventory_manifest_key(source_type)
+            if key is not None:
+                return key
+    return None
 
 
 def _configured_as(coverage: SourceCoverage) -> tuple[ConfigurationRoute, ...]:
@@ -531,7 +602,7 @@ def _configured_as(coverage: SourceCoverage) -> tuple[ConfigurationRoute, ...]:
     routes: list[ConfigurationRoute] = []
     if coverage.adapter in BUILTIN_TOOL_SOURCE_TYPES:
         routes.append("tool_sources")
-    if coverage.manifest_section is not None:
+    if coverage.manifest_section is not None and coverage.manifest_section_role == "activates":
         routes.append("manifest_section")
     if not routes:  # pragma: no cover - SourceCoverage forbids it
         raise BoundaryCoverageError(
@@ -587,10 +658,26 @@ def build_boundary_matrix(registry: AdapterRegistry | None = None) -> BoundaryMa
                 label=coverage.label,
                 reads=coverage.reads,
                 manifest_section=coverage.manifest_section,
+                manifest_section_role=coverage.manifest_section_role,
+                inventory_key=_inventory_key(cells),
                 configured_as=_configured_as(coverage),
                 cells=cells,
             )
         )
+
+    # A published check id must resolve. Done here rather than in the cell
+    # validator so importing an adapter never drags in the check registry.
+    from agents_shipgate.checks.registry import check_catalog
+
+    known_checks = {check.id for check in check_catalog(plugins_enabled=False)}
+    for source in sources:
+        for cell in source.cells:
+            unknown = sorted(set(cell.raises) - known_checks)
+            if unknown:
+                raise BoundaryCoverageError(
+                    f"{source.adapter} {cell.shape!r} publishes check id(s) "
+                    f"{unknown} that no registered check owns"
+                )
 
     # Fail closed the other way too. The registry proves every *adapter* is
     # described; these two vocabularies are where the engine names individual
@@ -626,6 +713,7 @@ __all__ = [
     "CellOutcome",
     "CellStatus",
     "ConfigurationRoute",
+    "ManifestSectionRole",
     "DeclarationShape",
     "ResolvedCell",
     "ResolvedSource",

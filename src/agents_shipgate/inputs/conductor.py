@@ -1002,12 +1002,28 @@ class ConductorAdapter:
             ),
             BoundaryCell(
                 shape="dynamic_construction",
+                variant="expression-backed method",
                 status="not_extracted",
                 reads=(
-                    "A `CALL_MCP_TOOL` whose `method` or server is a workflow "
-                    "expression records the task as a dynamic fact and adds no "
-                    "action: the name that would identify it is not in the file."
+                    "A `CALL_MCP_TOOL` whose `method` is a workflow expression "
+                    "adds no action: the name that would identify it is not in "
+                    "the file. The task is still recorded as a dynamic fact."
                 ),
+                raises=("SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",),
+            ),
+            BoundaryCell(
+                shape="dynamic_construction",
+                variant="expression-backed server",
+                status="extracted",
+                reads=(
+                    "A literal `method` with an expression-backed `mcpServer` "
+                    "still names the call, so the action enters the catalog at "
+                    "`medium`. Only the endpoint it reaches is unresolved — a "
+                    "different question from which tool is called."
+                ),
+                emits=("conductor_mcp_call",),
+                ceiling="medium",
+                raises=("SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",),
             ),
         ),
     )

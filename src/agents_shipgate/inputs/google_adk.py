@@ -2235,6 +2235,20 @@ class GoogleADKAdapter:
                 ceiling="high",
             ),
             BoundaryCell(
+                shape="export_artifact",
+                variant="wildcard inventory",
+                status="extracted",
+                reads=(
+                    "An inventory that declares `wildcard: true` instead of "
+                    "listing tools. It is a reviewed file and still names "
+                    "nothing, so it loads at `high` and proves no surface — a "
+                    "reviewed statement that says nothing is not evidence."
+                ),
+                emits=("google_adk_inventory",),
+                ceiling="high",
+                surface_flags=("wildcard_tools",),
+            ),
+            BoundaryCell(
                 shape="literal_registration",
                 variant="Python module",
                 status="extracted",
@@ -2262,6 +2276,7 @@ class GoogleADKAdapter:
             ),
             BoundaryCell(
                 shape="factory",
+                variant="module function",
                 status="extracted",
                 reads=(
                     "A toolset or wrapper call whose arguments do not name a file in "
@@ -2275,7 +2290,22 @@ class GoogleADKAdapter:
                 surface="partial",
             ),
             BoundaryCell(
+                shape="factory",
+                variant="resolved toolset actions in the same module",
+                status="extracted",
+                reads=(
+                    "The actions a resolved `McpToolset` / `OpenAPIToolset` "
+                    "contributed are lowered with the rest of the module. Their "
+                    "own schemas stay trustworthy so they are only ever "
+                    "lowered, never raised — but a module that cannot prove its "
+                    "tool set does not prove theirs either."
+                ),
+                emits=("mcp", "openapi"),
+                ceiling="medium",
+            ),
+            BoundaryCell(
                 shape="dynamic_construction",
+                variant="module function",
                 status="extracted",
                 reads=(
                     "An unresolved tools expression, `Agent(**config)`, a rebound "
@@ -2286,6 +2316,20 @@ class GoogleADKAdapter:
                 emits=("google_adk_function",),
                 ceiling="medium",
                 surface="partial",
+            ),
+            BoundaryCell(
+                shape="dynamic_construction",
+                variant="resolved toolset actions in the same module",
+                status="extracted",
+                reads=(
+                    "The actions a resolved `McpToolset` / `OpenAPIToolset` "
+                    "contributed are lowered with the rest of the module. Their "
+                    "own schemas stay trustworthy so they are only ever "
+                    "lowered, never raised — but a module that cannot prove its "
+                    "tool set does not prove theirs either."
+                ),
+                emits=("mcp", "openapi"),
+                ceiling="medium",
             ),
         ),
     )

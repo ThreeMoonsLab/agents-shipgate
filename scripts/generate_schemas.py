@@ -1968,17 +1968,24 @@ withhold a pass from a route marked `proven` here.
 """
 
 _BOUNDARY_REMEDY = """\
-Every row below `proven` has the same route out, and it is deliberately the only
-one: a **reviewed tool inventory** — an MCP-export-shaped file listing the tools
-the source really exposes, declared in the manifest and merged through review.
-It is read as a published contract, so it reaches `high`. Nothing an agent can
-write for itself moves a row; that is the point of the boundary rather than an
-accident of it.
+There is no universal remedy, and the per-input line below each table says which
+one applies. Where an input accepts a **reviewed tool inventory** — an
+MCP-export-shaped file listing the tools the source really exposes, declared in
+the manifest and merged through review — that file is read as a published
+contract and reaches `high`. Four inputs have such a key; the rest do not, and
+telling their adopters to write one sends them after a manifest key that does
+not exist.
 
-Where the table says `not_extracted`, an inventory is not a workaround for a
-blind spot — the scan is telling you it read a declaration and refused to guess
-what it produces. Where it says `not_applicable`, the input has no such
-declaration form at all.
+Two rows an inventory never moves. A wildcard inventory (`wildcard: true`) is a
+reviewed file that names nothing, so it loads at `high` and still proves no
+surface — review is not the ingredient that was missing. And where the table
+says `not_extracted`, the scan is telling you it read a declaration and refused
+to guess what it produces; that is a statement about the declaration, not a gap
+an inventory fills. `not_applicable` means the input has no such declaration
+form at all.
+
+Nothing an agent can write for itself moves a row. That is the point of the
+boundary rather than an accident of it.
 """
 
 
@@ -1990,6 +1997,40 @@ def _boundary_cell_label(cell: object) -> str:
 
 def _boundary_table_text(value: str) -> str:
     return value.replace("|", "\\|")
+
+
+def _boundary_remedy_line(source: Any) -> str:
+    """The remedy that actually applies to this input.
+
+    Derived from `inventory_manifest_key()` and from whether any route here
+    reaches `proven` at all, because the universal-inventory promise was false
+    for most rows: there is no inventory key for `sdk_function`,
+    `conductor_mcp_call`, or `codex_config_mcp`.
+    """
+
+    inventory_key = source.inventory_key
+    proven = [
+        cell for cell in source.cells if cell.outcome == "proven"
+    ]
+    if inventory_key:
+        return (
+            f"**Getting to `proven` here:** declare a reviewed tool inventory at "
+            f"`{inventory_key}[]`. It is read as a published contract, so it "
+            "reaches `high` — unless it declares `wildcard: true`, which names "
+            "nothing."
+        )
+    if proven:
+        labels = " or ".join(f"`{_boundary_cell_label(cell)}`" for cell in proven)
+        return (
+            f"**Getting to `proven` here:** only via {labels}. This input has no "
+            "`tool_inventories[]` key, so there is no separate reviewed file to "
+            "declare — the contract it already reads is the surface."
+        )
+    return (
+        "**Getting to `proven` here:** no route on this input reaches `proven`. "
+        "Publish the actions through an input that does, or accept that a "
+        "verdict cannot rest on this surface alone."
+    )
 
 
 def build_determinism_boundary_matrix() -> tuple[Path, str]:
@@ -2034,6 +2075,24 @@ def build_determinism_boundary_page() -> tuple[Path, str]:
         "> Do not edit by hand — re-run the script to update.",
         "",
         _BOUNDARY_INTRO,
+        "## Which release this describes",
+        "",
+        (
+            f"This page describes **agents-shipgate {matrix.generated_for_version}**, "
+            "and its rows move as the adapters do — `schema_version` "
+            f"(`{matrix.schema_version}`) versions the shape of the machine-readable "
+            "companion, not the routes."
+        ),
+        "",
+        (
+            "If you arrived from a link in a stored report, check that version "
+            "against the scanner that produced the report before trusting a row: "
+            "a boundary is only a specification of the release it was generated "
+            "from. Every released version is tagged, so the matrix your scanner "
+            "implemented is at "
+            "`https://github.com/ThreeMoonsLab/agents-shipgate/blob/v<your-version>/docs/determinism-boundary.md`."
+        ),
+        "",
         "## The four declaration shapes",
         "",
         (
@@ -2083,6 +2142,11 @@ def build_determinism_boundary_page() -> tuple[Path, str]:
         if "manifest_section" in source.configured_as:
             routes.append(f"the top-level `{source.manifest_section}:` manifest section")
         configured = " or ".join(routes)
+        if source.manifest_section_role == "supplements":
+            configured += (
+                f" The top-level `{source.manifest_section}:` section supplements "
+                "what that entry finds and cannot activate this input on its own."
+            )
         lines.extend(
             [
                 f"### {source.label} — `{source.adapter}`",
@@ -2091,21 +2155,22 @@ def build_determinism_boundary_page() -> tuple[Path, str]:
                 "",
                 (
                     "| Declaration shape | What is read | Emits | Ceiling | "
-                    "Outcome | Evidence gaps |"
+                    "Outcome | Evidence gaps | Raises |"
                 ),
-                "| --- | --- | --- | --- | --- | --- |",
+                "| --- | --- | --- | --- | --- | --- | --- |",
             ]
         )
         for cell in source.cells:
             emits = ", ".join(f"`{value}`" for value in cell.emits) or "—"
             ceiling = f"`{cell.ceiling}`" if cell.ceiling else "—"
             gaps = ", ".join(f"`{gap}`" for gap in cell.evidence_gaps) or "—"
+            raises = ", ".join(f"`{check}`" for check in cell.raises) or "—"
             lines.append(
                 f"| `{_boundary_cell_label(cell)}` "
                 f"| {_boundary_table_text(cell.reads)} "
-                f"| {emits} | {ceiling} | `{cell.outcome}` | {gaps} |"
+                f"| {emits} | {ceiling} | `{cell.outcome}` | {gaps} | {raises} |"
             )
-        lines.append("")
+        lines.extend(["", _boundary_remedy_line(source), ""])
     lines.extend(
         [
             "## Scope",

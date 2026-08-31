@@ -21,6 +21,12 @@ asking the engine's own completeness predicates about those declared facts. CI
 regenerates the page and fails on any difference, so a boundary that moves in
 the code moves here in the same commit or the build stops.
 
+## Which release this describes
+
+This page describes **agents-shipgate 0.16.0b7**, and its rows move as the adapters do — `schema_version` (`shipgate.determinism_boundary/v1`) versions the shape of the machine-readable companion, not the routes.
+
+If you arrived from a link in a stored report, check that version against the scanner that produced the report before trusting a row: a boundary is only a specification of the release it was generated from. Every released version is tagged, so the matrix your scanner implemented is at `https://github.com/ThreeMoonsLab/agents-shipgate/blob/v<your-version>/docs/determinism-boundary.md`.
+
 ## The four declaration shapes
 
 Cut by *what the declaration names*, not by which framework it belongs to: a wildcard MCP export and a `tools=[*build()]` comprehension raise the same question and get the same answer.
@@ -45,7 +51,7 @@ effect, authority, identity, and binding evidence are judged separately and can
 withhold a pass from a route marked `proven` here.
 
 - **`not_applicable`** — No such declaration exists for this input.
-- **`not_extracted`** — Nothing enters the catalog, so no check runs on it and no verdict covers it. The scan records that it read and refused this, rather than reporting an empty surface.
+- **`not_extracted`** — No action enters the catalog, so nothing here carries an action-level ceiling. That is not the same as unseen: the scan records that it read this construct and refused to guess what it produces, and a framework check may raise a finding on the record itself — see the row's own `Raises` column.
 - **`proven`** — Extraction evidence is complete: an action from this route can be pass-eligible. Effect, authority, identity, and binding evidence are judged separately and can still withhold a pass.
 - **`set_unproven`** — The action's own contract was read, but the set it belongs to was not established, so it raises `incomplete_surface` and can never be pass-eligible. One such action is already enough to withhold a verdict. The exclusion ledger records the unread remainder — the action is analysed; what stands beside it is not.
 - **`low_confidence`** — Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out.
@@ -63,7 +69,7 @@ The best outcome each input reaches for each shape. An input with more than one 
 | LangChain / LangGraph (`langchain`) | `proven` | `low_confidence` | `not_extracted` | `not_extracted` |
 | CrewAI (`crewai`) | `proven` | `low_confidence` | `low_confidence` | `not_extracted` |
 | n8n workflows (`n8n`) | `proven` | `low_confidence` | `not_applicable` | `low_confidence` |
-| Conductor OSS workflows (`conductor`) | `not_applicable` | `low_confidence` | `not_applicable` | `not_extracted` |
+| Conductor OSS workflows (`conductor`) | `not_applicable` | `low_confidence` | `not_applicable` | `low_confidence` |
 | OpenAI API artifacts (`openai_api`) | `proven` | `not_applicable` | `not_applicable` | `not_applicable` |
 | Anthropic Messages API artifacts (`anthropic_api`) | `proven` | `not_applicable` | `not_applicable` | `not_applicable` |
 | Codex / MCP host config (`codex_config`) | `not_applicable` | `proven` | `not_applicable` | `low_confidence` |
@@ -72,17 +78,24 @@ The best outcome each input reaches for each shape. An input with more than one 
 
 ## Getting a row to `proven`
 
-Every row below `proven` has the same route out, and it is deliberately the only
-one: a **reviewed tool inventory** — an MCP-export-shaped file listing the tools
-the source really exposes, declared in the manifest and merged through review.
-It is read as a published contract, so it reaches `high`. Nothing an agent can
-write for itself moves a row; that is the point of the boundary rather than an
-accident of it.
+There is no universal remedy, and the per-input line below each table says which
+one applies. Where an input accepts a **reviewed tool inventory** — an
+MCP-export-shaped file listing the tools the source really exposes, declared in
+the manifest and merged through review — that file is read as a published
+contract and reaches `high`. Four inputs have such a key; the rest do not, and
+telling their adopters to write one sends them after a manifest key that does
+not exist.
 
-Where the table says `not_extracted`, an inventory is not a workaround for a
-blind spot — the scan is telling you it read a declaration and refused to guess
-what it produces. Where it says `not_applicable`, the input has no such
-declaration form at all.
+Two rows an inventory never moves. A wildcard inventory (`wildcard: true`) is a
+reviewed file that names nothing, so it loads at `high` and still proves no
+surface — review is not the ingredient that was missing. And where the table
+says `not_extracted`, the scan is telling you it read a declaration and refused
+to guess what it produces; that is a statement about the declaration, not a gap
+an inventory fills. `not_applicable` means the input has no such declaration
+form at all.
+
+Nothing an agent can write for itself moves a row. That is the point of the
+boundary rather than an accident of it.
 
 ## Per input
 
@@ -90,147 +103,182 @@ declaration form at all.
 
 Configured as a `tool_sources[]` entry of type `mcp`. A committed MCP `tools/list` response, or any file carrying the same `tools` array.
 
-| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
-| --- | --- | --- | --- | --- | --- |
-| `export_artifact` | A `tools` array naming each tool with its input schema: the server's own published contract, read as written. | `mcp` | `high` | `proven` | — |
-| `literal_registration` | An export is a contract file, not source. A server declared in a host config is read by the Codex / MCP host config input. | — | — | `not_applicable` | — |
-| `factory` | An export is the result of construction, never the construction. | — | — | `not_applicable` | — |
-| `dynamic_construction` | `wildcard: true` or `tools: "*"`: one synthetic `<source>.*` action stands in for a surface the file declines to name. | `mcp` | `high` | `set_unproven` | `incomplete_surface` |
+| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps | Raises |
+| --- | --- | --- | --- | --- | --- | --- |
+| `export_artifact` | A `tools` array naming each tool with its input schema: the server's own published contract, read as written. | `mcp` | `high` | `proven` | — | — |
+| `literal_registration` | An export is a contract file, not source. A server declared in a host config is read by the Codex / MCP host config input. | — | — | `not_applicable` | — | — |
+| `factory` | An export is the result of construction, never the construction. | — | — | `not_applicable` | — | — |
+| `dynamic_construction` | `wildcard: true` or `tools: "*"`: one synthetic `<source>.*` action stands in for a surface the file declines to name. | `mcp` | `high` | `set_unproven` | `incomplete_surface` | — |
+
+**Getting to `proven` here:** only via `export_artifact`. This input has no `tool_inventories[]` key, so there is no separate reviewed file to declare — the contract it already reads is the surface.
 
 ### OpenAPI document — `openapi`
 
 Configured as a `tool_sources[]` entry of type `openapi`. An OpenAPI 3.x document; every operation becomes one action.
 
-| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
-| --- | --- | --- | --- | --- | --- |
-| `export_artifact` | Each `paths` operation with its parameters, request body, and declared security. A `$ref` the document does not resolve is reported as a source warning against an action that is still read. | `openapi` | `high` | `proven` | — |
-| `literal_registration` | An OpenAPI document is a contract file, not source. | — | — | `not_applicable` | — |
-| `factory` | Nothing in an OpenAPI document constructs operations. | — | — | `not_applicable` | — |
-| `dynamic_construction` | An operation is present in the document or it is not; there is no expression form to be unable to resolve. | — | — | `not_applicable` | — |
+| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps | Raises |
+| --- | --- | --- | --- | --- | --- | --- |
+| `export_artifact` | Each `paths` operation with its parameters, request body, and declared security. A `$ref` the document does not resolve is reported as a source warning against an action that is still read. | `openapi` | `high` | `proven` | — | — |
+| `literal_registration` | An OpenAPI document is a contract file, not source. | — | — | `not_applicable` | — | — |
+| `factory` | Nothing in an OpenAPI document constructs operations. | — | — | `not_applicable` | — | — |
+| `dynamic_construction` | An operation is present in the document or it is not; there is no expression form to be unable to resolve. | — | — | `not_applicable` | — | — |
+
+**Getting to `proven` here:** only via `export_artifact`. This input has no `tool_inventories[]` key, so there is no separate reviewed file to declare — the contract it already reads is the surface.
 
 ### OpenAI Agents SDK (Python) — `openai_agents_sdk`
 
 Configured as a `tool_sources[]` entry of type `openai_agents_sdk`. Python modules parsed with `ast` and never imported.
 
-| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
-| --- | --- | --- | --- | --- | --- |
-| `export_artifact` | This input declares no reviewed inventory of its own; a committed export is configured as its own `mcp` or `openapi` source. | — | — | `not_applicable` | — |
-| `literal_registration` | A module-level function decorated with `@function_tool`, read for its name, docstring, and annotated parameters. | `sdk_function` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` |
-| `factory` | A recognised agent-toolkit constructor records a statically-parsed least-privilege scope bound and a warning. Naming the actions it returns would mean running it. | — | — | `not_extracted` | — |
-| `dynamic_construction` | `tools=<expression>` that is not a literal list of readable names records a binding warning; whatever the expression would have produced never enters the catalog. | — | — | `not_extracted` | — |
+| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps | Raises |
+| --- | --- | --- | --- | --- | --- | --- |
+| `export_artifact` | This input declares no reviewed inventory of its own; a committed export is configured as its own `mcp` or `openapi` source. | — | — | `not_applicable` | — | — |
+| `literal_registration` | A module-level function decorated with `@function_tool`, read for its name, docstring, and annotated parameters. | `sdk_function` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | — |
+| `factory` | A recognised agent-toolkit constructor records a statically-parsed least-privilege scope bound and a warning. Naming the actions it returns would mean running it. | — | — | `not_extracted` | — | — |
+| `dynamic_construction` | `tools=<expression>` that is not a literal list of readable names records a binding warning; whatever the expression would have produced never enters the catalog. | — | — | `not_extracted` | — | — |
+
+**Getting to `proven` here:** no route on this input reaches `proven`. Publish the actions through an input that does, or accept that a verdict cannot rest on this surface alone.
 
 ### Google ADK — `google_adk`
 
 Configured as a `tool_sources[]` entry of type `google_adk` or the top-level `google_adk:` manifest section. ADK Python modules parsed with `ast`, agent config files, and any reviewed inventory `google_adk.tool_inventories[]` declares. Completeness is settled once per module, after the whole file is walked.
 
-| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
-| --- | --- | --- | --- | --- | --- |
-| `export_artifact — reviewed inventory` | A reviewed tool inventory in MCP export form, read as a published contract. | `google_adk_inventory` | `high` | `proven` | — |
-| `export_artifact — resolved toolset` | `McpToolset(...)` / `OpenAPIToolset(...)` whose arguments name a committed export or spec in the workspace. Those actions are read by the MCP and OpenAPI inputs, then lowered to this module's ceiling if anything else in the module was unresolved. | `mcp`, `openapi` | `high` | `proven` | — |
-| `literal_registration — Python module` | A module-level `def` bound by `Agent(tools=[...])`, in a module where every tool expression, agent keyword, and imported symbol resolved. This is the only source-code route in any input that reaches `high`. | `google_adk_function` | `high` | `proven` | — |
-| `literal_registration — agent config` | A tool named in an agent config file. The name is read; nothing local defines the schema, so the action is a reference only. | `google_adk_config` | `low` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` |
-| `factory` | A toolset or wrapper call whose arguments do not name a file in the workspace records `dynamic_toolset`. The actions already read stay in the catalog; the whole module drops to `medium`, because a tool set this file could not prove is a fact about the file, not about the tool visited first. | `google_adk_function` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` |
-| `dynamic_construction` | An unresolved tools expression, `Agent(**config)`, a rebound tool variable, a star-import shadow, or any extractor warning the module could not classify records a surface gap and caps the module at `medium`. | `google_adk_function` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` |
+| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps | Raises |
+| --- | --- | --- | --- | --- | --- | --- |
+| `export_artifact — reviewed inventory` | A reviewed tool inventory in MCP export form, read as a published contract. | `google_adk_inventory` | `high` | `proven` | — | — |
+| `export_artifact — resolved toolset` | `McpToolset(...)` / `OpenAPIToolset(...)` whose arguments name a committed export or spec in the workspace. Those actions are read by the MCP and OpenAPI inputs, then lowered to this module's ceiling if anything else in the module was unresolved. | `mcp`, `openapi` | `high` | `proven` | — | — |
+| `export_artifact — wildcard inventory` | An inventory that declares `wildcard: true` instead of listing tools. It is a reviewed file and still names nothing, so it loads at `high` and proves no surface — a reviewed statement that says nothing is not evidence. | `google_adk_inventory` | `high` | `set_unproven` | `incomplete_surface` | — |
+| `literal_registration — Python module` | A module-level `def` bound by `Agent(tools=[...])`, in a module where every tool expression, agent keyword, and imported symbol resolved. This is the only source-code route in any input that reaches `high`. | `google_adk_function` | `high` | `proven` | — | — |
+| `literal_registration — agent config` | A tool named in an agent config file. The name is read; nothing local defines the schema, so the action is a reference only. | `google_adk_config` | `low` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | — |
+| `factory — module function` | A toolset or wrapper call whose arguments do not name a file in the workspace records `dynamic_toolset`. The actions already read stay in the catalog; the whole module drops to `medium`, because a tool set this file could not prove is a fact about the file, not about the tool visited first. | `google_adk_function` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | — |
+| `factory — resolved toolset actions in the same module` | The actions a resolved `McpToolset` / `OpenAPIToolset` contributed are lowered with the rest of the module. Their own schemas stay trustworthy so they are only ever lowered, never raised — but a module that cannot prove its tool set does not prove theirs either. | `mcp`, `openapi` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | — |
+| `dynamic_construction — module function` | An unresolved tools expression, `Agent(**config)`, a rebound tool variable, a star-import shadow, or any extractor warning the module could not classify records a surface gap and caps the module at `medium`. | `google_adk_function` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | — |
+| `dynamic_construction — resolved toolset actions in the same module` | The actions a resolved `McpToolset` / `OpenAPIToolset` contributed are lowered with the rest of the module. Their own schemas stay trustworthy so they are only ever lowered, never raised — but a module that cannot prove its tool set does not prove theirs either. | `mcp`, `openapi` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | — |
+
+**Getting to `proven` here:** declare a reviewed tool inventory at `google_adk.tool_inventories[]`. It is read as a published contract, so it reaches `high` — unless it declares `wildcard: true`, which names nothing.
 
 ### LangChain / LangGraph — `langchain`
 
 Configured as a `tool_sources[]` entry of type `langchain` or the top-level `langchain:` manifest section. LangChain and LangGraph Python modules parsed with `ast`, plus any reviewed inventory `langchain.tool_inventories[]` declares.
 
-| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
-| --- | --- | --- | --- | --- | --- |
-| `export_artifact` | A reviewed tool inventory in MCP export form. It is read as a published contract, which is why it is the only LangChain route that reaches `high`. | `langchain_inventory` | `high` | `proven` | — |
-| `literal_registration` | An `@tool`-decorated function, or a `StructuredTool` built with a literal name, description, and an `args_schema` defined in the same file. | `langchain_function`, `langchain_structured_tool` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` |
-| `factory` | A tool produced by a call the parser cannot resolve — a factory, a loaded toolkit — records a dynamic tool surface and adds nothing to the catalog. | — | — | `not_extracted` | — |
-| `dynamic_construction` | A tools list built by a comprehension, a config read, or a rebound variable records a dynamic tool surface, with the config path when the read is statically traceable. | — | — | `not_extracted` | — |
+| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps | Raises |
+| --- | --- | --- | --- | --- | --- | --- |
+| `export_artifact — reviewed inventory` | A reviewed tool inventory in MCP export form. It is read as a published contract, which is why it is the only LangChain route that reaches `high`. | `langchain_inventory` | `high` | `proven` | — | — |
+| `export_artifact — wildcard inventory` | An inventory that declares `wildcard: true` instead of listing tools. It is a reviewed file and still names nothing, so it loads at `high` and proves no surface — a reviewed statement that says nothing is not evidence. | `langchain_inventory` | `high` | `set_unproven` | `incomplete_surface` | — |
+| `literal_registration` | An `@tool`-decorated function, or a `StructuredTool` built with a literal name, description, and an `args_schema` defined in the same file. | `langchain_function`, `langchain_structured_tool` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | — |
+| `factory` | A tool produced by a call the parser cannot resolve — a factory, a loaded toolkit — records a dynamic tool surface and adds nothing to the catalog. | — | — | `not_extracted` | — | — |
+| `dynamic_construction` | A tools list built by a comprehension, a config read, or a rebound variable records a dynamic tool surface, with the config path when the read is statically traceable. | — | — | `not_extracted` | — | — |
+
+**Getting to `proven` here:** declare a reviewed tool inventory at `langchain.tool_inventories[]`. It is read as a published contract, so it reaches `high` — unless it declares `wildcard: true`, which names nothing.
 
 ### CrewAI — `crewai`
 
 Configured as a `tool_sources[]` entry of type `crewai` or the top-level `crewai:` manifest section. CrewAI Python modules parsed with `ast`, plus any reviewed inventory `crewai.tool_inventories[]` declares.
 
-| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
-| --- | --- | --- | --- | --- | --- |
-| `export_artifact` | A reviewed tool inventory in MCP export form, read as a published contract. | `crewai_inventory` | `high` | `proven` | — |
-| `literal_registration` | An `@tool`-decorated function, or a `BaseTool` subclass whose name, description, and `args_schema` are literals in the same file. | `crewai_function`, `crewai_class_tool` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` |
-| `factory` | A `crewai_tools` prebuilt constructor such as `FileReadTool()`. The name is read; the schema lives in the installed package, not in the repository, so the action is recorded as low-confidence metadata. | `crewai_prebuilt_tool` | `low` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` |
-| `dynamic_construction` | A tools list built by a comprehension, a config read, or a rebound variable records a dynamic tool surface and adds nothing to the catalog. | — | — | `not_extracted` | — |
+| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps | Raises |
+| --- | --- | --- | --- | --- | --- | --- |
+| `export_artifact — reviewed inventory` | A reviewed tool inventory in MCP export form, read as a published contract. | `crewai_inventory` | `high` | `proven` | — | — |
+| `export_artifact — wildcard inventory` | An inventory that declares `wildcard: true` instead of listing tools. It is a reviewed file and still names nothing, so it loads at `high` and proves no surface — a reviewed statement that says nothing is not evidence. | `crewai_inventory` | `high` | `set_unproven` | `incomplete_surface` | — |
+| `literal_registration` | An `@tool`-decorated function, or a `BaseTool` subclass whose name, description, and `args_schema` are literals in the same file. | `crewai_function`, `crewai_class_tool` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | — |
+| `factory` | A `crewai_tools` prebuilt constructor such as `FileReadTool()`. The name is read; the schema lives in the installed package, not in the repository, so the action is recorded as low-confidence metadata. | `crewai_prebuilt_tool` | `low` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | — |
+| `dynamic_construction` | A tools list built by a comprehension, a config read, or a rebound variable records a dynamic tool surface and adds nothing to the catalog. | — | — | `not_extracted` | — | — |
+
+**Getting to `proven` here:** declare a reviewed tool inventory at `crewai.tool_inventories[]`. It is read as a published contract, so it reaches `high` — unless it declares `wildcard: true`, which names nothing.
 
 ### n8n workflows — `n8n`
 
 Configured as the top-level `n8n:` manifest section. n8n workflow JSON exports, stubs, and reviewed inventories declared under `manifest.n8n`.
 
-| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
-| --- | --- | --- | --- | --- | --- |
-| `export_artifact` | A reviewed tool inventory in MCP export form, read as a published contract. | `n8n_inventory` | `high` | `proven` | — |
-| `literal_registration` | A tool node present in the workflow JSON — workflow, code, HTTP, MCP client, or another AI tool node — read for its parameters and credentials. The export names the node; the called tool's own contract is not in the file. | `n8n_workflow_tool`, `n8n_code_tool`, `n8n_http_tool`, `n8n_mcp_client_tool`, `n8n_ai_tool`, `mcp` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` |
-| `factory` | A workflow JSON has no construction step: a node is in the file or it is not. | — | — | `not_applicable` | — |
-| `dynamic_construction` | An MCP client node whose tool selection is `all`, `all_except`, or unreadable: one `<node>.*` action stands in for a selection the workflow does not enumerate. | `n8n_mcp_client_tool` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` |
+| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps | Raises |
+| --- | --- | --- | --- | --- | --- | --- |
+| `export_artifact — reviewed inventory` | A reviewed tool inventory in MCP export form, read as a published contract. | `n8n_inventory` | `high` | `proven` | — | — |
+| `export_artifact — wildcard inventory` | An inventory that declares `wildcard: true` instead of listing tools. It is a reviewed file and still names nothing, so it loads at `high` and proves no surface — a reviewed statement that says nothing is not evidence. | `n8n_inventory` | `high` | `set_unproven` | `incomplete_surface` | — |
+| `literal_registration` | A tool node present in the workflow JSON — workflow, code, HTTP, MCP client, or another AI tool node — read for its parameters and credentials. The export names the node; the called tool's own contract is not in the file. | `n8n_workflow_tool`, `n8n_code_tool`, `n8n_http_tool`, `n8n_mcp_client_tool`, `n8n_ai_tool`, `mcp` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | — |
+| `factory` | A workflow JSON has no construction step: a node is in the file or it is not. | — | — | `not_applicable` | — | — |
+| `dynamic_construction — expression-backed tool name` | A tool node whose `toolName` (or workflow target) is an n8n expression. The node still enters the catalog under the expression text at `medium`, and the unresolved name is recorded as a dynamic fact — the action is not hidden, its identity is. | `n8n_workflow_tool` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | — |
+| `dynamic_construction — MCP client wildcard` | An MCP client node whose tool selection is `all`, `all_except`, or unreadable: one `<node>.*` action stands in for a selection the workflow does not enumerate. | `n8n_mcp_client_tool` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | — |
+
+**Getting to `proven` here:** declare a reviewed tool inventory at `n8n.tool_inventories[]`. It is read as a published contract, so it reaches `high` — unless it declares `wildcard: true`, which names nothing.
 
 ### Conductor OSS workflows — `conductor`
 
 Configured as a `tool_sources[]` entry of type `conductor`. Conductor workflow definition JSON.
 
-| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
-| --- | --- | --- | --- | --- | --- |
-| `export_artifact` | A workflow definition declares calls, not a tool contract. The called server's own export is configured as its own `mcp` source. | — | — | `not_applicable` | — |
-| `literal_registration` | A `CALL_MCP_TOOL` task whose `method` is a literal. The call is read with its endpoint, arguments, and preceding human checkpoints; the tool's schema is not in the workflow, so the action is recorded as schema-partial. | `conductor_mcp_call` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` |
-| `factory` | A workflow task is declared, never constructed by the file. | — | — | `not_applicable` | — |
-| `dynamic_construction` | A `CALL_MCP_TOOL` whose `method` or server is a workflow expression records the task as a dynamic fact and adds no action: the name that would identify it is not in the file. | — | — | `not_extracted` | — |
+| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps | Raises |
+| --- | --- | --- | --- | --- | --- | --- |
+| `export_artifact` | A workflow definition declares calls, not a tool contract. The called server's own export is configured as its own `mcp` source. | — | — | `not_applicable` | — | — |
+| `literal_registration` | A `CALL_MCP_TOOL` task whose `method` is a literal. The call is read with its endpoint, arguments, and preceding human checkpoints; the tool's schema is not in the workflow, so the action is recorded as schema-partial. | `conductor_mcp_call` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | — |
+| `factory` | A workflow task is declared, never constructed by the file. | — | — | `not_applicable` | — | — |
+| `dynamic_construction — expression-backed method` | A `CALL_MCP_TOOL` whose `method` is a workflow expression adds no action: the name that would identify it is not in the file. The task is still recorded as a dynamic fact. | — | — | `not_extracted` | — | `SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` |
+| `dynamic_construction — expression-backed server` | A literal `method` with an expression-backed `mcpServer` still names the call, so the action enters the catalog at `medium`. Only the endpoint it reaches is unresolved — a different question from which tool is called. | `conductor_mcp_call` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | `SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` |
+
+**Getting to `proven` here:** no route on this input reaches `proven`. Publish the actions through an input that does, or accept that a verdict cannot rest on this surface alone.
 
 ### OpenAI API artifacts — `openai_api`
 
 Configured as the top-level `openai_api:` manifest section. Tool and assistant definition artifacts declared under `manifest.openai_api`, plus local run traces.
 
-| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
-| --- | --- | --- | --- | --- | --- |
-| `export_artifact` | A committed tool definition with its JSON Schema parameters, read as the published contract it is. | `openai_api` | `high` | `proven` | — |
-| `literal_registration` | This input reads artifacts, not source. Tools defined in Python are read by the OpenAI Agents SDK input. | — | — | `not_applicable` | — |
-| `factory` | An artifact is the result of construction, never the construction. | — | — | `not_applicable` | — |
-| `dynamic_construction` | A tool definition names its function and parameters or it is not a tool definition. | — | — | `not_applicable` | — |
+| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps | Raises |
+| --- | --- | --- | --- | --- | --- | --- |
+| `export_artifact` | A committed tool definition with its JSON Schema parameters, read as the published contract it is. | `openai_api` | `high` | `proven` | — | — |
+| `literal_registration` | This input reads artifacts, not source. Tools defined in Python are read by the OpenAI Agents SDK input. | — | — | `not_applicable` | — | — |
+| `factory` | An artifact is the result of construction, never the construction. | — | — | `not_applicable` | — | — |
+| `dynamic_construction` | A tool definition names its function and parameters or it is not a tool definition. | — | — | `not_applicable` | — | — |
+
+**Getting to `proven` here:** only via `export_artifact`. This input has no `tool_inventories[]` key, so there is no separate reviewed file to declare — the contract it already reads is the surface.
 
 ### Anthropic Messages API artifacts — `anthropic_api`
 
 Configured as the top-level `anthropic:` manifest section. Tool definitions, system prompts, and client-tool declarations declared under `manifest.anthropic`.
 
-| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
-| --- | --- | --- | --- | --- | --- |
-| `export_artifact` | A committed tool definition with its `input_schema`, read as the published contract it is. A client tool declared by `type` carries that typed provider fact with it. | `anthropic_api` | `high` | `proven` | — |
-| `literal_registration` | This input reads artifacts, not source. Tools defined in Python are read by the framework inputs. | — | — | `not_applicable` | — |
-| `factory` | An artifact is the result of construction, never the construction. | — | — | `not_applicable` | — |
-| `dynamic_construction` | A tool definition names its `input_schema` or it is not a tool definition. | — | — | `not_applicable` | — |
+| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps | Raises |
+| --- | --- | --- | --- | --- | --- | --- |
+| `export_artifact` | A committed tool definition with its `input_schema`, read as the published contract it is. A client tool declared by `type` carries that typed provider fact with it. | `anthropic_api` | `high` | `proven` | — | — |
+| `literal_registration` | This input reads artifacts, not source. Tools defined in Python are read by the framework inputs. | — | — | `not_applicable` | — | — |
+| `factory` | An artifact is the result of construction, never the construction. | — | — | `not_applicable` | — | — |
+| `dynamic_construction` | A tool definition names its `input_schema` or it is not a tool definition. | — | — | `not_applicable` | — | — |
+
+**Getting to `proven` here:** only via `export_artifact`. This input has no `tool_inventories[]` key, so there is no separate reviewed file to declare — the contract it already reads is the surface.
 
 ### Codex / MCP host config — `codex_config`
 
 Configured as a `tool_sources[]` entry of type `codex_config`. `.mcp.json`, `.codex/config.toml`, and the other host MCP config files under the root a `tool_sources[]` entry names — including the servers a plugin block declares.
 
-| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
-| --- | --- | --- | --- | --- | --- |
-| `export_artifact` | Host config declares servers. A committed `tools/list` export is configured as its own `mcp` source. | — | — | `not_applicable` | — |
-| `literal_registration — tool with a schema` | A server entry whose `tools` mapping names a tool and gives it an input schema. | `codex_config_mcp` | `high` | `proven` | — |
-| `literal_registration — tool without a schema` | A server entry naming a tool — in `tools` or an allowlist such as `enabled_tools` — with no readable input schema. The name is a fact; the surface it accepts is not. | `codex_config_mcp` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` |
-| `factory` | Host config declares servers; it does not construct them. | — | — | `not_applicable` | — |
-| `dynamic_construction` | A server entry that names no tools at all: one synthetic `<server>.*` action stands in for a surface only the running server can name. | `codex_config_mcp` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` |
+| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps | Raises |
+| --- | --- | --- | --- | --- | --- | --- |
+| `export_artifact` | Host config declares servers. A committed `tools/list` export is configured as its own `mcp` source. | — | — | `not_applicable` | — | — |
+| `literal_registration — tool with a schema` | A server entry whose `tools` mapping names a tool and gives it an input schema. | `codex_config_mcp` | `high` | `proven` | — | — |
+| `literal_registration — tool without a schema` | A server entry naming a tool — in `tools` or an allowlist such as `enabled_tools` — with no readable input schema. The name is a fact; the surface it accepts is not. | `codex_config_mcp` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | — |
+| `factory` | Host config declares servers; it does not construct them. | — | — | `not_applicable` | — | — |
+| `dynamic_construction` | A server entry that names no tools at all: one synthetic `<server>.*` action stands in for a surface only the running server can name. | `codex_config_mcp` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | — |
+
+**Getting to `proven` here:** only via `literal_registration — tool with a schema`. This input has no `tool_inventories[]` key, so there is no separate reviewed file to declare — the contract it already reads is the surface.
 
 ### Codex plugin package / marketplace — `codex_plugin`
 
-Configured as a `tool_sources[]` entry of type `codex_plugin` or the top-level `codex_plugins:` manifest section. Plugin manifests, marketplace indexes, and the skills, apps, hooks, MCP server stubs, and MCP inventories a plugin ships.
+Configured as a `tool_sources[]` entry of type `codex_plugin` The top-level `codex_plugins:` section supplements what that entry finds and cannot activate this input on its own.. Plugin manifests, marketplace indexes, and the skills, apps, hooks, MCP server stubs, and MCP inventories a plugin ships.
 
-| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
-| --- | --- | --- | --- | --- | --- |
-| `export_artifact` | An MCP tool inventory shipped inside the plugin and declared by `codex_plugins.mcp_tool_inventories[]`, read through the same loader as a standalone export. | `codex_plugin_mcp_inventory` | `high` | `proven` | — |
-| `literal_registration` | A plugin's MCP server stub names a server without a tool contract. It is recorded as a plugin component and a host boundary fact; no action enters the catalog, and a plugin whose whole component graph parsed with no callable tool says so structurally rather than by silence. | — | — | `not_extracted` | — |
-| `factory` | A plugin manifest declares components; it does not construct them. | — | — | `not_applicable` | — |
-| `dynamic_construction` | A marketplace entry that is unreadable or unnamed is recorded as a skipped entry against its index position, so the count of what was refused is published rather than absorbed. | — | — | `not_extracted` | — |
+| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps | Raises |
+| --- | --- | --- | --- | --- | --- | --- |
+| `export_artifact — reviewed inventory` | An MCP tool inventory shipped inside the plugin and declared by `codex_plugins.mcp_tool_inventories[]`, read through the same loader as a standalone export. | `codex_plugin_mcp_inventory` | `high` | `proven` | — | — |
+| `export_artifact — wildcard inventory` | An inventory that declares `wildcard: true` instead of listing tools. It is a reviewed file and still names nothing, so it loads at `high` and proves no surface — a reviewed statement that says nothing is not evidence. | `codex_plugin_mcp_inventory` | `high` | `set_unproven` | `incomplete_surface` | — |
+| `literal_registration` | A plugin's MCP server stub names a server without a tool contract. It is recorded as a plugin component and a host boundary fact; no action enters the catalog, and a plugin whose whole component graph parsed with no callable tool says so structurally rather than by silence. | — | — | `not_extracted` | — | — |
+| `factory` | A plugin manifest declares components; it does not construct them. | — | — | `not_applicable` | — | — |
+| `dynamic_construction` | A marketplace entry that is unreadable or unnamed is recorded as a skipped entry against its index position, so the count of what was refused is published rather than absorbed. | — | — | `not_extracted` | — | — |
+
+**Getting to `proven` here:** only via `export_artifact — reviewed inventory`. This input has no `tool_inventories[]` key, so there is no separate reviewed file to declare — the contract it already reads is the surface.
 
 ### Validation traces — `validation`
 
 Configured as the top-level `validation:` manifest section. Local agent-run and approval trace artifacts declared under `manifest.validation`.
 
-| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
-| --- | --- | --- | --- | --- | --- |
-| `export_artifact` | A trace is evidence about approvals and runs that happened, not a tool contract. It adds no action to the catalog and widens no surface; it can only corroborate one already read. | — | — | `not_extracted` | — |
-| `literal_registration` | A trace records calls; it declares no tool. | — | — | `not_applicable` | — |
-| `factory` | A trace records calls; it constructs no tool. | — | — | `not_applicable` | — |
-| `dynamic_construction` | A trace records calls that already happened, so there is no unresolved declaration to fail on. | — | — | `not_applicable` | — |
+| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps | Raises |
+| --- | --- | --- | --- | --- | --- | --- |
+| `export_artifact` | A trace is evidence about approvals and runs that happened, not a tool contract. It adds no action to the catalog and widens no surface; it can only corroborate one already read. | — | — | `not_extracted` | — | — |
+| `literal_registration` | A trace records calls; it declares no tool. | — | — | `not_applicable` | — | — |
+| `factory` | A trace records calls; it constructs no tool. | — | — | `not_applicable` | — | — |
+| `dynamic_construction` | A trace records calls that already happened, so there is no unresolved declaration to fail on. | — | — | `not_applicable` | — | — |
+
+**Getting to `proven` here:** no route on this input reaches `proven`. Publish the actions through an input that does, or accept that a verdict cannot rest on this surface alone.
 
 ## Scope
 
