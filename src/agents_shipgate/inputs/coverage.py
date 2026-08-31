@@ -185,7 +185,10 @@ class BoundaryCell(BaseModel):
     ceiling: Confidence | None = None
     #: The ``extraction["surface"]`` value the adapter writes for this route.
     surface: SurfaceEvidence | None = None
-    #: Check IDs this route can raise even when it contributes no action.
+    #: Check IDs this route feeds directly, including where it contributes no
+    #: action at all. Not a complete list of every finding an action from this
+    #: route might eventually attract — those depend on the action, not the
+    #: declaration shape.
     #: "Nothing enters the catalog" is not "nothing is seen": a dynamic
     #: Conductor `CALL_MCP_TOOL` emits no `Tool` and still raises a HIGH
     #: `SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE`, which withholds
@@ -309,6 +312,11 @@ class SourceCoverage(BaseModel):
                 f"{self.adapter}: manifest section {section!r} is not a field on "
                 "AgentsShipgateManifest, so the page would name a key nobody "
                 "can write"
+            )
+        if self.manifest_section_role == "supplements" and section is None:
+            raise ValueError(
+                f"{self.adapter}: a section role describes a section, and this "
+                "coverage names none — the page would render `None:` as the key"
             )
         if self.manifest_section_role == "supplements" and (
             self.adapter not in BUILTIN_TOOL_SOURCE_TYPES
@@ -579,12 +587,23 @@ def _inventory_key(cells: tuple[ResolvedCell, ...]) -> str | None:
 
     from agents_shipgate.ci.release_decision import inventory_manifest_key
 
-    for cell in cells:
-        for source_type in cell.emits:
-            key = inventory_manifest_key(source_type)
-            if key is not None:
-                return key
-    return None
+    keys = {
+        key
+        for cell in cells
+        for source_type in cell.emits
+        if (key := inventory_manifest_key(source_type)) is not None
+    }
+    if len(keys) > 1:
+        # Returning the first match would make the published remedy depend on
+        # cell order — the page would name one framework's key for an input
+        # that answers to two, and which one would change with an unrelated
+        # edit. There is one remedy line per input, so two keys is a modelling
+        # question, not a rendering one.
+        raise BoundaryCoverageError(
+            f"an input emits source types with differing inventory keys "
+            f"({', '.join(sorted(keys))}); the page can publish only one remedy"
+        )
+    return keys.pop() if keys else None
 
 
 def _configured_as(coverage: SourceCoverage) -> tuple[ConfigurationRoute, ...]:

@@ -416,6 +416,7 @@ class LangChainAdapter:
                     "factory, a loaded toolkit — records a dynamic tool surface and "
                     "adds nothing to the catalog."
                 ),
+                raises=("SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",),
             ),
             BoundaryCell(
                 shape="dynamic_construction",
@@ -425,6 +426,7 @@ class LangChainAdapter:
                     "rebound variable records a dynamic tool surface, with the "
                     "config path when the read is statically traceable."
                 ),
+                raises=("SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",),
             ),
         ),
     )

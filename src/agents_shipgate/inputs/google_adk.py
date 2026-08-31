@@ -2288,6 +2288,7 @@ class GoogleADKAdapter:
                 emits=("google_adk_function",),
                 ceiling="medium",
                 surface="partial",
+                raises=("SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE",),
             ),
             BoundaryCell(
                 shape="factory",

@@ -560,6 +560,7 @@ class CrewAIAdapter:
                     "rebound variable records a dynamic tool surface and adds "
                     "nothing to the catalog."
                 ),
+                raises=("SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",),
             ),
         ),
     )

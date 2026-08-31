@@ -429,7 +429,9 @@
           "extraction_complete": false,
           "extraction_permits_pass": false,
           "outcome": "low_confidence",
-          "raises": [],
+          "raises": [
+            "SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE"
+          ],
           "reads": "A toolset or wrapper call whose arguments do not name a file in the workspace records `dynamic_toolset`. The actions already read stay in the catalog; the whole module drops to `medium`, because a tool set this file could not prove is a fact about the file, not about the tool visited first.",
           "shape": "factory",
           "status": "extracted",
@@ -607,7 +609,9 @@
           "extraction_complete": false,
           "extraction_permits_pass": false,
           "outcome": "not_extracted",
-          "raises": [],
+          "raises": [
+            "SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE"
+          ],
           "reads": "A tool produced by a call the parser cannot resolve \u2014 a factory, a loaded toolkit \u2014 records a dynamic tool surface and adds nothing to the catalog.",
           "shape": "factory",
           "status": "not_extracted",
@@ -626,7 +630,9 @@
           "extraction_complete": false,
           "extraction_permits_pass": false,
           "outcome": "not_extracted",
-          "raises": [],
+          "raises": [
+            "SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE"
+          ],
           "reads": "A tools list built by a comprehension, a config read, or a rebound variable records a dynamic tool surface, with the config path when the read is statically traceable.",
           "shape": "dynamic_construction",
           "status": "not_extracted",
@@ -754,7 +760,9 @@
           "extraction_complete": false,
           "extraction_permits_pass": false,
           "outcome": "not_extracted",
-          "raises": [],
+          "raises": [
+            "SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE"
+          ],
           "reads": "A tools list built by a comprehension, a config read, or a rebound variable records a dynamic tool surface and adds nothing to the catalog.",
           "shape": "dynamic_construction",
           "status": "not_extracted",
@@ -886,7 +894,9 @@
           "extraction_complete": false,
           "extraction_permits_pass": false,
           "outcome": "low_confidence",
-          "raises": [],
+          "raises": [
+            "SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE"
+          ],
           "reads": "A tool node whose `toolName` (or workflow target) is an n8n expression. The node still enters the catalog under the expression text at `medium`, and the unresolved name is recorded as a dynamic fact \u2014 the action is not hidden, its identity is.",
           "shape": "dynamic_construction",
           "status": "extracted",
@@ -910,7 +920,9 @@
           "extraction_complete": false,
           "extraction_permits_pass": false,
           "outcome": "low_confidence",
-          "raises": [],
+          "raises": [
+            "SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED"
+          ],
           "reads": "An MCP client node whose tool selection is `all`, `all_except`, or unreadable: one `<node>.*` action stands in for a selection the workflow does not enumerate.",
           "shape": "dynamic_construction",
           "status": "extracted",

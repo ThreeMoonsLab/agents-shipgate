@@ -840,15 +840,13 @@ def test_the_inventory_remedy_is_published_only_where_one_exists():
 
     for source in build_boundary_matrix().sources:
         emitted = {value for cell in source.cells for value in cell.emits}
-        expected = next(
-            (
-                key
-                for value in sorted(emitted)
-                if (key := inventory_manifest_key(value)) is not None
-            ),
-            None,
-        )
-        assert source.inventory_key == expected, source.adapter
+        keys = {
+            key for value in emitted if (key := inventory_manifest_key(value)) is not None
+        }
+        # A *set*, not "the first match": an order-dependent answer would make
+        # the published remedy move with an unrelated cell edit.
+        assert len(keys) <= 1, source.adapter
+        assert source.inventory_key == (next(iter(keys)) if keys else None), source.adapter
 
     # The inputs the engine has no inventory route for must not claim one.
     for adapter in ("openai_agents_sdk", "conductor", "codex_config", "mcp"):
@@ -868,3 +866,63 @@ def test_the_page_dates_itself_to_a_release():
     page = (REPO_ROOT / "docs" / "determinism-boundary.md").read_text(encoding="utf-8")
     assert f"agents-shipgate {__version__}" in page
     assert "blob/v<your-version>/docs/determinism-boundary.md" in page
+
+
+def test_an_input_answering_two_inventory_keys_is_refused():
+    """Negative control for the order-dependence the first draft had."""
+
+    from agents_shipgate.inputs.coverage import _inventory_key
+
+    cells = tuple(
+        _cell(adapter, "export_artifact", "reviewed inventory")
+        for adapter in ("langchain", "crewai")
+    )
+    with pytest.raises(BoundaryCoverageError) as excinfo:
+        _inventory_key(cells)
+    assert "differing inventory keys" in str(excinfo.value)
+
+
+def test_a_section_role_without_a_section_is_refused():
+    """The renderer would otherwise print `None:` as the manifest key."""
+
+    with pytest.raises(ValueError) as excinfo:
+        SourceCoverage(
+            adapter="mcp",
+            label="MCP",
+            reads="Something.",
+            manifest_section_role="supplements",
+            cells=tuple(
+                BoundaryCell(shape=shape, status="not_applicable", reads="x")
+                for shape in DECLARATION_SHAPE_ORDER
+            ),
+        )
+    assert "names none" in str(excinfo.value)
+
+
+def test_every_dynamic_surface_route_names_the_check_it_feeds():
+    """The `not_extracted` claim was false globally, so the fix must be global.
+
+    LangChain, CrewAI, n8n, Google ADK, and Conductor all feed a
+    `SHIP-*-DYNAMIC-*` check from the construct their dynamic/factory rows
+    describe. Fixing only the Conductor instance the review named would have
+    left the same wrong impression on four other inputs.
+    """
+
+    expected = {
+        ("langchain", "factory"): "SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
+        ("langchain", "dynamic_construction"): (
+            "SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE"
+        ),
+        ("crewai", "dynamic_construction"): "SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
+        ("google_adk", "factory"): "SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE",
+        ("conductor", "dynamic_construction"): (
+            "SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE"
+        ),
+    }
+    matrix = build_boundary_matrix()
+    for (adapter, shape), check_id in expected.items():
+        source = next(item for item in matrix.sources if item.adapter == adapter)
+        raised = {
+            value for cell in source.cells if cell.shape == shape for value in cell.raises
+        }
+        assert check_id in raised, (adapter, shape)

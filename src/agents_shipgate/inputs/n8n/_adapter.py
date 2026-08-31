@@ -317,6 +317,7 @@ class N8nAdapter:
                 ),
                 emits=("n8n_workflow_tool",),
                 ceiling="medium",
+                raises=("SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",),
             ),
             BoundaryCell(
                 shape="dynamic_construction",
@@ -330,6 +331,7 @@ class N8nAdapter:
                 emits=("n8n_mcp_client_tool",),
                 ceiling="medium",
                 surface_flags=("wildcard_tools",),
+                raises=("SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED",),
             ),
         ),
     )
