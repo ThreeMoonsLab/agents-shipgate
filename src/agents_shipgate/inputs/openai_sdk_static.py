@@ -667,6 +667,7 @@ class OpenAISDKAdapter:
                     "statically-parsed least-privilege scope bound and a warning. "
                     "Naming the actions it returns would mean running it."
                 ),
+                raises=("SHIP-SCOPE-TOOLKIT-UNBOUNDED",),
             ),
             BoundaryCell(
                 shape="dynamic_construction",

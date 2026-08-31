@@ -2022,9 +2022,9 @@ def _boundary_remedy_line(source: Any) -> str:
     if proven:
         labels = " or ".join(f"`{_boundary_cell_label(cell)}`" for cell in proven)
         return (
-            f"**Getting to `proven` here:** only via {labels}. This input has no "
-            "`tool_inventories[]` key, so there is no separate reviewed file to "
-            "declare — the contract it already reads is the surface."
+            f"**Getting to `proven` here:** only via {labels}. The engine "
+            "prescribes no `tool_inventories[]` remediation for this input, so "
+            "that route is the whole answer."
         )
     return (
         "**Getting to `proven` here:** no route on this input reaches `proven`. "

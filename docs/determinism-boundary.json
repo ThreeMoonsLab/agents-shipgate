@@ -260,7 +260,9 @@
           "extraction_complete": false,
           "extraction_permits_pass": false,
           "outcome": "not_extracted",
-          "raises": [],
+          "raises": [
+            "SHIP-SCOPE-TOOLKIT-UNBOUNDED"
+          ],
           "reads": "A recognised agent-toolkit constructor records a statically-parsed least-privilege scope bound and a warning. Naming the actions it returns would mean running it.",
           "shape": "factory",
           "status": "not_extracted",

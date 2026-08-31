@@ -918,6 +918,9 @@ def test_every_dynamic_surface_route_names_the_check_it_feeds():
         ("conductor", "dynamic_construction"): (
             "SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE"
         ),
+        # Not a `SHIP-*-DYNAMIC-*` id, and the same omission: the toolkit
+        # constructor's scope bound is exactly what this check reads.
+        ("openai_agents_sdk", "factory"): "SHIP-SCOPE-TOOLKIT-UNBOUNDED",
     }
     matrix = build_boundary_matrix()
     for (adapter, shape), check_id in expected.items():
@@ -926,3 +929,24 @@ def test_every_dynamic_surface_route_names_the_check_it_feeds():
             value for cell in source.cells if cell.shape == shape for value in cell.raises
         }
         assert check_id in raised, (adapter, shape)
+
+
+def test_the_remedy_never_denies_an_inventory_route_that_exists():
+    """The inverse of the P2-1 finding, and just as wrong.
+
+    `codex_plugin` reaches `proven` through a reviewed inventory declared at
+    `codex_plugins.mcp_tool_inventories[]`, but `inventory_manifest_key()` — the
+    engine's *gap-prescription* table — does not know that key. The remedy may
+    say the engine prescribes no inventory remediation; it may not say the input
+    has no inventory at all.
+    """
+
+    page = (REPO_ROOT / "docs" / "determinism-boundary.md").read_text(encoding="utf-8")
+    assert "has no `tool_inventories[]` key" not in page
+    assert "prescribes no `tool_inventories[]` remediation" in page
+
+    plugin = next(
+        item for item in build_boundary_matrix().sources if item.adapter == "codex_plugin"
+    )
+    assert plugin.inventory_key is None
+    assert _cell("codex_plugin", "export_artifact", "reviewed inventory").outcome == "proven"

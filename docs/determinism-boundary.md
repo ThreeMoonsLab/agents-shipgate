@@ -110,7 +110,7 @@ Configured as a `tool_sources[]` entry of type `mcp`. A committed MCP `tools/lis
 | `factory` | An export is the result of construction, never the construction. | — | — | `not_applicable` | — | — |
 | `dynamic_construction` | `wildcard: true` or `tools: "*"`: one synthetic `<source>.*` action stands in for a surface the file declines to name. | `mcp` | `high` | `set_unproven` | `incomplete_surface` | — |
 
-**Getting to `proven` here:** only via `export_artifact`. This input has no `tool_inventories[]` key, so there is no separate reviewed file to declare — the contract it already reads is the surface.
+**Getting to `proven` here:** only via `export_artifact`. The engine prescribes no `tool_inventories[]` remediation for this input, so that route is the whole answer.
 
 ### OpenAPI document — `openapi`
 
@@ -123,7 +123,7 @@ Configured as a `tool_sources[]` entry of type `openapi`. An OpenAPI 3.x documen
 | `factory` | Nothing in an OpenAPI document constructs operations. | — | — | `not_applicable` | — | — |
 | `dynamic_construction` | An operation is present in the document or it is not; there is no expression form to be unable to resolve. | — | — | `not_applicable` | — | — |
 
-**Getting to `proven` here:** only via `export_artifact`. This input has no `tool_inventories[]` key, so there is no separate reviewed file to declare — the contract it already reads is the surface.
+**Getting to `proven` here:** only via `export_artifact`. The engine prescribes no `tool_inventories[]` remediation for this input, so that route is the whole answer.
 
 ### OpenAI Agents SDK (Python) — `openai_agents_sdk`
 
@@ -133,7 +133,7 @@ Configured as a `tool_sources[]` entry of type `openai_agents_sdk`. Python modul
 | --- | --- | --- | --- | --- | --- | --- |
 | `export_artifact` | This input declares no reviewed inventory of its own; a committed export is configured as its own `mcp` or `openapi` source. | — | — | `not_applicable` | — | — |
 | `literal_registration` | A module-level function decorated with `@function_tool`, read for its name, docstring, and annotated parameters. | `sdk_function` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | — |
-| `factory` | A recognised agent-toolkit constructor records a statically-parsed least-privilege scope bound and a warning. Naming the actions it returns would mean running it. | — | — | `not_extracted` | — | — |
+| `factory` | A recognised agent-toolkit constructor records a statically-parsed least-privilege scope bound and a warning. Naming the actions it returns would mean running it. | — | — | `not_extracted` | — | `SHIP-SCOPE-TOOLKIT-UNBOUNDED` |
 | `dynamic_construction` | `tools=<expression>` that is not a literal list of readable names records a binding warning; whatever the expression would have produced never enters the catalog. | — | — | `not_extracted` | — | — |
 
 **Getting to `proven` here:** no route on this input reaches `proven`. Publish the actions through an input that does, or accept that a verdict cannot rest on this surface alone.
@@ -224,7 +224,7 @@ Configured as the top-level `openai_api:` manifest section. Tool and assistant d
 | `factory` | An artifact is the result of construction, never the construction. | — | — | `not_applicable` | — | — |
 | `dynamic_construction` | A tool definition names its function and parameters or it is not a tool definition. | — | — | `not_applicable` | — | — |
 
-**Getting to `proven` here:** only via `export_artifact`. This input has no `tool_inventories[]` key, so there is no separate reviewed file to declare — the contract it already reads is the surface.
+**Getting to `proven` here:** only via `export_artifact`. The engine prescribes no `tool_inventories[]` remediation for this input, so that route is the whole answer.
 
 ### Anthropic Messages API artifacts — `anthropic_api`
 
@@ -237,7 +237,7 @@ Configured as the top-level `anthropic:` manifest section. Tool definitions, sys
 | `factory` | An artifact is the result of construction, never the construction. | — | — | `not_applicable` | — | — |
 | `dynamic_construction` | A tool definition names its `input_schema` or it is not a tool definition. | — | — | `not_applicable` | — | — |
 
-**Getting to `proven` here:** only via `export_artifact`. This input has no `tool_inventories[]` key, so there is no separate reviewed file to declare — the contract it already reads is the surface.
+**Getting to `proven` here:** only via `export_artifact`. The engine prescribes no `tool_inventories[]` remediation for this input, so that route is the whole answer.
 
 ### Codex / MCP host config — `codex_config`
 
@@ -251,7 +251,7 @@ Configured as a `tool_sources[]` entry of type `codex_config`. `.mcp.json`, `.co
 | `factory` | Host config declares servers; it does not construct them. | — | — | `not_applicable` | — | — |
 | `dynamic_construction` | A server entry that names no tools at all: one synthetic `<server>.*` action stands in for a surface only the running server can name. | `codex_config_mcp` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | — |
 
-**Getting to `proven` here:** only via `literal_registration — tool with a schema`. This input has no `tool_inventories[]` key, so there is no separate reviewed file to declare — the contract it already reads is the surface.
+**Getting to `proven` here:** only via `literal_registration — tool with a schema`. The engine prescribes no `tool_inventories[]` remediation for this input, so that route is the whole answer.
 
 ### Codex plugin package / marketplace — `codex_plugin`
 
@@ -265,7 +265,7 @@ Configured as a `tool_sources[]` entry of type `codex_plugin` The top-level `cod
 | `factory` | A plugin manifest declares components; it does not construct them. | — | — | `not_applicable` | — | — |
 | `dynamic_construction` | A marketplace entry that is unreadable or unnamed is recorded as a skipped entry against its index position, so the count of what was refused is published rather than absorbed. | — | — | `not_extracted` | — | — |
 
-**Getting to `proven` here:** only via `export_artifact — reviewed inventory`. This input has no `tool_inventories[]` key, so there is no separate reviewed file to declare — the contract it already reads is the surface.
+**Getting to `proven` here:** only via `export_artifact — reviewed inventory`. The engine prescribes no `tool_inventories[]` remediation for this input, so that route is the whole answer.
 
 ### Validation traces — `validation`
 
