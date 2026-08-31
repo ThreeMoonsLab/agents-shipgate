@@ -5,11 +5,18 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
+from agents_shipgate.cli.fixture import _report_replay_expectation
 from agents_shipgate.cli.main import app
-from agents_shipgate.fixtures import fixture_path, fixtures_root, list_fixtures
+from agents_shipgate.fixtures import (
+    REPLAY_FIXTURES,
+    fixture_path,
+    fixtures_root,
+    list_fixtures,
+)
 
 runner = CliRunner()
 
@@ -248,3 +255,34 @@ def test_cli_fixture_run_capability_change_rides_release_routes_review(
     assert [item["path"] for item in protected] == ["prompts/release.md"]
     checks = {finding["check_id"] for finding in report["findings"]}
     assert "SHIP-VERIFY-TRUST-ROOT-TOUCHED" in checks
+
+
+def test_expected_fail_is_not_resolved_by_an_unrelated_review_route(capsys) -> None:
+    """The desired verdict alone cannot prove the named path gap closed."""
+
+    replay = REPLAY_FIXTURES["governed_edits_governance"]
+    verifier = SimpleNamespace(
+        merge_verdict="human_review_required",
+        release_decision=SimpleNamespace(decision="review_required"),
+    )
+    report = SimpleNamespace(findings=[SimpleNamespace(check_id="SHIP-SOME-UNRELATED-REVIEW")])
+
+    assert _report_replay_expectation(replay, verifier=verifier, report=report) == 20
+    captured = capsys.readouterr()
+    assert "Fixture expectation diverged" in captured.err
+    assert "Expected-fail resolved" not in captured.err
+
+
+def test_expected_fail_resolution_requires_the_previously_missing_check(capsys) -> None:
+    replay = REPLAY_FIXTURES["governed_edits_governance"]
+    missing_check = replay.absent_check_ids[0]
+    verifier = SimpleNamespace(
+        merge_verdict="human_review_required",
+        release_decision=SimpleNamespace(decision="review_required"),
+    )
+    report = SimpleNamespace(findings=[SimpleNamespace(check_id=missing_check)])
+
+    assert _report_replay_expectation(replay, verifier=verifier, report=report) == 20
+    captured = capsys.readouterr()
+    assert "Expected-fail resolved" in captured.err
+    assert missing_check in captured.err

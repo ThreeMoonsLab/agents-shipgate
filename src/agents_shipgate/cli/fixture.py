@@ -447,11 +447,17 @@ def _report_replay_expectation(
     decision = getattr(release_decision, "decision", None)
     findings = getattr(report, "findings", [])
     check_ids = {getattr(finding, "check_id", None) for finding in findings}
+    resolved_check_ids = sorted(set(replay.absent_check_ids) & check_ids)
 
-    if replay.desired_merge_verdict is not None and merge_verdict == replay.desired_merge_verdict:
+    if (
+        replay.desired_merge_verdict is not None
+        and merge_verdict == replay.desired_merge_verdict
+        and resolved_check_ids
+    ):
         typer.echo(
             "Expected-fail resolved: the engine now emits the desired "
-            f"{replay.desired_merge_verdict!r} verdict; update this fixture's contract.",
+            f"{replay.desired_merge_verdict!r} verdict with "
+            f"{', '.join(resolved_check_ids)}; update this fixture's contract.",
             err=True,
         )
         return 20

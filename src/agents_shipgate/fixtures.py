@@ -200,7 +200,11 @@ def list_fixtures() -> list[dict[str, str]]:
 
 
 def fixture_path(name: str) -> Path:
-    """Return the directory of a single fixture by name."""
+    """Return a fixture's source directory.
+
+    Replay fixtures return their reviewed backing sample; the CLI applies the
+    replay's synthetic base/head files only inside its temporary copy.
+    """
     root = fixtures_root()
     replay = REPLAY_FIXTURES.get(name)
     if replay is not None:
