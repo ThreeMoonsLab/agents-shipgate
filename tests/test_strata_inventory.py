@@ -6,19 +6,21 @@ nothing here can qualify a release; what these tests protect is that the plan
 stays aimed at the shape the approved policy actually requires, and that every
 row can still be traced to the in-tree source it cites.
 
-The cells are *derived* from ``pre_release_safety_requirements()``, never
-restated. ``docs/release-evidence-policy-decision.md`` names this directory as
-the one definition site whose omission no gate can detect: a policy change that
-left the runbook behind would aim the corpus-delivery effort at the wrong shape
-entirely, and nothing would fail. Deriving the grid here is what makes that
-failure loud.
+The cells and the holdout floor are *derived* from
+``pre_release_safety_requirements()``, never restated.
+``docs/release-evidence-policy-decision.md`` names this directory as the one
+definition site whose omission no gate can detect: a policy change that left the
+runbook behind would aim the corpus-delivery effort at the wrong shape entirely,
+and nothing would fail. Deriving them here is what makes that failure loud.
 """
 
 from __future__ import annotations
 
 import csv
+import math
 import re
 from collections import Counter, defaultdict
+from functools import lru_cache
 from pathlib import Path
 from typing import get_args
 
@@ -34,14 +36,16 @@ INVENTORY = REPO_ROOT / "benchmark" / "safety-qualification" / "strata-inventory
 REGISTER = REPO_ROOT / "benchmark" / "safety-qualification" / "strata-inventory.md"
 MINER_RESULTS = REPO_ROOT / "benchmark" / "miner" / "results"
 REEVAL = MINER_RESULTS / "2026-W27-reeval.csv"
+SEARCHED_FOR_EXPOSURE = ("tests", "src")
 
 EXPECTED_HEADER = [
     "slot_id",
     "profile",
     "target_decision",
     "origin_class",
-    "status",
+    "exposure",
     "split_eligibility",
+    "status",
     "candidate_ref",
     "pinned_base",
     "pinned_head",
@@ -52,14 +56,52 @@ EXPECTED_HEADER = [
 ]
 
 SOURCING_STATUSES = frozenset({"pinned", "unpinned", "gap"})
-# Deliberately closed, and deliberately without a verifier-derived member: a
-# corpus assembled to match the engine's own verdicts cannot measure the engine.
-TARGET_BASES = frozenset({"human_label", "diff_substance", "sample_design", "unsourced"})
+# Closed, and with no member *taken from* verifier output: a corpus assembled to
+# match the engine's own verdicts cannot measure the engine. `miner_label` is
+# not thereby verifier-*independent* -- see
+# `test_the_miner_label_basis_is_disclosed_as_verifier_exposed`.
+TARGET_BASES = frozenset({"miner_label", "diff_substance", "sample_design", "unsourced"})
+
+# Holdout means evidence the engine was never tuned on. That is a fact about
+# this project's development history, not about where the candidate's bytes
+# live, so it is recorded per row and only *partly* detectable.
+EXPOSURES = frozenset(
+    {"engine_tests", "maintainer_walk", "shipped_sample", "benchmark_scored", "miner_label"}
+)
+EXPOSURES_BLOCKING_HOLDOUT = frozenset({"engine_tests", "maintainer_walk", "shipped_sample"})
+
+# A merged PR is history; a closed-unmerged or reverted one is the rejected
+# vein; an open PR is neither and cannot fill a slot.
+STATE_ORIGINS = {
+    "merged": frozenset({"real_history", "design_partner"}),
+    "closed": frozenset({"rejected_or_reverted"}),
+    "in_tree": frozenset({"synthetic"}),
+}
 SPLIT_ELIGIBILITIES = frozenset({"tuning_only", "either"})
 QUALIFYING_ORIGINS = frozenset({"real_history", "rejected_or_reverted", "design_partner"})
 
 EXTERNAL_CANDIDATE = re.compile(r"^github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+#[1-9][0-9]*$")
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
+
+# Two of the seven profiles are *scenario* profiles: what puts a candidate in
+# them is what the change does, not what source type it declares. A sample in
+# either one is justified by its register entry and by nothing mechanical.
+SCENARIO_PROFILES = frozenset({"coding_agent_trust_roots", "multi_agent_handoffs"})
+# Samples that ship their artifact without a manifest, so there is no declared
+# source type to compare a profile against. Listed rather than skipped, so a
+# newly manifest-less sample has to be considered instead of silently admitted.
+PROFILE_UNCHECKED_SAMPLES = frozenset({"samples/n8n_workflow_agent"})
+MANIFEST_TYPE_PROFILES = {
+    "mcp": "mcp_openapi_declared_binding",
+    "openapi": "mcp_openapi_declared_binding",
+    "openai-agents": "openai_agents_sdk",
+    "openai_agents_sdk": "openai_agents_sdk",
+    "langchain": "langchain_crewai",
+    "crewai": "langchain_crewai",
+    "google_adk": "google_adk",
+    "n8n": "n8n",
+    "conductor": "multi_agent_handoffs",
+}
 
 # The miner's three-way vocabulary is coarser than the corpus's four-way one:
 # ``needs_human`` does not distinguish "a human should look" from "there is not
@@ -80,6 +122,10 @@ def _rows() -> list[dict[str, str]]:
 @pytest.fixture(scope="module")
 def rows() -> list[dict[str, str]]:
     return _rows()
+
+
+def _declared_exposure(row: dict[str, str]) -> set[str]:
+    return {mark for mark in row["exposure"].split(";") if mark and mark != "none"}
 
 
 def _candidate_ref_for(pr_url: str) -> str:
@@ -106,8 +152,102 @@ def _miner_labels() -> dict[str, dict[str, str]]:
         relative = source.relative_to(REPO_ROOT).as_posix()
         with source.open(encoding="utf-8", newline="") as handle:
             for entry in csv.DictReader(handle):
-                labels.setdefault(_candidate_ref_for(entry["pr_url"]), {})[relative] = entry["label"]
+                labels.setdefault(_candidate_ref_for(entry["pr_url"]), {})[relative] = (
+                    entry["label"]
+                )
     return labels
+
+
+def _swept_candidates() -> set[str]:
+    """Every candidate ref named by a committed miner sweep."""
+
+    swept: set[str] = set()
+    for source in sorted(MINER_RESULTS.glob("*.csv")):
+        with source.open(encoding="utf-8", newline="") as handle:
+            for entry in csv.DictReader(handle):
+                url = entry.get("pr_url")
+                if url:
+                    swept.add(_candidate_ref_for(url))
+    return swept
+
+
+@lru_cache(maxsize=1)
+def _lines_citing_a_candidate_number() -> dict[str, tuple[tuple[str, str], ...]]:
+    """PR number -> the ``tests/``/``src/`` lines that mention it.
+
+    One pass over the tree for every candidate rather than one pass each: the
+    per-candidate form took 34 seconds, which is a guard nobody keeps.
+    """
+
+    numbers = sorted(
+        {
+            row["candidate_ref"].partition("#")[2]
+            for row in _rows()
+            if row["candidate_ref"].startswith("github.com/")
+        }
+    )
+    if not numbers:
+        return {}
+
+    wanted = re.compile(rf"(?<![0-9])({'|'.join(map(re.escape, numbers))})(?![0-9])")
+    found: dict[str, list[tuple[str, str]]] = {number: [] for number in numbers}
+    this_file = Path(__file__).resolve()
+    for root in SEARCHED_FOR_EXPOSURE:
+        for path in sorted((REPO_ROOT / root).rglob("*.py")):
+            # This file names every candidate by construction. Its own
+            # docstrings are not evidence that the engine was built against
+            # them, and counting them would make every row self-exposing.
+            if path == this_file:
+                continue
+            location = path.relative_to(REPO_ROOT).as_posix()
+            for offset, line in enumerate(
+                path.read_text(encoding="utf-8", errors="replace").splitlines(), 1
+            ):
+                for match in wanted.finditer(line):
+                    found[match.group(1)].append((f"{location}:{offset}", line))
+    return {number: tuple(hits) for number, hits in found.items()}
+
+
+def _named_in_engine_sources(candidate_ref: str) -> str | None:
+    """The first ``tests/`` or ``src/`` line naming this PR, if any.
+
+    Matched as the repository's own short name plus the PR number on one line,
+    which is how this codebase cites upstream cases (``adk-samples#1745``,
+    ``github/github-mcp-server#3076``, ``Stripe stripe/ai PR #232``). A bare
+    number would match line offsets and hashes and mean nothing.
+    """
+
+    owner_repo, _, number = candidate_ref.removeprefix("github.com/").partition("#")
+    repo = re.compile(rf"\b{re.escape(owner_repo.split('/')[-1])}\b")
+    for location, line in _lines_citing_a_candidate_number().get(number, ()):
+        if repo.search(line):
+            return location
+    return None
+
+
+def _register_entries() -> dict[str, tuple[str, str]]:
+    """Candidate -> (profile, state) from the register table, uniquely.
+
+    The register is where a candidate's profile assignment and merge state are
+    *stated*; the CSV is where they are used. Binding the two is what stops a
+    profile from being changed on one side only, which would silently move a
+    case between per-profile coverage counts.
+    """
+
+    entries: dict[str, tuple[str, str]] = {}
+    for line in REGISTER.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("| `"):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) < 3:
+            continue
+        candidate = cells[0].strip("`")
+        profile, state = cells[1].strip("`"), cells[2].strip("`")
+        if state not in STATE_ORIGINS and state != "open":
+            continue
+        assert candidate not in entries, f"the register names {candidate!r} twice"
+        entries[candidate] = (profile, state)
+    return entries
 
 
 def test_the_inventory_columns_are_exactly_the_documented_ones() -> None:
@@ -191,6 +331,10 @@ def test_the_row_vocabularies_are_closed(rows: list[dict[str, str]]) -> None:
         assert row["status"] in SOURCING_STATUSES, row["slot_id"]
         assert row["target_basis"] in TARGET_BASES, row["slot_id"]
         assert row["split_eligibility"] in SPLIT_ELIGIBILITIES, row["slot_id"]
+        assert row["exposure"], f"{row['slot_id']} records no exposure, not even none"
+        assert _declared_exposure(row) <= EXPOSURES, row["slot_id"]
+        if row["exposure"] != "none":
+            assert _declared_exposure(row), f"{row['slot_id']} spells an empty exposure list"
 
 
 def test_a_gap_carries_a_lead_and_nothing_else(rows: list[dict[str, str]]) -> None:
@@ -206,6 +350,7 @@ def test_a_gap_carries_a_lead_and_nothing_else(rows: list[dict[str, str]]) -> No
             assert row["candidate_ref"] == "", row["slot_id"]
             assert row["evidence_ref"] == "", row["slot_id"]
             assert row["pinned_base"] == "" and row["pinned_head"] == "", row["slot_id"]
+            assert row["exposure"] == "none", f"{row['slot_id']} has no candidate to expose"
             assert row["mining_lead"].strip(), f"{row['slot_id']} is a gap with nowhere to look"
         else:
             assert row["target_basis"] != "unsourced", row["slot_id"]
@@ -271,38 +416,77 @@ def test_every_candidate_resolves_and_no_subject_fills_two_slots(
             assert anchor in headings, f"{row['slot_id']} cites a section that is not there: #{anchor}"
 
 
-def test_what_a_candidate_is_decides_its_origin_and_its_split(
+def test_declared_exposure_is_at_least_what_the_tree_shows(
     rows: list[dict[str, str]],
 ) -> None:
-    """An in-tree sample is ``synthetic``, and it is engine-tuning material.
+    """The detector is a floor, and a floor is the only honest shape for it.
 
-    Both halves are properties of *what the candidate is*, so neither may be
-    asserted independently of the path. Without this, relabeling the twelve
-    ``samples/`` slots ``real_history`` would report 41 of 56 qualifying
-    origins against a floor of 23 while adding no real evidence at all -- the
-    origin floor satisfied by renaming, which is a reduction in strictness
-    dressed as coverage. It would surface at freeze, after the labeling is paid
-    for.
+    Some exposure cannot be found by searching: ``grafana/mcp-grafana#1080``
+    appears nowhere in this repository and still drove the
+    ``tool_sources[].binding`` design. So a row may declare more exposure than
+    the tree shows, never less -- and the moment a candidate is written into a
+    test or a sweep, its row has to say so or fail here.
     """
+
+    labels = _miner_labels()
+    swept = _swept_candidates()
 
     for row in rows:
         if row["status"] == "gap":
-            # A gap's origin is a target, and a corpus synthetic built for a
-            # gap is holdout-eligible precisely because it is not shipped as a
-            # sample. Nothing about a path constrains a row with no candidate.
-            assert row["split_eligibility"] == "either", row["slot_id"]
             continue
+        ref = row["candidate_ref"]
+        declared = _declared_exposure(row)
+        found: set[str] = set()
+        witness: dict[str, str] = {}
 
-        if row["candidate_ref"].startswith("samples/"):
-            assert row["origin_class"] == "synthetic", (
-                f"{row['slot_id']} is a shipped sample, so its origin is synthetic"
-            )
-            assert row["split_eligibility"] == "tuning_only", row["slot_id"]
+        if ref.startswith("samples/"):
+            found.add("shipped_sample")
+            witness["shipped_sample"] = ref
         else:
-            assert row["origin_class"] in QUALIFYING_ORIGINS, (
-                f"{row['slot_id']} names an upstream PR, which is not synthetic material"
-            )
-            assert row["split_eligibility"] == "either", row["slot_id"]
+            cited = _named_in_engine_sources(ref)
+            if cited is not None:
+                found.add("engine_tests")
+                witness["engine_tests"] = cited
+            if ref in swept:
+                found.add("benchmark_scored")
+                witness["benchmark_scored"] = "a committed miner sweep"
+        if ref in labels:
+            found.add("miner_label")
+            witness["miner_label"] = sorted(labels[ref])[0]
+
+        # `maintainer_walk` has no detector, but `diff_substance` is the
+        # record of one: the only way this project read that diff was by
+        # walking the repository, and every such walk so far produced an issue,
+        # a fix, or a regression test. Without this, the one exposure nothing
+        # can find is also the one anybody can quietly drop.
+        if row["target_basis"] == "diff_substance":
+            found.add("maintainer_walk")
+            witness["maintainer_walk"] = "its own diff_substance basis"
+
+        missing = sorted(found - declared)
+        assert not missing, (
+            f"{row['slot_id']} ({ref}) does not declare {missing}; "
+            f"found at {[witness[mark] for mark in missing]}"
+        )
+
+
+def test_exposure_decides_the_split_and_nothing_else_does(
+    rows: list[dict[str, str]],
+) -> None:
+    """``split_eligibility`` is a consequence, never an independent claim.
+
+    Before this was derived, a shipped sample could be marked ``either`` and a
+    walked upstream PR could not be marked ``tuning_only`` at all -- so the
+    plan counted engine-development inputs as holdout-capable evidence, and the
+    shortfall would only have surfaced at freeze.
+    """
+
+    for row in rows:
+        blocking = _declared_exposure(row) & EXPOSURES_BLOCKING_HOLDOUT
+        expected = "tuning_only" if blocking else "either"
+        assert row["split_eligibility"] == expected, (
+            f"{row['slot_id']} is {row['split_eligibility']} with exposure {row['exposure']}"
+        )
 
 
 def test_a_sample_design_row_cites_the_sample_it_is_about(
@@ -310,7 +494,7 @@ def test_a_sample_design_row_cites_the_sample_it_is_about(
 ) -> None:
     """The one basis with no independent source still gets cross-checked.
 
-    ``human_label`` is checked against a miner CSV and ``diff_substance``
+    ``miner_label`` is checked against a miner CSV and ``diff_substance``
     against the register. ``sample_design`` has neither, so the only thing that
     can be checked is that the row cites the sample it actually names -- and
     without that it can cite any directory in the tree and still resolve.
@@ -323,6 +507,107 @@ def test_a_sample_design_row_cites_the_sample_it_is_about(
         assert row["evidence_ref"] == row["candidate_ref"], (
             f"{row['slot_id']} cites {row['evidence_ref']}, "
             f"but it is about {row['candidate_ref']}"
+        )
+
+
+def test_every_sourced_candidate_is_registered_with_its_profile_and_state(
+    rows: list[dict[str, str]],
+) -> None:
+    """Profile and origin are claims about the candidate, stated once.
+
+    Per-profile coverage is counted from the corpus-declared profile, so a
+    candidate silently moved between profiles satisfies a cell it does not
+    belong to. And an origin is a fact about the PR: swapping two candidates'
+    profiles, or planning ``real_history`` for a PR that never merged, both
+    pass every per-row guard and are caught only here.
+    """
+
+    entries = _register_entries()
+
+    for row in rows:
+        if row["status"] == "gap":
+            continue
+        ref = row["candidate_ref"]
+        assert ref in entries, f"{row['slot_id']}: {ref} has no register entry"
+        profile, state = entries[ref]
+        assert profile == row["profile"], (
+            f"{row['slot_id']} is filed under {row['profile']}, "
+            f"but the register assigns {ref} to {profile}"
+        )
+        assert state in STATE_ORIGINS, (
+            f"{row['slot_id']}: {ref} is {state!r} and cannot fill a slot -- "
+            "an open PR is not history and has no decision to validate against"
+        )
+        assert row["origin_class"] in STATE_ORIGINS[state], (
+            f"{row['slot_id']} plans {row['origin_class']} for a {state} candidate"
+        )
+
+
+def test_a_gap_that_names_a_pull_request_plans_the_origin_that_pr_can_supply(
+    rows: list[dict[str, str]],
+) -> None:
+    """A named lead is a claim, and its origin is not free to choose.
+
+    ``google/adk-python#6605`` was closed without merge, so a gap naming it
+    cannot be planned as ``real_history``: the lead and the origin would
+    describe two different candidates, and the shortfall surfaces only when
+    someone tries to fill the slot.
+    """
+
+    entries = _register_entries()
+    named = re.compile(r"github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+#[1-9][0-9]*")
+
+    checked = 0
+    for row in rows:
+        if row["status"] != "gap":
+            continue
+        for ref in named.findall(row["mining_lead"]):
+            assert ref in entries, f"{row['slot_id']} names {ref} with no register entry"
+            _, state = entries[ref]
+            if state == "open":
+                continue  # named as a shape to match, not as the candidate
+            assert row["origin_class"] in STATE_ORIGINS[state], (
+                f"{row['slot_id']} plans {row['origin_class']} but names {ref}, which is {state}"
+            )
+            checked += 1
+    assert checked, "no gap names a pull request any more; drop this guard or restore one"
+
+
+def test_a_sample_profile_matches_the_source_type_it_declares(
+    rows: list[dict[str, str]],
+) -> None:
+    """For the five source-type profiles, the manifest is the check.
+
+    ``coding_agent_trust_roots`` and ``multi_agent_handoffs`` are scenario
+    profiles -- ``samples/agent_weakens_gate`` declares ``type: mcp`` and
+    belongs to neither MCP cell -- so for those the register entry is the
+    justification and there is nothing mechanical to compare it against.
+    """
+
+    for row in rows:
+        ref = row["candidate_ref"]
+        if not ref.startswith("samples/") or row["profile"] in SCENARIO_PROFILES:
+            continue
+        manifests = sorted((REPO_ROOT / ref).rglob("shipgate.yaml"))
+        if ref in PROFILE_UNCHECKED_SAMPLES:
+            assert not manifests, f"{ref} has a manifest now; drop it from the unchecked list"
+            continue
+        assert manifests, (
+            f"{row['slot_id']}: {ref} declares no manifest to check against. "
+            "Add it to PROFILE_UNCHECKED_SAMPLES only with a register entry that "
+            "justifies its profile some other way."
+        )
+        declared = {
+            match.group(1)
+            for manifest in manifests
+            for match in re.finditer(
+                r"^\s*type:\s*([A-Za-z0-9_-]+)", manifest.read_text(encoding="utf-8"), re.M
+            )
+        }
+        admissible = {MANIFEST_TYPE_PROFILES.get(kind) for kind in declared}
+        assert row["profile"] in admissible, (
+            f"{row['slot_id']} files {ref} under {row['profile']}, "
+            f"but it declares {sorted(declared)}"
         )
 
 
@@ -356,33 +641,31 @@ def test_a_diff_substance_row_is_written_down_in_the_register(
         )
 
 
-def test_every_cell_can_still_supply_its_holdout_case(rows: list[dict[str, str]]) -> None:
-    """The policy's holdout floor has to be reachable from the plan, per cell.
+def test_every_cell_can_still_supply_the_holdout_the_policy_demands(
+    rows: list[dict[str, str]],
+) -> None:
+    """The holdout floor is computed from the policy, not assumed to be one.
 
-    Holdout means evidence the engine was never tuned on, and every
-    ``samples/*`` path is engine-tuning material -- the goldens under
-    ``samples/*/expected/`` are what the engine is developed against. A cell
-    filled entirely from ``samples/`` cannot honestly mark either case holdout,
-    and the shortfall would only surface at freeze, after the labeling is paid
-    for.
-
-    What makes a slot ``tuning_only`` is decided once, by
-    ``test_what_a_candidate_is_decides_its_origin_and_its_split``; this is only
-    the per-cell consequence.
+    ``ceil(stratum.count * minimum_holdout_fraction_per_stratum)`` is one case
+    per cell today. Hard-coding that number would let the fraction move to 0.60
+    -- two holdout cases per cell -- while every cell here still offered a
+    single eligible slot and this test still passed.
     """
 
+    requirements = pre_release_safety_requirements()
     eligible: defaultdict[tuple[str, str], int] = defaultdict(int)
     for row in rows:
         if row["split_eligibility"] == "either":
             eligible[(row["profile"], row["target_decision"])] += 1
 
-    requirements = pre_release_safety_requirements()
-    starved = sorted(
-        (stratum.profile, stratum.expected_decision)
-        for stratum in requirements.required_strata
-        if eligible[(stratum.profile, stratum.expected_decision)] < 1
-    )
-    assert starved == [], "these cells are planned entirely from engine-tuning material"
+    starved = {}
+    for stratum in requirements.required_strata:
+        cell = (stratum.profile, stratum.expected_decision)
+        floor = math.ceil(stratum.count * requirements.minimum_holdout_fraction_per_stratum)
+        if eligible[cell] < floor:
+            starved[cell] = (eligible[cell], floor)
+
+    assert starved == {}, "these cells cannot supply the holdout cases the policy requires"
 
 
 def test_the_plan_clears_the_origin_floor_it_is_planning_for(
@@ -409,10 +692,10 @@ def test_the_plan_clears_the_origin_floor_it_is_planning_for(
     assert planned_synthetic <= total_cases - requirements.minimum_qualified_origins
 
 
-def test_a_human_label_row_agrees_with_the_csv_it_cites(rows: list[dict[str, str]]) -> None:
+def test_a_miner_label_row_agrees_with_the_csv_it_cites(rows: list[dict[str, str]]) -> None:
     """The basis is checked against the source, not trusted as transcription.
 
-    A ``human_label`` row asserts that a specific miner row says a specific
+    A ``miner_label`` row asserts that a specific miner row says a specific
     thing. Copying it by hand is how a plan ends up aiming a cell at a label
     that was never given.
     """
@@ -425,7 +708,7 @@ def test_a_human_label_row_agrees_with_the_csv_it_cites(rows: list[dict[str, str
         sweeps = labels.get(row["candidate_ref"])
 
         if sweeps is None:
-            assert row["target_basis"] != "human_label", (
+            assert row["target_basis"] != "miner_label", (
                 f"{row['slot_id']} claims a miner label its subject does not have"
             )
             continue
@@ -433,7 +716,7 @@ def test_a_human_label_row_agrees_with_the_csv_it_cites(rows: list[dict[str, str
         # The escape this closes: hitting a mismatch and quietly restating the
         # basis as `diff_substance` so nothing cross-checks it any more. A
         # labeled subject is checked against its label wherever it is placed.
-        assert row["target_basis"] == "human_label", (
+        assert row["target_basis"] == "miner_label", (
             f"{row['slot_id']}: {row['candidate_ref']} is labeled in {sorted(sweeps)}, "
             "so the row must cite that label"
         )
@@ -445,41 +728,44 @@ def test_a_human_label_row_agrees_with_the_csv_it_cites(rows: list[dict[str, str
         )
 
 
-def test_a_pinned_external_candidate_matches_the_sweep_that_recorded_it(
-    rows: list[dict[str, str]],
-) -> None:
-    """Pins are re-read from the sweep rather than trusted in this file.
+def test_the_miner_label_basis_is_disclosed_as_verifier_exposed() -> None:
+    """The disclosure is bound to the thing that makes it necessary.
 
-    Every candidate drawn from the 19-PR pool already has its base and head
-    recorded once. A second hand-written copy is a second thing that can be
-    wrong, and a wrong pin sends a rater to a diff nobody adjudicated.
+    The labeling worksheet carries the engine's own verdict columns, and
+    LABELING.md tells the labeler they are enough to label most rows without
+    opening the diff. So a ``miner_label`` row's cell targeting was made with
+    the verdict in view -- which the register must say, and every such row must
+    carry in ``exposure``. If the worksheet ever stops exposing verdicts this
+    fails, and the disclosure should be revisited rather than left standing as
+    a claim about a worksheet that no longer does it.
     """
 
-    with REEVAL.open(encoding="utf-8", newline="") as handle:
-        sweep = {
-            f"github.com/{entry['repo']}#{entry['pr_number']}": (
-                entry["base_sha"],
-                entry["head_sha"],
-            )
-            for entry in csv.DictReader(handle)
-        }
+    templates = sorted(MINER_RESULTS.glob("*.labels.template.csv"))
+    assert templates, "the labeling worksheet is gone; re-derive this disclosure"
 
-    for row in rows:
-        pins = sweep.get(row["candidate_ref"])
-        if pins is None:
-            continue
-        # Downgrading to `unpinned` is not an escape either: the sweep already
-        # resolved this subject, so leaving the pins out is lost work, not an
-        # unknown.
-        assert row["status"] == "pinned", f"{row['slot_id']} has recorded pins available"
-        assert (row["pinned_base"], row["pinned_head"]) == pins, row["slot_id"]
+    verdict_columns = {"head_decision", "verify_verdict", "verify_can_merge"}
+    for template in templates:
+        with template.open(encoding="utf-8", newline="") as handle:
+            header = set(next(csv.reader(handle)))
+        assert verdict_columns <= header, (
+            f"{template.name} no longer exposes verifier verdicts to labelers"
+        )
+
+    register = REGISTER.read_text(encoding="utf-8")
+    assert "not verifier-independent" in register, (
+        "the register must disclose that miner labels were made with the verdict in view"
+    )
+
+    for row in _rows():
+        if row["target_basis"] == "miner_label":
+            assert "miner_label" in _declared_exposure(row), row["slot_id"]
 
 
 def _register_table_rows() -> dict[str, list[int]]:
     """Every numeric register table row, keyed by its label cell.
 
     The value is each integer in the rest of the row, in order, so a cell
-    reading ``29 (floor is 23)`` yields both numbers and both are checked.
+    reading ``32 (floor is 23)`` yields both numbers and both are checked.
     """
 
     rows: dict[str, list[int]] = {}
@@ -533,6 +819,9 @@ def test_the_register_reports_the_plan_the_csv_actually_holds(
         total_cases - requirements.minimum_qualified_origins,
     ]
     assert totals["Slots that can be a cell's holdout case"] == [len(holdout_eligible)]
+    assert totals["Slots that are engine-development inputs"] == [
+        len(rows) - len(holdout_eligible)
+    ]
 
     for group in ("profile", "target_decision"):
         for name in {row[group] for row in rows}:
@@ -541,5 +830,6 @@ def test_the_register_reports_the_plan_the_csv_actually_holds(
             assert totals[name] == [
                 sum(1 for row in member if row["status"] != "gap"),
                 sum(1 for row in member if row["origin_class"] in QUALIFYING_ORIGINS),
+                sum(1 for row in member if row["split_eligibility"] == "either"),
                 sum(1 for row in member if row["status"] == "gap"),
             ], f"the register's row for {name} disagrees with the CSV"
