@@ -809,11 +809,13 @@ def _reading_lines(
 
 
 def _proposal_audit(action: Any) -> str:
-    """The exact reviewed constraints behind a proposal, without a new field.
+    """The exact reviewed value and replacement state behind a proposal.
 
     ``expects`` is already the published action/audit surface and carries the
-    exact tag spellings. Reuse it in the questionnaire only for constrained
-    proposals; unconstrained rows keep their existing compact rendering.
+    exact tag spellings plus whether the proposal replaces that field. Reuse
+    the complete audit portion in the questionnaire; stopping at the first
+    sentence would hide the replacement precisely when the old list is empty.
+    Unconstrained rows keep their existing compact rendering.
     """
 
     marker = "Existing reviewed manifest constraints included in this proposal:"
@@ -821,8 +823,8 @@ def _proposal_audit(action: Any) -> str:
     start = expects.find(marker)
     if start < 0:
         return ""
-    end = expects.find(". ", start)
-    return expects[start:] if end < 0 else expects[start : end + 1]
+    end = expects.find(" Under ", start)
+    return expects[start:] if end < 0 else expects[start:end]
 
 
 def _reading_rows(readings: Sequence[EvidenceReading]) -> list[str]:

@@ -9,6 +9,10 @@
   source evidence, but cannot seed one by itself. Declarations pinned by an
   older release while an override was present may surface one deliberate
   `declaration_drift` so a reviewer can confirm the corrected source-only pin.
+  Proposal questionnaires now disclose when a filled tag list replaces an
+  existing reviewed `risk_tags` field, including an explicit empty list, and
+  scan `run_id` binds that key-presence because it changes whether the draft is
+  coding-agent- or human-owned.
 
 - **Cold-reader artifacts now lead with what the agent can do.** (#463) On a
   repository with no committed Shipgate manifest, human output starts with the

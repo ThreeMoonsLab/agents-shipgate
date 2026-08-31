@@ -1796,7 +1796,6 @@ def _semantic_gap(
         reviewed_constraints = (
             reviewed_risk_tag_constraints(effect_assessment)
             if effect_assessment is not None
-            and proposal_uses_reviewed_constraints
             else ()
         )
         if proposal is None:
@@ -1829,10 +1828,19 @@ def _semantic_gap(
                     and tuple(proposal.risk_tags)
                     != effect_assessment.declared_risk_tags
                 )
+            has_reviewed_constraint_audit = bool(
+                proposal_uses_reviewed_constraints
+                or proposal_replaces_declared_risk_tags
+            )
             constraints = (
                 " Existing reviewed manifest constraints included in this "
                 f"proposal: risk_tags: [{', '.join(reviewed_constraints)}]."
-                if reviewed_constraints
+                if has_reviewed_constraint_audit
+                else ""
+            )
+            replacement = (
+                " This proposal replaces the existing risk_tags field."
+                if proposal_replaces_declared_risk_tags
                 else ""
             )
             ownership_reasons: list[str] = []
@@ -1850,12 +1858,12 @@ def _semantic_gap(
                 if ownership_reasons
                 else ""
             )
-            if reviewed_constraints:
+            if has_reviewed_constraint_audit:
                 expects = (
                     f"Confirm effect: {proposal.effect}{tags} — the conservative "
                     "result of the evidence this row lists and the existing "
                     "reviewed manifest constraints named next."
-                    f"{constraints} Under "
+                    f"{constraints}{replacement} Under "
                     "action_surface.actions in shipgate.yaml, or replace it with "
                     "an effect you can defend, then rerun verification."
                     f"{ownership}"
