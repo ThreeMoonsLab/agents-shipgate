@@ -19,6 +19,7 @@ hold the four properties that claim is made of:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import types
@@ -31,11 +32,16 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from agents_shipgate.cli.capability import build_capability_lock_from_config
-from agents_shipgate.core.capability_lattice import classify_tool_permission
+from agents_shipgate.core.capability_lattice import (
+    PermissionClass,
+    classify_tool_permission,
+)
 from agents_shipgate.core.capability_payload import (
     PUBLISHED_FACT_FIELDS,
     UNPUBLISHED_FACT_FIELDS,
     UNPUBLISHED_LOCK_FIELDS,
+    CapabilityPayloadError,
+    _merge_subject_refs,  # the identity guard has no public caller to reach it through
     project_capability_delta,
     project_capability_record,
     project_capability_state,
@@ -53,8 +59,12 @@ from agents_shipgate.schemas.capability_payload import (
     CapabilityDeltaSubject,
     CapabilityDeltaSummary,
     CapabilityPayloadV1,
+    CapabilityPermissionClass,
+    CapabilityRecord,
     CapabilityRecordTransitionEntry,
     CapabilityStatePayloadV1,
+    CapabilityStateSubject,
+    canonical_payload_json,
     subject_key,
 )
 
@@ -247,6 +257,68 @@ def test_every_internal_fact_field_is_published_or_excluded_with_a_reason() -> N
     assert not (set(PUBLISHED_FACT_FIELDS) & set(UNPUBLISHED_FACT_FIELDS))
 
 
+def _internal_annotation(path: str) -> Any:
+    model: Any = CapabilityFactV1
+    parts = path.split(".")
+    for index, part in enumerate(parts):
+        field = model.model_fields[part]
+        if index == len(parts) - 1:
+            return field.annotation
+        model = field.annotation
+
+
+def _payload_annotation(path: str) -> Any:
+    if path.startswith("capabilities[]."):
+        model: Any = CapabilityRecord
+        rest = path[len("capabilities[]."):]
+    else:
+        model = CapabilityStateSubject
+        rest = path
+    parts = rest.split(".")
+    for index, part in enumerate(parts):
+        field = model.model_fields[part]
+        if index == len(parts) - 1:
+            return field.annotation
+        model = field.annotation
+
+
+def test_every_published_field_keeps_the_internal_type() -> None:
+    """Names are not enough: a widened internal type must be a schema decision.
+
+    The frozen-union guard covers field *names*. Without this, adding a value to
+    an internal Literal — a new ``reversibility`` state, a new effect — leaves
+    CI green and turns into a `ValidationError` raised from inside the
+    projection on the first repository that produces it.
+    """
+
+    mismatched = [
+        (internal_path, payload_path)
+        for internal_path, payload_path in PUBLISHED_FACT_FIELDS.items()
+        if _internal_annotation(internal_path) != _payload_annotation(payload_path)
+    ]
+    assert not mismatched, (
+        "the payload re-declares these fields with a different type than the "
+        f"capability fact: {mismatched}. Either mirror the internal type or "
+        "publish a new payload schema version."
+    )
+
+
+def test_the_payload_permission_vocabulary_matches_the_lattice() -> None:
+    """The one closed vocabulary the payload re-spells rather than imports.
+
+    ``schemas`` cannot import ``core`` without inverting the layering, so the
+    Literal is duplicated. Pin the duplicate: a class added to the lattice and
+    not here would crash the projection instead of failing this test.
+    """
+
+    assert set(typing.get_args(CapabilityPermissionClass)) == set(
+        typing.get_args(PermissionClass)
+    ), (
+        "core.capability_lattice.PermissionClass and the payload's "
+        "CapabilityPermissionClass have diverged"
+    )
+
+
 def test_every_lock_wrapper_field_is_declared() -> None:
     """The lock file is the state artifact this payload supersedes."""
 
@@ -393,6 +465,49 @@ def test_subject_key_separates_same_named_tools_from_two_providers() -> None:
     payload = project_capability_state([base, other])
     assert len(payload.subjects) == 2
     assert {entry.subject.name for entry in payload.subjects} == {base.identity.tool_name}
+
+
+def test_a_key_collision_between_two_identities_fails_closed() -> None:
+    """The identity guard must not be skipped when the display names agree.
+
+    ``subject.key`` is a truncated digest, so equal keys are near-certainly the
+    same subject but not provably so. A same-named collision is the one shape
+    where a name-equality shortcut would merge two tools silently.
+    """
+
+    subject = project_capability_state(
+        _facts(REFUND_SAMPLE / "shipgate.yaml")
+    ).subjects[0].subject
+    collided = subject.model_copy(update={"tool_id": "tool_v2_a_different_tool"})
+    assert collided.key == subject.key and collided.name == subject.name
+
+    with pytest.raises(CapabilityPayloadError, match="two different identities"):
+        _merge_subject_refs(subject, collided)
+
+    # A genuine rename under one identity still reconciles to a stable spelling.
+    renamed = subject.model_copy(update={"name": "aaa_renamed"})
+    assert _merge_subject_refs(subject, renamed).name == "aaa_renamed"
+
+
+def test_an_empty_delta_cannot_name_two_different_states(refund_facts) -> None:
+    """"Nothing changed" has to be supported by the payload's own digests."""
+
+    base, head = refund_facts
+    payload = project_capability_delta(base, base).model_dump(mode="json")
+    assert payload["subjects"] == []
+
+    payload["head"] = project_capability_state(head).state.model_dump(mode="json")
+    with pytest.raises(ValidationError, match="same state, but their digests differ"):
+        CapabilityDeltaPayloadV1.model_validate(payload)
+
+
+def test_canonical_json_refuses_a_value_it_cannot_serialize() -> None:
+    """A verifiable digest must not be computable over a `str()` rendering."""
+
+    with pytest.raises(TypeError):
+        canonical_payload_json({"path": Path("a/b")})
+    # The two values a `default=str` fallback would have collapsed together.
+    assert canonical_payload_json({"path": "a/b"}) == '{"path":"a/b"}'
 
 
 def test_duplicate_subject_rows_are_rejected() -> None:
@@ -713,15 +828,46 @@ def test_projection_is_byte_stable(config: Path) -> None:
     )
 
 
-def test_subject_key_is_derivable_from_published_fields() -> None:
-    """The spec documents the derivation; a consumer must be able to redo it."""
+def test_subject_key_matches_the_derivation_the_spec_publishes() -> None:
+    """Recompute the key the way the spec tells an external consumer to.
+
+    Asserting ``key == subject_key(...)`` would only check the implementation
+    against itself; a change to the digest input or the truncation length would
+    move both sides together and leave the published recipe silently wrong.
+    This redoes it from stdlib, from the fields the payload carries.
+    """
 
     payload = project_capability_state(_facts(REFUND_SAMPLE / "shipgate.yaml"))
+    assert payload.subjects, "sample produced no subjects to check"
     for entry in payload.subjects:
-        assert entry.subject.key == subject_key(
-            agent=entry.subject.agent,
-            provider=entry.subject.provider,
-            tool_id=entry.subject.tool_id,
+        subject = entry.subject
+        material = json.dumps(
+            {
+                "agent": subject.agent,
+                "provider": subject.provider,
+                "tool_id": subject.tool_id,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        expected = hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+        assert subject.key == f"capsubj_{expected}"
+        # And the exported helper agrees, so a caller can use either.
+        assert subject.key == subject_key(
+            agent=subject.agent,
+            provider=subject.provider,
+            tool_id=subject.tool_id,
+        )
+
+
+def test_spec_page_publishes_the_subject_key_recipe() -> None:
+    """The formula above is only reproducible if the spec still states it."""
+
+    spec = (REPO_ROOT / "docs/capability-payload.md").read_text(encoding="utf-8")
+    for fragment in ('"capsubj_" + sha256(', "[:16]", "canonical_json"):
+        assert fragment in spec, (
+            f"docs/capability-payload.md must publish the subject-key "
+            f"derivation; missing {fragment!r}"
         )
 
 

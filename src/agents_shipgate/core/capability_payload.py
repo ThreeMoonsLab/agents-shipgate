@@ -412,17 +412,21 @@ def _merge_subject_refs(
 ) -> CapabilitySubjectRef:
     """Reconcile two refs that share a key.
 
-    Identity is ``agent``/``provider``/``tool_id`` and is equal by construction
-    whenever the keys match. ``name`` is a display string and can legitimately
-    differ between the two sides of a rename, so pick the lexicographically
-    first — a stable choice, not a judgement — rather than letting build order
-    decide which spelling reaches the wire.
+    The identity check runs **first and unconditionally**. ``subject.key`` is a
+    truncated digest, so equal keys are near-certainly — but not provably — the
+    same subject; letting a matching display name short-circuit the check would
+    make a key collision merge two tools silently, which is the conflation this
+    schema exists to prevent. Failing closed on a collision costs nothing,
+    because the projection cannot produce one from distinct identities.
+
+    ``name`` is a display string and can legitimately differ between the two
+    sides of a rename, so pick the lexicographically first — a stable choice,
+    not a judgement — rather than letting build order decide which spelling
+    reaches the wire.
     """
 
     if existing is None:
         return incoming
-    if existing.key == incoming.key and existing.name == incoming.name:
-        return existing
     if (existing.agent, existing.provider, existing.tool_id) != (
         incoming.agent,
         incoming.provider,
@@ -433,6 +437,8 @@ def _merge_subject_refs(
             f"{(existing.agent, existing.provider, existing.tool_id)} and "
             f"{(incoming.agent, incoming.provider, incoming.tool_id)}"
         )
+    if existing.name == incoming.name:
+        return existing
     return existing.model_copy(update={"name": min(existing.name, incoming.name)})
 
 

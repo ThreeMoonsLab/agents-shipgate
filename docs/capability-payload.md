@@ -48,6 +48,11 @@ Both examples are **generated** from the shipped
 `scripts/generate_schemas.py`, and CI fails on drift. A hand-written example is
 a claim about the format that nothing checks.
 
+They show `analysis_coverage.status: "not_requested"` because the projection was
+called without one — see [the coverage
+section](#the-subjects-outside-the-analysed-surface) for why that is not a claim
+that nothing was left out.
+
 ## Shape
 
 Every payload is one JSON object carrying
@@ -152,6 +157,10 @@ producer:
    recomputed. A subject is `added` only when every capability it holds is new,
    `removed` only when every one is gone, and `modified` otherwise — including
    when it gained one capability and lost another.
+4. A delta with **no** subject rows must name two states whose digests agree.
+   "Nothing changed" is a claim about the two states, so it has to be one the
+   payload's own digests support; a delta that says it while `base` and `head`
+   differ is **rejected**.
 
 `subject.name` is the adopter-facing spelling and is **not** identity: two
 providers may publish the same name. A consumer rendering names must qualify
@@ -182,6 +191,10 @@ different questions separable: *did what the agent can do move*, or *only where
 we read it from*. A delta's `base`/`head` digests are computed over the full
 state payloads for each side, so a delta and a state payload can be proven to
 describe the same state.
+
+Both digests are computed with sorted keys and compact separators, over values
+that are already JSON — the digest helper has no `str()` fallback, so it raises
+rather than digesting a lossy rendering of something it cannot serialize.
 
 `ref` is an opaque caller label — a commit sha, a path — supplied by the surface
 that emits the payload. It is never a timestamp: this payload carries no wall

@@ -99,9 +99,16 @@ CapabilityPermissionStatus = Literal["measured", "unavailable"]
 
 
 def canonical_payload_json(payload: Any) -> str:
-    """Canonical JSON for digesting — sorted keys, no insignificant space."""
+    """Canonical JSON for digesting — sorted keys, no insignificant space.
 
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    Deliberately without a ``default=`` fallback. A digest an external consumer
+    verifies must not be computable over a lossy ``str()`` rendering: two
+    distinct values whose text form coincides would digest identically, and the
+    consumer would read two different states as one. A value this cannot
+    serialize is a bug in the caller, and raising says so.
+    """
+
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
 def payload_digest(payload: Any) -> str:
@@ -628,6 +635,24 @@ class CapabilityDeltaPayloadV1(_CapabilityPayloadBase):
                     f"{side}.capability_standard_version must equal the "
                     "payload's capability_standard_version"
                 )
+        # An empty delta is a claim that the two states are the same state, so
+        # it has to be one the payload's own digests support. No rows means
+        # every fact matched on every dimension, which makes both published
+        # digests equal by construction — so only a hand-written or tampered
+        # payload can say "nothing changed" while naming two different states,
+        # and a consumer must not have to notice that itself.
+        if not self.subjects and (
+            self.base.capability_set_digest != self.head.capability_set_digest
+            or self.base.evidence_set_digest != self.head.evidence_set_digest
+        ):
+            raise ValueError(
+                "a delta with no subject rows claims base and head are the "
+                "same state, but their digests differ "
+                f"(capability {self.base.capability_set_digest[:12]}… vs "
+                f"{self.head.capability_set_digest[:12]}…, evidence "
+                f"{self.base.evidence_set_digest[:12]}… vs "
+                f"{self.head.evidence_set_digest[:12]}…)"
+            )
         return self
 
 

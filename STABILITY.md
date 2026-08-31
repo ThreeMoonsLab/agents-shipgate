@@ -2803,6 +2803,9 @@ What a consumer may rely on:
   rows is **rejected**, not corrected.
 - `capabilities[].capability_id` is the internal `CapabilityFactV1.id`
   verbatim, so a published row joins back to the fact that produced it.
+- A `delta` with no subject rows must name two states whose digests agree. A
+  payload that claims nothing changed between two demonstrably different states
+  is rejected.
 - `capability_set_digest` and `evidence_set_digest` are computed over the
   published rows and are recomputable from the payload alone; the first covers
   semantic content, the second provenance.
