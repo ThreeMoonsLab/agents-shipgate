@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **The pre-1.0 qualification corpus now has a committed sourcing plan.** (#456)
+  `benchmark/safety-qualification/strata-inventory.csv` maps the known candidate
+  pool onto all 28 profile × decision cells the `pre_1_0` policy requires — 56
+  slots, each either a pinned candidate, an identified-but-unpinned one, or a gap
+  with the lead that would close it — so Cut B mines the empty cells instead of
+  re-finding the full ones. It is a plan, not evidence: it carries no label, no
+  verdict and no receipt, nothing in it reaches the qualification runner, and it
+  is not an admissible rater input, because it names a target decision for every
+  slot. `tests/test_strata_inventory.py` derives the grid from
+  `pre_release_safety_requirements()` rather than restating it, so a policy move
+  fails the inventory instead of leaving it silently aimed at the wrong shape,
+  and re-reads every cited miner label and pinned SHA from its source. The plan's
+  own shape is the finding: 28 of 56 slots have a candidate, the origin floor
+  (23 qualifying cases) is the binding constraint rather than the case count,
+  `n8n` has one sourced slot of eight, and the sweeps that produced the pool ran
+  before #403 — so their zero-trigger repositories are unexplored, not empty.
+
 - **Reviewed risk overrides no longer masquerade as scan observations.** (#460)
   `risk_overrides.tags` is excluded from `effect_readings` and the derived
   action `basis`, so adding or removing a reviewed tag no longer reopens a
