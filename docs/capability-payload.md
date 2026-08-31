@@ -222,25 +222,72 @@ refs describe states the delta does not carry, so those are taken on trust; the
 that emits the payload. It is never a timestamp: this payload carries no wall
 clock, so two exports of the same static inputs are byte-identical.
 
+## Validating a payload: two stages
+
+`capability-payload-schema.v1.json` is **stage one**, and it is not sufficient
+on its own. Pydantic's cross-field rules do not appear in a generated JSON
+Schema, so anything requiring a *recomputation* is unexpressible there. Rather
+than leave that gap implicit, it is named — in the schema's own `description`
+and here — and everything JSON Schema *can* express has been pushed into the
+published file.
+
+**Stage one — the JSON Schema enforces:** the closed object shapes and
+`additionalProperties: false`; every field required (see below); the closed
+enums; the `view` discriminator; `subject.key` and digest string patterns;
+non-negative counts; non-empty `capabilities[]` and `changes[]`; the transition
+↔ sides ↔ direction coupling on a change entry; the presence ↔ transition
+coupling on a subject row, and that a subject is present on at least one side;
+and that coverage may only name subjects when its status is `complete`.
+
+**Stage two — a consumer must also check**, because each needs a computation:
+
+| Rule | What it takes |
+|---|---|
+| `subject.key` is the published derivation of its own agent/provider/tool id | one sha256 per row |
+| `summary` equals the subject rows | a count |
+| `subjects[].transition` equals the rollup of its presence pair | a comparison |
+| `changed_dimensions` equals the digests that actually differ between the two records | a comparison |
+| a `state`'s three digests describe its own rows and coverage | three sha256 |
+| `subject.key` and `capability_id` are unique across the whole payload | two set walks |
+| `analysis_coverage.newly_outside_analysis` / `no_longer_outside_analysis` follow from `base` and `head` | two set differences |
+| an empty delta names two states whose digests agree | a comparison |
+| a delta's `base`/`head` `analysis_coverage_digest` describes the coverage it carries | two sha256 |
+
+`agents_shipgate.schemas.capability_payload` is the reference implementation of
+both stages: parsing a payload with `CapabilityPayloadV1` runs every rule in
+this section. A standalone verifier that does the same without depending on
+this package is [#470](https://github.com/ThreeMoonsLab/agents-shipgate/issues/470)'s
+deliverable.
+
 ## Required and optional
 
-Required, always present: `capability_payload_schema_version`,
-`capability_standard_version`, `analysis_coverage`, `view`, `subjects[]`
-(possibly empty), and the view's own refs (`state`, or
-`base`/`head`/`summary`).
+**Every field of every object is required.** Not "required in prose" —
+required in the JSON Schema's `required` arrays, which is what a consumer's
+validator actually reads. A field with a schema default is *absent* from
+`required`, and a version field or a `view` discriminator that a consumer may
+omit and have repaired is not a version field. Producers pass every value
+explicitly, including the constants.
 
-Within a row, the identity fields (`subject.*`, `capability_id`, `operation`,
-`subject_kind`) and the `effect`, `authority`, `controls`, `permission`,
-`evidence`, and `digests` blocks are always present. Fields *inside* those
-blocks are nullable wherever the static evidence may not exist — an unauthed
-tool has `authority.auth_type: null`, a declaration without a line number has
+Absence and emptiness are therefore different from *null*. Fields are nullable
+wherever the static evidence may not exist — an unauthed tool has
+`authority.auth_type: null`, a declaration without a line number has
 `evidence.source_start_line: null`. **Null means "not stated by the evidence",
-never "false" and never "none".**
+never "false" and never "none".** A list may be empty (`subjects[]` on a state
+with nothing analysed) but is never absent.
 
-One default is deliberately fail-closed: `permission.status: "unavailable"`
-carries `side_effect_unknown: true` and an empty `classes[]`, and the schema
-rejects the combination that would read as "measured and harmless". Unmeasured
-is unknown, not read-only.
+One default is deliberately fail-closed and is expressed as a value rather than
+an omission: a producer that did not establish coverage publishes
+`{"status": "not_requested", "subjects_outside_analysis": []}`, so a consumer
+never has to decide what a missing coverage block would have meant.
+
+`permission` is fail-closed in the same spirit: `status: "unavailable"` carries
+`side_effect_unknown: true` and an empty `classes[]`, and the combination that
+would read as "measured and harmless" is rejected. Unmeasured is unknown, not
+read-only. A `measured` profile is checked against the shapes the lattice can
+actually produce — `read` never pairs with a side-effecting class, `destructive`
+always carries `write`, unknown side effects always carry the `unknown` class —
+because a combination the classifier never emits is not a harmless oddity, it is
+a claim with no meaning.
 
 ## What the payload does not publish
 
@@ -285,31 +332,44 @@ agent can do.
 
 ## Evolution policy
 
-`shipgate.capability_payload/v1` is **frozen**. It follows the compatibility
-rules in [`../STABILITY.md`](../STABILITY.md):
+`shipgate.capability_payload/v1` is **closed, and that is the whole policy.**
 
-- **Additive within the version.** A new optional field with a default may be
-  added to `v1`. Consumers must ignore fields they do not know, and must not
-  treat an unknown enum value as invalid — widen or fall back.
-- **Never silently narrowing.** Removing a field, making an optional field
-  required, narrowing a type, or changing what an existing field means is a new
-  version (`/v2`), published as a new schema file beside this one. The `v1`
-  schema file stays committed as a frozen reference.
-- **Deprecation over a minor cycle.** A field on its way out is documented as
-  deprecated here and in `STABILITY.md` for at least one minor cycle before a
-  version that drops it — it is never hard-removed.
+This is a deliberate departure from the additive-within-a-version rule the
+`report.json` schema follows, and the reason is that the two schemas make
+opposite promises. `report.json` is open by construction and its consumers are
+told to ignore what they do not know. This payload is closed by construction:
+every object sets `additionalProperties: false` and every vocabulary is a closed
+enum, because a *frozen interchange format* whose point is that an external tool
+can verify it must not accept content that tool cannot account for. A closed
+schema cannot also be additive — a `v1` validator rejects a new optional field
+and a new enum value rather than ignoring them — so promising both would be
+promising something the shipped validators do not do.
+
+The rules, then:
+
+- **Any addition is a new version.** A new field, a new enum value, a new
+  vocabulary — `/v2`, published as a new schema file beside this one. There is
+  no such thing as a compatible in-place widening here, and a consumer pinned to
+  `v1` never has to guess.
+- **So is any removal or change of meaning.** Same mechanism, same file.
+- **Old versions stay published.** `v1` remains committed as a frozen reference
+  after `v2` lands, and remains readable for at least one minor cycle — the
+  deprecation rule in [`../STABILITY.md`](../STABILITY.md) applied to a whole
+  version rather than to a field, because a whole version is the unit here.
+- **Producers may emit more than one version.** Since versions do not widen, the
+  migration path is to publish both for a cycle, not to bend `v1`.
 - **`capability_standard_version` is separate and moves on its own.** It names
   the capability-fact standard that produced the rows. A consumer that only
   reads published fields does not need to branch on it; a consumer comparing two
   payloads across different standard versions must regenerate both sides rather
   than diff them.
-- Both views move together. They are one payload; versioning them separately
+- **Both views move together.** They are one payload; versioning them separately
   would reintroduce exactly the divergence this schema exists to prevent.
-- A change to the **shape** of a capability fact — a field's type widening, a
-  new value in a closed vocabulary — is caught by a type-parity test against
-  the fact models rather than reaching the wire silently. That is the point at
-  which someone decides whether `v1` can carry it or a `v2` is due; it is never
-  decided by a `ValidationError` on an adopter's machine.
+- **A change to the shape of a capability fact is caught before it ships.** A
+  type-parity test compares every published field's type against the internal
+  field it projects, so a widened `Literal` or a retyped field fails CI rather
+  than reaching the wire — or raising on an adopter's machine. That is the point
+  at which someone decides a `v2` is due.
 
 ## For the two consuming surfaces
 

@@ -2776,10 +2776,10 @@ without changing the release gate.
 
 ### Capability Payload (`shipgate.capability_payload/v1`)
 
-`shipgate.capability_payload/v1` is the **frozen shared payload** of two
-planned surfaces: the exported capability delta published as a standalone
-attestation, and the committed capability state. It is published now, ahead of
-either, so both serialize one structure instead of two. The schema is
+`shipgate.capability_payload/v1` is the **frozen shared payload** of two planned
+surfaces: the exported capability delta published as a standalone attestation,
+and the committed capability state. It is published now, ahead of either, so
+both serialize one structure instead of two. The schema is
 [`docs/capability-payload-schema.v1.json`](docs/capability-payload-schema.v1.json)
 and the spec is
 [`docs/capability-payload.md`](docs/capability-payload.md).
@@ -2790,51 +2790,91 @@ and the spec is
 capability lock and lock diff above are unchanged. It is non-gating;
 `release_decision.decision` remains the only gate.
 
+**Validation is two stages, and the schema file is stage one.** Pydantic
+cross-field rules do not appear in a generated JSON Schema, so every rule that
+needs a *recomputation* is unexpressible there. Everything JSON Schema can
+express has been pushed into the published file — required keys, closed enums,
+the `view` discriminator, key and digest patterns, non-negative counts,
+non-empty lists, the transition/sides/direction coupling, the
+presence/transition coupling, and the coverage naming rule. The rest is stage
+two, enumerated in the spec page and in the schema's own `description`. A
+consumer that runs only stage one does not have the guarantees below.
+
 What a consumer may rely on:
 
 - One document, two views, discriminated on `view` (`state` | `delta`), both
   validated by the one schema file.
-- `subject.key` identifies a row and is unique across `subjects[]`. It is
-  derived as `"capsubj_" + sha256(canonical_json({agent, provider, tool_id}))[:16]`
-  — **not** from the subject kind — so a tool and its action are one row with
-  two changes, never two rows.
-- `summary` is recomputed from the rows when the payload is parsed, and each
-  `subjects[].transition` is recomputed from that subject's explicit
-  `present_in_base` / `present_in_head`. A payload whose counts or transitions
-  disagree is **rejected**, not corrected.
-- `transition` is a statement about the subject's presence, not about the kinds
-  of its changes: a tool that keeps one operation and loses another is
-  `modified`, because it is still there.
+- **Every field of every object is required** — in the schema's `required`
+  arrays, not merely in prose. A version field or a discriminator a consumer may
+  omit and have repaired is not one. Fields are nullable where the evidence may
+  not exist; null means "not stated", never "false".
+- `subject.key` identifies a row, is unique across `subjects[]`, and is
+  **recomputed from the row's own identity** on parse:
+  `"capsubj_" + sha256(canonical_json({agent, provider, tool_id}))[:16]`, not
+  from the subject kind. Two rows cannot split one logical tool between them.
+- **Canonical bytes are fully specified**, because the format is for consumers
+  that are not this program: UTF-8 and never escaped, object keys sorted (all
+  keys in this payload are ASCII, so code-point and UTF-16 ordering coincide),
+  no insignificant whitespace, integers only, no non-finite numbers, and no
+  fallback serialization. Within those constraints this agrees with RFC 8785.
+- `summary`, each `subjects[].transition`, each `changed_dimensions`, and a
+  `state`'s three digests are **recomputed on parse**. A payload that disagrees
+  with its own rows is rejected, not corrected.
+- `transition` is a statement about the subject's presence, carried as
+  `present_in_base` / `present_in_head`, not about the kinds of its changes: a
+  tool that keeps one operation and loses another is `modified`, because it is
+  still there. Presence also bounds the changes — a subject absent from base can
+  only carry `added` ones.
+- A change entry cannot contradict its records: `changed` requires the same
+  `capability_id` and `identity_hash` on both sides and `reidentified` requires
+  different ones; `changed_dimensions` must be exactly the digests that differ;
+  a membership change carries the matching direction and no dimensions; and
+  `evidence_only` requires the two published records to be semantically equal —
+  so a published permission expansion can never be labelled provenance-only.
+- `permission` publishes the lattice's semantic half from the same classifier as
+  `mcp audit`, in a shape the classifier can actually produce (`read` never
+  pairs with a side-effecting class, `destructive` always carries `write`,
+  unknown side effects always carry `unknown`). An unmeasured profile is
+  `unavailable` with side effects unknown — never read-only.
 - `capabilities[].capability_id` is the internal `CapabilityFactV1.id`
-  verbatim, so a published row joins back to the fact that produced it.
-- A `delta` with no subject rows must name two states whose digests agree. A
-  payload that claims nothing changed between two demonstrably different states
-  is rejected.
-- `capability_set_digest` and `evidence_set_digest` are computed over the
-  published rows and are recomputable from the payload alone; the first covers
-  semantic content, the second provenance. A `state` payload **verifies its own
-  digests on parse** and is rejected if they do not describe its rows; a
-  `delta`'s `base`/`head` refs name states it does not carry, so those are taken
-  on trust.
-- `capabilities[].capability_id` is unique across the whole payload, not only
-  within a subject row.
-- `analysis_coverage` names the subjects the analysed surface left out, on both
-  views. `status` is `not_requested | unavailable | complete`, and **neither
-  `not_requested` nor `unavailable` means zero** — a consumer that reads either
-  as "nothing was left out" re-creates the `+0`-on-an-added-tool defect. Only a
-  `complete` status may name subjects. The list is deliberately not disjoint
+  verbatim, and is unique across the whole payload — provenance is keyed by it.
+- `analysis_coverage` names the subjects the analysed surface left out. A
+  `state` carries one coverage block; a **`delta` carries both sides** plus the
+  recomputed `newly_outside_analysis` / `no_longer_outside_analysis`, because
+  one snapshot cannot tell a newly added unbound tool from one that was already
+  unbound — and only the first is something a reviewer of that diff must act on.
+  `status` is `not_requested | unavailable | complete`, **neither of the first
+  two means zero**, only `complete` may name subjects, and a comparison is only
+  as established as its weaker side. The lists are deliberately not disjoint
   from `subjects[]`: a tool that lost its binding belongs to both.
-- No wall clock. Two projections of the same static inputs are byte-identical.
+- A state publishes three digests over its own published content —
+  `capability_set_digest` (semantics), `evidence_set_digest` (provenance,
+  including each record's `evidence_hash`), and `analysis_coverage_digest`.
+  Together they bind everything the state publishes, so two payloads with
+  matching refs are the same published state. A `state` verifies its own three
+  on parse; a `delta`'s `base`/`head` refs name states it does not carry, so
+  those are taken on trust — except each side's coverage digest, which the delta
+  does carry and does check.
+- A `delta` with no subject rows must name two states whose digests agree.
+- No wall clock. Two projections of the same static inputs are byte-identical,
+  in any process — permission class ordering is total, so nothing inherits
+  hash-randomized set iteration.
 - Every model forbids unknown properties. The fields the payload deliberately
   does not publish, and the reason for each, are listed in the spec page and in
   `agents_shipgate.core.capability_payload`.
 
-Evolution follows the ordinary rules of this document: optional fields with
-defaults may be added within `v1`; removing a field, requiring an optional one,
-narrowing a type, or changing a field's meaning is `/v2`, published beside `v1`
-with `v1` kept as a frozen reference; a field on its way out is documented as
-deprecated for at least one minor cycle before any version drops it. Consumers
-must ignore unknown fields and must not treat an unknown enum value as invalid.
+**Evolution: `v1` is closed, and that is the whole policy.** This departs from
+the additive-within-a-version rule the `report.json` schema follows, because the
+two schemas make opposite promises. `report.json` is open by construction and
+its consumers ignore what they do not know. This payload is closed by
+construction — `additionalProperties: false` everywhere, closed enums
+everywhere — so a `v1` validator *rejects* a new optional field and a new enum
+value rather than ignoring them, and promising additivity would be promising
+something the shipped validators do not do. Therefore: any addition, removal, or
+change of meaning is `/v2`, published as a new schema file beside this one; `v1`
+stays committed and readable for at least one minor cycle after `v2` lands
+(the deprecation rule applied to a whole version, which is the unit here); and a
+producer migrates by emitting both for a cycle rather than bending `v1`.
 
 ### Workflow-evidence capture
 

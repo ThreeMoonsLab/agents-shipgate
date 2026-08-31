@@ -14,36 +14,54 @@
   fills it. One document, two views discriminated on `view`: `state` for a
   point in time, `delta` for the movement between two.
 
-  Subject identity follows the subject-based counting rules. `subject.key` is
-  derived from agent, provider and tool id and deliberately **not** from the
-  subject kind, so a tool and its action are one row carrying two changes —
-  the `+2`-for-one-tool shape (#439) cannot be expressed. A subject's
-  `transition` is a statement about its own presence, carried as
-  `present_in_base` / `present_in_head`, never a rollup of its change kinds: a
+  **A payload cannot contradict itself.** `subject.key` is recomputed from the
+  row's own agent/provider/tool id — deliberately not from the subject kind —
+  so a tool and its action are one row and two rows cannot split one logical
+  tool between them. Subject `transition` is a statement about presence
+  (`present_in_base` / `present_in_head`), never a rollup of change kinds: a
   tool that keeps one operation and loses another is `modified`, because it is
-  still there. `summary` and every `transition` are recomputed on parse and a
-  payload that disagrees with its rows is rejected rather than repaired, so a
-  hand-edited or tampered attestation fails instead of being silently
-  corrected. A `state` payload verifies its own digests the same way, and
-  `capability_id` is unique across the whole payload because provenance is
-  keyed by it.
+  still there. `summary`, every transition, every `changed_dimensions`, and a
+  state's digests are recomputed on parse, and a payload that disagrees with
+  its own rows is rejected rather than repaired. A change entry cannot claim
+  `evidence_only` while its two published records differ in semantics, so a
+  permission expansion the fact layer folds into `evidence_hash` alone can
+  never be published as provenance-only.
+
+  **The format is specified for consumers that are not this program.** Canonical
+  bytes are UTF-8 and unescaped with sorted ASCII keys and integers only, so a
+  Python and a JavaScript implementation compute the same digests. Every field
+  is required in the schema's `required` arrays, not merely in prose — a
+  version field or a `view` discriminator a consumer may omit and have repaired
+  is not one. Validation is explicitly two stages: everything JSON Schema can
+  express is in the published file, and the rules that need a recomputation are
+  enumerated as stage two in the spec and in the schema's own description.
+
+  `analysis_coverage` carries the subjects the analysed surface left out — an
+  added-but-unbound tool produces no capability fact, so without it the first
+  surface that had to report one (#437) would have needed a second payload
+  shape. A delta carries **both sides** plus the recomputed
+  `newly_outside_analysis`, because one snapshot cannot tell a newly unbound
+  tool from one that was already unbound. `status` is
+  `not_requested | unavailable | complete`, neither of the first two means
+  zero, only `complete` may name subjects, and a comparison is only as
+  established as its weaker side.
 
   The published field set is closed: every model forbids unknown properties,
-  and each internal field the payload does not publish is recorded with its
-  reason (`UNPUBLISHED_FACT_FIELDS`, `UNPUBLISHED_LOCK_FIELDS`). A test
-  asserts those maps together cover every `CapabilityFactV1` field, so a new
-  internal field cannot reach either surface — or be dropped from both —
-  without a written decision. The permission block shares one classifier with
-  `mcp audit`, and an unmeasured profile is `unavailable` with side effects
-  unknown rather than read-only.
+  each internal field the payload does not publish is recorded with its reason
+  (`UNPUBLISHED_FACT_FIELDS`, `UNPUBLISHED_LOCK_FIELDS`), and tests assert those
+  maps cover every `CapabilityFactV1` field **and** that every published field
+  keeps the internal field's type — so a widened `Literal` is a schema decision
+  someone makes, not a `ValidationError` an adopter discovers. Because the set
+  is closed, `v1` is closed: any addition is `/v2`, and the spec says so instead
+  of promising an additivity the shipped validators do not implement.
 
-  The payload also carries `analysis_coverage`, the separate axis for subjects
-  the analysed surface left out — an added-but-unbound tool produces no
-  capability fact, so without it the first surface that had to report one
-  (#437) would have needed a second payload shape. `status` is
-  `not_requested | unavailable | complete`, neither of the first two means
-  zero, and only `complete` may name subjects: "we did not look" cannot be
-  written in the shape of "we looked and found none".
+  A state publishes three digests — semantics, provenance, and coverage —
+  together binding everything it publishes, and verifies its own on parse. The
+  permission block shares one classifier with `mcp audit`, is restricted to
+  shapes that classifier can produce, and is fail-closed when unmeasured. That
+  classifier's class ordering is now total: `financial` and `production` share a
+  rank, so a rank-only sort inherited hash-randomized set iteration and two runs
+  of the same repository could publish different bytes.
 
   Nothing emits the payload yet, by design: no command, no artifact, no check,
   no change to `contract_version`, `report_schema_version`, `.well-known`, or

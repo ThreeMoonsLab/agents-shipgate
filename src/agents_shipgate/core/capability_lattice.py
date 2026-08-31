@@ -187,7 +187,12 @@ def classify_semantic_permission(
 
     normalized = _normalize_classes(classes)
     return SemanticPermissionClassification(
-        classes=tuple(sorted(normalized, key=lambda item: PERMISSION_CLASS_RANK[item])),
+        # The rank alone is not a total order — `financial` and `production`
+        # share rank 3 — so a rank-only key left their relative order to the
+        # stable sort's input, which is set-iteration order and therefore
+        # hash-randomized per process. That reached the capability payload's
+        # published bytes and its digests. Break every tie by name.
+        classes=tuple(sorted(normalized, key=lambda item: (PERMISSION_CLASS_RANK[item], item))),
         effect=assessment.conservative_effect,
         side_effect_unknown=side_effect_unknown,
         reasons=tuple(dict.fromkeys(reasons)),

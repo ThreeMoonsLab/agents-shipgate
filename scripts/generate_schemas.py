@@ -1717,6 +1717,130 @@ def write_capability_lock_diff_schema(
     )
 
 
+def _postprocess_capability_payload(schema: dict[str, Any]) -> None:
+    """Push every constraint JSON Schema *can* express into the published file.
+
+    Pydantic's ``model_json_schema`` does not emit ``model_validator`` rules, so
+    a consumer handed only this file would validate far less than the spec
+    promises. Several of those rules are ordinary conditional schemas, and an
+    external tool should get them for free rather than be told to reimplement
+    them. What genuinely cannot be expressed here — anything requiring a
+    recomputation — is named as stage two in the schema description and
+    enumerated in the spec page.
+    """
+
+    defs = schema["$defs"]
+
+    def not_null(field: str) -> dict[str, Any]:
+        return {"properties": {field: {"not": {"type": "null"}}}}
+
+    def is_null(field: str) -> dict[str, Any]:
+        return {"properties": {field: {"type": "null"}}}
+
+    def when(field: str, value: Any) -> dict[str, Any]:
+        return {"properties": {field: {"const": value}}, "required": [field]}
+
+    entry = defs["CapabilityRecordTransitionEntry"]
+    entry["allOf"] = [
+        # A membership change has exactly one side, no changed dimensions, and
+        # one honest direction.
+        {
+            "if": when("transition", "added"),
+            "then": {
+                "allOf": [
+                    is_null("before"),
+                    not_null("after"),
+                    {"properties": {"changed_dimensions": {"maxItems": 0}}},
+                    when("semantic_direction", "added"),
+                ]
+            },
+        },
+        {
+            "if": when("transition", "removed"),
+            "then": {
+                "allOf": [
+                    not_null("before"),
+                    is_null("after"),
+                    {"properties": {"changed_dimensions": {"maxItems": 0}}},
+                    when("semantic_direction", "removed"),
+                ]
+            },
+        },
+        # A paired change carries both sides, at least one moved dimension, and
+        # cannot claim a membership direction.
+        *(
+            {
+                "if": when("transition", transition),
+                "then": {
+                    "allOf": [
+                        not_null("before"),
+                        not_null("after"),
+                        {"properties": {"changed_dimensions": {"minItems": 1}}},
+                        {
+                            "properties": {
+                                "semantic_direction": {
+                                    "not": {"enum": ["added", "removed"]}
+                                }
+                            }
+                        },
+                    ]
+                },
+            }
+            for transition in ("changed", "reidentified")
+        ),
+    ]
+
+    subject = defs["CapabilityDeltaSubject"]
+    subject["allOf"] = [
+        # `transition` follows from the presence pair, and a subject present on
+        # neither side is not a row at all.
+        {
+            "if": {
+                "allOf": [when("present_in_base", base), when("present_in_head", head)]
+            },
+            "then": when("transition", expected),
+        }
+        for base, head, expected in (
+            (False, True, "added"),
+            (True, False, "removed"),
+            (True, True, "modified"),
+        )
+    ] + [
+        {
+            "not": {
+                "allOf": [
+                    when("present_in_base", False),
+                    when("present_in_head", False),
+                ]
+            }
+        }
+    ]
+
+    # Naming a subject outside analysis requires having looked.
+    defs["CapabilityAnalysisCoverage"]["allOf"] = [
+        {
+            "if": {
+                "properties": {"status": {"not": {"const": "complete"}}},
+                "required": ["status"],
+            },
+            "then": {"properties": {"subjects_outside_analysis": {"maxItems": 0}}},
+        }
+    ]
+
+    # Identical rows are the cheap half of "one subject, one row"; the rest is
+    # stage two, because uniqueness is on a sub-key.
+    for name, field in (
+        ("CapabilityStatePayloadV1", "subjects"),
+        ("CapabilityDeltaPayloadV1", "subjects"),
+        ("CapabilityStateSubject", "capabilities"),
+        ("CapabilityDeltaSubject", "changes"),
+        ("CapabilityAnalysisCoverage", "subjects_outside_analysis"),
+        ("CapabilityCoverageDelta", "newly_outside_analysis"),
+        ("CapabilityCoverageDelta", "no_longer_outside_analysis"),
+    ):
+        defs[name]["properties"][field]["uniqueItems"] = True
+
+
 def build_capability_payload_schema() -> tuple[Path, str]:
     """Generate the frozen shared capability payload schema (#469)."""
 
@@ -1726,6 +1850,7 @@ def build_capability_payload_schema() -> tuple[Path, str]:
     )
 
     schema = CapabilityPayloadV1.model_json_schema()
+    _postprocess_capability_payload(schema)
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
         "main/docs/capability-payload-schema.v1.json"
@@ -1738,10 +1863,16 @@ def build_capability_payload_schema() -> tuple[Path, str]:
         "shared by the exported capability delta and the committed capability "
         "state. Generated from "
         "agents_shipgate.schemas.capability_payload.CapabilityPayloadV1. Two "
-        "views discriminated on `view`; one subject is one row. It is "
-        "non-gating and is not part of report.json; "
-        "release_decision.decision remains the only gate. See "
-        "docs/capability-payload.md."
+        "views discriminated on `view`; one subject is one row. "
+        "VALIDATION IS TWO STAGES: this file is stage one and is not "
+        "sufficient on its own. The rules that require recomputation — "
+        "subject-key derivation, summary and transition rollups, changed-"
+        "dimension derivation, state-digest verification, cross-row "
+        "uniqueness, and the coverage transition — cannot be expressed in "
+        "JSON Schema and are listed as stage two in "
+        "docs/capability-payload.md; a consumer that runs only stage one does "
+        "not have the guarantees the spec states. It is non-gating and is not "
+        "part of report.json; release_decision.decision remains the only gate."
     )
     target = DOCS / "capability-payload-schema.v1.json"
     return target, _canonical_json(schema)

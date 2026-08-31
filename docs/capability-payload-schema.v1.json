@@ -2,10 +2,32 @@
   "$defs": {
     "CapabilityAnalysisCoverage": {
       "additionalProperties": false,
-      "description": "Subjects the producer knows about but could not analyse.\n\nCapability rows describe the *analysed* surface \u2014 what the binding graph\nproved the agent can reach. A tool that is present but unbound is precisely\nthe tool that is missing from it, so a payload that carried only the rows\nwould report no capability change on a change that added a tool (#437).\n\nThis block is the separate axis that says so, and it names the subjects\nrather than only counting them (#433). It is deliberately **not** joined to\n``subjects[]``: a tool that lost its binding is both removed from analysed\ncapability and newly outside analysis, and both statements are true.\n\n``status`` is load-bearing. Naming subjects requires having looked, so\nanything other than ``complete`` must carry an empty list \u2014 the schema\nrefuses to let \"we did not look\" be written in the same shape as \"we looked\nand found none\".",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "not": {
+                  "const": "complete"
+                }
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "subjects_outside_analysis": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ],
+      "description": "Subjects one state knows about but could not analyse.\n\nCapability rows describe the *analysed* surface \u2014 what the binding graph\nproved the agent can reach. A tool that is present but unbound is precisely\nthe tool that is missing from it, so a payload that carried only the rows\nwould report no capability change on a change that added a tool (#437).\n\nThis block is the separate axis that says so, and it names the subjects\nrather than only counting them (#433). It is deliberately **not** joined to\n``subjects[]``: a tool that lost its binding is both removed from analysed\ncapability and newly outside analysis, and both statements are true.\n\n``status`` is load-bearing. Naming subjects requires having looked, so\nanything other than ``complete`` must carry an empty list \u2014 the schema\nrefuses to let \"we did not look\" be written in the same shape as \"we looked\nand found none\".",
       "properties": {
         "status": {
-          "default": "not_requested",
           "enum": [
             "not_requested",
             "unavailable",
@@ -19,9 +41,14 @@
             "$ref": "#/$defs/CapabilitySubjectRef"
           },
           "title": "Subjects Outside Analysis",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         }
       },
+      "required": [
+        "status",
+        "subjects_outside_analysis"
+      ],
       "title": "CapabilityAnalysisCoverage",
       "type": "object"
     },
@@ -38,7 +65,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Auth Type"
         },
         "broad_scopes": {
@@ -57,7 +83,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Credential Mode"
         },
         "scopes": {
@@ -76,10 +101,16 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Source"
         }
       },
+      "required": [
+        "auth_type",
+        "credential_mode",
+        "source",
+        "scopes",
+        "broad_scopes"
+      ],
       "title": "CapabilityAuthorityFacts",
       "type": "object"
     },
@@ -96,7 +127,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Approval Required"
         },
         "approval_threshold": {
@@ -108,11 +138,9 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Approval Threshold"
         },
         "confirmation_required": {
-          "default": false,
           "title": "Confirmation Required",
           "type": "boolean"
         },
@@ -125,7 +153,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Evidence Approval Ticket"
         },
         "evidence_owner": {
@@ -137,7 +164,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Evidence Owner"
         },
         "evidence_runbook": {
@@ -149,7 +175,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Evidence Runbook"
         },
         "safeguard_audit_log": {
@@ -161,7 +186,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Safeguard Audit Log"
         },
         "safeguard_dry_run": {
@@ -173,7 +197,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Safeguard Dry Run"
         },
         "safeguard_idempotency": {
@@ -185,7 +208,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Safeguard Idempotency"
         },
         "safeguard_rollback": {
@@ -197,11 +219,68 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Safeguard Rollback"
         }
       },
+      "required": [
+        "approval_required",
+        "approval_threshold",
+        "confirmation_required",
+        "safeguard_idempotency",
+        "safeguard_audit_log",
+        "safeguard_rollback",
+        "safeguard_dry_run",
+        "evidence_owner",
+        "evidence_runbook",
+        "evidence_approval_ticket"
+      ],
       "title": "CapabilityControlFacts",
+      "type": "object"
+    },
+    "CapabilityCoverageDelta": {
+      "additionalProperties": false,
+      "description": "How the unanalysed surface moved between two states.\n\nOne coverage snapshot cannot answer #437's question. \"A tool was added and\nis unbound\" and \"a tool has been unbound since before this change\" are\ndifferent facts, and a reviewer only needs to act on the first \u2014 so a delta\ncarries **both** sides and names the transition between them.\n\n``newly_outside_analysis`` is the #437 row: subjects outside the analysed\nsurface in head that were not outside it in base. It is recomputed from the\ntwo sides on parse, and both directional lists must be empty unless both\nsides were actually established.",
+      "properties": {
+        "base": {
+          "$ref": "#/$defs/CapabilityAnalysisCoverage"
+        },
+        "head": {
+          "$ref": "#/$defs/CapabilityAnalysisCoverage"
+        },
+        "newly_outside_analysis": {
+          "items": {
+            "$ref": "#/$defs/CapabilitySubjectRef"
+          },
+          "title": "Newly Outside Analysis",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "no_longer_outside_analysis": {
+          "items": {
+            "$ref": "#/$defs/CapabilitySubjectRef"
+          },
+          "title": "No Longer Outside Analysis",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "status": {
+          "enum": [
+            "not_requested",
+            "unavailable",
+            "complete"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "base",
+        "head",
+        "status",
+        "newly_outside_analysis",
+        "no_longer_outside_analysis"
+      ],
+      "title": "CapabilityCoverageDelta",
       "type": "object"
     },
     "CapabilityDeltaPayloadV1": {
@@ -209,14 +288,13 @@
       "description": "What changed between two states. The exported-attestation view (#470).",
       "properties": {
         "analysis_coverage": {
-          "$ref": "#/$defs/CapabilityAnalysisCoverage"
+          "$ref": "#/$defs/CapabilityCoverageDelta"
         },
         "base": {
           "$ref": "#/$defs/CapabilityStateRef"
         },
         "capability_payload_schema_version": {
           "const": "shipgate.capability_payload/v1",
-          "default": "shipgate.capability_payload/v1",
           "title": "Capability Payload Schema Version",
           "type": "string"
         },
@@ -232,37 +310,179 @@
             "$ref": "#/$defs/CapabilityDeltaSubject"
           },
           "title": "Subjects",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "summary": {
           "$ref": "#/$defs/CapabilityDeltaSummary"
         },
         "view": {
           "const": "delta",
-          "default": "delta",
           "title": "View",
           "type": "string"
         }
       },
       "required": [
+        "capability_payload_schema_version",
         "capability_standard_version",
+        "view",
         "base",
         "head",
-        "summary"
+        "analysis_coverage",
+        "summary",
+        "subjects"
       ],
       "title": "CapabilityDeltaPayloadV1",
       "type": "object"
     },
     "CapabilityDeltaSubject": {
       "additionalProperties": false,
-      "description": "One subject's whole movement between two states \u2014 one subject, one row.\n\n``transition`` is a rollup of ``changes``, recomputed here rather than\nsupplied, so it cannot describe a movement the rows do not show.",
+      "allOf": [
+        {
+          "if": {
+            "allOf": [
+              {
+                "properties": {
+                  "present_in_base": {
+                    "const": false
+                  }
+                },
+                "required": [
+                  "present_in_base"
+                ]
+              },
+              {
+                "properties": {
+                  "present_in_head": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "present_in_head"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "transition": {
+                "const": "added"
+              }
+            },
+            "required": [
+              "transition"
+            ]
+          }
+        },
+        {
+          "if": {
+            "allOf": [
+              {
+                "properties": {
+                  "present_in_base": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "present_in_base"
+                ]
+              },
+              {
+                "properties": {
+                  "present_in_head": {
+                    "const": false
+                  }
+                },
+                "required": [
+                  "present_in_head"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "transition": {
+                "const": "removed"
+              }
+            },
+            "required": [
+              "transition"
+            ]
+          }
+        },
+        {
+          "if": {
+            "allOf": [
+              {
+                "properties": {
+                  "present_in_base": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "present_in_base"
+                ]
+              },
+              {
+                "properties": {
+                  "present_in_head": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "present_in_head"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "transition": {
+                "const": "modified"
+              }
+            },
+            "required": [
+              "transition"
+            ]
+          }
+        },
+        {
+          "not": {
+            "allOf": [
+              {
+                "properties": {
+                  "present_in_base": {
+                    "const": false
+                  }
+                },
+                "required": [
+                  "present_in_base"
+                ]
+              },
+              {
+                "properties": {
+                  "present_in_head": {
+                    "const": false
+                  }
+                },
+                "required": [
+                  "present_in_head"
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "description": "One subject's whole movement between two states \u2014 one subject, one row.\n\n``transition`` is recomputed from ``present_in_base`` / ``present_in_head``\nrather than supplied, so it cannot describe a movement the payload's own\npresence flags do not show.",
       "properties": {
         "changes": {
           "items": {
             "$ref": "#/$defs/CapabilityRecordTransitionEntry"
           },
+          "minItems": 1,
           "title": "Changes",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "present_in_base": {
           "title": "Present In Base",
@@ -300,31 +520,38 @@
       "description": "Subject counts, recomputed from the rows.\n\nThe directional counts partition the subjects \u2014 every subject is added,\nremoved, or modified and nothing else \u2014 so ``subjects`` is their sum.\n``capability_changes`` is the finer number and is deliberately a *separate*\nfield: the question \"how much did this PR change what the agent can do?\" is\na question about subjects, and answering it in changes inflates the number\nby however many dimensions each subject happens to touch (#439).",
       "properties": {
         "added_subjects": {
-          "default": 0,
+          "minimum": 0,
           "title": "Added Subjects",
           "type": "integer"
         },
         "capability_changes": {
-          "default": 0,
+          "minimum": 0,
           "title": "Capability Changes",
           "type": "integer"
         },
         "modified_subjects": {
-          "default": 0,
+          "minimum": 0,
           "title": "Modified Subjects",
           "type": "integer"
         },
         "removed_subjects": {
-          "default": 0,
+          "minimum": 0,
           "title": "Removed Subjects",
           "type": "integer"
         },
         "subjects": {
-          "default": 0,
+          "minimum": 0,
           "title": "Subjects",
           "type": "integer"
         }
       },
+      "required": [
+        "subjects",
+        "added_subjects",
+        "removed_subjects",
+        "modified_subjects",
+        "capability_changes"
+      ],
       "title": "CapabilityDeltaSummary",
       "type": "object"
     },
@@ -383,7 +610,6 @@
       "description": "The normalized side-effect facts, as published.",
       "properties": {
         "code_execution": {
-          "default": false,
           "title": "Code Execution",
           "type": "boolean"
         },
@@ -403,22 +629,18 @@
           "type": "string"
         },
         "externally_visible": {
-          "default": false,
           "title": "Externally Visible",
           "type": "boolean"
         },
         "financial": {
-          "default": false,
           "title": "Financial",
           "type": "boolean"
         },
         "handles_sensitive_data": {
-          "default": false,
           "title": "Handles Sensitive Data",
           "type": "boolean"
         },
         "high_risk": {
-          "default": false,
           "title": "High Risk",
           "type": "boolean"
         },
@@ -431,11 +653,9 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Idempotency Known"
         },
         "reversibility": {
-          "default": "unknown",
           "enum": [
             "reversible",
             "irreversible",
@@ -446,7 +666,14 @@
         }
       },
       "required": [
-        "effect"
+        "effect",
+        "externally_visible",
+        "handles_sensitive_data",
+        "financial",
+        "code_execution",
+        "reversibility",
+        "idempotency_known",
+        "high_risk"
       ],
       "title": "CapabilityEffectFacts",
       "type": "object"
@@ -456,7 +683,6 @@
       "description": "Where the capability was read from, and how confidently.\n\nThis is the provenance a consumer needs to open the file that made the\nclaim. ``source_location`` is deliberately absent: it is a rendering of\n``source_path`` plus ``source_start_line``, and publishing both would be two\nspellings of one value.",
       "properties": {
         "confidence": {
-          "default": "medium",
           "enum": [
             "low",
             "medium",
@@ -466,7 +692,6 @@
           "type": "string"
         },
         "provenance_kind": {
-          "default": "static_declaration",
           "enum": [
             "static_declaration",
             "ast_extraction",
@@ -486,7 +711,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Source End Line"
         },
         "source_id": {
@@ -498,7 +722,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Source Id"
         },
         "source_path": {
@@ -510,7 +733,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Source Path"
         },
         "source_pointer": {
@@ -522,7 +744,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Source Pointer"
         },
         "source_ref": {
@@ -534,7 +755,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Source Ref"
         },
         "source_start_column": {
@@ -546,7 +766,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Source Start Column"
         },
         "source_start_line": {
@@ -558,7 +777,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Source Start Line"
         },
         "source_type": {
@@ -567,7 +785,16 @@
         }
       },
       "required": [
-        "source_type"
+        "source_type",
+        "source_id",
+        "source_ref",
+        "source_path",
+        "source_start_line",
+        "source_end_line",
+        "source_start_column",
+        "source_pointer",
+        "provenance_kind",
+        "confidence"
       ],
       "title": "CapabilityEvidenceRef",
       "type": "object"
@@ -593,12 +820,10 @@
           "type": "array"
         },
         "side_effect_unknown": {
-          "default": true,
           "title": "Side Effect Unknown",
           "type": "boolean"
         },
         "status": {
-          "default": "unavailable",
           "enum": [
             "measured",
             "unavailable"
@@ -607,6 +832,11 @@
           "type": "string"
         }
       },
+      "required": [
+        "status",
+        "classes",
+        "side_effect_unknown"
+      ],
       "title": "CapabilityPermissionFacts",
       "type": "object"
     },
@@ -662,7 +892,6 @@
           "type": "array"
         },
         "subject_kind": {
-          "default": "action",
           "enum": [
             "tool",
             "action",
@@ -681,11 +910,15 @@
       "required": [
         "capability_id",
         "operation",
+        "subject_kind",
+        "resource",
+        "scope",
         "effect",
         "authority",
         "controls",
         "permission",
         "evidence",
+        "risk_tags",
         "digests"
       ],
       "title": "CapabilityRecord",
@@ -693,7 +926,213 @@
     },
     "CapabilityRecordTransitionEntry": {
       "additionalProperties": false,
-      "description": "How one capability record moved between the two states.\n\n``before`` / ``after`` are populated by the transition: ``added`` has no\nbefore, ``removed`` has no after, and ``changed`` / ``reidentified`` carry\nboth. Enforced here rather than left to the producer, so a consumer can rely\non the pairing without a null check on every field.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "transition": {
+                "const": "added"
+              }
+            },
+            "required": [
+              "transition"
+            ]
+          },
+          "then": {
+            "allOf": [
+              {
+                "properties": {
+                  "before": {
+                    "type": "null"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "after": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "changed_dimensions": {
+                    "maxItems": 0
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "semantic_direction": {
+                    "const": "added"
+                  }
+                },
+                "required": [
+                  "semantic_direction"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "transition": {
+                "const": "removed"
+              }
+            },
+            "required": [
+              "transition"
+            ]
+          },
+          "then": {
+            "allOf": [
+              {
+                "properties": {
+                  "before": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "after": {
+                    "type": "null"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "changed_dimensions": {
+                    "maxItems": 0
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "semantic_direction": {
+                    "const": "removed"
+                  }
+                },
+                "required": [
+                  "semantic_direction"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "transition": {
+                "const": "changed"
+              }
+            },
+            "required": [
+              "transition"
+            ]
+          },
+          "then": {
+            "allOf": [
+              {
+                "properties": {
+                  "before": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "after": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "changed_dimensions": {
+                    "minItems": 1
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "semantic_direction": {
+                    "not": {
+                      "enum": [
+                        "added",
+                        "removed"
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "transition": {
+                "const": "reidentified"
+              }
+            },
+            "required": [
+              "transition"
+            ]
+          },
+          "then": {
+            "allOf": [
+              {
+                "properties": {
+                  "before": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "after": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "changed_dimensions": {
+                    "minItems": 1
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "semantic_direction": {
+                    "not": {
+                      "enum": [
+                        "added",
+                        "removed"
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "description": "How one capability record moved between the two states.\n\n``before`` / ``after`` are populated by the transition: ``added`` has no\nbefore, ``removed`` has no after, and ``changed`` / ``reidentified`` carry\nboth. Everything a consumer would otherwise have to take on trust \u2014\n``changed_dimensions``, the identity relationship between the two sides, and\nwhether the direction is honest \u2014 is derived from the records themselves, so\na contradictory attestation is rejected rather than carried.",
       "properties": {
         "after": {
           "anyOf": [
@@ -703,8 +1142,7 @@
             {
               "type": "null"
             }
-          ],
-          "default": null
+          ]
         },
         "before": {
           "anyOf": [
@@ -714,8 +1152,7 @@
             {
               "type": "null"
             }
-          ],
-          "default": null
+          ]
         },
         "changed_dimensions": {
           "items": {
@@ -742,7 +1179,6 @@
           "type": "array"
         },
         "semantic_direction": {
-          "default": "unknown",
           "enum": [
             "added",
             "removed",
@@ -767,7 +1203,12 @@
         }
       },
       "required": [
-        "transition"
+        "transition",
+        "changed_dimensions",
+        "semantic_direction",
+        "semantic_changes",
+        "before",
+        "after"
       ],
       "title": "CapabilityRecordTransitionEntry",
       "type": "object"
@@ -814,7 +1255,6 @@
         },
         "capability_payload_schema_version": {
           "const": "shipgate.capability_payload/v1",
-          "default": "shipgate.capability_payload/v1",
           "title": "Capability Payload Schema Version",
           "type": "string"
         },
@@ -830,32 +1270,42 @@
             "$ref": "#/$defs/CapabilityStateSubject"
           },
           "title": "Subjects",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "view": {
           "const": "state",
-          "default": "state",
           "title": "View",
           "type": "string"
         }
       },
       "required": [
+        "capability_payload_schema_version",
         "capability_standard_version",
-        "state"
+        "view",
+        "state",
+        "analysis_coverage",
+        "subjects"
       ],
       "title": "CapabilityStatePayloadV1",
       "type": "object"
     },
     "CapabilityStateRef": {
       "additionalProperties": false,
-      "description": "What a payload says about one whole state, including one it does not carry.\n\nA delta names its two sides here. ``capability_set_digest`` and\n``evidence_set_digest`` are computed over the *published* rows of the full\nstate, so a consumer holding both the state payload and the delta payload\ncan prove they describe the same state without re-running anything of ours.\n\n``ref`` is an opaque caller label \u2014 a commit sha, a lock path \u2014 and is never\na timestamp: this payload carries no wall clock, so two exports of the same\ninputs are byte-identical.",
+      "description": "What a payload says about one whole state, including one it does not carry.\n\nA delta names its two sides here. The digests are computed over the\n*published* content of the full state, so a consumer holding both the state\npayload and the delta payload can prove they describe the same state without\nre-running anything of ours.\n\n``ref`` is an opaque caller label \u2014 a commit sha, a lock path \u2014 and is never\na timestamp: this payload carries no wall clock, so two exports of the same\ninputs are byte-identical.",
       "properties": {
+        "analysis_coverage_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Analysis Coverage Digest",
+          "type": "string"
+        },
         "capability_count": {
-          "default": 0,
+          "minimum": 0,
           "title": "Capability Count",
           "type": "integer"
         },
         "capability_set_digest": {
+          "pattern": "^[0-9a-f]{64}$",
           "title": "Capability Set Digest",
           "type": "string"
         },
@@ -864,6 +1314,7 @@
           "type": "string"
         },
         "evidence_set_digest": {
+          "pattern": "^[0-9a-f]{64}$",
           "title": "Evidence Set Digest",
           "type": "string"
         },
@@ -876,19 +1327,22 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Ref"
         },
         "subject_count": {
-          "default": 0,
+          "minimum": 0,
           "title": "Subject Count",
           "type": "integer"
         }
       },
       "required": [
         "capability_standard_version",
+        "subject_count",
+        "capability_count",
         "capability_set_digest",
-        "evidence_set_digest"
+        "evidence_set_digest",
+        "analysis_coverage_digest",
+        "ref"
       ],
       "title": "CapabilityStateRef",
       "type": "object"
@@ -901,8 +1355,10 @@
           "items": {
             "$ref": "#/$defs/CapabilityRecord"
           },
+          "minItems": 1,
           "title": "Capabilities",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "subject": {
           "$ref": "#/$defs/CapabilitySubjectRef"
@@ -924,6 +1380,7 @@
           "type": "string"
         },
         "key": {
+          "pattern": "^capsubj_[0-9a-f]{16}$",
           "title": "Key",
           "type": "string"
         },
@@ -953,7 +1410,7 @@
   },
   "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-payload-schema.v1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Frozen JSON Schema for shipgate.capability_payload/v1 \u2014 the one capability payload shared by the exported capability delta and the committed capability state. Generated from agents_shipgate.schemas.capability_payload.CapabilityPayloadV1. Two views discriminated on `view`; one subject is one row. It is non-gating and is not part of report.json; release_decision.decision remains the only gate. See docs/capability-payload.md.",
+  "description": "Frozen JSON Schema for shipgate.capability_payload/v1 \u2014 the one capability payload shared by the exported capability delta and the committed capability state. Generated from agents_shipgate.schemas.capability_payload.CapabilityPayloadV1. Two views discriminated on `view`; one subject is one row. VALIDATION IS TWO STAGES: this file is stage one and is not sufficient on its own. The rules that require recomputation \u2014 subject-key derivation, summary and transition rollups, changed-dimension derivation, state-digest verification, cross-row uniqueness, and the coverage transition \u2014 cannot be expressed in JSON Schema and are listed as stage two in docs/capability-payload.md; a consumer that runs only stage one does not have the guarantees the spec states. It is non-gating and is not part of report.json; release_decision.decision remains the only gate.",
   "discriminator": {
     "mapping": {
       "delta": "#/$defs/CapabilityDeltaPayloadV1",
