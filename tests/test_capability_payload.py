@@ -618,6 +618,46 @@ def test_a_tool_that_loses_one_operation_is_modified_not_removed() -> None:
     assert gone.summary.removed_subjects == 1
 
 
+def test_a_scope_escalation_is_one_reidentified_change_on_one_subject() -> None:
+    """The reviewer-relevant case: a tool whose scope widened.
+
+    Scope is part of capability identity, so widening it changes the id. The
+    engine pairs the two facts within one lineage instead of reporting an
+    unrelated add and remove, and the payload must carry that pairing — a
+    published `+1 added, -1 removed` for one broadened scope would read as a
+    new tool and a lost one.
+    """
+
+    before = _facts(REFUND_SAMPLE / "shipgate.yaml")[0]
+    after = _fact_with(
+        before, scope=("support:kb:read", "support:kb:write")
+    )
+
+    delta = project_capability_delta([before], [after])
+    assert delta.summary.subjects == 1
+    assert (delta.summary.added_subjects, delta.summary.removed_subjects) == (0, 0)
+    row = delta.subjects[0]
+    assert row.transition == "modified"
+    assert [change.transition for change in row.changes] == ["reidentified"]
+    change = row.changes[0]
+    assert change.semantic_direction == "broadened"
+    assert change.before is not None and change.after is not None
+    assert change.before.capability_id != change.after.capability_id
+    assert change.after.scope == ("support:kb:read", "support:kb:write")
+    jsonschema.validate(delta.model_dump(mode="json"), PAYLOAD_SCHEMA)
+
+
+def test_rows_emitted_out_of_order_are_rejected() -> None:
+    """Determinism is a published guarantee, so the format enforces the order."""
+
+    facts = _facts(SAMPLES / "support_refund_agent" / "shipgate.yaml")
+    payload = project_capability_state(facts).model_dump(mode="json")
+    assert len(payload["subjects"]) > 1
+    payload["subjects"].reverse()
+    with pytest.raises(ValidationError, match="must be emitted in sorted order"):
+        CapabilityStatePayloadV1.model_validate(payload)
+
+
 def test_a_transition_that_disagrees_with_presence_is_rejected(refund_facts) -> None:
     base, head = refund_facts
     payload = project_capability_delta(base, head).model_dump(mode="json")
