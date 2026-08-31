@@ -970,18 +970,23 @@ def _capability_reader_subjects(
 ) -> tuple[_CapabilityReaderSubject, ...]:
     """Resolve one compatibility member to one or more canonical subjects."""
 
-    keys: tuple[str, ...] = ()
-    if member.action and member.action in index.key_by_action_id:
-        keys = (index.key_by_action_id[member.action],)
-    if not keys:
-        signature = _capability_member_signature(
-            member.direction,
-            member.subject_kind,
-            member.tool,
-            member.action,
-            member.scope,
-        )
-        keys = index.keys_by_signature.get(signature, ())
+    signature = _capability_member_signature(
+        member.direction,
+        member.subject_kind,
+        member.tool,
+        member.action,
+        member.scope,
+    )
+    # The exact change signature outranks coincidental value overlap. Tool
+    # controls and high-risk effects store their control/tag in ``action``;
+    # either string may legally equal an unrelated action_id.
+    keys = index.keys_by_signature.get(signature, ())
+    if not keys and member.subject_kind == "action" and member.action:
+        action_key = index.key_by_action_id.get(member.action)
+        if action_key is not None:
+            action_subject = index.subjects_by_key[action_key]
+            if not member.tool or action_subject.name == member.tool:
+                keys = (action_key,)
     if not keys and member.tool:
         name_keys = index.keys_by_name.get(member.tool, ())
         if len(name_keys) == 1:

@@ -66,6 +66,7 @@ from agents_shipgate.schemas.surfaces import (
     ActionSurfaceHashes,
     ToolSurfaceControlChange,
     ToolSurfaceDiff,
+    ToolSurfaceHighRiskEffectChange,
     ToolSurfaceScopeChange,
     ToolSurfaceToolChange,
 )
@@ -1310,6 +1311,41 @@ def test_capability_review_keeps_unseen_explicit_tool_id_out_of_name_fanout() ->
     }
     gamma = next(subject for subject in rollup.subjects if "tool-gamma" in subject.subject)
     assert gamma.change_types == ("policy_broadened",)
+
+
+def test_capability_review_prefers_effect_signature_over_unrelated_action_id() -> None:
+    """A risk tag that equals an action id still belongs to its exact tool."""
+
+    report = _report(decision="review_required", exit_code=0)
+    report.action_surface_facts = ActionSurfaceFacts(
+        actions=[
+            _capability_action_fact(
+                action_id="financial_write",
+                tool_id="tool-alpha",
+                tool_name="alpha",
+                provider="alpha-provider",
+                operation="read_alpha",
+            )
+        ]
+    )
+    report.tool_surface_diff = ToolSurfaceDiff(
+        enabled=True,
+        high_risk_effects=[
+            ToolSurfaceHighRiskEffectChange(
+                kind="added",
+                tool_id="tool-beta",
+                tool="beta",
+                tag="financial_write",
+            )
+        ],
+    )
+    report.capability_change = None
+
+    rollup = capability_delta_subject_rollup(report)
+
+    assert rollup.total_subjects == 1
+    assert rollup.subjects[0].subject == "beta"
+    assert rollup.subjects[0].change_types == ("action_broadened",)
 
 
 def test_capability_review_keeps_only_exact_finding_source_on_name_collision() -> None:
