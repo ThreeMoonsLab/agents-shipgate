@@ -2774,6 +2774,56 @@ unavailable, verify falls back to the reviewed committed lock at
 note and falls back to the existing `capability_review.top_changes[]` projection
 without changing the release gate.
 
+### Capability Payload (`shipgate.capability_payload/v1`)
+
+`shipgate.capability_payload/v1` is the **frozen shared payload** of two
+planned surfaces: the exported capability delta published as a standalone
+attestation, and the committed capability state. It is published now, ahead of
+either, so both serialize one structure instead of two. The schema is
+[`docs/capability-payload-schema.v1.json`](docs/capability-payload-schema.v1.json)
+and the spec is
+[`docs/capability-payload.md`](docs/capability-payload.md).
+
+**Nothing emits it yet.** No command writes it, no artifact carries it, and
+`contract_version`, `report_schema_version`, the runtime contract JSON, and
+`.well-known/agents-shipgate.json` are all unchanged by its publication. The
+capability lock and lock diff above are unchanged. It is non-gating;
+`release_decision.decision` remains the only gate.
+
+What a consumer may rely on:
+
+- One document, two views, discriminated on `view` (`state` | `delta`), both
+  validated by the one schema file.
+- `subject.key` identifies a row and is unique across `subjects[]`. It is
+  derived as `"capsubj_" + sha256(canonical_json({agent, provider, tool_id}))[:16]`
+  — **not** from the subject kind — so a tool and its action are one row with
+  two changes, never two rows.
+- `summary` and each `subjects[].transition` are recomputed from the rows when
+  the payload is parsed. A payload whose counts or rollups disagree with its
+  rows is **rejected**, not corrected.
+- `capabilities[].capability_id` is the internal `CapabilityFactV1.id`
+  verbatim, so a published row joins back to the fact that produced it.
+- `capability_set_digest` and `evidence_set_digest` are computed over the
+  published rows and are recomputable from the payload alone; the first covers
+  semantic content, the second provenance.
+- `analysis_coverage` names the subjects the analysed surface left out, on both
+  views. `status` is `not_requested | unavailable | complete`, and **neither
+  `not_requested` nor `unavailable` means zero** — a consumer that reads either
+  as "nothing was left out" re-creates the `+0`-on-an-added-tool defect. Only a
+  `complete` status may name subjects. The list is deliberately not disjoint
+  from `subjects[]`: a tool that lost its binding belongs to both.
+- No wall clock. Two projections of the same static inputs are byte-identical.
+- Every model forbids unknown properties. The fields the payload deliberately
+  does not publish, and the reason for each, are listed in the spec page and in
+  `agents_shipgate.core.capability_payload`.
+
+Evolution follows the ordinary rules of this document: optional fields with
+defaults may be added within `v1`; removing a field, requiring an optional one,
+narrowing a type, or changing a field's meaning is `/v2`, published beside `v1`
+with `v1` kept as a frozen reference; a field on its way out is documented as
+deprecated for at least one minor cycle before any version drops it. Consumers
+must ignore unknown fields and must not treat an unknown enum value as invalid.
+
 ### Workflow-evidence capture
 
 `agents-shipgate feedback capture` records a deterministic, local, replayable

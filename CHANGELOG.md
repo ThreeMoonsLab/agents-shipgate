@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+- **One capability schema, frozen before either surface that will ship it.**
+  (#469) Two planned public surfaces serialize the same internal truth: the
+  exported capability delta published as a standalone attestation (#470) and
+  the committed capability state (#474). `shipgate.capability_payload/v1` is
+  now the one payload both consume — a JSON Schema
+  ([`docs/capability-payload-schema.v1.json`](docs/capability-payload-schema.v1.json)),
+  a prose spec ([`docs/capability-payload.md`](docs/capability-payload.md))
+  stating the identity keys, the required/optional split and the evolution
+  policy, and one projection (`agents_shipgate.core.capability_payload`) that
+  fills it. One document, two views discriminated on `view`: `state` for a
+  point in time, `delta` for the movement between two.
+
+  Subject identity follows the subject-based counting rules. `subject.key` is
+  derived from agent, provider and tool id and deliberately **not** from the
+  subject kind, so a tool and its action are one row carrying two changes —
+  the `+2`-for-one-tool shape (#439) cannot be expressed. `summary` and each
+  subject's `transition` are recomputed from the rows on parse and a payload
+  that disagrees with them is rejected rather than repaired, so a hand-edited
+  or tampered attestation fails instead of being silently corrected.
+
+  The published field set is closed: every model forbids unknown properties,
+  and each internal field the payload does not publish is recorded with its
+  reason (`UNPUBLISHED_FACT_FIELDS`, `UNPUBLISHED_LOCK_FIELDS`). A test
+  asserts those maps together cover every `CapabilityFactV1` field, so a new
+  internal field cannot reach either surface — or be dropped from both —
+  without a written decision. The permission block shares one classifier with
+  `mcp audit`, and an unmeasured profile is `unavailable` with side effects
+  unknown rather than read-only.
+
+  The payload also carries `analysis_coverage`, the separate axis for subjects
+  the analysed surface left out — an added-but-unbound tool produces no
+  capability fact, so without it the first surface that had to report one
+  (#437) would have needed a second payload shape. `status` is
+  `not_requested | unavailable | complete`, neither of the first two means
+  zero, and only `complete` may name subjects: "we did not look" cannot be
+  written in the shape of "we looked and found none".
+
+  Nothing emits the payload yet, by design: no command, no artifact, no check,
+  no change to `contract_version`, `report_schema_version`, `.well-known`, or
+  any existing schema. The capability lock and lock diff are unchanged, and
+  `release_decision.decision` remains the only release gate. Worked state and
+  delta examples are generated from `samples/ai_generated_refund_pr` by
+  `scripts/generate_schemas.py` and gated on drift.
+
 - **Reviewed risk overrides no longer masquerade as scan observations.** (#460)
   `risk_overrides.tags` is excluded from `effect_readings` and the derived
   action `basis`, so adding or removing a reviewed tag no longer reopens a

@@ -64,6 +64,14 @@ Writes / verifies:
 - docs/capability-lock-diff-schema.v0.9.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockDiffArtifactV1)
+- docs/capability-payload-schema.v1.json
+                                (from agents_shipgate.schemas.capability_payload.
+                                 CapabilityPayloadV1)
+- docs/examples/capability-payload.v1.state.example.json
+- docs/examples/capability-payload.v1.delta.example.json
+                                (projected from the shipped
+                                 samples/ai_generated_refund_pr fixture, so the
+                                 worked examples cannot drift from the schema)
 - docs/governance-benchmark-catalog-schema.v0.2.json
                                 (from agents_shipgate.schemas.governance_benchmark.
                                  GovernanceBenchmarkCatalogArtifactV1)
@@ -1709,6 +1717,100 @@ def write_capability_lock_diff_schema(
     )
 
 
+def build_capability_payload_schema() -> tuple[Path, str]:
+    """Generate the frozen shared capability payload schema (#469)."""
+
+    from agents_shipgate.schemas.capability_payload import (
+        CAPABILITY_PAYLOAD_SCHEMA_VERSION,
+        CapabilityPayloadV1,
+    )
+
+    schema = CapabilityPayloadV1.model_json_schema()
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        "main/docs/capability-payload-schema.v1.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = "Agents Shipgate Capability Payload v1"
+    schema["description"] = (
+        "Frozen JSON Schema for "
+        f"{CAPABILITY_PAYLOAD_SCHEMA_VERSION} — the one capability payload "
+        "shared by the exported capability delta and the committed capability "
+        "state. Generated from "
+        "agents_shipgate.schemas.capability_payload.CapabilityPayloadV1. Two "
+        "views discriminated on `view`; one subject is one row. It is "
+        "non-gating and is not part of report.json; "
+        "release_decision.decision remains the only gate. See "
+        "docs/capability-payload.md."
+    )
+    target = DOCS / "capability-payload-schema.v1.json"
+    return target, _canonical_json(schema)
+
+
+# The worked examples are projected from a shipped sample rather than written
+# by hand, for the reason #425 recorded: a hand-written example is a claim
+# about the format that nothing checks, and it drifts silently. Generating
+# them here puts them under the same `--check` drift gate as the schemas.
+_PAYLOAD_EXAMPLE_SAMPLE = REPO_ROOT / "samples" / "ai_generated_refund_pr"
+
+
+def _capability_payload_example_facts() -> tuple[list[Any], list[Any]]:
+    """Build the base and head capability facts of the refund-PR sample.
+
+    The sample keeps its head tool surface under ``_head/`` because the fixture
+    runner materializes a two-commit history from it. Reproduce that here with a
+    temporary copy: static inputs only, no git, no network.
+    """
+
+    import shutil
+    import tempfile
+
+    from agents_shipgate.cli.capability import build_capability_lock_from_config
+
+    base = build_capability_lock_from_config(
+        config=_PAYLOAD_EXAMPLE_SAMPLE / "shipgate.yaml",
+        no_plugins=True,
+        verbose=False,
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        head_root = Path(tmp) / "head"
+        shutil.copytree(_PAYLOAD_EXAMPLE_SAMPLE, head_root)
+        shutil.copyfile(head_root / "_head" / "tools.json", head_root / "tools.json")
+        head = build_capability_lock_from_config(
+            config=head_root / "shipgate.yaml",
+            no_plugins=True,
+            verbose=False,
+        )
+    return base.capabilities, head.capabilities
+
+
+def build_capability_payload_state_example() -> tuple[Path, str]:
+    """Generate the worked state-view example from the shipped sample."""
+
+    from agents_shipgate.core.capability_payload import project_capability_state
+
+    base_facts, _ = _capability_payload_example_facts()
+    payload = project_capability_state(base_facts, ref="samples/ai_generated_refund_pr")
+    target = DOCS / "examples" / "capability-payload.v1.state.example.json"
+    return target, _canonical_json(payload.model_dump(mode="json"))
+
+
+def build_capability_payload_delta_example() -> tuple[Path, str]:
+    """Generate the worked delta-view example from the shipped sample."""
+
+    from agents_shipgate.core.capability_payload import project_capability_delta
+
+    base_facts, head_facts = _capability_payload_example_facts()
+    payload = project_capability_delta(
+        base_facts,
+        head_facts,
+        base_ref="samples/ai_generated_refund_pr",
+        head_ref="samples/ai_generated_refund_pr/_head",
+    )
+    target = DOCS / "examples" / "capability-payload.v1.delta.example.json"
+    return target, _canonical_json(payload.model_dump(mode="json"))
+
+
 def build_governance_benchmark_catalog_schema() -> tuple[Path, str]:
     """Generate the stable governance-benchmark catalog schema."""
 
@@ -1953,6 +2055,9 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("preflight", build_preflight_schema),
     ("capability_lock", build_capability_lock_schema),
     ("capability_lock_diff", build_capability_lock_diff_schema),
+    ("capability_payload", build_capability_payload_schema),
+    ("capability_payload_state_example", build_capability_payload_state_example),
+    ("capability_payload_delta_example", build_capability_payload_delta_example),
     ("attestation", build_attestation_schema),
     ("org_governance", build_org_governance_schema),
     ("org_evidence_bundle", build_org_evidence_bundle_schema),
@@ -1981,6 +2086,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     DOCS.mkdir(parents=True, exist_ok=True)
+    (DOCS / "examples").mkdir(parents=True, exist_ok=True)
     drift: list[str] = []
     for _name, builder in BUILDERS:
         target, content = builder()

@@ -4,8 +4,9 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-from agents_shipgate.core.domain import Scope, Tool, ToolRiskHint
+from agents_shipgate.core.domain import Scope, Tool, ToolRiskHint, ToolSemanticAssessment
 from agents_shipgate.schemas.common import parse_confidence
+from agents_shipgate.schemas.semantic import ToolSemanticEvidence
 from agents_shipgate.schemas.surfaces import ActionEffect
 
 PermissionClass = Literal[
@@ -133,18 +134,32 @@ class CapabilityPermissionProfile:
         return any(item != "read" for item in self.classes)
 
 
-def classify_tool_permission(tool: Tool) -> CapabilityPermissionProfile:
-    """Classify one tool into Shipgate's deterministic permission lattice.
+@dataclass(frozen=True)
+class SemanticPermissionClassification:
+    """The half of the permission profile that reads only static semantics.
 
-    Compatibility projection over the central semantic resolver. The lattice
-    retains its legacy classes and risk score for MCP audit consumers, but it
-    no longer implements an independent effect inference path.
+    Split out of :func:`classify_tool_permission` so the frozen capability
+    payload (``schemas.capability_payload``) publishes the *same* classes the
+    MCP audit surface reports, rather than a second classifier that could drift
+    from it. The other half — ``risk_score`` and the ``risk_level`` derived from
+    it — needs the ``Tool`` itself and stays where it was.
     """
 
-    # Local import avoids a domain/lattice/resolver cycle.
-    from agents_shipgate.core.semantic_assessment import assess_tool_semantics
+    classes: tuple[PermissionClass, ...]
+    effect: ActionEffect
+    side_effect_unknown: bool
+    reasons: tuple[str, ...]
 
-    assessment = tool.semantic_assessment or assess_tool_semantics(tool)
+
+def classify_semantic_permission(
+    assessment: ToolSemanticAssessment | ToolSemanticEvidence,
+) -> SemanticPermissionClassification:
+    """Classify a resolved semantic assessment into permission classes.
+
+    Accepts either the in-memory resolver model or its wire projection: the two
+    carry the same fields, and capability facts hold the projection.
+    """
+
     classes: set[PermissionClass] = set()
     reasons = [issue.kind for issue in assessment.effect.issues]
     for claim in assessment.effect.claims:
@@ -171,14 +186,39 @@ def classify_tool_permission(tool: Tool) -> CapabilityPermissionProfile:
         classes.add("unknown")
 
     normalized = _normalize_classes(classes)
-    score = _risk_score(tool, normalized, side_effect_unknown=side_effect_unknown)
-    return CapabilityPermissionProfile(
+    return SemanticPermissionClassification(
         classes=tuple(sorted(normalized, key=lambda item: PERMISSION_CLASS_RANK[item])),
         effect=assessment.conservative_effect,
-        risk_level=_risk_level(score),
-        risk_score=score,
         side_effect_unknown=side_effect_unknown,
         reasons=tuple(dict.fromkeys(reasons)),
+    )
+
+
+def classify_tool_permission(tool: Tool) -> CapabilityPermissionProfile:
+    """Classify one tool into Shipgate's deterministic permission lattice.
+
+    Compatibility projection over the central semantic resolver. The lattice
+    retains its legacy classes and risk score for MCP audit consumers, but it
+    no longer implements an independent effect inference path.
+    """
+
+    # Local import avoids a domain/lattice/resolver cycle.
+    from agents_shipgate.core.semantic_assessment import assess_tool_semantics
+
+    assessment = tool.semantic_assessment or assess_tool_semantics(tool)
+    semantic = classify_semantic_permission(assessment)
+    score = _risk_score(
+        tool,
+        set(semantic.classes),
+        side_effect_unknown=semantic.side_effect_unknown,
+    )
+    return CapabilityPermissionProfile(
+        classes=semantic.classes,
+        effect=semantic.effect,
+        risk_level=_risk_level(score),
+        risk_score=score,
+        side_effect_unknown=semantic.side_effect_unknown,
+        reasons=semantic.reasons,
     )
 
 
@@ -446,10 +486,12 @@ def _ordered_tokens(value: str) -> list[str]:
 
 __all__ = [
     "CapabilityPermissionProfile",
+    "SemanticPermissionClassification",
     "PERMISSION_CLASS_RANK",
     "PERMISSION_EFFECT",
     "PermissionClass",
     "RiskLevel",
+    "classify_semantic_permission",
     "classify_tool_permission",
     "is_secret_env_name",
     "mcp_permission_risk_hints",

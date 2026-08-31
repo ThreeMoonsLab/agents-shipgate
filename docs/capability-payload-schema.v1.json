@@ -1,0 +1,963 @@
+{
+  "$defs": {
+    "CapabilityAnalysisCoverage": {
+      "additionalProperties": false,
+      "description": "Subjects the producer knows about but could not analyse.\n\nCapability rows describe the *analysed* surface \u2014 what the binding graph\nproved the agent can reach. A tool that is present but unbound is precisely\nthe tool that is missing from it, so a payload that carried only the rows\nwould report no capability change on a change that added a tool (#437).\n\nThis block is the separate axis that says so, and it names the subjects\nrather than only counting them (#433). It is deliberately **not** joined to\n``subjects[]``: a tool that lost its binding is both removed from analysed\ncapability and newly outside analysis, and both statements are true.\n\n``status`` is load-bearing. Naming subjects requires having looked, so\nanything other than ``complete`` must carry an empty list \u2014 the schema\nrefuses to let \"we did not look\" be written in the same shape as \"we looked\nand found none\".",
+      "properties": {
+        "status": {
+          "default": "not_requested",
+          "enum": [
+            "not_requested",
+            "unavailable",
+            "complete"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "subjects_outside_analysis": {
+          "items": {
+            "$ref": "#/$defs/CapabilitySubjectRef"
+          },
+          "title": "Subjects Outside Analysis",
+          "type": "array"
+        }
+      },
+      "title": "CapabilityAnalysisCoverage",
+      "type": "object"
+    },
+    "CapabilityAuthorityFacts": {
+      "additionalProperties": false,
+      "description": "Who the capability acts as, and how widely.",
+      "properties": {
+        "auth_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Auth Type"
+        },
+        "broad_scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Broad Scopes",
+          "type": "array"
+        },
+        "credential_mode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credential Mode"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        }
+      },
+      "title": "CapabilityAuthorityFacts",
+      "type": "object"
+    },
+    "CapabilityControlFacts": {
+      "additionalProperties": false,
+      "description": "Controls already declared on the action surface.",
+      "properties": {
+        "approval_required": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approval Required"
+        },
+        "approval_threshold": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approval Threshold"
+        },
+        "confirmation_required": {
+          "default": false,
+          "title": "Confirmation Required",
+          "type": "boolean"
+        },
+        "evidence_approval_ticket": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Approval Ticket"
+        },
+        "evidence_owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Owner"
+        },
+        "evidence_runbook": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Runbook"
+        },
+        "safeguard_audit_log": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Safeguard Audit Log"
+        },
+        "safeguard_dry_run": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Safeguard Dry Run"
+        },
+        "safeguard_idempotency": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Safeguard Idempotency"
+        },
+        "safeguard_rollback": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Safeguard Rollback"
+        }
+      },
+      "title": "CapabilityControlFacts",
+      "type": "object"
+    },
+    "CapabilityDeltaPayloadV1": {
+      "additionalProperties": false,
+      "description": "What changed between two states. The exported-attestation view (#470).",
+      "properties": {
+        "analysis_coverage": {
+          "$ref": "#/$defs/CapabilityAnalysisCoverage"
+        },
+        "base": {
+          "$ref": "#/$defs/CapabilityStateRef"
+        },
+        "capability_payload_schema_version": {
+          "const": "shipgate.capability_payload/v1",
+          "default": "shipgate.capability_payload/v1",
+          "title": "Capability Payload Schema Version",
+          "type": "string"
+        },
+        "capability_standard_version": {
+          "title": "Capability Standard Version",
+          "type": "string"
+        },
+        "head": {
+          "$ref": "#/$defs/CapabilityStateRef"
+        },
+        "subjects": {
+          "items": {
+            "$ref": "#/$defs/CapabilityDeltaSubject"
+          },
+          "title": "Subjects",
+          "type": "array"
+        },
+        "summary": {
+          "$ref": "#/$defs/CapabilityDeltaSummary"
+        },
+        "view": {
+          "const": "delta",
+          "default": "delta",
+          "title": "View",
+          "type": "string"
+        }
+      },
+      "required": [
+        "capability_standard_version",
+        "base",
+        "head",
+        "summary"
+      ],
+      "title": "CapabilityDeltaPayloadV1",
+      "type": "object"
+    },
+    "CapabilityDeltaSubject": {
+      "additionalProperties": false,
+      "description": "One subject's whole movement between two states \u2014 one subject, one row.\n\n``transition`` is a rollup of ``changes``, recomputed here rather than\nsupplied, so it cannot describe a movement the rows do not show.",
+      "properties": {
+        "changes": {
+          "items": {
+            "$ref": "#/$defs/CapabilityRecordTransitionEntry"
+          },
+          "title": "Changes",
+          "type": "array"
+        },
+        "subject": {
+          "$ref": "#/$defs/CapabilitySubjectRef"
+        },
+        "transition": {
+          "enum": [
+            "added",
+            "removed",
+            "modified"
+          ],
+          "title": "Transition",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject",
+        "transition",
+        "changes"
+      ],
+      "title": "CapabilityDeltaSubject",
+      "type": "object"
+    },
+    "CapabilityDeltaSummary": {
+      "additionalProperties": false,
+      "description": "Subject counts, recomputed from the rows.\n\nThe directional counts partition the subjects \u2014 every subject is added,\nremoved, or modified and nothing else \u2014 so ``subjects`` is their sum.\n``capability_changes`` is the finer number and is deliberately a *separate*\nfield: the question \"how much did this PR change what the agent can do?\" is\na question about subjects, and answering it in changes inflates the number\nby however many dimensions each subject happens to touch (#439).",
+      "properties": {
+        "added_subjects": {
+          "default": 0,
+          "title": "Added Subjects",
+          "type": "integer"
+        },
+        "capability_changes": {
+          "default": 0,
+          "title": "Capability Changes",
+          "type": "integer"
+        },
+        "modified_subjects": {
+          "default": 0,
+          "title": "Modified Subjects",
+          "type": "integer"
+        },
+        "removed_subjects": {
+          "default": 0,
+          "title": "Removed Subjects",
+          "type": "integer"
+        },
+        "subjects": {
+          "default": 0,
+          "title": "Subjects",
+          "type": "integer"
+        }
+      },
+      "title": "CapabilityDeltaSummary",
+      "type": "object"
+    },
+    "CapabilityDigests": {
+      "additionalProperties": false,
+      "description": "The per-dimension digests the fact layer already separates.\n\nPublished verbatim, under the internal field names, so a consumer comparing\ntwo payloads asks the same question the engine asks \u2014 which dimension moved\n\u2014 without re-deriving anything.",
+      "properties": {
+        "authority_hash": {
+          "title": "Authority Hash",
+          "type": "string"
+        },
+        "binding_hash": {
+          "title": "Binding Hash",
+          "type": "string"
+        },
+        "control_hash": {
+          "title": "Control Hash",
+          "type": "string"
+        },
+        "effect_hash": {
+          "title": "Effect Hash",
+          "type": "string"
+        },
+        "evidence_hash": {
+          "title": "Evidence Hash",
+          "type": "string"
+        },
+        "identity_hash": {
+          "title": "Identity Hash",
+          "type": "string"
+        },
+        "risk_hash": {
+          "title": "Risk Hash",
+          "type": "string"
+        },
+        "schema_hash": {
+          "title": "Schema Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "identity_hash",
+        "binding_hash",
+        "effect_hash",
+        "authority_hash",
+        "control_hash",
+        "schema_hash",
+        "risk_hash",
+        "evidence_hash"
+      ],
+      "title": "CapabilityDigests",
+      "type": "object"
+    },
+    "CapabilityEffectFacts": {
+      "additionalProperties": false,
+      "description": "The normalized side-effect facts, as published.",
+      "properties": {
+        "code_execution": {
+          "default": false,
+          "title": "Code Execution",
+          "type": "boolean"
+        },
+        "effect": {
+          "enum": [
+            "read",
+            "write",
+            "destructive",
+            "external_communication",
+            "financial_write",
+            "production_operation",
+            "privileged_data_access",
+            "code_execution",
+            "identity_access"
+          ],
+          "title": "Effect",
+          "type": "string"
+        },
+        "externally_visible": {
+          "default": false,
+          "title": "Externally Visible",
+          "type": "boolean"
+        },
+        "financial": {
+          "default": false,
+          "title": "Financial",
+          "type": "boolean"
+        },
+        "handles_sensitive_data": {
+          "default": false,
+          "title": "Handles Sensitive Data",
+          "type": "boolean"
+        },
+        "high_risk": {
+          "default": false,
+          "title": "High Risk",
+          "type": "boolean"
+        },
+        "idempotency_known": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Idempotency Known"
+        },
+        "reversibility": {
+          "default": "unknown",
+          "enum": [
+            "reversible",
+            "irreversible",
+            "unknown"
+          ],
+          "title": "Reversibility",
+          "type": "string"
+        }
+      },
+      "required": [
+        "effect"
+      ],
+      "title": "CapabilityEffectFacts",
+      "type": "object"
+    },
+    "CapabilityEvidenceRef": {
+      "additionalProperties": false,
+      "description": "Where the capability was read from, and how confidently.\n\nThis is the provenance a consumer needs to open the file that made the\nclaim. ``source_location`` is deliberately absent: it is a rendering of\n``source_path`` plus ``source_start_line``, and publishing both would be two\nspellings of one value.",
+      "properties": {
+        "confidence": {
+          "default": "medium",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "provenance_kind": {
+          "default": "static_declaration",
+          "enum": [
+            "static_declaration",
+            "ast_extraction",
+            "keyword_heuristic",
+            "regex_heuristic",
+            "policy_pack"
+          ],
+          "title": "Provenance Kind",
+          "type": "string"
+        },
+        "source_end_line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source End Line"
+        },
+        "source_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Id"
+        },
+        "source_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Path"
+        },
+        "source_pointer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Pointer"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Ref"
+        },
+        "source_start_column": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Start Column"
+        },
+        "source_start_line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Start Line"
+        },
+        "source_type": {
+          "title": "Source Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_type"
+      ],
+      "title": "CapabilityEvidenceRef",
+      "type": "object"
+    },
+    "CapabilityPermissionFacts": {
+      "additionalProperties": false,
+      "description": "The permission lattice classes, without the audit risk score.\n\n``classes`` and ``side_effect_unknown`` are the semantic half of\n``core.capability_lattice.CapabilityPermissionProfile`` and come from the\nsame classifier, so this payload cannot disagree with ``mcp audit``. The\nprofile's ``risk_score`` / ``risk_level`` / ``reasons`` are deliberately not\npublished \u2014 see the exclusions section of ``docs/capability-payload.md``.",
+      "properties": {
+        "classes": {
+          "items": {
+            "enum": [
+              "read",
+              "write",
+              "destructive",
+              "external",
+              "financial",
+              "production",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "title": "Classes",
+          "type": "array"
+        },
+        "side_effect_unknown": {
+          "default": true,
+          "title": "Side Effect Unknown",
+          "type": "boolean"
+        },
+        "status": {
+          "default": "unavailable",
+          "enum": [
+            "measured",
+            "unavailable"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "title": "CapabilityPermissionFacts",
+      "type": "object"
+    },
+    "CapabilityRecord": {
+      "additionalProperties": false,
+      "description": "One capability of one subject: an operation with its effect and authority.\n\n``capability_id`` is the internal ``CapabilityFactV1.id`` verbatim. It is the\njoin key back to the fact layer and the reason the round trip in\n``tests/test_capability_payload.py`` can compare published rows with the\nfacts that produced them.",
+      "properties": {
+        "authority": {
+          "$ref": "#/$defs/CapabilityAuthorityFacts"
+        },
+        "capability_id": {
+          "title": "Capability Id",
+          "type": "string"
+        },
+        "controls": {
+          "$ref": "#/$defs/CapabilityControlFacts"
+        },
+        "digests": {
+          "$ref": "#/$defs/CapabilityDigests"
+        },
+        "effect": {
+          "$ref": "#/$defs/CapabilityEffectFacts"
+        },
+        "evidence": {
+          "$ref": "#/$defs/CapabilityEvidenceRef"
+        },
+        "operation": {
+          "title": "Operation",
+          "type": "string"
+        },
+        "permission": {
+          "$ref": "#/$defs/CapabilityPermissionFacts"
+        },
+        "resource": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Resource",
+          "type": "array"
+        },
+        "risk_tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Risk Tags",
+          "type": "array"
+        },
+        "scope": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scope",
+          "type": "array"
+        },
+        "subject_kind": {
+          "default": "action",
+          "enum": [
+            "tool",
+            "action",
+            "scope",
+            "policy",
+            "ci",
+            "baseline",
+            "agent_instruction",
+            "manifest",
+            "unknown"
+          ],
+          "title": "Subject Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "capability_id",
+        "operation",
+        "effect",
+        "authority",
+        "controls",
+        "permission",
+        "evidence",
+        "digests"
+      ],
+      "title": "CapabilityRecord",
+      "type": "object"
+    },
+    "CapabilityRecordTransitionEntry": {
+      "additionalProperties": false,
+      "description": "How one capability record moved between the two states.\n\n``before`` / ``after`` are populated by the transition: ``added`` has no\nbefore, ``removed`` has no after, and ``changed`` / ``reidentified`` carry\nboth. Enforced here rather than left to the producer, so a consumer can rely\non the pairing without a null check on every field.",
+      "properties": {
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CapabilityRecord"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "before": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CapabilityRecord"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "changed_dimensions": {
+          "items": {
+            "enum": [
+              "identity_hash",
+              "binding_hash",
+              "effect_hash",
+              "authority_hash",
+              "control_hash",
+              "schema_hash",
+              "risk_hash",
+              "evidence_hash"
+            ],
+            "type": "string"
+          },
+          "title": "Changed Dimensions",
+          "type": "array"
+        },
+        "semantic_changes": {
+          "items": {
+            "$ref": "#/$defs/CapabilitySemanticChange"
+          },
+          "title": "Semantic Changes",
+          "type": "array"
+        },
+        "semantic_direction": {
+          "default": "unknown",
+          "enum": [
+            "added",
+            "removed",
+            "broadened",
+            "narrowed",
+            "mixed",
+            "unknown",
+            "evidence_only"
+          ],
+          "title": "Semantic Direction",
+          "type": "string"
+        },
+        "transition": {
+          "enum": [
+            "added",
+            "removed",
+            "changed",
+            "reidentified"
+          ],
+          "title": "Transition",
+          "type": "string"
+        }
+      },
+      "required": [
+        "transition"
+      ],
+      "title": "CapabilityRecordTransitionEntry",
+      "type": "object"
+    },
+    "CapabilitySemanticChange": {
+      "additionalProperties": false,
+      "description": "One semantic explanation for a capability delta.",
+      "properties": {
+        "after": {
+          "default": null,
+          "title": "After"
+        },
+        "before": {
+          "default": null,
+          "title": "Before"
+        },
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "field",
+        "rationale"
+      ],
+      "title": "CapabilitySemanticChange",
+      "type": "object"
+    },
+    "CapabilityStatePayloadV1": {
+      "additionalProperties": false,
+      "description": "What the agent can do, at one state. The committed-state view (#474).",
+      "properties": {
+        "analysis_coverage": {
+          "$ref": "#/$defs/CapabilityAnalysisCoverage"
+        },
+        "capability_payload_schema_version": {
+          "const": "shipgate.capability_payload/v1",
+          "default": "shipgate.capability_payload/v1",
+          "title": "Capability Payload Schema Version",
+          "type": "string"
+        },
+        "capability_standard_version": {
+          "title": "Capability Standard Version",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/CapabilityStateRef"
+        },
+        "subjects": {
+          "items": {
+            "$ref": "#/$defs/CapabilityStateSubject"
+          },
+          "title": "Subjects",
+          "type": "array"
+        },
+        "view": {
+          "const": "state",
+          "default": "state",
+          "title": "View",
+          "type": "string"
+        }
+      },
+      "required": [
+        "capability_standard_version",
+        "state"
+      ],
+      "title": "CapabilityStatePayloadV1",
+      "type": "object"
+    },
+    "CapabilityStateRef": {
+      "additionalProperties": false,
+      "description": "What a payload says about one whole state, including one it does not carry.\n\nA delta names its two sides here. ``capability_set_digest`` and\n``evidence_set_digest`` are computed over the *published* rows of the full\nstate, so a consumer holding both the state payload and the delta payload\ncan prove they describe the same state without re-running anything of ours.\n\n``ref`` is an opaque caller label \u2014 a commit sha, a lock path \u2014 and is never\na timestamp: this payload carries no wall clock, so two exports of the same\ninputs are byte-identical.",
+      "properties": {
+        "capability_count": {
+          "default": 0,
+          "title": "Capability Count",
+          "type": "integer"
+        },
+        "capability_set_digest": {
+          "title": "Capability Set Digest",
+          "type": "string"
+        },
+        "capability_standard_version": {
+          "title": "Capability Standard Version",
+          "type": "string"
+        },
+        "evidence_set_digest": {
+          "title": "Evidence Set Digest",
+          "type": "string"
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ref"
+        },
+        "subject_count": {
+          "default": 0,
+          "title": "Subject Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "capability_standard_version",
+        "capability_set_digest",
+        "evidence_set_digest"
+      ],
+      "title": "CapabilityStateRef",
+      "type": "object"
+    },
+    "CapabilityStateSubject": {
+      "additionalProperties": false,
+      "description": "One subject and every capability it holds in one state.",
+      "properties": {
+        "capabilities": {
+          "items": {
+            "$ref": "#/$defs/CapabilityRecord"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "subject": {
+          "$ref": "#/$defs/CapabilitySubjectRef"
+        }
+      },
+      "required": [
+        "subject",
+        "capabilities"
+      ],
+      "title": "CapabilityStateSubject",
+      "type": "object"
+    },
+    "CapabilitySubjectRef": {
+      "additionalProperties": false,
+      "description": "The thing a reader recognizes: one tool, under one agent and provider.\n\n``key`` is the row identity for the whole payload. It is derived from\n``agent``/``provider``/``tool_id`` only \u2014 deliberately **not** from\n``subject_kind`` \u2014 because a tool and its action are the same subject to a\nreader, and keying on the kind is precisely how one added tool became two\nrows and a ``+2`` (#439).\n\n``name`` is the adopter-facing spelling and is not identity: two providers\nmay ship the same name. Consumers that render a name must qualify it with\n``provider`` when two rows share one ``name``.",
+      "properties": {
+        "agent": {
+          "title": "Agent",
+          "type": "string"
+        },
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "tool_id": {
+          "title": "Tool Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "name",
+        "agent",
+        "provider",
+        "tool_id"
+      ],
+      "title": "CapabilitySubjectRef",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-payload-schema.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Frozen JSON Schema for shipgate.capability_payload/v1 \u2014 the one capability payload shared by the exported capability delta and the committed capability state. Generated from agents_shipgate.schemas.capability_payload.CapabilityPayloadV1. Two views discriminated on `view`; one subject is one row. It is non-gating and is not part of report.json; release_decision.decision remains the only gate. See docs/capability-payload.md.",
+  "discriminator": {
+    "mapping": {
+      "delta": "#/$defs/CapabilityDeltaPayloadV1",
+      "state": "#/$defs/CapabilityStatePayloadV1"
+    },
+    "propertyName": "view"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/CapabilityStatePayloadV1"
+    },
+    {
+      "$ref": "#/$defs/CapabilityDeltaPayloadV1"
+    }
+  ],
+  "title": "Agents Shipgate Capability Payload v1"
+}
