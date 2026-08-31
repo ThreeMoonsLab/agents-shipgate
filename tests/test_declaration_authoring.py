@@ -734,6 +734,231 @@ def test_the_generator_and_the_applier_agree_about_two_same_named_actions(
     ]
 
 
+def test_risk_tag_field_presence_matches_the_real_declaration_applier(
+    tmp_path: Path,
+) -> None:
+    """Absent is writable; explicit empty is an existing reviewed answer.
+
+    Both rows resolve to the same effect constraints, so only the actual YAML
+    key-presence bit can keep authorship aligned with ``_declare_action``. The
+    generated patch is attached and executed on the absent shape; applying the
+    same edit to explicit ``risk_tags: []`` demonstrates the conflict the
+    human/manual route avoids. The questionnaire and ``run_id`` must preserve
+    that distinction too: they are the human and machine routing surfaces for
+    the same reviewed-field boundary.
+    """
+
+    from agents_shipgate.checks.patches import attach_declaration_patches
+    from agents_shipgate.ci.release_decision import _semantic_gap
+    from agents_shipgate.cli.apply_patches import DeclarationConflict, _declare_action
+    from agents_shipgate.cli.scan.declarations import build_declaration_scaffold
+    from agents_shipgate.cli.scan.run_identity import _run_id
+    from agents_shipgate.config.loader import load_manifest
+    from agents_shipgate.core.domain import Tool, ToolRiskHint
+    from agents_shipgate.core.lenses.action_surface import build_action_surface_facts
+    from agents_shipgate.core.semantic_assessment import attach_semantic_assessments
+    from agents_shipgate.schemas.manifest import (
+        ActionDeclarationConfig,
+        ActionSurfaceConfig,
+    )
+
+    tool = Tool.model_validate(
+        {
+            "id": "google_adk:closer:send_email",
+            "name": "send_email",
+            "source_type": "google_adk",
+            "source_id": "closer",
+            "extraction_confidence": "high",
+            "extraction": {"surface": "enumerated"},
+            "risk_hints": [
+                ToolRiskHint(
+                    tag="external_write",
+                    source="keyword",
+                    confidence="medium",
+                    basis="inferred_keyword",
+                ),
+                ToolRiskHint(
+                    tag="financial_action",
+                    source="keyword",
+                    confidence="medium",
+                    basis="inferred_keyword",
+                ),
+            ],
+        }
+    )
+
+    def assessed_and_gap(declaration: ActionDeclarationConfig):
+        assessed = attach_semantic_assessments(
+            [tool], {tool.id: declaration}
+        )[0]
+        assert assessed.semantic_assessment is not None
+        assert "inferred_effect_only" in {
+            issue.kind for issue in assessed.semantic_assessment.effect.issues
+        }
+        return assessed, _semantic_gap(
+            assessed, kind="inferred_effect_only", why="test"
+        )
+
+    common = {"tool": "send_email", "authority": {"mode": "none"}}
+    absent_declaration = ActionDeclarationConfig.model_validate(common)
+    empty_declaration = ActionDeclarationConfig.model_validate(
+        {**common, "risk_tags": []}
+    )
+    absent_tool, absent = assessed_and_gap(absent_declaration)
+    empty_tool, explicit_empty = assessed_and_gap(empty_declaration)
+
+    assert absent.next_action.authorable_by == "coding_agent"
+    assert explicit_empty.next_action.authorable_by == "human"
+    assert explicit_empty.next_action.patch is None
+
+    scaffold = build_declaration_scaffold([explicit_empty])
+    assert scaffold is not None
+    scaffold_comments = " ".join(
+        " ".join(
+            line.lstrip("#").strip()
+            for line in scaffold.splitlines()
+            if line.startswith("#")
+        ).split()
+    )
+    assert (
+        "Proposal audit: Existing reviewed manifest constraints included in "
+        "this proposal: risk_tags: []. This proposal replaces the existing "
+        "risk_tags field."
+        in scaffold_comments
+    )
+    assert (
+        "proposed from the evidence plus the existing reviewed manifest "
+        "constraints named above"
+        in scaffold_comments
+    )
+
+    base_manifest = load_manifest(_project(tmp_path))
+
+    def identity_for(
+        declaration: ActionDeclarationConfig, assessed_tool: Tool
+    ) -> tuple[str, dict[str, object]]:
+        manifest_model = base_manifest.model_copy(
+            update={"action_surface": ActionSurfaceConfig(actions=[declaration])}
+        )
+        facts = build_action_surface_facts(
+            manifest_model,
+            agent_id="agent:test",
+            tools=[assessed_tool],
+        )
+        return (
+            _run_id(
+                manifest_model,
+                [assessed_tool],
+                [],
+                action_surface_facts=facts,
+            ),
+            facts.model_dump(mode="json"),
+        )
+
+    absent_run_id, absent_facts = identity_for(absent_declaration, absent_tool)
+    empty_run_id, empty_facts = identity_for(empty_declaration, empty_tool)
+    assert absent_facts == empty_facts
+    assert absent_run_id != empty_run_id
+
+    manifest = tmp_path / "shipgate.yaml"
+    manifest.write_text('version: "0.1"\n', encoding="utf-8")
+    assert attach_declaration_patches(
+        [absent, explicit_empty], manifest_path=manifest
+    ) == 1
+    patch = absent.next_action.patch
+    assert patch is not None
+
+    writable = {
+        "action_surface": {
+            "actions": [{"tool": "send_email", "authority": {"mode": "none"}}]
+        }
+    }
+    _declare_action(writable, patch)
+    assert writable["action_surface"]["actions"][0]["risk_tags"] == [
+        "external_communication",
+        "financial_write",
+    ]
+
+    reviewed_empty = {
+        "action_surface": {
+            "actions": [
+                {
+                    "tool": "send_email",
+                    "risk_tags": [],
+                    "authority": {"mode": "none"},
+                }
+            ]
+        }
+    }
+    with pytest.raises(DeclarationConflict):
+        _declare_action(reviewed_empty, patch)
+
+
+def test_a_redundant_reviewed_constraint_keeps_the_evidence_only_agent_route(
+    tmp_path: Path,
+) -> None:
+    """A reviewed tag matters to authorship only when it changes the answer.
+
+    The source and ``risk_overrides.tags`` both say ``destructive`` here. The
+    complete template is therefore independently derivable from the source
+    reading, so the existing coding-agent exception remains available and the
+    row keeps its legacy evidence-only wording. The stronger write/destructive
+    counterexample lives in the production questionnaire test beside #460.
+    """
+
+    from agents_shipgate.checks.patches import attach_declaration_patches
+    from agents_shipgate.ci.release_decision import _semantic_gap
+    from agents_shipgate.core.domain import Tool, ToolRiskHint
+    from agents_shipgate.core.semantic_assessment import attach_semantic_assessments
+
+    tool = Tool.model_validate(
+        {
+            "id": "google_adk:closer:delete_record",
+            "name": "delete_record",
+            "source_type": "google_adk",
+            "source_id": "closer",
+            "extraction_confidence": "high",
+            "extraction": {"surface": "enumerated"},
+            "risk_hints": [
+                ToolRiskHint(
+                    tag="destructive",
+                    source="keyword",
+                    confidence="medium",
+                    basis="inferred_keyword",
+                ),
+                ToolRiskHint(
+                    tag="destructive",
+                    source="manual",
+                    confidence="high",
+                    basis="reviewed_declaration",
+                ),
+            ],
+        }
+    )
+    assessed = attach_semantic_assessments([tool], {})[0]
+    gap = _semantic_gap(assessed, kind="inferred_effect_only", why="test")
+
+    assert gap.next_action.declaration_template is not None
+    assert gap.next_action.declaration_template["effect"] == "destructive"
+    assert gap.next_action.authorable_by == "coding_agent"
+    assert "Existing reviewed manifest constraints" not in gap.next_action.expects
+    assert all(
+        "risk_hint:manual" not in reading.sources
+        for reading in gap.next_action.observed_readings
+    )
+
+    manifest = tmp_path / "shipgate.yaml"
+    manifest.write_text('version: "0.1"\n', encoding="utf-8")
+    assert attach_declaration_patches([gap], manifest_path=manifest) == 1
+    assert gap.next_action.suggested_patch_kind == "declare_action"
+    assert gap.next_action.patch is not None
+    assert (
+        gap.next_action.patch.rationale
+        == "Declares delete_record as destructive — the conservative reading "
+        "of the evidence this scan observed for it."
+    )
+
+
 def test_a_row_that_names_the_same_action_less_precisely_is_written_into() -> None:
     """A human writes ``tool:``; the scan knows the id. That is one action."""
 

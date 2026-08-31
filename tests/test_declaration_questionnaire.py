@@ -42,6 +42,7 @@ from agents_shipgate.core.semantic_assessment import (
     effect_is_measured,
     effect_readings,
     propose_effect_declaration,
+    reviewed_risk_tag_effects,
 )
 from agents_shipgate.schemas.manifest import ActionDeclarationConfig
 from agents_shipgate.schemas.report import (
@@ -108,30 +109,58 @@ def _readings(tool: Tool) -> list:
 
 
 def test_a_proposal_accounts_for_every_reading_it_is_printed_under() -> None:
-    """Exhaustive: the value offered must cover everything the row shows.
+    """Exhaustive: the value offered covers the row and reviewed risk tags.
 
     This is the whole safety argument for pre-filling. If a proposal could sit
     below one of the readings printed above it, confirming it would be a
     quieter version of exactly the under-declaration #409 exists to catch.
+
+    ``risk_overrides.tags`` is crossed in as the adversarial second manifest
+    route. It must constrain the answer without appearing in the readings: a
+    human wrote it, so the scan neither observed it nor pins an answer to it.
     """
 
     checked = 0
     for count in (1, 2, 3):
         for effects in itertools.combinations(sorted(_TAG_FOR_EFFECT), count):
-            readings = _readings(_observing(*effects))
-            proposal = propose_effect_declaration(readings)
-            if proposal is None:
-                continue
-            checked += 1
-            asserted = {proposal.effect, *proposal.risk_tags}
-            for reading in readings:
-                assert any(
-                    declaration_covers(value, reading.effect) for value in asserted
-                ), (
-                    f"{effects}: proposed {sorted(asserted)} does not account for "
-                    f"an observed {reading.effect}"
+            for reviewed_effect in (None, *sorted(_TAG_FOR_EFFECT)):
+                tool = _observing(*effects)
+                if reviewed_effect is not None:
+                    # Exactly what ``_apply_manual_override`` writes for a
+                    # matching ``risk_overrides.tags`` entry.
+                    tool.risk_hints.append(
+                        ToolRiskHint(
+                            tag=_TAG_FOR_EFFECT[reviewed_effect],
+                            source="manual",
+                            confidence="high",
+                            basis="reviewed_declaration",
+                        )
+                    )
+                effect = assess_tool_semantics(tool, None).effect
+                readings = effect_readings(effect)
+                reviewed = reviewed_risk_tag_effects(effect)
+                proposal = propose_effect_declaration(
+                    readings, reviewed_effects=reviewed
                 )
-    assert checked > 100, "the sweep stopped exercising the proposal path"
+                if proposal is None:
+                    continue
+                checked += 1
+                asserted = {proposal.effect, *proposal.risk_tags}
+                expected = {reading.effect for reading in readings} | set(reviewed)
+                for expected_effect in expected:
+                    assert any(
+                        declaration_covers(value, expected_effect)
+                        for value in asserted
+                    ), (
+                        f"{effects}/{reviewed_effect}: proposed {sorted(asserted)} "
+                        f"does not account for {expected_effect}"
+                    )
+                if reviewed_effect is not None:
+                    assert all(
+                        "risk_hint:manual" not in reading.sources
+                        for reading in readings
+                    )
+    assert checked > 1000, "the sweep stopped exercising the proposal path"
 
 
 #: Structural evidence a real tool carries alongside its heuristics, each of
@@ -887,6 +916,268 @@ def test_a_reviewed_risk_override_is_the_manifest_speaking(tmp_path: Path) -> No
     assert questions.open == 0 and questions.answered == questions.total
 
 
+def test_a_reviewed_risk_override_constrains_but_does_not_seed_the_draft(
+    tmp_path: Path,
+) -> None:
+    """The real questionnaire keeps the two trust-boundary roles separate.
+
+    Source evidence unlocks this proposal. The reviewed override constrains its
+    value to ``destructive``, but is absent from both the published readings
+    and the rendered "what this scan observed" lines. Omitting the production
+    ``reviewed_effects`` wiring weakens the draft to ``write``; putting the
+    override back into ``effect_readings`` makes the negative assertions fail.
+    """
+
+    (tmp_path / "tools.json").write_text(
+        json.dumps(
+            {
+                "tools": [
+                    {
+                        "type": "function",
+                        "name": "update_record",
+                        "description": "Update a record in the remote system.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"id": {"type": "string"}},
+                            "required": ["id"],
+                            "additionalProperties": False,
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = tmp_path / "shipgate.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "version": "0.1",
+                "project": {"name": "questionnaire"},
+                "agent": {
+                    "name": "asst",
+                    "declared_purpose": ["test the questionnaire"],
+                },
+                "environment": {"target": "local"},
+                "openai_api": {"tools": [{"path": "tools.json"}]},
+                "agent_bindings": {
+                    "declarations": [
+                        {
+                            "agent": "root",
+                            "complete": True,
+                            "tools": [{"tool": "update_record"}],
+                            "handoffs": [],
+                            "reason": "reviewed fixture binding",
+                        }
+                    ]
+                },
+                "risk_overrides": {
+                    "tools": {
+                        "update_record": {
+                            "tags": ["destructive"],
+                            "reason": "reviewed - replacement is irreversible",
+                        }
+                    }
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    report, _ = run_scan(
+        config_path=config,
+        output_dir=tmp_path / "out",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+
+    assert report.release_decision is not None
+    gap = next(
+        item
+        for item in report.release_decision.evidence_coverage.evidence_gaps
+        if item.kind == "inferred_effect_only"
+    )
+    assert (gap.next_action.declaration_template or {}).get("effect") == "destructive"
+    constraint = (
+        "Existing reviewed manifest constraints included in this proposal: "
+        "risk_tags: [destructive]."
+    )
+    assert constraint in gap.next_action.expects
+    assert "materially change the evidence-only proposal" in gap.next_action.expects
+    assert any(
+        "risk_hint:openai_api_keyword" in reading.sources
+        for reading in gap.next_action.observed_readings
+    )
+    assert all(
+        "risk_hint:manual" not in reading.sources
+        for reading in gap.next_action.observed_readings
+    )
+
+    scaffold = (tmp_path / "out" / "suggested-declarations.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert "write — risk_hint:openai_api_keyword" in scaffold
+    assert "risk_hint:manual" not in scaffold
+    scaffold_comments = " ".join(
+        " ".join(
+            line.lstrip("#").strip()
+            for line in scaffold.splitlines()
+            if line.startswith("#")
+        ).split()
+    )
+    assert scaffold_comments.count(f"Proposal audit: {constraint}") == 1
+    assert "A ready-to-review block is written to" not in scaffold_comments
+    assert "may also preserve existing reviewed manifest constraints" in scaffold_comments
+    assert (
+        "every existing reviewed manifest constraint named by this row"
+        in scaffold_comments
+    )
+    assert "effect: destructive" in scaffold
+    assert gap.next_action.authorable_by == "human"
+    assert gap.next_action.suggested_patch_kind == "manual"
+    assert gap.next_action.patch is None
+
+
+def test_a_proposed_tag_replacement_preserves_the_reviewed_list_end_to_end(
+    tmp_path: Path,
+) -> None:
+    """Pasting the proposal cannot rewrite or delete an existing reviewed tag.
+
+    The proposal compares mapped effects, but ``risk_tags`` is a replacement
+    YAML key. Reconstructing it from those effects rewrote
+    ``financial_action`` as ``financial_write`` and dropped the unmapped
+    ``network_access`` tag. This follows the reader's real loop: publish the
+    block, replace exactly the keys it names, and prove the next scan closes.
+    """
+
+    original_tags = ["financial_action", "network_access"]
+    source_tool = {
+        "type": "function",
+        "name": "notify_customer",
+        "description": "Message an external customer.",
+        "parameters": {
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+    }
+
+    def scan(where: Path, action: dict[str, object]):
+        where.mkdir()
+        (where / "tools.json").write_text(
+            json.dumps({"tools": [source_tool]}), encoding="utf-8"
+        )
+        config = where / "shipgate.yaml"
+        config.write_text(
+            yaml.safe_dump(
+                {
+                    "version": "0.1",
+                    "project": {"name": "questionnaire"},
+                    "agent": {
+                        "name": "asst",
+                        "declared_purpose": ["test the questionnaire"],
+                    },
+                    "environment": {"target": "local"},
+                    "openai_api": {"tools": [{"path": "tools.json"}]},
+                    "agent_bindings": {
+                        "declarations": [
+                            {
+                                "agent": "root",
+                                "complete": True,
+                                "tools": [{"tool": "notify_customer"}],
+                                "handoffs": [],
+                                "reason": "reviewed fixture binding",
+                            }
+                        ]
+                    },
+                    "action_surface": {"actions": [action]},
+                },
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+        report, _ = run_scan(
+            config_path=config,
+            output_dir=where / "out",
+            formats=["json"],
+            ci_mode="advisory",
+            packet_enabled=False,
+        )
+        assert report.release_decision is not None
+        return report
+
+    declared: dict[str, object] = {
+        "tool": "notify_customer",
+        "risk_tags": list(original_tags),
+        "authority": {"mode": "none"},
+    }
+    before = scan(tmp_path / "before", declared)
+    gap = next(
+        item
+        for item in before.release_decision.evidence_coverage.evidence_gaps
+        if item.kind == "inferred_effect_only"
+    )
+    template = dict(gap.next_action.declaration_template or {})
+
+    assert gap.next_action.authorable_by == "human"
+    assert gap.next_action.suggested_patch_kind == "manual"
+    assert gap.next_action.patch is None
+    assert template["risk_tags"] == [
+        "financial_action",
+        "network_access",
+        "external_communication",
+    ]
+    assert "financial_write" not in template["risk_tags"]
+    constraint = (
+        "Existing reviewed manifest constraints included in this proposal: "
+        "risk_tags: [financial_action, network_access]."
+    )
+    assert constraint in gap.next_action.expects
+    assert "materially change the evidence-only proposal" in gap.next_action.expects
+    assert "changes an existing risk_tags field" in gap.next_action.expects
+    scaffold = (
+        tmp_path / "before" / "out" / "suggested-declarations.yaml"
+    ).read_text(encoding="utf-8")
+    scaffold_comments = " ".join(
+        " ".join(
+            line.lstrip("#").strip()
+            for line in scaffold.splitlines()
+            if line.startswith("#")
+        ).split()
+    )
+    assert scaffold_comments.count(f"Proposal audit: {constraint}") == 1
+    assert "A ready-to-review block is written to" not in scaffold_comments
+    assert (
+        "proposed from the evidence plus the existing reviewed manifest "
+        "constraints named above"
+        in scaffold_comments
+    )
+    assert (
+        "existing reviewed manifest tags named in the proposal audit"
+        in scaffold_comments
+    )
+    assert "risk_hint:manual" not in scaffold
+    merged = {
+        **declared,
+        **{
+            key: value
+            for key, value in template.items()
+            if key not in {"tool_id", "source_id"}
+        },
+    }
+    assert merged["risk_tags"][: len(original_tags)] == original_tags
+
+    after = scan(tmp_path / "after", merged)
+    remaining = {
+        item.kind
+        for item in after.release_decision.evidence_coverage.evidence_gaps
+        if item.subject_id == gap.subject_id
+    }
+    assert not remaining & ANSWERABLE_ISSUE_KINDS["effect"]
+
+
 def test_a_source_that_contradicts_itself_is_not_a_declaration_question() -> None:
     """The second branch of `conflicting_effect_evidence`, which no answer closes.
 
@@ -1405,7 +1696,18 @@ def test_a_pre_filled_value_says_it_is_a_proposal_at_the_cursor() -> None:
     assert scaffold is not None
     assert "What this scan read this action's effect as:" in scaffold
     assert "external_communication — risk_hint:keyword" in scaffold
-    assert "proposed from the evidence above — keep it to confirm, or replace it." in scaffold
+    scaffold_comments = " ".join(
+        " ".join(
+            line.lstrip("#").strip()
+            for line in scaffold.splitlines()
+            if line.startswith("#")
+        ).split()
+    )
+    assert (
+        "proposed from the evidence above — keep it to confirm, or replace it."
+        in scaffold_comments
+    )
+    assert "reviewed manifest constraints" not in scaffold_comments
     assert yaml.safe_load(scaffold)["effect"] == "external_communication"
 
 
@@ -1575,10 +1877,9 @@ def test_the_header_sentence_and_the_realised_order_agree(tmp_path: Path) -> Non
 
     * ``create_sap_sales_order`` — nothing read at all;
     * ``fetch_thing`` — only the MCP protocol default, an absence of evidence;
-    * ``sync_ledger`` — a heuristic reading of ``read``, printed above the
-      block, which this resolver may not act on (#357) and which therefore
-      bounds nothing. A header saying the top of the file is what the scan
-      "could read nothing about" was false for exactly this one.
+    * ``sync_ledger`` — a reviewed ``risk_overrides.tags`` value, which is the
+      manifest speaking rather than something the scan read and therefore
+      leaves the effect question unbounded.
     """
 
     config = _mcp_workspace(
@@ -1635,14 +1936,23 @@ def test_the_header_sentence_and_the_realised_order_agree(tmp_path: Path) -> Non
     assert blank and drafted, "the fixture stopped carrying both kinds"
     assert max(blank) < min(drafted), scaffold
 
-    # The third shape specifically: a heuristic ``read`` is printed, and the
-    # block still sits in the half the header says comes first.
-    heuristic_read = next(
+    # The third shape specifically: a reviewed tag is not rendered as a scan
+    # reading, and its unanswered effect block remains in the leading half.
+    assert "risk_hint:manual" not in scaffold
+    sync_tool = next(
         index
         for index, line in enumerate(scaffold.splitlines())
-        if "read — risk_hint:manual" in line
+        if line.strip() == "tool: sync_ledger"
     )
-    assert heuristic_read < min(drafted), scaffold
+    sync_effect = next(
+        index
+        for index, line in enumerate(scaffold.splitlines()[sync_tool:], start=sync_tool)
+        if line.strip().startswith("effect:")
+    )
+    assert scaffold.splitlines()[sync_effect].strip() == (
+        f"effect: {REVIEW_REQUIRED_SENTINEL}"
+    )
+    assert sync_effect < min(drafted), scaffold
 
 
 def test_repository_controlled_text_cannot_forge_a_reading_line() -> None:

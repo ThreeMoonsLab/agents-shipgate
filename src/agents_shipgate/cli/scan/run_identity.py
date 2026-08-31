@@ -125,10 +125,50 @@ def _run_id(
         ),
         "action_surface_facts": _action_surface_facts_for_run_id(action_surface_facts),
     }
+    reviewed_field_presence = _reviewed_action_field_presence(manifest)
+    if reviewed_field_presence:
+        # The public action facts intentionally project an absent ``risk_tags``
+        # key and an explicit ``risk_tags: []`` to the same empty value. At the
+        # trust-root boundary they are not the same input: the explicit key is
+        # a reviewed answer, so replacing it is human-owned while filling the
+        # absent key may be coding-agent-authored. Bind that input distinction
+        # into the scan identity without widening the published tool or action
+        # fact schemas. Omit the key when no row declares ``risk_tags`` so old
+        # manifests that do not use this ownership surface keep stable run IDs.
+        payload["reviewed_action_field_presence"] = reviewed_field_presence
     digest = hashlib.sha256(
         json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()[:16]
     return f"agents_shipgate_{digest}"
+
+
+def _reviewed_action_field_presence(manifest) -> list[dict[str, object]]:
+    """Explicit reviewed action keys whose presence changes write authority.
+
+    Rows are sorted by their schema-enforced unique selector so reordering
+    equivalent manifest rows does not churn ``run_id``. Only present keys are
+    carried: an empty result is omitted from the hash payload above for
+    backwards compatibility with manifests that never used this boundary.
+    """
+
+    rows: list[dict[str, object]] = []
+    for action in manifest.action_surface.actions:
+        if "risk_tags" not in action.model_fields_set:
+            continue
+        rows.append(
+            {
+                "tool": action.tool,
+                "tool_id": action.tool_id,
+                "provider": action.provider,
+                "source_type": action.source_type,
+                "source_id": action.source_id,
+                "risk_tags": True,
+            }
+        )
+    return sorted(
+        rows,
+        key=lambda row: json.dumps(row, sort_keys=True, separators=(",", ":")),
+    )
 
 
 def _action_surface_facts_for_run_id(
