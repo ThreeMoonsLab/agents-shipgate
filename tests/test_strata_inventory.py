@@ -98,10 +98,11 @@ def _miner_labels() -> dict[str, dict[str, str]]:
     row citing any of them can be checked against the sweep it actually cites.
     """
 
+    # The `.labels.template.csv` files alongside these are unlabeled scaffolds.
+    # This pattern already excludes them by name; widening it to `*.csv` would
+    # admit their placeholder rows as real labels.
     labels: dict[str, dict[str, str]] = {}
     for source in sorted(MINER_RESULTS.glob("*.labels.csv")):
-        if source.name.endswith(".template.csv"):
-            continue
         relative = source.relative_to(REPO_ROOT).as_posix()
         with source.open(encoding="utf-8", newline="") as handle:
             for entry in csv.DictReader(handle):
@@ -157,11 +158,21 @@ def test_every_slot_id_is_derived_from_its_own_cell(rows: list[dict[str, str]]) 
     the first one, and the disagreement is invisible in a spreadsheet.
     """
 
-    counters: Counter[tuple[str, str]] = Counter()
+    numbered: defaultdict[tuple[str, str], list[str]] = defaultdict(list)
     for row in rows:
         cell = (row["profile"], row["target_decision"])
-        counters[cell] += 1
-        assert row["slot_id"] == f"{row['profile']}.{row['target_decision']}.{counters[cell]}"
+        prefix, _, index = row["slot_id"].rpartition(".")
+        assert prefix == f"{row['profile']}.{row['target_decision']}", (
+            f"{row['slot_id']} names a cell that is not its own"
+        )
+        numbered[cell].append(index)
+
+    # Set equality, not file order: a plan sorted by origin to review coverage
+    # is the same plan, and renumbering ids to match an arbitrary sort would
+    # reintroduce exactly the hand-written second spelling this rules out.
+    for cell, indices in numbered.items():
+        expected = [str(n) for n in range(1, len(indices) + 1)]
+        assert sorted(indices) == sorted(expected), f"{cell} is not numbered 1..{len(indices)}"
 
     assert len({row["slot_id"] for row in rows}) == len(rows)
 
@@ -260,6 +271,61 @@ def test_every_candidate_resolves_and_no_subject_fills_two_slots(
             assert anchor in headings, f"{row['slot_id']} cites a section that is not there: #{anchor}"
 
 
+def test_what_a_candidate_is_decides_its_origin_and_its_split(
+    rows: list[dict[str, str]],
+) -> None:
+    """An in-tree sample is ``synthetic``, and it is engine-tuning material.
+
+    Both halves are properties of *what the candidate is*, so neither may be
+    asserted independently of the path. Without this, relabeling the twelve
+    ``samples/`` slots ``real_history`` would report 41 of 56 qualifying
+    origins against a floor of 23 while adding no real evidence at all -- the
+    origin floor satisfied by renaming, which is a reduction in strictness
+    dressed as coverage. It would surface at freeze, after the labeling is paid
+    for.
+    """
+
+    for row in rows:
+        if row["status"] == "gap":
+            # A gap's origin is a target, and a corpus synthetic built for a
+            # gap is holdout-eligible precisely because it is not shipped as a
+            # sample. Nothing about a path constrains a row with no candidate.
+            assert row["split_eligibility"] == "either", row["slot_id"]
+            continue
+
+        if row["candidate_ref"].startswith("samples/"):
+            assert row["origin_class"] == "synthetic", (
+                f"{row['slot_id']} is a shipped sample, so its origin is synthetic"
+            )
+            assert row["split_eligibility"] == "tuning_only", row["slot_id"]
+        else:
+            assert row["origin_class"] in QUALIFYING_ORIGINS, (
+                f"{row['slot_id']} names an upstream PR, which is not synthetic material"
+            )
+            assert row["split_eligibility"] == "either", row["slot_id"]
+
+
+def test_a_sample_design_row_cites_the_sample_it_is_about(
+    rows: list[dict[str, str]],
+) -> None:
+    """The one basis with no independent source still gets cross-checked.
+
+    ``human_label`` is checked against a miner CSV and ``diff_substance``
+    against the register. ``sample_design`` has neither, so the only thing that
+    can be checked is that the row cites the sample it actually names -- and
+    without that it can cite any directory in the tree and still resolve.
+    """
+
+    for row in rows:
+        if row["target_basis"] != "sample_design":
+            continue
+        assert row["candidate_ref"].startswith("samples/"), row["slot_id"]
+        assert row["evidence_ref"] == row["candidate_ref"], (
+            f"{row['slot_id']} cites {row['evidence_ref']}, "
+            f"but it is about {row['candidate_ref']}"
+        )
+
+
 def test_a_diff_substance_row_is_written_down_in_the_register(
     rows: list[dict[str, str]],
 ) -> None:
@@ -289,11 +355,11 @@ def test_every_cell_can_still_supply_its_holdout_case(rows: list[dict[str, str]]
     filled entirely from ``samples/`` cannot honestly mark either case holdout,
     and the shortfall would only surface at freeze, after the labeling is paid
     for.
-    """
 
-    for row in rows:
-        expected = "tuning_only" if row["candidate_ref"].startswith("samples/") else "either"
-        assert row["split_eligibility"] == expected, row["slot_id"]
+    What makes a slot ``tuning_only`` is decided once, by
+    ``test_what_a_candidate_is_decides_its_origin_and_its_split``; this is only
+    the per-cell consequence.
+    """
 
     eligible: defaultdict[tuple[str, str], int] = defaultdict(int)
     for row in rows:

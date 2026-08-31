@@ -75,14 +75,21 @@ head are not yet resolved — **abbreviated SHAs are not pins**, so a candidate
 known only by a short prefix stays `unpinned` until both full SHAs are recorded.
 `gap` means no candidate exists yet.
 
-**`split_eligibility`.** The policy requires at least one holdout case per
-stratum, and holdout means evidence the engine was never tuned on. Every
-`samples/*` path is engine-tuning material — the goldens under `samples/*/expected/`
-are what the engine is developed against — so a slot filled from `samples/` is
-`tuning_only` and can never be the cell's holdout case. Every cell therefore
-needs at least one `either` slot, which is checked. A synthetic *built for the
-corpus* is `either`, provided it is not also committed as a shipped sample; do
-not move corpus synthetics into `samples/`.
+**`origin_class` and `split_eligibility` are both decided by what the candidate
+is, not asserted about it.** An in-tree `samples/` path is `synthetic` — an
+upstream PR is not — and both facts are checked against the path, because the
+origin floor is otherwise satisfiable by renaming: calling the twelve sample
+slots `real_history` would report 41 qualifying origins against a floor of 23
+while adding no real evidence at all.
+
+The policy also requires at least one holdout case per stratum, and holdout
+means evidence the engine was never tuned on. Every `samples/*` path is
+engine-tuning material — the goldens under `samples/*/expected/` are what the
+engine is developed against — so a slot filled from `samples/` is `tuning_only`
+and can never be the cell's holdout case. Every cell therefore needs at least
+one `either` slot, which is checked. A synthetic *built for the corpus* is
+`either`, provided it is not also committed as a shipped sample; do not move
+corpus synthetics into `samples/`.
 
 ## Where the plan stands
 
