@@ -78,7 +78,9 @@ Every payload is one JSON object carrying
 
 - `base`, `head` — a `CapabilityStateRef` for each side, including digests of
   states the delta itself does not carry in full.
-- `summary` — subject counts, recomputed from the rows.
+- `summary` — subject counts, recomputed from the rows. They are counts of
+  *subjects*, never of changes; `capability_changes` is the finer number and is
+  a separate field.
 - `subjects[]` — one row per **changed** subject, each with the `changes[]` that
   moved it. An unchanged subject is absent, not listed as unchanged.
 
@@ -153,10 +155,17 @@ producer:
 2. `summary` is recomputed from the rows on parse. A payload whose counts
    disagree with its rows is **rejected**, not silently corrected — a tampered
    or hand-edited attestation must fail, not be repaired.
-3. `subjects[].transition` is a rollup of `changes[].transition`, also
-   recomputed. A subject is `added` only when every capability it holds is new,
-   `removed` only when every one is gone, and `modified` otherwise — including
-   when it gained one capability and lost another.
+3. `subjects[].transition` is a statement about the **subject's own
+   presence**, carried explicitly as `present_in_base` / `present_in_head` and
+   recomputed from them on parse. `added` means the subject is not in base,
+   `removed` means it is not in head, and everything else is `modified` — so a
+   tool that keeps one operation and loses another is `modified`, because it is
+   still there. It is deliberately *not* rolled up from the change kinds: a
+   delta row carries only the capabilities that moved, so from its changes
+   alone that tool is indistinguishable from one that went away, and calling it
+   `removed` would tell a reviewer the agent lost a tool it still has.
+   Presence also bounds the changes — a subject absent from base can only carry
+   `added` ones, and one absent from head only `removed` ones.
 4. A delta with **no** subject rows must name two states whose digests agree.
    "Nothing changed" is a claim about the two states, so it has to be one the
    payload's own digests support; a delta that says it while `base` and `head`

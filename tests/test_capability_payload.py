@@ -587,19 +587,86 @@ def test_a_summary_that_disagrees_with_the_rows_is_rejected(refund_facts) -> Non
         CapabilityDeltaPayloadV1.model_validate(payload)
 
 
-def test_a_subject_transition_that_disagrees_with_its_changes_is_rejected(
-    refund_facts,
-) -> None:
+def test_a_tool_that_loses_one_operation_is_modified_not_removed() -> None:
+    """`transition` is about the subject, never about the kinds of its changes.
+
+    A delta row carries only the capabilities that moved, so a tool that keeps
+    one operation and loses another looks — from its changes alone — exactly
+    like a tool that went away. Reading `removed` off the change kinds tells a
+    reviewer the agent lost a tool it still has.
+    """
+
+    base_fact = _facts(REFUND_SAMPLE / "shipgate.yaml")[0]
+    second = _fact_with(base_fact, operation="second_operation")
+
+    lost_one = project_capability_delta([base_fact, second], [base_fact])
+    assert [entry.transition for entry in lost_one.subjects] == ["modified"]
+    assert lost_one.summary.removed_subjects == 0
+    assert lost_one.summary.modified_subjects == 1
+    row = lost_one.subjects[0]
+    assert (row.present_in_base, row.present_in_head) == (True, True)
+    assert [change.transition for change in row.changes] == ["removed"]
+
+    # The mirror case: gaining an operation is not gaining a tool.
+    gained_one = project_capability_delta([base_fact], [base_fact, second])
+    assert [entry.transition for entry in gained_one.subjects] == ["modified"]
+    assert gained_one.summary.added_subjects == 0
+
+    # And a subject that really does go away is still `removed`.
+    gone = project_capability_delta([base_fact, second], [])
+    assert [entry.transition for entry in gone.subjects] == ["removed"]
+    assert gone.summary.removed_subjects == 1
+
+
+def test_a_transition_that_disagrees_with_presence_is_rejected(refund_facts) -> None:
     base, head = refund_facts
     payload = project_capability_delta(base, head).model_dump(mode="json")
     for entry in payload["subjects"]:
         if entry["transition"] == "added":
-            entry["transition"] = "modified"
+            entry["present_in_base"] = True
             break
     else:  # pragma: no cover - the sample always has an added subject
         pytest.fail("sample delta lost its added subject")
-    with pytest.raises(ValidationError, match="roll up to"):
+    with pytest.raises(ValidationError, match="make it 'modified'"):
         CapabilityDeltaPayloadV1.model_validate(payload)
+
+
+def test_a_subject_absent_from_a_side_cannot_carry_impossible_changes(
+    refund_facts,
+) -> None:
+    """Presence bounds the changes: base never had it, so nothing can have moved."""
+
+    base, head = refund_facts
+    payload = project_capability_delta(base, head).model_dump(mode="json")
+    for entry in payload["subjects"]:
+        if entry["transition"] == "added":
+            change = entry["changes"][0]
+            change["transition"] = "changed"
+            change["before"] = change["after"]
+            change["changed_dimensions"] = ["effect_hash"]
+            break
+    else:  # pragma: no cover
+        pytest.fail("sample delta lost its added subject")
+    with pytest.raises(ValidationError, match="absent from base but carries"):
+        CapabilityDeltaPayloadV1.model_validate(payload)
+
+
+def test_a_subject_present_on_neither_side_is_rejected() -> None:
+    facts = _facts(REFUND_SAMPLE / "shipgate.yaml")
+    subject = project_capability_state(facts).subjects[0].subject
+    with pytest.raises(ValidationError, match="present on neither side"):
+        CapabilityDeltaSubject(
+            subject=subject,
+            present_in_base=False,
+            present_in_head=False,
+            transition="modified",
+            changes=(
+                CapabilityRecordTransitionEntry(
+                    transition="added",
+                    after=project_capability_record(facts[0]),
+                ),
+            ),
+        )
 
 
 def test_one_capability_cannot_appear_under_two_rows_of_a_subject() -> None:
@@ -620,6 +687,8 @@ def test_one_capability_cannot_appear_under_two_rows_of_a_subject() -> None:
     # Legitimate: the reidentified pair names two distinct capabilities.
     CapabilityDeltaSubject(
         subject=subject,
+        present_in_base=True,
+        present_in_head=True,
         transition="modified",
         changes=(
             CapabilityRecordTransitionEntry(
@@ -634,6 +703,8 @@ def test_one_capability_cannot_appear_under_two_rows_of_a_subject() -> None:
     with pytest.raises(ValidationError, match="duplicate capability_id"):
         CapabilityDeltaSubject(
             subject=subject,
+            present_in_base=True,
+            present_in_head=True,
             transition="modified",
             changes=tuple(
                 sorted(

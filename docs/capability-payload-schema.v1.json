@@ -264,6 +264,14 @@
           "title": "Changes",
           "type": "array"
         },
+        "present_in_base": {
+          "title": "Present In Base",
+          "type": "boolean"
+        },
+        "present_in_head": {
+          "title": "Present In Head",
+          "type": "boolean"
+        },
         "subject": {
           "$ref": "#/$defs/CapabilitySubjectRef"
         },
@@ -279,6 +287,8 @@
       },
       "required": [
         "subject",
+        "present_in_base",
+        "present_in_head",
         "transition",
         "changes"
       ],

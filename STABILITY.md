@@ -2798,9 +2798,13 @@ What a consumer may rely on:
   derived as `"capsubj_" + sha256(canonical_json({agent, provider, tool_id}))[:16]`
   — **not** from the subject kind — so a tool and its action are one row with
   two changes, never two rows.
-- `summary` and each `subjects[].transition` are recomputed from the rows when
-  the payload is parsed. A payload whose counts or rollups disagree with its
-  rows is **rejected**, not corrected.
+- `summary` is recomputed from the rows when the payload is parsed, and each
+  `subjects[].transition` is recomputed from that subject's explicit
+  `present_in_base` / `present_in_head`. A payload whose counts or transitions
+  disagree is **rejected**, not corrected.
+- `transition` is a statement about the subject's presence, not about the kinds
+  of its changes: a tool that keeps one operation and loses another is
+  `modified`, because it is still there.
 - `capabilities[].capability_id` is the internal `CapabilityFactV1.id`
   verbatim, so a published row joins back to the fact that produced it.
 - A `delta` with no subject rows must name two states whose digests agree. A

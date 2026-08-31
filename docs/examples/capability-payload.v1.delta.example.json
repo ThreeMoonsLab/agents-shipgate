@@ -112,6 +112,8 @@
           "transition": "added"
         }
       ],
+      "present_in_base": false,
+      "present_in_head": true,
       "subject": {
         "agent": "agent:ai-generated-refund-pr-demo/support-agent",
         "key": "capsubj_dab8b5afd4c60e82",
@@ -291,6 +293,8 @@
           "transition": "changed"
         }
       ],
+      "present_in_base": true,
+      "present_in_head": true,
       "subject": {
         "agent": "agent:ai-generated-refund-pr-demo/support-agent",
         "key": "capsubj_2c49d03810273be6",

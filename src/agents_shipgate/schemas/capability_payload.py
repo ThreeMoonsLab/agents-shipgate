@@ -72,9 +72,11 @@ CAPABILITY_PAYLOAD_SPEC_PATH = "docs/capability-payload.md"
 SUBJECT_KEY_PREFIX = "capsubj_"
 SUBJECT_KEY_DIGEST_CHARS = 16
 
-#: How one subject moved between two states. Subject-level, so it rolls up the
-#: per-capability transitions below: ``added`` and ``removed`` only when every
-#: capability of the subject moved that way, ``modified`` otherwise.
+#: How one subject moved between two states. It is a statement about the
+#: **subject's own presence**, not about the kinds of its changes: a tool that
+#: merely loses one of several operations is ``modified``, because it is still
+#: there. Deriving this from the change kinds instead is the #439 defect in the
+#: other direction — a question about subjects answered in changes.
 CapabilitySubjectTransition = Literal["added", "removed", "modified"]
 
 #: How one capability record moved. ``reidentified`` keeps the pairing the fact
@@ -385,11 +387,23 @@ class CapabilityDeltaSubject(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     subject: CapabilitySubjectRef
+    #: Whether the subject exists at all on each side. This is what
+    #: ``transition`` means, and it cannot be recovered from ``changes`` — a
+    #: delta row carries only the capabilities that moved, so a subject that
+    #: kept one operation and lost another looks, from its changes alone,
+    #: exactly like a subject that went away entirely.
+    present_in_base: bool
+    present_in_head: bool
     transition: CapabilitySubjectTransition
     changes: tuple[CapabilityRecordTransitionEntry, ...]
 
     @model_validator(mode="after")
     def _rollup_matches_changes(self) -> CapabilityDeltaSubject:
+        if not (self.present_in_base or self.present_in_head):
+            raise ValueError(
+                f"subject {self.subject.key} is present on neither side: a row "
+                "exists because a subject does"
+            )
         if not self.changes:
             raise ValueError(
                 f"subject {self.subject.key} carries no changes: a delta row "
@@ -414,12 +428,39 @@ class CapabilityDeltaSubject(BaseModel):
             what=f"capability_id under subject {self.subject.key}",
         )
         _require_sorted(self.changes, capability_transition_sort_key, what="changes")
-        expected = subject_transition(entry.transition for entry in self.changes)
+        expected = subject_transition(
+            present_in_base=self.present_in_base,
+            present_in_head=self.present_in_head,
+        )
         if self.transition != expected:
             raise ValueError(
                 f"subject {self.subject.key} declares transition "
-                f"{self.transition!r} but its changes roll up to {expected!r}"
+                f"{self.transition!r}, but present_in_base="
+                f"{self.present_in_base} and present_in_head="
+                f"{self.present_in_head} make it {expected!r}"
             )
+        # Presence still bounds what the changes may say. A subject absent from
+        # base cannot carry a capability that changed or went away, and one
+        # absent from head cannot carry a capability that arrived.
+        for present, side, allowed in (
+            (self.present_in_base, "base", "added"),
+            (self.present_in_head, "head", "removed"),
+        ):
+            if present:
+                continue
+            offending = sorted(
+                {
+                    entry.transition
+                    for entry in self.changes
+                    if entry.transition != allowed
+                }
+            )
+            if offending:
+                raise ValueError(
+                    f"subject {self.subject.key} is absent from {side} but "
+                    f"carries {offending} change(s); only {allowed!r} is "
+                    "possible for a subject that side never had"
+                )
         return self
 
     @property
@@ -428,23 +469,24 @@ class CapabilityDeltaSubject(BaseModel):
 
 
 def subject_transition(
-    transitions: Iterable[CapabilityRecordTransition],
+    *,
+    present_in_base: bool,
+    present_in_head: bool,
 ) -> CapabilitySubjectTransition:
-    """Roll per-capability transitions up to the subject.
+    """How a subject moved, from whether it exists on each side.
 
-    A subject is ``added`` only when every capability it holds is new, and
-    ``removed`` only when every one is gone. Anything else — including a subject
-    that gained one capability and lost another — is ``modified``, because
-    calling it ``added`` would overstate and calling it ``removed`` would
-    understate.
+    ``added`` and ``removed`` are statements about the subject itself, so they
+    are read off its presence and never off the kinds of its changes. A tool
+    that keeps one operation and loses another is ``modified``: it is still
+    there, and calling that ``removed`` tells a reviewer the agent lost a tool
+    it still has.
     """
 
-    kinds = set(transitions)
-    if not kinds:
-        raise ValueError("cannot roll up an empty transition set")
-    if kinds == {"added"}:
+    if not (present_in_base or present_in_head):
+        raise ValueError("a subject present on neither side is not a delta row")
+    if not present_in_base:
         return "added"
-    if kinds == {"removed"}:
+    if not present_in_head:
         return "removed"
     return "modified"
 

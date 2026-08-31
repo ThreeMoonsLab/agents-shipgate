@@ -17,10 +17,16 @@
   Subject identity follows the subject-based counting rules. `subject.key` is
   derived from agent, provider and tool id and deliberately **not** from the
   subject kind, so a tool and its action are one row carrying two changes —
-  the `+2`-for-one-tool shape (#439) cannot be expressed. `summary` and each
-  subject's `transition` are recomputed from the rows on parse and a payload
-  that disagrees with them is rejected rather than repaired, so a hand-edited
-  or tampered attestation fails instead of being silently corrected.
+  the `+2`-for-one-tool shape (#439) cannot be expressed. A subject's
+  `transition` is a statement about its own presence, carried as
+  `present_in_base` / `present_in_head`, never a rollup of its change kinds: a
+  tool that keeps one operation and loses another is `modified`, because it is
+  still there. `summary` and every `transition` are recomputed on parse and a
+  payload that disagrees with its rows is rejected rather than repaired, so a
+  hand-edited or tampered attestation fails instead of being silently
+  corrected. A `state` payload verifies its own digests the same way, and
+  `capability_id` is unique across the whole payload because provenance is
+  keyed by it.
 
   The published field set is closed: every model forbids unknown properties,
   and each internal field the payload does not publish is recorded with its

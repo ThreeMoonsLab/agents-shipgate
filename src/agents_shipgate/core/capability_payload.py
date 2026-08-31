@@ -316,13 +316,22 @@ def project_capability_delta(
         grouped.setdefault(ref_model.key, []).append(entry)
         refs[ref_model.key] = _merge_subject_refs(refs.get(ref_model.key), ref_model)
 
+    # Presence is read off the fact sets, never off the changes. A subject that
+    # kept one capability and lost another looks, from its changes alone,
+    # exactly like one that went away — and calling that "removed" would tell a
+    # reviewer the agent lost a tool it still has.
+    in_base = _subject_keys(base_facts)
+    in_head = _subject_keys(head_facts)
     subjects = tuple(
         sorted(
             (
                 CapabilityDeltaSubject(
                     subject=refs[key],
+                    present_in_base=key in in_base,
+                    present_in_head=key in in_head,
                     transition=subject_transition(
-                        entry.transition for entry in group
+                        present_in_base=key in in_base,
+                        present_in_head=key in in_head,
                     ),
                     changes=tuple(sorted(group, key=capability_transition_sort_key)),
                 )
@@ -387,6 +396,10 @@ def _state_subjects(
         for key, group in grouped.items()
     ]
     return tuple(sorted(subjects, key=lambda entry: subject_sort_key(entry.subject)))
+
+
+def _subject_keys(facts: list[CapabilityFactV1]) -> set[str]:
+    return {_subject_ref(fact).key for fact in facts}
 
 
 def _subject_ref(fact: CapabilityFactV1) -> CapabilitySubjectRef:
