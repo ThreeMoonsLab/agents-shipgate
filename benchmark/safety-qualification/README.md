@@ -40,6 +40,15 @@ contain binding and semantic coverage, and agree with the verifier receipt. Miss
 failed, unknown, hash-mismatched, or fallback receipts fail closed; the runner
 never substitutes a cold-start scan result.
 
+## What to build first
+
+[`strata-inventory.csv`](strata-inventory.csv) maps the known candidate pool onto
+the 28 profile × decision cells, so mining aims at the empty ones; how to read
+and maintain it is in [`strata-inventory.md`](strata-inventory.md). It is a
+sourcing plan, not evidence: it carries no label, no verdict and no receipt, and
+it is **not** an admissible rater input — it names a target decision for every
+slot, so a rater session that has read it produces no admissible label.
+
 ## Which policy to build for
 
 **Two named policies exist. Build for the one the release's version admits —
