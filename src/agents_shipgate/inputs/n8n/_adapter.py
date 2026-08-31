@@ -250,6 +250,7 @@ class N8nAdapter:
             "n8n workflow JSON exports, stubs, and reviewed inventories declared "
             "under `manifest.n8n`."
         ),
+        manifest_section="n8n",
         cells=(
             BoundaryCell(
                 shape="export_artifact",

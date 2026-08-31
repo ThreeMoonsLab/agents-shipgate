@@ -22,10 +22,10 @@
   committed page equals the regenerated one, as it already does for the
   schemas.
 
-  Every `insufficient_evidence` verdict now links to it — in `scan` stdout, the
-  GitHub step summary, and `report.md` — so an honest abstention reads as a
-  scoping answer rather than a dead end. `.well-known/agents-shipgate.json`
-  publishes both URLs.
+  Every `insufficient_evidence` verdict now links to it — in `scan` stdout,
+  `verify` stdout, the GitHub step summary, and `report.md` — so an honest
+  abstention reads as a scoping answer rather than a dead end.
+  `.well-known/agents-shipgate.json` publishes both URLs.
 
   `extraction_is_complete()` is now the one definition of "the adapter read
   this tool's contract with full confidence", shared by the semantic resolver,

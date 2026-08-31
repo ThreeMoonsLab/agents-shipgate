@@ -504,6 +504,7 @@ class ValidationAdapter:
             "Local agent-run and approval trace artifacts declared under "
             "`manifest.validation`."
         ),
+        manifest_section="validation",
         cells=(
             BoundaryCell(
                 shape="export_artifact",

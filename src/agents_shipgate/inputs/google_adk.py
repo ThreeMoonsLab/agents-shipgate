@@ -2208,6 +2208,7 @@ class GoogleADKAdapter:
             "Completeness is settled once per module, after the whole file is "
             "walked."
         ),
+        manifest_section="google_adk",
         cells=(
             BoundaryCell(
                 shape="export_artifact",

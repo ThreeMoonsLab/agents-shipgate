@@ -402,6 +402,7 @@ class OpenAIAPIAdapter:
             "Tool and assistant definition artifacts declared under "
             "`manifest.openai_api`, plus local run traces."
         ),
+        manifest_section="openai_api",
         cells=(
             BoundaryCell(
                 shape="export_artifact",

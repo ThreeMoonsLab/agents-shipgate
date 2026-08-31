@@ -1955,12 +1955,16 @@ the code moves here in the same commit or the build stops.
 
 _BOUNDARY_CEILING_NOTE = """\
 `ceiling` is the best `extraction_confidence` the route reaches, and `high` is
-the only value that leaves an action able to be pass-eligible: everything below
-it raises `low_confidence_tool`, and once low-confidence actions reach half the
-analysed surface the release verdict is `insufficient_evidence`. A ceiling is a
-ceiling, not a promise — an individual action can land lower, and effect,
-authority, identity, and binding evidence are judged separately and can withhold
-a pass from a route marked `proven` here.
+the only value that leaves an action able to be pass-eligible. Below it there is
+no tolerance to spend: an action that cannot be proven raises an
+`incomplete_surface` semantic gap, semantic gaps are zero-tolerance, and one of
+them is enough to withhold a verdict. A single action from a `low_confidence`
+route is therefore already a scan that cannot reach `passed` — the point is not
+how many you have.
+
+A ceiling is a ceiling, not a promise — an individual action can land lower, and
+effect, authority, identity, and binding evidence are judged separately and can
+withhold a pass from a route marked `proven` here.
 """
 
 _BOUNDARY_REMEDY = """\
@@ -2073,11 +2077,12 @@ def build_determinism_boundary_page() -> tuple[Path, str]:
         lines.append(f"| {source.label} (`{source.adapter}`) | " + " | ".join(cells) + " |")
     lines.extend(["", "## Getting a row to `proven`", "", _BOUNDARY_REMEDY, "## Per input", ""])
     for source in matrix.sources:
-        configured = (
-            "a `tool_sources[]` entry"
-            if source.configured_as == "tool_sources"
-            else f"the `{source.adapter}` manifest section"
-        )
+        routes = []
+        if "tool_sources" in source.configured_as:
+            routes.append(f"a `tool_sources[]` entry of type `{source.adapter}`")
+        if "manifest_section" in source.configured_as:
+            routes.append(f"the top-level `{source.manifest_section}:` manifest section")
+        configured = " or ".join(routes)
         lines.extend(
             [
                 f"### {source.label} — `{source.adapter}`",

@@ -8,11 +8,11 @@
   },
   "description": "What each built-in input can establish, per declaration shape: the extraction-confidence ceiling and what that ceiling means for a release verdict. Generated from agents_shipgate.inputs.coverage.build_boundary_matrix(). Do not edit by hand.",
   "outcomes": {
-    "low_confidence": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out.",
+    "low_confidence": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out.",
     "not_applicable": "No such declaration exists for this input.",
     "not_extracted": "Nothing enters the catalog, so no check runs on it and no verdict covers it. The scan records that it read and refused this, rather than reporting an empty surface.",
     "proven": "Extraction evidence is complete: an action from this route can be pass-eligible. Effect, authority, identity, and binding evidence are judged separately and can still withhold a pass.",
-    "set_unproven": "The action's own contract was read, but the set it belongs to was not established, so it raises `incomplete_surface` and can never be pass-eligible. The exclusion ledger records the unread remainder \u2014 the action is analysed; what stands beside it is not."
+    "set_unproven": "The action's own contract was read, but the set it belongs to was not established, so it raises `incomplete_surface` and can never be pass-eligible. One such action is already enough to withhold a verdict. The exclusion ledger records the unread remainder \u2014 the action is analysed; what stands beside it is not."
   },
   "schema_version": "shipgate.determinism_boundary/v1",
   "sources": [
@@ -97,11 +97,14 @@
             "wildcard_tools"
           ],
           "variant": null,
-          "verdict": "The action's own contract was read, but the set it belongs to was not established, so it raises `incomplete_surface` and can never be pass-eligible. The exclusion ledger records the unread remainder \u2014 the action is analysed; what stands beside it is not."
+          "verdict": "The action's own contract was read, but the set it belongs to was not established, so it raises `incomplete_surface` and can never be pass-eligible. One such action is already enough to withhold a verdict. The exclusion ledger records the unread remainder \u2014 the action is analysed; what stands beside it is not."
         }
       ],
-      "configured_as": "tool_sources",
+      "configured_as": [
+        "tool_sources"
+      ],
       "label": "MCP tool export",
+      "manifest_section": null,
       "reads": "A committed MCP `tools/list` response, or any file carrying the same `tools` array."
     },
     {
@@ -182,8 +185,11 @@
           "verdict": "No such declaration exists for this input."
         }
       ],
-      "configured_as": "tool_sources",
+      "configured_as": [
+        "tool_sources"
+      ],
       "label": "OpenAPI document",
+      "manifest_section": null,
       "reads": "An OpenAPI 3.x document; every operation becomes one action."
     },
     {
@@ -228,7 +234,7 @@
           "surface_complete": false,
           "surface_flags": [],
           "variant": null,
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
           "ceiling": null,
@@ -267,8 +273,11 @@
           "verdict": "Nothing enters the catalog, so no check runs on it and no verdict covers it. The scan records that it read and refused this, rather than reporting an empty surface."
         }
       ],
-      "configured_as": "tool_sources",
+      "configured_as": [
+        "tool_sources"
+      ],
       "label": "OpenAI Agents SDK (Python)",
+      "manifest_section": null,
       "reads": "Python modules parsed with `ast` and never imported."
     },
     {
@@ -356,7 +365,7 @@
           "surface_complete": false,
           "surface_flags": [],
           "variant": "agent config",
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
           "ceiling": "medium",
@@ -379,7 +388,7 @@
           "surface_complete": false,
           "surface_flags": [],
           "variant": null,
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
           "ceiling": "medium",
@@ -402,11 +411,15 @@
           "surface_complete": false,
           "surface_flags": [],
           "variant": null,
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         }
       ],
-      "configured_as": "tool_sources",
+      "configured_as": [
+        "tool_sources",
+        "manifest_section"
+      ],
       "label": "Google ADK",
+      "manifest_section": "google_adk",
       "reads": "ADK Python modules parsed with `ast`, agent config files, and any reviewed inventory `google_adk.tool_inventories[]` declares. Completeness is settled once per module, after the whole file is walked."
     },
     {
@@ -454,7 +467,7 @@
           "surface_complete": false,
           "surface_flags": [],
           "variant": null,
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
           "ceiling": null,
@@ -493,8 +506,12 @@
           "verdict": "Nothing enters the catalog, so no check runs on it and no verdict covers it. The scan records that it read and refused this, rather than reporting an empty surface."
         }
       ],
-      "configured_as": "tool_sources",
+      "configured_as": [
+        "tool_sources",
+        "manifest_section"
+      ],
       "label": "LangChain / LangGraph",
+      "manifest_section": "langchain",
       "reads": "LangChain and LangGraph Python modules parsed with `ast`, plus any reviewed inventory `langchain.tool_inventories[]` declares."
     },
     {
@@ -542,7 +559,7 @@
           "surface_complete": false,
           "surface_flags": [],
           "variant": null,
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
           "ceiling": "low",
@@ -565,7 +582,7 @@
           "surface_complete": false,
           "surface_flags": [],
           "variant": null,
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
           "ceiling": null,
@@ -586,8 +603,12 @@
           "verdict": "Nothing enters the catalog, so no check runs on it and no verdict covers it. The scan records that it read and refused this, rather than reporting an empty surface."
         }
       ],
-      "configured_as": "tool_sources",
+      "configured_as": [
+        "tool_sources",
+        "manifest_section"
+      ],
       "label": "CrewAI",
+      "manifest_section": "crewai",
       "reads": "CrewAI Python modules parsed with `ast`, plus any reviewed inventory `crewai.tool_inventories[]` declares."
     },
     {
@@ -639,7 +660,7 @@
           "surface_complete": true,
           "surface_flags": [],
           "variant": null,
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
           "ceiling": null,
@@ -682,11 +703,14 @@
             "wildcard_tools"
           ],
           "variant": null,
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         }
       ],
-      "configured_as": "manifest_section",
+      "configured_as": [
+        "manifest_section"
+      ],
       "label": "n8n workflows",
+      "manifest_section": "n8n",
       "reads": "n8n workflow JSON exports, stubs, and reviewed inventories declared under `manifest.n8n`."
     },
     {
@@ -731,7 +755,7 @@
           "surface_complete": true,
           "surface_flags": [],
           "variant": null,
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
           "ceiling": null,
@@ -770,8 +794,11 @@
           "verdict": "Nothing enters the catalog, so no check runs on it and no verdict covers it. The scan records that it read and refused this, rather than reporting an empty surface."
         }
       ],
-      "configured_as": "tool_sources",
+      "configured_as": [
+        "tool_sources"
+      ],
       "label": "Conductor OSS workflows",
+      "manifest_section": null,
       "reads": "Conductor workflow definition JSON."
     },
     {
@@ -852,8 +879,11 @@
           "verdict": "No such declaration exists for this input."
         }
       ],
-      "configured_as": "manifest_section",
+      "configured_as": [
+        "manifest_section"
+      ],
       "label": "OpenAI API artifacts",
+      "manifest_section": "openai_api",
       "reads": "Tool and assistant definition artifacts declared under `manifest.openai_api`, plus local run traces."
     },
     {
@@ -934,8 +964,11 @@
           "verdict": "No such declaration exists for this input."
         }
       ],
-      "configured_as": "manifest_section",
+      "configured_as": [
+        "manifest_section"
+      ],
       "label": "Anthropic Messages API artifacts",
+      "manifest_section": "anthropic",
       "reads": "Tool definitions, system prompts, and client-tool declarations declared under `manifest.anthropic`."
     },
     {
@@ -1002,7 +1035,7 @@
             "mcp_unknown_schema"
           ],
           "variant": "tool without a schema",
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
           "ceiling": null,
@@ -1047,11 +1080,14 @@
             "mcp_unknown_schema"
           ],
           "variant": null,
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         }
       ],
-      "configured_as": "tool_sources",
+      "configured_as": [
+        "tool_sources"
+      ],
       "label": "Codex / MCP host config",
+      "manifest_section": null,
       "reads": "`.mcp.json`, `.codex/config.toml`, and the other host MCP config files under the root a `tool_sources[]` entry names \u2014 including the servers a plugin block declares."
     },
     {
@@ -1132,8 +1168,12 @@
           "verdict": "Nothing enters the catalog, so no check runs on it and no verdict covers it. The scan records that it read and refused this, rather than reporting an empty surface."
         }
       ],
-      "configured_as": "tool_sources",
+      "configured_as": [
+        "tool_sources",
+        "manifest_section"
+      ],
       "label": "Codex plugin package / marketplace",
+      "manifest_section": "codex_plugins",
       "reads": "Plugin manifests, marketplace indexes, and the skills, apps, hooks, MCP server stubs, and MCP inventories a plugin ships."
     },
     {
@@ -1212,8 +1252,11 @@
           "verdict": "No such declaration exists for this input."
         }
       ],
-      "configured_as": "manifest_section",
+      "configured_as": [
+        "manifest_section"
+      ],
       "label": "Validation traces",
+      "manifest_section": "validation",
       "reads": "Local agent-run and approval trace artifacts declared under `manifest.validation`."
     }
   ],

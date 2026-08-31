@@ -46,15 +46,13 @@ from agents_shipgate.core.domain import SURFACE_ENUMERATED, Tool
 from agents_shipgate.core.semantic_assessment import (
     AST_ONLY_SOURCE_TYPES,
     MCP_SOURCE_TYPES,
+    SURFACE_INCOMPLETE_ANNOTATIONS,
     extraction_is_complete,
     surface_is_complete,
 )
 from agents_shipgate.core.surface_exclusions import exclusion_phrase
 from agents_shipgate.schemas.common import Confidence
-from agents_shipgate.schemas.manifest.tool_sources import (
-    BUILTIN_PER_SCAN_ONLY_TOOL_SOURCE_TYPES,
-    BUILTIN_TOOL_SOURCE_TYPES,
-)
+from agents_shipgate.schemas.manifest.tool_sources import BUILTIN_TOOL_SOURCE_TYPES
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from agents_shipgate.inputs.protocol import AdapterRegistry
@@ -105,6 +103,13 @@ DECLARATION_SHAPE_DEFINITIONS: dict[DeclarationShape, str] = {
 
 #: What a cell says happened to this shape.
 CellStatus = Literal["extracted", "not_extracted", "not_applicable"]
+
+#: How a manifest asks for an input. Not exclusive: every ``per_scan`` framework
+#: adapter answers to *both*, and only the section route reaches the top-level
+#: keys — ``tool_inventories[]`` among them, which is the one way most of these
+#: inputs reach a ``proven`` row. Publishing only the ``tool_sources[]`` half
+#: sent that reader looking for a key the page never named (#473 review).
+ConfigurationRoute = Literal["tool_sources", "manifest_section"]
 
 #: The ``extraction["surface"]`` evidence an adapter writes for a shape.
 #: ``None`` means the adapter writes no answer at all, which every consumer
@@ -169,6 +174,9 @@ class BoundaryCell(BaseModel):
     surface: SurfaceEvidence | None = None
     #: ``Tool.annotations`` keys this route sets to ``True`` that bear on
     #: surface completeness (``wildcard_tools``, ``mcp_unknown_schema``, …).
+    #: Checked against the set the engine reads: a key it ignores is inert on
+    #: the probe, and inert reads as "surface complete", so a typo would
+    #: publish ``proven`` for exactly the routes that prove nothing.
     surface_flags: tuple[str, ...] = ()
 
     @model_validator(mode="after")
@@ -188,6 +196,14 @@ class BoundaryCell(BaseModel):
             raise ValueError(
                 f"{self.shape}: surface evidence is written onto a tool, so a "
                 f"{self.status} route cannot declare it"
+            )
+        unknown_flags = sorted(set(self.surface_flags) - SURFACE_INCOMPLETE_ANNOTATIONS)
+        if unknown_flags:
+            raise ValueError(
+                f"{self.shape}: surface flags {unknown_flags} are not read by "
+                "the engine's completeness predicate, so declaring them would "
+                "publish an outcome they cannot produce; expected one of "
+                f"{sorted(SURFACE_INCOMPLETE_ANNOTATIONS)}"
             )
         for source_type in self.emits:
             if self.surface is not None and source_type not in AST_ONLY_SOURCE_TYPES:
@@ -245,7 +261,35 @@ class SourceCoverage(BaseModel):
     label: str
     #: What the adapter reads at all. One sentence.
     reads: str
+    #: The top-level ``shipgate.yaml`` key this input also runs from, when it
+    #: has one. Declared rather than derived because it is not the adapter's
+    #: own name for three of them (``anthropic_api`` reads ``anthropic``,
+    #: ``codex_plugin`` reads ``codex_plugins``), and validated against the
+    #: manifest model so a renamed section cannot leave the page naming a key
+    #: nobody can write. ``None`` for an input configured only through
+    #: ``tool_sources[]`` — including ``conductor``, which is per-scan and
+    #: still has no section of its own.
+    manifest_section: str | None = None
     cells: tuple[BoundaryCell, ...]
+
+    @model_validator(mode="after")
+    def validate_manifest_section_exists(self) -> SourceCoverage:
+        from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+
+        section = self.manifest_section
+        if section is not None and section not in AgentsShipgateManifest.model_fields:
+            raise ValueError(
+                f"{self.adapter}: manifest section {section!r} is not a field on "
+                "AgentsShipgateManifest, so the page would name a key nobody "
+                "can write"
+            )
+        if section is None and self.adapter not in BUILTIN_TOOL_SOURCE_TYPES:
+            raise ValueError(
+                f"{self.adapter}: an input that may not appear in "
+                "`tool_sources[]` must name the manifest section it runs from, "
+                "or the page describes an input no manifest can ask for"
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_every_shape_answered(self) -> SourceCoverage:
@@ -275,6 +319,16 @@ class SourceCoverage(BaseModel):
 #: What each outcome means for a release verdict. A closed mapping, keyed by an
 #: outcome that is itself derived from the engine's predicates, so no sentence
 #: here can describe a state the predicates did not reach.
+#:
+#: The threshold these sentences name is the one that actually binds. A first
+#: draft said ``insufficient_evidence`` arrives once low-confidence actions
+#: reach half the analysed surface — the ``_LOW_CONFIDENCE_TOOL_RATIO`` clause
+#: of :func:`~agents_shipgate.ci.release_decision.evidence_below_ie_threshold`.
+#: That clause is real and it is never the one that fires first: every action
+#: below ``high`` also raises an ``incomplete_surface`` semantic issue, and the
+#: predicate's *first* clause treats ``semantic_coverage.gap_count > 0`` as
+#: sufficient on its own. Publishing the ratio would have told an adopter with
+#: one medium action in ten that they were under the bar.
 CELL_OUTCOME_VERDICTS: dict[CellOutcome, str] = {
     "not_applicable": "No such declaration exists for this input.",
     "not_extracted": (
@@ -290,15 +344,17 @@ CELL_OUTCOME_VERDICTS: dict[CellOutcome, str] = {
     "set_unproven": (
         "The action's own contract was read, but the set it belongs to was not "
         "established, so it raises `incomplete_surface` and can never be "
-        "pass-eligible. The exclusion ledger records the unread remainder — "
-        "the action is analysed; what stands beside it is not."
+        "pass-eligible. One such action is already enough to withhold a "
+        "verdict. The exclusion ledger records the unread remainder — the "
+        "action is analysed; what stands beside it is not."
     ),
     "low_confidence": (
         "Every action from this route raises `low_confidence_tool` and "
         "`incomplete_surface`, so none of them can be pass-eligible, and the "
-        "exclusion ledger records what was not established. Once low-confidence "
-        "actions reach half the analysed surface, the verdict is "
-        "`insufficient_evidence`. A reviewed tool inventory is the route out."
+        "exclusion ledger records what was not established. Semantic evidence "
+        "gaps are zero-tolerance, so **one** such action is already enough to "
+        "put the run below the evidence threshold and withhold a verdict. A "
+        "reviewed tool inventory is the route out."
     ),
 }
 
@@ -344,8 +400,11 @@ class ResolvedSource(BaseModel):
     adapter: str
     label: str
     reads: str
-    #: Derived — how a manifest asks for this input.
-    configured_as: Literal["tool_sources", "manifest_section"]
+    #: Derived — every way a manifest can ask for this input, in the order a
+    #: reader should try them.
+    configured_as: tuple[ConfigurationRoute, ...]
+    #: The top-level manifest key, when the input has one.
+    manifest_section: str | None
     cells: tuple[ResolvedCell, ...]
 
 
@@ -455,17 +514,29 @@ def _resolve_cell(cell: BoundaryCell) -> ResolvedCell:
     )
 
 
-def _configured_as(adapter: str) -> Literal["tool_sources", "manifest_section"]:
-    if adapter in BUILTIN_TOOL_SOURCE_TYPES:
-        return "tool_sources"
-    if adapter in BUILTIN_PER_SCAN_ONLY_TOOL_SOURCE_TYPES:
-        return "manifest_section"
-    raise BoundaryCoverageError(
-        f"adapter {adapter!r} is registered but appears in neither "
-        "BUILTIN_TOOL_SOURCE_TYPES nor "
-        "BUILTIN_PER_SCAN_ONLY_TOOL_SOURCE_TYPES, so the page cannot say how "
-        "a manifest asks for it"
-    )
+def _configured_as(coverage: SourceCoverage) -> tuple[ConfigurationRoute, ...]:
+    """Every way a manifest can ask for this input.
+
+    Two facts, not one. ``BUILTIN_TOOL_SOURCE_TYPES`` says whether the input may
+    appear in ``tool_sources[]``; ``manifest_section`` says whether it also runs
+    from a top-level key, which is where ``tool_inventories[]`` lives. Reading
+    only the first published "a `tool_sources[]` entry" for Google ADK beside a
+    sentence naming ``google_adk.tool_inventories[]`` — a key reachable only
+    through the route the page had just omitted. Reading ``scope`` instead is
+    the near-miss: ``conductor`` is ``per_scan`` and has no section at all.
+    """
+
+    routes: list[ConfigurationRoute] = []
+    if coverage.adapter in BUILTIN_TOOL_SOURCE_TYPES:
+        routes.append("tool_sources")
+    if coverage.manifest_section is not None:
+        routes.append("manifest_section")
+    if not routes:  # pragma: no cover - SourceCoverage forbids it
+        raise BoundaryCoverageError(
+            f"adapter {coverage.adapter!r} publishes no way for a manifest to "
+            "ask for it"
+        )
+    return tuple(routes)
 
 
 def build_boundary_matrix(registry: AdapterRegistry | None = None) -> BoundaryMatrix:
@@ -513,7 +584,8 @@ def build_boundary_matrix(registry: AdapterRegistry | None = None) -> BoundaryMa
                 adapter=coverage.adapter,
                 label=coverage.label,
                 reads=coverage.reads,
-                configured_as=_configured_as(coverage.adapter),
+                manifest_section=coverage.manifest_section,
+                configured_as=_configured_as(coverage),
                 cells=cells,
             )
         )
@@ -551,6 +623,7 @@ __all__ = [
     "CELL_OUTCOME_VERDICTS",
     "CellOutcome",
     "CellStatus",
+    "ConfigurationRoute",
     "DeclarationShape",
     "ResolvedCell",
     "ResolvedSource",

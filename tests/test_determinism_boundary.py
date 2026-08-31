@@ -17,6 +17,7 @@ Three obligations, and they are different from each other:
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 from typing import Any, ClassVar, Literal
@@ -153,7 +154,9 @@ def test_a_ceiling_vocabulary_token_without_a_route_breaks_generation(monkeypatc
 def test_coverage_must_answer_every_declaration_shape():
     with pytest.raises(ValueError) as excinfo:
         SourceCoverage(
-            adapter="partial",
+            # A `tool_sources[]`-configurable name, so the shape rule is the
+            # one under test rather than the manifest-section rule.
+            adapter="mcp",
             label="Partial",
             reads="Something.",
             cells=(
@@ -166,7 +169,7 @@ def test_coverage_must_answer_every_declaration_shape():
 def test_two_routes_through_one_shape_must_name_themselves():
     with pytest.raises(ValueError) as excinfo:
         SourceCoverage(
-            adapter="ambiguous",
+            adapter="openapi",
             label="Ambiguous",
             reads="Something.",
             cells=tuple(
@@ -189,6 +192,99 @@ def test_a_source_code_route_cannot_publish_high_without_proving_the_surface():
             ceiling="high",
         )
     assert "caps it below high" in str(excinfo.value)
+
+
+def test_a_route_cannot_claim_a_surface_flag_the_engine_ignores():
+    """Negative control for the fail-open direction of `surface_flags`.
+
+    A flag the completeness predicate does not read is inert on the probe, and
+    inert reads as "surface complete" — so a typo would publish `proven` for
+    exactly the routes that prove nothing.
+    """
+
+    with pytest.raises(ValueError) as excinfo:
+        BoundaryCell(
+            shape="dynamic_construction",
+            status="extracted",
+            reads="A server naming no tools.",
+            emits=("codex_config_mcp",),
+            ceiling="medium",
+            surface_flags=("wildcard_tool",),
+        )
+    assert "not read by the engine's completeness predicate" in str(excinfo.value)
+
+
+def test_a_manifest_section_must_be_a_real_manifest_key():
+    """The section names differ from the adapter's own name for three inputs."""
+
+    with pytest.raises(ValueError) as excinfo:
+        SourceCoverage(
+            adapter="mcp",
+            label="MCP",
+            reads="Something.",
+            manifest_section="mcp_servers",
+            cells=tuple(
+                BoundaryCell(shape=shape, status="not_applicable", reads="x")
+                for shape in DECLARATION_SHAPE_ORDER
+            ),
+        )
+    assert "is not a field on AgentsShipgateManifest" in str(excinfo.value)
+
+
+def test_an_input_a_manifest_cannot_ask_for_is_refused():
+    with pytest.raises(ValueError) as excinfo:
+        SourceCoverage(
+            adapter="validation",
+            label="Validation traces",
+            reads="Something.",
+            cells=tuple(
+                BoundaryCell(shape=shape, status="not_applicable", reads="x")
+                for shape in DECLARATION_SHAPE_ORDER
+            ),
+        )
+    assert "must name the manifest section it runs from" in str(excinfo.value)
+
+
+def test_every_published_configuration_route_is_reachable():
+    """Both halves, per input — the `scope` shortcut gets `conductor` wrong.
+
+    `conductor` is a `per_scan` adapter with no manifest section of its own, so
+    deriving the section route from `scope` would publish a `conductor:` key
+    that `AgentsShipgateManifest` does not have.
+    """
+
+    from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+    from agents_shipgate.schemas.manifest.tool_sources import BUILTIN_TOOL_SOURCE_TYPES
+
+    for source in build_boundary_matrix().sources:
+        assert source.configured_as, source.adapter
+        assert ("tool_sources" in source.configured_as) == (
+            source.adapter in BUILTIN_TOOL_SOURCE_TYPES
+        ), source.adapter
+        assert ("manifest_section" in source.configured_as) == (
+            source.manifest_section is not None
+        ), source.adapter
+        if source.manifest_section is not None:
+            assert source.manifest_section in AgentsShipgateManifest.model_fields
+
+
+def test_the_published_threshold_is_the_one_that_binds():
+    """One action below `high` withholds a verdict; the 50% ratio never binds first.
+
+    `evidence_below_ie_threshold` is an OR whose first clause is
+    `semantic_coverage.gap_count > 0`, and every below-`high` action raises an
+    `incomplete_surface` semantic issue. Publishing the
+    `_LOW_CONFIDENCE_TOOL_RATIO` clause instead told an adopter with one medium
+    action in ten that they were under the bar.
+    """
+
+    from agents_shipgate.inputs.coverage import CELL_OUTCOME_VERDICTS
+
+    page = (REPO_ROOT / "docs" / "determinism-boundary.md").read_text(encoding="utf-8")
+    for outcome in ("low_confidence", "set_unproven"):
+        assert "half" not in CELL_OUTCOME_VERDICTS[outcome], outcome
+    assert "zero-tolerance" in page
+    assert "half the" not in page
 
 
 def test_a_contract_route_cannot_claim_surface_evidence_nobody_writes():
@@ -231,20 +327,30 @@ def test_generation_does_not_depend_on_installed_plugins():
 # --- committed equals generated ---------------------------------------------
 
 
+def _load_generator():
+    """Import the generator without putting ``scripts/`` on ``sys.path``.
+
+    The same helper ``tests/test_schema_roundtrip.py`` uses, and for the same
+    reason: an insert at position 0 outlives the test and shadows any module
+    sharing a name with a file in ``scripts/`` for the rest of the worker.
+    """
+
+    spec = importlib.util.spec_from_file_location(
+        "agents_shipgate_boundary_generator", REPO_ROOT / "scripts" / "generate_schemas.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 @pytest.mark.parametrize("name", ["determinism-boundary.md", "determinism-boundary.json"])
 def test_committed_boundary_matches_the_generator(name):
-    import sys
-
-    sys.path.insert(0, str(REPO_ROOT / "scripts"))
-    from generate_schemas import (  # noqa: PLC0415
-        build_determinism_boundary_matrix,
-        build_determinism_boundary_page,
-    )
-
+    generator = _load_generator()
     builder = (
-        build_determinism_boundary_page
+        generator.build_determinism_boundary_page
         if name.endswith(".md")
-        else build_determinism_boundary_matrix
+        else generator.build_determinism_boundary_matrix
     )
     target, content = builder()
     assert target.name == name

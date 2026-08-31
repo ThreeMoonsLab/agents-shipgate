@@ -30,7 +30,10 @@ from agents_shipgate.core.current_control import (
     CurrentControlUnavailable,
     read_current_control,
 )
-from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
+from agents_shipgate.core.disclaimers import (
+    DETERMINISM_BOUNDARY_REFERENCE,
+    STATIC_VERDICT_DISCLAIMER,
+)
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.report.summary_text import primary_evidence_remediation_text
@@ -525,6 +528,11 @@ def _emit_verify_stdout(
             for index, part in enumerate(remediation.splitlines() or [""]):
                 prefix = "Improve evidence: " if index == 0 else ""
                 typer.echo(f"{prefix}{single_line_text(part)}")
+            # The remediation names this repository's next step; this names the
+            # boundary that produced the abstention. `verify` is the command
+            # AGENTS.md sends coding agents and reviewers to for PR evidence,
+            # so it is the one surface that most needs the map (#473).
+            typer.echo(DETERMINISM_BOUNDARY_REFERENCE)
         typer.echo(f"Static-verdict boundary: {STATIC_VERDICT_DISCLAIMER}")
 
 

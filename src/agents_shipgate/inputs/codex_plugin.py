@@ -974,6 +974,7 @@ class CodexPluginAdapter:
             "Plugin manifests, marketplace indexes, and the skills, apps, hooks, "
             "MCP server stubs, and MCP inventories a plugin ships."
         ),
+        manifest_section="codex_plugins",
         cells=(
             BoundaryCell(
                 shape="export_artifact",

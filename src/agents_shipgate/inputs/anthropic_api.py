@@ -431,6 +431,7 @@ class AnthropicAPIAdapter:
             "Tool definitions, system prompts, and client-tool declarations "
             "declared under `manifest.anthropic`."
         ),
+        manifest_section="anthropic",
         cells=(
             BoundaryCell(
                 shape="export_artifact",

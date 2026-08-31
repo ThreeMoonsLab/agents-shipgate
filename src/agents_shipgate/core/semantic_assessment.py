@@ -2351,6 +2351,16 @@ def extraction_is_complete(tool: Tool) -> bool:
     return tool.extraction_confidence == "high"
 
 
+#: The ``Tool.annotations`` keys :func:`surface_is_complete` reads. Exported so
+#: a producer that *claims* one of them — the determinism boundary's coverage
+#: cells do — can be checked against the set that actually changes the answer.
+#: A misspelled flag is otherwise inert, and inert here means "the surface is
+#: complete", which is the fail-open direction (#473 review).
+SURFACE_INCOMPLETE_ANNOTATIONS: frozenset[str] = frozenset(
+    {"wildcard_tools", "mcp_wildcard_tools", "mcp_unknown_schema"}
+)
+
+
 def surface_is_complete(tool: Tool) -> bool:
     """Whether this tool's surface is known, not merely reported.
 
@@ -2368,10 +2378,8 @@ def surface_is_complete(tool: Tool) -> bool:
     their previous verdict and a newly unresolvable construct fails closed.
     """
 
-    if (
-        tool.annotations.get("wildcard_tools") is True
-        or tool.annotations.get("mcp_wildcard_tools") is True
-        or tool.annotations.get("mcp_unknown_schema") is True
+    if any(
+        tool.annotations.get(key) is True for key in SURFACE_INCOMPLETE_ANNOTATIONS
     ):
         return False
     if tool.source_type in AST_ONLY_SOURCE_TYPES:

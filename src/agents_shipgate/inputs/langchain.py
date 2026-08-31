@@ -369,6 +369,7 @@ class LangChainAdapter:
             "LangChain and LangGraph Python modules parsed with `ast`, plus any "
             "reviewed inventory `langchain.tool_inventories[]` declares."
         ),
+        manifest_section="langchain",
         cells=(
             BoundaryCell(
                 shape="export_artifact",

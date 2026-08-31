@@ -502,6 +502,7 @@ class CrewAIAdapter:
             "CrewAI Python modules parsed with `ast`, plus any reviewed inventory "
             "`crewai.tool_inventories[]` declares."
         ),
+        manifest_section="crewai",
         cells=(
             BoundaryCell(
                 shape="export_artifact",

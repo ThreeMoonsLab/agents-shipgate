@@ -33,18 +33,22 @@ Cut by *what the declaration names*, not by which framework it belongs to: a wil
 ## What each outcome means
 
 `ceiling` is the best `extraction_confidence` the route reaches, and `high` is
-the only value that leaves an action able to be pass-eligible: everything below
-it raises `low_confidence_tool`, and once low-confidence actions reach half the
-analysed surface the release verdict is `insufficient_evidence`. A ceiling is a
-ceiling, not a promise — an individual action can land lower, and effect,
-authority, identity, and binding evidence are judged separately and can withhold
-a pass from a route marked `proven` here.
+the only value that leaves an action able to be pass-eligible. Below it there is
+no tolerance to spend: an action that cannot be proven raises an
+`incomplete_surface` semantic gap, semantic gaps are zero-tolerance, and one of
+them is enough to withhold a verdict. A single action from a `low_confidence`
+route is therefore already a scan that cannot reach `passed` — the point is not
+how many you have.
+
+A ceiling is a ceiling, not a promise — an individual action can land lower, and
+effect, authority, identity, and binding evidence are judged separately and can
+withhold a pass from a route marked `proven` here.
 
 - **`not_applicable`** — No such declaration exists for this input.
 - **`not_extracted`** — Nothing enters the catalog, so no check runs on it and no verdict covers it. The scan records that it read and refused this, rather than reporting an empty surface.
 - **`proven`** — Extraction evidence is complete: an action from this route can be pass-eligible. Effect, authority, identity, and binding evidence are judged separately and can still withhold a pass.
-- **`set_unproven`** — The action's own contract was read, but the set it belongs to was not established, so it raises `incomplete_surface` and can never be pass-eligible. The exclusion ledger records the unread remainder — the action is analysed; what stands beside it is not.
-- **`low_confidence`** — Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out.
+- **`set_unproven`** — The action's own contract was read, but the set it belongs to was not established, so it raises `incomplete_surface` and can never be pass-eligible. One such action is already enough to withhold a verdict. The exclusion ledger records the unread remainder — the action is analysed; what stands beside it is not.
+- **`low_confidence`** — Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out.
 
 ## At a glance
 
@@ -84,7 +88,7 @@ declaration form at all.
 
 ### MCP tool export — `mcp`
 
-Configured as a `tool_sources[]` entry. A committed MCP `tools/list` response, or any file carrying the same `tools` array.
+Configured as a `tool_sources[]` entry of type `mcp`. A committed MCP `tools/list` response, or any file carrying the same `tools` array.
 
 | Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
 | --- | --- | --- | --- | --- | --- |
@@ -95,7 +99,7 @@ Configured as a `tool_sources[]` entry. A committed MCP `tools/list` response, o
 
 ### OpenAPI document — `openapi`
 
-Configured as a `tool_sources[]` entry. An OpenAPI 3.x document; every operation becomes one action.
+Configured as a `tool_sources[]` entry of type `openapi`. An OpenAPI 3.x document; every operation becomes one action.
 
 | Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
 | --- | --- | --- | --- | --- | --- |
@@ -106,7 +110,7 @@ Configured as a `tool_sources[]` entry. An OpenAPI 3.x document; every operation
 
 ### OpenAI Agents SDK (Python) — `openai_agents_sdk`
 
-Configured as a `tool_sources[]` entry. Python modules parsed with `ast` and never imported.
+Configured as a `tool_sources[]` entry of type `openai_agents_sdk`. Python modules parsed with `ast` and never imported.
 
 | Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
 | --- | --- | --- | --- | --- | --- |
@@ -117,7 +121,7 @@ Configured as a `tool_sources[]` entry. Python modules parsed with `ast` and nev
 
 ### Google ADK — `google_adk`
 
-Configured as a `tool_sources[]` entry. ADK Python modules parsed with `ast`, agent config files, and any reviewed inventory `google_adk.tool_inventories[]` declares. Completeness is settled once per module, after the whole file is walked.
+Configured as a `tool_sources[]` entry of type `google_adk` or the top-level `google_adk:` manifest section. ADK Python modules parsed with `ast`, agent config files, and any reviewed inventory `google_adk.tool_inventories[]` declares. Completeness is settled once per module, after the whole file is walked.
 
 | Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
 | --- | --- | --- | --- | --- | --- |
@@ -130,7 +134,7 @@ Configured as a `tool_sources[]` entry. ADK Python modules parsed with `ast`, ag
 
 ### LangChain / LangGraph — `langchain`
 
-Configured as a `tool_sources[]` entry. LangChain and LangGraph Python modules parsed with `ast`, plus any reviewed inventory `langchain.tool_inventories[]` declares.
+Configured as a `tool_sources[]` entry of type `langchain` or the top-level `langchain:` manifest section. LangChain and LangGraph Python modules parsed with `ast`, plus any reviewed inventory `langchain.tool_inventories[]` declares.
 
 | Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
 | --- | --- | --- | --- | --- | --- |
@@ -141,7 +145,7 @@ Configured as a `tool_sources[]` entry. LangChain and LangGraph Python modules p
 
 ### CrewAI — `crewai`
 
-Configured as a `tool_sources[]` entry. CrewAI Python modules parsed with `ast`, plus any reviewed inventory `crewai.tool_inventories[]` declares.
+Configured as a `tool_sources[]` entry of type `crewai` or the top-level `crewai:` manifest section. CrewAI Python modules parsed with `ast`, plus any reviewed inventory `crewai.tool_inventories[]` declares.
 
 | Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
 | --- | --- | --- | --- | --- | --- |
@@ -152,7 +156,7 @@ Configured as a `tool_sources[]` entry. CrewAI Python modules parsed with `ast`,
 
 ### n8n workflows — `n8n`
 
-Configured as the `n8n` manifest section. n8n workflow JSON exports, stubs, and reviewed inventories declared under `manifest.n8n`.
+Configured as the top-level `n8n:` manifest section. n8n workflow JSON exports, stubs, and reviewed inventories declared under `manifest.n8n`.
 
 | Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
 | --- | --- | --- | --- | --- | --- |
@@ -163,7 +167,7 @@ Configured as the `n8n` manifest section. n8n workflow JSON exports, stubs, and 
 
 ### Conductor OSS workflows — `conductor`
 
-Configured as a `tool_sources[]` entry. Conductor workflow definition JSON.
+Configured as a `tool_sources[]` entry of type `conductor`. Conductor workflow definition JSON.
 
 | Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
 | --- | --- | --- | --- | --- | --- |
@@ -174,7 +178,7 @@ Configured as a `tool_sources[]` entry. Conductor workflow definition JSON.
 
 ### OpenAI API artifacts — `openai_api`
 
-Configured as the `openai_api` manifest section. Tool and assistant definition artifacts declared under `manifest.openai_api`, plus local run traces.
+Configured as the top-level `openai_api:` manifest section. Tool and assistant definition artifacts declared under `manifest.openai_api`, plus local run traces.
 
 | Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
 | --- | --- | --- | --- | --- | --- |
@@ -185,7 +189,7 @@ Configured as the `openai_api` manifest section. Tool and assistant definition a
 
 ### Anthropic Messages API artifacts — `anthropic_api`
 
-Configured as the `anthropic_api` manifest section. Tool definitions, system prompts, and client-tool declarations declared under `manifest.anthropic`.
+Configured as the top-level `anthropic:` manifest section. Tool definitions, system prompts, and client-tool declarations declared under `manifest.anthropic`.
 
 | Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
 | --- | --- | --- | --- | --- | --- |
@@ -196,7 +200,7 @@ Configured as the `anthropic_api` manifest section. Tool definitions, system pro
 
 ### Codex / MCP host config — `codex_config`
 
-Configured as a `tool_sources[]` entry. `.mcp.json`, `.codex/config.toml`, and the other host MCP config files under the root a `tool_sources[]` entry names — including the servers a plugin block declares.
+Configured as a `tool_sources[]` entry of type `codex_config`. `.mcp.json`, `.codex/config.toml`, and the other host MCP config files under the root a `tool_sources[]` entry names — including the servers a plugin block declares.
 
 | Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
 | --- | --- | --- | --- | --- | --- |
@@ -208,7 +212,7 @@ Configured as a `tool_sources[]` entry. `.mcp.json`, `.codex/config.toml`, and t
 
 ### Codex plugin package / marketplace — `codex_plugin`
 
-Configured as a `tool_sources[]` entry. Plugin manifests, marketplace indexes, and the skills, apps, hooks, MCP server stubs, and MCP inventories a plugin ships.
+Configured as a `tool_sources[]` entry of type `codex_plugin` or the top-level `codex_plugins:` manifest section. Plugin manifests, marketplace indexes, and the skills, apps, hooks, MCP server stubs, and MCP inventories a plugin ships.
 
 | Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
 | --- | --- | --- | --- | --- | --- |
@@ -219,7 +223,7 @@ Configured as a `tool_sources[]` entry. Plugin manifests, marketplace indexes, a
 
 ### Validation traces — `validation`
 
-Configured as the `validation` manifest section. Local agent-run and approval trace artifacts declared under `manifest.validation`.
+Configured as the top-level `validation:` manifest section. Local agent-run and approval trace artifacts declared under `manifest.validation`.
 
 | Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps |
 | --- | --- | --- | --- | --- | --- |
