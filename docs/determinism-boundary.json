@@ -92,7 +92,9 @@
           "extraction_complete": true,
           "extraction_permits_pass": false,
           "outcome": "set_unproven",
-          "raises": [],
+          "raises": [
+            "SHIP-INVENTORY-WILDCARD-TOOLS"
+          ],
           "reads": "`wildcard: true` or `tools: \"*\"`: one synthetic `<source>.*` action stands in for a surface the file declines to name.",
           "shape": "dynamic_construction",
           "status": "extracted",
@@ -360,7 +362,9 @@
           "extraction_complete": true,
           "extraction_permits_pass": false,
           "outcome": "set_unproven",
-          "raises": [],
+          "raises": [
+            "SHIP-INVENTORY-WILDCARD-TOOLS"
+          ],
           "reads": "An inventory that declares `wildcard: true` instead of listing tools. It is a reviewed file and still names nothing, so it loads at `high` and proves no surface \u2014 a reviewed statement that says nothing is not evidence.",
           "shape": "export_artifact",
           "status": "extracted",
@@ -565,7 +569,9 @@
           "extraction_complete": true,
           "extraction_permits_pass": false,
           "outcome": "set_unproven",
-          "raises": [],
+          "raises": [
+            "SHIP-INVENTORY-WILDCARD-TOOLS"
+          ],
           "reads": "An inventory that declares `wildcard: true` instead of listing tools. It is a reviewed file and still names nothing, so it loads at `high` and proves no surface \u2014 a reviewed statement that says nothing is not evidence.",
           "shape": "export_artifact",
           "status": "extracted",
@@ -692,7 +698,9 @@
           "extraction_complete": true,
           "extraction_permits_pass": false,
           "outcome": "set_unproven",
-          "raises": [],
+          "raises": [
+            "SHIP-INVENTORY-WILDCARD-TOOLS"
+          ],
           "reads": "An inventory that declares `wildcard: true` instead of listing tools. It is a reviewed file and still names nothing, so it loads at `high` and proves no surface \u2014 a reviewed statement that says nothing is not evidence.",
           "shape": "export_artifact",
           "status": "extracted",
@@ -822,7 +830,9 @@
           "extraction_complete": true,
           "extraction_permits_pass": false,
           "outcome": "set_unproven",
-          "raises": [],
+          "raises": [
+            "SHIP-INVENTORY-WILDCARD-TOOLS"
+          ],
           "reads": "An inventory that declares `wildcard: true` instead of listing tools. It is a reviewed file and still names nothing, so it loads at `high` and proves no surface \u2014 a reviewed statement that says nothing is not evidence.",
           "shape": "export_artifact",
           "status": "extracted",
@@ -923,6 +933,7 @@
           "extraction_permits_pass": false,
           "outcome": "low_confidence",
           "raises": [
+            "SHIP-INVENTORY-WILDCARD-TOOLS",
             "SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED"
           ],
           "reads": "An MCP client node whose tool selection is `all`, `all_except`, or unreadable: one `<node>.*` action stands in for a selection the workflow does not enumerate.",
@@ -1352,7 +1363,9 @@
           "extraction_complete": false,
           "extraction_permits_pass": false,
           "outcome": "low_confidence",
-          "raises": [],
+          "raises": [
+            "SHIP-INVENTORY-WILDCARD-TOOLS"
+          ],
           "reads": "A server entry that names no tools at all: one synthetic `<server>.*` action stands in for a surface only the running server can name.",
           "shape": "dynamic_construction",
           "status": "extracted",
@@ -1413,7 +1426,9 @@
           "extraction_complete": true,
           "extraction_permits_pass": false,
           "outcome": "set_unproven",
-          "raises": [],
+          "raises": [
+            "SHIP-INVENTORY-WILDCARD-TOOLS"
+          ],
           "reads": "An inventory that declares `wildcard: true` instead of listing tools. It is a reviewed file and still names nothing, so it loads at `high` and proves no surface \u2014 a reviewed statement that says nothing is not evidence.",
           "shape": "export_artifact",
           "status": "extracted",

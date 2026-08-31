@@ -950,3 +950,37 @@ def test_the_remedy_never_denies_an_inventory_route_that_exists():
     )
     assert plugin.inventory_key is None
     assert _cell("codex_plugin", "export_artifact", "reviewed inventory").outcome == "proven"
+
+
+def test_every_wildcard_route_publishes_the_check_it_raises():
+    """Derived from the flag, so no wildcard cell can forget it.
+
+    `checks.inventory` raises `SHIP-INVENTORY-WILDCARD-TOOLS` on *any* tool
+    annotated `wildcard_tools`. Declaring that per cell would be a second table
+    for a relationship the engine already owns, and the cell that forgot it
+    would be the one that mattered.
+    """
+
+    from agents_shipgate.inputs.coverage import WILDCARD_TOOLS_CHECK
+
+    wildcard_cells = [
+        (source.adapter, cell)
+        for source in build_boundary_matrix().sources
+        for cell in source.cells
+        if "wildcard_tools" in cell.surface_flags
+    ]
+    assert len(wildcard_cells) >= 8, "the wildcard routes went missing"
+    for adapter, cell in wildcard_cells:
+        assert WILDCARD_TOOLS_CHECK in cell.raises, (adapter, cell.shape, cell.variant)
+        # And it never claims a pass, which is the pairing that makes the row
+        # actionable: a wildcard both fails to prove a surface and raises HIGH.
+        assert cell.extraction_permits_pass is False, (adapter, cell.variant)
+
+
+def test_the_derived_wildcard_check_is_a_real_check():
+    from agents_shipgate.checks.registry import check_catalog
+    from agents_shipgate.inputs.coverage import WILDCARD_TOOLS_CHECK
+
+    assert WILDCARD_TOOLS_CHECK in {
+        check.id for check in check_catalog(plugins_enabled=False)
+    }

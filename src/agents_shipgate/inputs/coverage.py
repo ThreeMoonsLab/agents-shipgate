@@ -123,6 +123,14 @@ ManifestSectionRole = Literal["activates", "supplements"]
 #: reads as incomplete — absence is not ``partial`` with extra steps.
 SurfaceEvidence = Literal["enumerated", "partial"]
 
+#: The check every wildcard action raises, whatever declared it. Derived from
+#: ``surface_flags`` rather than declared on each of the eight cells that carry
+#: the flag: ``checks.inventory`` fires it on *any* tool annotated
+#: ``wildcard_tools``, so restating it per cell would be a second table for a
+#: relationship the engine already owns — and the cell that forgot it would be
+#: the one that mattered.
+WILDCARD_TOOLS_CHECK = "SHIP-INVENTORY-WILDCARD-TOOLS"
+
 #: What a route amounts to, derived from the engine's answer about it. Five
 #: values, so the long sentence explaining each is written once on the page and
 #: every cell points at it rather than restating it in its own words.
@@ -188,7 +196,8 @@ class BoundaryCell(BaseModel):
     #: Check IDs this route feeds directly, including where it contributes no
     #: action at all. Not a complete list of every finding an action from this
     #: route might eventually attract — those depend on the action, not the
-    #: declaration shape.
+    #: declaration shape. Declared here only where the link is not derivable;
+    #: ``WILDCARD_TOOLS_CHECK`` is added from ``surface_flags`` instead.
     #: "Nothing enters the catalog" is not "nothing is seen": a dynamic
     #: Conductor `CALL_MCP_TOOL` emits no `Tool` and still raises a HIGH
     #: `SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE`, which withholds
@@ -547,6 +556,10 @@ def _resolve_cell(cell: BoundaryCell) -> ResolvedCell:
             # ledger contradicts on the same run.
             exclusion_reason = "surface_not_enumerated"
 
+    raises = set(cell.raises)
+    if "wildcard_tools" in cell.surface_flags:
+        raises.add(WILDCARD_TOOLS_CHECK)
+
     outcome = _cell_outcome(
         status=cell.status,
         extraction_complete=extraction_complete,
@@ -561,7 +574,7 @@ def _resolve_cell(cell: BoundaryCell) -> ResolvedCell:
         ceiling=cell.ceiling,
         surface=cell.surface,
         surface_flags=cell.surface_flags,
-        raises=cell.raises,
+        raises=tuple(sorted(raises)),
         extraction_complete=extraction_complete,
         surface_complete=surface_complete,
         extraction_permits_pass=extraction_complete and surface_complete,
@@ -732,6 +745,7 @@ __all__ = [
     "CellOutcome",
     "CellStatus",
     "ConfigurationRoute",
+    "WILDCARD_TOOLS_CHECK",
     "ManifestSectionRole",
     "DeclarationShape",
     "ResolvedCell",
