@@ -463,3 +463,72 @@ def test_a_pinned_external_candidate_matches_the_sweep_that_recorded_it(
         # unknown.
         assert row["status"] == "pinned", f"{row['slot_id']} has recorded pins available"
         assert (row["pinned_base"], row["pinned_head"]) == pins, row["slot_id"]
+
+
+def _register_table_rows() -> dict[str, list[int]]:
+    """Every numeric register table row, keyed by its label cell.
+
+    The value is each integer in the rest of the row, in order, so a cell
+    reading ``29 (floor is 23)`` yields both numbers and both are checked.
+    """
+
+    rows: dict[str, list[int]] = {}
+    for line in REGISTER.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [cell.replace("`", "").strip() for cell in line.strip("|").split("|")]
+        numbers = [int(found) for cell in cells[1:] for found in re.findall(r"\d+", cell)]
+        if not numbers:
+            continue
+        # Two tables labeling a row the same way would make one of them
+        # unreachable, and the unchecked one is the one that goes stale.
+        assert cells[0] not in rows, f"the register labels two numeric rows {cells[0]!r}"
+        rows[cells[0]] = numbers
+    return rows
+
+
+def test_the_register_reports_the_plan_the_csv_actually_holds(
+    rows: list[dict[str, str]],
+) -> None:
+    """The prose reading and the plan are one fact with two spellings.
+
+    ``strata-inventory.md`` is what a corpus owner reads to decide where to
+    mine, and every number on it restates the CSV. Left unchecked, the first
+    edit that adds a candidate leaves the reading behind, and the next person
+    mines a cell the plan says is empty and the file says is full.
+    """
+
+    requirements = pre_release_safety_requirements()
+    sourced = [row for row in rows if row["status"] != "gap"]
+    qualifying = [row for row in rows if row["origin_class"] in QUALIFYING_ORIGINS]
+    synthetic = [row for row in rows if row["origin_class"] == "synthetic"]
+    holdout_eligible = [row for row in rows if row["split_eligibility"] == "either"]
+    total_cases = sum(stratum.count for stratum in requirements.required_strata)
+
+    totals = _register_table_rows()
+    assert totals["Slots with a candidate"] == [len(sourced), len(rows)]
+    assert totals["Gaps to mine or construct"] == [len(rows) - len(sourced)]
+    assert totals["Slots planned as a qualifying origin"] == [
+        len(qualifying),
+        requirements.minimum_qualified_origins,
+    ]
+    assert totals["…of those, already sourced"] == [
+        sum(1 for row in qualifying if row["status"] != "gap")
+    ]
+    assert totals["…of those, still to find"] == [
+        sum(1 for row in qualifying if row["status"] == "gap")
+    ]
+    assert totals["Slots planned as synthetic"] == [
+        len(synthetic),
+        total_cases - requirements.minimum_qualified_origins,
+    ]
+    assert totals["Slots that can be a cell's holdout case"] == [len(holdout_eligible)]
+
+    for group in ("profile", "target_decision"):
+        for name in {row[group] for row in rows}:
+            member = [row for row in rows if row[group] == name]
+            assert totals[name] == [
+                sum(1 for row in member if row["status"] != "gap"),
+                sum(1 for row in member if row["origin_class"] in QUALIFYING_ORIGINS),
+                sum(1 for row in member if row["status"] == "gap"),
+            ], f"the register's row for {name} disagrees with the CSV"

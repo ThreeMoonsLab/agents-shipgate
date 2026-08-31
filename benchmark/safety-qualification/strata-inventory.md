@@ -117,8 +117,18 @@ Per profile, of 8 slots each:
 | `multi_agent_handoffs` | 3 | 3 | 5 |
 | `n8n` | 1 | 2 | 7 |
 
-Per outcome, of 14 slots each: `passed` 12 sourced, `blocked` 6,
-`review_required` 6, `insufficient_evidence` 4.
+Per outcome, of 14 slots each:
+
+| Outcome | Sourced | Qualifying origin | Gaps |
+|---|---|---|---|
+| `passed` | 12 | 9 | 2 |
+| `review_required` | 6 | 8 | 8 |
+| `blocked` | 6 | 7 | 8 |
+| `insufficient_evidence` | 4 | 5 | 10 |
+
+Every number on this page is recomputed from the CSV by
+`tests/test_strata_inventory.py`, so the reading and the plan cannot drift
+apart.
 
 ### What the shape says
 
