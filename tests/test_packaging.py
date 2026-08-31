@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
 import sys
-import venv
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from email import message_from_bytes
 from pathlib import Path
 
@@ -61,23 +62,23 @@ def built_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="session")
-def installed_wheel_python(
+def installed_wheel_site(
     built_wheel: Path,
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Path:
-    """Install the built wheel without network access for replay smoke tests."""
+    """Install the built wheel into an isolated target without network access."""
 
-    root = tmp_path_factory.mktemp("installed-wheel") / "venv"
-    venv.EnvBuilder(with_pip=True, system_site_packages=True).create(root)
-    python = root / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    root = tmp_path_factory.mktemp("installed-wheel")
     subprocess.run(
         [
-            str(python),
+            sys.executable,
             "-m",
             "pip",
             "install",
             "--no-deps",
             "--force-reinstall",
+            "--target",
+            str(root),
             str(built_wheel),
         ],
         cwd=root,
@@ -85,7 +86,7 @@ def installed_wheel_python(
         capture_output=True,
         text=True,
     )
-    return python
+    return root
 
 
 def test_wheel_includes_adoption_kits(built_wheel: Path) -> None:
@@ -109,51 +110,79 @@ def test_wheel_includes_nested_sample_fixtures(built_wheel: Path) -> None:
         assert path in names
 
 
-@pytest.mark.parametrize(
-    ("name", "expected_output"),
-    [
-        ("agent_weakens_gate", "Merge verdict: blocked"),
-        ("governed_edits_governance", "Fixture expectation: expected-fail"),
-        (
-            "capability_change_rides_release",
-            "Merge verdict: human_review_required",
-        ),
-    ],
-)
 def test_installed_wheel_replays_incident_fixtures(
-    installed_wheel_python: Path,
+    installed_wheel_site: Path,
     tmp_path: Path,
-    name: str,
-    expected_output: str,
 ) -> None:
     """The three demos run from an installed artifact, not the source tree."""
 
     env = os.environ.copy()
-    env.pop("PYTHONPATH", None)
+    env["PYTHONPATH"] = str(installed_wheel_site)
     env["PYTHONNOUSERSITE"] = "1"
-    out = tmp_path / name
-    result = subprocess.run(
-        [
-            str(installed_wheel_python),
-            "-m",
-            "agents_shipgate",
-            "fixture",
-            "run",
-            name,
-            "--out",
-            str(out),
-        ],
-        cwd=tmp_path,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
+    fixtures = (
+        (
+            "agent_weakens_gate",
+            "Merge verdict: blocked",
+            "blocked",
+            "blocked",
+            "SHIP-VERIFY-CI-GATE-REMOVED",
+            True,
+        ),
+        (
+            "governed_edits_governance",
+            "Fixture expectation: expected-fail",
+            "mergeable",
+            "passed",
+            "SHIP-VERIFY-TRUST-ROOT-TOUCHED",
+            False,
+        ),
+        (
+            "capability_change_rides_release",
+            "Merge verdict: human_review_required",
+            "human_review_required",
+            "review_required",
+            "SHIP-VERIFY-TRUST-ROOT-TOUCHED",
+            True,
+        ),
     )
 
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert expected_output in result.stdout
-    assert (out / "verifier.json").is_file()
-    assert (out / "report.json").is_file()
+    def replay(
+        expectation: tuple[str, str, str, str, str, bool],
+    ) -> tuple[tuple[str, str, str, str, str, bool], Path, subprocess.CompletedProcess[str]]:
+        name = expectation[0]
+        out = tmp_path / name
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "agents_shipgate",
+                "fixture",
+                "run",
+                name,
+                "--out",
+                str(out),
+            ],
+            cwd=tmp_path,
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        return expectation, out, result
+
+    with ThreadPoolExecutor(max_workers=len(fixtures)) as executor:
+        results = list(executor.map(replay, fixtures))
+
+    for expectation, out, result in results:
+        name, expected_output, merge_verdict, decision, check_id, check_present = expectation
+        assert result.returncode == 0, f"{name}: {result.stdout}{result.stderr}"
+        assert expected_output in result.stdout
+        verifier = json.loads((out / "verifier.json").read_text(encoding="utf-8"))
+        report = json.loads((out / "report.json").read_text(encoding="utf-8"))
+        assert verifier["merge_verdict"] == merge_verdict
+        assert report["release_decision"]["decision"] == decision
+        check_ids = {finding["check_id"] for finding in report["findings"]}
+        assert (check_id in check_ids) is check_present
 
 
 def test_wheel_excludes_generated_shipgate_reports(built_wheel: Path) -> None:
