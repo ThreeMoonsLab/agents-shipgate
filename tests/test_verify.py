@@ -23,8 +23,13 @@ from agents_shipgate.cli.verify.pr_comment import render_pr_comment
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.trust_roots import PathIdentityIssue
+from agents_shipgate.report.human_order import (
+    HumanArtifactContext,
+    capability_delta_subject_rollup,
+)
 from agents_shipgate.report.json_report import report_json_payload
 from agents_shipgate.schemas.agent_control import HumanControlAction
+from agents_shipgate.schemas.bindings import BindingSurfaceDiff
 from agents_shipgate.schemas.capabilities import (
     CapabilityLockFileV1,
     CapabilityLockHashes,
@@ -38,6 +43,7 @@ from agents_shipgate.schemas.capability_change import (
     VerifierCapabilityDeltaSummary,
     VerifierSummary,
 )
+from agents_shipgate.schemas.common import SourceReference
 from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
 from agents_shipgate.schemas.patches import RemovePointerPatch
 from agents_shipgate.schemas.report import (
@@ -1063,8 +1069,11 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
     assert "Summary: This PR adds a refund action without approval evidence" in comment
     assert "- Release gate: `blocked`" in comment
     assert "- Reason: test decision" in comment
-    assert "- Capability delta: +1, 0 modified, -0" in comment
-    assert "`stripe.create_refund`: blocks release" in comment
+    assert (
+        "- Capability delta (analysed surface): "
+        "1 subject across 1 change (+1 added, 0 modified, -0 removed)" in comment
+    )
+    assert "`stripe.create_refund`: added action refund — blocks release" in comment
     assert "- Next actor: `human`" in comment
     assert "A human owner must confirm approval and idempotency evidence" in comment
     assert "- Trust root touched: `true`" in comment
@@ -1077,6 +1086,348 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
         '"verification_command": "agents-shipgate verify --base origin/main --head HEAD --json"'
         in comment
     )
+
+
+def test_capability_review_groups_one_bound_tool_without_changing_legacy_counts() -> None:
+    """One reader subject may still carry two stable machine change rows (#439)."""
+
+    report = _report(decision="review_required", exit_code=0)
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        added=[
+            CapabilityChangeMember(
+                id="cap-update-incident-action",
+                direction="added",
+                subject_kind="action",
+                tool="update_incident",
+                action="update_incident",
+                release_impact="review_required",
+                rationale="Capability added.",
+            ),
+            CapabilityChangeMember(
+                id="cap-update-incident-tool",
+                direction="added",
+                subject_kind="tool",
+                tool="update_incident",
+                release_impact="review_required",
+                rationale="Tool added.",
+            ),
+        ],
+    )
+
+    legacy_review = build_capability_review(report)
+    rollup = capability_delta_subject_rollup(report)
+    verifier = _capability_verifier(report, review=legacy_review)
+    comments = [
+        render_pr_comment(verifier, report=report),
+        render_pr_comment(verifier, report=report, style="findings"),
+        render_pr_comment(
+            verifier,
+            report=report,
+            human_context=HumanArtifactContext(manifest_introduced=True),
+        ),
+    ]
+
+    # ``verifier.json`` stays backward compatible: these are still two
+    # independently useful change rows and the published count remains two.
+    assert legacy_review.added == 2
+    assert {change.change_type for change in legacy_review.top_changes} == {
+        "action_added",
+        "tool_added",
+    }
+
+    # The schema-free human projection answers the reader's question instead:
+    # one thing changed, in two independently visible ways.
+    assert rollup.total_subjects == 1
+    assert rollup.added_subjects == 1
+    assert rollup.change_count == 2
+    assert len(rollup.subjects) == 1
+    assert rollup.subjects[0].subject == "update_incident"
+    assert rollup.subjects[0].change_types == ("action_added", "tool_added")
+    assert rollup.subjects[0].change_count == 2
+    for comment in comments:
+        human_summary = comment.split("### Agent instruction block", 1)[0]
+        assert "1 subject" in human_summary
+        assert "2 changes" in human_summary
+        normalized_summary = human_summary.replace("\\_", "_").lower()
+        assert normalized_summary.count("update_incident") == 1
+        assert "added action" in normalized_summary
+        assert "added tool" in normalized_summary
+
+
+def test_capability_delta_subject_rollup_preserves_overlapping_buckets() -> None:
+    """Grouping must not make an added-and-modified subject choose one fact."""
+
+    report = _report(decision="review_required", exit_code=0)
+    report.findings = [
+        Finding(
+            id="F-deploy-scope",
+            check_id="SHIP-TEST",
+            title="deployment scope changed",
+            severity="medium",
+            category="test",
+            recommendation="Review the scope change.",
+            source=SourceReference(
+                type="openapi",
+                path="tools.json",
+                start_line=42,
+            ),
+        )
+    ]
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        added=[
+            CapabilityChangeMember(
+                id="cap-deploy-tool",
+                direction="added",
+                subject_kind="tool",
+                tool="deploy_service",
+                release_impact="review_required",
+                rationale="Tool added.",
+            )
+        ],
+        broadened=[
+            CapabilityChangeMember(
+                id="cap-deploy-scope",
+                direction="broadened",
+                subject_kind="scope",
+                tool="deploy_service",
+                scope="production",
+                before_scope="staging",
+                after_scope="production",
+                release_impact="review_required",
+                rationale="Scope broadened.",
+                related_finding_ids=["F-deploy-scope"],
+            )
+        ],
+    )
+
+    rollup = capability_delta_subject_rollup(report)
+
+    assert rollup.total_subjects == 1
+    assert rollup.added_subjects == 1
+    assert rollup.modified_subjects == 1
+    assert rollup.removed_subjects == 0
+    assert rollup.change_count == 2
+    (subject,) = rollup.subjects
+    assert subject.subject == "deploy_service"
+    assert subject.change_types == ("tool_added", "scope_broadened")
+    assert subject.change_buckets == ("added", "modified")
+    assert subject.change_count == 2
+    assert len(subject.changes) == 2
+    assert any("added tool" in detail for detail in subject.changes)
+    assert any("broadened scope" in detail for detail in subject.changes)
+    assert [(source.path, source.start_line) for source in subject.sources] == [("tools.json", 42)]
+
+    # The legacy verifier subject is ``deploy_service:production`` while the
+    # human rollup subject is ``deploy_service``. Provenance is carried by the
+    # stable member/finding relation, not a lossy rendered-subject join.
+    verifier = _capability_verifier(report, review=build_capability_review(report))
+    comment = render_pr_comment(verifier, report=report)
+    assert "(tools.json:42)" in comment
+
+
+def test_capability_review_pr_comment_truncates_complete_ranked_subjects() -> None:
+    """The five-row budget ranks groups first and accounts for every hidden row."""
+
+    report = _report(decision="review_required", exit_code=0)
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        added=[
+            member
+            for subject in [*(f"a_tool_{index}" for index in range(6)), "z_blocking_tool"]
+            for member in (
+                CapabilityChangeMember(
+                    id=f"cap-{subject}-action",
+                    direction="added",
+                    subject_kind="action",
+                    tool=subject,
+                    action=subject,
+                    release_impact=(
+                        "blocks_release" if subject == "z_blocking_tool" else "informational"
+                    ),
+                    rationale="Capability added.",
+                ),
+                CapabilityChangeMember(
+                    id=f"cap-{subject}-tool",
+                    direction="added",
+                    subject_kind="tool",
+                    tool=subject,
+                    release_impact=(
+                        "blocks_release" if subject == "z_blocking_tool" else "informational"
+                    ),
+                    rationale="Tool added.",
+                ),
+            )
+        ],
+    )
+    verifier = _capability_verifier(report, review=build_capability_review(report))
+
+    human_summary = render_pr_comment(verifier, report=report).split(
+        "### Agent instruction block", 1
+    )[0]
+    normalized_summary = human_summary.replace("\\_", "_")
+
+    assert "7 subjects" in human_summary
+    assert "14 changes" in human_summary
+    assert "… and 2 more subjects (4 changes) not shown." in human_summary
+    # Ranking happens on complete subject groups, so the blocking z_* subject
+    # stays visible ahead of informational a_* subjects without losing a row.
+    assert normalized_summary.count("z_blocking_tool") == 1
+    for index in range(4):
+        assert normalized_summary.count(f"a_tool_{index}") == 1
+    assert "a_tool_4" not in normalized_summary
+    assert "a_tool_5" not in normalized_summary
+
+
+def test_capability_review_keeps_omitted_change_types_and_worst_detail_visible() -> None:
+    """A selected subject cannot hide a distinct change kind behind its row limit."""
+
+    report = _report(decision="review_required", exit_code=0)
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        added=[
+            CapabilityChangeMember(
+                id="cap-deploy-tool-added",
+                direction="added",
+                subject_kind="tool",
+                tool="deploy_service",
+                release_impact="informational",
+            ),
+            CapabilityChangeMember(
+                id="cap-deploy-action-added",
+                direction="added",
+                subject_kind="action",
+                tool="deploy_service",
+                action="deploy",
+                release_impact="review_required",
+            ),
+        ],
+        broadened=[
+            CapabilityChangeMember(
+                id="cap-deploy-scope-broadened",
+                direction="broadened",
+                subject_kind="scope",
+                tool="deploy_service",
+                scope="production",
+                release_impact="informational",
+            )
+        ],
+        narrowed=[
+            CapabilityChangeMember(
+                id="cap-deploy-policy-narrowed",
+                direction="narrowed",
+                subject_kind="policy",
+                tool="deploy_service",
+                action="approval",
+                release_impact="blocks_release",
+            )
+        ],
+        removed=[
+            CapabilityChangeMember(
+                id="cap-deploy-action-removed",
+                direction="removed",
+                subject_kind="action",
+                tool="deploy_service",
+                action="rollback",
+                release_impact="informational",
+            )
+        ],
+    )
+    verifier = _capability_verifier(report, review=build_capability_review(report))
+
+    comment = render_pr_comment(verifier, report=report).split("### Agent instruction block", 1)[0]
+
+    assert "narrowed policy approval — blocks release" in comment
+    assert "omitted change types: action removed" in comment
+    assert "… and 1 more change" in comment
+
+
+def test_capability_review_reports_requested_but_unavailable_comparison_as_unknown() -> None:
+    report = _report(decision="review_required", exit_code=0)
+    report.capability_change = CapabilityChangeBlock(enabled=False)
+    report.binding_surface_diff = BindingSurfaceDiff(
+        enabled=False,
+        base_comparison_requested=True,
+    )
+    verifier = _capability_verifier(report, review=build_capability_review(report))
+
+    comment = render_pr_comment(verifier, report=report)
+
+    assert "newly outside the analysed surface: unknown (comparison unavailable)" in comment
+    assert "0 subjects newly outside" not in comment
+
+
+def test_capability_review_preserves_adversarial_subject_identities_in_markdown() -> None:
+    subjects = ["`leading", "trailing`", " leading", "trailing ", " both "]
+    report = _report(decision="review_required", exit_code=0)
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        added=[
+            CapabilityChangeMember(
+                id=f"cap-identity-{index}",
+                direction="added",
+                subject_kind="tool",
+                tool=subject,
+            )
+            for index, subject in enumerate(subjects)
+        ],
+    )
+    verifier = _capability_verifier(report, review=build_capability_review(report))
+
+    comment = render_pr_comment(verifier, report=report).split("### Agent instruction block", 1)[0]
+
+    assert "`` `leading ``" in comment
+    assert "`` trailing` ``" in comment
+    assert "` leading`" in comment
+    assert "`trailing `" in comment
+    assert "`  both  `" in comment
+
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        added=[
+            CapabilityChangeMember(
+                id="cap-control-identity",
+                direction="added",
+                subject_kind="tool",
+                tool="line\nbreak",
+            )
+        ],
+    )
+    verifier = _capability_verifier(report, review=build_capability_review(report))
+    comment = render_pr_comment(verifier, report=report).split("### Agent instruction block", 1)[0]
+    assert "`line<U+000A>break`" in comment
+    assert "line\nbreak" not in comment
+
+
+def test_capability_delta_subject_rollup_builds_a_missing_legacy_block() -> None:
+    """Older in-memory callers still project the existing surface diff."""
+
+    report = _report(decision="review_required", exit_code=0)
+    report.capability_change = None
+    report.action_surface_diff = ActionSurfaceDiff(
+        enabled=True,
+        summary=ActionSurfaceDiffSummary(actions_added=1),
+        added=[
+            ActionSurfaceChange(
+                type="ACTION_ADDED",
+                action_id="refund",
+                tool_name="stripe.create_refund",
+                operation="create_refund",
+                severity="high",
+                reason="Action added: stripe.create_refund",
+            )
+        ],
+    )
+
+    rollup = capability_delta_subject_rollup(report)
+
+    assert rollup.enabled is True
+    assert rollup.total_subjects == 1
+    assert rollup.added_subjects == 1
+    assert rollup.change_count == 1
+    assert rollup.subjects[0].subject == "stripe.create_refund"
+    assert rollup.subjects[0].change_types == ("action_added",)
 
 
 def test_capability_review_pr_comment_preserves_valid_agent_json_when_compacted() -> None:
@@ -2643,6 +2994,32 @@ def _human_control(reason: str):
         ),
         human_review_required=True,
         unsafe_block=reason == "blocked",
+    )
+
+
+def _capability_verifier(
+    report: ReadinessReport,
+    *,
+    review: VerifierCapabilityReview,
+) -> VerifierArtifact:
+    """Minimal verifier envelope for PR-comment capability regressions."""
+
+    assert report.release_decision is not None
+    return VerifierArtifact(
+        workspace="/tmp/work",
+        diff_status=VerifierDiffStatus(),
+        config="shipgate.yaml",
+        authorization=AuthorizationEvaluationV1.not_requested(),
+        trigger={"rationale": "1 run_shipgate rule(s) matched."},
+        execution="succeeded",
+        head_status="succeeded",
+        release_decision=report.release_decision,
+        decision=report.release_decision.decision,
+        merge_verdict="human_review_required",
+        applicability="verified",
+        control=_human_control("review_required"),
+        capability_review=review,
+        artifacts={"verifier_json": "agents-shipgate-reports/verifier.json"},
     )
 
 

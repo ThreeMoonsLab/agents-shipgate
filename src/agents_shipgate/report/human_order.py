@@ -15,10 +15,17 @@ from typing import Literal
 from agents_shipgate.core.action_semantics import ACTION_EFFECT_RANK, effect_phrase
 from agents_shipgate.core.evidence_actions import display_literal
 from agents_shipgate.core.findings.subject_rollup import SubjectGroup, roll_up_findings
+from agents_shipgate.core.findings.verifier_blocks import build_capability_change
 from agents_shipgate.core.policy_reason_codes import is_adoption_evidence
-from agents_shipgate.schemas.capability_change import CapabilityChangeMember
+from agents_shipgate.schemas.capability_change import (
+    CapabilityChangeBlock,
+    CapabilityChangeDirection,
+    CapabilityChangeMember,
+)
+from agents_shipgate.schemas.common import SourceReference
 from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.report import ReadinessReport
+from agents_shipgate.schemas.text import has_visible_content
 
 
 @dataclass(frozen=True)
@@ -72,6 +79,99 @@ class SurfaceLead:
 class CapabilityDeltaSubject:
     subject: str
     changes: tuple[str, ...]
+
+
+CapabilityDeltaBucket = Literal["added", "modified", "removed"]
+CapabilityDeltaOutsideAnalysisStatus = Literal[
+    "not_requested",
+    "unavailable",
+    "complete",
+]
+
+_DIRECTION_TO_BUCKET: dict[CapabilityChangeDirection, CapabilityDeltaBucket] = {
+    "added": "added",
+    "broadened": "modified",
+    "narrowed": "modified",
+    "removed": "removed",
+}
+_CAPABILITY_IMPACT_ORDER = {
+    "blocks_release": 0,
+    "insufficient_evidence": 1,
+    "review_required": 2,
+    "informational": 3,
+    "none": 4,
+}
+_CAPABILITY_DIRECTION_ORDER: dict[CapabilityChangeDirection, int] = {
+    "added": 0,
+    "broadened": 1,
+    "narrowed": 2,
+    "removed": 3,
+}
+
+
+@dataclass(frozen=True)
+class CapabilityDeltaSubjectGroup:
+    """Every canonical capability-change row about one reader subject.
+
+    ``changes``, ``change_types``, and ``change_buckets`` are parallel tuples:
+    no row is discarded merely because another row names the same subject.
+    That is the distinction #439 needs — one added tool is one subject while
+    its tool-catalog and action-surface changes both remain visible.
+    """
+
+    subject: str
+    changes: tuple[str, ...]
+    change_types: tuple[str, ...]
+    change_buckets: tuple[CapabilityDeltaBucket, ...]
+    sources: tuple[CapabilityDeltaSource, ...]
+
+    @property
+    def change_count(self) -> int:
+        return len(self.changes)
+
+
+@dataclass(frozen=True)
+class CapabilityDeltaSource:
+    """One complete-report source retained for a grouped human row."""
+
+    path: str
+    start_line: int | None
+
+
+@dataclass(frozen=True)
+class CapabilityDeltaOutsideAnalysis:
+    """Base-relative subjects the binding graph left outside analysis.
+
+    This axis is deliberately not joined to the analysed subject groups.  A
+    tool can lose its binding and therefore be both removed from analysed
+    capability and newly outside analysis, and the two substrates use
+    different identities (display tool strings versus canonical tool ids).
+    """
+
+    status: CapabilityDeltaOutsideAnalysisStatus
+    newly_outside_subjects: int
+
+
+@dataclass(frozen=True)
+class CapabilityDeltaSubjectRollup:
+    """The complete subject-keyed human projection of ``capability_change``.
+
+    Directional counts are memberships, not a partition: one subject that is
+    both added and broadened counts once under ``added_subjects`` and once
+    under ``modified_subjects``, while ``total_subjects`` still counts it once.
+    Counts are computed before ``subject_limit`` is applied, so truncation can
+    always disclose exactly how many subjects it hid.
+    """
+
+    enabled: bool
+    total_subjects: int
+    added_subjects: int
+    modified_subjects: int
+    removed_subjects: int
+    change_count: int
+    subjects: tuple[CapabilityDeltaSubjectGroup, ...]
+    hidden_subjects: int
+    outside_analysis: CapabilityDeltaOutsideAnalysis
 
 
 @dataclass(frozen=True)
@@ -182,26 +282,229 @@ def surface_lead(report: ReadinessReport) -> SurfaceLead:
 def capability_delta_by_subject(
     report: ReadinessReport,
 ) -> list[CapabilityDeltaSubject]:
-    """The canonical capability delta grouped by the tool it changes."""
+    """Compatibility view of the canonical subject rollup.
 
-    change = report.capability_change
-    if change is None or not change.enabled:
-        return []
-    grouped: dict[str, list[str]] = defaultdict(list)
-    for member in (
+    Existing human surfaces consume only ``subject`` plus rendered ``changes``.
+    Keep that shape while deriving it from the structured projection so a
+    second grouping rule cannot drift from the PR-comment rollup.
+    """
+
+    return [
+        CapabilityDeltaSubject(
+            subject=group.subject,
+            changes=group.changes,
+        )
+        for group in capability_delta_subject_rollup(report).subjects
+    ]
+
+
+def capability_delta_subject_rollup(
+    report: ReadinessReport,
+    *,
+    subject_limit: int | None = None,
+) -> CapabilityDeltaSubjectRollup:
+    """Group every canonical change by reader subject, then optionally bound it.
+
+    The grouping happens over the complete ``capability_change`` member set;
+    ``subject_limit`` is applied only after groups and counts exist.  This is
+    the subject equivalent of ``project_top_findings``'s truncation contract:
+    duplicate rows for one subject never consume another subject's slot, and
+    hidden counts describe what was actually omitted rather than the nominal
+    limit.
+    """
+
+    outside_analysis = _outside_analysis_delta(report)
+    change = _capability_change_block(report)
+    if not change.enabled:
+        return CapabilityDeltaSubjectRollup(
+            enabled=False,
+            total_subjects=0,
+            added_subjects=0,
+            modified_subjects=0,
+            removed_subjects=0,
+            change_count=0,
+            subjects=(),
+            hidden_subjects=0,
+            outside_analysis=outside_analysis,
+        )
+
+    grouped: dict[str, list[CapabilityChangeMember]] = defaultdict(list)
+    labels: dict[str, str] = {}
+    bucket_subjects: dict[CapabilityDeltaBucket, set[str]] = {
+        "added": set(),
+        "modified": set(),
+        "removed": set(),
+    }
+    members = _capability_change_members(change)
+    source_by_finding_id = {
+        finding.id: finding.source
+        for finding in report.findings
+        if finding.id and finding.source is not None and finding.source.path
+    }
+    for member in members:
+        subject_key, subject_label = _capability_reader_subject(member)
+        grouped[subject_key].append(member)
+        labels.setdefault(subject_key, subject_label)
+        bucket_subjects[_DIRECTION_TO_BUCKET[member.direction]].add(subject_key)
+
+    all_subjects: list[CapabilityDeltaSubjectGroup] = []
+    for subject_key in sorted(
+        grouped,
+        key=lambda key: _capability_group_sort_key(key, grouped[key]),
+    ):
+        subject_members = sorted(grouped[subject_key], key=_capability_member_sort_key)
+        all_subjects.append(
+            CapabilityDeltaSubjectGroup(
+                subject=labels[subject_key],
+                changes=tuple(
+                    _delta_description(member, group_subject=subject_key)
+                    for member in subject_members
+                ),
+                change_types=tuple(_delta_change_type(member) for member in subject_members),
+                change_buckets=tuple(
+                    _DIRECTION_TO_BUCKET[member.direction] for member in subject_members
+                ),
+                sources=_capability_group_sources(
+                    subject_members,
+                    source_by_finding_id=source_by_finding_id,
+                ),
+            )
+        )
+    bounded_limit = len(all_subjects) if subject_limit is None else max(0, subject_limit)
+    shown_subjects = tuple(all_subjects[:bounded_limit])
+    return CapabilityDeltaSubjectRollup(
+        enabled=True,
+        total_subjects=len(all_subjects),
+        added_subjects=len(bucket_subjects["added"]),
+        modified_subjects=len(bucket_subjects["modified"]),
+        removed_subjects=len(bucket_subjects["removed"]),
+        change_count=len(members),
+        subjects=shown_subjects,
+        hidden_subjects=max(0, len(all_subjects) - len(shown_subjects)),
+        outside_analysis=outside_analysis,
+    )
+
+
+def _capability_change_block(report: ReadinessReport) -> CapabilityChangeBlock:
+    if report.capability_change is not None:
+        return report.capability_change
+    # Match ``build_capability_review`` for older/test callers that predate the
+    # canonical report block.  This remains a presentation projection: the
+    # shared builder reads existing surface diffs and introduces no decision.
+    return build_capability_change(report)
+
+
+def _capability_change_members(
+    change: CapabilityChangeBlock,
+) -> tuple[CapabilityChangeMember, ...]:
+    return (
         *change.added,
         *change.broadened,
         *change.narrowed,
         *change.removed,
-    ):
-        grouped[member.tool].append(_delta_description(member))
-    return [
-        CapabilityDeltaSubject(
-            subject=display_literal(subject),
-            changes=tuple(grouped[subject]),
+    )
+
+
+def _capability_group_sort_key(
+    subject_key: str,
+    members: list[CapabilityChangeMember],
+) -> tuple[int, int, str, str]:
+    """Keep the most consequential complete subject groups inside the limit."""
+
+    return (
+        min(_CAPABILITY_IMPACT_ORDER.get(member.release_impact, 99) for member in members),
+        min(_CAPABILITY_DIRECTION_ORDER.get(member.direction, 99) for member in members),
+        subject_key,
+        min(member.id for member in members),
+    )
+
+
+def _capability_member_sort_key(
+    member: CapabilityChangeMember,
+) -> tuple[int, int, str, str, str, str, str]:
+    """Keep each selected subject's highest-signal details visible first."""
+
+    return (
+        _CAPABILITY_IMPACT_ORDER.get(member.release_impact, 99),
+        _CAPABILITY_DIRECTION_ORDER.get(member.direction, 99),
+        member.subject_kind,
+        member.action or "",
+        member.scope or "",
+        member.tool,
+        member.id,
+    )
+
+
+def _capability_group_sources(
+    members: list[CapabilityChangeMember],
+    *,
+    source_by_finding_id: dict[str, SourceReference],
+) -> tuple[CapabilityDeltaSource, ...]:
+    """Retain provenance without depending on the truncated verifier projection."""
+
+    sources: list[CapabilityDeltaSource] = []
+    seen: set[tuple[str, int | None]] = set()
+    for member in members:
+        for finding_id in member.related_finding_ids:
+            source = source_by_finding_id.get(finding_id)
+            if source is None or not source.path:
+                continue
+            key = (source.path, source.start_line)
+            if key not in seen:
+                seen.add(key)
+                sources.append(
+                    CapabilityDeltaSource(
+                        path=display_literal(source.path),
+                        start_line=source.start_line,
+                    )
+                )
+            # Match the stable verifier projection: one source per change,
+            # chosen by the member's sorted related-finding ids.
+            break
+    return tuple(sources)
+
+
+def _capability_reader_subject(member: CapabilityChangeMember) -> tuple[str, str]:
+    """Stable group key plus a visible, injective display label.
+
+    ``tool`` is the reader's unit for ordinary changes: it intentionally folds
+    the tool-catalog and action-surface rows #439 observed.  A policy-drift row
+    may carry no tool at all, so fall through to its scope/action and finally
+    its stable member id instead of rendering an empty heading.
+    """
+
+    for candidate in (member.tool, member.scope, member.action, member.id):
+        if not isinstance(candidate, str):
+            continue
+        rendered = display_literal(candidate)
+        if has_visible_content(rendered):
+            return candidate, rendered
+    fallback = "unknown capability"
+    return fallback, fallback
+
+
+def _delta_change_type(member: CapabilityChangeMember) -> str:
+    return f"{member.subject_kind}_{member.direction}"
+
+
+def _outside_analysis_delta(
+    report: ReadinessReport,
+) -> CapabilityDeltaOutsideAnalysis:
+    diff = report.binding_surface_diff
+    if diff.enabled:
+        return CapabilityDeltaOutsideAnalysis(
+            status="complete",
+            newly_outside_subjects=len(set(diff.added_unbound_tool_ids)),
         )
-        for subject in sorted(grouped)
-    ]
+    if diff.base_comparison_requested:
+        return CapabilityDeltaOutsideAnalysis(
+            status="unavailable",
+            newly_outside_subjects=0,
+        )
+    return CapabilityDeltaOutsideAnalysis(
+        status="not_requested",
+        newly_outside_subjects=0,
+    )
 
 
 def cold_reader_lead(report: ReadinessReport) -> ColdReaderLead:
@@ -218,9 +521,22 @@ def cold_reader_lead(report: ReadinessReport) -> ColdReaderLead:
     )
 
 
-def _delta_description(member: CapabilityChangeMember) -> str:
-    target = display_literal(member.action or member.scope or member.tool)
-    detail = f"{member.direction} {member.subject_kind} {target}"
+def _delta_description(
+    member: CapabilityChangeMember,
+    *,
+    group_subject: str | None = None,
+) -> str:
+    target_value = next(
+        (
+            candidate
+            for candidate in (member.action, member.scope, member.tool, member.id)
+            if isinstance(candidate, str) and has_visible_content(candidate)
+        ),
+        "unknown capability",
+    )
+    detail = f"{member.direction} {member.subject_kind}"
+    if target_value != group_subject:
+        detail += f" {display_literal(target_value)}"
     if member.before_scope is not None or member.after_scope is not None:
         before = display_literal(member.before_scope or "none")
         after = display_literal(member.after_scope or "none")

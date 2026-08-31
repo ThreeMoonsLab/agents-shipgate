@@ -13,8 +13,9 @@ from agents_shipgate.report.capability_lock_diff_markdown import (
     render_capability_lock_diff_markdown,
 )
 from agents_shipgate.report.human_order import (
+    CapabilityDeltaSubjectRollup,
     HumanArtifactContext,
-    capability_delta_by_subject,
+    capability_delta_subject_rollup,
     should_render_surface_first,
     surface_lead,
 )
@@ -48,6 +49,8 @@ _COLD_READER_OMISSION = "- … additional capability detail omitted; see report.
 # surface however it is laid out.
 _COMMENT_SUBJECT_LIMIT = 4
 _COMMENT_ROW_LIMIT = 3
+_COMMENT_CAPABILITY_SUBJECT_LIMIT = 5
+_COMMENT_CAPABILITY_CHANGE_LIMIT = 4
 
 
 def render_pr_comment(
@@ -113,8 +116,29 @@ def _human_summary_lines(
     surface_first = bool(
         report is not None and should_render_surface_first(report, context=human_context)
     )
+    review = (
+        _capability_review(verifier, report)
+        if report is not None and report.release_decision is not None
+        else None
+    )
+    capability_lines = (
+        _capability_delta_lines(
+            capability_delta_subject_rollup(
+                report,
+                subject_limit=_COMMENT_CAPABILITY_SUBJECT_LIMIT,
+            ),
+            review=review,
+        )
+        if report is not None and review is not None
+        else []
+    )
     if surface_first and report is not None:
-        lines.extend(_cold_reader_lines(report))
+        lines.extend(
+            _cold_reader_lines(
+                report,
+                capability_lines=capability_lines,
+            )
+        )
     lines.append(f"- Merge verdict: `{verifier.merge_verdict}`")
     lines.append(f"- Can merge without human: `{str(verifier.can_merge_without_human).lower()}`")
     lines.append(f"- Agent control state: `{verifier.control.state}`")
@@ -147,12 +171,11 @@ def _human_summary_lines(
         return lines
 
     decision = report.release_decision
-    review = _capability_review(verifier, report)
+    assert review is not None
     lines.append(f"- Release gate: `{decision.decision}`")
     lines.append(f"- Reason: {_escape(decision.reason)}")
-    lines.append(
-        f"- Capability delta: +{review.added}, {review.modified} modified, -{review.removed}"
-    )
+    if not surface_first:
+        lines.extend(capability_lines)
     if capability_lock_diff is not None:
         summary = capability_lock_diff.summary
         lines.append(
@@ -179,17 +202,6 @@ def _human_summary_lines(
     )
     lines.append(f"- Static-verdict boundary: {_escape(STATIC_VERDICT_DISCLAIMER)}")
     lines.extend(_next_actor_lines(verifier))
-    if review.top_changes:
-        lines.append("- Top capability changes:")
-        for change in review.top_changes[:5]:
-            source = _source_suffix(change.source_path, change.source_start_line)
-            lines.append(
-                "  - "
-                f"`{change.subject}`: {_escape(_impact(change))}; "
-                f"{_escape(change.rationale)}{source}"
-            )
-    elif review.notes:
-        lines.append(f"- Capability delta note: {_escape(review.notes[0])}")
     if not surface_first:
         lines.extend(_subject_rollup_lines(report))
     if review.trust_root_touched or review.policy_weakened:
@@ -202,15 +214,98 @@ def _human_summary_lines(
     return lines
 
 
-def _cold_reader_lines(report: ReadinessReport) -> list[str]:
+def _capability_delta_lines(
+    rollup: CapabilityDeltaSubjectRollup,
+    *,
+    review: VerifierCapabilityReview,
+) -> list[str]:
+    """Render the question a reviewer asks: how many subjects changed?
+
+    The stable ``capability_review`` counts remain change-record counts for
+    existing machine consumers.  Human copy instead uses the complete
+    canonical report rollup, so a tool/action pair consumes one subject slot
+    while both changes remain visible (#439).  The binding-diff axis stays
+    separate: a subject newly outside analysis is not proven capability, but
+    reporting ``+0`` without naming that fact is equally misleading (#437).
+    """
+
+    if rollup.enabled:
+        subject_noun = "subject" if rollup.total_subjects == 1 else "subjects"
+        change_noun = "change" if rollup.change_count == 1 else "changes"
+        summary = (
+            "- Capability delta (analysed surface): "
+            f"{rollup.total_subjects} {subject_noun} across "
+            f"{rollup.change_count} {change_noun} "
+            f"(+{rollup.added_subjects} added, "
+            f"{rollup.modified_subjects} modified, "
+            f"-{rollup.removed_subjects} removed)"
+        )
+    else:
+        summary = "- Capability delta (analysed surface): unavailable"
+
+    outside = rollup.outside_analysis
+    if outside.status == "complete" and outside.newly_outside_subjects:
+        noun = "subject" if outside.newly_outside_subjects == 1 else "subjects"
+        summary += f"; {outside.newly_outside_subjects} {noun} newly outside the analysed surface"
+    elif outside.status == "unavailable":
+        summary += "; newly outside the analysed surface: unknown (comparison unavailable)"
+
+    lines = [summary]
+    if rollup.subjects:
+        lines.append("- Top capability changes by subject:")
+        for group in rollup.subjects:
+            shown_changes = group.changes[:_COMMENT_CAPABILITY_CHANGE_LIMIT]
+            detail = "; ".join(_escape(change) for change in shown_changes)
+            hidden_changes = group.change_count - len(shown_changes)
+            if hidden_changes:
+                shown_types = set(group.change_types[:_COMMENT_CAPABILITY_CHANGE_LIMIT])
+                omitted_types = tuple(
+                    dict.fromkeys(
+                        change_type
+                        for change_type in group.change_types[_COMMENT_CAPABILITY_CHANGE_LIMIT:]
+                        if change_type not in shown_types
+                    )
+                )
+                if omitted_types:
+                    labels = ", ".join(
+                        _capability_change_type_label(change_type) for change_type in omitted_types
+                    )
+                    detail += f"; omitted change types: {_escape(labels)}"
+                change_noun = "change" if hidden_changes == 1 else "changes"
+                detail += f"; … and {hidden_changes} more {change_noun}"
+            if group.sources:
+                source = group.sources[0]
+                detail += _source_suffix(
+                    source.path,
+                    source.start_line,
+                )
+                hidden_sources = len(group.sources) - 1
+                if hidden_sources:
+                    noun = "source" if hidden_sources == 1 else "sources"
+                    detail += f" (+{hidden_sources} more {noun})"
+            lines.append(f"  - {_identity_code(group.subject)}: {detail}")
+        if rollup.hidden_subjects:
+            shown_change_count = sum(group.change_count for group in rollup.subjects)
+            hidden_change_count = rollup.change_count - shown_change_count
+            subject_noun = "subject" if rollup.hidden_subjects == 1 else "subjects"
+            change_noun = "change" if hidden_change_count == 1 else "changes"
+            lines.append(
+                "  - … and "
+                f"{rollup.hidden_subjects} more {subject_noun} "
+                f"({hidden_change_count} {change_noun}) not shown."
+            )
+    elif review.notes:
+        lines.append(f"- Capability delta note: {_escape(review.notes[0])}")
+    return lines
+
+
+def _cold_reader_lines(
+    report: ReadinessReport,
+    *,
+    capability_lines: list[str] | None = None,
+) -> list[str]:
     lines = [f"- {_escape(line)}" for line in surface_lead(report).text_lines()]
-    groups = capability_delta_by_subject(report)
-    if groups:
-        lines.append("- Capability changes by subject:")
-        for group in groups:
-            lines.append(f"  - `{_escape(group.subject)}`")
-            for change in group.changes:
-                lines.append(f"    - {_escape(change)}")
+    lines.extend(capability_lines or [])
     lines.extend(_subject_rollup_lines(report))
     return _bounded_cold_reader_lines(lines)
 
@@ -400,6 +495,17 @@ def _render_findings_comment(
     surface_first = bool(
         report is not None and should_render_surface_first(report, context=human_context)
     )
+    capability_lines = (
+        _capability_delta_lines(
+            capability_delta_subject_rollup(
+                report,
+                subject_limit=_COMMENT_CAPABILITY_SUBJECT_LIMIT,
+            ),
+            review=verifier.capability_review,
+        )
+        if report is not None and report.release_decision is not None
+        else []
+    )
     title = (
         "## Agents Shipgate"
         if surface_first
@@ -407,7 +513,15 @@ def _render_findings_comment(
     )
     lines = [STICKY_MARKER, title]
     if surface_first and report is not None:
-        lines.extend(["", *_cold_reader_lines(report)])
+        lines.extend(
+            [
+                "",
+                *_cold_reader_lines(
+                    report,
+                    capability_lines=capability_lines,
+                ),
+            ]
+        )
     lines.extend(
         _verifier_lead(
             verifier,
@@ -453,6 +567,8 @@ def _render_findings_comment(
         surface = report.reviewer_summary.first_recommended_surface
         lines.append(f"Reviewer start: `{surface.name}` - {_escape(surface.why)}")
 
+    if not surface_first:
+        lines.extend(capability_lines)
     lines.extend(_diff_lines(report))
     groups = roll_up_findings(report)
     lines.append("")
@@ -760,6 +876,38 @@ def _table_cell(value: object) -> str:
 def _code(value: object) -> str:
     text = str(value or "").replace("`", "")
     return f"`{text}`"
+
+
+def _identity_code(value: object) -> str:
+    """Render a visible identity without deleting embedded backticks.
+
+    A fence longer than every run in the value keeps the reader-facing label
+    intact. CommonMark removes one space from both edges only when both are
+    present, so padding must be symmetric: it is needed for edge backticks and
+    for a value that genuinely starts *and* ends with a space. One-sided spaces
+    are already preserved without padding.
+    """
+
+    text = str(value or "")
+    longest_run = max(
+        (len(match.group(0)) for match in re.finditer(r"`+", text)),
+        default=0,
+    )
+    fence = "`" * (longest_run + 1)
+    needs_padding = (
+        text.startswith("`") or text.endswith("`") or (text.startswith(" ") and text.endswith(" "))
+    )
+    padded = f" {text} " if needs_padding else text
+    return f"{fence}{padded}{fence}"
+
+
+def _capability_change_type_label(change_type: str) -> str:
+    """Turn ``action_added`` into compact adopter-facing prose."""
+
+    subject_kind, separator, direction = change_type.rpartition("_")
+    if not separator:
+        return change_type.replace("_", " ")
+    return f"{subject_kind.replace('_', ' ')} {direction}"
 
 
 def _escape_link(value: object) -> str:
