@@ -81,7 +81,8 @@ Every payload is one JSON object carrying
 - `summary` — subject counts, recomputed from the rows. They are counts of
   *subjects*, never of changes; `capability_changes` is the finer number and is
   a separate field.
-- `subjects[]` — one row per **changed** subject, each with the `changes[]` that
+- `subjects[]` — one row per **changed** subject, each with `present_in_base` /
+  `present_in_head`, the `transition` those two imply, and the `changes[]` that
   moved it. An unchanged subject is absent, not listed as unchanged.
 
 Both views are validated by the same schema file; a consumer switches on `view`.
@@ -265,6 +266,14 @@ payload publishes as `permission`:
 | `risk_score`, `risk_level` | A heuristic score tuned for the `mcp audit` surface. It is a ranking aid, not a capability fact, and an external consumer that gated on it would be gating on our tuning. |
 | `reasons` | Internal claim-source identifiers. `evidence` carries the provenance a consumer can open. |
 
+And one thing that is not an internal field at all: the payload carries **no
+release impact, severity, or verdict** for a subject. `capability_change`
+members carry a `release_impact`, and it is deliberately left behind here.
+Publishing a per-subject impact in an interchange format invites a consumer to
+gate on it, which is a second verdict by another name;
+`release_decision.decision` remains the only gate, and a consumer that wants a
+verdict should read the report rather than infer one from a capability fact.
+
 From the existing capability **lock file**, the state artifact this payload
 supersedes: `capability_lock_schema_version`, `experimental`, `cli_version`,
 `source.*`, `summary.*`, and the lock-level `hashes.*`. The reasons are in
@@ -294,6 +303,11 @@ rules in [`../STABILITY.md`](../STABILITY.md):
   than diff them.
 - Both views move together. They are one payload; versioning them separately
   would reintroduce exactly the divergence this schema exists to prevent.
+- A change to the **shape** of a capability fact — a field's type widening, a
+  new value in a closed vocabulary — is caught by a type-parity test against
+  the fact models rather than reaching the wire silently. That is the point at
+  which someone decides whether `v1` can carry it or a `v2` is due; it is never
+  decided by a `ValidationError` on an adopter's machine.
 
 ## For the two consuming surfaces
 

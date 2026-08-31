@@ -984,6 +984,58 @@ def test_subject_key_matches_the_derivation_the_spec_publishes() -> None:
         )
 
 
+def test_state_digests_match_the_recipe_the_spec_publishes() -> None:
+    """Recompute both digests from the serialized payload, stdlib only.
+
+    Same reason as the subject key: comparing against ``state_digests`` would
+    only check the implementation against itself, and the spec tells external
+    consumers these are recomputable from the payload alone.
+    """
+
+    payload = project_capability_state(
+        _facts(SAMPLES / "support_refund_agent" / "shipgate.yaml")
+    ).model_dump(mode="json")
+    assert payload["subjects"], "sample produced no subjects to digest"
+
+    def sha256_of(value: Any) -> str:
+        material = json.dumps(value, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+    semantic_rows = []
+    evidence_by_id = {}
+    for row in payload["subjects"]:
+        records = []
+        for record in row["capabilities"]:
+            evidence_by_id[record["capability_id"]] = record["evidence"]
+            stripped = {
+                key: value for key, value in record.items() if key != "evidence"
+            }
+            stripped["digests"] = {
+                name: value
+                for name, value in record["digests"].items()
+                if name != "evidence_hash"
+            }
+            records.append(stripped)
+        semantic_rows.append({**row, "capabilities": records})
+
+    assert payload["state"]["capability_set_digest"] == sha256_of(semantic_rows)
+    assert payload["state"]["evidence_set_digest"] == sha256_of(evidence_by_id)
+
+
+def test_spec_page_publishes_the_digest_recipe() -> None:
+    spec = (REPO_ROOT / "docs/capability-payload.md").read_text(encoding="utf-8")
+    for fragment in (
+        "capability_set_digest",
+        "evidence_set_digest",
+        "digests.evidence_hash",
+        "sorted keys and compact separators",
+    ):
+        assert fragment in spec, (
+            f"docs/capability-payload.md must publish the digest recipe; "
+            f"missing {fragment!r}"
+        )
+
+
 def test_spec_page_publishes_the_subject_key_recipe() -> None:
     """The formula above is only reproducible if the spec still states it."""
 
