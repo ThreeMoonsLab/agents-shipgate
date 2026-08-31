@@ -225,28 +225,48 @@ def _named_in_engine_sources(candidate_ref: str) -> str | None:
     return None
 
 
-def _register_entries() -> dict[str, tuple[str, str]]:
-    """Candidate -> (profile, state) from the register table, uniquely.
+def _register_section(heading: str) -> list[str]:
+    """The lines under one register heading, stopping at the next heading."""
+
+    lines = REGISTER.read_text(encoding="utf-8").splitlines()
+    start = lines.index(heading) + 1
+    end = next(
+        (offset for offset, line in enumerate(lines[start:], start) if line.startswith("#")),
+        len(lines),
+    )
+    return lines[start:end]
+
+
+def _register_entries() -> dict[str, tuple[str | None, str]]:
+    """Candidate -> (profile, state), uniquely, across both register tables.
 
     The register is where a candidate's profile assignment and merge state are
     *stated*; the CSV is where they are used. Binding the two is what stops a
     profile from being changed on one side only, which would silently move a
     case between per-profile coverage counts.
+
+    The two tables are read separately on purpose: they share a `State` column
+    but the Reserve's second column is an *origin*, not a profile. Reading them
+    as one table would file `real_history` as a profile name and quietly hand a
+    bogus profile to anything that looked one up.
     """
 
-    entries: dict[str, tuple[str, str]] = {}
-    for line in REGISTER.read_text(encoding="utf-8").splitlines():
-        if not line.startswith("| `"):
-            continue
-        cells = [cell.strip() for cell in line.strip("|").split("|")]
-        if len(cells) < 3:
-            continue
-        candidate = cells[0].strip("`")
-        profile, state = cells[1].strip("`"), cells[2].strip("`")
-        if state not in STATE_ORIGINS and state != "open":
-            continue
-        assert candidate not in entries, f"the register names {candidate!r} twice"
-        entries[candidate] = (profile, state)
+    entries: dict[str, tuple[str | None, str]] = {}
+    for heading, has_profile in (("## Candidate register", True), ("### Reserve", False)):
+        for line in _register_section(heading):
+            if not line.startswith("| `"):
+                continue
+            cells = [cell.strip() for cell in line.strip("|").split("|")]
+            if len(cells) < 3:
+                continue
+            candidate = cells[0].strip("`")
+            state = cells[2].strip("`")
+            if state not in STATE_ORIGINS and state != "open":
+                continue
+            assert candidate not in entries, (
+                f"the register names {candidate!r} twice; a reserved candidate is not a placed one"
+            )
+            entries[candidate] = (cells[1].strip("`") if has_profile else None, state)
     return entries
 
 
@@ -447,9 +467,12 @@ def test_declared_exposure_is_at_least_what_the_tree_shows(
             if cited is not None:
                 found.add("engine_tests")
                 witness["engine_tests"] = cited
-            if ref in swept:
-                found.add("benchmark_scored")
-                witness["benchmark_scored"] = "a committed miner sweep"
+        # Applied to samples too: the constructed sweep scores fixtures under
+        # `fixture://`, and scoping this to external candidates would leave a
+        # whole class of sweep participation undeclared.
+        if ref in swept:
+            found.add("benchmark_scored")
+            witness["benchmark_scored"] = "a committed miner sweep"
         if ref in labels:
             found.add("miner_label")
             witness["miner_label"] = sorted(labels[ref])[0]
@@ -530,6 +553,10 @@ def test_every_sourced_candidate_is_registered_with_its_profile_and_state(
         ref = row["candidate_ref"]
         assert ref in entries, f"{row['slot_id']}: {ref} has no register entry"
         profile, state = entries[ref]
+        assert profile is not None, (
+            f"{row['slot_id']}: {ref} is listed under Reserve, which is where candidates "
+            "that are deliberately not placed in a cell live"
+        )
         assert profile == row["profile"], (
             f"{row['slot_id']} is filed under {row['profile']}, "
             f"but the register assigns {ref} to {profile}"
@@ -624,13 +651,7 @@ def test_a_diff_substance_row_is_written_down_in_the_register(
     # Only the register itself. The Reserve subsection beneath it lists
     # candidates that are deliberately *not* placed in a cell, so a row
     # matching there would be citing evidence that it has no slot.
-    lines = REGISTER.read_text(encoding="utf-8").splitlines()
-    start = lines.index("## Candidate register") + 1
-    end = next(
-        (offset for offset, line in enumerate(lines[start:], start) if line.startswith("#")),
-        len(lines),
-    )
-    register = "\n".join(lines[start:end])
+    register = "\n".join(_register_section("## Candidate register"))
 
     for row in rows:
         if row["target_basis"] != "diff_substance":
