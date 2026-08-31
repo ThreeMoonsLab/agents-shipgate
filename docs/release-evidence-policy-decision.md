@@ -200,3 +200,98 @@ timeout, a non-publishing rehearsal path, and a wheel-scoped signed SBOM.
 
 Whichever bar applies, it is enforced by a pipeline that also proves the bytes
 it publishes came from the tagged commit.
+
+---
+
+## Amendment 1 — the pre-1.0 labeling protocol, and the participant-validation gate
+
+**Status: decided.**
+**Owner: Pengfei Hu (`pengfei-threemoonslab`), product/security. Recorded
+2026-08-31.** Tracked by
+[#456](https://github.com/ThreeMoonsLab/agents-shipgate/issues/456).
+
+The base decision fixed *how much* evidence a `0.x` tag needs. It left open
+*who produces the two blind primary labels*. This amendment records that
+choice for the `pre_1_0` corpus, and adds a second, non-gating validation
+layer. It applies to the `pre_1_0` tier **only**: the `beta` (1.0) corpus
+commits to human primary labels, and since `pre_1_0` evidence cannot qualify a
+`1.0` tag by construction, nothing recorded here can leak upward.
+
+### The protocol
+
+For the 56-case `pre_1_0` corpus, the two blind primary labels are produced by
+**two independent agent sessions**, one per discipline role, and **every
+disagreement is adjudicated by the owner**, who is never a primary rater.
+Three distinct identities per disputed case, exactly as the schema demands.
+
+### Admissibility conditions — all mandatory
+
+1. **Two model families.** The `security_governance` and `framework_tooling`
+   sessions run on different underlying model families. The κ ≥ 0.80 floor
+   exists to measure agreement between genuinely distinct raters; two sessions
+   of one model would partly measure a model agreeing with itself, and the
+   floor would be easier than the base decision intended.
+2. **Blindness, mechanically enforced.** Each rater session is fresh and
+   receives only: the pinned repository state, the PR diff, and the labeling
+   guide (`benchmark/miner/LABELING.md`). No verifier output, no other label,
+   no project memory, no walk history. A session that was exposed to any of
+   these produces no admissible label.
+3. **Attribution and archived transcripts.** `reviewer_id` names the model and
+   session. The complete rater transcript for every label is archived
+   content-addressed beside the corpus. This is the agent protocol's
+   compensating strength over human rationale: an auditor can inspect *how*
+   every label was reached, not a summary of it.
+4. **Adjudication with walked-case disclosure.** The owner adjudicates every
+   disagreement. For cases the owner has personally walked — where the
+   verifier's verdict is already known to them — the adjudication record
+   discloses that, per case.
+5. **A calibration round first.** The protocol runs on five non-corpus cases
+   before any corpus label exists; ambiguities it finds in the labeling guide
+   are fixed first. A κ failure discovered after 56 labels is a relabeling of
+   56 cases.
+6. **A disclosure block in the artifact.** The published qualification
+   artifact names this protocol, the model families, and the location of the
+   archived transcripts. The schema's label type is named
+   `IndependentHumanLabelV1`; that name records the 1.0 expectation, the
+   enforced properties are independence, attribution, and third-party
+   adjudication, and this amendment — not silence — is what reconciles the
+   two for `pre_1_0`.
+
+### Gate 2 — participant validation (does not gate the tag)
+
+The people who wrote and reviewed the corpus's real-history PRs are better
+judges of "should this have been blocked" than any rater we can supply. After
+labels are frozen and receipts exist, each reachable author and reviewer is
+sent a one-page case card and two questions. The protocol, card format, and
+message template live in
+[`benchmark/safety-qualification/participant-validation.md`](../benchmark/safety-qualification/participant-validation.md).
+Its pre-registered rules, fixed here so they cannot drift under incentive:
+
+1. **Validation, not relabeling.** Frozen labels do not move. A material
+   disagreement triggers a case review; corrections land in the `beta`
+   corpus. The single exception: a material label error found *before* the
+   tag ships may force a re-freeze and receipt regeneration.
+2. **Reviewers outrank authors.** An author judging whether their own PR
+   should have been blocked is conflicted in the obvious direction; the
+   reviewer who approved, changed, or rejected it is not. Both are asked;
+   they are recorded separately.
+3. **Two questions, recorded apart.** "Is the label right?" (validation) and
+   "would this output have been useful?" (product signal) are different
+   questions with different consumers; one conversation, two records.
+4. **Response realism.** Reported as agreement-among-responders with the
+   response count. No percentage threshold is pre-registered at this sample
+   size; instead, *any* material disagreement triggers rule 1 regardless of
+   rate.
+5. **Naming needs consent; aggregates do not.** Public PRs may be benchmark
+   cases without permission; naming a person or quoting them in published
+   results requires their explicit yes, asked in the outreach message itself.
+
+### Acceptance
+
+- [x] The protocol, its admissibility conditions, and the Gate 2 rules are
+      recorded by the named owner — above, 2026-08-31.
+- [ ] The calibration round has run and the labeling guide reflects it.
+- [ ] The corpus's rater transcripts are archived and referenced by the
+      artifact's disclosure block.
+- [ ] Gate 2 outreach uses the committed card and template, and its responses
+      are recorded in the committed log format.
