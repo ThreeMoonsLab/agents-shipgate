@@ -14,6 +14,7 @@ from agents_shipgate.core.domain import (
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.common import resolve_input_path, stable_tool_id
 from agents_shipgate.inputs.config_trace import trace_config_binding
+from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.python_static import (
     display_path,
@@ -631,6 +632,53 @@ class OpenAISDKAdapter:
     source_type: ClassVar[str] = "openai_agents_sdk"
     scope: ClassVar[Literal["per_source", "per_scan"]] = "per_source"
     artifact_class: ClassVar[type | None] = None
+
+    coverage: ClassVar[SourceCoverage] = SourceCoverage(
+        adapter="openai_agents_sdk",
+        label="OpenAI Agents SDK (Python)",
+        reads=(
+            "Python modules parsed with `ast` and never imported."
+        ),
+        cells=(
+            BoundaryCell(
+                shape="export_artifact",
+                status="not_applicable",
+                reads=(
+                    "This input declares no reviewed inventory of its own; a "
+                    "committed export is configured as its own `mcp` or `openapi` "
+                    "source."
+                ),
+            ),
+            BoundaryCell(
+                shape="literal_registration",
+                status="extracted",
+                reads=(
+                    "A module-level function decorated with `@function_tool`, read "
+                    "for its name, docstring, and annotated parameters."
+                ),
+                emits=("sdk_function",),
+                ceiling="medium",
+            ),
+            BoundaryCell(
+                shape="factory",
+                status="not_extracted",
+                reads=(
+                    "A recognised agent-toolkit constructor records a "
+                    "statically-parsed least-privilege scope bound and a warning. "
+                    "Naming the actions it returns would mean running it."
+                ),
+            ),
+            BoundaryCell(
+                shape="dynamic_construction",
+                status="not_extracted",
+                reads=(
+                    "`tools=<expression>` that is not a literal list of readable "
+                    "names records a binding warning; whatever the expression would "
+                    "have produced never enters the catalog."
+                ),
+            ),
+        ),
+    )
 
     def load(
         self,

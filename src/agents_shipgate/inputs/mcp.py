@@ -19,6 +19,7 @@ from agents_shipgate.inputs.common import (
     strip_untrusted_binding_annotations,
     tool_name_warning,
 )
+from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
@@ -280,6 +281,51 @@ class MCPAdapter:
     source_type: ClassVar[str] = "mcp"
     scope: ClassVar[Literal["per_source", "per_scan"]] = "per_source"
     artifact_class: ClassVar[type | None] = None
+
+    coverage: ClassVar[SourceCoverage] = SourceCoverage(
+        adapter="mcp",
+        label="MCP tool export",
+        reads=(
+            "A committed MCP `tools/list` response, or any file carrying the "
+            "same `tools` array."
+        ),
+        cells=(
+            BoundaryCell(
+                shape="export_artifact",
+                status="extracted",
+                reads=(
+                    "A `tools` array naming each tool with its input schema: the "
+                    "server's own published contract, read as written."
+                ),
+                emits=("mcp",),
+                ceiling="high",
+            ),
+            BoundaryCell(
+                shape="literal_registration",
+                status="not_applicable",
+                reads=(
+                    "An export is a contract file, not source. A server declared "
+                    "in a host config is read by the Codex / MCP host config input."
+                ),
+            ),
+            BoundaryCell(
+                shape="factory",
+                status="not_applicable",
+                reads="An export is the result of construction, never the construction.",
+            ),
+            BoundaryCell(
+                shape="dynamic_construction",
+                status="extracted",
+                reads=(
+                    "`wildcard: true` or `tools: \"*\"`: one synthetic `<source>.*` "
+                    "action stands in for a surface the file declines to name."
+                ),
+                emits=("mcp",),
+                ceiling="high",
+                surface_flags=("wildcard_tools",),
+            ),
+        ),
+    )
 
     def load(
         self,

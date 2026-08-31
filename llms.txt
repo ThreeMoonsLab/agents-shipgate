@@ -89,6 +89,7 @@
 - Capability standard: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-standard.md
 - Governance benchmark catalog/result schemas: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark-catalog-schema.v0.2.json and https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark-result-schema.v0.2.json
 - Check catalog: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json
+- Determinism boundary (what a scan can establish per input and declaration shape): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/determinism-boundary.md and https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/determinism-boundary.json
 - Release gating signal: `release_decision.decision` ∈ `{"blocked", "review_required", "insufficient_evidence", "passed"}` in `report.json` (baseline-aware; v0.8+; `insufficient_evidence` added v0.14; report v0.29 requires complete, conflict-free static effect and authority evidence for `passed`; consumers should treat unknown future values as `review_required`).
 - Installed CLI contract: `agents-shipgate contract --json`.
 

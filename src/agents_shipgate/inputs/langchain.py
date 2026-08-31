@@ -22,6 +22,7 @@ from agents_shipgate.inputs._python_framework import (
 )
 from agents_shipgate.inputs.common import tool_name_warning
 from agents_shipgate.inputs.config_trace import trace_config_binding
+from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.python_static import (
     dotted_name,
@@ -360,6 +361,57 @@ class LangChainAdapter:
     source_type: ClassVar[str] = "langchain"
     scope: ClassVar[Literal["per_source", "per_scan"]] = "per_scan"
     artifact_class: ClassVar[type | None] = LangChainArtifacts
+
+    coverage: ClassVar[SourceCoverage] = SourceCoverage(
+        adapter="langchain",
+        label="LangChain / LangGraph",
+        reads=(
+            "LangChain and LangGraph Python modules parsed with `ast`, plus any "
+            "reviewed inventory `langchain.tool_inventories[]` declares."
+        ),
+        cells=(
+            BoundaryCell(
+                shape="export_artifact",
+                status="extracted",
+                reads=(
+                    "A reviewed tool inventory in MCP export form. It is read as a "
+                    "published contract, which is why it is the only LangChain route "
+                    "that reaches `high`."
+                ),
+                emits=("langchain_inventory",),
+                ceiling="high",
+            ),
+            BoundaryCell(
+                shape="literal_registration",
+                status="extracted",
+                reads=(
+                    "An `@tool`-decorated function, or a `StructuredTool` built with "
+                    "a literal name, description, and an `args_schema` defined in "
+                    "the same file."
+                ),
+                emits=("langchain_function", "langchain_structured_tool"),
+                ceiling="medium",
+            ),
+            BoundaryCell(
+                shape="factory",
+                status="not_extracted",
+                reads=(
+                    "A tool produced by a call the parser cannot resolve — a "
+                    "factory, a loaded toolkit — records a dynamic tool surface and "
+                    "adds nothing to the catalog."
+                ),
+            ),
+            BoundaryCell(
+                shape="dynamic_construction",
+                status="not_extracted",
+                reads=(
+                    "A tools list built by a comprehension, a config read, or a "
+                    "rebound variable records a dynamic tool surface, with the "
+                    "config path when the read is statically traceable."
+                ),
+            ),
+        ),
+    )
 
     def load(
         self,

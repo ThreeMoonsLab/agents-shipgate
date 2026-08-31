@@ -11,6 +11,7 @@ from agents_shipgate.inputs.common import (
     load_text_file,
     resolve_input_path,
 )
+from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.traces import load_trace_artifacts
 from agents_shipgate.schemas.common import (
@@ -495,6 +496,44 @@ class ValidationAdapter:
     source_type: ClassVar[str] = "validation"
     scope: ClassVar[Literal["per_source", "per_scan"]] = "per_scan"
     artifact_class: ClassVar[type | None] = ValidationArtifacts
+
+    coverage: ClassVar[SourceCoverage] = SourceCoverage(
+        adapter="validation",
+        label="Validation traces",
+        reads=(
+            "Local agent-run and approval trace artifacts declared under "
+            "`manifest.validation`."
+        ),
+        cells=(
+            BoundaryCell(
+                shape="export_artifact",
+                status="not_extracted",
+                reads=(
+                    "A trace is evidence about approvals and runs that happened, not "
+                    "a tool contract. It adds no action to the catalog and widens no "
+                    "surface; it can only corroborate one already read."
+                ),
+            ),
+            BoundaryCell(
+                shape="literal_registration",
+                status="not_applicable",
+                reads="A trace records calls; it declares no tool.",
+            ),
+            BoundaryCell(
+                shape="factory",
+                status="not_applicable",
+                reads="A trace records calls; it constructs no tool.",
+            ),
+            BoundaryCell(
+                shape="dynamic_construction",
+                status="not_applicable",
+                reads=(
+                    "A trace records calls that already happened, so there is no "
+                    "unresolved declaration to fail on."
+                ),
+            ),
+        ),
+    )
 
     def load(
         self,

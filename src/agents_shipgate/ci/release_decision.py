@@ -46,6 +46,7 @@ from agents_shipgate.core.semantic_assessment import (
     declared_effect_of,
     effect_readings,
     effect_repair,
+    extraction_is_complete,
     propose_effect_declaration,
     render_effect_readings,
     reviewed_risk_tag_constraints,
@@ -321,7 +322,9 @@ def build_release_decision(
             )
         )
 
-    low_confidence_tool_count = sum(1 for tool in tools if tool.extraction_confidence != "high")
+    low_confidence_tool_count = sum(
+        1 for tool in tools if not extraction_is_complete(tool)
+    )
     semantic_coverage, semantic_gaps = _semantic_coverage(tools)
     identity_coverage = _identity_coverage(tools)
     binding_coverage, binding_gaps = _binding_coverage(report, catalog)

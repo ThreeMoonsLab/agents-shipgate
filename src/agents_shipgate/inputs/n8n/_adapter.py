@@ -32,6 +32,7 @@ from agents_shipgate.inputs.common import (
     resolve_input_path,
     walk_input_tree,
 )
+from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.n8n._common import (
     _append_unique,
@@ -241,6 +242,66 @@ class N8nAdapter:
     source_type: ClassVar[str] = "n8n"
     scope: ClassVar[Literal["per_source", "per_scan"]] = "per_scan"
     artifact_class: ClassVar[type | None] = N8nArtifacts
+
+    coverage: ClassVar[SourceCoverage] = SourceCoverage(
+        adapter="n8n",
+        label="n8n workflows",
+        reads=(
+            "n8n workflow JSON exports, stubs, and reviewed inventories declared "
+            "under `manifest.n8n`."
+        ),
+        cells=(
+            BoundaryCell(
+                shape="export_artifact",
+                status="extracted",
+                reads=(
+                    "A reviewed tool inventory in MCP export form, read as a "
+                    "published contract."
+                ),
+                emits=("n8n_inventory",),
+                ceiling="high",
+            ),
+            BoundaryCell(
+                shape="literal_registration",
+                status="extracted",
+                reads=(
+                    "A tool node present in the workflow JSON — workflow, code, "
+                    "HTTP, MCP client, or another AI tool node — read for its "
+                    "parameters and credentials. The export names the node; the "
+                    "called tool's own contract is not in the file."
+                ),
+                emits=(
+                    "n8n_workflow_tool",
+                    "n8n_code_tool",
+                    "n8n_http_tool",
+                    "n8n_mcp_client_tool",
+                    "n8n_ai_tool",
+                    "mcp",
+                ),
+                ceiling="medium",
+            ),
+            BoundaryCell(
+                shape="factory",
+                status="not_applicable",
+                reads=(
+                    "A workflow JSON has no construction step: a node is in the file "
+                    "or it is not."
+                ),
+            ),
+            BoundaryCell(
+                shape="dynamic_construction",
+                status="extracted",
+                reads=(
+                    "An MCP client node whose tool selection is `all`, `all_except`, "
+                    "or unreadable: one `<node>.*` action stands in for a selection "
+                    "the workflow does not enumerate."
+                ),
+                emits=("n8n_mcp_client_tool",),
+                ceiling="medium",
+                surface_flags=("wildcard_tools",),
+            ),
+        ),
+    )
 
     def load(
         self,

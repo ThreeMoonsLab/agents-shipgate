@@ -1,0 +1,1221 @@
+{
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/determinism-boundary.json",
+  "declaration_shapes": {
+    "dynamic_construction": "The declaration does not name the actions: a wildcard, a comprehension, `**config`, a name rebound in a loop, a symbol that resolves to nothing readable.",
+    "export_artifact": "The surface arrives as a contract file that names every action and its schema \u2014 an MCP `tools/list` export, an OpenAPI document, a reviewed tool inventory.",
+    "factory": "A call constructs the action set. The call is visible; what it returns is not, because resolving it would mean running it.",
+    "literal_registration": "Each action is written out where the parser can read it: a decorated function, a tool class, a literal list of tool objects, a config entry naming the tool."
+  },
+  "description": "What each built-in input can establish, per declaration shape: the extraction-confidence ceiling and what that ceiling means for a release verdict. Generated from agents_shipgate.inputs.coverage.build_boundary_matrix(). Do not edit by hand.",
+  "outcomes": {
+    "low_confidence": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out.",
+    "not_applicable": "No such declaration exists for this input.",
+    "not_extracted": "Nothing enters the catalog, so no check runs on it and no verdict covers it. The scan records that it read and refused this, rather than reporting an empty surface.",
+    "proven": "Extraction evidence is complete: an action from this route can be pass-eligible. Effect, authority, identity, and binding evidence are judged separately and can still withhold a pass.",
+    "set_unproven": "The action's own contract was read, but the set it belongs to was not established, so it raises `incomplete_surface` and can never be pass-eligible. The exclusion ledger records the unread remainder \u2014 the action is analysed; what stands beside it is not."
+  },
+  "schema_version": "shipgate.determinism_boundary/v1",
+  "sources": [
+    {
+      "adapter": "mcp",
+      "cells": [
+        {
+          "ceiling": "high",
+          "emits": [
+            "mcp"
+          ],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": true,
+          "extraction_permits_pass": true,
+          "outcome": "proven",
+          "reads": "A `tools` array naming each tool with its input schema: the server's own published contract, read as written.",
+          "shape": "export_artifact",
+          "status": "extracted",
+          "surface": null,
+          "surface_complete": true,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Extraction evidence is complete: an action from this route can be pass-eligible. Effect, authority, identity, and binding evidence are judged separately and can still withhold a pass."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "reads": "An export is a contract file, not source. A server declared in a host config is read by the Codex / MCP host config input.",
+          "shape": "literal_registration",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "reads": "An export is the result of construction, never the construction.",
+          "shape": "factory",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        },
+        {
+          "ceiling": "high",
+          "emits": [
+            "mcp"
+          ],
+          "evidence_gaps": [
+            "incomplete_surface"
+          ],
+          "exclusion_detail": "not established as a complete surface",
+          "exclusion_reason": "surface_not_enumerated",
+          "extraction_complete": true,
+          "extraction_permits_pass": false,
+          "outcome": "set_unproven",
+          "reads": "`wildcard: true` or `tools: \"*\"`: one synthetic `<source>.*` action stands in for a surface the file declines to name.",
+          "shape": "dynamic_construction",
+          "status": "extracted",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [
+            "wildcard_tools"
+          ],
+          "variant": null,
+          "verdict": "The action's own contract was read, but the set it belongs to was not established, so it raises `incomplete_surface` and can never be pass-eligible. The exclusion ledger records the unread remainder \u2014 the action is analysed; what stands beside it is not."
+        }
+      ],
+      "configured_as": "tool_sources",
+      "label": "MCP tool export",
+      "reads": "A committed MCP `tools/list` response, or any file carrying the same `tools` array."
+    },
+    {
+      "adapter": "openapi",
+      "cells": [
+        {
+          "ceiling": "high",
+          "emits": [
+            "openapi"
+          ],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": true,
+          "extraction_permits_pass": true,
+          "outcome": "proven",
+          "reads": "Each `paths` operation with its parameters, request body, and declared security. A `$ref` the document does not resolve is reported as a source warning against an action that is still read.",
+          "shape": "export_artifact",
+          "status": "extracted",
+          "surface": null,
+          "surface_complete": true,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Extraction evidence is complete: an action from this route can be pass-eligible. Effect, authority, identity, and binding evidence are judged separately and can still withhold a pass."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "reads": "An OpenAPI document is a contract file, not source.",
+          "shape": "literal_registration",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "reads": "Nothing in an OpenAPI document constructs operations.",
+          "shape": "factory",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "reads": "An operation is present in the document or it is not; there is no expression form to be unable to resolve.",
+          "shape": "dynamic_construction",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        }
+      ],
+      "configured_as": "tool_sources",
+      "label": "OpenAPI document",
+      "reads": "An OpenAPI 3.x document; every operation becomes one action."
+    },
+    {
+      "adapter": "openai_agents_sdk",
+      "cells": [
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "reads": "This input declares no reviewed inventory of its own; a committed export is configured as its own `mcp` or `openapi` source.",
+          "shape": "export_artifact",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        },
+        {
+          "ceiling": "medium",
+          "emits": [
+            "sdk_function"
+          ],
+          "evidence_gaps": [
+            "low_confidence_tool",
+            "incomplete_surface"
+          ],
+          "exclusion_detail": "not established as a complete surface",
+          "exclusion_reason": "surface_not_enumerated",
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "low_confidence",
+          "reads": "A module-level function decorated with `@function_tool`, read for its name, docstring, and annotated parameters.",
+          "shape": "literal_registration",
+          "status": "extracted",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_extracted",
+          "reads": "A recognised agent-toolkit constructor records a statically-parsed least-privilege scope bound and a warning. Naming the actions it returns would mean running it.",
+          "shape": "factory",
+          "status": "not_extracted",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Nothing enters the catalog, so no check runs on it and no verdict covers it. The scan records that it read and refused this, rather than reporting an empty surface."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_extracted",
+          "reads": "`tools=<expression>` that is not a literal list of readable names records a binding warning; whatever the expression would have produced never enters the catalog.",
+          "shape": "dynamic_construction",
+          "status": "not_extracted",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Nothing enters the catalog, so no check runs on it and no verdict covers it. The scan records that it read and refused this, rather than reporting an empty surface."
+        }
+      ],
+      "configured_as": "tool_sources",
+      "label": "OpenAI Agents SDK (Python)",
+      "reads": "Python modules parsed with `ast` and never imported."
+    },
+    {
+      "adapter": "google_adk",
+      "cells": [
+        {
+          "ceiling": "high",
+          "emits": [
+            "google_adk_inventory"
+          ],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": true,
+          "extraction_permits_pass": true,
+          "outcome": "proven",
+          "reads": "A reviewed tool inventory in MCP export form, read as a published contract.",
+          "shape": "export_artifact",
+          "status": "extracted",
+          "surface": null,
+          "surface_complete": true,
+          "surface_flags": [],
+          "variant": "reviewed inventory",
+          "verdict": "Extraction evidence is complete: an action from this route can be pass-eligible. Effect, authority, identity, and binding evidence are judged separately and can still withhold a pass."
+        },
+        {
+          "ceiling": "high",
+          "emits": [
+            "mcp",
+            "openapi"
+          ],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": true,
+          "extraction_permits_pass": true,
+          "outcome": "proven",
+          "reads": "`McpToolset(...)` / `OpenAPIToolset(...)` whose arguments name a committed export or spec in the workspace. Those actions are read by the MCP and OpenAPI inputs, then lowered to this module's ceiling if anything else in the module was unresolved.",
+          "shape": "export_artifact",
+          "status": "extracted",
+          "surface": null,
+          "surface_complete": true,
+          "surface_flags": [],
+          "variant": "resolved toolset",
+          "verdict": "Extraction evidence is complete: an action from this route can be pass-eligible. Effect, authority, identity, and binding evidence are judged separately and can still withhold a pass."
+        },
+        {
+          "ceiling": "high",
+          "emits": [
+            "google_adk_function"
+          ],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": true,
+          "extraction_permits_pass": true,
+          "outcome": "proven",
+          "reads": "A module-level `def` bound by `Agent(tools=[...])`, in a module where every tool expression, agent keyword, and imported symbol resolved. This is the only source-code route in any input that reaches `high`.",
+          "shape": "literal_registration",
+          "status": "extracted",
+          "surface": "enumerated",
+          "surface_complete": true,
+          "surface_flags": [],
+          "variant": "Python module",
+          "verdict": "Extraction evidence is complete: an action from this route can be pass-eligible. Effect, authority, identity, and binding evidence are judged separately and can still withhold a pass."
+        },
+        {
+          "ceiling": "low",
+          "emits": [
+            "google_adk_config"
+          ],
+          "evidence_gaps": [
+            "low_confidence_tool",
+            "incomplete_surface"
+          ],
+          "exclusion_detail": "not established as a complete surface",
+          "exclusion_reason": "surface_not_enumerated",
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "low_confidence",
+          "reads": "A tool named in an agent config file. The name is read; nothing local defines the schema, so the action is a reference only.",
+          "shape": "literal_registration",
+          "status": "extracted",
+          "surface": "partial",
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": "agent config",
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+        },
+        {
+          "ceiling": "medium",
+          "emits": [
+            "google_adk_function"
+          ],
+          "evidence_gaps": [
+            "low_confidence_tool",
+            "incomplete_surface"
+          ],
+          "exclusion_detail": "not established as a complete surface",
+          "exclusion_reason": "surface_not_enumerated",
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "low_confidence",
+          "reads": "A toolset or wrapper call whose arguments do not name a file in the workspace records `dynamic_toolset`. The actions already read stay in the catalog; the whole module drops to `medium`, because a tool set this file could not prove is a fact about the file, not about the tool visited first.",
+          "shape": "factory",
+          "status": "extracted",
+          "surface": "partial",
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+        },
+        {
+          "ceiling": "medium",
+          "emits": [
+            "google_adk_function"
+          ],
+          "evidence_gaps": [
+            "low_confidence_tool",
+            "incomplete_surface"
+          ],
+          "exclusion_detail": "not established as a complete surface",
+          "exclusion_reason": "surface_not_enumerated",
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "low_confidence",
+          "reads": "An unresolved tools expression, `Agent(**config)`, a rebound tool variable, a star-import shadow, or any extractor warning the module could not classify records a surface gap and caps the module at `medium`.",
+          "shape": "dynamic_construction",
+          "status": "extracted",
+          "surface": "partial",
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+        }
+      ],
+      "configured_as": "tool_sources",
+      "label": "Google ADK",
+      "reads": "ADK Python modules parsed with `ast`, agent config files, and any reviewed inventory `google_adk.tool_inventories[]` declares. Completeness is settled once per module, after the whole file is walked."
+    },
+    {
+      "adapter": "langchain",
+      "cells": [
+        {
+          "ceiling": "high",
+          "emits": [
+            "langchain_inventory"
+          ],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": true,
+          "extraction_permits_pass": true,
+          "outcome": "proven",
+          "reads": "A reviewed tool inventory in MCP export form. It is read as a published contract, which is why it is the only LangChain route that reaches `high`.",
+          "shape": "export_artifact",
+          "status": "extracted",
+          "surface": null,
+          "surface_complete": true,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Extraction evidence is complete: an action from this route can be pass-eligible. Effect, authority, identity, and binding evidence are judged separately and can still withhold a pass."
+        },
+        {
+          "ceiling": "medium",
+          "emits": [
+            "langchain_function",
+            "langchain_structured_tool"
+          ],
+          "evidence_gaps": [
+            "low_confidence_tool",
+            "incomplete_surface"
+          ],
+          "exclusion_detail": "not established as a complete surface",
+          "exclusion_reason": "surface_not_enumerated",
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "low_confidence",
+          "reads": "An `@tool`-decorated function, or a `StructuredTool` built with a literal name, description, and an `args_schema` defined in the same file.",
+          "shape": "literal_registration",
+          "status": "extracted",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_extracted",
+          "reads": "A tool produced by a call the parser cannot resolve \u2014 a factory, a loaded toolkit \u2014 records a dynamic tool surface and adds nothing to the catalog.",
+          "shape": "factory",
+          "status": "not_extracted",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Nothing enters the catalog, so no check runs on it and no verdict covers it. The scan records that it read and refused this, rather than reporting an empty surface."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_extracted",
+          "reads": "A tools list built by a comprehension, a config read, or a rebound variable records a dynamic tool surface, with the config path when the read is statically traceable.",
+          "shape": "dynamic_construction",
+          "status": "not_extracted",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Nothing enters the catalog, so no check runs on it and no verdict covers it. The scan records that it read and refused this, rather than reporting an empty surface."
+        }
+      ],
+      "configured_as": "tool_sources",
+      "label": "LangChain / LangGraph",
+      "reads": "LangChain and LangGraph Python modules parsed with `ast`, plus any reviewed inventory `langchain.tool_inventories[]` declares."
+    },
+    {
+      "adapter": "crewai",
+      "cells": [
+        {
+          "ceiling": "high",
+          "emits": [
+            "crewai_inventory"
+          ],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": true,
+          "extraction_permits_pass": true,
+          "outcome": "proven",
+          "reads": "A reviewed tool inventory in MCP export form, read as a published contract.",
+          "shape": "export_artifact",
+          "status": "extracted",
+          "surface": null,
+          "surface_complete": true,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Extraction evidence is complete: an action from this route can be pass-eligible. Effect, authority, identity, and binding evidence are judged separately and can still withhold a pass."
+        },
+        {
+          "ceiling": "medium",
+          "emits": [
+            "crewai_function",
+            "crewai_class_tool"
+          ],
+          "evidence_gaps": [
+            "low_confidence_tool",
+            "incomplete_surface"
+          ],
+          "exclusion_detail": "not established as a complete surface",
+          "exclusion_reason": "surface_not_enumerated",
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "low_confidence",
+          "reads": "An `@tool`-decorated function, or a `BaseTool` subclass whose name, description, and `args_schema` are literals in the same file.",
+          "shape": "literal_registration",
+          "status": "extracted",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+        },
+        {
+          "ceiling": "low",
+          "emits": [
+            "crewai_prebuilt_tool"
+          ],
+          "evidence_gaps": [
+            "low_confidence_tool",
+            "incomplete_surface"
+          ],
+          "exclusion_detail": "not established as a complete surface",
+          "exclusion_reason": "surface_not_enumerated",
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "low_confidence",
+          "reads": "A `crewai_tools` prebuilt constructor such as `FileReadTool()`. The name is read; the schema lives in the installed package, not in the repository, so the action is recorded as low-confidence metadata.",
+          "shape": "factory",
+          "status": "extracted",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_extracted",
+          "reads": "A tools list built by a comprehension, a config read, or a rebound variable records a dynamic tool surface and adds nothing to the catalog.",
+          "shape": "dynamic_construction",
+          "status": "not_extracted",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Nothing enters the catalog, so no check runs on it and no verdict covers it. The scan records that it read and refused this, rather than reporting an empty surface."
+        }
+      ],
+      "configured_as": "tool_sources",
+      "label": "CrewAI",
+      "reads": "CrewAI Python modules parsed with `ast`, plus any reviewed inventory `crewai.tool_inventories[]` declares."
+    },
+    {
+      "adapter": "n8n",
+      "cells": [
+        {
+          "ceiling": "high",
+          "emits": [
+            "n8n_inventory"
+          ],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": true,
+          "extraction_permits_pass": true,
+          "outcome": "proven",
+          "reads": "A reviewed tool inventory in MCP export form, read as a published contract.",
+          "shape": "export_artifact",
+          "status": "extracted",
+          "surface": null,
+          "surface_complete": true,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Extraction evidence is complete: an action from this route can be pass-eligible. Effect, authority, identity, and binding evidence are judged separately and can still withhold a pass."
+        },
+        {
+          "ceiling": "medium",
+          "emits": [
+            "n8n_workflow_tool",
+            "n8n_code_tool",
+            "n8n_http_tool",
+            "n8n_mcp_client_tool",
+            "n8n_ai_tool",
+            "mcp"
+          ],
+          "evidence_gaps": [
+            "low_confidence_tool",
+            "incomplete_surface"
+          ],
+          "exclusion_detail": "not established as a complete surface",
+          "exclusion_reason": "surface_not_enumerated",
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "low_confidence",
+          "reads": "A tool node present in the workflow JSON \u2014 workflow, code, HTTP, MCP client, or another AI tool node \u2014 read for its parameters and credentials. The export names the node; the called tool's own contract is not in the file.",
+          "shape": "literal_registration",
+          "status": "extracted",
+          "surface": null,
+          "surface_complete": true,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "reads": "A workflow JSON has no construction step: a node is in the file or it is not.",
+          "shape": "factory",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        },
+        {
+          "ceiling": "medium",
+          "emits": [
+            "n8n_mcp_client_tool"
+          ],
+          "evidence_gaps": [
+            "low_confidence_tool",
+            "incomplete_surface"
+          ],
+          "exclusion_detail": "not established as a complete surface",
+          "exclusion_reason": "surface_not_enumerated",
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "low_confidence",
+          "reads": "An MCP client node whose tool selection is `all`, `all_except`, or unreadable: one `<node>.*` action stands in for a selection the workflow does not enumerate.",
+          "shape": "dynamic_construction",
+          "status": "extracted",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [
+            "wildcard_tools"
+          ],
+          "variant": null,
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+        }
+      ],
+      "configured_as": "manifest_section",
+      "label": "n8n workflows",
+      "reads": "n8n workflow JSON exports, stubs, and reviewed inventories declared under `manifest.n8n`."
+    },
+    {
+      "adapter": "conductor",
+      "cells": [
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "reads": "A workflow definition declares calls, not a tool contract. The called server's own export is configured as its own `mcp` source.",
+          "shape": "export_artifact",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        },
+        {
+          "ceiling": "medium",
+          "emits": [
+            "conductor_mcp_call"
+          ],
+          "evidence_gaps": [
+            "low_confidence_tool",
+            "incomplete_surface"
+          ],
+          "exclusion_detail": "not established as a complete surface",
+          "exclusion_reason": "surface_not_enumerated",
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "low_confidence",
+          "reads": "A `CALL_MCP_TOOL` task whose `method` is a literal. The call is read with its endpoint, arguments, and preceding human checkpoints; the tool's schema is not in the workflow, so the action is recorded as schema-partial.",
+          "shape": "literal_registration",
+          "status": "extracted",
+          "surface": null,
+          "surface_complete": true,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "reads": "A workflow task is declared, never constructed by the file.",
+          "shape": "factory",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_extracted",
+          "reads": "A `CALL_MCP_TOOL` whose `method` or server is a workflow expression records the task as a dynamic fact and adds no action: the name that would identify it is not in the file.",
+          "shape": "dynamic_construction",
+          "status": "not_extracted",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Nothing enters the catalog, so no check runs on it and no verdict covers it. The scan records that it read and refused this, rather than reporting an empty surface."
+        }
+      ],
+      "configured_as": "tool_sources",
+      "label": "Conductor OSS workflows",
+      "reads": "Conductor workflow definition JSON."
+    },
+    {
+      "adapter": "openai_api",
+      "cells": [
+        {
+          "ceiling": "high",
+          "emits": [
+            "openai_api"
+          ],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": true,
+          "extraction_permits_pass": true,
+          "outcome": "proven",
+          "reads": "A committed tool definition with its JSON Schema parameters, read as the published contract it is.",
+          "shape": "export_artifact",
+          "status": "extracted",
+          "surface": null,
+          "surface_complete": true,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Extraction evidence is complete: an action from this route can be pass-eligible. Effect, authority, identity, and binding evidence are judged separately and can still withhold a pass."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "reads": "This input reads artifacts, not source. Tools defined in Python are read by the OpenAI Agents SDK input.",
+          "shape": "literal_registration",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "reads": "An artifact is the result of construction, never the construction.",
+          "shape": "factory",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "reads": "A tool definition names its function and parameters or it is not a tool definition.",
+          "shape": "dynamic_construction",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        }
+      ],
+      "configured_as": "manifest_section",
+      "label": "OpenAI API artifacts",
+      "reads": "Tool and assistant definition artifacts declared under `manifest.openai_api`, plus local run traces."
+    },
+    {
+      "adapter": "anthropic_api",
+      "cells": [
+        {
+          "ceiling": "high",
+          "emits": [
+            "anthropic_api"
+          ],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": true,
+          "extraction_permits_pass": true,
+          "outcome": "proven",
+          "reads": "A committed tool definition with its `input_schema`, read as the published contract it is. A client tool declared by `type` carries that typed provider fact with it.",
+          "shape": "export_artifact",
+          "status": "extracted",
+          "surface": null,
+          "surface_complete": true,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Extraction evidence is complete: an action from this route can be pass-eligible. Effect, authority, identity, and binding evidence are judged separately and can still withhold a pass."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "reads": "This input reads artifacts, not source. Tools defined in Python are read by the framework inputs.",
+          "shape": "literal_registration",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "reads": "An artifact is the result of construction, never the construction.",
+          "shape": "factory",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "reads": "A tool definition names its `input_schema` or it is not a tool definition.",
+          "shape": "dynamic_construction",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        }
+      ],
+      "configured_as": "manifest_section",
+      "label": "Anthropic Messages API artifacts",
+      "reads": "Tool definitions, system prompts, and client-tool declarations declared under `manifest.anthropic`."
+    },
+    {
+      "adapter": "codex_config",
+      "cells": [
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "reads": "Host config declares servers. A committed `tools/list` export is configured as its own `mcp` source.",
+          "shape": "export_artifact",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        },
+        {
+          "ceiling": "high",
+          "emits": [
+            "codex_config_mcp"
+          ],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": true,
+          "extraction_permits_pass": true,
+          "outcome": "proven",
+          "reads": "A server entry whose `tools` mapping names a tool and gives it an input schema.",
+          "shape": "literal_registration",
+          "status": "extracted",
+          "surface": null,
+          "surface_complete": true,
+          "surface_flags": [],
+          "variant": "tool with a schema",
+          "verdict": "Extraction evidence is complete: an action from this route can be pass-eligible. Effect, authority, identity, and binding evidence are judged separately and can still withhold a pass."
+        },
+        {
+          "ceiling": "medium",
+          "emits": [
+            "codex_config_mcp"
+          ],
+          "evidence_gaps": [
+            "low_confidence_tool",
+            "incomplete_surface"
+          ],
+          "exclusion_detail": "not established as a complete surface",
+          "exclusion_reason": "surface_not_enumerated",
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "low_confidence",
+          "reads": "A server entry naming a tool \u2014 in `tools` or an allowlist such as `enabled_tools` \u2014 with no readable input schema. The name is a fact; the surface it accepts is not.",
+          "shape": "literal_registration",
+          "status": "extracted",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [
+            "mcp_unknown_schema"
+          ],
+          "variant": "tool without a schema",
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "reads": "Host config declares servers; it does not construct them.",
+          "shape": "factory",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        },
+        {
+          "ceiling": "medium",
+          "emits": [
+            "codex_config_mcp"
+          ],
+          "evidence_gaps": [
+            "low_confidence_tool",
+            "incomplete_surface"
+          ],
+          "exclusion_detail": "not established as a complete surface",
+          "exclusion_reason": "surface_not_enumerated",
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "low_confidence",
+          "reads": "A server entry that names no tools at all: one synthetic `<server>.*` action stands in for a surface only the running server can name.",
+          "shape": "dynamic_construction",
+          "status": "extracted",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [
+            "wildcard_tools",
+            "mcp_wildcard_tools",
+            "mcp_unknown_schema"
+          ],
+          "variant": null,
+          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Once low-confidence actions reach half the analysed surface, the verdict is `insufficient_evidence`. A reviewed tool inventory is the route out."
+        }
+      ],
+      "configured_as": "tool_sources",
+      "label": "Codex / MCP host config",
+      "reads": "`.mcp.json`, `.codex/config.toml`, and the other host MCP config files under the root a `tool_sources[]` entry names \u2014 including the servers a plugin block declares."
+    },
+    {
+      "adapter": "codex_plugin",
+      "cells": [
+        {
+          "ceiling": "high",
+          "emits": [
+            "codex_plugin_mcp_inventory"
+          ],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": true,
+          "extraction_permits_pass": true,
+          "outcome": "proven",
+          "reads": "An MCP tool inventory shipped inside the plugin and declared by `codex_plugins.mcp_tool_inventories[]`, read through the same loader as a standalone export.",
+          "shape": "export_artifact",
+          "status": "extracted",
+          "surface": null,
+          "surface_complete": true,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Extraction evidence is complete: an action from this route can be pass-eligible. Effect, authority, identity, and binding evidence are judged separately and can still withhold a pass."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_extracted",
+          "reads": "A plugin's MCP server stub names a server without a tool contract. It is recorded as a plugin component and a host boundary fact; no action enters the catalog, and a plugin whose whole component graph parsed with no callable tool says so structurally rather than by silence.",
+          "shape": "literal_registration",
+          "status": "not_extracted",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Nothing enters the catalog, so no check runs on it and no verdict covers it. The scan records that it read and refused this, rather than reporting an empty surface."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "reads": "A plugin manifest declares components; it does not construct them.",
+          "shape": "factory",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_extracted",
+          "reads": "A marketplace entry that is unreadable or unnamed is recorded as a skipped entry against its index position, so the count of what was refused is published rather than absorbed.",
+          "shape": "dynamic_construction",
+          "status": "not_extracted",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Nothing enters the catalog, so no check runs on it and no verdict covers it. The scan records that it read and refused this, rather than reporting an empty surface."
+        }
+      ],
+      "configured_as": "tool_sources",
+      "label": "Codex plugin package / marketplace",
+      "reads": "Plugin manifests, marketplace indexes, and the skills, apps, hooks, MCP server stubs, and MCP inventories a plugin ships."
+    },
+    {
+      "adapter": "validation",
+      "cells": [
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_extracted",
+          "reads": "A trace is evidence about approvals and runs that happened, not a tool contract. It adds no action to the catalog and widens no surface; it can only corroborate one already read.",
+          "shape": "export_artifact",
+          "status": "not_extracted",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Nothing enters the catalog, so no check runs on it and no verdict covers it. The scan records that it read and refused this, rather than reporting an empty surface."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "reads": "A trace records calls; it declares no tool.",
+          "shape": "literal_registration",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "reads": "A trace records calls; it constructs no tool.",
+          "shape": "factory",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "reads": "A trace records calls that already happened, so there is no unresolved declaration to fail on.",
+          "shape": "dynamic_construction",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        }
+      ],
+      "configured_as": "manifest_section",
+      "label": "Validation traces",
+      "reads": "Local agent-run and approval trace artifacts declared under `manifest.validation`."
+    }
+  ],
+  "title": "Agents Shipgate Determinism Boundary"
+}

@@ -11,7 +11,10 @@ from agents_shipgate.core.action_semantics import (
     join_phrases,
 )
 from agents_shipgate.core.control_packs import control_rule_summaries
-from agents_shipgate.core.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
+from agents_shipgate.core.disclaimers import (
+    DETERMINISM_BOUNDARY_REFERENCE,
+    HITL_RUNTIME_CONTROL_DISCLAIMER,
+)
 from agents_shipgate.core.findings import (
     PROVENANCE_KIND_ORDER,
     SEVERITY_ORDER,
@@ -219,6 +222,12 @@ def _append_release_decision(lines: list[str], report: ReadinessReport) -> None:
     lines.append(
         f"Evidence coverage: {evidence_coverage_text(decision.evidence_coverage)}"
     )
+    if decision.decision == "insufficient_evidence":
+        # Printed beside the coverage numbers, because that pairing is where an
+        # abstention is misread: the numbers say how much was established, and
+        # this says what could have been established at all (#473).
+        lines.append("")
+        lines.append(DETERMINISM_BOUNDARY_REFERENCE)
     lines.append("")
     bd = decision.baseline_delta
     if bd.enabled:

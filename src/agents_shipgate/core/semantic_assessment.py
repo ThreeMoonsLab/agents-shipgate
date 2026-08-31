@@ -54,7 +54,7 @@ _EFFECT_RANK: dict[ActionEffect, int] = {
     "destructive": 8,
 }
 _EFFECT_VALUES = frozenset(_EFFECT_RANK)
-_MCP_SOURCE_TYPES = frozenset(
+MCP_SOURCE_TYPES = frozenset(
     {
         "mcp",
         "codex_config_mcp",
@@ -69,7 +69,7 @@ _MCP_SOURCE_TYPES = frozenset(
 #: enumerated the surface says so on the tool (see
 #: :data:`agents_shipgate.core.domain.SURFACE_ENUMERATED`), and only a source
 #: type that says nothing is treated as incomplete.
-_AST_ONLY_SOURCE_TYPES = frozenset(
+AST_ONLY_SOURCE_TYPES = frozenset(
     {
         "sdk_function",
         "langchain_function",
@@ -164,8 +164,8 @@ def assess_tool_semantics(
     )
     identity = tool.identity_assessment or _compat_identity_assessment(tool)
     binding = tool.binding_assessment or _compat_binding_assessment(tool)
-    surface_complete = _surface_is_complete(tool)
-    extraction_complete = tool.extraction_confidence == "high"
+    surface_complete = surface_is_complete(tool)
+    extraction_complete = extraction_is_complete(tool)
     pass_eligible = (
         identity.pass_eligible
         and binding.pass_eligible
@@ -532,7 +532,7 @@ def _assess_effect(
     ]
     inferred = [claim for claim in claims if claim not in authoritative]
 
-    is_mcp = tool.source_type in _MCP_SOURCE_TYPES or tool.annotations.get("mcp_server") is True
+    is_mcp = tool.source_type in MCP_SOURCE_TYPES or tool.annotations.get("mcp_server") is True
     if is_mcp and not declared and not structural:
         claims.append(
             _claim(
@@ -850,7 +850,7 @@ def _assess_effect(
             )
         )
 
-    if tool.extraction_confidence != "high" or not _surface_is_complete(tool):
+    if not extraction_is_complete(tool) or not surface_is_complete(tool):
         issues.append(
             _issue(
                 "incomplete_surface",
@@ -2337,7 +2337,21 @@ def _issue(
     )
 
 
-def _surface_is_complete(tool: Tool) -> bool:
+def extraction_is_complete(tool: Tool) -> bool:
+    """Whether the adapter read this tool's own contract with full confidence.
+
+    One line, named once. It is the sole extraction input to pass eligibility
+    here and — negated — the sole definition of ``low_confidence_tool_count``
+    in :mod:`agents_shipgate.ci.release_decision`, so the two surfaces cannot
+    answer the question differently. :mod:`agents_shipgate.inputs.coverage`
+    calls it as well, which is what makes the published determinism boundary a
+    projection of this predicate rather than a second reading of it (#473).
+    """
+
+    return tool.extraction_confidence == "high"
+
+
+def surface_is_complete(tool: Tool) -> bool:
     """Whether this tool's surface is known, not merely reported.
 
     Until #393 an AST source type was disqualified outright. That made
@@ -2360,7 +2374,7 @@ def _surface_is_complete(tool: Tool) -> bool:
         or tool.annotations.get("mcp_unknown_schema") is True
     ):
         return False
-    if tool.source_type in _AST_ONLY_SOURCE_TYPES:
+    if tool.source_type in AST_ONLY_SOURCE_TYPES:
         return tool.extraction.get("surface") == SURFACE_ENUMERATED
     return True
 

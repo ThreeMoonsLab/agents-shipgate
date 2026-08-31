@@ -27,6 +27,7 @@ from agents_shipgate.inputs.common import (
     resolve_input_path,
     stable_tool_id,
 )
+from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.openapi import load_openapi_tools
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
@@ -2197,6 +2198,96 @@ class GoogleADKAdapter:
     source_type: ClassVar[str] = "google_adk"
     scope: ClassVar[Literal["per_source", "per_scan"]] = "per_scan"
     artifact_class: ClassVar[type | None] = GoogleAdkArtifacts
+
+    coverage: ClassVar[SourceCoverage] = SourceCoverage(
+        adapter="google_adk",
+        label="Google ADK",
+        reads=(
+            "ADK Python modules parsed with `ast`, agent config files, and any "
+            "reviewed inventory `google_adk.tool_inventories[]` declares. "
+            "Completeness is settled once per module, after the whole file is "
+            "walked."
+        ),
+        cells=(
+            BoundaryCell(
+                shape="export_artifact",
+                variant="reviewed inventory",
+                status="extracted",
+                reads=(
+                    "A reviewed tool inventory in MCP export form, read as a "
+                    "published contract."
+                ),
+                emits=("google_adk_inventory",),
+                ceiling="high",
+            ),
+            BoundaryCell(
+                shape="export_artifact",
+                variant="resolved toolset",
+                status="extracted",
+                reads=(
+                    "`McpToolset(...)` / `OpenAPIToolset(...)` whose arguments name a "
+                    "committed export or spec in the workspace. Those actions are "
+                    "read by the MCP and OpenAPI inputs, then lowered to this "
+                    "module's ceiling if anything else in the module was unresolved."
+                ),
+                emits=("mcp", "openapi"),
+                ceiling="high",
+            ),
+            BoundaryCell(
+                shape="literal_registration",
+                variant="Python module",
+                status="extracted",
+                reads=(
+                    "A module-level `def` bound by `Agent(tools=[...])`, in a module "
+                    "where every tool expression, agent keyword, and imported symbol "
+                    "resolved. This is the only source-code route in any input that "
+                    "reaches `high`."
+                ),
+                emits=("google_adk_function",),
+                ceiling="high",
+                surface="enumerated",
+            ),
+            BoundaryCell(
+                shape="literal_registration",
+                variant="agent config",
+                status="extracted",
+                reads=(
+                    "A tool named in an agent config file. The name is read; nothing "
+                    "local defines the schema, so the action is a reference only."
+                ),
+                emits=("google_adk_config",),
+                ceiling="low",
+                surface="partial",
+            ),
+            BoundaryCell(
+                shape="factory",
+                status="extracted",
+                reads=(
+                    "A toolset or wrapper call whose arguments do not name a file in "
+                    "the workspace records `dynamic_toolset`. The actions already "
+                    "read stay in the catalog; the whole module drops to `medium`, "
+                    "because a tool set this file could not prove is a fact about "
+                    "the file, not about the tool visited first."
+                ),
+                emits=("google_adk_function",),
+                ceiling="medium",
+                surface="partial",
+            ),
+            BoundaryCell(
+                shape="dynamic_construction",
+                status="extracted",
+                reads=(
+                    "An unresolved tools expression, `Agent(**config)`, a rebound "
+                    "tool variable, a star-import shadow, or any extractor warning "
+                    "the module could not classify records a surface gap and caps "
+                    "the module at `medium`."
+                ),
+                emits=("google_adk_function",),
+                ceiling="medium",
+                surface="partial",
+            ),
+        ),
+    )
 
     def load(
         self,

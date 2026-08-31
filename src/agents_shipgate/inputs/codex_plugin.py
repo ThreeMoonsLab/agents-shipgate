@@ -20,6 +20,7 @@ from agents_shipgate.inputs.common import (
     manifest_relative_path,
     resolve_input_path,
 )
+from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.schemas.codex_plugin import (
@@ -965,6 +966,53 @@ class CodexPluginAdapter:
     source_type: ClassVar[str] = "codex_plugin"
     scope: ClassVar[Literal["per_source", "per_scan"]] = "per_scan"
     artifact_class: ClassVar[type | None] = CodexPluginArtifacts
+
+    coverage: ClassVar[SourceCoverage] = SourceCoverage(
+        adapter="codex_plugin",
+        label="Codex plugin package / marketplace",
+        reads=(
+            "Plugin manifests, marketplace indexes, and the skills, apps, hooks, "
+            "MCP server stubs, and MCP inventories a plugin ships."
+        ),
+        cells=(
+            BoundaryCell(
+                shape="export_artifact",
+                status="extracted",
+                reads=(
+                    "An MCP tool inventory shipped inside the plugin and declared by "
+                    "`codex_plugins.mcp_tool_inventories[]`, read through the same "
+                    "loader as a standalone export."
+                ),
+                emits=("codex_plugin_mcp_inventory",),
+                ceiling="high",
+            ),
+            BoundaryCell(
+                shape="literal_registration",
+                status="not_extracted",
+                reads=(
+                    "A plugin's MCP server stub names a server without a tool "
+                    "contract. It is recorded as a plugin component and a host "
+                    "boundary fact; no action enters the catalog, and a plugin whose "
+                    "whole component graph parsed with no callable tool says so "
+                    "structurally rather than by silence."
+                ),
+            ),
+            BoundaryCell(
+                shape="factory",
+                status="not_applicable",
+                reads="A plugin manifest declares components; it does not construct them.",
+            ),
+            BoundaryCell(
+                shape="dynamic_construction",
+                status="not_extracted",
+                reads=(
+                    "A marketplace entry that is unreadable or unnamed is recorded "
+                    "as a skipped entry against its index position, so the count of "
+                    "what was refused is published rather than absorbed."
+                ),
+            ),
+        ),
+    )
 
     def load(
         self,

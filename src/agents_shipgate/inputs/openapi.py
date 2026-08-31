@@ -25,6 +25,7 @@ from agents_shipgate.inputs.common import (
     strip_untrusted_binding_annotations,
     tool_name_warning,
 )
+from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
@@ -455,6 +456,46 @@ class OpenAPIAdapter:
     source_type: ClassVar[str] = "openapi"
     scope: ClassVar[Literal["per_source", "per_scan"]] = "per_source"
     artifact_class: ClassVar[type | None] = None
+
+    coverage: ClassVar[SourceCoverage] = SourceCoverage(
+        adapter="openapi",
+        label="OpenAPI document",
+        reads=(
+            "An OpenAPI 3.x document; every operation becomes one action."
+        ),
+        cells=(
+            BoundaryCell(
+                shape="export_artifact",
+                status="extracted",
+                reads=(
+                    "Each `paths` operation with its parameters, request body, and "
+                    "declared security. A `$ref` the document does not resolve is "
+                    "reported as a source warning against an action that is still "
+                    "read."
+                ),
+                emits=("openapi",),
+                ceiling="high",
+            ),
+            BoundaryCell(
+                shape="literal_registration",
+                status="not_applicable",
+                reads="An OpenAPI document is a contract file, not source.",
+            ),
+            BoundaryCell(
+                shape="factory",
+                status="not_applicable",
+                reads="Nothing in an OpenAPI document constructs operations.",
+            ),
+            BoundaryCell(
+                shape="dynamic_construction",
+                status="not_applicable",
+                reads=(
+                    "An operation is present in the document or it is not; there is "
+                    "no expression form to be unable to resolve."
+                ),
+            ),
+        ),
+    )
 
     def load(
         self,
