@@ -148,7 +148,7 @@ one added tool came to produce two rows and report `+2`
 ([#439](https://github.com/ThreeMoonsLab/agents-shipgate/issues/439)). In this
 schema those two changes are two entries of one row.
 
-Three structural rules hold it there, enforced by the models and not only by the
+Five structural rules hold it there, enforced by the models and not only by the
 producer:
 
 1. `subject.key` is unique across `subjects[]`. A payload that states one
@@ -188,7 +188,9 @@ layer, which is what makes the round-trip test in
 `tests/test_capability_payload.py` able to compare published rows against the
 facts that produced them.
 
-`capability_id` is unique within a subject row.
+`capability_id` is unique across the whole payload, not only within a row —
+provenance is keyed by it, so a repeat would quietly drop one capability from
+`evidence_set_digest`.
 
 ### State digests
 
