@@ -285,6 +285,16 @@ _GAP_PHRASE: dict[str, str] = {
     "conflicting_policy_evidence": "policy evidence conflicts",
 }
 
+# The semantic resolver emits this exact reason only when it measured the
+# surface as enumerated and the remaining gap is the lack of reviewed
+# attestation for a lower-confidence extraction. Keeping that producer-owned
+# distinction in the row lets the short headline state the condition that
+# actually fired instead of claiming enumeration failed (#396).
+_UNATTESTED_ENUMERATED_SURFACE = re.compile(
+    r"^tool surface is fully enumerated, but no reviewed tool inventory "
+    r"attests it \(extraction_confidence=(low|medium)\)$"
+)
+
 
 def evidence_gap_target(gap: EvidenceGap) -> str:
     """The surface a gap names, rendered for display — empty when it names none.
@@ -383,6 +393,13 @@ def evidence_gap_headline(gap: EvidenceGap) -> str:
     """Name the gap in one clause: what is unproven, and about what."""
 
     phrase = _GAP_PHRASE.get(gap.kind, gap.kind.replace("_", " "))
+    if gap.kind == "incomplete_surface":
+        match = _UNATTESTED_ENUMERATED_SURFACE.fullmatch(gap.why)
+        if match is not None:
+            phrase = (
+                "no reviewed tool inventory attests this surface "
+                f"(extraction_confidence={match.group(1)})"
+            )
     if gap.subject_kind == "tool_source":
         phrase = _SOURCE_SCOPED_GAP_PHRASE.get(gap.kind, phrase)
     subject = one_line(gap.subject)

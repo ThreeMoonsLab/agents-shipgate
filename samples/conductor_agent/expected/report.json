@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "report_schema_version": "0.42",
-  "run_id": "agents_shipgate_7a7430f9672871d1",
+  "run_id": "agents_shipgate_e0f0e1c2098bc335",
   "request_id": null,
   "subject_id": null,
   "input_set_id": null,
@@ -155,7 +155,7 @@
           "subject_kind": "action",
           "source_type": "conductor_mcp_call",
           "source_ref": "/tasks/3",
-          "why": "tool surface enumeration is incomplete or not high confidence",
+          "why": "tool surface is fully enumerated, but no reviewed tool inventory attests it (extraction_confidence=medium)",
           "next_action": {
             "kind": "provide_complete_inventory",
             "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
@@ -622,7 +622,7 @@
               {
                 "kind": "incomplete_surface",
                 "dimension": "effect",
-                "message": "tool surface enumeration is incomplete or not high confidence",
+                "message": "tool surface is fully enumerated, but no reviewed tool inventory attests it (extraction_confidence=medium)",
                 "source": "tool_extraction",
                 "source_pointer": "/tasks/3"
               }
@@ -1047,7 +1047,7 @@
             {
               "kind": "incomplete_surface",
               "dimension": "effect",
-              "message": "tool surface enumeration is incomplete or not high confidence",
+              "message": "tool surface is fully enumerated, but no reviewed tool inventory attests it (extraction_confidence=medium)",
               "source": "tool_extraction",
               "source_pointer": "/tasks/3"
             }
@@ -1229,7 +1229,7 @@
             {
               "kind": "incomplete_surface",
               "dimension": "effect",
-              "message": "tool surface enumeration is incomplete or not high confidence",
+              "message": "tool surface is fully enumerated, but no reviewed tool inventory attests it (extraction_confidence=medium)",
               "source": "tool_extraction",
               "source_pointer": "/tasks/3"
             }

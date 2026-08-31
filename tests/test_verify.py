@@ -3565,6 +3565,57 @@ def test_verify_preview_docs_only_diff_does_not_recommend_init(tmp_path: Path) -
     )
 
 
+def test_verify_preview_consumes_the_trigger_route_before_publishing_control(
+    tmp_path: Path,
+) -> None:
+    """#414: one preview payload must not tell the caller to preview again."""
+
+    repo = _init_repo(tmp_path)
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit_all(repo, "base")
+    _set_origin_main(repo)
+    (repo / "agent.py").write_text(
+        "from google.adk.agents import LlmAgent\n"
+        "root_agent = LlmAgent(name='closer', tools=[])\n",
+        encoding="utf-8",
+    )
+    _commit_all(repo, "add agent")
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--preview",
+            "--base",
+            "origin/main",
+            "--head",
+            "HEAD",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["trigger"]["should_run"] is True
+    trigger_action = payload["trigger"]["next_action"]
+    assert trigger_action == {
+        "kind": "none",
+        "command": None,
+        "why": (
+            "The verifier consumed the trigger route; follow "
+            "control.next_action for the current operation."
+        ),
+        "authoritative": False,
+        "authoritative_path": "control.next_action",
+    }
+    control_action = payload["control"]["next_action"]
+    assert control_action["kind"] == "initialize"
+    assert " init " in f" {control_action['command']} "
+    assert payload["control"]["allowed_next_commands"] == [control_action["command"]]
+
+
 def test_verify_preview_missing_base_without_manifest_reports_the_missing_ref(
     tmp_path: Path,
 ) -> None:

@@ -2,8 +2,8 @@
   "artifacts": {
     "report": {
       "path": "report.json",
-      "sha256": "sha256:cd87ed0b4ec0f2ad288d7f3417d248a39aaa0de71052b86b190012564ac4d024",
-      "size_bytes": 50809
+      "sha256": "sha256:cf431c90bb19237bf1faaf466814ee8f0ce5864aceb1bd8aecf0eae294321828",
+      "size_bytes": 50990
     },
     "report_markdown": {
       "path": "report.md",

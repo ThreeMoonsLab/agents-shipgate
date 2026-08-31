@@ -63,6 +63,7 @@ from agents_shipgate.core import source_warnings as sw
 from agents_shipgate.core.adopter_text import (
     DUPLICATE_TOOL_IN_SOURCE,
     INTERNAL_ONLY_TERMS,
+    INTERNAL_POLICY_IDS,
     internal_vocabulary,
 )
 from agents_shipgate.core.domain import Tool
@@ -205,6 +206,12 @@ def test_an_anchor_cannot_rescue_a_field_that_exists_in_no_file() -> None:
 
     anchored = "Set a stable native_locator in shipgate.yaml, then rerun."
     assert "native_locator" in internal_vocabulary(anchored)
+
+
+@pytest.mark.parametrize("policy_id", INTERNAL_POLICY_IDS)
+def test_an_engine_policy_id_is_internal_adopter_vocabulary(policy_id: str) -> None:
+    message = f"{policy_id}: Policy applicability needs review."
+    assert policy_id in internal_vocabulary(message)
 
 
 # --- 1. every gap kind, through the real renderers ---------------------------

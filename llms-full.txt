@@ -1448,6 +1448,29 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
+### Unreleased projection-only migration
+
+No schema or runtime-contract version moves for the current projection fixes.
+Completed blocked verifier runs now append the deterministically selected worst
+blocker to the plain headline as well as the adoption/self-approval branches;
+that same headline feeds `control.reason` and `control.next_action.why`. Runs
+with no blocker do not gain the clause. `incomplete_surface` prose now
+distinguishes a genuinely incomplete enumeration from a fully enumerated but
+lower-confidence surface that has no reviewed inventory attestation, and
+policy-evidence gap prose no longer prefixes `why` with an engine-owned
+`builtin-*` policy id. Public and organization-defined check ids remain stable
+labels. These are prose changes only; never branch on them. See the
+[verifier-explanation migration note](../STABILITY.md#migration-note-unreleased-verifier-explanations).
+
+Standalone trigger evaluation is unchanged. Inside a verifier artifact,
+however, its generic route has already been consumed. Embedded
+`trigger.next_action` is therefore a non-command `kind: "none"` row with
+`authoritative: false` and
+`authoritative_path: "control.next_action"`; the self-referential preview
+command is not repeated. In verifier, verify-run, and preview output, follow
+only `control.next_action` and `control.allowed_next_commands`. See the
+[embedded-trigger migration note](../STABILITY.md#migration-note-unreleased-embedded-trigger-routing).
+
 Runtime contract v27 finishes the v24 rollout on the stream v24 left out.
 **Every** agent-mode error line from `detect`, `init`, and `doctor` now carries
 the same `shipgate.agent_control/v1` object those commands publish on
@@ -2247,14 +2270,18 @@ operational overlay and cannot change those fields.
 - `trigger` — the run/skip evaluation. Read `evaluation_status` first; two of
   its three values withhold the verdict, and in both `should_run` /
   `run_shipgate` / `skip` / `skip_reason` are `null`. Never read `null` as
-  `false`.
-  - `"not_evaluated"` — the diff could not be read. `next_action.kind` is
-    `"input_required"`; repair the input. `skip_reason` is never `"no_match"`
-    for inputs that were not fully read.
+  `false`. The embedded `next_action` is diagnostic only: it is always a
+  non-command `kind: "none"` row with `authoritative: false` and points at
+  `control.next_action`, which is the route to follow. The standalone
+  `agents-shipgate trigger --json` command retains its own actionable
+  `next_action`.
+  - `"not_evaluated"` — the diff could not be read. Repair the input through
+    `control.next_action`; `skip_reason` is never `"no_match"` for inputs that
+    were not fully read.
   - `"unclassified"` — the diff *was* read in full and no rule classified some
     or all of the changed files. That is a fact about the catalog, not about
-    the PR, so the skip is withheld and `next_action` routes forward to the
-    scan. `surface_exclusions.entries[]` lists the unclassified files.
+    the PR, so the skip is withheld and `control.next_action` routes forward
+    to the scan. `surface_exclusions.entries[]` lists the unclassified files.
 
   `stop_conditions_fired` is the raw block result; `stop_conditions_terminal`
   says whether it decided. A matched `run_shipgate`/`force_run` rule overrides
@@ -2285,7 +2312,10 @@ operational overlay and cannot change those fields.
   additive and locked to `"verified"` whenever a `release_decision` is present.
 - `can_merge_without_human` — `bool`.
 - `decision` — mirror of `release_decision.decision` (or `null` when no scan ran).
-- `headline` — single-sentence, PR-comment-friendly summary (or `null`).
+- `headline` — single-sentence, PR-comment-friendly summary (or `null`). Every
+  completed blocked run names the deterministically selected worst blocker as
+  `Most severe: <title>.`, ordered by severity, check id, then title. A run
+  with no blocker adds no cause clause.
 - `authorization` — the
   `shipgate.human_authorization_evaluation/v1` result. Only `accepted` can
   expose a command, and that command must exactly match both

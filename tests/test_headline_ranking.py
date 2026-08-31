@@ -324,6 +324,82 @@ def test_a_trust_root_notice_with_no_blockers_is_still_the_whole_headline():
     assert "review item(s) flagged" not in headline
 
 
+def test_an_ordinary_blocked_pr_names_the_same_worst_blocker_everywhere():
+    """#436: the common path gets the cause without needing governance noise."""
+
+    report = _report_with(
+        decision="blocked",
+        blockers=[
+            _blocker(
+                "SHIP-POLICY-APPROVAL-MISSING",
+                "critical",
+                "delete_repository lacks a declared approval policy",
+            ),
+            _blocker(
+                "SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING",
+                "critical",
+                "delete_repository has destructive capability without required controls",
+            ),
+            _blocker("SHIP-LOWER-SEVERITY", "high", "a lower-severity blocker"),
+        ],
+        headline="3 active finding(s) block release.",
+    )
+
+    plain = _verifier_headline(
+        report=report,
+        merge_verdict="blocked",
+        head_status="succeeded",
+        capability_review=_review(),
+    )
+    governance = _verifier_headline(
+        report=report,
+        merge_verdict="blocked",
+        head_status="succeeded",
+        capability_review=_review(trust_root_touched=True),
+    )
+
+    expected = _worst_blocker(report.release_decision)
+    assert expected is not None
+    named = f"Most severe: {expected.title}."
+    assert plain is not None and named in plain
+    assert governance is not None and named in governance
+    assert "trust root" not in plain
+
+    control = _derive_verifier_control(
+        execution="succeeded",
+        merge_verdict="blocked",
+        release_decision=report.release_decision,
+        fix_task=None,
+        capability_review=_review(),
+        headline=plain,
+        first_next_action_override=None,
+        base_status="succeeded",
+        base_ref="origin/main",
+        diff_status=VerifierDiffStatus(completeness="complete"),
+    )
+    assert named in control.reason
+    assert control.next_action is not None
+    assert named in control.next_action.why
+
+
+def test_the_plain_path_adds_no_cause_when_there_is_no_blocker():
+    report = _report_with(
+        decision="review_required",
+        blockers=[],
+        headline="2 review item(s) flagged.",
+    )
+
+    assert (
+        _verifier_headline(
+            report=report,
+            merge_verdict="human_review_required",
+            head_status="succeeded",
+            capability_review=_review(),
+        )
+        == "2 review item(s) flagged."
+    )
+
+
 def test_a_failed_scan_still_wins_over_every_ranking():
     report = _report_with(
         decision="blocked",

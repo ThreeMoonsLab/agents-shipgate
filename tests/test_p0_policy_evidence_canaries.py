@@ -16,7 +16,9 @@ import pytest
 
 from agents_shipgate.ci.release_decision import build_release_decision
 from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.core.adopter_text import internal_vocabulary
 from agents_shipgate.core.domain import EvidenceBasis, SemanticClaim
+from agents_shipgate.core.evidence_actions import evidence_gap_headline
 from agents_shipgate.core.policy_evidence import (
     conjunction_status,
     disjunction_status,
@@ -370,13 +372,15 @@ action_surface:
     assert "declaration_below_inferred_evidence" in {
         issue.kind for issue in action.semantic_assessment.effect.issues
     }
-    gaps = [
-        gap
-        for gap in report.policy_evidence_gaps
-        if "builtin-effect-control-applicability" in gap.why
-    ]
+    gaps = [gap for gap in report.policy_evidence_gaps if gap.kind == "mixed_policy_evidence"]
     assert len(gaps) == 1
     assert gaps[0].kind == "mixed_policy_evidence"
+    assert "builtin-effect-control-applicability" not in gaps[0].why
+    assert "a reviewed declaration" in gaps[0].why
+    assert "keyword inference" in gaps[0].why
+    assert "Confirm the reviewed declaration" in gaps[0].why
+    assert internal_vocabulary(gaps[0].why) == ()
+    assert internal_vocabulary(evidence_gap_headline(gaps[0])) == ()
     assert gaps[0].next_action.kind == "review_policy_evidence"
 
 

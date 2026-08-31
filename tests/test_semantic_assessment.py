@@ -348,6 +348,32 @@ def test_an_ast_adapter_that_proved_the_surface_closes_the_surface_gap() -> None
     }
 
 
+def test_an_enumerated_lower_confidence_surface_names_the_attestation_gap() -> None:
+    """Enumeration and reviewed confidence are separate facts (#396)."""
+
+    assessment = assess_tool_semantics(
+        _tool(
+            source_type="google_adk_function",
+            extraction_confidence="medium",
+            extraction={
+                "method": "google_adk_python_ast",
+                "confidence": "medium",
+                "surface": "enumerated",
+                "surface_gaps": [],
+            },
+        )
+    )
+
+    issue = next(
+        issue for issue in assessment.effect.issues if issue.kind == "incomplete_surface"
+    )
+    assert issue.message == (
+        "tool surface is fully enumerated, but no reviewed tool inventory "
+        "attests it (extraction_confidence=medium)"
+    )
+    assert assessment.pass_eligible is False
+
+
 @pytest.mark.parametrize(
     "extraction",
     [

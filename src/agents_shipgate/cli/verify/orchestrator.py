@@ -3083,7 +3083,14 @@ def _verifier_headline(
             note,
         )
     if report is not None and report.agent_summary is not None:
-        return _lead(_one_clause(report.agent_summary.headline))
+        # The plain path is the common blocked-PR path: an already-adopted
+        # repository changed a capability without touching its trust root.
+        # Route it through the same picker as the two governance branches
+        # above so the one line copied into the PR comment and control envelope
+        # names the blocking cause rather than only counting blockers (#436).
+        # ``_report_primary_headline`` returns the summary unchanged when no
+        # blocker exists, so review/passed wording does not move.
+        return _lead(_report_primary_headline(report))
     if head_status == "skipped":
         return _lead(
             "No agent-capability changes detected; Shipgate did not need to run."
@@ -3355,6 +3362,36 @@ def _matched_diff_evidence(trigger: dict[str, Any]) -> bool:
     )
 
 
+def _embedded_trigger(trigger: dict[str, Any]) -> dict[str, Any]:
+    """The trigger result after the verifier has consumed its generic route.
+
+    Standalone trigger evaluation owns a useful ``next_action``: it tells a
+    caller that has not run the verifier yet to start with verify preview. Once
+    embedded in a verifier artifact, that precondition is already satisfied
+    and repeating the command creates a self-loop above the verifier's exact
+    control route (#414).
+
+    Keep the field and its established ``kind: none`` vocabulary for 0.x
+    readers, but make the precedence explicit at the first action a top-down
+    reader encounters. The command is deliberately absent; only
+    ``control.next_action`` and ``control.allowed_next_commands`` are
+    operational in a verifier artifact.
+    """
+
+    embedded = dict(trigger)
+    embedded["next_action"] = {
+        "kind": "none",
+        "command": None,
+        "why": (
+            "The verifier consumed the trigger route; follow "
+            "control.next_action for the current operation."
+        ),
+        "authoritative": False,
+        "authoritative_path": "control.next_action",
+    }
+    return embedded
+
+
 def _diff_failure_headline(context: DiffContext | None) -> str | None:
     """Summarize a diff-input failure in the terms its control route uses.
 
@@ -3593,7 +3630,7 @@ def _build_verifier(
         changed_files=changed_files,
         diff_text_available=bool(diff_text),
         diff_status=resolved_diff_status,
-        trigger=trigger,
+        trigger=_embedded_trigger(trigger),
         base_status=base_status,
         base_tree_sha=base_tree,
         head_tree_sha=head_tree,
@@ -5769,7 +5806,7 @@ def run_preview(
         changed_files=changed_files,
         diff_text_available=bool(diff_text),
         diff_status=_diff_status_artifact(diff_input),
-        trigger=trigger,
+        trigger=_embedded_trigger(trigger),
         base_status="not_requested",
         base_notes=notes,
         execution="not_run",

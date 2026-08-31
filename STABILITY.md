@@ -13,6 +13,54 @@ for reproducible CI.
 
 ---
 
+<a id="migration-note-unreleased-verifier-explanations"></a>
+
+## Migration Note: unreleased — verifier explanations name the cause that acted
+
+No schema or runtime-contract version moves. Three adopter-facing prose
+projections become more specific; consumers must continue to branch on typed
+fields rather than matching these sentences.
+
+- Every completed blocked verifier run now routes its plain headline through
+  the same deterministic blocker picker already used by the adoption and
+  self-approval branches. `verifier.headline`, `control.reason`, and
+  `control.next_action.why` therefore append `Most severe: <title>.` even when
+  the diff introduces no manifest and touches no trust root. The picker is
+  unchanged: severity, then check id, then title. Runs with no blocker are
+  byte-identical on this clause.
+- An `incomplete_surface` row raised for a surface the adapter did enumerate
+  now says that no reviewed inventory attests the lower-confidence extraction.
+  The older “could not be fully enumerated” wording remains only for a surface
+  whose enumeration is actually incomplete.
+- Policy-evidence gap prose no longer prefixes `why` with an engine-owned
+  `builtin-*` policy id. Public `SHIP-*` and organization-defined check ids
+  remain as stable labels. `mixed_policy_evidence` names the authoritative and
+  heuristic evidence in tension and the reviewed action that closes the gap;
+  machine consumers keep using the structured gap kind, subject, source, and
+  target path.
+
+<a id="migration-note-unreleased-embedded-trigger-routing"></a>
+
+## Migration Note: unreleased — embedded trigger advice is consumed by verifier control
+
+No schema or runtime-contract version moves, and standalone
+`agents-shipgate trigger --json` output is unchanged. When the same trigger
+evaluation is embedded in `verifier.json`, `verify-run.json`, or preview
+output, its generic `trigger.next_action` is replaced by a
+non-command `kind: "none"` row carrying `authoritative: false` and
+`authoritative_path: "control.next_action"`. Its explanation says the verifier
+already consumed the trigger route.
+
+This prevents `verify --preview --json` from publishing a self-referential
+preview command above the initialize/verify command that actually governs the
+run. Embedded `trigger` remains relevance evidence; `control.next_action` and
+`control.allowed_next_commands` remain the only operational route. Consumers
+that used embedded `trigger.next_action.command` must switch to
+`control.next_action.command`. Consumers of the standalone trigger command do
+not change.
+
+---
+
 <a id="migration-note-unreleased-pre-1-0-evidence-bar"></a>
 
 ## Migration Note: unreleased — the pre-1.0 release evidence bar
