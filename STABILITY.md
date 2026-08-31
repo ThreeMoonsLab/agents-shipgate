@@ -2808,7 +2808,12 @@ What a consumer may rely on:
   is rejected.
 - `capability_set_digest` and `evidence_set_digest` are computed over the
   published rows and are recomputable from the payload alone; the first covers
-  semantic content, the second provenance.
+  semantic content, the second provenance. A `state` payload **verifies its own
+  digests on parse** and is rejected if they do not describe its rows; a
+  `delta`'s `base`/`head` refs name states it does not carry, so those are taken
+  on trust.
+- `capabilities[].capability_id` is unique across the whole payload, not only
+  within a subject row.
 - `analysis_coverage` names the subjects the analysed surface left out, on both
   views. `status` is `not_requested | unavailable | complete`, and **neither
   `not_requested` nor `unavailable` means zero** — a consumer that reads either

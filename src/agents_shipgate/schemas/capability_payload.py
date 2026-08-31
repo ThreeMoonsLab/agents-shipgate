@@ -502,6 +502,63 @@ class CapabilityAnalysisCoverage(BaseModel):
         return self
 
 
+def state_digests(
+    subjects: Iterable[CapabilityStateSubject],
+) -> tuple[str, str]:
+    """The ``(capability_set_digest, evidence_set_digest)`` of a whole state.
+
+    The recipe lives here, with the frozen format, rather than with the
+    projection: it is part of what the schema promises an external consumer can
+    recompute, and a state payload validates its own declared digests against
+    it. Both are taken over the **published** rows, so nothing of ours has to
+    run for a consumer to redo them.
+
+    The split is the one the capability lock already draws.
+    ``capability_set_digest`` covers semantic content — the ``evidence`` block
+    and ``digests.evidence_hash`` are removed, so it does not move when only the
+    file a capability was read from moved. ``evidence_set_digest`` covers
+    exactly that provenance, keyed by ``capability_id``.
+    """
+
+    rows = [subject.model_dump(mode="json") for subject in subjects]
+    evidence: dict[str, Any] = {}
+    for row in rows:
+        for record in row["capabilities"]:
+            capability_id = record["capability_id"]
+            if capability_id in evidence:
+                # Keying provenance by capability id silently drops a collision,
+                # which would make two states with different provenance digest
+                # alike. One capability is one row; say so rather than hash a
+                # set that is quietly one entry short.
+                raise ValueError(
+                    f"duplicate capability_id across subjects: {capability_id!r}"
+                )
+            evidence[capability_id] = record["evidence"]
+    return (
+        payload_digest([_semantic_only(row) for row in rows]),
+        payload_digest(evidence),
+    )
+
+
+def _semantic_only(row: dict[str, Any]) -> dict[str, Any]:
+    """One published subject row with its provenance removed."""
+
+    stripped = dict(row)
+    stripped["capabilities"] = [
+        {
+            key: (
+                {name: value for name, value in field.items() if name != "evidence_hash"}
+                if key == "digests"
+                else field
+            )
+            for key, field in record.items()
+            if key != "evidence"
+        }
+        for record in row["capabilities"]
+    ]
+    return stripped
+
+
 class CapabilityStateRef(BaseModel):
     """What a payload says about one whole state, including one it does not carry.
 
@@ -598,6 +655,21 @@ class CapabilityStatePayloadV1(_CapabilityPayloadBase):
                 f"state.capability_count ({self.state.capability_count}) does "
                 f"not match the {capabilities} capability record(s) carried"
             )
+        # A state carries every row its digests are taken over, so it can check
+        # them — and must, because the spec tells consumers the digests are
+        # recomputable from the payload alone. (A delta's base/head refs
+        # describe states it does not carry, so those stay on trust.)
+        capability_digest, evidence_digest = state_digests(self.subjects)
+        if (
+            self.state.capability_set_digest != capability_digest
+            or self.state.evidence_set_digest != evidence_digest
+        ):
+            raise ValueError(
+                "state digests do not describe the rows carried: declared "
+                f"capability {self.state.capability_set_digest[:12]}… / "
+                f"evidence {self.state.evidence_set_digest[:12]}…, rows give "
+                f"{capability_digest[:12]}… / {evidence_digest[:12]}…"
+            )
         if self.state.capability_standard_version != self.capability_standard_version:
             raise ValueError(
                 "state.capability_standard_version must equal the payload's "
@@ -622,6 +694,19 @@ class CapabilityDeltaPayloadV1(_CapabilityPayloadBase):
             what="subject key",
         )
         _require_sorted(self.subjects, _delta_subject_sort_key, what="subjects")
+        _require_unique(
+            [
+                capability_id
+                for entry in self.subjects
+                for change in entry.changes
+                for capability_id in dict.fromkeys(
+                    side.capability_id
+                    for side in (change.before, change.after)
+                    if side is not None
+                )
+            ],
+            what="capability_id across subjects",
+        )
         expected = delta_summary(self.subjects)
         if self.summary != expected:
             raise ValueError(
@@ -787,6 +872,7 @@ __all__ = [
     "capability_transition_sort_key",
     "delta_summary",
     "payload_digest",
+    "state_digests",
     "subject_key",
     "subject_sort_key",
     "subject_transition",

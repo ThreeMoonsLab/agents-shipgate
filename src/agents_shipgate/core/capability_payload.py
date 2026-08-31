@@ -24,8 +24,6 @@ both — without someone writing down which it is and why.
 
 from __future__ import annotations
 
-from typing import Any
-
 from agents_shipgate.core.capability_delta import (
     CapabilityDeltaRow,
     CapabilityFactContext,
@@ -56,7 +54,7 @@ from agents_shipgate.schemas.capability_payload import (
     capability_record_sort_key,
     capability_transition_sort_key,
     delta_summary,
-    payload_digest,
+    state_digests,
     subject_key,
     subject_sort_key,
     subject_transition,
@@ -350,19 +348,19 @@ def state_ref(
 ) -> CapabilityStateRef:
     """Describe a whole state, digests included, from its published rows.
 
-    ``capability_set_digest`` covers the semantic content and
-    ``evidence_set_digest`` covers provenance, so the two questions a reviewer
-    asks — did the capability move, or only where we read it from — stay
-    separable, exactly as the capability lock already separates them.
+    The digest recipe itself lives with the frozen format
+    (:func:`agents_shipgate.schemas.capability_payload.state_digests`), so the
+    projection and the validator a consumer's parse runs cannot disagree about
+    what a state hashes to.
     """
 
-    rows = [subject.model_dump(mode="json") for subject in subjects]
+    capability_set_digest, evidence_set_digest = state_digests(subjects)
     return CapabilityStateRef(
         capability_standard_version=CAPABILITY_STANDARD_VERSION,
         subject_count=len(subjects),
         capability_count=sum(len(subject.capabilities) for subject in subjects),
-        capability_set_digest=payload_digest([_semantic_only(row) for row in rows]),
-        evidence_set_digest=payload_digest(_evidence_index(subjects)),
+        capability_set_digest=capability_set_digest,
+        evidence_set_digest=evidence_set_digest,
         ref=ref,
     )
 
@@ -513,44 +511,6 @@ def _permission_facts(fact: CapabilityFactV1) -> CapabilityPermissionFacts:
         classes=classification.classes,
         side_effect_unknown=classification.side_effect_unknown,
     )
-
-
-def _semantic_only(row: dict[str, Any]) -> dict[str, Any]:
-    """Strip provenance from a published subject row for the semantic digest.
-
-    Both the evidence block and the evidence digest go: leaving either in would
-    make ``capability_set_digest`` move when only the file a capability was read
-    from moved, which is the distinction this digest pair exists to draw.
-    """
-
-    stripped = dict(row)
-    stripped["capabilities"] = [
-        {
-            key: (
-                {
-                    name: value
-                    for name, value in field.items()
-                    if name != "evidence_hash"
-                }
-                if key == "digests"
-                else field
-            )
-            for key, field in record.items()
-            if key != "evidence"
-        }
-        for record in row["capabilities"]
-    ]
-    return stripped
-
-
-def _evidence_index(
-    subjects: tuple[CapabilityStateSubject, ...],
-) -> dict[str, dict[str, Any]]:
-    return {
-        record.capability_id: record.evidence.model_dump(mode="json")
-        for subject in subjects
-        for record in subject.capabilities
-    }
 
 
 __all__ = [

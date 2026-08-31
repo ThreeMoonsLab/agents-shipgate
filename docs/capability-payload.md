@@ -161,6 +161,9 @@ producer:
    "Nothing changed" is a claim about the two states, so it has to be one the
    payload's own digests support; a delta that says it while `base` and `head`
    differ is **rejected**.
+5. `capability_id` is unique across the **whole** payload, not only within a
+   row. Provenance is keyed by it, so a repeat would quietly drop one
+   capability from `evidence_set_digest`.
 
 `subject.name` is the adopter-facing spelling and is **not** identity: two
 providers may publish the same name. A consumer rendering names must qualify
@@ -195,6 +198,13 @@ describe the same state.
 Both digests are computed with sorted keys and compact separators, over values
 that are already JSON — the digest helper has no `str()` fallback, so it raises
 rather than digesting a lossy rendering of something it cannot serialize.
+
+**A `state` payload verifies its own digests on parse.** It carries every row
+they are taken over, so a state whose `state.*_digest` does not describe its
+`subjects[]` is rejected — the promise that the digests are recomputable from
+the payload alone is enforced, not just documented. A `delta`'s `base`/`head`
+refs describe states the delta does not carry, so those are taken on trust; the
+`state` payload for each side is what proves them.
 
 `ref` is an opaque caller label — a commit sha, a path — supplied by the surface
 that emits the payload. It is never a timestamp: this payload carries no wall

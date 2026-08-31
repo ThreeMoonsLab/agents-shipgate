@@ -521,6 +521,59 @@ def test_duplicate_subject_rows_are_rejected() -> None:
         CapabilityStatePayloadV1.model_validate(payload)
 
 
+def test_state_digests_that_do_not_describe_the_rows_are_rejected(
+    refund_facts,
+) -> None:
+    """The spec promises the digests are recomputable, so the payload checks."""
+
+    base, head = refund_facts
+    payload = project_capability_state(base).model_dump(mode="json")
+    # Rows from head, digests still from base: exactly the shape a stale ref or
+    # a hand-edit produces, and the one a digest-comparing consumer misses.
+    head_payload = project_capability_state(head).model_dump(mode="json")
+    payload["subjects"] = head_payload["subjects"]
+    payload["state"]["subject_count"] = head_payload["state"]["subject_count"]
+    payload["state"]["capability_count"] = head_payload["state"]["capability_count"]
+    with pytest.raises(ValidationError, match="do not describe the rows carried"):
+        CapabilityStatePayloadV1.model_validate(payload)
+
+
+def test_one_capability_cannot_appear_under_two_subjects() -> None:
+    """Global, not per-row: the evidence digest is keyed by capability id.
+
+    A repeat would silently drop one capability's provenance from
+    ``evidence_set_digest``, so two states with different provenance would
+    digest alike.
+    """
+
+    facts = _facts(REFUND_SAMPLE / "shipgate.yaml")
+    payload = project_capability_state(facts).model_dump(mode="json")
+    duplicate = json.loads(json.dumps(payload["subjects"][0]))
+    duplicate["subject"]["key"] = "capsubj_0000000000000000"
+    duplicate["subject"]["tool_id"] = "tool_v2_a_second_tool"
+    duplicate["subject"]["name"] = "zzz_second_tool"
+    payload["subjects"].append(duplicate)
+    payload["state"]["subject_count"] = 2
+    payload["state"]["capability_count"] = 2
+    with pytest.raises(ValidationError, match="duplicate capability_id across subjects"):
+        CapabilityStatePayloadV1.model_validate(payload)
+
+
+def test_one_capability_cannot_appear_under_two_delta_subjects(refund_facts) -> None:
+    base, head = refund_facts
+    payload = project_capability_delta(base, head).model_dump(mode="json")
+    borrowed = json.loads(json.dumps(payload["subjects"][0]))
+    borrowed["subject"]["key"] = "capsubj_0000000000000000"
+    borrowed["subject"]["tool_id"] = "tool_v2_a_second_tool"
+    borrowed["subject"]["name"] = "zzz_second_tool"
+    payload["subjects"].append(borrowed)
+    payload["summary"]["subjects"] += 1
+    payload["summary"][f"{borrowed['transition']}_subjects"] += 1
+    payload["summary"]["capability_changes"] += len(borrowed["changes"])
+    with pytest.raises(ValidationError, match="duplicate capability_id across subjects"):
+        CapabilityDeltaPayloadV1.model_validate(payload)
+
+
 def test_a_summary_that_disagrees_with_the_rows_is_rejected(refund_facts) -> None:
     """A tampered count must fail, not be silently corrected."""
 
