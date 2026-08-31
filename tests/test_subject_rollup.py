@@ -1322,7 +1322,7 @@ def test_every_builtin_obligation_has_a_phrase_and_round_trips():
 
 
 def test_the_grouped_block_does_not_evict_the_agent_instruction_block():
-    """The default comment truncates at ``_COMMENT_MAX_CHARS`` and preserves
+    """The default comment stays within ``_COMMENT_MAX_CHARS`` and preserves
     the agent block; adding prose above it must not change that.
 
     A machine reads that block. Losing it to a rendering addition would turn
@@ -1356,6 +1356,7 @@ def test_the_grouped_block_does_not_evict_the_agent_instruction_block():
     report.release_decision = _decision(blockers=findings, review_items=[])
 
     comment = _pr_comment(report, trigger_rationale="x" * 4000)
-    assert len(comment) == _COMMENT_MAX_CHARS
+    assert len(comment) <= _COMMENT_MAX_CHARS
+    assert "additional human summary detail omitted" in comment
     assert "### Agent instruction block" in comment
     assert "Findings by subject" in comment

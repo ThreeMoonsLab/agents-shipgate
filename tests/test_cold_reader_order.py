@@ -476,7 +476,12 @@ def test_first_adoption_verify_wires_scan_context_into_pr_comment(
 
     assert report is not None
     comment = (repo / "reports" / "pr-comment.md").read_text(encoding="utf-8")
-    assert comment.index("Surface: 9 tools") < comment.index("Release gate:")
+    assert (
+        comment.index("Surface: 9 tools")
+        < comment.index("Capability delta (analysed surface)")
+        < comment.index("Release gate:")
+    )
+    assert comment.count("Capability delta (analysed surface)") == 1
     assert comment.count("Release gate:") == 1
     if style == "capability-review":
         assert "Capability delta note:" in comment or "Top capability changes:" in comment

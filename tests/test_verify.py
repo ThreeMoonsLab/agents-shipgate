@@ -23,8 +23,13 @@ from agents_shipgate.cli.verify.pr_comment import render_pr_comment
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.trust_roots import PathIdentityIssue
+from agents_shipgate.report.human_order import (
+    HumanArtifactContext,
+    capability_delta_subject_rollup,
+)
 from agents_shipgate.report.json_report import report_json_payload
 from agents_shipgate.schemas.agent_control import HumanControlAction
+from agents_shipgate.schemas.bindings import BindingSurfaceDiff
 from agents_shipgate.schemas.capabilities import (
     CapabilityLockFileV1,
     CapabilityLockHashes,
@@ -38,6 +43,7 @@ from agents_shipgate.schemas.capability_change import (
     VerifierCapabilityDeltaSummary,
     VerifierSummary,
 )
+from agents_shipgate.schemas.common import SourceReference
 from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
 from agents_shipgate.schemas.patches import RemovePointerPatch
 from agents_shipgate.schemas.report import (
@@ -52,9 +58,17 @@ from agents_shipgate.schemas.report import (
     ToolSurfaceSummary,
 )
 from agents_shipgate.schemas.surfaces import (
+    ActionFact,
     ActionSurfaceChange,
     ActionSurfaceDiff,
     ActionSurfaceDiffSummary,
+    ActionSurfaceFacts,
+    ActionSurfaceHashes,
+    ToolSurfaceControlChange,
+    ToolSurfaceDiff,
+    ToolSurfaceHighRiskEffectChange,
+    ToolSurfaceScopeChange,
+    ToolSurfaceToolChange,
 )
 from agents_shipgate.schemas.verifier import (
     VerifierArtifact,
@@ -1063,8 +1077,11 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
     assert "Summary: This PR adds a refund action without approval evidence" in comment
     assert "- Release gate: `blocked`" in comment
     assert "- Reason: test decision" in comment
-    assert "- Capability delta: +1, 0 modified, -0" in comment
-    assert "`stripe.create_refund`: blocks release" in comment
+    assert (
+        "- Capability delta (analysed surface): "
+        "1 subject across 1 change (+1 added, 0 modified, -0 removed)" in comment
+    )
+    assert "`stripe.create_refund`: added action create\\_refund — blocks release" in comment
     assert "- Next actor: `human`" in comment
     assert "A human owner must confirm approval and idempotency evidence" in comment
     assert "- Trust root touched: `true`" in comment
@@ -1077,6 +1094,1158 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
         '"verification_command": "agents-shipgate verify --base origin/main --head HEAD --json"'
         in comment
     )
+
+
+def test_capability_review_groups_one_bound_tool_without_changing_legacy_counts() -> None:
+    """One reader subject may still carry two stable machine change rows (#439)."""
+
+    report = _report(decision="review_required", exit_code=0)
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        added=[
+            CapabilityChangeMember(
+                id="cap-update-incident-action",
+                direction="added",
+                subject_kind="action",
+                tool="update_incident",
+                action="update_incident",
+                release_impact="review_required",
+                rationale="Capability added.",
+            ),
+            CapabilityChangeMember(
+                id="cap-update-incident-tool",
+                direction="added",
+                subject_kind="tool",
+                tool="update_incident",
+                release_impact="review_required",
+                rationale="Tool added.",
+            ),
+        ],
+    )
+
+    legacy_review = build_capability_review(report)
+    rollup = capability_delta_subject_rollup(report)
+    verifier = _capability_verifier(report, review=legacy_review)
+    comments = [
+        render_pr_comment(verifier, report=report),
+        render_pr_comment(verifier, report=report, style="findings"),
+        render_pr_comment(
+            verifier,
+            report=report,
+            human_context=HumanArtifactContext(manifest_introduced=True),
+        ),
+        render_pr_comment(
+            verifier,
+            report=report,
+            style="findings",
+            human_context=HumanArtifactContext(manifest_introduced=True),
+        ),
+    ]
+
+    # ``verifier.json`` stays backward compatible: these are still two
+    # independently useful change rows and the published count remains two.
+    assert legacy_review.added == 2
+    assert {change.change_type for change in legacy_review.top_changes} == {
+        "action_added",
+        "tool_added",
+    }
+
+    # The schema-free human projection answers the reader's question instead:
+    # one thing changed, in two independently visible ways.
+    assert rollup.total_subjects == 1
+    assert rollup.added_subjects == 1
+    assert rollup.change_count == 2
+    assert len(rollup.subjects) == 1
+    assert rollup.subjects[0].subject == "update_incident"
+    assert rollup.subjects[0].change_types == ("action_added", "tool_added")
+    assert rollup.subjects[0].change_count == 2
+    for comment in comments:
+        human_summary = comment.split("### Agent instruction block", 1)[0]
+        assert "1 subject" in human_summary
+        assert "2 changes" in human_summary
+        normalized_summary = human_summary.replace("\\_", "_").lower()
+        assert normalized_summary.count("update_incident") == 1
+        assert "added action" in normalized_summary
+        assert "added tool" in normalized_summary
+
+
+def test_capability_review_keeps_same_named_provider_tools_as_distinct_subjects() -> None:
+    """Display names never replace canonical tool identity during grouping."""
+
+    report = _report(decision="review_required", exit_code=0)
+    alpha_action = "agent:alpha/agent:action_v2_" + "a" * 64
+    beta_action = "agent:beta/agent:action_v2_" + "b" * 64
+    report.findings = [
+        Finding(
+            id="F-alpha-blocker",
+            check_id="SHIP-TEST-ALPHA",
+            title="alpha search is blocked",
+            severity="critical",
+            category="test",
+            tool_id="tool-alpha",
+            tool_name="search",
+            recommendation="Fix alpha.",
+            blocks_release=True,
+        )
+    ]
+    report.tool_surface_diff = ToolSurfaceDiff(
+        enabled=True,
+        tools=[
+            ToolSurfaceToolChange(
+                kind="added",
+                tool_id="tool-alpha",
+                name="search",
+                provider="alpha",
+                source_type="mcp",
+                source_path="alpha-tools.json",
+                source_start_line=10,
+            ),
+            ToolSurfaceToolChange(
+                kind="added",
+                tool_id="tool-beta",
+                name="search",
+                provider="beta",
+                source_type="mcp",
+                source_path="beta-tools.json",
+                source_start_line=20,
+            ),
+        ],
+    )
+    report.action_surface_diff = ActionSurfaceDiff(
+        enabled=True,
+        summary=ActionSurfaceDiffSummary(actions_added=2),
+        added=[
+            ActionSurfaceChange(
+                type="ACTION_ADDED",
+                action_id=alpha_action,
+                tool_id="tool-alpha",
+                tool_name="search",
+                operation="search_alpha",
+                reason="Action added: search",
+                source_path="alpha-tools.json",
+                source_start_line=10,
+            ),
+            ActionSurfaceChange(
+                type="ACTION_ADDED",
+                action_id=beta_action,
+                tool_id="tool-beta",
+                tool_name="search",
+                operation="search_beta",
+                reason="Action added: search",
+                source_path="beta-tools.json",
+                source_start_line=20,
+            ),
+        ],
+    )
+    # Exercise the production compatibility builder. Its established member
+    # shape omits provider/tool_id, so the human projection must recover the
+    # canonical identities from the complete report without changing schema.
+    report.capability_change = None
+
+    rollup = capability_delta_subject_rollup(report)
+
+    assert rollup.total_subjects == 2
+    assert rollup.added_subjects == 2
+    assert rollup.change_count == 4
+    assert {subject.subject for subject in rollup.subjects} == {
+        "search [alpha]",
+        "search [beta]",
+    }
+    assert all(
+        subject.change_types == ("action_added", "tool_added")
+        for subject in rollup.subjects
+    )
+    by_subject = {subject.subject: subject for subject in rollup.subjects}
+    assert [(source.path, source.start_line) for source in by_subject["search [alpha]"].sources] == [
+        ("alpha-tools.json", 10)
+    ]
+    assert [(source.path, source.start_line) for source in by_subject["search [beta]"].sources] == [
+        ("beta-tools.json", 20)
+    ]
+    assert all("blocks release" in detail for detail in by_subject["search [alpha]"].changes)
+    assert all(
+        "blocks release" not in detail and "review required" in detail
+        for detail in by_subject["search [beta]"].changes
+    )
+
+
+def test_capability_review_keeps_unseen_explicit_tool_id_out_of_name_fanout() -> None:
+    report = _report(decision="review_required", exit_code=0)
+    report.tool_surface_diff = ToolSurfaceDiff(
+        enabled=True,
+        tools=[
+            ToolSurfaceToolChange(
+                kind="changed",
+                tool_id="tool-alpha",
+                name="search",
+                provider="alpha",
+                source_type="mcp",
+            ),
+            ToolSurfaceToolChange(
+                kind="changed",
+                tool_id="tool-beta",
+                name="search",
+                provider="beta",
+                source_type="mcp",
+            ),
+        ],
+        controls=[
+            ToolSurfaceControlChange(
+                kind="removed",
+                control="approval_policy",
+                tool="search",
+                tool_id="tool-gamma",
+            )
+        ],
+    )
+    report.capability_change = None
+
+    rollup = capability_delta_subject_rollup(report)
+
+    assert rollup.total_subjects == 3
+    assert rollup.change_count == 3
+    assert {subject.subject for subject in rollup.subjects} == {
+        "search [alpha]",
+        "search [beta]",
+        "search [tool-gamma]",
+    }
+    gamma = next(subject for subject in rollup.subjects if "tool-gamma" in subject.subject)
+    assert gamma.change_types == ("policy_broadened",)
+
+
+def test_capability_review_prefers_effect_signature_over_unrelated_action_id() -> None:
+    """A risk tag that equals an action id still belongs to its exact tool."""
+
+    report = _report(decision="review_required", exit_code=0)
+    report.action_surface_facts = ActionSurfaceFacts(
+        actions=[
+            _capability_action_fact(
+                action_id="financial_write",
+                tool_id="tool-alpha",
+                tool_name="alpha",
+                provider="alpha-provider",
+                operation="read_alpha",
+            )
+        ]
+    )
+    report.tool_surface_diff = ToolSurfaceDiff(
+        enabled=True,
+        high_risk_effects=[
+            ToolSurfaceHighRiskEffectChange(
+                kind="added",
+                tool_id="tool-beta",
+                tool="beta",
+                tag="financial_write",
+            )
+        ],
+    )
+    report.capability_change = None
+
+    rollup = capability_delta_subject_rollup(report)
+
+    assert rollup.total_subjects == 1
+    assert rollup.subjects[0].subject == "beta"
+    assert rollup.subjects[0].change_types == ("action_broadened",)
+
+
+def test_capability_review_keeps_only_exact_finding_source_on_name_collision() -> None:
+    report = _report(decision="review_required", exit_code=0)
+    report.findings = [
+        Finding(
+            id="F-alpha-blocker",
+            check_id="SHIP-TEST-ALPHA",
+            title="alpha search is blocked",
+            severity="critical",
+            category="test",
+            tool_id="tool-alpha",
+            tool_name="search",
+            recommendation="Fix alpha.",
+            blocks_release=True,
+            source=SourceReference(type="mcp", path="alpha.py", start_line=42),
+        )
+    ]
+    report.tool_surface_diff = ToolSurfaceDiff(
+        enabled=True,
+        tools=[
+            ToolSurfaceToolChange(
+                kind="added",
+                tool_id="tool-alpha",
+                name="search",
+                provider="alpha",
+                source_type="mcp",
+            ),
+            ToolSurfaceToolChange(
+                kind="added",
+                tool_id="tool-beta",
+                name="search",
+                provider="beta",
+                source_type="mcp",
+            ),
+        ],
+    )
+    report.capability_change = None
+
+    rollup = capability_delta_subject_rollup(report)
+    by_subject = {subject.subject: subject for subject in rollup.subjects}
+
+    assert [(source.path, source.start_line) for source in by_subject["search [alpha]"].sources] == [
+        ("alpha.py", 42)
+    ]
+    assert by_subject["search [beta]"].sources == ()
+
+
+def test_capability_review_labels_idless_ambiguous_action_without_internal_key() -> None:
+    report = _report(decision="review_required", exit_code=0)
+    report.tool_surface_diff = ToolSurfaceDiff(
+        enabled=True,
+        tools=[
+            ToolSurfaceToolChange(
+                kind="added",
+                tool_id="tool-alpha",
+                name="search",
+                provider="alpha",
+                source_type="mcp",
+            ),
+            ToolSurfaceToolChange(
+                kind="added",
+                tool_id="tool-beta",
+                name="search",
+                provider="beta",
+                source_type="mcp",
+            ),
+        ],
+    )
+    report.action_surface_diff = ActionSurfaceDiff(
+        enabled=True,
+        added=[
+            ActionSurfaceChange(
+                type="ACTION_ADDED",
+                action_id="legacy-search-action",
+                tool_id=None,
+                tool_name="search",
+                operation="search",
+                reason="Action added: search",
+            )
+        ],
+    )
+    report.capability_change = None
+
+    rollup = capability_delta_subject_rollup(report)
+    labels = {subject.subject for subject in rollup.subjects}
+
+    assert rollup.total_subjects == 3
+    assert rollup.change_count == 3
+    assert "search [identity unavailable]" in labels
+    assert all("legacy:" not in label for label in labels)
+
+
+def test_capability_review_preserves_exact_action_fact_identity_for_idless_diff() -> None:
+    report = _report(decision="review_required", exit_code=0)
+    report.action_surface_facts = ActionSurfaceFacts(
+        actions=[
+            _capability_action_fact(
+                action_id="aid",
+                tool_id="tool-alpha",
+                tool_name="search",
+                provider="alpha",
+                operation="search_alpha",
+                source_path="alpha.json",
+                source_start_line=11,
+            ),
+            _capability_action_fact(
+                action_id="beta-aid",
+                tool_id="tool-beta",
+                tool_name="search",
+                provider="beta",
+                operation="search_beta",
+                source_path="beta.json",
+                source_start_line=22,
+            ),
+        ]
+    )
+    report.action_surface_diff = ActionSurfaceDiff(
+        enabled=True,
+        modified=[
+            ActionSurfaceChange(
+                type="INPUT_SCHEMA_EXPANDED",
+                action_id="aid",
+                tool_id=None,
+                tool_name="search",
+                operation="search_alpha",
+                reason="Input schema expanded.",
+            )
+        ],
+    )
+    report.capability_change = None
+
+    rollup = capability_delta_subject_rollup(report)
+
+    assert rollup.total_subjects == 1
+    assert rollup.subjects[0].subject == "search [alpha]"
+    assert [(source.path, source.start_line) for source in rollup.subjects[0].sources] == [
+        ("alpha.json", 11)
+    ]
+
+
+def test_capability_review_sources_only_the_changed_action_fact() -> None:
+    report = _report(decision="review_required", exit_code=0)
+    report.action_surface_facts = ActionSurfaceFacts(
+        actions=[
+            _capability_action_fact(
+                action_id=action_id,
+                tool_id="tool-search",
+                tool_name="search",
+                provider="alpha",
+                operation=action_id,
+                source_path=f"{action_id}.json",
+                source_start_line=line,
+            )
+            for line, action_id in enumerate(("a", "b", "c", "d", "z"), start=1)
+        ]
+    )
+    report.action_surface_facts.actions[-1].source_start_line = 99
+    report.action_surface_diff = ActionSurfaceDiff(
+        enabled=True,
+        modified=[
+            ActionSurfaceChange(
+                type="INPUT_SCHEMA_EXPANDED",
+                action_id="z",
+                tool_id="tool-search",
+                tool_name="search",
+                operation="z",
+                reason="Input schema expanded.",
+            )
+        ],
+    )
+    report.capability_change = None
+
+    rollup = capability_delta_subject_rollup(report)
+
+    assert [(source.path, source.start_line) for source in rollup.subjects[0].sources] == [
+        ("z.json", 99)
+    ]
+
+
+def test_capability_review_does_not_invent_identity_for_ambiguous_legacy_member() -> None:
+    report = _report(decision="review_required", exit_code=0)
+    report.tool_surface_diff = ToolSurfaceDiff(
+        enabled=True,
+        tools=[
+            ToolSurfaceToolChange(
+                kind="changed",
+                tool_id="tool-alpha",
+                name="search",
+                provider="alpha",
+                source_type="mcp",
+            ),
+            ToolSurfaceToolChange(
+                kind="changed",
+                tool_id="tool-beta",
+                name="search",
+                provider="beta",
+                source_type="mcp",
+            ),
+        ],
+    )
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        added=[
+            CapabilityChangeMember(
+                id="legacy-search",
+                direction="added",
+                subject_kind="action",
+                tool="search",
+                action="legacy-operation",
+            )
+        ],
+    )
+
+    rollup = capability_delta_subject_rollup(report)
+
+    assert rollup.total_subjects == 1
+    assert rollup.change_count == 1
+    assert rollup.subjects[0].subject == "search [identity unavailable]"
+
+
+def test_capability_review_final_labels_are_injective_after_disambiguation() -> None:
+    report = _report(decision="review_required", exit_code=0)
+    report.tool_surface_diff = ToolSurfaceDiff(
+        enabled=True,
+        tools=[
+            ToolSurfaceToolChange(
+                kind="added",
+                tool_id="tool-alpha",
+                name="search",
+                provider="alpha",
+                source_type="mcp",
+            ),
+            ToolSurfaceToolChange(
+                kind="added",
+                tool_id="tool-beta",
+                name="search",
+                provider="beta",
+                source_type="mcp",
+            ),
+            ToolSurfaceToolChange(
+                kind="added",
+                tool_id="tool-literal",
+                name="search [alpha]",
+                provider="literal",
+                source_type="mcp",
+            ),
+        ],
+    )
+    report.capability_change = None
+
+    rollup = capability_delta_subject_rollup(report)
+    labels = [subject.subject for subject in rollup.subjects]
+
+    assert rollup.total_subjects == 3
+    assert len(set(labels)) == 3
+    assert any("[subject 2]" in label for label in labels)
+
+
+def test_capability_review_joins_legacy_action_change_to_unique_canonical_tool() -> None:
+    """An omitted legacy tool_id must not split one tool into two subjects."""
+
+    report = _report(decision="review_required", exit_code=0)
+    report.tool_surface_diff = ToolSurfaceDiff(
+        enabled=True,
+        tools=[
+            ToolSurfaceToolChange(
+                kind="added",
+                tool_id="tool-incident",
+                name="incident",
+                provider="pager",
+                source_type="mcp",
+            )
+        ],
+    )
+    report.action_surface_diff = ActionSurfaceDiff(
+        enabled=True,
+        added=[
+            ActionSurfaceChange(
+                type="ACTION_ADDED",
+                action_id="legacy-action-id",
+                tool_id=None,
+                tool_name="incident",
+                operation="update_incident",
+                reason="Action added: incident",
+            )
+        ],
+    )
+    report.capability_change = None
+
+    rollup = capability_delta_subject_rollup(report)
+
+    assert rollup.total_subjects == 1
+    assert rollup.change_count == 2
+    assert rollup.subjects[0].subject == "incident"
+    assert rollup.subjects[0].change_types == ("action_added", "tool_added")
+
+
+def test_capability_review_matches_independently_sorted_scope_names_and_ids() -> None:
+    """Scope tool_names/tool_ids are sets, not positional parallel arrays."""
+
+    report = _report(decision="review_required", exit_code=0)
+    report.tool_surface_diff = ToolSurfaceDiff(
+        enabled=True,
+        tools=[
+            ToolSurfaceToolChange(
+                kind="changed",
+                tool_id="z-tool",
+                name="alpha",
+                provider="provider-alpha",
+                source_type="mcp",
+            ),
+            ToolSurfaceToolChange(
+                kind="changed",
+                tool_id="a-tool",
+                name="beta",
+                provider="provider-beta",
+                source_type="mcp",
+            ),
+        ],
+        scopes=[
+            ToolSurfaceScopeChange(
+                kind="added",
+                scope="production",
+                scope_kind="tool_required",
+                tool_names=["alpha", "beta"],
+                # The producer sorts these independently, so positions do not
+                # express alpha->z-tool / beta->a-tool.
+                tool_ids=["a-tool", "z-tool"],
+            )
+        ],
+    )
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        broadened=[
+            CapabilityChangeMember(
+                id="cap-alpha-scope",
+                direction="broadened",
+                subject_kind="scope",
+                tool="alpha",
+                scope="production",
+                release_impact="blocks_release",
+                rationale="Alpha production access expanded.",
+            ),
+            CapabilityChangeMember(
+                id="cap-beta-scope",
+                direction="broadened",
+                subject_kind="scope",
+                tool="beta",
+                scope="production",
+                release_impact="informational",
+                rationale="Beta production access expanded.",
+            ),
+        ],
+    )
+
+    rollup = capability_delta_subject_rollup(report)
+    by_subject = {subject.subject: subject for subject in rollup.subjects}
+
+    assert "blocks release" in by_subject["alpha"].changes[0]
+    assert "Alpha production access expanded" in by_subject["alpha"].changes[0]
+    assert "blocks release" not in by_subject["beta"].changes[0]
+    assert "Beta production access expanded" in by_subject["beta"].changes[0]
+
+
+def test_capability_review_renders_operation_and_semantic_rationale_not_action_id() -> None:
+    report = _report(decision="review_required", exit_code=0)
+    action_id = "agent:incident/agent:action_v2_" + "c" * 64
+    report.action_surface_diff = ActionSurfaceDiff(
+        enabled=True,
+        modified=[
+            ActionSurfaceChange(
+                type="INPUT_SCHEMA_EXPANDED",
+                action_id=action_id,
+                tool_id="tool-incident",
+                tool_name="incident",
+                operation="update_incident",
+                reason="Input schema now accepts the production_region field.",
+            )
+        ],
+    )
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        broadened=[
+            CapabilityChangeMember(
+                id="cap-incident-input",
+                direction="broadened",
+                subject_kind="action",
+                tool="incident",
+                action=action_id,
+                release_impact="review_required",
+                rationale="Input schema now accepts the production_region field.",
+            )
+        ],
+    )
+
+    rollup = capability_delta_subject_rollup(report)
+    (detail,) = rollup.subjects[0].changes
+
+    assert "update_incident" in detail
+    assert "production_region" in detail
+    assert "action_v2_" not in detail
+
+
+def test_capability_delta_subject_rollup_preserves_overlapping_buckets() -> None:
+    """Grouping must not make an added-and-modified subject choose one fact."""
+
+    report = _report(decision="review_required", exit_code=0)
+    report.findings = [
+        Finding(
+            id="F-deploy-scope",
+            check_id="SHIP-TEST",
+            title="deployment scope changed",
+            severity="medium",
+            category="test",
+            recommendation="Review the scope change.",
+            source=SourceReference(
+                type="openapi",
+                path="tools.json",
+                start_line=42,
+            ),
+        )
+    ]
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        added=[
+            CapabilityChangeMember(
+                id="cap-deploy-tool",
+                direction="added",
+                subject_kind="tool",
+                tool="deploy_service",
+                release_impact="review_required",
+                rationale="Tool added.",
+            )
+        ],
+        broadened=[
+            CapabilityChangeMember(
+                id="cap-deploy-scope",
+                direction="broadened",
+                subject_kind="scope",
+                tool="deploy_service",
+                scope="production",
+                before_scope="staging",
+                after_scope="production",
+                release_impact="review_required",
+                rationale="Scope broadened.",
+                related_finding_ids=["F-deploy-scope"],
+            )
+        ],
+    )
+
+    rollup = capability_delta_subject_rollup(report)
+
+    assert rollup.total_subjects == 1
+    assert rollup.added_subjects == 1
+    assert rollup.modified_subjects == 1
+    assert rollup.removed_subjects == 0
+    assert rollup.change_count == 2
+    (subject,) = rollup.subjects
+    assert subject.subject == "deploy_service"
+    assert subject.change_types == ("tool_added", "scope_broadened")
+    assert subject.change_buckets == ("added", "modified")
+    assert subject.change_count == 2
+    assert len(subject.changes) == 2
+    assert any("added tool" in detail for detail in subject.changes)
+    assert any("broadened scope" in detail for detail in subject.changes)
+    assert [(source.path, source.start_line) for source in subject.sources] == [("tools.json", 42)]
+
+    # The legacy verifier subject is ``deploy_service:production`` while the
+    # human rollup subject is ``deploy_service``. Provenance is carried by the
+    # stable member/finding relation, not a lossy rendered-subject join.
+    verifier = _capability_verifier(report, review=build_capability_review(report))
+    comment = render_pr_comment(verifier, report=report)
+    assert "sources: `tools.json:42`" in comment
+
+
+def test_capability_review_labels_all_group_sources_without_row_misassociation() -> None:
+    report = _report(decision="review_required", exit_code=0)
+    report.findings = [
+        Finding(
+            id="F-action-source",
+            check_id="SHIP-TEST-ACTION",
+            title="action changed",
+            severity="medium",
+            category="test",
+            recommendation="Review action.",
+            source=SourceReference(type="openapi", path="a.json", start_line=1),
+        ),
+        Finding(
+            id="F-tool-source",
+            check_id="SHIP-TEST-TOOL",
+            title="tool changed",
+            severity="medium",
+            category="test",
+            recommendation="Review tool.",
+            source=SourceReference(type="mcp", path="b.json", start_line=2),
+        ),
+    ]
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        added=[
+            CapabilityChangeMember(
+                id="cap-action-source",
+                direction="added",
+                subject_kind="action",
+                tool="deploy",
+                action="run",
+                related_finding_ids=["F-action-source"],
+            ),
+            CapabilityChangeMember(
+                id="cap-tool-source",
+                direction="added",
+                subject_kind="tool",
+                tool="deploy",
+                related_finding_ids=["F-tool-source"],
+            ),
+        ],
+    )
+    verifier = _capability_verifier(report, review=build_capability_review(report))
+
+    comment = render_pr_comment(verifier, report=report)
+
+    assert "sources: `a.json:1`, `b.json:2`" in comment
+    assert "+1 more source" not in comment
+
+
+def test_capability_review_pr_comment_truncates_complete_ranked_subjects() -> None:
+    """The five-row budget ranks groups first and accounts for every hidden row."""
+
+    report = _report(decision="review_required", exit_code=0)
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        added=[
+            member
+            for subject in [*(f"a_tool_{index}" for index in range(6)), "z_blocking_tool"]
+            for member in (
+                CapabilityChangeMember(
+                    id=f"cap-{subject}-action",
+                    direction="added",
+                    subject_kind="action",
+                    tool=subject,
+                    action=subject,
+                    release_impact=(
+                        "blocks_release" if subject == "z_blocking_tool" else "informational"
+                    ),
+                    rationale="Capability added.",
+                ),
+                CapabilityChangeMember(
+                    id=f"cap-{subject}-tool",
+                    direction="added",
+                    subject_kind="tool",
+                    tool=subject,
+                    release_impact=(
+                        "blocks_release" if subject == "z_blocking_tool" else "informational"
+                    ),
+                    rationale="Tool added.",
+                ),
+            )
+        ],
+    )
+    verifier = _capability_verifier(report, review=build_capability_review(report))
+
+    human_summary = render_pr_comment(verifier, report=report).split(
+        "### Agent instruction block", 1
+    )[0]
+    normalized_summary = human_summary.replace("\\_", "_")
+
+    assert "7 subjects" in human_summary
+    assert "14 changes" in human_summary
+    assert "… and 2 more subjects (4 changes) not shown." in human_summary
+    # Ranking happens on complete subject groups, so the blocking z_* subject
+    # stays visible ahead of informational a_* subjects without losing a row.
+    assert normalized_summary.count("z_blocking_tool") == 1
+    for index in range(4):
+        assert normalized_summary.count(f"a_tool_{index}") == 1
+    assert "a_tool_4" not in normalized_summary
+    assert "a_tool_5" not in normalized_summary
+
+
+def test_capability_review_keeps_exact_hidden_counts_with_long_subject_rows() -> None:
+    report = _report(decision="review_required", exit_code=0)
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        added=[
+            CapabilityChangeMember(
+                id=f"cap-long-{index}",
+                direction="added",
+                subject_kind="tool",
+                tool=f"tool-{index}-" + ("x" * 1800),
+            )
+            for index in range(7)
+        ],
+    )
+    verifier = _capability_verifier(report, review=build_capability_review(report))
+    comments = [
+        render_pr_comment(verifier, report=report),
+        render_pr_comment(verifier, report=report, style="findings"),
+        render_pr_comment(
+            verifier,
+            report=report,
+            human_context=HumanArtifactContext(manifest_introduced=True),
+        ),
+        render_pr_comment(
+            verifier,
+            report=report,
+            style="findings",
+            human_context=HumanArtifactContext(manifest_introduced=True),
+        ),
+    ]
+
+    for comment in comments:
+        assert len(comment) <= 6000
+        assert "… and 7 more subjects (7 changes) not shown." in comment
+
+
+def test_capability_review_survives_long_release_reason_before_its_rows() -> None:
+    """An oversized prose field cannot erase the exact capability disclosure."""
+
+    report = _report(decision="review_required", exit_code=0)
+    assert report.release_decision is not None
+    report.release_decision.reason = "R" * 7000
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        added=[
+            CapabilityChangeMember(
+                id=f"cap-short-{index}",
+                direction="added",
+                subject_kind="tool",
+                tool=f"tool-{index}",
+            )
+            for index in range(7)
+        ],
+    )
+    verifier = _capability_verifier(report, review=build_capability_review(report))
+
+    for style in ("capability-review", "findings"):
+        comment = render_pr_comment(verifier, report=report, style=style)
+
+        assert len(comment) <= 6000
+        assert "Capability delta (analysed surface)" in comment
+        assert "… and 2 more subjects (2 changes) not shown." in comment
+
+
+def test_capability_review_survives_escaped_prose_budget_in_findings_style() -> None:
+    report = _report(decision="review_required", exit_code=0)
+    assert report.release_decision is not None
+    report.release_decision.reason = "*" * 7000
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        added=[
+            CapabilityChangeMember(
+                id=f"cap-escaped-{index}",
+                direction="added",
+                subject_kind="tool",
+                tool=f"tool-{index}",
+            )
+            for index in range(7)
+        ],
+    )
+    verifier = _capability_verifier(report, review=build_capability_review(report))
+    verifier.trigger = {"rationale": "*" * 7000}
+    verifier.base_status = "cache_hit"
+    verifier.base_ref = "origin/main"
+    verifier.base_notes = ["*" * 7000, "*" * 7000]
+
+    comment = render_pr_comment(verifier, report=report, style="findings")
+
+    assert len(comment) <= 6000
+    assert "Capability delta (analysed surface)" in comment
+    assert "… and 2 more subjects (2 changes) not shown." in comment
+
+
+def test_cold_capability_review_reserves_delta_ahead_of_long_surface_row() -> None:
+    report = _report(decision="review_required", exit_code=0)
+    assert report.release_decision is not None
+    report.release_decision.reason = "R" * 7000
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        added=[
+            CapabilityChangeMember(
+                id=f"cap-cold-{index}",
+                direction="added",
+                subject_kind="tool",
+                tool=f"tool-{index}",
+            )
+            for index in range(7)
+        ],
+    )
+    report.action_surface_facts = ActionSurfaceFacts(
+        actions=[
+            _capability_action_fact(
+                action_id="long-write-action",
+                tool_id="tool-write",
+                tool_name="write_" + ("W" * 3000),
+                provider="write-provider",
+                operation="write",
+                effect="write",
+            )
+        ]
+    )
+    verifier = _capability_verifier(report, review=build_capability_review(report))
+    context = HumanArtifactContext(manifest_introduced=True)
+
+    for style in ("capability-review", "findings"):
+        comment = render_pr_comment(
+            verifier,
+            report=report,
+            style=style,
+            human_context=context,
+        )
+
+        assert len(comment) <= 6000
+        assert "Capability delta (analysed surface)" in comment
+        assert "… and 2 more subjects (2 changes) not shown." in comment
+
+
+def test_capability_review_keeps_omitted_change_types_and_worst_detail_visible() -> None:
+    """A selected subject cannot hide a distinct change kind behind its row limit."""
+
+    report = _report(decision="review_required", exit_code=0)
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        added=[
+            CapabilityChangeMember(
+                id="cap-deploy-tool-added",
+                direction="added",
+                subject_kind="tool",
+                tool="deploy_service",
+                release_impact="informational",
+            ),
+            CapabilityChangeMember(
+                id="cap-deploy-action-added",
+                direction="added",
+                subject_kind="action",
+                tool="deploy_service",
+                action="deploy",
+                release_impact="review_required",
+            ),
+        ],
+        broadened=[
+            CapabilityChangeMember(
+                id="cap-deploy-scope-broadened",
+                direction="broadened",
+                subject_kind="scope",
+                tool="deploy_service",
+                scope="production",
+                release_impact="informational",
+            )
+        ],
+        narrowed=[
+            CapabilityChangeMember(
+                id="cap-deploy-policy-narrowed",
+                direction="narrowed",
+                subject_kind="policy",
+                tool="deploy_service",
+                action="approval",
+                release_impact="blocks_release",
+            )
+        ],
+        removed=[
+            CapabilityChangeMember(
+                id="cap-deploy-action-removed",
+                direction="removed",
+                subject_kind="action",
+                tool="deploy_service",
+                action="rollback",
+                release_impact="informational",
+            )
+        ],
+    )
+    verifier = _capability_verifier(report, review=build_capability_review(report))
+
+    comment = render_pr_comment(verifier, report=report).split("### Agent instruction block", 1)[0]
+
+    assert "narrowed policy approval — blocks release" in comment
+    assert "omitted change types: action removed" in comment
+    assert "… and 1 more change" in comment
+
+
+def test_capability_review_reports_requested_but_unavailable_comparison_as_unknown() -> None:
+    report = _report(decision="review_required", exit_code=0)
+    report.capability_change = CapabilityChangeBlock(enabled=False)
+    report.binding_surface_diff = BindingSurfaceDiff(
+        enabled=False,
+        base_comparison_requested=True,
+    )
+    verifier = _capability_verifier(report, review=build_capability_review(report))
+
+    comment = render_pr_comment(verifier, report=report)
+
+    assert "newly outside the analysed surface: unknown (comparison unavailable)" in comment
+    assert "0 subjects newly outside" not in comment
+
+
+def test_capability_review_preserves_adversarial_subject_identities_in_markdown() -> None:
+    subjects = ["`leading", "trailing`", " leading", "trailing ", " both "]
+    report = _report(decision="review_required", exit_code=0)
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        added=[
+            CapabilityChangeMember(
+                id=f"cap-identity-{index}",
+                direction="added",
+                subject_kind="tool",
+                tool=subject,
+            )
+            for index, subject in enumerate(subjects)
+        ],
+    )
+    verifier = _capability_verifier(report, review=build_capability_review(report))
+
+    comment = render_pr_comment(verifier, report=report).split("### Agent instruction block", 1)[0]
+
+    assert "`` `leading ``" in comment
+    assert "`` trailing` ``" in comment
+    assert "` leading`" in comment
+    assert "`trailing `" in comment
+    assert "`  both  `" in comment
+
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        added=[
+            CapabilityChangeMember(
+                id="cap-control-identity",
+                direction="added",
+                subject_kind="tool",
+                tool="line\nbreak",
+            )
+        ],
+    )
+    verifier = _capability_verifier(report, review=build_capability_review(report))
+    comment = render_pr_comment(verifier, report=report).split("### Agent instruction block", 1)[0]
+    assert "`line<U+000A>break`" in comment
+    assert "line\nbreak" not in comment
+
+
+def test_capability_review_renders_adversarial_source_paths_as_code() -> None:
+    report = _report(decision="review_required", exit_code=0)
+    report.findings = [
+        Finding(
+            id="F-source-markdown",
+            check_id="SHIP-TEST",
+            title="source path needs review",
+            severity="medium",
+            category="test",
+            recommendation="Review it.",
+            source=SourceReference(
+                type="openapi",
+                path="specs/[prod](unsafe)`tools*.json",
+                start_line=17,
+            ),
+        )
+    ]
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        added=[
+            CapabilityChangeMember(
+                id="cap-source-markdown",
+                direction="added",
+                subject_kind="tool",
+                tool="safe_subject",
+                related_finding_ids=["F-source-markdown"],
+            )
+        ],
+    )
+    verifier = _capability_verifier(report, review=build_capability_review(report))
+
+    comment = render_pr_comment(verifier, report=report)
+
+    assert "sources: ``specs/[prod](unsafe)`tools*.json:17``" in comment
+
+
+def test_capability_delta_subject_rollup_builds_a_missing_legacy_block() -> None:
+    """Older in-memory callers still project the existing surface diff."""
+
+    report = _report(decision="review_required", exit_code=0)
+    report.capability_change = None
+    report.action_surface_diff = ActionSurfaceDiff(
+        enabled=True,
+        summary=ActionSurfaceDiffSummary(actions_added=1),
+        added=[
+            ActionSurfaceChange(
+                type="ACTION_ADDED",
+                action_id="refund",
+                tool_name="stripe.create_refund",
+                operation="create_refund",
+                severity="high",
+                reason="Action added: stripe.create_refund",
+            )
+        ],
+    )
+
+    rollup = capability_delta_subject_rollup(report)
+
+    assert rollup.enabled is True
+    assert rollup.total_subjects == 1
+    assert rollup.added_subjects == 1
+    assert rollup.change_count == 1
+    assert rollup.subjects[0].subject == "stripe.create_refund"
+    assert rollup.subjects[0].change_types == ("action_added",)
 
 
 def test_capability_review_pr_comment_preserves_valid_agent_json_when_compacted() -> None:
@@ -2643,6 +3812,64 @@ def _human_control(reason: str):
         ),
         human_review_required=True,
         unsafe_block=reason == "blocked",
+    )
+
+
+def _capability_verifier(
+    report: ReadinessReport,
+    *,
+    review: VerifierCapabilityReview,
+) -> VerifierArtifact:
+    """Minimal verifier envelope for PR-comment capability regressions."""
+
+    assert report.release_decision is not None
+    return VerifierArtifact(
+        workspace="/tmp/work",
+        diff_status=VerifierDiffStatus(),
+        config="shipgate.yaml",
+        authorization=AuthorizationEvaluationV1.not_requested(),
+        trigger={"rationale": "1 run_shipgate rule(s) matched."},
+        execution="succeeded",
+        head_status="succeeded",
+        release_decision=report.release_decision,
+        decision=report.release_decision.decision,
+        merge_verdict="human_review_required",
+        applicability="verified",
+        control=_human_control("review_required"),
+        capability_review=review,
+        artifacts={"verifier_json": "agents-shipgate-reports/verifier.json"},
+    )
+
+
+def _capability_action_fact(
+    *,
+    action_id: str,
+    tool_id: str,
+    tool_name: str,
+    provider: str,
+    operation: str,
+    effect: str = "read",
+    source_path: str | None = None,
+    source_start_line: int | None = None,
+) -> ActionFact:
+    return ActionFact(
+        action_id=action_id,
+        agent_id="agent:test",
+        tool_id=tool_id,
+        tool_name=tool_name,
+        provider=provider,
+        source_type="mcp",
+        operation=operation,
+        effect=effect,  # type: ignore[arg-type]
+        source_path=source_path,
+        source_start_line=source_start_line,
+        input_schema_hash=f"schema:{action_id}",
+        hashes=ActionSurfaceHashes(
+            identity_hash=f"identity:{action_id}",
+            schema_hash=f"schema:{action_id}",
+            policy_hash=f"policy:{action_id}",
+            risk_hash=f"risk:{action_id}",
+        ),
     )
 
 

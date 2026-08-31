@@ -14,6 +14,41 @@
   scan `run_id` binds that key-presence because it changes whether the draft is
   coding-agent- or human-owned.
 
+- **Capability delta now answers the reviewer’s question in subjects, without
+  changing its machine contract.** (#437, #439) PR comments group the complete
+  analysed `capability_change` by reader subject before applying their display
+  limit, so one bound tool that produces `tool_added` and `action_added` is
+  shown once with both changes instead of as two capabilities. Added,
+  modified, and removed subject counts are memberships over that grouped set;
+  a subject changed in more than one direction keeps every direction. Groups
+  are ranked by their worst release impact and then change direction, every
+  selected group keeps its distinct change types visible, and truncation names
+  the exact hidden subject and underlying-change counts.
+
+  The adjacent exclusion is now explicit rather than folded into capability:
+  when a successful base comparison finds
+  `binding_surface_diff.added_unbound_tool_ids`, the same line separately says
+  how many subjects are **newly outside the analysed surface**. That neutral
+  wording covers both an added-but-unbound tool and a previously reachable
+  tool that lost its binding. Pre-existing unwired catalog operations,
+  including the large sample’s 58 intentional operations, add nothing; a plain
+  scan has no base-relative term; and a requested comparison that could not
+  run reports the outside-analysis value as unknown rather than zero.
+
+  Both PR-comment styles and cold-reader ordering use one projection. The
+  existing `verifier.json` `capability_review.added`, `modified`, `removed`,
+  and `top_changes[]` fields remain change-record compatibility fields, and
+  verifier/report schemas, release decisions, and gate behavior are unchanged.
+
+  The human projection recovers canonical tool identity from the report's
+  existing action/tool facts and diffs, so same-named tools from different
+  providers remain distinct while a legacy row with ambiguous identity is not
+  guessed onto either tool. Reader detail resolves canonical action hashes to
+  operation names and retains semantic rationale. Group provenance is labelled
+  explicitly and rendered as Markdown-safe code spans; exact hidden counts are
+  emitted before bounded subject rows, so long repository-controlled names
+  cannot erase the truncation disclosure.
+
 - **Cold-reader artifacts now lead with what the agent can do.** (#463) On a
   repository with no committed Shipgate manifest, human output starts with the
   root-reachable tool surface, its effect breakdown and write/destructive

@@ -41,6 +41,7 @@ from agents_shipgate.core.surface_exclusions import (
     exclusion_phrase,
     nameable_subject,
 )
+from agents_shipgate.report.human_order import capability_delta_subject_rollup
 from agents_shipgate.schemas.exclusions import (
     MAX_LEDGER_ENTRIES,
     SurfaceExclusion,
@@ -139,6 +140,14 @@ def test_a_destructive_tool_added_by_the_diff_is_gated(tmp_path):
     assert len(graph.unbound_tool_ids) == 1, "the new tool is still excluded from analysis"
     assert report.binding_surface_diff.enabled is True
     assert report.binding_surface_diff.added_unbound_tool_ids == graph.unbound_tool_ids
+    rollup = capability_delta_subject_rollup(report)
+    outside = rollup.outside_analysis
+    # The excluded tool is reported only on the binding-diff axis. It has no
+    # analysed capability row and must not inflate the +added subject count.
+    assert rollup.total_subjects == 0
+    assert rollup.added_subjects == 0
+    assert outside.status == "complete"
+    assert outside.newly_outside_subjects == 1
 
     decision = report.release_decision
     assert decision is not None
@@ -221,6 +230,9 @@ def test_a_pre_existing_unbound_tool_is_recorded_and_not_gated(tmp_path):
 
     assert len(report.binding_surface_facts.unbound_tool_ids) == 1
     assert report.binding_surface_diff.added_unbound_tool_ids == []
+    outside = capability_delta_subject_rollup(report).outside_analysis
+    assert outside.status == "complete"
+    assert outside.newly_outside_subjects == 0
     rows = [
         entry
         for entry in report.surface_exclusions.entries
@@ -247,6 +259,23 @@ def test_a_plain_scan_has_no_base_and_gates_nothing_new(tmp_path):
     assert report.binding_surface_diff.added_unbound_tool_ids == []
     assert [row.reason for row in report.surface_exclusions.entries] == ["unbound_tool"]
     assert report.surface_exclusions.gated == 0
+    outside = capability_delta_subject_rollup(report).outside_analysis
+    assert outside.status == "not_requested"
+    assert outside.newly_outside_subjects == 0
+
+
+def test_large_sample_unbound_catalog_does_not_become_a_new_delta(tmp_path):
+    """The 58 by-design unwired operations are not a base-backed change (#437)."""
+
+    report, _ = _scan(
+        Path("samples/large_multi_framework_agent/shipgate.yaml"),
+        tmp_path / "large-sample-reports",
+    )
+
+    assert len(report.binding_surface_facts.unbound_tool_ids) == 58
+    outside = capability_delta_subject_rollup(report).outside_analysis
+    assert outside.status == "not_requested"
+    assert outside.newly_outside_subjects == 0
 
 
 # --- the invariant itself ---------------------------------------------------
@@ -1397,7 +1426,10 @@ def test_a_new_gap_names_the_subject_that_left_the_analysed_surface(tmp_path):
     action = verifier.first_next_action
     assert action is not None and "find_duplicate [server_mcp]" in action.why
     # And on the surface a human actually opens.
-    assert "find_duplicate" in render_pr_comment(verifier, report=report)
+    comment = render_pr_comment(verifier, report=report)
+    assert "find_duplicate" in comment
+    assert "- Capability delta (analysed surface):" in comment
+    assert "; 1 subject newly outside the analysed surface" in comment
 
 
 def test_the_named_subject_is_the_ledger_spelling(tmp_path):

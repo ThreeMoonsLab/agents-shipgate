@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 
 from agents_shipgate.core.declaration_questions import progress_sentence
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
@@ -13,8 +14,9 @@ from agents_shipgate.report.capability_lock_diff_markdown import (
     render_capability_lock_diff_markdown,
 )
 from agents_shipgate.report.human_order import (
+    CapabilityDeltaSubjectRollup,
     HumanArtifactContext,
-    capability_delta_by_subject,
+    capability_delta_subject_rollup,
     should_render_surface_first,
     surface_lead,
 )
@@ -48,6 +50,12 @@ _COLD_READER_OMISSION = "- … additional capability detail omitted; see report.
 # surface however it is laid out.
 _COMMENT_SUBJECT_LIMIT = 4
 _COMMENT_ROW_LIMIT = 3
+_COMMENT_CAPABILITY_SUBJECT_LIMIT = 5
+_COMMENT_CAPABILITY_CHANGE_LIMIT = 4
+_COMMENT_CAPABILITY_SOURCE_LIMIT = 3
+_COMMENT_CAPABILITY_MAX_CHARS = 1200
+_COMMENT_PROSE_FIELD_MAX_CHARS = 400
+_COMMENT_PROSE_OMISSION = "- … additional human summary detail omitted; see report.md."
 
 
 def render_pr_comment(
@@ -113,8 +121,29 @@ def _human_summary_lines(
     surface_first = bool(
         report is not None and should_render_surface_first(report, context=human_context)
     )
+    review = (
+        _capability_review(verifier, report)
+        if report is not None and report.release_decision is not None
+        else None
+    )
+    capability_lines = (
+        _capability_delta_lines(
+            capability_delta_subject_rollup(
+                report,
+                subject_limit=_COMMENT_CAPABILITY_SUBJECT_LIMIT,
+            ),
+            review=review,
+        )
+        if report is not None and review is not None
+        else []
+    )
     if surface_first and report is not None:
-        lines.extend(_cold_reader_lines(report))
+        lines.extend(
+            _cold_reader_lines(
+                report,
+                capability_lines=capability_lines,
+            )
+        )
     lines.append(f"- Merge verdict: `{verifier.merge_verdict}`")
     lines.append(f"- Can merge without human: `{str(verifier.can_merge_without_human).lower()}`")
     lines.append(f"- Agent control state: `{verifier.control.state}`")
@@ -126,11 +155,13 @@ def _human_summary_lines(
     lines.append(f"- Agent may update this PR: `{str(permissions.update_pr).lower()}`")
     lines.append(f"- Agent may merge: `{str(permissions.merge).lower()}`")
     if verifier.control.stop_reason:
-        lines.append(f"- Agent stop reason: `{verifier.control.stop_reason}`")
+        lines.append(
+            f"- Agent stop reason: {_bounded_identity_code(verifier.control.stop_reason)}"
+        )
 
     headline = _headline(verifier, report)
     if headline:
-        lines.append(f"- Summary: {_escape(headline)}")
+        lines.append(f"- Summary: {_bounded_prose(headline)}")
 
     if report is None or report.release_decision is None:
         if verifier.head_status == "skipped":
@@ -147,12 +178,11 @@ def _human_summary_lines(
         return lines
 
     decision = report.release_decision
-    review = _capability_review(verifier, report)
+    assert review is not None
     lines.append(f"- Release gate: `{decision.decision}`")
-    lines.append(f"- Reason: {_escape(decision.reason)}")
-    lines.append(
-        f"- Capability delta: +{review.added}, {review.modified} modified, -{review.removed}"
-    )
+    lines.append(f"- Reason: {_bounded_prose(decision.reason)}")
+    if not surface_first:
+        lines.extend(capability_lines)
     if capability_lock_diff is not None:
         summary = capability_lock_diff.summary
         lines.append(
@@ -179,17 +209,6 @@ def _human_summary_lines(
     )
     lines.append(f"- Static-verdict boundary: {_escape(STATIC_VERDICT_DISCLAIMER)}")
     lines.extend(_next_actor_lines(verifier))
-    if review.top_changes:
-        lines.append("- Top capability changes:")
-        for change in review.top_changes[:5]:
-            source = _source_suffix(change.source_path, change.source_start_line)
-            lines.append(
-                "  - "
-                f"`{change.subject}`: {_escape(_impact(change))}; "
-                f"{_escape(change.rationale)}{source}"
-            )
-    elif review.notes:
-        lines.append(f"- Capability delta note: {_escape(review.notes[0])}")
     if not surface_first:
         lines.extend(_subject_rollup_lines(report))
     if review.trust_root_touched or review.policy_weakened:
@@ -202,33 +221,159 @@ def _human_summary_lines(
     return lines
 
 
-def _cold_reader_lines(report: ReadinessReport) -> list[str]:
-    lines = [f"- {_escape(line)}" for line in surface_lead(report).text_lines()]
-    groups = capability_delta_by_subject(report)
-    if groups:
-        lines.append("- Capability changes by subject:")
-        for group in groups:
-            lines.append(f"  - `{_escape(group.subject)}`")
-            for change in group.changes:
-                lines.append(f"    - {_escape(change)}")
-    lines.extend(_subject_rollup_lines(report))
-    return _bounded_cold_reader_lines(lines)
+def _capability_delta_lines(
+    rollup: CapabilityDeltaSubjectRollup,
+    *,
+    review: VerifierCapabilityReview,
+) -> list[str]:
+    """Render the question a reviewer asks: how many subjects changed?
+
+    The stable ``capability_review`` counts remain change-record counts for
+    existing machine consumers.  Human copy instead uses the complete
+    canonical report rollup, so a tool/action pair consumes one subject slot
+    while both changes remain visible (#439).  The binding-diff axis stays
+    separate: a subject newly outside analysis is not proven capability, but
+    reporting ``+0`` without naming that fact is equally misleading (#437).
+    """
+
+    if rollup.enabled:
+        subject_noun = "subject" if rollup.total_subjects == 1 else "subjects"
+        change_noun = "change" if rollup.change_count == 1 else "changes"
+        summary = (
+            "- Capability delta (analysed surface): "
+            f"{rollup.total_subjects} {subject_noun} across "
+            f"{rollup.change_count} {change_noun} "
+            f"(+{rollup.added_subjects} added, "
+            f"{rollup.modified_subjects} modified, "
+            f"-{rollup.removed_subjects} removed)"
+        )
+    else:
+        summary = "- Capability delta (analysed surface): unavailable"
+
+    outside = rollup.outside_analysis
+    if outside.status == "complete" and outside.newly_outside_subjects:
+        noun = "subject" if outside.newly_outside_subjects == 1 else "subjects"
+        summary += f"; {outside.newly_outside_subjects} {noun} newly outside the analysed surface"
+    elif outside.status == "unavailable":
+        summary += "; newly outside the analysed surface: unknown (comparison unavailable)"
+
+    if not rollup.subjects:
+        lines = [summary]
+        if review.notes:
+            lines.append(f"- Capability delta note: {_bounded_prose(review.notes[0])}")
+        return lines
+
+    group_rows: list[str] = []
+    for group in rollup.subjects:
+        shown_changes = group.changes[:_COMMENT_CAPABILITY_CHANGE_LIMIT]
+        detail = "; ".join(_escape(change) for change in shown_changes)
+        hidden_changes = group.change_count - len(shown_changes)
+        if hidden_changes:
+            shown_types = set(group.change_types[:_COMMENT_CAPABILITY_CHANGE_LIMIT])
+            omitted_types = tuple(
+                dict.fromkeys(
+                    change_type
+                    for change_type in group.change_types[_COMMENT_CAPABILITY_CHANGE_LIMIT:]
+                    if change_type not in shown_types
+                )
+            )
+            if omitted_types:
+                labels = ", ".join(
+                    _capability_change_type_label(change_type) for change_type in omitted_types
+                )
+                detail += f"; omitted change types: {_escape(labels)}"
+            change_noun = "change" if hidden_changes == 1 else "changes"
+            detail += f"; … and {hidden_changes} more {change_noun}"
+        if group.sources:
+            shown_sources = group.sources[:_COMMENT_CAPABILITY_SOURCE_LIMIT]
+            detail += "; sources: " + ", ".join(
+                _source_location_code(source.path, source.start_line)
+                for source in shown_sources
+            )
+            hidden_sources = len(group.sources) - len(shown_sources)
+            if hidden_sources:
+                noun = "source" if hidden_sources == 1 else "sources"
+                detail += f" (+{hidden_sources} more {noun})"
+        group_rows.append(f"  - {_identity_code(group.subject)}: {detail}")
+
+    heading = "- Top capability changes by subject:"
+    # Choose the largest risk-ranked prefix that fits the capability block's
+    # own budget. Counts then include both the subject limit and the character
+    # budget; an outer comment bound never turns an exact claim into a lie.
+    for shown_count in range(len(group_rows), -1, -1):
+        shown_change_count = sum(
+            group.change_count for group in rollup.subjects[:shown_count]
+        )
+        hidden_subjects = rollup.total_subjects - shown_count
+        hidden_change_count = rollup.change_count - shown_change_count
+        candidate = [summary, heading]
+        if hidden_subjects:
+            subject_noun = "subject" if hidden_subjects == 1 else "subjects"
+            change_noun = "change" if hidden_change_count == 1 else "changes"
+            candidate.append(
+                "  - … and "
+                f"{hidden_subjects} more {subject_noun} "
+                f"({hidden_change_count} {change_noun}) not shown."
+            )
+        candidate.extend(group_rows[:shown_count])
+        if len("\n".join(candidate)) <= _COMMENT_CAPABILITY_MAX_CHARS:
+            return candidate
+
+    # Summary + heading + exact disclosure are bounded constants; the loop's
+    # zero-row candidate always fits. Keep a defensive return for type tools.
+    return [summary]
 
 
-def _bounded_cold_reader_lines(lines: list[str]) -> list[str]:
-    """Reserve PR-comment space for the verdict/control block that follows."""
+def _cold_reader_lines(
+    report: ReadinessReport,
+    *,
+    capability_lines: list[str] | None = None,
+) -> list[str]:
+    surface_lines = [f"- {_escape(line)}" for line in surface_lead(report).text_lines()]
+    return _bounded_cold_reader_lines(
+        surface_lines,
+        required_lines=capability_lines or [],
+        trailing_lines=_subject_rollup_lines(report),
+    )
 
+
+def _bounded_cold_reader_lines(
+    surface_lines: list[str],
+    *,
+    required_lines: list[str],
+    trailing_lines: list[str],
+) -> list[str]:
+    """Bound a cold lead while preserving its exact capability disclosure."""
+
+    lines = [*surface_lines, *required_lines, *trailing_lines]
     if len("\n".join(lines)) <= _COLD_READER_LEAD_MAX_CHARS:
         return lines
     budget = _COLD_READER_LEAD_MAX_CHARS - len(_COLD_READER_OMISSION) - 1
-    shown: list[str] = []
-    used = 0
-    for line in lines:
-        added = len(line) + (1 if shown else 0)
-        if used + added > budget:
+
+    required_length = len("\n".join(required_lines))
+    if required_length > budget:
+        # ``_capability_delta_lines`` has its own stricter 1,200-character
+        # budget, so this is defensive for direct/private callers only.
+        return [
+            *_truncate_markdown_lines(
+                required_lines,
+                budget,
+                omission=_COLD_READER_OMISSION,
+            ).splitlines()
+        ]
+
+    shown_surface: list[str] = []
+    for line in surface_lines:
+        candidate = [*shown_surface, line, *required_lines]
+        if len("\n".join(candidate)) > budget:
+            break
+        shown_surface.append(line)
+
+    shown = [*shown_surface, *required_lines]
+    for line in trailing_lines:
+        if len("\n".join([*shown, line])) > budget:
             break
         shown.append(line)
-        used += added
     return [*shown, _COLD_READER_OMISSION]
 
 
@@ -269,13 +414,17 @@ def _next_actor_lines(verifier: VerifierArtifact) -> list[str]:
         return ["- Next actor: `human`"]
     lines = [f"- Next actor: `{action.actor}`"]
     if action.why:
-        lines.append(f"- Next action: {_escape(action.why)}")
+        lines.append(f"- Next action: {_bounded_prose(action.why)}")
     if action.command:
         lines.append(f"- Next command: {_code(action.command)}")
     return lines
 
 
 def _trigger_and_base_summary(verifier: VerifierArtifact) -> list[str]:
+    # This block follows the capability disclosure in the default layout, so
+    # the outer row-aware truncator may consume it without hiding the delta.
+    # Retain the full value here for report compatibility; the findings layout
+    # places the trigger first and therefore bounds its own copy.
     lines = [f"- Trigger: {_escape(verifier.trigger.get('rationale') or 'not evaluated')}"]
     if verifier.base_status != "not_requested":
         base = verifier.base_ref or "(none)"
@@ -366,10 +515,13 @@ def _join_with_preserved_agent_block(
     limit: int,
 ) -> str:
     block = "\n".join(agent_block)
-    prose = "\n".join(prose_lines)
     budget = limit - len(block) - 1
     if budget > 0:
-        prose = _truncate(prose, budget).rstrip()
+        prose = _truncate_markdown_lines(
+            prose_lines,
+            budget,
+            omission=_COMMENT_PROSE_OMISSION,
+        )
     else:
         prose = "\n".join(
             [
@@ -386,9 +538,15 @@ def _join_with_preserved_agent_block(
 def _source_suffix(path: str | None, line: int | None) -> str:
     if not path:
         return ""
-    if line is not None:
-        return f" ({path}:{line})"
-    return f" ({path})"
+    # Paths are data, not Markdown. A dynamic code fence preserves brackets,
+    # emphasis markers, and embedded backticks without allowing them to forge
+    # links or formatting in a PR comment.
+    return f" ({_source_location_code(path, line)})"
+
+
+def _source_location_code(path: str, line: int | None) -> str:
+    location = f"{path}:{line}" if line is not None else path
+    return _identity_code(location)
 
 
 def _render_findings_comment(
@@ -400,6 +558,17 @@ def _render_findings_comment(
     surface_first = bool(
         report is not None and should_render_surface_first(report, context=human_context)
     )
+    capability_lines = (
+        _capability_delta_lines(
+            capability_delta_subject_rollup(
+                report,
+                subject_limit=_COMMENT_CAPABILITY_SUBJECT_LIMIT,
+            ),
+            review=verifier.capability_review,
+        )
+        if report is not None and report.release_decision is not None
+        else []
+    )
     title = (
         "## Agents Shipgate"
         if surface_first
@@ -407,20 +576,34 @@ def _render_findings_comment(
     )
     lines = [STICKY_MARKER, title]
     if surface_first and report is not None:
-        lines.extend(["", *_cold_reader_lines(report)])
+        lines.extend(
+            [
+                "",
+                *_cold_reader_lines(
+                    report,
+                    capability_lines=capability_lines,
+                ),
+            ]
+        )
     lines.extend(
         _verifier_lead(
             verifier,
             include_release_gate=report is None or not surface_first,
         )
     )
+    if not surface_first:
+        # Keep the exact grouped disclosure ahead of repository-controlled
+        # prose. The final row-aware bound may omit later context, but it must
+        # never turn a seven-subject delta into a summary with no exact hidden
+        # count merely because a trigger or release reason contains Markdown.
+        lines.extend(capability_lines)
     lines.append("")
-    lines.append(f"Trigger: {_escape(verifier.trigger.get('rationale') or 'not evaluated')}")
+    lines.append(f"Trigger: {_bounded_prose(verifier.trigger.get('rationale') or 'not evaluated')}")
     if verifier.base_status != "not_requested":
         base = verifier.base_ref or "(none)"
         lines.append(f"Base diff: `{base}` -> `{verifier.base_status}`")
         for note in verifier.base_notes[:2]:
-            lines.append(f"- {_escape(note)}")
+            lines.append(f"- {_bounded_prose(note)}")
 
     if report is None or report.release_decision is None:
         if verifier.head_status == "skipped":
@@ -430,14 +613,18 @@ def _render_findings_comment(
             lines.append("")
             lines.append(f"Head scan did not produce a report (exit {verifier.head_exit_code}).")
         lines.extend(_artifact_lines(verifier, links=False))
-        return _truncate("\n".join(lines), 6000)
+        return _truncate_markdown_lines(
+            lines,
+            6000,
+            omission=_COMMENT_PROSE_OMISSION,
+        )
 
     decision = report.release_decision
     lines.extend(
         [
             "",
             f"Release gate: `{decision.decision}`",
-            f"Reason: {_escape(decision.reason)}",
+            f"Reason: {_bounded_prose(decision.reason)}",
             (f"Blockers: {len(decision.blockers)} · Review items: {len(decision.review_items)}"),
             (
                 "Fail policy: "
@@ -448,10 +635,13 @@ def _render_findings_comment(
         ]
     )
     if report.agent_summary and report.agent_summary.headline:
-        lines.append(f"Summary: {_escape(report.agent_summary.headline)}")
+        lines.append(f"Summary: {_bounded_prose(report.agent_summary.headline)}")
     if report.reviewer_summary and report.reviewer_summary.first_recommended_surface:
         surface = report.reviewer_summary.first_recommended_surface
-        lines.append(f"Reviewer start: `{surface.name}` - {_escape(surface.why)}")
+        lines.append(
+            "Reviewer start: "
+            f"{_bounded_identity_code(surface.name)} - {_bounded_prose(surface.why)}"
+        )
 
     lines.extend(_diff_lines(report))
     groups = roll_up_findings(report)
@@ -473,7 +663,11 @@ def _render_findings_comment(
     elif not surface_first:
         lines.append("No critical or high findings.")
     lines.extend(_artifact_lines(verifier, links=False))
-    return _truncate("\n".join(lines), 6000)
+    return _truncate_markdown_lines(
+        lines,
+        6000,
+        omission=_COMMENT_PROSE_OMISSION,
+    )
 
 
 def _verifier_lead(
@@ -490,7 +684,7 @@ def _verifier_lead(
         lines.append(f"Release gate: `{verifier.decision}`")
     if verifier.human_review is not None and verifier.human_review.required:
         why = verifier.human_review.why or "Human review required before merge."
-        lines.append(f"Human review: `{_escape(why)}`")
+        lines.append(f"Human review: {_bounded_identity_code(why)}")
     return lines
 
 
@@ -508,13 +702,13 @@ def _headline(
 def _trigger_and_base_lines(verifier: VerifierArtifact) -> list[str]:
     lines = [
         "",
-        f"Trigger: {_escape(verifier.trigger.get('rationale') or 'not evaluated')}",
+        f"Trigger: {_bounded_prose(verifier.trigger.get('rationale') or 'not evaluated')}",
     ]
     if verifier.base_status != "not_requested":
         base = verifier.base_ref or "(none)"
         lines.append(f"Base diff: `{base}` -> `{verifier.base_status}`")
         for note in verifier.base_notes[:2]:
-            lines.append(f"- {_escape(note)}")
+            lines.append(f"- {_bounded_prose(note)}")
     return lines
 
 
@@ -753,6 +947,59 @@ def _escape(value: object) -> str:
     return _ESCAPE_RE.sub(r"\\\1", str(value or ""))
 
 
+def _bounded_prose(
+    value: object,
+    limit: int = _COMMENT_PROSE_FIELD_MAX_CHARS,
+) -> str:
+    """Escape and bound one repository-controlled value by rendered size."""
+
+    text = _single_line(value)
+    rendered = _escape(text)
+    if len(rendered) <= limit:
+        return rendered
+    return _longest_bounded_rendering(text, limit=limit, renderer=_escape)
+
+
+def _bounded_identity_code(
+    value: object,
+    limit: int = _COMMENT_PROSE_FIELD_MAX_CHARS,
+) -> str:
+    """Render one dynamic code span within a complete rendered-size budget."""
+
+    text = _single_line(value)
+    rendered = _identity_code(text)
+    if len(rendered) <= limit:
+        return rendered
+    return _longest_bounded_rendering(text, limit=limit, renderer=_identity_code)
+
+
+def _single_line(value: object) -> str:
+    return str(value or "").replace("\r", " ").replace("\n", " ")
+
+
+def _longest_bounded_rendering(
+    text: str,
+    *,
+    limit: int,
+    renderer: Callable[[object], str],
+) -> str:
+    """Binary-search a raw prefix whose complete Markdown rendering fits."""
+
+    suffix = "…"
+    low = 0
+    high = len(text)
+    best = renderer(suffix)
+    while low <= high:
+        midpoint = (low + high) // 2
+        candidate = renderer(f"{text[:midpoint]}{suffix}")
+        if len(candidate) <= limit:
+            best = candidate
+            low = midpoint + 1
+        else:
+            high = midpoint - 1
+    return best
+
+
 def _table_cell(value: object) -> str:
     return str(value or "").replace("\r", " ").replace("\n", " ").replace("|", "\\|")
 
@@ -760,6 +1007,38 @@ def _table_cell(value: object) -> str:
 def _code(value: object) -> str:
     text = str(value or "").replace("`", "")
     return f"`{text}`"
+
+
+def _identity_code(value: object) -> str:
+    """Render a visible identity without deleting embedded backticks.
+
+    A fence longer than every run in the value keeps the reader-facing label
+    intact. CommonMark removes one space from both edges only when both are
+    present, so padding must be symmetric: it is needed for edge backticks and
+    for a value that genuinely starts *and* ends with a space. One-sided spaces
+    are already preserved without padding.
+    """
+
+    text = str(value or "")
+    longest_run = max(
+        (len(match.group(0)) for match in re.finditer(r"`+", text)),
+        default=0,
+    )
+    fence = "`" * (longest_run + 1)
+    needs_padding = (
+        text.startswith("`") or text.endswith("`") or (text.startswith(" ") and text.endswith(" "))
+    )
+    padded = f" {text} " if needs_padding else text
+    return f"{fence}{padded}{fence}"
+
+
+def _capability_change_type_label(change_type: str) -> str:
+    """Turn ``action_added`` into compact adopter-facing prose."""
+
+    subject_kind, separator, direction = change_type.rpartition("_")
+    if not separator:
+        return change_type.replace("_", " ")
+    return f"{subject_kind.replace('_', ' ')} {direction}"
 
 
 def _escape_link(value: object) -> str:
@@ -773,6 +1052,33 @@ def _truncate(value: str, limit: int) -> str:
     if limit <= 3:
         return "." * max(limit, 0)
     return value[: limit - 3] + "..."
+
+
+def _truncate_markdown_lines(
+    lines: list[str],
+    limit: int,
+    *,
+    omission: str,
+) -> str:
+    """Bound Markdown without cutting through a row, link, or code fence."""
+
+    rendered = "\n".join(lines)
+    if len(rendered) <= limit:
+        return rendered
+    if limit <= len(omission):
+        return _truncate(omission, limit)
+    budget = limit - len(omission) - 1
+    shown: list[str] = []
+    used = 0
+    for line in lines:
+        added = len(line) + (1 if shown else 0)
+        if used + added > budget:
+            break
+        shown.append(line)
+        used += added
+    if not shown:
+        return omission
+    return "\n".join([*shown, omission])
 
 
 __all__ = ["STICKY_MARKER", "render_pr_comment"]
