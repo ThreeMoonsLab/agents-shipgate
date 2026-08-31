@@ -16,7 +16,7 @@ Review items (1):
 
 Evidence coverage: static (9/9 catalog tools reachable; 10 semantic evidence gap(s); 2/9 actions pass-eligible)
 
-Coverage boundary: what a scan can establish per input and declaration shape — https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/determinism-boundary.md
+What Agents Shipgate can prove, per framework: https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/determinism-boundary.md
 
 Baseline delta: not enabled
 

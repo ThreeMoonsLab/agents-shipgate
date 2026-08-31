@@ -1023,3 +1023,55 @@ def test_the_summary_table_speaks_the_adopter_s_language():
         assert token not in summary, token
     for source in build_boundary_matrix().sources:
         assert f"[{source.label}](#" in summary, source.label
+
+
+def test_the_printed_reference_speaks_the_adopter_s_language():
+    """The line an abstention prints is the page's front door.
+
+    "Coverage boundary: what a scan can establish per input and declaration
+    shape" named the page's internal axes, so a reader who does not already
+    know what a "declaration shape" is could not tell whether the link was
+    worth a click — and that reader is the entire audience for an abstention.
+    """
+
+    from agents_shipgate.core.disclaimers import (
+        DETERMINISM_BOUNDARY_REFERENCE,
+        DETERMINISM_BOUNDARY_URL,
+    )
+
+    for token in (
+        "declaration shape",
+        "coverage boundary",
+        "extraction",
+        "source type",
+        "ceiling",
+    ):
+        assert token not in DETERMINISM_BOUNDARY_REFERENCE.lower(), token
+
+    # One line, and it ends in the link it is offering.
+    assert "\n" not in DETERMINISM_BOUNDARY_REFERENCE
+    assert DETERMINISM_BOUNDARY_REFERENCE.endswith(DETERMINISM_BOUNDARY_URL)
+
+    # It promises what the page delivers: the page's own title answers the
+    # same question, so a reader who clicks lands somewhere recognisable.
+    page = (REPO_ROOT / "docs" / "determinism-boundary.md").read_text(encoding="utf-8")
+    assert page.startswith("# What Agents Shipgate can prove about your repository")
+    assert "What Agents Shipgate can prove" in DETERMINISM_BOUNDARY_REFERENCE
+
+
+def test_every_insufficient_evidence_surface_prints_the_same_reference():
+    """Four surfaces, one string — none may word it its own way."""
+
+    from agents_shipgate.core.disclaimers import DETERMINISM_BOUNDARY_REFERENCE
+
+    sources = {
+        "cli/_helpers.py": "src/agents_shipgate/cli/_helpers.py",
+        "verify/command.py": "src/agents_shipgate/cli/verify/command.py",
+        "ci/github_summary.py": "src/agents_shipgate/ci/github_summary.py",
+        "report/markdown.py": "src/agents_shipgate/report/markdown.py",
+    }
+    for label, path in sources.items():
+        text = (REPO_ROOT / path).read_text(encoding="utf-8")
+        assert "DETERMINISM_BOUNDARY_REFERENCE" in text, label
+        # The literal must not be retyped anywhere; the constant is the contract.
+        assert DETERMINISM_BOUNDARY_REFERENCE not in text, label

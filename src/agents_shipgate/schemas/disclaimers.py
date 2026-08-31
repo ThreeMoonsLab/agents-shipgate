@@ -27,8 +27,15 @@ DETERMINISM_BOUNDARY_URL = (
 )
 
 #: The one line the ``insufficient_evidence`` surfaces print, spelled once so
-#: the CLI, the step summary, and ``report.md`` cannot word it three ways.
+#: the CLI, ``verify``, the step summary, and ``report.md`` cannot word it four
+#: ways.
+#:
+#: Says what the reader gets, in their words. "Coverage boundary: what a scan
+#: can establish per input and declaration shape" named the internal axes of
+#: the page — a reader who does not already know what a "declaration shape" is
+#: cannot tell whether the link is worth a click, and that reader is the whole
+#: audience for an abstention. It mirrors the page's own title instead.
 DETERMINISM_BOUNDARY_REFERENCE = (
-    "Coverage boundary: what a scan can establish per input and declaration "
-    f"shape — {DETERMINISM_BOUNDARY_URL}"
+    "What Agents Shipgate can prove, per framework: "
+    f"{DETERMINISM_BOUNDARY_URL}"
 )

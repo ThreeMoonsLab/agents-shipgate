@@ -7,8 +7,8 @@
     },
     "report_markdown": {
       "path": "report.md",
-      "sha256": "sha256:fcf94c29d43f60b107d4028df844d423d4dfb7c320f72b8acf11c4c92f5cdb6c",
-      "size_bytes": 6998
+      "sha256": "sha256:67a8ff492ec1120c49b17bf148d94c2f6197a01312c04343591257289b51b97e",
+      "size_bytes": 6964
     }
   },
   "control": {
@@ -25,7 +25,7 @@
     "reason": "A standalone scan produced the current report set. A scan does not authorize completion or merge; run `agents-shipgate verify` to obtain a merge decision.",
     "state": "agent_action_required"
   },
-  "current_control_id": "sha256:22bcea43330cf4c86403af3e35394b0f18bfd63192ea459b96ee423680b56edc",
+  "current_control_id": "sha256:791be45bb91d6be1b7aa93a15820bc4347d08464a6265194b31b6e339123a82e",
   "decision_id": null,
   "lifecycle_state": "terminal",
   "operation": "scan",

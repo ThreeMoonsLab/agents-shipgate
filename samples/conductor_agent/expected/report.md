@@ -17,7 +17,7 @@ Review items (2):
 
 Evidence coverage: mixed (1 low-confidence tool(s); 4 source warning(s); 1 binding evidence gap(s); 1/1 catalog tools reachable; 1 semantic evidence gap(s); 0/1 actions pass-eligible; human review recommended)
 
-Coverage boundary: what a scan can establish per input and declaration shape — https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/determinism-boundary.md
+What Agents Shipgate can prove, per framework: https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/determinism-boundary.md
 
 Baseline delta: not enabled
 
