@@ -13,9 +13,16 @@ The runner consumes four independently content-addressed inputs:
    importing or executing it and records the wheel SHA-256.
 2. A `shipgate.safety_corpus/v4` JSON/YAML corpus. Every case has two blind,
    attributable labels (`security_governance` and `framework_tooling`), an
-   evidence-backed final decision, a remediation condition, and a third-human
+   evidence-backed final decision, a remediation condition, and a third-party
    adjudication for every disagreement. `frozen_labels_sha256` must match the
-   canonical label payload.
+   canonical label payload. **Who produces the two labels is governed by
+   [Amendment 1](../../docs/release-evidence-policy-decision.md#amendment-1--the-pre-10-labeling-protocol-and-the-participant-validation-gate):**
+   for the `pre_1_0` corpus, two independent agent sessions on different model
+   families under its six admissibility conditions, with the owner
+   adjudicating every disagreement; the `beta` (1.0) corpus commits to human
+   primary labels. After labels are frozen and receipts exist, the
+   non-gating [participant-validation gate](participant-validation.md) sends
+   each case's real author/reviewer a case card for validation.
 3. A `shipgate.safety_receipt_index/v4` JSON/YAML index created only after
    labels are frozen. It binds the exact wheel, corpus, labels, policy bundle,
    and one terminal `shipgate.verification_receipt/v1` plus its
