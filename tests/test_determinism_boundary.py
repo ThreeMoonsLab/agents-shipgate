@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
@@ -393,7 +394,7 @@ def test_the_page_names_every_input_and_every_shape():
     page = (REPO_ROOT / "docs" / "determinism-boundary.md").read_text(encoding="utf-8")
     matrix = build_boundary_matrix()
     for source in matrix.sources:
-        assert f"### {source.label} — `{source.adapter}`" in page
+        assert f"### {source.label}" in page
     for shape in DECLARATION_SHAPE_ORDER:
         assert f"`{shape}`" in page
 
@@ -984,3 +985,41 @@ def test_the_derived_wildcard_check_is_a_real_check():
     assert WILDCARD_TOOLS_CHECK in {
         check.id for check in check_catalog(plugins_enabled=False)
     }
+
+
+def test_every_at_a_glance_link_resolves_to_a_heading():
+    """The summary table is the page's entry point, so its links must land.
+
+    Approximating GitHub's anchor rule with a couple of `replace` calls emitted
+    `#openai-agents-sdk-(python)`: the parentheses survived in the link and not
+    in the heading, so the one row a Python adopter would click went nowhere.
+    """
+
+    page = (REPO_ROOT / "docs" / "determinism-boundary.md").read_text(encoding="utf-8")
+    headings = {
+        "".join(char for char in line[4:].strip().lower() if char.isalnum() or char in " -")
+        .replace(" ", "-")
+        for line in page.splitlines()
+        if line.startswith("### ")
+    }
+    links = re.findall(r"\]\(#([a-z0-9-]+)\)", page)
+    assert len(links) == len(build_boundary_matrix().sources), links
+    for anchor in links:
+        assert anchor in headings, f"{anchor} matches no heading; have {sorted(headings)}"
+
+
+def test_the_summary_table_speaks_the_adopter_s_language():
+    """No internal token in the table a reader meets first.
+
+    The page opened with 78 lines of taxonomy — `set_unproven`, `sdk_function`,
+    `incomplete_surface` — before anything about the reader's own repository.
+    The tokens still exist, in the per-input detail and in the JSON, which is
+    where precision is the point.
+    """
+
+    page = (REPO_ROOT / "docs" / "determinism-boundary.md").read_text(encoding="utf-8")
+    summary = page[: page.index("## Your framework")]
+    for token in ("set_unproven", "low_confidence", "not_extracted", "not_applicable"):
+        assert token not in summary, token
+    for source in build_boundary_matrix().sources:
+        assert f"[{source.label}](#" in summary, source.label

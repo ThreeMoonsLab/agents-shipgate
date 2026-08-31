@@ -1995,6 +1995,23 @@ def _boundary_cell_label(cell: object) -> str:
     return f"{shape} — {variant}" if variant else str(shape)
 
 
+def _boundary_anchor(source: Any) -> str:
+    """The GitHub heading anchor for one input's section.
+
+    GitHub lowercases, drops every character that is not alphanumeric, a space,
+    or a hyphen, then maps spaces to hyphens. Approximating that with a couple
+    of `replace` calls produced `#openai-agents-sdk-(python)`, which resolves to
+    nothing — the parentheses survive in the link and not in the heading.
+    """
+
+    text = "".join(
+        char
+        for char in source.label.lower()
+        if char.isalnum() or char in " -"
+    )
+    return text.replace(" ", "-")
+
+
 def _boundary_table_text(value: str) -> str:
     return value.replace("|", "\\|")
 
@@ -2057,8 +2074,88 @@ def build_determinism_boundary_matrix() -> tuple[Path, str]:
     return DOCS / "determinism-boundary.json", _canonical_json(payload)
 
 
+#: Plain words for each outcome, for the table an adopter actually reads. The
+#: tokens stay in the JSON and in the per-input detail; a reader scanning for
+#: their framework should not have to learn `set_unproven` first (#478 review).
+_BOUNDARY_OUTCOME_WORDS: dict[str, str] = {
+    "proven": "✅ proven",
+    "set_unproven": "⚠️ set unproven",
+    "low_confidence": "⚠️ not proven",
+    "not_extracted": "✖ not read",
+    "not_applicable": "· n/a",
+}
+
+#: The reader's own words for each declaration shape. They recognise
+#: `tools=[a, b]` faster than "literal registration", so the column headers ask
+#: the question and the token is defined once, in the reference at the bottom.
+_BOUNDARY_SHAPE_HEADINGS: dict[str, str] = {
+    "export_artifact": "…in a contract file",
+    "literal_registration": "…written out in code",
+    "factory": "…built by a call",
+    "dynamic_construction": "…not named at all",
+}
+
+
+def _boundary_answer(source: Any, matrix: Any) -> list[str]:
+    """The plain-language answer for one input.
+
+    Composed from the outcomes the engine already derived, never written per
+    adapter — a hand-written paragraph per input is the drift this whole page
+    exists to avoid. Three shapes of answer, because there are three shapes of
+    repository: the contract file *is* the surface, the code is read but never
+    proven, or nothing here reaches a verdict at all.
+    """
+
+    proven = [cell for cell in source.cells if cell.outcome == "proven"]
+    code_route = matrix.best_outcome(source, "literal_registration")
+
+    # Ordered by what the reader has in their hands. Leading with the contract
+    # file told a LangChain adopter "yes, from a contract file" when the thing
+    # they actually wrote is Python, and buried the fact that their code *is*
+    # read — just never proven.
+    if not proven:
+        answer = (
+            "**Not on its own.** shipgate may still read and check actions here "
+            "— the routes below say which — but none of them proves one well "
+            "enough for a verdict to rest on it."
+        )
+    elif code_route == "proven":
+        answer = (
+            "**Yes, from your source** — when the file resolves completely. A "
+            "single unresolved expression anywhere in the module drops "
+            "everything that module declares, including tools a resolved "
+            "toolset contributed."
+        )
+    elif code_route in {"low_confidence", "set_unproven"}:
+        answer = (
+            "**Read, but not proven from your source alone.** shipgate reads "
+            "the tools you write out and can say what each one does. What it "
+            "cannot do is prove that list is *all* of them — so it will not "
+            "pass them on their own, however ordinary they look."
+        )
+    elif code_route == "not_extracted":
+        answer = (
+            "**Not from your source.** shipgate read the declaration and "
+            "refused to guess what it produces, which is a statement about the "
+            "declaration rather than a gap in the scan."
+        )
+    else:
+        answer = (
+            "**Yes, from the file you point it at.** That file is the contract "
+            "and it is read as written; what it does not name, shipgate does "
+            "not invent."
+        )
+
+    return [answer, "", _boundary_remedy_line(source)]
+
+
 def build_determinism_boundary_page() -> tuple[Path, str]:
-    """Generate docs/determinism-boundary.md from the adapter registry."""
+    """Generate docs/determinism-boundary.md from the adapter registry.
+
+    Ordered for someone who arrived from an `insufficient_evidence` verdict and
+    wants to know whether shipgate can read *their* repository. The precise
+    matrix is still here in full — it moved below the answer, not out of it.
+    """
 
     from agents_shipgate.inputs.coverage import (
         CELL_OUTCOME_VERDICTS,
@@ -2069,72 +2166,62 @@ def build_determinism_boundary_page() -> tuple[Path, str]:
 
     matrix = build_boundary_matrix()
     lines: list[str] = [
-        "# The Determinism Boundary",
+        "# What Agents Shipgate can prove about your repository",
         "",
         "> Generated by `scripts/generate_schemas.py` from the adapter registry.",
         "> Do not edit by hand — re-run the script to update.",
         "",
         _BOUNDARY_INTRO,
-        "## Which release this describes",
+        "## Start here",
         "",
+        "1. Find your framework in the table below.",
         (
-            f"This page describes **agents-shipgate {matrix.generated_for_version}**, "
-            "and its rows move as the adapters do — `schema_version` "
-            f"(`{matrix.schema_version}`) versions the shape of the machine-readable "
-            "companion, not the routes."
+            "2. Read across to the way **your** repository declares its tools. "
+            "Most repositories use more than one."
+        ),
+        (
+            "3. Anything that is not ✅ has a fix, and it is written under that "
+            "framework's heading."
         ),
         "",
         (
-            "If you arrived from a link in a stored report, check that version "
-            "against the scanner that produced the report before trusting a row: "
-            "a boundary is only a specification of the release it was generated "
-            "from. Every released version is tagged, so the matrix your scanner "
-            "implemented is at "
-            "`https://github.com/ThreeMoonsLab/agents-shipgate/blob/v<your-version>/docs/determinism-boundary.md`."
+            "If you landed here from an `insufficient_evidence` verdict, this "
+            "page is the reason for it. A ⚠️ or ✖ on the row you use is not a "
+            "bug report — it is shipgate telling you which of your declarations "
+            "it could not read, and that is a scoping answer you can act on."
         ),
         "",
-        "## The four declaration shapes",
-        "",
-        (
-            "Cut by *what the declaration names*, not by which framework it "
-            "belongs to: a wildcard MCP export and a `tools=[*build()]` "
-            "comprehension raise the same question and get the same answer."
-        ),
-        "",
+        "| Your framework | " + " | ".join(
+            _BOUNDARY_SHAPE_HEADINGS[shape] for shape in DECLARATION_SHAPE_ORDER
+        ) + " |",
+        "| --- | " + " | ".join("---" for _ in DECLARATION_SHAPE_ORDER) + " |",
     ]
-    for shape in DECLARATION_SHAPE_ORDER:
-        lines.append(f"- **`{shape}`** — {DECLARATION_SHAPE_DEFINITIONS[shape]}")
-    lines.extend(
-        [
-            "",
-            "## What each outcome means",
-            "",
-            _BOUNDARY_CEILING_NOTE,
-        ]
-    )
-    for outcome, sentence in CELL_OUTCOME_VERDICTS.items():
-        lines.append(f"- **`{outcome}`** — {sentence}")
-    lines.extend(
-        [
-            "",
-            "## At a glance",
-            "",
-            (
-                "The best outcome each input reaches for each shape. An input "
-                "with more than one route through a shape shows the best of "
-                "them; the per-input tables below have every route."
-            ),
-            "",
-            "| Input | " + " | ".join(f"`{shape}`" for shape in DECLARATION_SHAPE_ORDER) + " |",
-            "| --- | " + " | ".join("---" for _ in DECLARATION_SHAPE_ORDER) + " |",
-        ]
-    )
     for source in matrix.sources:
         cells = [
-            f"`{matrix.best_outcome(source, shape)}`" for shape in DECLARATION_SHAPE_ORDER
+            _BOUNDARY_OUTCOME_WORDS[matrix.best_outcome(source, shape)]
+            for shape in DECLARATION_SHAPE_ORDER
         ]
-        lines.append(f"| {source.label} (`{source.adapter}`) | " + " | ".join(cells) + " |")
-    lines.extend(["", "## Getting a row to `proven`", "", _BOUNDARY_REMEDY, "## Per input", ""])
+        lines.append(f"| [{source.label}](#{_boundary_anchor(source)}) | " + " | ".join(cells) + " |")
+    lines.extend(
+        [
+            "",
+            "**✅ proven** — a clean verdict can rest on this. "
+            "**⚠️ not proven / set unproven** — shipgate read the action but "
+            "cannot prove it saw the whole set, so it will not pass it. "
+            "**✖ not read** — nothing enters the catalog; shipgate says so "
+            "rather than reporting an empty surface. **· n/a** — your framework "
+            "has no such declaration.",
+            "",
+            (
+                "Where an input shows more than one answer for a shape, the "
+                "table shows the best of them and the framework's own section "
+                "lists every route."
+            ),
+            "",
+            "## Your framework",
+            "",
+        ]
+    )
     for source in matrix.sources:
         routes = []
         if "tool_sources" in source.configured_as:
@@ -2149,9 +2236,20 @@ def build_determinism_boundary_page() -> tuple[Path, str]:
             )
         lines.extend(
             [
-                f"### {source.label} — `{source.adapter}`",
+                f"### {source.label}",
                 "",
-                f"Configured as {configured}. {source.reads}",
+                f"*Configured as {configured}.* {source.reads}",
+                "",
+                "**Can a verdict rest on it?**",
+                "",
+            ]
+        )
+        lines.extend(_boundary_answer(source, matrix))
+        lines.extend(
+            [
+                "",
+                "<details>",
+                f"<summary>Every route this input has, in full ({len(source.cells)})</summary>",
                 "",
                 (
                     "| Declaration shape | What is read | Emits | Ceiling | "
@@ -2170,10 +2268,44 @@ def build_determinism_boundary_page() -> tuple[Path, str]:
                 f"| {_boundary_table_text(cell.reads)} "
                 f"| {emits} | {ceiling} | `{cell.outcome}` | {gaps} | {raises} |"
             )
-        lines.extend(["", _boundary_remedy_line(source), ""])
+        lines.extend(["", "</details>", ""])
+
+    lines.extend(["## Reference", "", "### The four declaration shapes", "", ])
+    for shape in DECLARATION_SHAPE_ORDER:
+        lines.append(
+            f"- **{_BOUNDARY_SHAPE_HEADINGS[shape]}** (`{shape}`) — "
+            f"{DECLARATION_SHAPE_DEFINITIONS[shape]}"
+        )
+    lines.extend(["", "### What each outcome means for a verdict", "", _BOUNDARY_CEILING_NOTE])
+    for outcome, sentence in CELL_OUTCOME_VERDICTS.items():
+        lines.append(
+            f"- **{_BOUNDARY_OUTCOME_WORDS[outcome]}** (`{outcome}`) — {sentence}"
+        )
     lines.extend(
         [
-            "## Scope",
+            "",
+            "### Getting a route to ✅",
+            "",
+            _BOUNDARY_REMEDY,
+            "### Which release this describes",
+            "",
+            (
+                f"This page describes **agents-shipgate {matrix.generated_for_version}**, "
+                "and its rows move as the adapters do — `schema_version` "
+                f"(`{matrix.schema_version}`) versions the shape of the "
+                "machine-readable companion, not the routes."
+            ),
+            "",
+            (
+                "If you arrived from a link in a stored report, check that "
+                "version against the scanner that produced the report before "
+                "trusting a row: a boundary is only a specification of the "
+                "release it was generated from. Every released version is "
+                "tagged, so the matrix your scanner implemented is at "
+                "`https://github.com/ThreeMoonsLab/agents-shipgate/blob/v<your-version>/docs/determinism-boundary.md`."
+            ),
+            "",
+            "### Scope",
             "",
             (
                 "This page covers the built-in inputs of this distribution. A "
@@ -2185,7 +2317,8 @@ def build_determinism_boundary_page() -> tuple[Path, str]:
             (
                 "Repository coverage is not risk coverage. This page says what "
                 "the scan can *read*; [`docs/checks.md`](checks.md) says what it "
-                "checks once it has read it."
+                "checks once it has read it. The machine-readable companion is "
+                "[`determinism-boundary.json`](determinism-boundary.json)."
             ),
             "",
         ]
