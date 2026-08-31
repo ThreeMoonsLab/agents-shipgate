@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
+import venv
 import zipfile
 from email import message_from_bytes
 from pathlib import Path
@@ -42,11 +44,7 @@ def built_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
         ),
     )
     stale_report = (
-        source_root
-        / "samples"
-        / "support_refund_agent"
-        / "agents-shipgate-reports"
-        / "report.json"
+        source_root / "samples" / "support_refund_agent" / "agents-shipgate-reports" / "report.json"
     )
     stale_report.parent.mkdir(parents=True)
     stale_report.write_text('{"stale": true}\n', encoding="utf-8")
@@ -60,6 +58,34 @@ def built_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
     wheels = list(out_dir.glob("*.whl"))
     assert len(wheels) == 1, f"expected exactly one wheel, got {wheels!r}"
     return wheels[0]
+
+
+@pytest.fixture(scope="session")
+def installed_wheel_python(
+    built_wheel: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Path:
+    """Install the built wheel without network access for replay smoke tests."""
+
+    root = tmp_path_factory.mktemp("installed-wheel") / "venv"
+    venv.EnvBuilder(with_pip=True, system_site_packages=True).create(root)
+    python = root / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    subprocess.run(
+        [
+            str(python),
+            "-m",
+            "pip",
+            "install",
+            "--no-deps",
+            "--force-reinstall",
+            str(built_wheel),
+        ],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return python
 
 
 def test_wheel_includes_adoption_kits(built_wheel: Path) -> None:
@@ -81,6 +107,53 @@ def test_wheel_includes_nested_sample_fixtures(built_wheel: Path) -> None:
         "agents_shipgate/_fixtures/support_refund_agent/shipgate.yaml",
     ):
         assert path in names
+
+
+@pytest.mark.parametrize(
+    ("name", "expected_output"),
+    [
+        ("agent_weakens_gate", "Merge verdict: blocked"),
+        ("governed_edits_governance", "Fixture expectation: expected-fail"),
+        (
+            "capability_change_rides_release",
+            "Merge verdict: human_review_required",
+        ),
+    ],
+)
+def test_installed_wheel_replays_incident_fixtures(
+    installed_wheel_python: Path,
+    tmp_path: Path,
+    name: str,
+    expected_output: str,
+) -> None:
+    """The three demos run from an installed artifact, not the source tree."""
+
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    env["PYTHONNOUSERSITE"] = "1"
+    out = tmp_path / name
+    result = subprocess.run(
+        [
+            str(installed_wheel_python),
+            "-m",
+            "agents_shipgate",
+            "fixture",
+            "run",
+            name,
+            "--out",
+            str(out),
+        ],
+        cwd=tmp_path,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert expected_output in result.stdout
+    assert (out / "verifier.json").is_file()
+    assert (out / "report.json").is_file()
 
 
 def test_wheel_excludes_generated_shipgate_reports(built_wheel: Path) -> None:

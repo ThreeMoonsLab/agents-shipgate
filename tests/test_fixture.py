@@ -25,9 +25,9 @@ def test_list_fixtures_excludes_anti_patterns_and_dotfiles():
     fixtures = list_fixtures()
     names = {entry["name"] for entry in fixtures}
     assert "support_refund_agent" in names
-    assert "_anti_patterns" not in names, (
-        "anti-patterns directory must not surface as a fixture"
-    )
+    assert "governed_edits_governance" in names
+    assert "capability_change_rides_release" in names
+    assert "_anti_patterns" not in names, "anti-patterns directory must not surface as a fixture"
     for entry in fixtures:
         assert not entry["name"].startswith("_")
         assert not entry["name"].startswith(".")
@@ -121,9 +121,7 @@ def test_cli_fixture_run_ai_generated_refund_pr_writes_verifier_artifacts(tmp_pa
     assert payload["merge_verdict"] == "blocked"
     assert payload["can_merge_without_human"] is False
     report = json.loads((out / "report.json").read_text(encoding="utf-8"))
-    blocker_checks = {
-        item["check_id"] for item in report["release_decision"]["blockers"]
-    }
+    blocker_checks = {item["check_id"] for item in report["release_decision"]["blockers"]}
     assert "SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING" in blocker_checks
     semantic = report["release_decision"]["evidence_coverage"]["semantic_coverage"]
     assert semantic["gap_count"] == 0
@@ -172,7 +170,81 @@ def test_cli_fixture_run_agent_weakens_gate_blocks_on_gate_removal(tmp_path: Pat
     assert payload["merge_verdict"] == "blocked"
     assert payload["can_merge_without_human"] is False
     report = json.loads((out / "report.json").read_text(encoding="utf-8"))
-    blocker_checks = {
-        item["check_id"] for item in report["release_decision"]["blockers"]
-    }
+    blocker_checks = {item["check_id"] for item in report["release_decision"]["blockers"]}
     assert "SHIP-VERIFY-CI-GATE-REMOVED" in blocker_checks
+
+
+def test_cli_fixture_run_governed_edits_governance_names_expected_gap(
+    tmp_path: Path,
+) -> None:
+    """The unshipped .github/agents path is an explicit expected-fail.
+
+    This intentionally pins the current gap. Once #474 ships the path-level
+    governance surface, the replay command exits 20 and this test must be
+    converted to assert the human-review verdict instead of silently passing.
+    """
+
+    out = tmp_path / "verify-out"
+    result = runner.invoke(
+        app,
+        [
+            "fixture",
+            "run",
+            "governed_edits_governance",
+            "--out",
+            str(out),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Fixture expectation: expected-fail" in result.output
+    assert "Expected verdict: human_review_required" in result.output
+    assert "Observed verdict: mergeable" in result.output
+    assert "issues/474" in result.output
+
+    verifier = json.loads((out / "verifier.json").read_text(encoding="utf-8"))
+    assert verifier["changed_files"] == [".github/agents/release-reviewer.agent.md"]
+    assert verifier["merge_verdict"] == "mergeable"
+    report = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    assert report["release_decision"]["decision"] == "passed"
+    checks = {finding["check_id"] for finding in report["findings"]}
+    assert "SHIP-VERIFY-TRUST-ROOT-TOUCHED" not in checks
+
+
+def test_cli_fixture_run_capability_change_rides_release_routes_review(
+    tmp_path: Path,
+) -> None:
+    """Routine release noise must not hide a changed prompt trust root."""
+
+    out = tmp_path / "verify-out"
+    result = runner.invoke(
+        app,
+        [
+            "fixture",
+            "run",
+            "capability_change_rides_release",
+            "--out",
+            str(out),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Merge verdict: human_review_required" in result.output
+    assert "Decision: review_required" in result.output
+    assert "Fixture expectation: confirmed" in result.output
+
+    verifier = json.loads((out / "verifier.json").read_text(encoding="utf-8"))
+    assert verifier["changed_files"] == [
+        "CHANGELOG.md",
+        "package.json",
+        "prompts/release.md",
+    ]
+    assert verifier["merge_verdict"] == "human_review_required"
+    assert verifier["can_merge_without_human"] is False
+
+    report = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    assert report["release_decision"]["decision"] == "review_required"
+    protected = report["protected_surface_changes"]
+    assert [item["path"] for item in protected] == ["prompts/release.md"]
+    checks = {finding["check_id"] for finding in report["findings"]}
+    assert "SHIP-VERIFY-TRUST-ROOT-TOUCHED" in checks

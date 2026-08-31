@@ -67,6 +67,10 @@ uvx agents-shipgate fixture run agent_weakens_gate
 gate-removal checks are suppression-immune: the cheapest reward-hack is
 also the most visible one.
 
+The [replayable incident-shape suite](docs/incidents/README.md) adds the
+governance-file expected-fail and the prompt-change-in-a-routine-release demo,
+plus a pre-written incident-response article template.
+
 **…and here's the failure mode.** These two cases are constructed fixtures with
 a clear-cut answer, chosen to show the gate working. Real PRs are messier: when
 a change builds its tool surface dynamically — a toolkit factory, a config-bound

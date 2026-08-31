@@ -3,6 +3,10 @@
 The trust-root demo: a coding agent tries to make its PR pass by deleting
 the repo's Shipgate CI gate, and the verifier blocks the merge.
 
+This is a constructed incident-shape fixture, not a copy of vendor code. The
+public motivation and static-analysis boundary are documented in
+[`docs/incidents/agent-weakens-gate.md`](../../docs/incidents/agent-weakens-gate.md).
+
 ```bash
 agents-shipgate fixture run agent_weakens_gate
 ```

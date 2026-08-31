@@ -20,8 +20,10 @@ from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputP
 from agents_shipgate.fixtures import (
     FixtureNotFoundError,
     FixturesUnavailableError,
+    ReplayFixture,
     fixture_path,
     list_fixtures,
+    replay_fixture,
 )
 
 fixture_app = typer.Typer(
@@ -78,7 +80,19 @@ def fixture_run(
     ),
 ) -> None:
     """Copy a fixture to a tempdir and scan it."""
+    replay = replay_fixture(name)
     src = _resolve_fixture(name)
+
+    if replay is not None:
+        _run_replay_pr_fixture(
+            name=name,
+            src=src,
+            replay=replay,
+            out=out,
+            ci_mode=ci_mode,
+            keep=keep,
+        )
+        return
 
     if name == "ai_generated_refund_pr":
         _run_ai_generated_refund_pr_fixture(
@@ -152,6 +166,7 @@ def fixture_copy(
     it does not exist. The fixture is copied as a self-contained subdirectory
     so multiple fixtures can be staged side-by-side.
     """
+    replay = replay_fixture(name)
     src = _resolve_fixture(name)
 
     to.mkdir(parents=True, exist_ok=True)
@@ -161,6 +176,14 @@ def fixture_copy(
         raise typer.Exit(2)
 
     shutil.copytree(src, target)
+    if replay is not None:
+        _apply_fixture_files(target, dict(replay.base_files))
+        (target / "INCIDENT-FIXTURE.md").write_text(
+            f"# {name}\n\n{replay.description}\n\n"
+            f"Replay from the installed package with "
+            f"`agents-shipgate fixture run {name}`.\n",
+            encoding="utf-8",
+        )
     typer.echo(f"Copied fixture {name!r} to {target}")
 
 
@@ -170,7 +193,19 @@ def fixture_verify(
 ) -> None:
     """Scan a fixture and (when ``expected/`` is present) confirm the JSON
     summary matches the golden snapshot."""
+    replay = replay_fixture(name)
     src = _resolve_fixture(name)
+
+    if replay is not None:
+        _run_replay_pr_fixture(
+            name=name,
+            src=src,
+            replay=replay,
+            out=None,
+            ci_mode="advisory",
+            keep=False,
+        )
+        return
 
     import tempfile
 
@@ -282,6 +317,37 @@ def _run_agent_weakens_gate_fixture(
     )
 
 
+def _run_replay_pr_fixture(
+    *,
+    name: str,
+    src: Path,
+    replay: ReplayFixture,
+    out: Path | None,
+    ci_mode: str | None,
+    keep: bool,
+) -> None:
+    """Materialize and verify one data-defined incident replay."""
+
+    def base_files(_target: Path) -> dict[str, str | None]:
+        return dict(replay.base_files)
+
+    def head_files(_target: Path) -> dict[str, str | None]:
+        return dict(replay.head_files)
+
+    _run_verify_pr_fixture(
+        name=name,
+        src=src,
+        out=out,
+        ci_mode=ci_mode,
+        keep=keep,
+        base_files_for=base_files,
+        head_files_for=head_files,
+        base_commit_message=replay.base_commit_message,
+        head_commit_message=replay.head_commit_message,
+        expectation=replay,
+    )
+
+
 def _run_verify_pr_fixture(
     *,
     name: str,
@@ -289,9 +355,11 @@ def _run_verify_pr_fixture(
     out: Path | None,
     ci_mode: str | None,
     keep: bool,
+    base_files_for: Callable[[Path], dict[str, str | None]] | None = None,
     head_files_for: Callable[[Path], dict[str, str | None]],
     base_commit_message: str,
     head_commit_message: str,
+    expectation: ReplayFixture | None = None,
 ) -> None:
     import tempfile
 
@@ -302,6 +370,7 @@ def _run_verify_pr_fixture(
     try:
         materialize_git_pr_fixture(
             target,
+            base_files=base_files_for(target) if base_files_for is not None else None,
             head_files=head_files_for(target),
             user_email="fixture@example.com",
             user_name="Agents Shipgate Fixture",
@@ -347,6 +416,14 @@ def _run_verify_pr_fixture(
     typer.echo(f"Reports: {out_dir}")
     typer.echo(f"Verifier: {out_dir / 'verifier.json'}")
     typer.echo(f"PR comment: {out_dir / 'pr-comment.md'}")
+    if expectation is not None:
+        expectation_exit = _report_replay_expectation(
+            expectation,
+            verifier=verifier,
+            report=_report,
+        )
+        if expectation_exit:
+            exit_code = expectation_exit
     typer.echo(f"Static-verdict boundary: {STATIC_VERDICT_DISCLAIMER}")
     _finish_fixture_copy(
         workdir=workdir,
@@ -355,6 +432,58 @@ def _run_verify_pr_fixture(
         keep=keep,
     )
     raise typer.Exit(exit_code)
+
+
+def _report_replay_expectation(
+    replay: ReplayFixture,
+    *,
+    verifier: object,
+    report: object,
+) -> int:
+    """Pin a replay to the engine output it claims, including honest gaps."""
+
+    merge_verdict = getattr(verifier, "merge_verdict", None)
+    release_decision = getattr(verifier, "release_decision", None)
+    decision = getattr(release_decision, "decision", None)
+    findings = getattr(report, "findings", [])
+    check_ids = {getattr(finding, "check_id", None) for finding in findings}
+
+    if replay.desired_merge_verdict is not None and merge_verdict == replay.desired_merge_verdict:
+        typer.echo(
+            "Expected-fail resolved: the engine now emits the desired "
+            f"{replay.desired_merge_verdict!r} verdict; update this fixture's contract.",
+            err=True,
+        )
+        return 20
+
+    missing = sorted(set(replay.required_check_ids) - check_ids)
+    unexpectedly_present = sorted(set(replay.absent_check_ids) & check_ids)
+    mismatches: list[str] = []
+    if merge_verdict != replay.observed_merge_verdict:
+        mismatches.append(
+            f"merge_verdict={merge_verdict!r}, expected {replay.observed_merge_verdict!r}"
+        )
+    if decision != replay.observed_decision:
+        mismatches.append(f"decision={decision!r}, expected {replay.observed_decision!r}")
+    if missing:
+        mismatches.append(f"missing checks: {', '.join(missing)}")
+    if unexpectedly_present:
+        mismatches.append(f"checks expected absent are present: {', '.join(unexpectedly_present)}")
+
+    if mismatches:
+        typer.echo("Fixture expectation diverged:", err=True)
+        for mismatch in mismatches:
+            typer.echo(f"  - {mismatch}", err=True)
+        return 20
+
+    if replay.desired_merge_verdict is not None:
+        typer.echo("Fixture expectation: expected-fail")
+        typer.echo(f"Expected verdict: {replay.desired_merge_verdict}")
+        typer.echo(f"Observed verdict: {merge_verdict}")
+        typer.echo(f"Known gap: {replay.known_gap}")
+    else:
+        typer.echo("Fixture expectation: confirmed")
+    return 0
 
 
 def _finish_fixture_copy(
