@@ -278,7 +278,10 @@ def test_the_published_threshold_is_the_one_that_binds():
     action in ten that they were under the bar.
     """
 
-    from agents_shipgate.ci.release_decision import evidence_below_ie_threshold
+    from agents_shipgate.ci.release_decision import (
+        _low_confidence_tool_threshold,
+        evidence_below_ie_threshold,
+    )
     from agents_shipgate.inputs.coverage import CELL_OUTCOME_VERDICTS
     from agents_shipgate.schemas.report import (
         EvidenceCoverageDecision,
@@ -302,8 +305,6 @@ def test_the_published_threshold_is_the_one_that_binds():
 
     # And the ratio clause on its own would not have fired here, which is
     # exactly why publishing it was wrong.
-    from agents_shipgate.ci.release_decision import _low_confidence_tool_threshold
-
     assert 1 < _low_confidence_tool_threshold(10)
 
     page = (REPO_ROOT / "docs" / "determinism-boundary.md").read_text(encoding="utf-8")
