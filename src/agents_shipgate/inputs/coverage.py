@@ -104,11 +104,13 @@ DECLARATION_SHAPE_DEFINITIONS: dict[DeclarationShape, str] = {
 #: What a cell says happened to this shape.
 CellStatus = Literal["extracted", "not_extracted", "not_applicable"]
 
-#: How a manifest asks for an input. Not exclusive: every ``per_scan`` framework
-#: adapter answers to *both*, and only the section route reaches the top-level
-#: keys — ``tool_inventories[]`` among them, which is the one way most of these
-#: inputs reach a ``proven`` row. Publishing only the ``tool_sources[]`` half
-#: sent that reader looking for a key the page never named (#473 review).
+#: How a manifest asks for an input. Not exclusive, and not derivable from
+#: ``scope``: four inputs answer to both routes, ``conductor`` is ``per_scan``
+#: and answers only to ``tool_sources[]``, and four more answer only to their
+#: section. Only the section route reaches the top-level keys —
+#: ``tool_inventories[]`` among them, which is the one way most of these inputs
+#: reach a ``proven`` row. Publishing only the ``tool_sources[]`` half sent that
+#: reader looking for a key the page never named (#473 review).
 ConfigurationRoute = Literal["tool_sources", "manifest_section"]
 
 #: The ``extraction["surface"]`` evidence an adapter writes for a shape.

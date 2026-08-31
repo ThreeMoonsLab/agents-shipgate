@@ -278,7 +278,33 @@ def test_the_published_threshold_is_the_one_that_binds():
     action in ten that they were under the bar.
     """
 
+    from agents_shipgate.ci.release_decision import evidence_below_ie_threshold
     from agents_shipgate.inputs.coverage import CELL_OUTCOME_VERDICTS
+    from agents_shipgate.schemas.report import (
+        EvidenceCoverageDecision,
+        SemanticCoverageDecision,
+    )
+
+    # The mechanism, not the wording: one action below `high` raises one
+    # `incomplete_surface` semantic issue, `_semantic_coverage` emits one gap
+    # for it, and the predicate's first clause is satisfied — nine of ten
+    # actions still proven, and the run is already below the threshold.
+    one_gap_in_ten = EvidenceCoverageDecision(
+        level="mixed",
+        human_review_recommended=False,
+        source_warning_count=0,
+        semantic_coverage=SemanticCoverageDecision(
+            total_actions=10, pass_eligible_actions=9, gap_count=1
+        ),
+        low_confidence_tool_count=1,
+    )
+    assert evidence_below_ie_threshold(one_gap_in_ten, tool_count=10) is True
+
+    # And the ratio clause on its own would not have fired here, which is
+    # exactly why publishing it was wrong.
+    from agents_shipgate.ci.release_decision import _low_confidence_tool_threshold
+
+    assert 1 < _low_confidence_tool_threshold(10)
 
     page = (REPO_ROOT / "docs" / "determinism-boundary.md").read_text(encoding="utf-8")
     for outcome in ("low_confidence", "set_unproven"):
