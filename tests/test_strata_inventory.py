@@ -336,7 +336,17 @@ def test_a_diff_substance_row_is_written_down_in_the_register(
     the cell was aimed from the diff or from the verdict the walk also produced.
     """
 
-    register = REGISTER.read_text(encoding="utf-8")
+    # Only the register itself. The Reserve subsection beneath it lists
+    # candidates that are deliberately *not* placed in a cell, so a row
+    # matching there would be citing evidence that it has no slot.
+    lines = REGISTER.read_text(encoding="utf-8").splitlines()
+    start = lines.index("## Candidate register") + 1
+    end = next(
+        (offset for offset, line in enumerate(lines[start:], start) if line.startswith("#")),
+        len(lines),
+    )
+    register = "\n".join(lines[start:end])
+
     for row in rows:
         if row["target_basis"] != "diff_substance":
             continue
@@ -527,6 +537,7 @@ def test_the_register_reports_the_plan_the_csv_actually_holds(
     for group in ("profile", "target_decision"):
         for name in {row[group] for row in rows}:
             member = [row for row in rows if row[group] == name]
+            assert name in totals, f"the register has no row for {name}"
             assert totals[name] == [
                 sum(1 for row in member if row["status"] != "gap"),
                 sum(1 for row in member if row["origin_class"] in QUALIFYING_ORIGINS),
