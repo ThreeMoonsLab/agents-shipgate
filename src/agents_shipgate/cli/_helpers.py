@@ -18,7 +18,10 @@ from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.action_semantics import effect_phrase, join_phrases
 from agents_shipgate.core.control_packs import control_rule_summaries
 from agents_shipgate.core.declaration_questions import progress_sentence
-from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
+from agents_shipgate.core.disclaimers import (
+    DETERMINISM_BOUNDARY_REFERENCE,
+    STATIC_VERDICT_DISCLAIMER,
+)
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.findings.subject_rollup import (
     roll_up_findings,
@@ -607,6 +610,11 @@ def _print_decision_summary(report) -> None:
             typer.echo(declarations)
         if decision.decision == "insufficient_evidence":
             typer.echo(f"Improve evidence: {primary_evidence_remediation_text(ev)}")
+            # The gap says what to do here; this says what the tool can
+            # establish at all. A reader who cannot tell "unreadable
+            # repository" from "unreadable declaration shape" reads an
+            # honest abstention as a broken tool (#473).
+            typer.echo(DETERMINISM_BOUNDARY_REFERENCE)
         if report.agent_summary and report.agent_summary.first_recommended_action:
             action = report.agent_summary.first_recommended_action
             if action.command:

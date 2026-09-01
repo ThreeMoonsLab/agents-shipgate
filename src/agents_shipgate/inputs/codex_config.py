@@ -9,6 +9,7 @@ from agents_shipgate.inputs.common import (
     resolve_input_path,
     walk_input_tree,
 )
+from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.mcp_manifest import load_codex_config_mcp_sources
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest, ToolSourceConfig
@@ -18,6 +19,71 @@ class CodexConfigAdapter:
     source_type: ClassVar[str] = "codex_config"
     scope: ClassVar[Literal["per_source"]] = "per_source"
     artifact_class: ClassVar[type | None] = CodexBoundaryArtifacts
+
+    coverage: ClassVar[SourceCoverage] = SourceCoverage(
+        adapter="codex_config",
+        label="Codex / MCP host config",
+        reads=(
+            "`.mcp.json`, `.codex/config.toml`, and the other host MCP config "
+            "files under the root a `tool_sources[]` entry names — including the "
+            "servers a plugin block declares."
+        ),
+        cells=(
+            BoundaryCell(
+                shape="export_artifact",
+                status="not_applicable",
+                reads=(
+                    "Host config declares servers. A committed `tools/list` export "
+                    "is configured as its own `mcp` source."
+                ),
+            ),
+            BoundaryCell(
+                shape="literal_registration",
+                variant="tool with a schema",
+                status="extracted",
+                reads=(
+                    "A server entry whose `tools` mapping names a tool and gives "
+                    "it an input schema."
+                ),
+                emits=("codex_config_mcp",),
+                ceiling="high",
+            ),
+            BoundaryCell(
+                shape="literal_registration",
+                variant="tool without a schema",
+                status="extracted",
+                reads=(
+                    "A server entry naming a tool — in `tools` or an allowlist "
+                    "such as `enabled_tools` — with no readable input schema. The "
+                    "name is a fact; the surface it accepts is not."
+                ),
+                emits=("codex_config_mcp",),
+                ceiling="medium",
+                surface_flags=("mcp_unknown_schema",),
+            ),
+            BoundaryCell(
+                shape="factory",
+                status="not_applicable",
+                reads="Host config declares servers; it does not construct them.",
+            ),
+            BoundaryCell(
+                shape="dynamic_construction",
+                status="extracted",
+                reads=(
+                    "A server entry that names no tools at all: one synthetic "
+                    "`<server>.*` action stands in for a surface only the running "
+                    "server can name."
+                ),
+                emits=("codex_config_mcp",),
+                ceiling="medium",
+                surface_flags=(
+                    "wildcard_tools",
+                    "mcp_wildcard_tools",
+                    "mcp_unknown_schema",
+                ),
+            ),
+        ),
+    )
 
     def load(
         self,

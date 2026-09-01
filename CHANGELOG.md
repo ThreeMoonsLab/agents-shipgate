@@ -38,6 +38,35 @@
   the pool ran before #403 — so their zero-trigger repositories are unexplored,
   not empty.
 
+- **The determinism boundary is now a published specification, generated from
+  the code.** (#473) `docs/determinism-boundary.md` and its machine-readable
+  companion `docs/determinism-boundary.json`
+  (`shipgate.determinism_boundary/v1`) state, for every built-in input and each
+  of the four declaration shapes — export artifact, literal registration,
+  factory, dynamic construction — what the scan reads, which
+  `Tool.source_type` it produces, the extraction-confidence ceiling that route
+  reaches, and what that ceiling means for a release verdict.
+
+  Nothing on the page is hand-maintained. Each adapter declares its coverage
+  beside the code that mints its confidences; the consequence column is
+  computed by asking the engine's own completeness predicates about those
+  declared facts, so the page cannot claim an outcome the engine does not
+  reach. Generation is fail-closed in both directions: an adapter registered
+  without coverage, and a source type added to the engine's ceiling
+  vocabularies without a route, both break the build rather than being omitted
+  from the page. `python scripts/generate_schemas.py --check` enforces that the
+  committed page equals the regenerated one, as it already does for the
+  schemas.
+
+  Every `insufficient_evidence` verdict now links to it — in `scan` stdout,
+  `verify` stdout, the GitHub step summary, and `report.md` — so an honest
+  abstention reads as a scoping answer rather than a dead end.
+  `.well-known/agents-shipgate.json` publishes both URLs.
+
+  `extraction_is_complete()` is now the one definition of "the adapter read
+  this tool's contract with full confidence", shared by the semantic resolver,
+  `low_confidence_tool_count`, and the boundary generator.
+
 - **Reviewed risk overrides no longer masquerade as scan observations.** (#460)
   `risk_overrides.tags` is excluded from `effect_readings` and the derived
   action `basis`, so adding or removing a reviewed tag no longer reopens a

@@ -22,6 +22,7 @@ from agents_shipgate.inputs._python_framework import (
 )
 from agents_shipgate.inputs.common import tool_name_warning
 from agents_shipgate.inputs.config_trace import trace_config_binding
+from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.python_static import (
     dotted_name,
@@ -360,6 +361,75 @@ class LangChainAdapter:
     source_type: ClassVar[str] = "langchain"
     scope: ClassVar[Literal["per_source", "per_scan"]] = "per_scan"
     artifact_class: ClassVar[type | None] = LangChainArtifacts
+
+    coverage: ClassVar[SourceCoverage] = SourceCoverage(
+        adapter="langchain",
+        label="LangChain / LangGraph",
+        reads=(
+            "LangChain and LangGraph Python modules parsed with `ast`, plus any "
+            "reviewed inventory `langchain.tool_inventories[]` declares."
+        ),
+        manifest_section="langchain",
+        cells=(
+            BoundaryCell(
+                shape="export_artifact",
+                variant="reviewed inventory",
+                status="extracted",
+                reads=(
+                    "A reviewed tool inventory in MCP export form. It is read as a "
+                    "published contract, which is why it is the only LangChain route "
+                    "that reaches `high`."
+                ),
+                emits=("langchain_inventory",),
+                ceiling="high",
+            ),
+            BoundaryCell(
+                shape="export_artifact",
+                variant="wildcard inventory",
+                status="extracted",
+                reads=(
+                    "An inventory that declares `wildcard: true` instead of "
+                    "listing tools. It is a reviewed file and still names "
+                    "nothing, so it loads at `high` and proves no surface — a "
+                    "reviewed statement that says nothing is not evidence."
+                ),
+                emits=("langchain_inventory",),
+                ceiling="high",
+                surface_flags=("wildcard_tools",),
+            ),
+            BoundaryCell(
+                shape="literal_registration",
+                status="extracted",
+                reads=(
+                    "An `@tool`-decorated function, or a `StructuredTool` built with "
+                    "a literal name, description, and an `args_schema` defined in "
+                    "the same file."
+                ),
+                emits=("langchain_function", "langchain_structured_tool"),
+                ceiling="medium",
+            ),
+            BoundaryCell(
+                shape="factory",
+                status="not_extracted",
+                reads=(
+                    "A tool produced by a call the parser cannot resolve — a "
+                    "factory, a loaded toolkit — records a dynamic tool surface and "
+                    "adds nothing to the catalog."
+                ),
+                raises=("SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",),
+            ),
+            BoundaryCell(
+                shape="dynamic_construction",
+                status="not_extracted",
+                reads=(
+                    "A tools list built by a comprehension, a config read, or a "
+                    "rebound variable records a dynamic tool surface, with the "
+                    "config path when the read is statically traceable."
+                ),
+                raises=("SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",),
+            ),
+        ),
+    )
 
     def load(
         self,

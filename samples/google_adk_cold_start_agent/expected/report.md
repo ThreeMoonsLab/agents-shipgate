@@ -16,6 +16,8 @@ Review items (1):
 
 Evidence coverage: static (9/9 catalog tools reachable; 10 semantic evidence gap(s); 2/9 actions pass-eligible)
 
+What Agents Shipgate can prove, per framework: https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/determinism-boundary.md
+
 Baseline delta: not enabled
 
 Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fail_ci=false (exit 0)

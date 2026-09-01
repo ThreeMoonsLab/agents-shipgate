@@ -24,6 +24,7 @@ from agents_shipgate.inputs.common import (
     stable_tool_id,
     tool_name_warning,
 )
+from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.traces import load_trace_artifacts
 from agents_shipgate.schemas.manifest import (
@@ -393,6 +394,49 @@ class OpenAIAPIAdapter:
     source_type: ClassVar[str] = "openai_api"
     scope: ClassVar[Literal["per_source", "per_scan"]] = "per_scan"
     artifact_class: ClassVar[type | None] = OpenAIApiArtifacts
+
+    coverage: ClassVar[SourceCoverage] = SourceCoverage(
+        adapter="openai_api",
+        label="OpenAI API artifacts",
+        reads=(
+            "Tool and assistant definition artifacts declared under "
+            "`manifest.openai_api`, plus local run traces."
+        ),
+        manifest_section="openai_api",
+        cells=(
+            BoundaryCell(
+                shape="export_artifact",
+                status="extracted",
+                reads=(
+                    "A committed tool definition with its JSON Schema parameters, "
+                    "read as the published contract it is."
+                ),
+                emits=("openai_api",),
+                ceiling="high",
+            ),
+            BoundaryCell(
+                shape="literal_registration",
+                status="not_applicable",
+                reads=(
+                    "This input reads artifacts, not source. Tools defined in Python "
+                    "are read by the OpenAI Agents SDK input."
+                ),
+            ),
+            BoundaryCell(
+                shape="factory",
+                status="not_applicable",
+                reads="An artifact is the result of construction, never the construction.",
+            ),
+            BoundaryCell(
+                shape="dynamic_construction",
+                status="not_applicable",
+                reads=(
+                    "A tool definition names its function and parameters or it is "
+                    "not a tool definition."
+                ),
+            ),
+        ),
+    )
 
     def load(
         self,

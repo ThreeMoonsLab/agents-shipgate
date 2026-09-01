@@ -19,6 +19,7 @@ from agents_shipgate.inputs.common import (
     stable_tool_id,
     tool_name_warning,
 )
+from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest, ToolSourceConfig
 
@@ -965,6 +966,67 @@ class ConductorAdapter:
     source_type: ClassVar[str] = "conductor"
     scope: ClassVar[Literal["per_source", "per_scan"]] = "per_scan"
     artifact_class: ClassVar[type | None] = ConductorArtifacts
+
+    coverage: ClassVar[SourceCoverage] = SourceCoverage(
+        adapter="conductor",
+        label="Conductor OSS workflows",
+        reads=(
+            "Conductor workflow definition JSON."
+        ),
+        cells=(
+            BoundaryCell(
+                shape="export_artifact",
+                status="not_applicable",
+                reads=(
+                    "A workflow definition declares calls, not a tool contract. The "
+                    "called server's own export is configured as its own `mcp` "
+                    "source."
+                ),
+            ),
+            BoundaryCell(
+                shape="literal_registration",
+                status="extracted",
+                reads=(
+                    "A `CALL_MCP_TOOL` task whose `method` is a literal. The call is "
+                    "read with its endpoint, arguments, and preceding human "
+                    "checkpoints; the tool's schema is not in the workflow, so the "
+                    "action is recorded as schema-partial."
+                ),
+                emits=("conductor_mcp_call",),
+                ceiling="medium",
+            ),
+            BoundaryCell(
+                shape="factory",
+                status="not_applicable",
+                reads="A workflow task is declared, never constructed by the file.",
+            ),
+            BoundaryCell(
+                shape="dynamic_construction",
+                variant="expression-backed method",
+                status="not_extracted",
+                reads=(
+                    "A `CALL_MCP_TOOL` whose `method` is a workflow expression "
+                    "adds no action: the name that would identify it is not in "
+                    "the file. The task is still recorded as a dynamic fact."
+                ),
+                raises=("SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",),
+            ),
+            BoundaryCell(
+                shape="dynamic_construction",
+                variant="expression-backed server",
+                status="extracted",
+                reads=(
+                    "A literal `method` with an expression-backed `mcpServer` "
+                    "still names the call, so the action enters the catalog at "
+                    "`medium`. Only the endpoint it reaches is unresolved — a "
+                    "different question from which tool is called."
+                ),
+                emits=("conductor_mcp_call",),
+                ceiling="medium",
+                raises=("SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",),
+            ),
+        ),
+    )
 
     def load(
         self,

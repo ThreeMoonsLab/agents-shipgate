@@ -56,6 +56,31 @@ model calls, no MCP connections, and no network access.
   exposure of low-confidence tools instead of duplicating that condition in a
   framework-specific check.
 
+## Determinism Boundary
+
+- Declare a `coverage: ClassVar[SourceCoverage]` on the adapter class, beside
+  the code that mints its confidences. Answer **every** declaration shape —
+  `export_artifact`, `literal_registration`, `factory`, `dynamic_construction`
+  — including with "this input has no such declaration". Generation fails on an
+  adapter that declares none, and on a source type added to
+  `AST_ONLY_SOURCE_TYPES` or `MCP_SOURCE_TYPES` that no cell emits.
+- Declare only what the adapter *does*: the emitted `Tool.source_type`, the
+  ceiling, the `extraction["surface"]` evidence, and the annotation flags (which
+  must be keys `SURFACE_INCOMPLETE_ANNOTATIONS` actually names — a flag the
+  engine ignores is inert, and inert reads as "surface complete"). What that
+  means for a verdict is derived by asking the engine's own predicates — never
+  restate it.
+- Name `manifest_section` when the adapter also runs from a top-level manifest
+  key. It is validated against `AgentsShipgateManifest`, and it is not always
+  the adapter's own name (`anthropic_api` reads `anthropic`, `codex_plugin`
+  reads `codex_plugins`, and `conductor` is per-scan with no section at all).
+- Give a shape more than one cell (each with a `variant`) when the input has
+  genuinely different routes through it, rather than publishing the lower
+  ceiling for both.
+- Regenerate `docs/determinism-boundary.{md,json}` with
+  `python scripts/generate_schemas.py` and commit them; CI's `--check` run
+  fails on drift.
+
 ## Source Priority
 
 - Explicit local framework inventories should outrank static extraction.
