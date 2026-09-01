@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
+import os
 import shutil
 import subprocess
 import sys
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from email import message_from_bytes
 from pathlib import Path
 
@@ -42,11 +45,7 @@ def built_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
         ),
     )
     stale_report = (
-        source_root
-        / "samples"
-        / "support_refund_agent"
-        / "agents-shipgate-reports"
-        / "report.json"
+        source_root / "samples" / "support_refund_agent" / "agents-shipgate-reports" / "report.json"
     )
     stale_report.parent.mkdir(parents=True)
     stale_report.write_text('{"stale": true}\n', encoding="utf-8")
@@ -60,6 +59,34 @@ def built_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
     wheels = list(out_dir.glob("*.whl"))
     assert len(wheels) == 1, f"expected exactly one wheel, got {wheels!r}"
     return wheels[0]
+
+
+@pytest.fixture(scope="session")
+def installed_wheel_site(
+    built_wheel: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Path:
+    """Install the built wheel into an isolated target without network access."""
+
+    root = tmp_path_factory.mktemp("installed-wheel")
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--no-deps",
+            "--force-reinstall",
+            "--target",
+            str(root),
+            str(built_wheel),
+        ],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return root
 
 
 def test_wheel_includes_adoption_kits(built_wheel: Path) -> None:
@@ -81,6 +108,89 @@ def test_wheel_includes_nested_sample_fixtures(built_wheel: Path) -> None:
         "agents_shipgate/_fixtures/support_refund_agent/shipgate.yaml",
     ):
         assert path in names
+
+
+def test_installed_wheel_replays_incident_fixtures(
+    installed_wheel_site: Path,
+    tmp_path: Path,
+) -> None:
+    """The three demos run from an installed artifact, not the source tree."""
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(installed_wheel_site)
+    env["PYTHONNOUSERSITE"] = "1"
+    fixtures = (
+        (
+            "agent_weakens_gate",
+            "Merge verdict: blocked",
+            "blocked",
+            "blocked",
+            ("SHIP-VERIFY-CI-GATE-REMOVED",),
+            (),
+        ),
+        (
+            "governed_edits_governance",
+            "Fixture expectation: expected-fail",
+            "mergeable",
+            "passed",
+            (),
+            ("SHIP-VERIFY-TRUST-ROOT-TOUCHED",),
+        ),
+        (
+            "prompt_change_rides_release",
+            "Merge verdict: human_review_required",
+            "human_review_required",
+            "review_required",
+            (
+                "SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED",
+                "SHIP-VERIFY-TRUST-ROOT-TOUCHED",
+            ),
+            (),
+        ),
+    )
+
+    def replay(
+        expectation: tuple[str, str, str, str, tuple[str, ...], tuple[str, ...]],
+    ) -> tuple[
+        tuple[str, str, str, str, tuple[str, ...], tuple[str, ...]],
+        Path,
+        subprocess.CompletedProcess[str],
+    ]:
+        name = expectation[0]
+        out = tmp_path / name
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "agents_shipgate",
+                "fixture",
+                "run",
+                name,
+                "--out",
+                str(out),
+            ],
+            cwd=tmp_path,
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        return expectation, out, result
+
+    with ThreadPoolExecutor(max_workers=len(fixtures)) as executor:
+        results = list(executor.map(replay, fixtures))
+
+    for expectation, out, result in results:
+        name, expected_output, merge_verdict, decision, required_checks, absent_checks = expectation
+        assert result.returncode == 0, f"{name}: {result.stdout}{result.stderr}"
+        assert expected_output in result.stdout
+        verifier = json.loads((out / "verifier.json").read_text(encoding="utf-8"))
+        report = json.loads((out / "report.json").read_text(encoding="utf-8"))
+        assert verifier["merge_verdict"] == merge_verdict
+        assert report["release_decision"]["decision"] == decision
+        check_ids = {finding["check_id"] for finding in report["findings"]}
+        assert set(required_checks) <= check_ids
+        assert not (set(absent_checks) & check_ids)
 
 
 def test_wheel_excludes_generated_shipgate_reports(built_wheel: Path) -> None:

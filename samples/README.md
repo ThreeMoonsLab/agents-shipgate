@@ -20,6 +20,25 @@ For the lower-level static report fixture:
 agents-shipgate fixture run support_refund_agent
 ```
 
+## Replayable incident shapes
+
+Three PR-shaped demos map public incident shapes to fresh verifier output:
+
+```bash
+./shipgate fixture run agent_weakens_gate
+./shipgate fixture run governed_edits_governance
+./shipgate fixture run prompt_change_rides_release
+```
+
+Those commands run from this checkout. The installed suite is available from
+v0.18.0 as `uvx agents-shipgate@0.18.0 fixture run <name>`.
+
+The second command is an explicit expected-fail for the unshipped
+`.github/agents/**` governance surface. It prints both the desired and observed
+verdict and links the owning RFC; it is never silently skipped. See the
+[`docs/incidents/` suite](../docs/incidents/README.md) for the public sources,
+one-page write-ups, and incident-response article template.
+
 ## Sample reports
 
 These golden reports are committed so you can inspect the output shape without
