@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Literal
 
 import pytest
 
-from agents_shipgate.cli.verify.orchestrator import _apply_authorization_overlay
+from agents_shipgate.cli.verify.orchestrator import (
+    _apply_authorization_overlay,
+    _evaluate_authorization_overlay,
+)
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.schemas.agent_control import HumanControlAction
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
@@ -180,6 +185,38 @@ def test_not_applicable_authorization_preserves_human_stop() -> None:
     assert verifier.control.state == "human_review_required"
     assert verifier.control.allowed_next_commands == []
     assert verifier.fix_task is not None
+
+
+@pytest.mark.parametrize("provenance", ["local_review", "uncommitted", "unknown"])
+def test_provisional_manifest_cannot_produce_authorization_evidence(
+    tmp_path: Path,
+    provenance: str,
+) -> None:
+    verifier = _verifier("review_required", include_human_fix_task=True)
+    plan = SimpleNamespace(
+        inputs=SimpleNamespace(
+            options={
+                "plugins_enabled": False,
+                "manifest_provenance": provenance,
+            }
+        )
+    )
+
+    evaluation, grant = _evaluate_authorization_overlay(
+        authorization_path=tmp_path / "authorization.json",
+        verifier=verifier,
+        report=None,
+        plan=plan,
+        workspace=tmp_path,
+        authorization_command=AUTHORIZED_COMMAND,
+    )
+
+    assert evaluation.status == "not_applicable"
+    assert evaluation.reason_codes == [
+        "authorization_requires_committed_repository_manifest"
+    ]
+    assert evaluation.command is None
+    assert grant is None
 
 
 def test_accepted_exact_git_push_authorizes_only_that_operation() -> None:

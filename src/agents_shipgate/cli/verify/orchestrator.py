@@ -3824,6 +3824,13 @@ def _evaluate_authorization_overlay(
             AuthorizationEvaluationV1.not_applicable("authorization_requires_plugins_disabled"),
             None,
         )
+    if plan.inputs.options.get("manifest_provenance") != "repository":
+        return (
+            AuthorizationEvaluationV1.not_applicable(
+                "authorization_requires_committed_repository_manifest"
+            ),
+            None,
+        )
     try:
         if report is None:
             raise ValueError("authorization requires a release report")
