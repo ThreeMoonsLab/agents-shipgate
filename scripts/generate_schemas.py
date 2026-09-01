@@ -72,6 +72,13 @@ Writes / verifies:
                                 (projected from the shipped
                                  samples/ai_generated_refund_pr fixture, so the
                                  worked examples cannot drift from the schema)
+- docs/capability-delta-attestation-schema.v1.json
+                                (from agents_shipgate.schemas.capability_attestation.
+                                 CapabilityDeltaAttestationV1)
+- docs/examples/capability-delta-attestation.v1.example.json
+                                (the same fixture, wrapped as an in-toto
+                                 statement; needs a `git` binary for the
+                                 subject's tree ids)
 - docs/governance-benchmark-catalog-schema.v0.2.json
                                 (from agents_shipgate.schemas.governance_benchmark.
                                  GovernanceBenchmarkCatalogArtifactV1)
@@ -1717,6 +1724,16 @@ def write_capability_lock_diff_schema(
     )
 
 
+#: The one place a published capability object may leave a property out of
+#: ``required``, and why. ``DigestSet`` is in-toto's type, not ours: it is
+#: ``map<string, string>``, so an algorithm the producer did not compute is
+#: absent rather than ``null``. Everywhere else in these schemas absence is
+#: spelled as a value, and the assertion below keeps it that way.
+_CAPABILITY_OPTIONAL_PROPERTIES: dict[str, frozenset[str]] = {
+    "CapabilityDeltaSubjectDigest": frozenset({"gitCommit"}),
+}
+
+
 def _postprocess_capability_payload(schema: dict[str, Any]) -> None:
     """Push every constraint JSON Schema *can* express into the published file.
 
@@ -1740,6 +1757,12 @@ def _postprocess_capability_payload(schema: dict[str, Any]) -> None:
     def when(field: str, value: Any) -> dict[str, Any]:
         return {"properties": {field: {"const": value}}, "required": [field]}
 
+    if "CapabilityRecordTransitionEntry" not in defs:  # pragma: no cover
+        raise AssertionError(
+            "the capability payload post-processor was handed a schema that "
+            "carries no capability records; it would silently publish none of "
+            "the stage-one rules"
+        )
     entry = defs["CapabilityRecordTransitionEntry"]
     entry["allOf"] = [
         # A membership change has exactly one side, no changed dimensions, and
@@ -1930,7 +1953,11 @@ def _postprocess_capability_payload(schema: dict[str, Any]) -> None:
         ("CapabilityAuthorityFacts", "scopes"),
         ("CapabilityAuthorityFacts", "broad_scopes"),
     ):
-        defs[name]["properties"][field]["uniqueItems"] = True
+        # Skip what this document does not carry: the attestation embeds the
+        # delta view alone, and reusing this one post-processor is how the two
+        # published schemas cannot express different rules for the same object.
+        if name in defs:
+            defs[name]["properties"][field]["uniqueItems"] = True
 
     # Every object in the published schema requires every property it declares.
     # A field with a schema default drops out of `required`, and a wire format
@@ -1938,7 +1965,10 @@ def _postprocess_capability_payload(schema: dict[str, Any]) -> None:
     for name, definition in defs.items():
         if definition.get("type") != "object" or "properties" not in definition:
             continue
-        missing = sorted(set(definition["properties"]) - set(definition.get("required", [])))
+        allowed = _CAPABILITY_OPTIONAL_PROPERTIES.get(name, frozenset())
+        missing = sorted(
+            set(definition["properties"]) - set(definition.get("required", [])) - allowed
+        )
         if missing:  # pragma: no cover - the generator would be shipping a hole
             raise AssertionError(
                 f"{name} publishes optional properties {missing}; every field of "
@@ -2045,6 +2075,143 @@ def build_capability_payload_delta_example() -> tuple[Path, str]:
     )
     target = DOCS / "examples" / "capability-payload.v1.delta.example.json"
     return target, _canonical_json(payload.model_dump(mode="json"))
+
+
+def build_capability_delta_attestation_schema() -> tuple[Path, str]:
+    """Generate the frozen in-toto delta-attestation schema (#470)."""
+
+    from agents_shipgate.schemas.capability_attestation import (
+        CAPABILITY_DELTA_ATTESTATION_SCHEMA_VERSION,
+        CAPABILITY_DELTA_PREDICATE_TYPE,
+        GIT_OBJECT_PATTERN,
+        CapabilityDeltaAttestationV1,
+    )
+
+    schema = CapabilityDeltaAttestationV1.model_json_schema()
+    # The same post-processor the payload schema runs. The attestation embeds
+    # the delta view, so running a second, parallel set of stage-one rules over
+    # the same objects is exactly the divergence the shared payload exists to
+    # prevent.
+    _postprocess_capability_payload(schema)
+    # Pydantic's validation schema for an optional nullable field admits
+    # ``null``, and the producer never emits it: a ``DigestSet`` is
+    # ``map<string, string>``, so an uncomputed algorithm is absent. Publishing
+    # the nullable form would tell an external validator to accept a document
+    # this format does not produce and an in-toto consumer cannot type.
+    digest = schema["$defs"]["CapabilityDeltaSubjectDigest"]["properties"]["gitCommit"]
+    digest.pop("anyOf", None)
+    digest.pop("default", None)
+    digest["type"] = "string"
+    digest["pattern"] = GIT_OBJECT_PATTERN
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        "main/docs/capability-delta-attestation-schema.v1.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = "Agents Shipgate Capability Delta Attestation v1"
+    schema["description"] = (
+        "Frozen JSON Schema for an in-toto Statement carrying "
+        f"{CAPABILITY_DELTA_ATTESTATION_SCHEMA_VERSION} — the exported "
+        "capability delta, published so a consumer can read what an agent can "
+        "do after a change without running Agents Shipgate. predicateType is "
+        f"{CAPABILITY_DELTA_PREDICATE_TYPE}, and `predicate.delta` is the "
+        "frozen shipgate.capability_payload/v1 delta view unchanged. "
+        "VALIDATION IS TWO STAGES: this file is stage one and is not "
+        "sufficient on its own. Beyond the payload's own stage-two rules "
+        "(docs/capability-payload.md), a consumer must check that the attested "
+        "subject's gitTree equals predicate.delta.head.ref, and that both refs "
+        "are git object ids. The statement is emitted unsigned; authenticity "
+        "is the transport's job. It is non-gating: "
+        "release_decision.decision remains the only release gate."
+    )
+    target = DOCS / "capability-delta-attestation-schema.v1.json"
+    return target, _canonical_json(schema)
+
+
+def _capability_payload_example_trees() -> tuple[str, str]:
+    """The git tree object ids of the shipped sample's base and head states.
+
+    Real object ids, not placeholders: the attestation binds its subject to a
+    tree, and a worked example whose subject is fabricated is a claim about the
+    format that nothing can check. ``git write-tree`` is deterministic — a tree
+    id is a function of file names, contents and modes alone, with no author,
+    no date and no history — so the committed example is stable across machines
+    and re-runs, which is what puts it under the ``--check`` drift gate.
+    """
+
+    import shutil
+    import subprocess
+    import tempfile
+
+    def tree_id(root: Path) -> str:
+        git = (
+            "git",
+            # Neutralize whatever the developer's global config says: a
+            # line-ending rewrite or a stray excludes file would change the
+            # blob contents, and with them the published example.
+            "-c",
+            "core.autocrlf=false",
+            "-c",
+            "core.eol=lf",
+            "-c",
+            "core.excludesfile=",
+            "-c",
+            "core.attributesfile=",
+            "-C",
+            str(root),
+        )
+        subprocess.run([*git, "init", "-q", "-b", "main"], check=True)
+        subprocess.run([*git, "add", "-A"], check=True)
+        written = subprocess.run(
+            [*git, "write-tree"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        shutil.rmtree(root / ".git")
+        return written.stdout.strip()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        base_root = Path(tmp) / "base"
+        head_root = Path(tmp) / "head"
+        shutil.copytree(_PAYLOAD_EXAMPLE_SAMPLE, base_root)
+        shutil.copytree(_PAYLOAD_EXAMPLE_SAMPLE, head_root)
+        # ``_head/`` is the fixture runner's staging area for the second
+        # commit, not part of either reviewed state.
+        shutil.copyfile(head_root / "_head" / "tools.json", head_root / "tools.json")
+        shutil.rmtree(base_root / "_head")
+        shutil.rmtree(head_root / "_head")
+        return tree_id(base_root), tree_id(head_root)
+
+
+def build_capability_delta_attestation_example() -> tuple[Path, str]:
+    """Generate the worked attestation from the shipped sample (#470).
+
+    ``verification.status`` is ``unbound`` and that is the honest value: this
+    example is projected from the sample's capability facts, not emitted by a
+    ``verify`` run, so there is no receipt to chain to. A ``verify`` emission
+    always carries ``bound`` — the run identities it would name mix in the
+    engine build and the platform, which is precisely why a committed golden
+    cannot be one.
+    """
+
+    from agents_shipgate.core.capability_attestation import (
+        project_capability_delta_attestation,
+    )
+    from agents_shipgate.schemas.capability_attestation import attestation_json
+
+    base_facts, head_facts = _capability_payload_example_facts()
+    base_tree, head_tree = _capability_payload_example_trees()
+    attestation = project_capability_delta_attestation(
+        base_facts,
+        head_facts,
+        subject_name="samples/ai_generated_refund_pr",
+        base_tree_sha=base_tree,
+        head_tree_sha=head_tree,
+        head_commit_sha=None,
+    )
+    target = DOCS / "examples" / "capability-delta-attestation.v1.example.json"
+    return target, _canonical_json(attestation_json(attestation))
 
 
 def build_governance_benchmark_catalog_schema() -> tuple[Path, str]:
@@ -2697,6 +2864,11 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("capability_payload", build_capability_payload_schema),
     ("capability_payload_state_example", build_capability_payload_state_example),
     ("capability_payload_delta_example", build_capability_payload_delta_example),
+    ("capability_delta_attestation", build_capability_delta_attestation_schema),
+    (
+        "capability_delta_attestation_example",
+        build_capability_delta_attestation_example,
+    ),
     ("attestation", build_attestation_schema),
     ("org_governance", build_org_governance_schema),
     ("org_evidence_bundle", build_org_evidence_bundle_schema),

@@ -273,6 +273,21 @@ def agent_label_index(agents: Iterable[AgentBindingNode]) -> dict[str, str]:
     return {node.agent_id: agent_subject(node) for node in agents}
 
 
+def provider_token(value: str) -> str:
+    """Normalize a raw provider spelling to the one a capability subject uses.
+
+    ``ActionFact.provider`` is ``provider or source_id or source_type`` with
+    whitespace collapsed; ``ToolSurfaceToolFact.provider`` is the same
+    expression *without* the collapse. So a source id of ``my api`` reaches the
+    capability layer as ``my_api`` and the catalog as ``my api`` — the second
+    spelling of one subject this module exists to prevent. Anything that has to
+    key a catalog row the way a capability fact is keyed calls this rather than
+    restating the regex.
+    """
+
+    return re.sub(r"\s+", "_", value.strip())
+
+
 def catalog_label_index(rows: Iterable[Any]) -> dict[str, str]:
     """Map canonical tool id to the one display label that names that tool.
 
@@ -678,6 +693,7 @@ __all__ = [
     "agent_label_index",
     "agent_subject",
     "catalog_label_index",
+    "provider_token",
     "derived_id_kind",
     "tool_label",
     "unavailable_base_subject",

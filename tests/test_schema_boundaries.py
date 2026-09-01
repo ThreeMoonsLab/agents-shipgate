@@ -436,6 +436,20 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         agent_boundary_result_schema_path="docs/agent-boundary-result-schema.v2.json",
         capability_lock_schema_version="0.4",
         capability_lock_diff_schema_version="0.5",
+        capability_payload_schema_version="shipgate.capability_payload/v1",
+        capability_payload_schema_path="docs/capability-payload-schema.v1.json",
+        capability_delta_attestation_schema_version=(
+            "shipgate.capability_delta_attestation/v1"
+        ),
+        capability_delta_attestation_schema_path=(
+            "docs/capability-delta-attestation-schema.v1.json"
+        ),
+        capability_delta_predicate_type=(
+            "https://threemoonslab.com/agents-shipgate/capability-delta/v1"
+        ),
+        capability_delta_attestation_artifact=(
+            "agents-shipgate-reports/capability-delta-attestation.json"
+        ),
         preflight_schema_version="0.2",
         capability_standard_version="0.3",
         governance_benchmark_catalog_schema_version="0.2",
@@ -523,6 +537,20 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         "agent_boundary_result_schema_path": "docs/agent-boundary-result-schema.v2.json",
         "capability_lock_schema_version": "0.4",
         "capability_lock_diff_schema_version": "0.5",
+        "capability_payload_schema_version": "shipgate.capability_payload/v1",
+        "capability_payload_schema_path": "docs/capability-payload-schema.v1.json",
+        "capability_delta_attestation_schema_version": (
+            "shipgate.capability_delta_attestation/v1"
+        ),
+        "capability_delta_attestation_schema_path": (
+            "docs/capability-delta-attestation-schema.v1.json"
+        ),
+        "capability_delta_predicate_type": (
+            "https://threemoonslab.com/agents-shipgate/capability-delta/v1"
+        ),
+        "capability_delta_attestation_artifact": (
+            "agents-shipgate-reports/capability-delta-attestation.json"
+        ),
         "preflight_schema_version": "0.2",
         "capability_standard_version": "0.3",
         "governance_benchmark_catalog_schema_version": "0.2",

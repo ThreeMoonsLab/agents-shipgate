@@ -35,6 +35,16 @@ def register(app: typer.Typer) -> None:
         typer.echo(
             f"Capability lock diff schema version: {payload.capability_lock_diff_schema_version}"
         )
+        typer.echo(
+            f"Capability payload schema version: {payload.capability_payload_schema_version}"
+        )
+        typer.echo(
+            "Capability delta attestation schema version: "
+            f"{payload.capability_delta_attestation_schema_version}"
+        )
+        typer.echo(
+            f"Capability delta predicate type: {payload.capability_delta_predicate_type}"
+        )
         typer.echo(f"Preflight schema version: {payload.preflight_schema_version}")
         typer.echo(f"Capability standard version: {payload.capability_standard_version}")
         typer.echo(

@@ -51,6 +51,7 @@ from agents_shipgate.core.semantic_assessment import (
 )
 from agents_shipgate.core.surface_exclusions import (
     catalog_label_index,
+    provider_token,
     tool_label,
 )
 from agents_shipgate.core.tool_identity import (
@@ -2357,7 +2358,9 @@ def _normalize_risk_tag_values(values: list[str]) -> list[str]:
 
 
 def _normalize_token(value: str) -> str:
-    return re.sub(r"\s+", "_", value.strip())
+    # One definition, in ``surface_exclusions``: anything that keys a catalog
+    # row the way a capability subject is keyed has to reach the same spelling.
+    return provider_token(value)
 
 
 def _normalize_operation(value: str) -> str:

@@ -2,6 +2,59 @@
 
 ## Unreleased
 
+- **The capability delta is now a standalone attestation any consumer can
+  verify.** (#470) `verify` writes
+  `agents-shipgate-reports/capability-delta-attestation.json`: an in-toto
+  Statement whose `predicateType` is
+  `https://threemoonslab.com/agents-shipgate/capability-delta/v1` and whose
+  predicate carries the frozen `shipgate.capability_payload/v1` **delta view**
+  unchanged. Runtime contract moves **27 → 28** to advertise the predicate
+  type, both schema versions, both schema paths and the artifact —
+  `capability_payload` was frozen in #469 and deliberately left unregistered
+  while nothing emitted it, so the emitter and the registration land together.
+
+  There is no second payload shape and no second computation. The predicate
+  embeds `project_capability_delta`'s output verbatim, and
+  `diff_capability_locks` — what the PR comment renders — is the same engine, so
+  the capability-change count on both surfaces is one value by construction.
+
+  **The subject is the reviewed tree, and the payload has to agree.** The
+  statement names exactly one subject whose `digest.gitTree` must equal
+  `predicate.delta.head.ref`; `base.ref` is the base tree. Without that join,
+  four edited characters would move a valid delta onto a commit it never
+  reviewed. An attestation is written **only for a committed-tree subject**: a
+  worktree run scanned bytes that are in no tree object, so it withholds the
+  file and says so on `verifier.base_notes[]`.
+
+  `predicate.verification` chains to the receipt through `input_set_id` and
+  `subject_id`, and its `status` is `bound` or `unbound` — only `bound` may
+  name identities, the same fail-closed shape `analysis_coverage` uses.
+  `request_id`, `engine_requirement_id` and `decision_id` are deliberately not
+  published: they mix in the engine build and the platform, so an interchange
+  format carrying them would emit different bytes for an identical review.
+
+  `analysis_coverage` is populated per side from the run's own conservation law
+  — observed catalog minus analysed subjects — so a tool that arrives and is
+  never bound reaches the attestation as a **named** `newly_outside_analysis`
+  row instead of being silently absent (#437). A side the run could not
+  establish publishes `unavailable`, which is not a claim that nothing was left
+  out.
+
+  [`tools/verify-capability-delta.py`](tools/verify-capability-delta.py) is the
+  reference consumer: stdlib-only, one file, importing nothing of ours. It
+  applies 20 published rules — the envelope's nine plus the payload's own
+  stage-two eleven — and rejects a relabelled subject, an inflated summary, a
+  forged subject key, a downgraded coverage status, a forged receipt binding,
+  and a silently escalated effect. It re-implements the payload's semantics
+  independently, and a perturbation test compares it against the package's
+  derivation dimension by dimension so the two cannot drift.
+
+  Nothing gates: the attestation carries no verdict, no severity and no release
+  impact, and `release_decision.decision` remains the only release gate. New
+  published documents: `docs/capability-delta-attestation.md`,
+  `docs/capability-delta-attestation-schema.v1.json`, and a generated worked
+  example under `docs/examples/`.
+
 - **Verifier and evidence explanations now preserve the fact that produced
   them.** (#436, #396, #414, #420) Plain blocked-run headlines name the
   deterministic worst blocker and bound untrusted multibyte titles by the

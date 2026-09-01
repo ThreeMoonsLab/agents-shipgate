@@ -762,6 +762,8 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Capability standard | [`docs/capability-standard.md`](docs/capability-standard.md) | `0.5` |
 | Capability lock schema | [`docs/capability-lock-schema.v0.8.json`](docs/capability-lock-schema.v0.8.json) | `0.8` |
 | Capability lock diff schema | [`docs/capability-lock-diff-schema.v0.9.json`](docs/capability-lock-diff-schema.v0.9.json) | `0.9` |
+| Capability payload schema (frozen) | [`docs/capability-payload-schema.v1.json`](docs/capability-payload-schema.v1.json) | `shipgate.capability_payload/v1` |
+| Capability delta attestation (frozen) | [`docs/capability-delta-attestation-schema.v1.json`](docs/capability-delta-attestation-schema.v1.json) | `shipgate.capability_delta_attestation/v1` |
 | Governance benchmark catalog schema | [`docs/governance-benchmark-catalog-schema.v0.2.json`](docs/governance-benchmark-catalog-schema.v0.2.json) | `0.2` |
 | Governance benchmark result schema | [`docs/governance-benchmark-result-schema.v0.2.json`](docs/governance-benchmark-result-schema.v0.2.json) | `0.2` |
 | Check catalog | [`docs/checks.json`](docs/checks.json) | regenerated each release |

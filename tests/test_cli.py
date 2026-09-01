@@ -21,6 +21,15 @@ from agents_shipgate.schemas.capabilities import (
     CAPABILITY_LOCK_SCHEMA_VERSION,
     CAPABILITY_STANDARD_VERSION,
 )
+from agents_shipgate.schemas.capability_attestation import (
+    CAPABILITY_DELTA_ATTESTATION_SCHEMA_PATH,
+    CAPABILITY_DELTA_ATTESTATION_SCHEMA_VERSION,
+    CAPABILITY_DELTA_PREDICATE_TYPE,
+)
+from agents_shipgate.schemas.capability_payload import (
+    CAPABILITY_PAYLOAD_SCHEMA_PATH,
+    CAPABILITY_PAYLOAD_SCHEMA_VERSION,
+)
 from agents_shipgate.schemas.contract import (
     AGENT_BOUNDARY_RESULT_SCHEMA_PATH,
     AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
@@ -344,6 +353,12 @@ def test_cli_contract_json_outputs_runtime_contract():
         "agent_boundary_result_schema_path",
         "capability_lock_schema_version",
         "capability_lock_diff_schema_version",
+        "capability_payload_schema_version",
+        "capability_payload_schema_path",
+        "capability_delta_attestation_schema_version",
+        "capability_delta_attestation_schema_path",
+        "capability_delta_predicate_type",
+        "capability_delta_attestation_artifact",
         "preflight_schema_version",
         "capability_standard_version",
         "governance_benchmark_catalog_schema_version",
@@ -424,6 +439,18 @@ def test_cli_contract_json_outputs_runtime_contract():
         "agent_boundary_result_schema_path": AGENT_BOUNDARY_RESULT_SCHEMA_PATH,
         "capability_lock_schema_version": CAPABILITY_LOCK_SCHEMA_VERSION,
         "capability_lock_diff_schema_version": CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
+        "capability_payload_schema_version": CAPABILITY_PAYLOAD_SCHEMA_VERSION,
+        "capability_payload_schema_path": CAPABILITY_PAYLOAD_SCHEMA_PATH,
+        "capability_delta_attestation_schema_version": (
+            CAPABILITY_DELTA_ATTESTATION_SCHEMA_VERSION
+        ),
+        "capability_delta_attestation_schema_path": (
+            CAPABILITY_DELTA_ATTESTATION_SCHEMA_PATH
+        ),
+        "capability_delta_predicate_type": CAPABILITY_DELTA_PREDICATE_TYPE,
+        "capability_delta_attestation_artifact": ARTIFACTS[
+            "capability_delta_attestation"
+        ],
         "preflight_schema_version": PREFLIGHT_SCHEMA_VERSION,
         "capability_standard_version": CAPABILITY_STANDARD_VERSION,
         "governance_benchmark_catalog_schema_version": (
