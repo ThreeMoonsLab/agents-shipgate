@@ -1,6 +1,6 @@
 """Adapter Protocol + AdapterRegistry for tool-source loading.
 
-Every tool-source or scan-artifact loader (mcp, openapi,
+Every tool-source or scan-artifact loader (mcp, mcp_server_source, openapi,
 openai_agents_sdk, google_adk, langchain, crewai, codex_config, codex_plugin,
 openai_api, anthropic_api, n8n, conductor, validation) is exposed as a
 ``ToolSourceAdapter``. The CLI's ``_load_sources`` walks ``REGISTRY``
@@ -299,6 +299,7 @@ def _register_builtin_adapters(registry: AdapterRegistry) -> None:
     from agents_shipgate.inputs.google_adk import GoogleADKAdapter
     from agents_shipgate.inputs.langchain import LangChainAdapter
     from agents_shipgate.inputs.mcp import MCPAdapter
+    from agents_shipgate.inputs.mcp_server_source import MCPServerSourceAdapter
     from agents_shipgate.inputs.n8n import N8nAdapter
     from agents_shipgate.inputs.openai_api import OpenAIAPIAdapter
     from agents_shipgate.inputs.openai_sdk_static import OpenAISDKAdapter
@@ -307,6 +308,7 @@ def _register_builtin_adapters(registry: AdapterRegistry) -> None:
 
     for adapter in (
         MCPAdapter(),
+        MCPServerSourceAdapter(),
         OpenAPIAdapter(),
         OpenAISDKAdapter(),
         GoogleADKAdapter(),

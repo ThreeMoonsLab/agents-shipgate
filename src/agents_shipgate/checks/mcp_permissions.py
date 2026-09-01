@@ -19,6 +19,7 @@ from agents_shipgate.core.lenses.tool_surface import (
     tool_annotation_hash,
 )
 from agents_shipgate.core.semantic_assessment import (
+    MCP_SOURCE_TYPES,
     acknowledged_effect_claim_ids,
     assess_tool_semantics,
 )
@@ -28,15 +29,6 @@ from agents_shipgate.schemas.report import Finding
 from agents_shipgate.schemas.semantic import SemanticClaimEvidence
 from agents_shipgate.schemas.surfaces import ActionFact, ActionSurfaceFacts
 
-MCP_SOURCE_TYPES = frozenset(
-    {
-        "mcp",
-        "codex_config_mcp",
-        "codex_plugin_mcp_inventory",
-        "n8n_mcp_client_tool",
-        "conductor_mcp_call",
-    }
-)
 CapabilityKey = tuple[str | None, str]
 EffectClaim = SemanticClaim | SemanticClaimEvidence
 

@@ -33,6 +33,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`trust-model.md`](trust-model.md) — what the scanner does and doesn't do
 - [`baseline.md`](baseline.md) — baseline workflow
 - [`framework-adapter-checklist.md`](framework-adapter-checklist.md) — checklist for adding static framework adapters
+- [`mcp-registration-idioms.md`](mcp-registration-idioms.md) — the 30-server survey behind the built-in MCP registration-idiom registry: which shapes ship, what the reader excludes, and why an export still wins
 - [`determinism-boundary.md`](determinism-boundary.md) — generated coverage matrix: what each input can establish per declaration shape, the extraction-confidence ceiling it reaches, and what that ceiling means for a verdict
 
 ## Reference

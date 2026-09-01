@@ -495,6 +495,8 @@ Run Agents Shipgate when a PR adds or changes agent tool surfaces or the policy
 evidence around them:
 
 - MCP exports, OpenAPI specs, or local tool inventories.
+- An MCP server whose tool surface exists only as code — TypeScript or Go
+  registration sites, read through a built-in idiom registry.
 - OpenAI Agents SDK, Google ADK, LangChain/LangGraph, CrewAI, Anthropic
   Messages API, or OpenAI API artifact tool definitions.
 - Codex repo config such as `.codex/config.toml` or `.codex/hooks.json`.
@@ -811,7 +813,7 @@ Agents Shipgate is a static, manifest-first scanner. It is intentionally narrow:
 - It does not run agents, call tools, invoke LLMs, or verify model availability by default (static-by-default; see [Trust Model](#trust-model) and [`ALLOWED_EXCEPTIONS`](tests/test_adapter_static_only.py)).
 - It does not verify runtime behavior, latency, prompt quality, or routing decisions.
 - It does not replace dynamic security testing or human security review of the underlying systems.
-- It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, Anthropic/OpenAI API artifacts, optional SDK AST metadata, static Google ADK/LangChain/CrewAI/n8n/Conductor OSS inputs, Codex repo config, and static Codex plugin package metadata; tools that are not declared or statically discoverable are not scanned.
+- It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, MCP server source registrations, Anthropic/OpenAI API artifacts, optional SDK AST metadata, static Google ADK/LangChain/CrewAI/n8n/Conductor OSS inputs, Codex repo config, and static Codex plugin package metadata; tools that are not declared or statically discoverable are not scanned.
 - The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.42"`; every narrowing decision is recorded in `surface_exclusions` and reachable by the release decision, while v0.41 remains frozen for archived reports.
 
 See [ROADMAP.md](ROADMAP.md) for what is planned next.

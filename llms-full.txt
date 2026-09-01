@@ -33,9 +33,9 @@ Authoritative instructions for AI coding agents (Claude Code, Codex, Cursor, Aid
 
 ## What this project is
 
-The deterministic merge gate for AI-generated agent capability changes. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files, OpenAI API artifacts, Codex repo config, Codex plugin packages and marketplaces, n8n workflow JSON/stubs, Conductor OSS workflow JSON) and produces deterministic findings. Local-first and static by default — no agent execution, tool calls, LLM calls, or network access.
+The deterministic merge gate for AI-generated agent capability changes. Reads `shipgate.yaml` plus tool sources (MCP exports, MCP server source (TypeScript/Go registration idioms), OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files, OpenAI API artifacts, Codex repo config, Codex plugin packages and marketplaces, n8n workflow JSON/stubs, Conductor OSS workflow JSON) and produces deterministic findings. Local-first and static by default — no agent execution, tool calls, LLM calls, or network access.
 
-- **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · OpenAI API · Codex config · Codex plugin · n8n · Conductor OSS workflow JSON
+- **Inputs:** MCP · MCP server source · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · OpenAI API · Codex config · Codex plugin · n8n · Conductor OSS workflow JSON
 - **Outputs:** Markdown · JSON · SARIF
 - **Trust:** Static-by-default. No agent execution, tool calls, LLM calls, or network access.
 - **Marketing site:** [threemoonslab.com](https://threemoonslab.com/) — human-readable companion pages. **If you are an agent working inside this repo, use the in-tree [`.well-known/agents-shipgate.json`](.well-known/agents-shipgate.json) (current `main` contract, may be ahead of the site's released copy) for schema-version and gating-signal decisions.**
@@ -533,6 +533,7 @@ Do NOT use it for:
 | Trigger in this PR | Run Shipgate? |
 |---|---|
 | Adds/changes MCP exports, OpenAPI specs, or `tools/*openai*tools*.json` | Yes |
+| Adds/changes an MCP tool registration written in TypeScript or Go source (`static toolName`, `.registerTool(`, `MustTool(`, `NewTool(`, `mcp.Tool{`) | Yes |
 | Adds/changes Codex repo config, hooks, or permission profiles | Yes |
 | Adds/changes coding-agent host config, hooks, permissions, MCP servers, or workflows | Yes |
 | Adds/changes Codex plugin manifests, marketplace files, `.app.json`, `.mcp.json`, or `SKILL.md` files | Yes |

@@ -22,6 +22,7 @@ from agents_shipgate.schemas.text import (
 #: types fail at dispatcher time via ``AdapterRegistry.require``.
 BUILTIN_TOOL_SOURCE_TYPES: tuple[str, ...] = (
     "mcp",
+    "mcp_server_source",
     "openapi",
     "openai_agents_sdk",
     "google_adk",

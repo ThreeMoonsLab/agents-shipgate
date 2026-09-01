@@ -32,6 +32,7 @@ If you landed here from an `insufficient_evidence` verdict, this page is the rea
 | Your framework | …in a contract file | …written out in code | …built by a call | …not named at all |
 | --- | --- | --- | --- | --- |
 | [MCP tool export](#mcp-tool-export) | ✅ proven | · n/a | · n/a | ⚠️ set unproven |
+| [MCP server source](#mcp-server-source) | · n/a | ⚠️ not proven | ✖ not read | ✖ not read |
 | [OpenAPI document](#openapi-document) | ✅ proven | · n/a | · n/a | · n/a |
 | [OpenAI Agents SDK (Python)](#openai-agents-sdk-python) | · n/a | ⚠️ not proven | ✖ not read | ✖ not read |
 | [Google ADK](#google-adk) | ✅ proven | ✅ proven | ⚠️ not proven | ⚠️ not proven |
@@ -70,6 +71,28 @@ Where an input shows more than one answer for a shape, the table shows the best 
 | `literal_registration` | An export is a contract file, not source. A server declared in a host config is read by the Codex / MCP host config input. | — | — | `not_applicable` | — | — |
 | `factory` | An export is the result of construction, never the construction. | — | — | `not_applicable` | — | — |
 | `dynamic_construction` | `wildcard: true` or `tools: "*"`: one synthetic `<source>.*` action stands in for a surface the file declines to name. | `mcp` | `high` | `set_unproven` | `incomplete_surface` | `SHIP-INVENTORY-WILDCARD-TOOLS` |
+
+</details>
+
+### MCP server source
+
+*Configured as a `tool_sources[]` entry of type `mcp_server_source`.* The TypeScript or Go source of an MCP server that does not commit an export, through a built-in registry of registration idioms.
+
+**Can a verdict rest on it?**
+
+**Not on its own.** shipgate may still read and check actions here — the routes below say which — but none of them proves one well enough for a verdict to rest on it.
+
+**Getting to `proven` here:** no route on this input reaches `proven`. Publish the actions through an input that does, or accept that a verdict cannot rest on this surface alone.
+
+<details>
+<summary>Every route this input has, in full (4)</summary>
+
+| Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps | Raises |
+| --- | --- | --- | --- | --- | --- | --- |
+| `export_artifact` | A committed export is the server's own contract and is read by the MCP tool-export input at `high`, which stays the better route wherever one exists. | — | — | `not_applicable` | — | — |
+| `literal_registration` | A tool name written as a string literal at a registration site — `static toolName = "…"`, `.registerTool("…"`, `MustTool("…"`, `NewTool("…"`, `Tool{Name: "…"}` — plus the sibling operation-class literal where the idiom defines one. | `mcp_server_source` | `medium` | `low_confidence` | `low_confidence_tool`, `unattested_surface` | — |
+| `factory` | A helper that registers a table of tools contributes nothing on its own: resolving what it registers would mean evaluating it. Any registration site inside the helper is read on its own terms. | — | — | `not_extracted` | — | — |
+| `dynamic_construction` | A registration whose name is a variable, a concatenation, or a template substitution names no tool this reader can check. It enters no catalog and is recorded as an unenumerated subject in the exclusion ledger, which holds its file's surface at `partial`. | — | — | `not_extracted` | — | — |
 
 </details>
 

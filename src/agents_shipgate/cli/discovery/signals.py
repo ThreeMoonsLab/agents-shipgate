@@ -68,6 +68,10 @@ from agents_shipgate.cli.discovery.artifacts import (
     _skip_part,
     probe_suggested_source,
 )
+from agents_shipgate.cli.discovery.mcp_source import (
+    McpSourceDiscovery,
+    discover_mcp_server_source,
+)
 from agents_shipgate.cli.discovery.scope import (
     PROJECT_MARKERS,
     WEAK_PROJECT_MARKERS,
@@ -78,6 +82,7 @@ from agents_shipgate.core.errors import DiscoveryError, InputParseError
 from agents_shipgate.core.surface_exclusions import build_detect_exclusions
 from agents_shipgate.inputs.codex_plugin import resolve_local_codex_marketplace_roots
 from agents_shipgate.inputs.conductor import conductor_agent_task_types
+from agents_shipgate.inputs.mcp_server_source import SOURCE_TYPE
 from agents_shipgate.invocation import render_command
 from agents_shipgate.schemas.detect import (
     AgentNameCandidate,
@@ -149,6 +154,28 @@ PACKAGE_HINTS: dict[str, tuple[str, ...]] = {
 }
 
 CONVENTIONAL_DIRS = ("prompts", "tools", ".agents-shipgate")
+
+#: The frameworks a conventional directory is weak evidence for. Deliberately
+#: *not* every key in :func:`_initial_framework_scores` — and named here rather
+#: than spelled out inside :func:`_collect_dir_hits`, so the difference reads as
+#: a decision instead of as a second copy that drifted.
+#:
+#: ``mcp_server_source`` is the one absentee. Its evidence is already a
+#: conjunction — a declared MCP dependency *and* a tool name resolved at a
+#: registration site — so a ``tools/`` directory adds nothing it does not
+#: already have, and adding it would let two conventional directories carry the
+#: published detection confidence to ``high`` for a route the engine caps at
+#: ``medium`` (#431).
+CONVENTIONAL_DIR_FRAMEWORKS: tuple[str, ...] = (
+    "langchain",
+    "crewai",
+    "google_adk",
+    "anthropic",
+    "openai_agents_sdk",
+    "n8n",
+    "conductor",
+    "openai_api",
+)
 
 # --- Agent-name evidence vocabulary -----------------------------------------
 
@@ -316,6 +343,24 @@ def detect_workspace(
         for d in dirs:
             scores[framework].add(0.5, "weak", f"conventional dir: {d}/")
 
+    # The artifact probe runs before the detection loop because the source
+    # route below is scored from its result: an MCP export is the better route
+    # to the same server, so this one stands down wherever one exists (#431).
+    suggested_sources, excluded_sources = _suggested_sources(
+        workspace, files=inventory
+    )
+    mcp_source = discover_mcp_server_source(
+        workspace,
+        files=inventory,
+        exported_source_paths=[
+            source["path"] for source in suggested_sources if source["type"] == "mcp"
+        ],
+    )
+    _score_mcp_server_source(mcp_source, scores)
+    excluded_sources.extend(mcp_source.excluded)
+    if mcp_source.path is not None:
+        suggested_sources.append({"type": SOURCE_TYPE, "path": mcp_source.path})
+
     detections: list[FrameworkDetection] = []
     for framework, state in scores.items():
         if state.score >= 2.0 and state.has_strong:
@@ -333,9 +378,6 @@ def detect_workspace(
     project_name_candidates = _project_name_candidates(workspace)
     agent_name_candidates = _rank_agent_name_candidates(
         py_facts, workspace, project_name_candidates
-    )
-    suggested_sources, excluded_sources = _suggested_sources(
-        workspace, files=inventory
     )
     codex_plugin_candidates = _codex_plugin_candidates(workspace, inventory)
     agent_project_candidates = _agent_project_candidates(
@@ -457,6 +499,50 @@ def detect_workspace(
 # --- Internals --------------------------------------------------------------
 
 
+def _score_mcp_server_source(
+    discovery: McpSourceDiscovery, scores: dict[str, _FrameworkScore]
+) -> None:
+    """Score the workspace's own MCP registration sites.
+
+    The registration evidence is strong and reaches the detection threshold on
+    its own, because the fact behind it is already a conjunction: a declared
+    MCP dependency *and* a tool name resolved at a registration site. Splitting
+    it into halves would let either alone reach the threshold with a
+    conventional directory beside it, which is the coincidence the pairing
+    exists to reject. The dependency then adds the same point a dependency adds
+    for every other framework, so a route backed by both facts publishes
+    `medium` rather than reading as the weakest thing discovery can say.
+
+    The candidate file is the **route directory**, not the registration files
+    under it, and that is a scope decision rather than a cosmetic one.
+    `_agent_project_candidates` reads `candidate_files` to ask how many things
+    one manifest would have to describe, and an MCP server is one thing however
+    many packages its tools are spread across: contributing each registration
+    file made `mongodb-js/mongodb-mcp-server` look like six separate projects,
+    and the per-project `init` that split then published leads to a package
+    whose own `package.json` declares no MCP dependency — a next step that
+    cannot change the answer (#399).
+
+    A monorepo publishing *several* servers therefore gets one route covering
+    all of them, which is over-broad. Splitting on which package declares the
+    MCP dependency was tried and rejected: in `mongodb-js/mongodb-mcp-server`
+    the SDK is declared by an eval-harness package and by three packages that
+    only support the one server, so the split returned four scopes and withheld
+    the route from the repository this input exists to reach. The over-broad
+    route is visible in the manifest `init` writes and an adopter narrows it;
+    the withheld one leaves them where they started. See #431 for the
+    measurement.
+    """
+
+    if not discovery.detected or discovery.path is None:
+        return
+    state = scores[SOURCE_TYPE]
+    state.add(2.0, "strong", discovery.evidence[0])
+    for index, line in enumerate(discovery.evidence[1:]):
+        state.add(1.0 if index == 0 else 0.0, "medium", line)
+    state.add_file(discovery.path)
+
+
 def _initial_framework_scores() -> dict[str, _FrameworkScore]:
     """A fresh, empty score sheet — one entry per framework this pass knows.
 
@@ -477,6 +563,13 @@ def _initial_framework_scores() -> dict[str, _FrameworkScore]:
         # (manifest.openai_api block). Distinct from openai_agents_sdk
         # (Python @function_tool decorators).
         "openai_api": _FrameworkScore(),
+        # mcp_server_source is not a Python framework and scores from neither
+        # the AST pass nor a filename glob: it is the workspace's own
+        # TypeScript or Go registration sites, scored by
+        # :func:`discover_mcp_server_source` (#431). It keeps an entry here
+        # because the detection loop reads this sheet, and a framework absent
+        # from it is a framework that can never be reported.
+        SOURCE_TYPE: _FrameworkScore(),
     }
 
 
@@ -1769,12 +1862,7 @@ def _conventional_dir_locations(
 def _collect_dir_hits(locations: dict[str, str]) -> dict[str, list[str]]:
     present = [locations[d] for d in CONVENTIONAL_DIRS if d in locations]
     if not present:
-        return {f: [] for f in (
-            "langchain", "crewai", "google_adk", "anthropic", "openai_agents_sdk",
-            "n8n",
-            "conductor",
-            "openai_api",
-        )}
+        return {framework: [] for framework in CONVENTIONAL_DIR_FRAMEWORKS}
     # Conventional dirs are weak signals shared across all framework
     # candidates — they hint "this looks like an agent project" but don't
     # narrow which framework. Apply the weak credit only when a strong
