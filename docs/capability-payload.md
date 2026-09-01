@@ -95,7 +95,10 @@ missing from it, so a payload carrying only the rows would report no capability
 change on a change whose entire content was one added tool
 ([#437](https://github.com/ThreeMoonsLab/agents-shipgate/issues/437)).
 
-`analysis_coverage` is the separate axis that says so, on both views:
+`analysis_coverage` is the separate axis that says so. **Its shape differs by
+view**, because a delta has to answer a question a snapshot cannot.
+
+A `state` carries one snapshot:
 
 ```jsonc
 "analysis_coverage": {
@@ -103,6 +106,24 @@ change on a change whose entire content was one added tool
   "subjects_outside_analysis": [ { "key": "capsubj_…", "name": "find_duplicate", … } ]
 }
 ```
+
+A `delta` carries both sides and the transition between them:
+
+```jsonc
+"analysis_coverage": {
+  "base":   { "status": "complete", "subjects_outside_analysis": [] },
+  "head":   { "status": "complete", "subjects_outside_analysis": [ … ] },
+  "status": "complete",                        // the weaker of the two sides
+  "newly_outside_analysis":      [ … ],        // in head, not in base — the #437 row
+  "no_longer_outside_analysis":  [ … ]
+}
+```
+
+The two directional lists are recomputed from `base` and `head` on parse, and
+are empty unless both sides are `complete`. One snapshot could not distinguish
+"a tool was added and is unbound" from "a tool has been unbound since before
+this change", and only the first is something a reviewer of *this* diff must act
+on.
 
 Three rules:
 
@@ -148,7 +169,7 @@ one added tool came to produce two rows and report `+2`
 ([#439](https://github.com/ThreeMoonsLab/agents-shipgate/issues/439)). In this
 schema those two changes are two entries of one row.
 
-Five structural rules hold it there, enforced by the models and not only by the
+Seven structural rules hold it there, enforced by the models and not only by the
 producer:
 
 1. `subject.key` is unique across `subjects[]`. A payload that states one
@@ -167,13 +188,24 @@ producer:
    `removed` would tell a reviewer the agent lost a tool it still has.
    Presence also bounds the changes — a subject absent from base can only carry
    `added` ones, and one absent from head only `removed` ones.
-4. A delta with **no** subject rows must name two states whose digests agree.
-   "Nothing changed" is a claim about the two states, so it has to be one the
-   payload's own digests support; a delta that says it while `base` and `head`
-   differ is **rejected**.
-5. `capability_id` is unique across the **whole** payload, not only within a
+4. A delta with **no** subject rows must name two states whose
+   `capability_set_digest` and `evidence_set_digest` agree, and whose subject
+   and capability counts are equal. "No analysed capability moved" is a claim
+   about the two states, so it has to be one the payload's own digests support.
+   `analysis_coverage_digest` is deliberately **excluded**: a change that only
+   moves what could not be analysed has no subject rows by construction, and
+   that coverage-only delta is precisely the #437 payload this schema exists to
+   make expressible.
+5. The two state refs are bound to the membership rows:
+   `head.subject_count - base.subject_count` equals added minus removed
+   subjects, and the same equation holds for capability counts over `added` and
+   `removed` record transitions. Without it a head ref could claim any counts at
+   all.
+6. `capability_id` is unique across the **whole** payload, not only within a
    row. Provenance is keyed by it, so a repeat would quietly drop one
    capability from `evidence_set_digest`.
+7. `semantic_direction` and `semantic_changes` are **derived** from the two
+   records a change entry carries, not asserted about them — see below.
 
 `subject.name` is the adopter-facing spelling and is **not** identity: two
 providers may publish the same name. A consumer rendering names must qualify
@@ -194,22 +226,67 @@ provenance is keyed by it, so a repeat would quietly drop one capability from
 
 ### State digests
 
-`CapabilityStateRef` carries two digests over the **published** rows, so a
-consumer can recompute both from the payload alone:
+`CapabilityStateRef` carries **three** digests, and between them they cover
+every field a state publishes — a state whose ref matches another's is the same
+published state, with nothing left unbound. Each preimage is stated exactly,
+because a consumer has to be able to rebuild it:
 
-- `capability_set_digest` — over the semantic content of `subjects[]`, with the
-  `evidence` block and `digests.evidence_hash` removed.
-- `evidence_set_digest` — over the `capability_id → evidence` map.
+| Digest | Preimage |
+|---|---|
+| `capability_set_digest` | the array of `subjects[]` rows, each as `{"subject": …, "capabilities": [ … ]}`, where every record has its `evidence` block removed and `digests.evidence_hash` removed from `digests` |
+| `evidence_set_digest` | the object mapping each `capability_id` to `{"evidence": <that record's evidence block>, "evidence_hash": <that record's digests.evidence_hash>}` |
+| `analysis_coverage_digest` | the state's whole `analysis_coverage` object |
 
-The split is the one the capability lock already draws, and it keeps two
-different questions separable: *did what the agent can do move*, or *only where
-we read it from*. A delta's `base`/`head` digests are computed over the full
-state payloads for each side, so a delta and a state payload can be proven to
-describe the same state.
+Each is `sha256` over the canonical serialization below, as lowercase hex.
 
-Both digests are computed with sorted keys and compact separators, over values
-that are already JSON — the digest helper has no `str()` fallback, so it raises
-rather than digesting a lossy rendering of something it cannot serialize.
+The first two draw the split the capability lock already draws, and keep two
+questions separable: *did what the agent can do move*, or *only where we read it
+from*. The third exists because coverage is a published claim too, and a state
+that named a dangerous unanalysed subject must not share a ref with one that
+did not.
+
+A delta's `base`/`head` digests are computed over the full state payloads for
+each side, so a delta and a state payload can be proven to describe the same
+state. A delta additionally re-derives each side's `analysis_coverage_digest`
+from the coverage it carries, so those two are checked rather than trusted.
+
+### Canonical bytes
+
+Every digest above, and the subject key, are `sha256` over the UTF-8 encoding of
+this canonicalization. It is stated in full because the format exists for
+consumers that are not this program:
+
+1. **UTF-8, never escaped.** `café` is serialized as `café`, not `caf\u00e9`.
+   The digest is taken over the UTF-8 bytes.
+2. **Object keys sorted, compact separators**, no insignificant whitespace:
+   `{"a":1,"b":[2,3]}`.
+3. **Every object key in this payload is ASCII.** They are schema field names
+   plus, in the evidence map, `capability_id` — which the schema constrains to
+   `^cap_[0-9a-f]{16}$` for exactly this reason. Python sorts keys by code point
+   and RFC 8785 sorts by UTF-16 code unit, and those orders **disagree above the
+   BMP**: `"\ue000"` sorts before `"😀"` by code unit and after it by code point.
+   Restricting the one dynamic key to ASCII removes the disagreement rather than
+   documenting around it.
+4. **Integers only, and inside the I-JSON safe range** (`|n| ≤ 9007199254740991`).
+   No field is float-valued, `NaN`/`Infinity` are refused, and every published
+   integer is bounded — `9007199254740993` reads back as `…92` in JavaScript, so
+   an unbounded line number would digest differently for a JavaScript consumer.
+5. **No fallback serialization.** A value the encoder cannot represent raises;
+   it is never digested as its `str()`.
+
+Within those constraints this agrees with RFC 8785 (JCS).
+
+Cross-language vectors:
+
+| Input | Canonical bytes | sha256 |
+|---|---|---|
+| `{"name": "café"}` | `{"name":"café"}` | `645fa443126a8954fc6d871912b8fc67bc2ee8feae417efe55546251962ca74d` |
+| `{"b": 1, "a": [1, 2]}` | `{"a":[1,2],"b":1}` | `94a786c3662bc7beeb598efa7d8cb58d7bea25d6c275ea9785a0230ff1f8c2ba` |
+| `{"agent": "agént", "provider": "p", "tool_id": "tool_✓"}` | `{"agent":"agént","provider":"p","tool_id":"tool_✓"}` | `capsubj_e7a364bcf95ee748` |
+
+An implementation in another language that reproduces these three has the
+canonicalization right. `test_the_published_canonicalization_vectors_hold` fails
+if the implementation and this table ever disagree.
 
 **A `state` payload verifies its own digests on parse.** It carries every row
 they are taken over, so a state whose `state.*_digest` does not describe its
@@ -222,6 +299,36 @@ refs describe states the delta does not carry, so those are taken on trust; the
 that emits the payload. It is never a timestamp: this payload carries no wall
 clock, so two exports of the same static inputs are byte-identical.
 
+## Direction and explanations are derived, not asserted
+
+`semantic_direction` and `semantic_changes` on a change entry are computed from
+the two records the entry carries, and a payload that declares anything else is
+rejected. That is deliberate: a direction a producer sets freely is one a
+consumer cannot check without redoing the comparison, at which point publishing
+it bought nothing.
+
+It also means the direction is *the direction of what this payload publishes*,
+which is narrower than the fact layer's classification and is the point. The
+fact layer folds the whole semantic assessment into one digest while this
+payload publishes a permission block derived from it — which is how a permission
+expansion came to be labelled provenance-only.
+
+- `evidence_only` is not a claim: it is exactly "the two records are equal apart
+  from provenance", and nothing else can be called that.
+- Each moved dimension yields one `CapabilityChangeFact` with its own
+  `direction`. Set-valued dimensions (`scope`, `resource`, `authority.scopes`,
+  `broad_scope`, `risk_tags`) widen on a gain and narrow on a loss; `effect` and
+  `reversibility` move by rank; effect flags widen when set; a **control** widens
+  when a proven one is lost; `permission` follows its classes, with a
+  `measured` ↔ `unavailable` move given no direction at all, because losing a
+  measurement is not a narrowing.
+- Dimensions with no ordering — auth type, credential mode, evidence owner,
+  operation — are reported as changes with direction `unknown`.
+- The row's direction is the rollup: all one way is `broadened` or `narrowed`,
+  both ways is `mixed`, and no directional movement is `unknown`. A change that
+  moves only an opaque digest yields `unknown` with no explanations — the moved
+  digests are already named in `changed_dimensions`.
+
 ## Validating a payload: two stages
 
 `capability-payload-schema.v1.json` is **stage one**, and it is not sufficient
@@ -232,12 +339,17 @@ and here — and everything JSON Schema *can* express has been pushed into the
 published file.
 
 **Stage one — the JSON Schema enforces:** the closed object shapes and
-`additionalProperties: false`; every field required (see below); the closed
-enums; the `view` discriminator; `subject.key` and digest string patterns;
-non-negative counts; non-empty `capabilities[]` and `changes[]`; the transition
-↔ sides ↔ direction coupling on a change entry; the presence ↔ transition
-coupling on a subject row, and that a subject is present on at least one side;
-and that coverage may only name subjects when its status is `complete`.
+`additionalProperties: false`; every field of every object required; the closed
+enums; the `view` discriminator; the `subject.key`, `capability_id` and digest
+string patterns; counts and line numbers inside the I-JSON safe range; strict
+scalar types, so `"2"` is not an integer and `"false"` is not a boolean;
+non-empty `capabilities[]` and `changes[]`; `uniqueItems` on every list; the
+transition ↔ sides ↔ direction coupling on a change entry, and that a membership
+change carries no dimensions and no explanations; the presence ↔ transition
+coupling on a subject row, that a subject is present on at least one side, and
+that a subject absent from one side carries only the changes that side can have;
+the permission shapes the classifier can produce; and that coverage may only
+name subjects when its status is `complete`.
 
 **Stage two — a consumer must also check**, because each needs a computation:
 
@@ -250,7 +362,9 @@ and that coverage may only name subjects when its status is `complete`.
 | a `state`'s three digests describe its own rows and coverage | three sha256 |
 | `subject.key` and `capability_id` are unique across the whole payload | two set walks |
 | `analysis_coverage.newly_outside_analysis` / `no_longer_outside_analysis` follow from `base` and `head` | two set differences |
-| an empty delta names two states whose digests agree | a comparison |
+| `semantic_direction` and `semantic_changes` are what the two records show | a dimension-by-dimension comparison |
+| the two state refs reconcile with the membership rows | two subtractions |
+| an empty delta names two states whose capability and evidence digests agree | a comparison |
 | a delta's `base`/`head` `analysis_coverage_digest` describes the coverage it carries | two sha256 |
 
 `agents_shipgate.schemas.capability_payload` is the reference implementation of

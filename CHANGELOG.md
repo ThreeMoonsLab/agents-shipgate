@@ -28,8 +28,15 @@
   never be published as provenance-only.
 
   **The format is specified for consumers that are not this program.** Canonical
-  bytes are UTF-8 and unescaped with sorted ASCII keys and integers only, so a
-  Python and a JavaScript implementation compute the same digests. Every field
+  bytes are UTF-8 and unescaped, with sorted keys, integers bounded to the I-JSON
+  safe range, and no fallback serialization — so a Python and a JavaScript
+  implementation compute the same digests, and the spec publishes cross-language
+  vectors. Every object key is ASCII by enforcement rather than by assumption:
+  `capability_id` is the one dynamic key and is constrained to its canonical
+  form, because Python orders keys by code point and RFC 8785 by UTF-16 code
+  unit and those disagree above the BMP. The reference parser uses strict
+  scalars, so it accepts exactly the language the published schema does — no
+  `"2"` for an integer, no `"false"` for a boolean. Every field
   is required in the schema's `required` arrays, not merely in prose — a
   version field or a `view` discriminator a consumer may omit and have repaired
   is not one. Validation is explicitly two stages: everything JSON Schema can
@@ -55,13 +62,30 @@
   is closed, `v1` is closed: any addition is `/v2`, and the spec says so instead
   of promising an additivity the shipped validators do not implement.
 
+  **The semantic fields are derived, not asserted.** `semantic_direction` and
+  `semantic_changes` are computed from the two records a change entry carries,
+  dimension by dimension, and a payload declaring anything else is rejected —
+  relabelling a row `broadened` or deleting its explanations both validated
+  before. The direction is therefore *the direction of what this payload
+  publishes*, and `evidence_only` means exactly "the two records are equal apart
+  from provenance". The change record is a payload-owned type rather than the
+  internal report model, so its values stay inside the canonical domain and a
+  future internal field cannot widen `v1` unnoticed.
+
   A state publishes three digests — semantics, provenance, and coverage —
   together binding everything it publishes, and verifies its own on parse. The
+  two state refs of a delta are bound to its membership rows, so a head ref
+  cannot claim counts the rows do not support. The
   permission block shares one classifier with `mcp audit`, is restricted to
   shapes that classifier can produce, and is fail-closed when unmeasured. That
   classifier's class ordering is now total: `financial` and `production` share a
   rank, so a rank-only sort inherited hash-randomized set iteration and two runs
   of the same repository could publish different bytes.
+
+  Both projection entrypoints snapshot their inputs before reading them. They
+  walk each side several times, so a caller-owned list that answered differently
+  on a later pass produced a payload whose rows and whose digests described
+  different revisions.
 
   Nothing emits the payload yet, by design: no command, no artifact, no check,
   no change to `contract_version`, `report_schema_version`, `.well-known`, or

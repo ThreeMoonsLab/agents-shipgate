@@ -72,7 +72,8 @@
             "type": "string"
           },
           "title": "Broad Scopes",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "credential_mode": {
           "anyOf": [
@@ -90,7 +91,8 @@
             "type": "string"
           },
           "title": "Scopes",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "source": {
           "anyOf": [
@@ -112,6 +114,113 @@
         "broad_scopes"
       ],
       "title": "CapabilityAuthorityFacts",
+      "type": "object"
+    },
+    "CapabilityChangeFact": {
+      "additionalProperties": false,
+      "description": "One published dimension that moved, and which way.\n\nEvery field is required \u2014 including ``before`` and ``after``, which are\nnullable but never omitted \u2014 and every instance is *derived* from the two\nrecords by :func:`published_semantic_shift`. A producer cannot write one,\nand cannot leave one out: the parser recomputes the whole list.",
+      "properties": {
+        "after": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "After"
+        },
+        "before": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Before"
+        },
+        "direction": {
+          "enum": [
+            "added",
+            "removed",
+            "broadened",
+            "narrowed",
+            "mixed",
+            "unknown",
+            "evidence_only"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "scope_changed",
+            "resource_changed",
+            "authority_scope_changed",
+            "broad_scope_changed",
+            "risk_tags_changed",
+            "effect_changed",
+            "effect_flag_changed",
+            "reversibility_changed",
+            "idempotency_evidence_changed",
+            "permission_changed",
+            "control_changed",
+            "authority_identity_changed",
+            "control_metadata_changed",
+            "operation_changed"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "field",
+        "direction",
+        "before",
+        "after",
+        "rationale"
+      ],
+      "title": "CapabilityChangeFact",
       "type": "object"
     },
     "CapabilityControlFacts": {
@@ -471,6 +580,62 @@
               }
             ]
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "present_in_base": {
+                "const": false
+              }
+            },
+            "required": [
+              "present_in_base"
+            ]
+          },
+          "then": {
+            "properties": {
+              "changes": {
+                "items": {
+                  "properties": {
+                    "transition": {
+                      "const": "added"
+                    }
+                  },
+                  "required": [
+                    "transition"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "present_in_head": {
+                "const": false
+              }
+            },
+            "required": [
+              "present_in_head"
+            ]
+          },
+          "then": {
+            "properties": {
+              "changes": {
+                "items": {
+                  "properties": {
+                    "transition": {
+                      "const": "removed"
+                    }
+                  },
+                  "required": [
+                    "transition"
+                  ]
+                }
+              }
+            }
+          }
         }
       ],
       "description": "One subject's whole movement between two states \u2014 one subject, one row.\n\n``transition`` is recomputed from ``present_in_base`` / ``present_in_head``\nrather than supplied, so it cannot describe a movement the payload's own\npresence flags do not show.",
@@ -520,26 +685,31 @@
       "description": "Subject counts, recomputed from the rows.\n\nThe directional counts partition the subjects \u2014 every subject is added,\nremoved, or modified and nothing else \u2014 so ``subjects`` is their sum.\n``capability_changes`` is the finer number and is deliberately a *separate*\nfield: the question \"how much did this PR change what the agent can do?\" is\na question about subjects, and answering it in changes inflates the number\nby however many dimensions each subject happens to touch (#439).",
       "properties": {
         "added_subjects": {
+          "maximum": 9007199254740991,
           "minimum": 0,
           "title": "Added Subjects",
           "type": "integer"
         },
         "capability_changes": {
+          "maximum": 9007199254740991,
           "minimum": 0,
           "title": "Capability Changes",
           "type": "integer"
         },
         "modified_subjects": {
+          "maximum": 9007199254740991,
           "minimum": 0,
           "title": "Modified Subjects",
           "type": "integer"
         },
         "removed_subjects": {
+          "maximum": 9007199254740991,
           "minimum": 0,
           "title": "Removed Subjects",
           "type": "integer"
         },
         "subjects": {
+          "maximum": 9007199254740991,
           "minimum": 0,
           "title": "Subjects",
           "type": "integer"
@@ -560,34 +730,42 @@
       "description": "The per-dimension digests the fact layer already separates.\n\nPublished verbatim, under the internal field names, so a consumer comparing\ntwo payloads asks the same question the engine asks \u2014 which dimension moved\n\u2014 without re-deriving anything.",
       "properties": {
         "authority_hash": {
+          "pattern": "^[0-9a-z_]{1,64}$",
           "title": "Authority Hash",
           "type": "string"
         },
         "binding_hash": {
+          "pattern": "^[0-9a-z_]{1,64}$",
           "title": "Binding Hash",
           "type": "string"
         },
         "control_hash": {
+          "pattern": "^[0-9a-z_]{1,64}$",
           "title": "Control Hash",
           "type": "string"
         },
         "effect_hash": {
+          "pattern": "^[0-9a-z_]{1,64}$",
           "title": "Effect Hash",
           "type": "string"
         },
         "evidence_hash": {
+          "pattern": "^[0-9a-z_]{1,64}$",
           "title": "Evidence Hash",
           "type": "string"
         },
         "identity_hash": {
+          "pattern": "^[0-9a-z_]{1,64}$",
           "title": "Identity Hash",
           "type": "string"
         },
         "risk_hash": {
+          "pattern": "^[0-9a-z_]{1,64}$",
           "title": "Risk Hash",
           "type": "string"
         },
         "schema_hash": {
+          "pattern": "^[0-9a-z_]{1,64}$",
           "title": "Schema Hash",
           "type": "string"
         }
@@ -705,6 +883,8 @@
         "source_end_line": {
           "anyOf": [
             {
+              "maximum": 9007199254740991,
+              "minimum": 0,
               "type": "integer"
             },
             {
@@ -760,6 +940,8 @@
         "source_start_column": {
           "anyOf": [
             {
+              "maximum": 9007199254740991,
+              "minimum": 0,
               "type": "integer"
             },
             {
@@ -771,6 +953,8 @@
         "source_start_line": {
           "anyOf": [
             {
+              "maximum": 9007199254740991,
+              "minimum": 0,
               "type": "integer"
             },
             {
@@ -801,6 +985,163 @@
     },
     "CapabilityPermissionFacts": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "unavailable"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "allOf": [
+              {
+                "properties": {
+                  "classes": {
+                    "maxItems": 0
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "side_effect_unknown": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "side_effect_unknown"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "measured"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "classes": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "classes": {
+                "contains": {
+                  "const": "read"
+                }
+              }
+            },
+            "required": [
+              "classes"
+            ]
+          },
+          "then": {
+            "properties": {
+              "classes": {
+                "maxItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "classes": {
+                "contains": {
+                  "const": "destructive"
+                }
+              }
+            },
+            "required": [
+              "classes"
+            ]
+          },
+          "then": {
+            "properties": {
+              "classes": {
+                "contains": {
+                  "const": "write"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "side_effect_unknown": {
+                "const": true
+              }
+            },
+            "required": [
+              "side_effect_unknown"
+            ]
+          },
+          "then": {
+            "anyOf": [
+              {
+                "properties": {
+                  "status": {
+                    "const": "unavailable"
+                  }
+                },
+                "required": [
+                  "status"
+                ]
+              },
+              {
+                "properties": {
+                  "classes": {
+                    "contains": {
+                      "const": "unknown"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "classes": {
+                "contains": {
+                  "const": "unknown"
+                }
+              }
+            },
+            "required": [
+              "classes"
+            ]
+          },
+          "then": {
+            "properties": {
+              "side_effect_unknown": {
+                "const": true
+              }
+            },
+            "required": [
+              "side_effect_unknown"
+            ]
+          }
+        }
+      ],
       "description": "The permission lattice classes, without the audit risk score.\n\n``classes`` and ``side_effect_unknown`` are the semantic half of\n``core.capability_lattice.CapabilityPermissionProfile`` and come from the\nsame classifier, so this payload cannot disagree with ``mcp audit``. The\nprofile's ``risk_score`` / ``risk_level`` / ``reasons`` are deliberately not\npublished \u2014 see the exclusions section of ``docs/capability-payload.md``.",
       "properties": {
         "classes": {
@@ -817,7 +1158,8 @@
             "type": "string"
           },
           "title": "Classes",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "side_effect_unknown": {
           "title": "Side Effect Unknown",
@@ -848,6 +1190,7 @@
           "$ref": "#/$defs/CapabilityAuthorityFacts"
         },
         "capability_id": {
+          "pattern": "^cap_[0-9a-f]{16}$",
           "title": "Capability Id",
           "type": "string"
         },
@@ -875,21 +1218,24 @@
             "type": "string"
           },
           "title": "Resource",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "risk_tags": {
           "items": {
             "type": "string"
           },
           "title": "Risk Tags",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "scope": {
           "items": {
             "type": "string"
           },
           "title": "Scope",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "subject_kind": {
           "enum": [
@@ -1130,6 +1476,44 @@
               }
             ]
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "transition": {
+                "const": "added"
+              }
+            },
+            "required": [
+              "transition"
+            ]
+          },
+          "then": {
+            "properties": {
+              "semantic_changes": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "transition": {
+                "const": "removed"
+              }
+            },
+            "required": [
+              "transition"
+            ]
+          },
+          "then": {
+            "properties": {
+              "semantic_changes": {
+                "maxItems": 0
+              }
+            }
+          }
         }
       ],
       "description": "How one capability record moved between the two states.\n\n``before`` / ``after`` are populated by the transition: ``added`` has no\nbefore, ``removed`` has no after, and ``changed`` / ``reidentified`` carry\nboth. Everything a consumer would otherwise have to take on trust \u2014\n``changed_dimensions``, the identity relationship between the two sides, and\nwhether the direction is honest \u2014 is derived from the records themselves, so\na contradictory attestation is rejected rather than carried.",
@@ -1169,14 +1553,16 @@
             "type": "string"
           },
           "title": "Changed Dimensions",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "semantic_changes": {
           "items": {
-            "$ref": "#/$defs/CapabilitySemanticChange"
+            "$ref": "#/$defs/CapabilityChangeFact"
           },
           "title": "Semantic Changes",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "semantic_direction": {
           "enum": [
@@ -1211,39 +1597,6 @@
         "after"
       ],
       "title": "CapabilityRecordTransitionEntry",
-      "type": "object"
-    },
-    "CapabilitySemanticChange": {
-      "additionalProperties": false,
-      "description": "One semantic explanation for a capability delta.",
-      "properties": {
-        "after": {
-          "default": null,
-          "title": "After"
-        },
-        "before": {
-          "default": null,
-          "title": "Before"
-        },
-        "field": {
-          "title": "Field",
-          "type": "string"
-        },
-        "kind": {
-          "title": "Kind",
-          "type": "string"
-        },
-        "rationale": {
-          "title": "Rationale",
-          "type": "string"
-        }
-      },
-      "required": [
-        "kind",
-        "field",
-        "rationale"
-      ],
-      "title": "CapabilitySemanticChange",
       "type": "object"
     },
     "CapabilityStatePayloadV1": {
@@ -1300,6 +1653,7 @@
           "type": "string"
         },
         "capability_count": {
+          "maximum": 9007199254740991,
           "minimum": 0,
           "title": "Capability Count",
           "type": "integer"
@@ -1330,6 +1684,7 @@
           "title": "Ref"
         },
         "subject_count": {
+          "maximum": 9007199254740991,
           "minimum": 0,
           "title": "Subject Count",
           "type": "integer"

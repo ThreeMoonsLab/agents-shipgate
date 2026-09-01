@@ -2794,11 +2794,16 @@ capability lock and lock diff above are unchanged. It is non-gating;
 cross-field rules do not appear in a generated JSON Schema, so every rule that
 needs a *recomputation* is unexpressible there. Everything JSON Schema can
 express has been pushed into the published file — required keys, closed enums,
-the `view` discriminator, key and digest patterns, non-negative counts,
-non-empty lists, the transition/sides/direction coupling, the
-presence/transition coupling, and the coverage naming rule. The rest is stage
+the `view` discriminator, key/id/digest patterns, safe-range integers, strict
+scalar types, non-empty and unique lists, the transition/sides/direction
+coupling, the presence/transition coupling including which changes each side may
+carry, and the permission shapes the classifier can produce. The rest is stage
 two, enumerated in the spec page and in the schema's own `description`. A
 consumer that runs only stage one does not have the guarantees below.
+
+**The reference parser accepts exactly the schema's language.**
+`CapabilityPayloadV1` uses strict scalars, so it does not coerce `"2"` to an
+integer or `"false"` to a boolean where the published schema would refuse them.
 
 What a consumer may rely on:
 
@@ -2813,13 +2818,25 @@ What a consumer may rely on:
   `"capsubj_" + sha256(canonical_json({agent, provider, tool_id}))[:16]`, not
   from the subject kind. Two rows cannot split one logical tool between them.
 - **Canonical bytes are fully specified**, because the format is for consumers
-  that are not this program: UTF-8 and never escaped, object keys sorted (all
-  keys in this payload are ASCII, so code-point and UTF-16 ordering coincide),
-  no insignificant whitespace, integers only, no non-finite numbers, and no
-  fallback serialization. Within those constraints this agrees with RFC 8785.
-- `summary`, each `subjects[].transition`, each `changed_dimensions`, and a
-  `state`'s three digests are **recomputed on parse**. A payload that disagrees
-  with its own rows is rejected, not corrected.
+  that are not this program: UTF-8 and never escaped, object keys sorted, no
+  insignificant whitespace, integers only inside the I-JSON safe range
+  (`|n| ≤ 9007199254740991`), no non-finite numbers, and no fallback
+  serialization. Every object key is ASCII — enforced, not assumed:
+  `capability_id` is the one dynamic key and is constrained to
+  `^cap_[0-9a-f]{16}$`, because Python orders keys by code point and RFC 8785 by
+  UTF-16 code unit and the two disagree above the BMP. Within those constraints
+  this agrees with RFC 8785, and the spec page publishes cross-language vectors.
+- `summary`, each `subjects[].transition`, each `changed_dimensions`, each
+  `semantic_direction` and `semantic_changes`, and a `state`'s three digests are
+  **recomputed on parse**. A payload that disagrees with its own rows is
+  rejected, not corrected. In particular `semantic_direction` is *derived from
+  the two carried records* — it is the direction of what this payload publishes,
+  not a producer's assertion — and `evidence_only` means exactly "the two
+  records are equal apart from provenance".
+- The two state refs are bound to the membership rows:
+  `head.subject_count - base.subject_count` equals added minus removed subjects,
+  and the same equation holds for capability counts over `added` / `removed`
+  record transitions.
 - `transition` is a statement about the subject's presence, carried as
   `present_in_base` / `present_in_head`, not about the kinds of its changes: a
   tool that keeps one operation and loses another is `modified`, because it is
@@ -2855,7 +2872,11 @@ What a consumer may rely on:
   on parse; a `delta`'s `base`/`head` refs name states it does not carry, so
   those are taken on trust — except each side's coverage digest, which the delta
   does carry and does check.
-- A `delta` with no subject rows must name two states whose digests agree.
+- A `delta` with no subject rows must name two states whose **capability and
+  evidence** digests agree and whose counts are equal. `analysis_coverage_digest`
+  is deliberately excluded: a change that only moves what could not be analysed
+  has no subject rows by construction, and that coverage-only delta must stay
+  expressible.
 - No wall clock. Two projections of the same static inputs are byte-identical,
   in any process — permission class ordering is total, so nothing inherits
   hash-randomized set iteration.

@@ -24,6 +24,8 @@ both — without someone writing down which it is and why.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from agents_shipgate.core.capability_delta import (
     CapabilityDeltaRow,
     CapabilityFactContext,
@@ -57,16 +59,11 @@ from agents_shipgate.schemas.capability_payload import (
     capability_transition_sort_key,
     changed_record_dimensions,
     delta_summary,
-    records_semantically_equal,
+    published_semantic_shift,
     state_digests,
     subject_key,
     subject_sort_key,
     subject_transition,
-)
-from agents_shipgate.schemas.capability_semantics import (
-    CapabilitySemanticChange,
-    CapabilitySemanticDirection,
-    capability_semantic_change_sort_key,
 )
 
 
@@ -265,7 +262,7 @@ def project_capability_record(fact: CapabilityFactV1) -> CapabilityRecord:
 
 
 def project_capability_state(
-    facts: list[CapabilityFactV1],
+    facts: Sequence[CapabilityFactV1],
     *,
     ref: str | None = None,
     analysis_coverage: CapabilityAnalysisCoverage | None = None,
@@ -278,7 +275,11 @@ def project_capability_state(
     consumer must not read as "nothing was left out".
     """
 
-    subjects = _state_subjects(facts)
+    # Snapshot first. `facts` is caller-owned and this function walks it more
+    # than once; a list that answers differently on a later pass would produce a
+    # payload whose rows and whose digests describe different revisions.
+    snapshot = tuple(facts)
+    subjects = _state_subjects(snapshot)
     coverage = _coverage(analysis_coverage)
     return CapabilityStatePayloadV1(
         capability_payload_schema_version=CAPABILITY_PAYLOAD_SCHEMA_VERSION,
@@ -291,8 +292,8 @@ def project_capability_state(
 
 
 def project_capability_delta(
-    base_facts: list[CapabilityFactV1],
-    head_facts: list[CapabilityFactV1],
+    base_facts: Sequence[CapabilityFactV1],
+    head_facts: Sequence[CapabilityFactV1],
     *,
     base_ref: str | None = None,
     head_ref: str | None = None,
@@ -313,7 +314,16 @@ def project_capability_delta(
     transition between the two sides rather than making a consumer infer it.
     """
 
-    diff = diff_capability_fact_sets(base_facts, head_facts)
+    # One snapshot per side, taken before anything reads them. This function
+    # walks each side in the diff, the subject-ref, the presence and the
+    # state-ref passes, and `_state_subjects` walks it again — so without this
+    # the "one computation" the two views share is not a consistency boundary at
+    # all. A list that returns a different fact on a later pass, or one mutated
+    # by another thread, produced a valid payload whose delta row named one
+    # revision while `head` digested another.
+    base_snapshot = tuple(base_facts)
+    head_snapshot = tuple(head_facts)
+    diff = diff_capability_fact_sets(list(base_snapshot), list(head_snapshot))
     entries: list[tuple[CapabilitySubjectRef, CapabilityRecordTransitionEntry]] = []
     for context in diff.added:
         entries.append(_membership_entry(context, transition="added"))
@@ -327,14 +337,14 @@ def project_capability_delta(
     grouped: dict[str, list[CapabilityRecordTransitionEntry]] = {}
     for ref_model, entry in entries:
         grouped.setdefault(ref_model.key, []).append(entry)
-    refs = _delta_subject_refs(base_facts, head_facts)
+    refs = _delta_subject_refs(base_snapshot, head_snapshot)
 
     # Presence is read off the fact sets, never off the changes. A subject that
     # kept one capability and lost another looks, from its changes alone,
     # exactly like one that went away — and calling that "removed" would tell a
     # reviewer the agent lost a tool it still has.
-    in_base = _subject_keys(base_facts)
-    in_head = _subject_keys(head_facts)
+    in_base = _subject_keys(base_snapshot)
+    in_head = _subject_keys(head_snapshot)
     subjects = tuple(
         sorted(
             (
@@ -360,8 +370,8 @@ def project_capability_delta(
         capability_standard_version=CAPABILITY_STANDARD_VERSION,
         view="delta",
         analysis_coverage=CapabilityCoverageDelta.of(base_coverage, head_coverage),
-        base=state_ref(_state_subjects(base_facts), base_coverage, ref=base_ref),
-        head=state_ref(_state_subjects(head_facts), head_coverage, ref=head_ref),
+        base=state_ref(_state_subjects(base_snapshot), base_coverage, ref=base_ref),
+        head=state_ref(_state_subjects(head_snapshot), head_coverage, ref=head_ref),
         summary=delta_summary(subjects),
         subjects=subjects,
     )
@@ -394,7 +404,7 @@ def state_ref(
 
 
 def _state_subjects(
-    facts: list[CapabilityFactV1],
+    facts: Sequence[CapabilityFactV1],
 ) -> tuple[CapabilityStateSubject, ...]:
     grouped: dict[str, list[CapabilityFactV1]] = {}
     for fact in facts:
@@ -415,11 +425,11 @@ def _state_subjects(
     return tuple(sorted(subjects, key=lambda entry: subject_sort_key(entry.subject)))
 
 
-def _subject_keys(facts: list[CapabilityFactV1]) -> set[str]:
+def _subject_keys(facts: Sequence[CapabilityFactV1]) -> set[str]:
     return {_subject_ref(fact).key for fact in facts}
 
 
-def _side_refs(facts: list[CapabilityFactV1]) -> dict[str, CapabilitySubjectRef]:
+def _side_refs(facts: Sequence[CapabilityFactV1]) -> dict[str, CapabilitySubjectRef]:
     """One ref per subject on one side, with a build-order-independent name."""
 
     refs: dict[str, CapabilitySubjectRef] = {}
@@ -430,8 +440,8 @@ def _side_refs(facts: list[CapabilityFactV1]) -> dict[str, CapabilitySubjectRef]
 
 
 def _delta_subject_refs(
-    base_facts: list[CapabilityFactV1],
-    head_facts: list[CapabilityFactV1],
+    base_facts: Sequence[CapabilityFactV1],
+    head_facts: Sequence[CapabilityFactV1],
 ) -> dict[str, CapabilitySubjectRef]:
     """Name a delta's subjects as head spells them, not as the alphabet does.
 
@@ -546,11 +556,11 @@ def _paired_entry(
         )
     before_record = project_capability_record(row.before)
     after_record = project_capability_record(row.after)
-    direction, extra_changes = _published_direction(
-        row.semantic_direction,
-        before_record,
-        after_record,
-    )
+    # The engine's classification is over the *facts*; this payload publishes a
+    # narrower set, so the direction and the explanations are derived from the
+    # published records by the format itself. One implementation, and the parser
+    # recomputes it — so neither can be asserted.
+    direction, semantic_changes = published_semantic_shift(before_record, after_record)
     return (
         # The published ref for the row is chosen by `_delta_subject_refs`; this
         # call is the identity guard on the pairing, not a naming decision.
@@ -559,96 +569,11 @@ def _paired_entry(
             transition=transition,
             changed_dimensions=changed_record_dimensions(before_record, after_record),
             semantic_direction=direction,
-            semantic_changes=tuple(
-                sorted(
-                    (*row.semantic_changes, *extra_changes),
-                    key=capability_semantic_change_sort_key,
-                )
-            ),
+            semantic_changes=semantic_changes,
             before=before_record,
             after=after_record,
         ),
     )
-
-
-def _published_direction(
-    engine_direction: CapabilitySemanticDirection,
-    before: CapabilityRecord,
-    after: CapabilityRecord,
-) -> tuple[CapabilitySemanticDirection, tuple[CapabilitySemanticChange, ...]]:
-    """Classify what *this payload publishes*, not what the fact layer hashes.
-
-    The fact layer folds the whole semantic assessment into ``evidence_hash``
-    alone, and this payload publishes a ``permission`` block derived from that
-    assessment. So an assessment change can move a published permission — from
-    ``('write',)`` to ``('write', 'unknown')`` with side effects newly unknown —
-    while the only fact hash that moved is the evidence one. Inheriting the
-    engine's ``evidence_only`` verdict there would publish a permission
-    expansion as provenance-only, in the one artifact whose whole purpose is to
-    be trusted without re-deriving anything.
-
-    So: whenever the engine says provenance-only but the published records are
-    not semantically equal, reclassify from the published rows and say why.
-    """
-
-    if engine_direction != "evidence_only" or records_semantically_equal(before, after):
-        return engine_direction, ()
-    return _permission_shift(before.permission, after.permission)
-
-
-def _permission_shift(
-    before: CapabilityPermissionFacts,
-    after: CapabilityPermissionFacts,
-) -> tuple[CapabilitySemanticDirection, tuple[CapabilitySemanticChange, ...]]:
-    """Direction and explanation for a published permission move."""
-
-    if before == after:
-        # Something else published moved. Do not guess a direction for it —
-        # `unknown` is the honest answer and, unlike `evidence_only`, it does
-        # not tell a reviewer there is nothing to look at.
-        return "unknown", (
-            CapabilitySemanticChange(
-                kind="published_semantics_changed",
-                field="capability_record",
-                before=None,
-                after=None,
-                rationale=(
-                    "Published capability semantics changed without a proven "
-                    "direction; compare the two records."
-                ),
-            ),
-        )
-    change = CapabilitySemanticChange(
-        kind="permission_changed",
-        field="permission",
-        before={
-            "status": before.status,
-            "classes": list(before.classes),
-            "side_effect_unknown": before.side_effect_unknown,
-        },
-        after={
-            "status": after.status,
-            "classes": list(after.classes),
-            "side_effect_unknown": after.side_effect_unknown,
-        },
-        rationale="Published permission profile changed.",
-    )
-    if before.status != after.status:
-        # A measured profile and an unmeasured one are not comparable: losing
-        # the measurement is not a narrowing, and regaining it is not a
-        # broadening. Say `unknown` rather than invent a direction.
-        return "unknown", (change,)
-    gained = set(after.classes) - set(before.classes)
-    lost = set(before.classes) - set(after.classes)
-    widened = bool(gained) or (after.side_effect_unknown and not before.side_effect_unknown)
-    narrowed = bool(lost) or (before.side_effect_unknown and not after.side_effect_unknown)
-    if widened and narrowed:
-        return "mixed", (change,)
-    if widened:
-        return "broadened", (change,)
-    if narrowed:
-        return "narrowed", (change,)
-    return "unknown", (change,)
 
 
 def _permission_facts(fact: CapabilityFactV1) -> CapabilityPermissionFacts:

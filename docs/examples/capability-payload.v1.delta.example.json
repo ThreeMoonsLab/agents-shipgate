@@ -291,15 +291,7 @@
             "binding_hash",
             "evidence_hash"
           ],
-          "semantic_changes": [
-            {
-              "after": "0aba7b797c5ec26a",
-              "before": "fcdc5ba6f03ea360",
-              "field": "binding_hash",
-              "kind": "hash_changed",
-              "rationale": "Capability binding_hash changed without a proven direction."
-            }
-          ],
+          "semantic_changes": [],
           "semantic_direction": "unknown",
           "transition": "changed"
         }

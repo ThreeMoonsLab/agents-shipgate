@@ -1813,8 +1813,92 @@ def _postprocess_capability_payload(schema: dict[str, Any]) -> None:
                     when("present_in_head", False),
                 ]
             }
-        }
+        },
+        # Presence bounds the changes, not only the transition label: a subject
+        # base never had cannot carry a capability that changed or went away.
+        *(
+            {
+                "if": when(field, False),
+                "then": {
+                    "properties": {
+                        "changes": {
+                            "items": {
+                                "properties": {"transition": {"const": allowed}},
+                                "required": ["transition"],
+                            }
+                        }
+                    }
+                },
+            }
+            for field, allowed in (
+                ("present_in_base", "added"),
+                ("present_in_head", "removed"),
+            )
+        ),
     ]
+
+    # The permission shapes the classifier can actually produce. A consumer
+    # reasons about this block — "is this read-only?" — so a combination the
+    # lattice never emits is a claim with no meaning, and stage one can say so.
+    permission = defs["CapabilityPermissionFacts"]
+    permission["allOf"] = [
+        {
+            "if": when("status", "unavailable"),
+            "then": {
+                "allOf": [
+                    {"properties": {"classes": {"maxItems": 0}}},
+                    when("side_effect_unknown", True),
+                ]
+            },
+        },
+        {
+            "if": when("status", "measured"),
+            "then": {"properties": {"classes": {"minItems": 1}}},
+        },
+        # `read` is the whole profile or not in it at all.
+        {
+            "if": {
+                "properties": {"classes": {"contains": {"const": "read"}}},
+                "required": ["classes"],
+            },
+            "then": {"properties": {"classes": {"maxItems": 1}}},
+        },
+        # `destructive` always carries `write`.
+        {
+            "if": {
+                "properties": {"classes": {"contains": {"const": "destructive"}}},
+                "required": ["classes"],
+            },
+            "then": {"properties": {"classes": {"contains": {"const": "write"}}}},
+        },
+        # Unknown side effects and the `unknown` class are the same statement,
+        # in both directions.
+        {
+            "if": when("side_effect_unknown", True),
+            "then": {
+                "anyOf": [
+                    when("status", "unavailable"),
+                    {"properties": {"classes": {"contains": {"const": "unknown"}}}},
+                ]
+            },
+        },
+        {
+            "if": {
+                "properties": {"classes": {"contains": {"const": "unknown"}}},
+                "required": ["classes"],
+            },
+            "then": when("side_effect_unknown", True),
+        },
+    ]
+
+    # A membership change has no second record to compare against.
+    for transition in ("added", "removed"):
+        entry["allOf"].append(
+            {
+                "if": when("transition", transition),
+                "then": {"properties": {"semantic_changes": {"maxItems": 0}}},
+            }
+        )
 
     # Naming a subject outside analysis requires having looked.
     defs["CapabilityAnalysisCoverage"]["allOf"] = [
@@ -1837,8 +1921,29 @@ def _postprocess_capability_payload(schema: dict[str, Any]) -> None:
         ("CapabilityAnalysisCoverage", "subjects_outside_analysis"),
         ("CapabilityCoverageDelta", "newly_outside_analysis"),
         ("CapabilityCoverageDelta", "no_longer_outside_analysis"),
+        ("CapabilityRecordTransitionEntry", "semantic_changes"),
+        ("CapabilityRecordTransitionEntry", "changed_dimensions"),
+        ("CapabilityPermissionFacts", "classes"),
+        ("CapabilityRecord", "resource"),
+        ("CapabilityRecord", "scope"),
+        ("CapabilityRecord", "risk_tags"),
+        ("CapabilityAuthorityFacts", "scopes"),
+        ("CapabilityAuthorityFacts", "broad_scopes"),
     ):
         defs[name]["properties"][field]["uniqueItems"] = True
+
+    # Every object in the published schema requires every property it declares.
+    # A field with a schema default drops out of `required`, and a wire format
+    # whose spec says "always present" must not have any.
+    for name, definition in defs.items():
+        if definition.get("type") != "object" or "properties" not in definition:
+            continue
+        missing = sorted(set(definition["properties"]) - set(definition.get("required", [])))
+        if missing:  # pragma: no cover - the generator would be shipping a hole
+            raise AssertionError(
+                f"{name} publishes optional properties {missing}; every field of "
+                "the capability payload must be required on the wire"
+            )
 
 
 def build_capability_payload_schema() -> tuple[Path, str]:

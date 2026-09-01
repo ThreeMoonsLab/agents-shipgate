@@ -19,8 +19,10 @@ hold the four properties that claim is made of:
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
+import operator
 import os
 import re
 import shutil
@@ -29,7 +31,7 @@ import sys
 import types
 import typing
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import jsonschema
 import pytest
@@ -49,7 +51,6 @@ from agents_shipgate.core.capability_payload import (
     UNPUBLISHED_LOCK_FIELDS,
     CapabilityPayloadError,
     _merge_subject_refs,
-    _permission_shift,  # the identity guard has no public caller to reach it through
     project_capability_delta,
     project_capability_record,
     project_capability_state,
@@ -76,6 +77,7 @@ from agents_shipgate.schemas.capability_payload import (
     canonical_payload_json,
     changed_record_dimensions,
     payload_digest,
+    published_semantic_shift,
     subject_key,
 )
 from agents_shipgate.schemas.capability_payload import (
@@ -146,13 +148,21 @@ def _paired_entry_for(
     after,
     *,
     transition: str,
-    direction: str = "unknown",
+    direction: str | None = None,
+    changes: tuple | None = None,
 ) -> CapabilityRecordTransitionEntry:
+    """A paired entry built the way a producer builds one.
+
+    `semantic_direction` and `semantic_changes` are derived from the two records
+    unless a test is deliberately asserting something the records do not show.
+    """
+
+    derived_direction, derived_changes = published_semantic_shift(before, after)
     return CapabilityRecordTransitionEntry(
         transition=transition,
         changed_dimensions=changed_record_dimensions(before, after),
-        semantic_direction=direction,
-        semantic_changes=(),
+        semantic_direction=derived_direction if direction is None else direction,
+        semantic_changes=derived_changes if changes is None else changes,
         before=before,
         after=after,
     )
@@ -335,6 +345,28 @@ def _payload_annotation(path: str) -> Any:
         model = field.annotation
 
 
+def _strip_annotations(annotation: Any) -> Any:
+    """The declared type with `Annotated[...]` metadata removed, recursively.
+
+    The payload deliberately *narrows* what it accepts — strict scalars, safe
+    integer bounds, canonical-form patterns — so comparing annotations verbatim
+    would flag every hardened field. What must not diverge is the underlying
+    type; a narrower constraint on the same type is a decision already made.
+    """
+
+    origin = typing.get_origin(annotation)
+    if origin is None:
+        return annotation
+    args = tuple(_strip_annotations(arg) for arg in typing.get_args(annotation))
+    if str(origin) == "typing.Annotated" or origin is Annotated:
+        return args[0]
+    if origin in (typing.Union, types.UnionType):
+        return functools.reduce(operator.or_, args)
+    if origin is typing.Literal:
+        return typing.Literal[args]
+    return origin[args]
+
+
 def test_every_published_field_keeps_the_internal_type() -> None:
     """Names are not enough: a widened internal type must be a schema decision.
 
@@ -347,7 +379,8 @@ def test_every_published_field_keeps_the_internal_type() -> None:
     mismatched = [
         (internal_path, payload_path)
         for internal_path, payload_path in PUBLISHED_FACT_FIELDS.items()
-        if _internal_annotation(internal_path) != _payload_annotation(payload_path)
+        if _strip_annotations(_internal_annotation(internal_path))
+        != _strip_annotations(_payload_annotation(payload_path))
     ]
     assert not mismatched, (
         "the payload re-declares these fields with a different type than the "
@@ -473,15 +506,24 @@ def test_payload_models_forbid_unknown_fields() -> None:
 
 
 def _fact_with(fact: CapabilityFactV1, **identity: Any) -> CapabilityFactV1:
+    """A fact with a changed identity and a correspondingly changed id.
+
+    The digest has to stay in the producer's canonical `cap_[0-9a-f]{16}` form:
+    `capability_id` is a dynamic key in the evidence digest's preimage, so the
+    payload constrains it, and a test fixture that ignored that would be testing
+    a payload no producer can emit.
+    """
+
     updated_identity = fact.identity.model_copy(update=identity)
-    hashes = fact.hashes.model_copy(
-        update={"identity_hash": f"{fact.hashes.identity_hash}x"}
-    )
+    digest = hashlib.sha256(
+        repr(sorted(identity.items())).encode("utf-8")
+    ).hexdigest()[:16]
+    hashes = fact.hashes.model_copy(update={"identity_hash": digest})
     return fact.model_copy(
         update={
             "identity": updated_identity,
             "hashes": hashes,
-            "id": f"cap_{hashes.identity_hash}",
+            "id": f"cap_{digest}",
         }
     )
 
@@ -549,8 +591,16 @@ def test_an_empty_delta_cannot_name_two_different_states(refund_facts) -> None:
     payload = project_capability_delta(base, base).model_dump(mode="json")
     assert payload["subjects"] == []
 
+    # Counts first: the two refs are bound to the membership rows, so a head ref
+    # from a different state is caught before the digests are even compared.
     payload["head"] = project_capability_state(head).state.model_dump(mode="json")
-    with pytest.raises(ValidationError, match="same state, but their digests differ"):
+    with pytest.raises(ValidationError, match="must equal added minus removed"):
+        CapabilityDeltaPayloadV1.model_validate(payload)
+
+    # With the counts reconciled, the digest rule is what has to catch it.
+    payload["head"]["subject_count"] = payload["base"]["subject_count"]
+    payload["head"]["capability_count"] = payload["base"]["capability_count"]
+    with pytest.raises(ValidationError, match="capability/evidence\ndigests differ|capability/evidence"):
         CapabilityDeltaPayloadV1.model_validate(payload)
 
 
@@ -1308,7 +1358,8 @@ def test_a_permission_shape_the_classifier_cannot_produce_is_rejected() -> None:
         ("cannot name classes", {"status": "unavailable", "classes": ("read",), "side_effect_unknown": True}),
         ("cannot pair 'read'", {"status": "measured", "classes": ("read", "write"), "side_effect_unknown": False}),
         ("must also carry 'write'", {"status": "measured", "classes": ("destructive",), "side_effect_unknown": False}),
-        ("must carry the 'unknown' class", {"status": "measured", "classes": ("write",), "side_effect_unknown": True}),
+        ("the same statement", {"status": "measured", "classes": ("write",), "side_effect_unknown": True}),
+        ("the same statement", {"status": "measured", "classes": ("unknown",), "side_effect_unknown": False}),
         ("ordered by (rank, name)", {"status": "measured", "classes": ("production", "financial", "unknown"), "side_effect_unknown": True}),
     )
     for expected, kwargs in cases:
@@ -1407,21 +1458,20 @@ def test_a_permission_move_in_both_directions_is_mixed() -> None:
     fact = _facts(REFUND_SAMPLE / "shipgate.yaml")[0]
     before = project_capability_record(fact)
     assert before.permission.classes == ("financial",)
-
-    direction, changes = _permission_shift(
-        before.permission,
-        CapabilityPermissionFacts(
-            status="measured",
-            classes=("write", "external"),
-            side_effect_unknown=False,
-        ),
+    after = before.model_copy(
+        update={
+            "permission": CapabilityPermissionFacts(
+                status="measured",
+                classes=("write", "external"),
+                side_effect_unknown=False,
+            )
+        }
     )
+
+    direction, changes = published_semantic_shift(before, after)
     assert direction == "mixed"
     assert [entry.kind for entry in changes] == ["permission_changed"]
-
-    # And a move that is neither a gain nor a loss has no direction to give.
-    same_classes, _ = _permission_shift(before.permission, before.permission)
-    assert same_classes == "unknown"
+    assert changes[0].direction == "mixed"
 
 
 def test_evidence_only_cannot_be_claimed_over_differing_semantics() -> None:
@@ -1438,7 +1488,9 @@ def test_evidence_only_cannot_be_claimed_over_differing_semantics() -> None:
             "hashes": fact.hashes.model_copy(update={"evidence_hash": "f" * 16}),
         }
     )
-    with pytest.raises(ValidationError, match="differ in semantic content"):
+    with pytest.raises(
+        ValidationError, match="is not what the two published records show"
+    ):
         _paired_entry_for(
             project_capability_record(fact),
             project_capability_record(widened),
@@ -1641,13 +1693,82 @@ def test_subject_key_survives_a_non_ascii_identity() -> None:
     )
 
 
+#: The vectors the spec page publishes for implementers in other languages.
+#: Kept here so the table and the implementation cannot drift apart.
+_CANONICALIZATION_VECTORS: tuple[tuple[Any, str, str], ...] = (
+    ({"name": "café"}, '{"name":"café"}',
+     "645fa443126a8954fc6d871912b8fc67bc2ee8feae417efe55546251962ca74d"),
+    ({"b": 1, "a": [1, 2]}, '{"a":[1,2],"b":1}',
+     "94a786c3662bc7beeb598efa7d8cb58d7bea25d6c275ea9785a0230ff1f8c2ba"),
+)
+_SUBJECT_KEY_VECTOR = (
+    {"agent": "agént", "provider": "p", "tool_id": "tool_✓"},
+    "capsubj_e7a364bcf95ee748",
+)
+
+
+def test_the_published_canonicalization_vectors_hold() -> None:
+    """An implementation in another language reproduces these or it is wrong.
+
+    The vectors are the whole point of specifying the canonicalization, so they
+    are asserted against the implementation *and* against the page that
+    publishes them.
+    """
+
+    spec = (REPO_ROOT / "docs/capability-payload.md").read_text(encoding="utf-8")
+    for value, expected_bytes, expected_digest in _CANONICALIZATION_VECTORS:
+        assert canonical_payload_json(value) == expected_bytes
+        assert payload_digest(value) == expected_digest
+        assert expected_digest in spec, "the spec table has drifted from the code"
+    material, expected_key = _SUBJECT_KEY_VECTOR
+    assert subject_key(**material) == expected_key
+    assert expected_key in spec
+
+
+def test_the_spec_states_the_unicode_and_integer_rules() -> None:
+    """The two rules a second implementation gets wrong by default."""
+
+    spec = (REPO_ROOT / "docs/capability-payload.md").read_text(encoding="utf-8")
+    for claim in ("UTF-16 code unit", "9007199254740991", "never escaped"):
+        assert claim in spec, f"the canonicalization section must state {claim!r}"
+
+
+def test_a_dynamic_key_outside_the_ascii_domain_is_refused() -> None:
+    """The one string whose character set changes what a digest covers.
+
+    `capability_id` becomes an object key in the evidence preimage, and Python
+    and RFC 8785 order keys differently above the BMP — so an astral id would
+    let two conforming implementations compute different digests.
+    """
+
+    record = project_capability_record(_facts(REFUND_SAMPLE / "shipgate.yaml")[0])
+    for bad in ("cap_\U0001F600", "cap_\ue000", "cap_NOTHEX0000000", "cap_abc"):
+        with pytest.raises(ValidationError, match="capability_id"):
+            record.model_copy(update={"capability_id": bad}).model_validate(
+                record.model_dump() | {"capability_id": bad}
+            )
+
+
+def test_integers_outside_the_safe_range_are_refused() -> None:
+    """A JavaScript consumer reads 9007199254740993 back as …92."""
+
+    facts = _facts(REFUND_SAMPLE / "shipgate.yaml")
+    record = project_capability_record(facts[0])
+    for unsafe in (9007199254740992 + 1, -(9007199254740992 + 1)):
+        payload = record.model_dump()
+        payload["evidence"]["source_start_line"] = unsafe
+        with pytest.raises(ValidationError):
+            CapabilityRecord.model_validate(payload)
+
+
 def test_spec_page_publishes_the_digest_recipe() -> None:
     spec = (REPO_ROOT / "docs/capability-payload.md").read_text(encoding="utf-8")
     for fragment in (
         "capability_set_digest",
         "evidence_set_digest",
         "digests.evidence_hash",
-        "sorted keys and compact separators",
+        "Object keys sorted, compact separators",
+        "analysis_coverage_digest",
     ):
         assert fragment in spec, (
             f"docs/capability-payload.md must publish the digest recipe; "
@@ -1678,6 +1799,13 @@ def test_committed_examples_validate_against_the_committed_schema(path: Path) ->
         == CAPABILITY_PAYLOAD_SCHEMA_VERSION
     )
     CapabilityPayloadV1.model_validate(payload)
+
+
+def _set_permission(profile: dict) -> Any:
+    def mutate(payload: dict) -> None:
+        payload["subjects"][0]["changes"][0]["after"]["permission"] = dict(profile)
+
+    return mutate
 
 
 # The stage-one rules, each with a mutation that must break it. These run
@@ -1733,6 +1861,93 @@ _SCHEMA_REJECTS: tuple[tuple[str, Any], ...] = (
             "subjects_outside_analysis", [p["subjects"][0]["subject"]]
         ),
     ),
+    (
+        "absent-from-base subject carrying a removed change",
+        lambda p: _first_added(p).__setitem__(
+            "changes",
+            [
+                dict(
+                    _first_added(p)["changes"][0],
+                    transition="removed",
+                    before=_first_added(p)["changes"][0]["after"],
+                    after=None,
+                    semantic_direction="removed",
+                )
+            ],
+        ),
+    ),
+    (
+        "membership change carrying semantic changes",
+        lambda p: _first_added(p)["changes"][0].__setitem__(
+            "semantic_changes",
+            [
+                {
+                    "kind": "scope_changed",
+                    "field": "scope",
+                    "direction": "broadened",
+                    "before": [],
+                    "after": ["x"],
+                    "rationale": "x",
+                }
+            ],
+        ),
+    ),
+    (
+        "semantic change omitting before/after",
+        lambda p: p["subjects"][0]["changes"][0].__setitem__(
+            "semantic_changes",
+            [
+                {
+                    "kind": "scope_changed",
+                    "field": "scope",
+                    "direction": "broadened",
+                    "rationale": "x",
+                }
+            ],
+        ),
+    ),
+    *(
+        (f"impossible permission: {label}", _set_permission(profile))
+        for label, profile in (
+            (
+                "unavailable naming classes",
+                {"status": "unavailable", "classes": ["read"], "side_effect_unknown": False},
+            ),
+            (
+                "read paired with write",
+                {"status": "measured", "classes": ["read", "write"], "side_effect_unknown": False},
+            ),
+            (
+                "destructive without write",
+                {"status": "measured", "classes": ["destructive"], "side_effect_unknown": False},
+            ),
+            (
+                "unknown class without unknown side effects",
+                {"status": "measured", "classes": ["unknown"], "side_effect_unknown": False},
+            ),
+            (
+                "unknown side effects without the unknown class",
+                {"status": "measured", "classes": ["write"], "side_effect_unknown": True},
+            ),
+        )
+    ),
+    (
+        "non-canonical capability id",
+        lambda p: p["subjects"][0]["changes"][0]["after"].__setitem__(
+            "capability_id", "cap_\U0001F600"
+        ),
+    ),
+    (
+        "integer past the safe range",
+        lambda p: p["subjects"][0]["changes"][0]["after"]["evidence"].__setitem__(
+            "source_start_line", 9007199254740993
+        ),
+    ),
+    (
+        "stringified boolean",
+        lambda p: p["subjects"][0].__setitem__("present_in_base", "false"),
+    ),
+    ("stringified integer", lambda p: p["summary"].__setitem__("subjects", "2")),
 )
 
 
@@ -1760,6 +1975,122 @@ def test_the_committed_schema_rejects_stage_one_violations(label, mutate) -> Non
     mutate(payload)
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(payload, PAYLOAD_SCHEMA)
+
+
+def test_every_published_object_requires_every_property() -> None:
+    """A field with a schema default drops out of `required`.
+
+    The spec says every field is always present, and this is the only way to
+    assert that exhaustively — the earlier per-field spot checks missed the one
+    model reused from the internal report blocks.
+    """
+
+    optional = {
+        name: sorted(set(definition["properties"]) - set(definition.get("required", [])))
+        for name, definition in PAYLOAD_SCHEMA["$defs"].items()
+        if definition.get("type") == "object" and "properties" in definition
+    }
+    assert not {name: fields for name, fields in optional.items() if fields}
+
+
+def test_the_reference_parser_accepts_no_more_than_the_schema() -> None:
+    """The advertised reference parser must not admit a larger language.
+
+    Pydantic coerces `"2"` to `2` and `"false"` to `False`; the published schema
+    rejects both. A consumer told this entrypoint implements the spec would then
+    be holding a payload their own validator refuses.
+    """
+
+    for mutate in (
+        lambda p: p["summary"].__setitem__("subjects", "2"),
+        lambda p: p["subjects"][0].__setitem__("present_in_base", "false"),
+        lambda p: p["subjects"][0]["changes"][0]["after"]["permission"].__setitem__(
+            "side_effect_unknown", "false"
+        ),
+        lambda p: p["base"].__setitem__("subject_count", 1.5),
+    ):
+        payload = json.loads(DELTA_EXAMPLE.read_text(encoding="utf-8"))
+        mutate(payload)
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(payload, PAYLOAD_SCHEMA)
+        with pytest.raises(ValidationError):
+            CapabilityPayloadV1.model_validate_json(json.dumps(payload))
+
+
+def test_a_semantic_direction_cannot_be_asserted(refund_facts) -> None:
+    """Relabelling a row, or deleting its explanations, must not validate.
+
+    Both are derived from the two carried records, so a consumer can check them
+    without redoing the comparison — which is the only thing that makes the
+    fields worth publishing.
+    """
+
+    base, head = refund_facts
+    for direction in ("broadened", "narrowed", "mixed"):
+        payload = project_capability_delta(base, head).model_dump(mode="json")
+        changed = next(
+            entry for entry in payload["subjects"] if entry["transition"] == "modified"
+        )
+        assert changed["changes"][0]["semantic_direction"] == "unknown"
+        changed["changes"][0]["semantic_direction"] = direction
+        with pytest.raises(
+            ValidationError, match="is not what the two published records show"
+        ):
+            CapabilityDeltaPayloadV1.model_validate(payload)
+
+    facts = _facts(REFUND_SAMPLE / "shipgate.yaml")
+    before = project_capability_record(facts[0])
+    after = project_capability_record(
+        _fact_with(facts[0], scope=(*facts[0].identity.scope, "zz:extra"))
+    )
+    derived_direction, derived_changes = published_semantic_shift(before, after)
+    assert derived_direction == "broadened"
+    assert [change.field for change in derived_changes] == ["scope"]
+    with pytest.raises(ValidationError, match="must be exactly the published dimensions"):
+        _paired_entry_for(before, after, transition="reidentified", changes=())
+
+
+def test_published_semantic_shift_reads_the_dimensions_it_publishes() -> None:
+    """Direction comes from the published content, dimension by dimension."""
+
+    facts = _facts(REFUND_SAMPLE / "shipgate.yaml")
+    record = project_capability_record(facts[0])
+
+    def shifted(**update: Any) -> tuple:
+        block, values = next(iter(update.items()))
+        if block == "record":
+            return published_semantic_shift(record, record.model_copy(update=values))
+        nested = getattr(record, block).model_copy(update=values)
+        return published_semantic_shift(record, record.model_copy(update={block: nested}))
+
+    assert shifted(record={"scope": (*record.scope, "extra")})[0] == "broadened"
+    assert shifted(record={"scope": ()})[0] == "narrowed"
+    assert shifted(effect={"high_risk": not record.effect.high_risk})[0] in {
+        "broadened",
+        "narrowed",
+    }
+    assert shifted(effect={"reversibility": "irreversible"})[0] == "broadened"
+    assert shifted(effect={"effect": "destructive"})[0] == "broadened"
+    assert shifted(effect={"effect": "read"})[0] == "narrowed"
+    # Losing a proven control widens; the metadata beside it has no direction.
+    assert shifted(controls={"safeguard_idempotency": False})[0] == "broadened"
+    assert shifted(controls={"safeguard_rollback": True})[0] == "narrowed"
+    assert shifted(controls={"evidence_owner": "someone-else"})[0] == "unknown"
+    # Losing idempotency evidence widens; gaining it narrows.
+    assert shifted(effect={"idempotency_known": None})[0] == "broadened"
+    assert (
+        published_semantic_shift(
+            record.model_copy(
+                update={"effect": record.effect.model_copy(update={"idempotency_known": None})}
+            ),
+            record,
+        )[0]
+        == "narrowed"
+    )
+    # A scope that gains one entry and loses another is genuinely both.
+    direction, changes = shifted(record={"scope": ("something:else",)})
+    assert direction == "mixed"
+    assert changes[0].direction == "mixed"
 
 
 def test_the_schema_says_it_is_only_stage_one() -> None:

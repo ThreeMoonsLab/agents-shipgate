@@ -65,12 +65,29 @@ from agents_shipgate.schemas.capabilities import (
 from agents_shipgate.schemas.capability_change import CapabilitySubjectKind
 from agents_shipgate.schemas.capability_semantics import (
     CapabilityHashName,
-    CapabilitySemanticChange,
     CapabilitySemanticDirection,
-    capability_semantic_change_sort_key,
 )
 from agents_shipgate.schemas.common import Confidence
 from agents_shipgate.schemas.surfaces import ActionEffect
+
+#: The largest integer both JSON and IEEE-754 doubles represent exactly. JSON
+#: numbers are unbounded on paper, but a JavaScript consumer reads anything past
+#: this rounded — ``9007199254740993`` comes back as ``…92`` — so a digest taken
+#: over it would differ from ours. Every integer this payload publishes is bound
+#: to the I-JSON safe range instead of trusting producers to stay inside it.
+MAX_SAFE_INTEGER = 9007199254740991
+
+#: Scalar aliases used throughout. ``strict`` matters because the published JSON
+#: Schema rejects ``"2"`` for an integer and ``"false"`` for a boolean while
+#: Pydantic would coerce both — and this module is advertised as the reference
+#: parser, so it must not accept a larger language than the schema it ships.
+StrictText = Annotated[str, Field(strict=True)]
+StrictFlag = Annotated[bool, Field(strict=True)]
+SafeInt = Annotated[
+    int, Field(strict=True, ge=-MAX_SAFE_INTEGER, le=MAX_SAFE_INTEGER)
+]
+SafeCount = Annotated[int, Field(strict=True, ge=0, le=MAX_SAFE_INTEGER)]
+SafeLine = Annotated[int, Field(strict=True, ge=0, le=MAX_SAFE_INTEGER)]
 
 CAPABILITY_PAYLOAD_SCHEMA_VERSION = "shipgate.capability_payload/v1"
 CAPABILITY_PAYLOAD_SCHEMA_PATH = "docs/capability-payload-schema.v1.json"
@@ -83,9 +100,22 @@ CAPABILITY_PAYLOAD_SPEC_PATH = "docs/capability-payload.md"
 SUBJECT_KEY_PREFIX = "capsubj_"
 SUBJECT_KEY_DIGEST_CHARS = 16
 SUBJECT_KEY_PATTERN = r"^capsubj_[0-9a-f]{16}$"
+#: ``capability_id`` becomes a **dynamic object key** in the evidence digest's
+#: preimage, so it is the one string in this payload whose character set changes
+#: what a digest is taken over. Python sorts object keys by code point and
+#: RFC 8785 sorts by UTF-16 code unit; those orders disagree above the BMP, so an
+#: unconstrained id could make two conforming implementations disagree. Bound it
+#: to the form the producer actually emits — ASCII, and therefore unambiguous.
+CAPABILITY_ID_PATTERN = r"^cap_[0-9a-f]{16}$"
+#: Per-dimension digests are opaque tokens from the fact layer. They are not
+#: dynamic keys, so they only need to stay inside the ASCII domain the
+#: canonicalization rules are stated for.
+CAPABILITY_DIGEST_TOKEN_PATTERN = r"^[0-9a-z_]{1,64}$"
+DigestToken = Annotated[str, Field(strict=True, pattern=CAPABILITY_DIGEST_TOKEN_PATTERN)]
 #: Digests published by this payload are full sha256, lowercase hex. Per-record
 #: digests are the capability fact's own, whose width this payload does not fix.
 PAYLOAD_DIGEST_PATTERN = r"^[0-9a-f]{64}$"
+PayloadDigest = Annotated[str, Field(strict=True, pattern=PAYLOAD_DIGEST_PATTERN)]
 
 #: How one subject moved between two states. It is a statement about the
 #: **subject's own presence**, not about the kinds of its changes: a tool that
@@ -124,6 +154,24 @@ PERMISSION_CLASS_RANK: dict[str, int] = {
     "destructive": 4,
     "unknown": 5,
 }
+
+#: Restated from ``core.action_semantics.ACTION_EFFECT_RANK`` for the same
+#: layering reason as the permission ranks, and pinned by the same kind of
+#: parity test. Used only to give an effect move a direction.
+ACTION_EFFECT_RANK: dict[str, int] = {
+    "read": 0,
+    "privileged_data_access": 1,
+    "write": 2,
+    "external_communication": 3,
+    "financial_write": 4,
+    "production_operation": 4,
+    "identity_access": 4,
+    "code_execution": 4,
+    "destructive": 5,
+}
+
+#: Less reversible is a wider capability.
+REVERSIBILITY_RANK: dict[str, int] = {"reversible": 0, "unknown": 1, "irreversible": 2}
 
 #: Whether the permission profile was measured from static evidence at all.
 #: ``unavailable`` is the fail-closed reading: it is not "no side effects", and
@@ -214,11 +262,11 @@ class CapabilitySubjectRef(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    key: str = Field(pattern=SUBJECT_KEY_PATTERN)
-    name: str
-    agent: str
-    provider: str
-    tool_id: str
+    key: Annotated[str, Field(strict=True, pattern=SUBJECT_KEY_PATTERN)]
+    name: StrictText
+    agent: StrictText
+    provider: StrictText
+    tool_id: StrictText
 
     @model_validator(mode="after")
     def _key_is_its_own_identity_material(self) -> CapabilitySubjectRef:
@@ -251,13 +299,13 @@ class CapabilityEffectFacts(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     effect: ActionEffect
-    externally_visible: bool
-    handles_sensitive_data: bool
-    financial: bool
-    code_execution: bool
+    externally_visible: StrictFlag
+    handles_sensitive_data: StrictFlag
+    financial: StrictFlag
+    code_execution: StrictFlag
     reversibility: Literal["reversible", "irreversible", "unknown"]
-    idempotency_known: bool | None
-    high_risk: bool
+    idempotency_known: StrictFlag | None
+    high_risk: StrictFlag
 
 
 class CapabilityAuthorityFacts(BaseModel):
@@ -265,11 +313,11 @@ class CapabilityAuthorityFacts(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    auth_type: str | None
-    credential_mode: str | None
-    source: str | None
-    scopes: tuple[str, ...]
-    broad_scopes: tuple[str, ...]
+    auth_type: StrictText | None
+    credential_mode: StrictText | None
+    source: StrictText | None
+    scopes: tuple[StrictText, ...]
+    broad_scopes: tuple[StrictText, ...]
 
 
 class CapabilityControlFacts(BaseModel):
@@ -277,16 +325,16 @@ class CapabilityControlFacts(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    approval_required: bool | None
-    approval_threshold: str | None
-    confirmation_required: bool
-    safeguard_idempotency: bool | None
-    safeguard_audit_log: bool | None
-    safeguard_rollback: bool | None
-    safeguard_dry_run: bool | None
-    evidence_owner: str | None
-    evidence_runbook: str | None
-    evidence_approval_ticket: str | None
+    approval_required: StrictFlag | None
+    approval_threshold: StrictText | None
+    confirmation_required: StrictFlag
+    safeguard_idempotency: StrictFlag | None
+    safeguard_audit_log: StrictFlag | None
+    safeguard_rollback: StrictFlag | None
+    safeguard_dry_run: StrictFlag | None
+    evidence_owner: StrictText | None
+    evidence_runbook: StrictText | None
+    evidence_approval_ticket: StrictText | None
 
 
 class CapabilityPermissionFacts(BaseModel):
@@ -303,7 +351,7 @@ class CapabilityPermissionFacts(BaseModel):
 
     status: CapabilityPermissionStatus
     classes: tuple[CapabilityPermissionClass, ...]
-    side_effect_unknown: bool
+    side_effect_unknown: StrictFlag
 
     @model_validator(mode="after")
     def _profile_is_one_the_classifier_can_produce(self) -> CapabilityPermissionFacts:
@@ -348,10 +396,15 @@ class CapabilityPermissionFacts(BaseModel):
             raise ValueError(
                 "permission.classes with 'destructive' must also carry 'write'"
             )
-        if self.side_effect_unknown and "unknown" not in self.classes:
+        # Both directions. The lattice adds the `unknown` class exactly when side
+        # effects are unknown, so a payload carrying one without the other is
+        # describing a profile the classifier cannot produce — and the reciprocal
+        # is the half a consumer asking "is this safe?" would be misled by.
+        if self.side_effect_unknown != ("unknown" in self.classes):
             raise ValueError(
-                "permission.side_effect_unknown=True must carry the 'unknown' "
-                f"class: got {list(self.classes)}"
+                "permission.side_effect_unknown and the 'unknown' class are the "
+                f"same statement: got side_effect_unknown={self.side_effect_unknown} "
+                f"with classes {list(self.classes)}"
             )
         return self
 
@@ -367,14 +420,14 @@ class CapabilityEvidenceRef(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    source_type: str
-    source_id: str | None
-    source_ref: str | None
-    source_path: str | None
-    source_start_line: int | None
-    source_end_line: int | None
-    source_start_column: int | None
-    source_pointer: str | None
+    source_type: StrictText
+    source_id: StrictText | None
+    source_ref: StrictText | None
+    source_path: StrictText | None
+    source_start_line: SafeLine | None
+    source_end_line: SafeLine | None
+    source_start_column: SafeLine | None
+    source_pointer: StrictText | None
     provenance_kind: CapabilityEvidenceProvenanceKind
     confidence: Confidence
 
@@ -389,14 +442,14 @@ class CapabilityDigests(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    identity_hash: str
-    binding_hash: str
-    effect_hash: str
-    authority_hash: str
-    control_hash: str
-    schema_hash: str
-    risk_hash: str
-    evidence_hash: str
+    identity_hash: DigestToken
+    binding_hash: DigestToken
+    effect_hash: DigestToken
+    authority_hash: DigestToken
+    control_hash: DigestToken
+    schema_hash: DigestToken
+    risk_hash: DigestToken
+    evidence_hash: DigestToken
 
 
 class CapabilityRecord(BaseModel):
@@ -410,17 +463,17 @@ class CapabilityRecord(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    capability_id: str
-    operation: str
+    capability_id: Annotated[str, Field(strict=True, pattern=CAPABILITY_ID_PATTERN)]
+    operation: StrictText
     subject_kind: CapabilitySubjectKind
-    resource: tuple[str, ...]
-    scope: tuple[str, ...]
+    resource: tuple[StrictText, ...]
+    scope: tuple[StrictText, ...]
     effect: CapabilityEffectFacts
     authority: CapabilityAuthorityFacts
     controls: CapabilityControlFacts
     permission: CapabilityPermissionFacts
     evidence: CapabilityEvidenceRef
-    risk_tags: tuple[str, ...]
+    risk_tags: tuple[StrictText, ...]
     digests: CapabilityDigests
 
 
@@ -449,6 +502,270 @@ def records_semantically_equal(before: CapabilityRecord, after: CapabilityRecord
     return record_semantic_projection(before) == record_semantic_projection(after)
 
 
+#: Set-valued published dimensions. Gaining a member widens; losing one narrows.
+_SET_DIMENSIONS: tuple[tuple[str, str, str], ...] = (
+    ("scope_changed", "scope", "Capability scope"),
+    ("resource_changed", "resource", "Capability resource reach"),
+    ("authority_scope_changed", "authority.scopes", "Authority scope"),
+    ("broad_scope_changed", "broad_scope", "Broad authority scope"),
+    ("risk_tags_changed", "risk_tags", "Risk tags"),
+)
+
+#: Boolean published dimensions where ``True`` is the wider reading.
+_WIDENING_FLAGS: tuple[tuple[str, str], ...] = (
+    ("effect.externally_visible", "Externally visible"),
+    ("effect.handles_sensitive_data", "Handles sensitive data"),
+    ("effect.financial", "Financial"),
+    ("effect.code_execution", "Code execution"),
+    ("effect.high_risk", "High risk"),
+)
+
+#: Controls: a proven control is the narrower reading, so losing one widens.
+#: ``None`` and ``False`` are both "no control proven", so moving between them
+#: is a change without a direction.
+_CONTROL_FLAGS: tuple[tuple[str, str], ...] = (
+    ("controls.approval_required", "Approval requirement"),
+    ("controls.confirmation_required", "Confirmation requirement"),
+    ("controls.safeguard_idempotency", "Idempotency safeguard"),
+    ("controls.safeguard_audit_log", "Audit-log safeguard"),
+    ("controls.safeguard_rollback", "Rollback safeguard"),
+    ("controls.safeguard_dry_run", "Dry-run safeguard"),
+)
+
+#: Published strings that move without implying a direction.
+_OPAQUE_DIMENSIONS: tuple[tuple[str, str, str], ...] = (
+    ("authority_identity_changed", "authority.auth_type", "Authority type"),
+    ("authority_identity_changed", "authority.credential_mode", "Credential mode"),
+    ("authority_identity_changed", "authority.source", "Authority source"),
+    ("control_metadata_changed", "controls.approval_threshold", "Approval threshold"),
+    ("control_metadata_changed", "controls.evidence_owner", "Evidence owner"),
+    ("control_metadata_changed", "controls.evidence_runbook", "Evidence runbook"),
+    (
+        "control_metadata_changed",
+        "controls.evidence_approval_ticket",
+        "Approval ticket",
+    ),
+    ("operation_changed", "operation", "Operation"),
+    ("operation_changed", "subject_kind", "Subject kind"),
+)
+
+
+def _dotted(record: CapabilityRecord, path: str) -> Any:
+    value: Any = record
+    for part in path.split("."):
+        value = getattr(value, part)
+    return value
+
+
+def _direction_of(widened: bool, narrowed: bool) -> CapabilitySemanticDirection:
+    if widened and narrowed:
+        return "mixed"
+    if widened:
+        return "broadened"
+    if narrowed:
+        return "narrowed"
+    return "unknown"
+
+
+def published_semantic_shift(
+    before: CapabilityRecord,
+    after: CapabilityRecord,
+) -> tuple[CapabilitySemanticDirection, tuple[CapabilityChangeFact, ...]]:
+    """Derive the direction and the explanations from the two published records.
+
+    Both are **derived, not asserted**. A frozen attestation whose direction a
+    producer could set freely is one a consumer cannot check without redoing the
+    comparison from the records — at which point the field was worth nothing. So
+    the parser recomputes it here, over the published content only, and rejects a
+    payload that says otherwise.
+
+    That makes the direction mean something slightly narrower than the fact
+    layer's, and deliberately so: it is *the direction of what this payload
+    publishes*. The fact layer folds the semantic assessment into one digest and
+    this payload publishes a permission block derived from it, so inheriting the
+    engine's verdict is how a permission expansion came to be labelled
+    provenance-only in the first place.
+
+    ``evidence_only`` is therefore not a producer's claim either: it is exactly
+    "the two records are equal apart from provenance", and nothing else can be
+    called that.
+    """
+
+    if records_semantically_equal(before, after):
+        return "evidence_only", ()
+
+    changes: list[CapabilityChangeFact] = []
+    widened = False
+    narrowed = False
+
+    def record_change(
+        kind: str,
+        field: str,
+        direction: CapabilitySemanticDirection,
+        before_value: Any,
+        after_value: Any,
+        rationale: str,
+    ) -> None:
+        nonlocal widened, narrowed
+        # `mixed` on one dimension is both, not neither: a scope that gained one
+        # entry and lost another has widened *and* narrowed, and dropping that
+        # into the rollup as "no signal" would report the whole change as
+        # `unknown`.
+        widened = widened or direction in {"broadened", "mixed"}
+        narrowed = narrowed or direction in {"narrowed", "mixed"}
+        changes.append(
+            CapabilityChangeFact(
+                kind=kind,  # type: ignore[arg-type]
+                field=field,
+                direction=direction,
+                before=before_value,
+                after=after_value,
+                rationale=rationale,
+            )
+        )
+
+    for kind, field, label in _SET_DIMENSIONS:
+        source = "authority.broad_scopes" if field == "broad_scope" else field
+        old_values = tuple(_dotted(before, source))
+        new_values = tuple(_dotted(after, source))
+        if old_values == new_values:
+            continue
+        gained = set(new_values) - set(old_values)
+        lost = set(old_values) - set(new_values)
+        direction = _direction_of(bool(gained), bool(lost))
+        record_change(
+            kind,
+            field,
+            direction,
+            old_values,
+            new_values,
+            f"{label} {_set_verb(direction)}.",
+        )
+
+    if before.effect.effect != after.effect.effect:
+        old_rank = ACTION_EFFECT_RANK[before.effect.effect]
+        new_rank = ACTION_EFFECT_RANK[after.effect.effect]
+        direction = _direction_of(new_rank > old_rank, new_rank < old_rank)
+        record_change(
+            "effect_changed",
+            "effect.effect",
+            direction,
+            before.effect.effect,
+            after.effect.effect,
+            f"Capability effect {_rank_verb(direction)}.",
+        )
+
+    if before.effect.reversibility != after.effect.reversibility:
+        old_rank = REVERSIBILITY_RANK[before.effect.reversibility]
+        new_rank = REVERSIBILITY_RANK[after.effect.reversibility]
+        direction = _direction_of(new_rank > old_rank, new_rank < old_rank)
+        record_change(
+            "reversibility_changed",
+            "effect.reversibility",
+            direction,
+            before.effect.reversibility,
+            after.effect.reversibility,
+            f"Reversibility {_rank_verb(direction)}.",
+        )
+
+    for field, label in _WIDENING_FLAGS:
+        old_value = _dotted(before, field)
+        new_value = _dotted(after, field)
+        if old_value == new_value:
+            continue
+        record_change(
+            "effect_flag_changed",
+            field,
+            _direction_of(bool(new_value), bool(old_value)),
+            old_value,
+            new_value,
+            f"{label} {'set' if new_value else 'cleared'}.",
+        )
+
+    if before.effect.idempotency_known != after.effect.idempotency_known:
+        record_change(
+            "idempotency_evidence_changed",
+            "effect.idempotency_known",
+            _direction_of(
+                not after.effect.idempotency_known,
+                bool(after.effect.idempotency_known),
+            ),
+            before.effect.idempotency_known,
+            after.effect.idempotency_known,
+            "Idempotency evidence "
+            f"{'lost' if not after.effect.idempotency_known else 'gained'}.",
+        )
+
+    for field, label in _CONTROL_FLAGS:
+        old_value = _dotted(before, field)
+        new_value = _dotted(after, field)
+        if old_value == new_value:
+            continue
+        record_change(
+            "control_changed",
+            field,
+            _direction_of(old_value is True, new_value is True),
+            old_value,
+            new_value,
+            f"{label} {'proven' if new_value is True else 'no longer proven'}.",
+        )
+
+    if before.permission != after.permission:
+        record_change(
+            "permission_changed",
+            "permission",
+            _permission_direction(before.permission, after.permission),
+            tuple(before.permission.classes),
+            tuple(after.permission.classes),
+            "Published permission profile changed.",
+        )
+
+    for kind, field, label in _OPAQUE_DIMENSIONS:
+        old_value = _dotted(before, field)
+        new_value = _dotted(after, field)
+        if old_value == new_value:
+            continue
+        record_change(kind, field, "unknown", old_value, new_value, f"{label} changed.")
+
+    ordered = tuple(sorted(changes, key=capability_change_sort_key))
+    # Nothing published moved except opaque digests or the capability id: the
+    # records differ, but this payload cannot see how. `unknown` is the honest
+    # answer, and it is not `evidence_only`.
+    return _direction_of(widened, narrowed), ordered
+
+
+def _permission_direction(
+    before: CapabilityPermissionFacts,
+    after: CapabilityPermissionFacts,
+) -> CapabilitySemanticDirection:
+    """A measured profile and an unmeasured one are not comparable.
+
+    Losing the measurement is not a narrowing and regaining it is not a
+    broadening, so a status move gets no direction rather than an invented one.
+    """
+
+    if before.status != after.status:
+        return "unknown"
+    gained = set(after.classes) - set(before.classes)
+    lost = set(before.classes) - set(after.classes)
+    return _direction_of(
+        bool(gained) or (after.side_effect_unknown and not before.side_effect_unknown),
+        bool(lost) or (before.side_effect_unknown and not after.side_effect_unknown),
+    )
+
+
+def _set_verb(direction: CapabilitySemanticDirection) -> str:
+    return {
+        "broadened": "expanded",
+        "narrowed": "narrowed",
+        "mixed": "both expanded and narrowed",
+    }.get(direction, "changed")
+
+
+def _rank_verb(direction: CapabilitySemanticDirection) -> str:
+    return {"broadened": "escalated", "narrowed": "reduced"}.get(direction, "changed")
+
+
 def changed_record_dimensions(
     before: CapabilityRecord,
     after: CapabilityRecord,
@@ -460,6 +777,58 @@ def changed_record_dimensions(
         for name in CAPABILITY_DIGEST_DIMENSIONS
         if getattr(before.digests, name) != getattr(after.digests, name)
     )
+
+
+#: What kind of published content moved. Closed, because every entry is derived
+#: by :func:`published_semantic_shift` — there is no producer-supplied kind.
+CapabilityChangeKind = Literal[
+    "scope_changed",
+    "resource_changed",
+    "authority_scope_changed",
+    "broad_scope_changed",
+    "risk_tags_changed",
+    "effect_changed",
+    "effect_flag_changed",
+    "reversibility_changed",
+    "idempotency_evidence_changed",
+    "permission_changed",
+    "control_changed",
+    "authority_identity_changed",
+    "control_metadata_changed",
+    "operation_changed",
+]
+
+#: A change's before/after value, restricted to the canonical domain. The
+#: internal ``CapabilitySemanticChange`` types these ``Any`` and defaults them to
+#: ``None``, which is right for a report block and wrong for a frozen wire type:
+#: it would admit values outside the integer-only canonical domain and let a
+#: future internal field widen ``v1`` without the type-parity guard noticing.
+CapabilityChangeValue = (
+    StrictText | SafeInt | StrictFlag | tuple[StrictText, ...] | None
+)
+
+
+class CapabilityChangeFact(BaseModel):
+    """One published dimension that moved, and which way.
+
+    Every field is required — including ``before`` and ``after``, which are
+    nullable but never omitted — and every instance is *derived* from the two
+    records by :func:`published_semantic_shift`. A producer cannot write one,
+    and cannot leave one out: the parser recomputes the whole list.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    kind: CapabilityChangeKind
+    field: StrictText
+    direction: CapabilitySemanticDirection
+    before: CapabilityChangeValue
+    after: CapabilityChangeValue
+    rationale: StrictText
+
+
+def capability_change_sort_key(change: CapabilityChangeFact) -> tuple[str, str]:
+    return (change.kind, change.field)
 
 
 def capability_record_sort_key(record: CapabilityRecord) -> tuple[str, str, str]:
@@ -505,7 +874,7 @@ class CapabilityRecordTransitionEntry(BaseModel):
     transition: CapabilityRecordTransition
     changed_dimensions: tuple[CapabilityHashName, ...]
     semantic_direction: CapabilitySemanticDirection
-    semantic_changes: tuple[CapabilitySemanticChange, ...]
+    semantic_changes: tuple[CapabilityChangeFact, ...]
     before: CapabilityRecord | None
     after: CapabilityRecord | None
 
@@ -525,7 +894,7 @@ class CapabilityRecordTransitionEntry(BaseModel):
             )
         _require_sorted(
             self.semantic_changes,
-            capability_semantic_change_sort_key,
+            capability_change_sort_key,
             what="semantic_changes",
         )
         if self.transition in {"added", "removed"}:
@@ -540,6 +909,11 @@ class CapabilityRecordTransitionEntry(BaseModel):
                 raise ValueError(
                     f"transition {self.transition!r} must carry semantic_direction "
                     f"{self.transition!r}, not {self.semantic_direction!r}"
+                )
+            if self.semantic_changes:
+                raise ValueError(
+                    f"transition {self.transition!r} has no second record to "
+                    "compare against and cannot carry semantic changes"
                 )
             return self
 
@@ -582,17 +956,23 @@ class CapabilityRecordTransitionEntry(BaseModel):
                 "different capability_id and identity_hash on the two sides (got "
                 f"{before.capability_id} / {after.capability_id})"
             )
-        # Evidence-only means *published* semantics did not move. The fact layer
-        # folds the semantic assessment into evidence_hash alone, and this
-        # payload publishes a permission block derived from it — so inheriting
-        # the fact layer's classification unchanged would label a published
-        # permission expansion as provenance-only.
-        if self.semantic_direction == "evidence_only" and not records_semantically_equal(
-            before, after
-        ):
+        # `semantic_direction` and `semantic_changes` are derived from the two
+        # records, not asserted about them. A direction a producer could set
+        # freely is one a consumer cannot check without redoing the comparison,
+        # at which point the field was worth nothing — and relabelling an
+        # `evidence_only` row `broadened`, or deleting its explanations, both
+        # validated before this.
+        direction, derived_changes = published_semantic_shift(before, after)
+        if self.semantic_direction != direction:
             raise ValueError(
-                "semantic_direction 'evidence_only' claims only provenance moved, "
-                "but the two published records differ in semantic content"
+                f"semantic_direction {self.semantic_direction!r} is not what the "
+                f"two published records show ({direction!r})"
+            )
+        if tuple(self.semantic_changes) != derived_changes:
+            raise ValueError(
+                "semantic_changes must be exactly the published dimensions that "
+                f"moved: declared {[change.field for change in self.semantic_changes]}, "
+                f"records give {[change.field for change in derived_changes]}"
             )
         return self
 
@@ -628,8 +1008,8 @@ class CapabilityDeltaSubject(BaseModel):
     #: delta row carries only the capabilities that moved, so a subject that
     #: kept one operation and lost another looks, from its changes alone,
     #: exactly like a subject that went away entirely.
-    present_in_base: bool
-    present_in_head: bool
+    present_in_base: StrictFlag
+    present_in_head: StrictFlag
     transition: CapabilitySubjectTransition
     changes: tuple[CapabilityRecordTransitionEntry, ...] = Field(min_length=1)
 
@@ -828,13 +1208,6 @@ class CapabilityCoverageDelta(BaseModel):
         return self
 
     @classmethod
-    def not_requested(cls) -> CapabilityCoverageDelta:
-        return cls.of(
-            CapabilityAnalysisCoverage.not_requested(),
-            CapabilityAnalysisCoverage.not_requested(),
-        )
-
-    @classmethod
     def of(
         cls,
         base: CapabilityAnalysisCoverage,
@@ -963,13 +1336,13 @@ class CapabilityStateRef(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    capability_standard_version: str
-    subject_count: int = Field(ge=0)
-    capability_count: int = Field(ge=0)
-    capability_set_digest: str = Field(pattern=PAYLOAD_DIGEST_PATTERN)
-    evidence_set_digest: str = Field(pattern=PAYLOAD_DIGEST_PATTERN)
-    analysis_coverage_digest: str = Field(pattern=PAYLOAD_DIGEST_PATTERN)
-    ref: str | None
+    capability_standard_version: StrictText
+    subject_count: SafeCount
+    capability_count: SafeCount
+    capability_set_digest: PayloadDigest
+    evidence_set_digest: PayloadDigest
+    analysis_coverage_digest: PayloadDigest
+    ref: StrictText | None
 
     @model_validator(mode="after")
     def _counts_are_consistent(self) -> CapabilityStateRef:
@@ -995,11 +1368,11 @@ class CapabilityDeltaSummary(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    subjects: int = Field(ge=0)
-    added_subjects: int = Field(ge=0)
-    removed_subjects: int = Field(ge=0)
-    modified_subjects: int = Field(ge=0)
-    capability_changes: int = Field(ge=0)
+    subjects: SafeCount
+    added_subjects: SafeCount
+    removed_subjects: SafeCount
+    modified_subjects: SafeCount
+    capability_changes: SafeCount
 
     @model_validator(mode="after")
     def _counts_are_consistent(self) -> CapabilityDeltaSummary:
@@ -1022,7 +1395,7 @@ class _CapabilityPayloadBase(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     capability_payload_schema_version: Literal["shipgate.capability_payload/v1"]
-    capability_standard_version: str
+    capability_standard_version: StrictText
 
 
 class CapabilityStatePayloadV1(_CapabilityPayloadBase):
@@ -1122,19 +1495,49 @@ class CapabilityDeltaPayloadV1(_CapabilityPayloadBase):
                     f"{side}.analysis_coverage_digest does not describe the "
                     f"{side} coverage this delta carries"
                 )
+        # The two refs describe states this delta does not carry, but the rows do
+        # constrain how far apart they can be: a subject is in head and not base
+        # exactly when it is `added`, and a capability record arrives or leaves
+        # exactly on an `added` / `removed` transition. Without this, the head
+        # ref could claim any counts at all — 100 subjects on a one-added-tool
+        # delta validated.
+        subject_delta = self.head.subject_count - self.base.subject_count
+        expected_subject_delta = self.summary.added_subjects - self.summary.removed_subjects
+        if subject_delta != expected_subject_delta:
+            raise ValueError(
+                f"head.subject_count - base.subject_count ({subject_delta}) must "
+                f"equal added minus removed subjects ({expected_subject_delta})"
+            )
+        capability_delta = self.head.capability_count - self.base.capability_count
+        arrivals = departures = 0
+        for entry in self.subjects:
+            for change in entry.changes:
+                if change.transition == "added":
+                    arrivals += 1
+                elif change.transition == "removed":
+                    departures += 1
+        if capability_delta != arrivals - departures:
+            raise ValueError(
+                f"head.capability_count - base.capability_count ({capability_delta}) "
+                f"must equal added minus removed capability records "
+                f"({arrivals - departures})"
+            )
         # An empty delta is a claim that the two states are the same state, so it
         # has to be one the payload's own digests support. No rows means every
         # fact matched on every dimension, which makes both published digests
         # equal by construction — so only a hand-written or tampered payload can
         # say "nothing changed" while naming two different states, and a consumer
-        # must not have to notice that itself.
+        # must not have to notice that itself. Coverage is deliberately excluded:
+        # a change that only moves what could *not* be analysed has no subject
+        # rows by construction and must stay expressible (#437).
         if not self.subjects and (
             self.base.capability_set_digest != self.head.capability_set_digest
             or self.base.evidence_set_digest != self.head.evidence_set_digest
         ):
             raise ValueError(
-                "a delta with no subject rows claims base and head are the same "
-                f"state, but their digests differ (capability "
+                "a delta with no subject rows claims the analysed capability of "
+                "base and head is identical, but their capability/evidence "
+                "digests differ (capability "
                 f"{self.base.capability_set_digest[:12]}… vs "
                 f"{self.head.capability_set_digest[:12]}…, evidence "
                 f"{self.base.evidence_set_digest[:12]}… vs "
@@ -1230,13 +1633,19 @@ __all__ = [
     "CAPABILITY_PAYLOAD_SCHEMA_VERSION",
     "CAPABILITY_PAYLOAD_SPEC_PATH",
     "PAYLOAD_DIGEST_PATTERN",
+    "ACTION_EFFECT_RANK",
+    "MAX_SAFE_INTEGER",
     "PERMISSION_CLASS_RANK",
+    "REVERSIBILITY_RANK",
     "SUBJECT_KEY_DIGEST_CHARS",
     "SUBJECT_KEY_PATTERN",
     "SUBJECT_KEY_PREFIX",
     "CapabilityAnalysisCoverage",
     "CapabilityAnalysisStatus",
     "CapabilityAuthorityFacts",
+    "CapabilityChangeFact",
+    "CapabilityChangeKind",
+    "CapabilityChangeValue",
     "CapabilityControlFacts",
     "CapabilityCoverageDelta",
     "CapabilityDeltaPayloadArtifactV1",
@@ -1261,6 +1670,7 @@ __all__ = [
     "CapabilitySubjectRef",
     "CapabilitySubjectTransition",
     "canonical_payload_json",
+    "capability_change_sort_key",
     "capability_record_sort_key",
     "capability_transition_sort_key",
     "changed_record_dimensions",
@@ -1269,6 +1679,7 @@ __all__ = [
     "delta_summary",
     "payload_digest",
     "record_semantic_projection",
+    "published_semantic_shift",
     "records_semantically_equal",
     "state_digests",
     "subject_key",
