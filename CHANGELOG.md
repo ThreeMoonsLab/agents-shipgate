@@ -21,8 +21,8 @@
   request as the tool it could hide. Five idioms ship, chosen by a 30-server
   survey published at [`docs/mcp-registration-idioms.md`](docs/mcp-registration-idioms.md);
   Python's FastMCP decorator is the largest measured shape and is deliberately
-  deferred, because it is a different extraction mechanism and #393 requires
-  each one to bring its own adversarial probe list.
+  deferred (#484), because it is a different extraction mechanism and #393
+  requires each one to bring its own adversarial probe list.
 
   `detect` offers the route only where a declared MCP dependency and a resolved
   registration hold *together* — a class of one's own that spells a field
@@ -53,7 +53,7 @@
   needs its own increment with a shared conformance corpus; the divergence is
   named in the script's own "intentional simplifications" list and pinned by
   `test_framework_vocabulary_names_every_cli_omission`, which fails on any
-  further omission.
+  further omission (#485).
 
 - **Verifier and evidence explanations now preserve the fact that produced
   them.** (#436, #396, #414, #420) Plain blocked-run headlines name the

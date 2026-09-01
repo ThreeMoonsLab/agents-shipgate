@@ -65,7 +65,8 @@ the mechanism is reusable but each one needs its own adversarial probe list
 before it can claim anything — the lexical reader shipped here had eight
 fail-open constructs in its first draft, all found by writing that list. Python
 gets its own increment, its own probes, and a real AST rather than a masking
-lexer.
+lexer — filed as
+[#484](https://github.com/ThreeMoonsLab/agents-shipgate/issues/484).
 
 ## What the reader does and does not read
 
@@ -123,6 +124,12 @@ only support the one published server, so the split returned four scopes and
 reach. The over-broad route is visible in the manifest `init` writes and an
 adopter narrows it in one line; the withheld one leaves them where they
 started, which is the state #431 was filed about.
+
+The zero-install detector (`tools/shipgate-detect.py`) does not read registration
+sites at all, so it still answers "not an agent project" for these repositories
+while the installed CLI does not. That divergence is named in the script's own
+"intentional simplifications" list, pinned by a test, and filed as
+[#485](https://github.com/ThreeMoonsLab/agents-shipgate/issues/485).
 
 ## Routing a diff
 

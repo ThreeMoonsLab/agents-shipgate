@@ -142,9 +142,9 @@ def test_framework_vocabulary_names_every_cli_omission(script_module):
 
     from agents_shipgate.cli.discovery.signals import _initial_framework_scores
 
-    # Documented, deliberate, and filed as a follow-up to #431. Porting the
-    # reader means a second implementation of the load-bearing matcher, which
-    # needs its own increment and a conformance corpus shared with the package.
+    # Documented, deliberate, and filed as #485. Porting the reader means a
+    # second implementation of the load-bearing matcher, which needs its own
+    # increment and a conformance corpus shared with the package.
     known_omissions = {"mcp_server_source"}
 
     cli = set(_initial_framework_scores())
