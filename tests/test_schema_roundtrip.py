@@ -122,6 +122,26 @@ def test_agent_handoff_schema_matches_committed_file(generator):
     _assert_match(target, content)
 
 
+def test_capability_payload_schema_matches_committed_file(generator):
+    target, content = generator.build_capability_payload_schema()
+    _assert_match(target, content)
+
+
+def test_capability_payload_examples_match_committed_files(generator):
+    """The worked examples are generated from a shipped sample, not written.
+
+    A hand-written example is a claim about the format that nothing checks; the
+    #425 pattern is to generate it and gate it on drift.
+    """
+
+    for builder in (
+        generator.build_capability_payload_state_example,
+        generator.build_capability_payload_delta_example,
+    ):
+        target, content = builder()
+        _assert_match(target, content)
+
+
 def test_checks_catalog_matches_committed_file(generator):
     target, content = generator.build_checks_catalog()
     _assert_match(target, content)

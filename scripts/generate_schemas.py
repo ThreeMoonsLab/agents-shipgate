@@ -64,6 +64,14 @@ Writes / verifies:
 - docs/capability-lock-diff-schema.v0.9.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockDiffArtifactV1)
+- docs/capability-payload-schema.v1.json
+                                (from agents_shipgate.schemas.capability_payload.
+                                 CapabilityPayloadV1)
+- docs/examples/capability-payload.v1.state.example.json
+- docs/examples/capability-payload.v1.delta.example.json
+                                (projected from the shipped
+                                 samples/ai_generated_refund_pr fixture, so the
+                                 worked examples cannot drift from the schema)
 - docs/governance-benchmark-catalog-schema.v0.2.json
                                 (from agents_shipgate.schemas.governance_benchmark.
                                  GovernanceBenchmarkCatalogArtifactV1)
@@ -1709,6 +1717,336 @@ def write_capability_lock_diff_schema(
     )
 
 
+def _postprocess_capability_payload(schema: dict[str, Any]) -> None:
+    """Push every constraint JSON Schema *can* express into the published file.
+
+    Pydantic's ``model_json_schema`` does not emit ``model_validator`` rules, so
+    a consumer handed only this file would validate far less than the spec
+    promises. Several of those rules are ordinary conditional schemas, and an
+    external tool should get them for free rather than be told to reimplement
+    them. What genuinely cannot be expressed here — anything requiring a
+    recomputation — is named as stage two in the schema description and
+    enumerated in the spec page.
+    """
+
+    defs = schema["$defs"]
+
+    def not_null(field: str) -> dict[str, Any]:
+        return {"properties": {field: {"not": {"type": "null"}}}}
+
+    def is_null(field: str) -> dict[str, Any]:
+        return {"properties": {field: {"type": "null"}}}
+
+    def when(field: str, value: Any) -> dict[str, Any]:
+        return {"properties": {field: {"const": value}}, "required": [field]}
+
+    entry = defs["CapabilityRecordTransitionEntry"]
+    entry["allOf"] = [
+        # A membership change has exactly one side, no changed dimensions, and
+        # one honest direction.
+        {
+            "if": when("transition", "added"),
+            "then": {
+                "allOf": [
+                    is_null("before"),
+                    not_null("after"),
+                    {"properties": {"changed_dimensions": {"maxItems": 0}}},
+                    when("semantic_direction", "added"),
+                ]
+            },
+        },
+        {
+            "if": when("transition", "removed"),
+            "then": {
+                "allOf": [
+                    not_null("before"),
+                    is_null("after"),
+                    {"properties": {"changed_dimensions": {"maxItems": 0}}},
+                    when("semantic_direction", "removed"),
+                ]
+            },
+        },
+        # A paired change carries both sides, at least one moved dimension, and
+        # cannot claim a membership direction.
+        *(
+            {
+                "if": when("transition", transition),
+                "then": {
+                    "allOf": [
+                        not_null("before"),
+                        not_null("after"),
+                        {"properties": {"changed_dimensions": {"minItems": 1}}},
+                        {
+                            "properties": {
+                                "semantic_direction": {
+                                    "not": {"enum": ["added", "removed"]}
+                                }
+                            }
+                        },
+                    ]
+                },
+            }
+            for transition in ("changed", "reidentified")
+        ),
+    ]
+
+    subject = defs["CapabilityDeltaSubject"]
+    subject["allOf"] = [
+        # `transition` follows from the presence pair, and a subject present on
+        # neither side is not a row at all.
+        {
+            "if": {
+                "allOf": [when("present_in_base", base), when("present_in_head", head)]
+            },
+            "then": when("transition", expected),
+        }
+        for base, head, expected in (
+            (False, True, "added"),
+            (True, False, "removed"),
+            (True, True, "modified"),
+        )
+    ] + [
+        {
+            "not": {
+                "allOf": [
+                    when("present_in_base", False),
+                    when("present_in_head", False),
+                ]
+            }
+        },
+        # Presence bounds the changes, not only the transition label: a subject
+        # base never had cannot carry a capability that changed or went away.
+        *(
+            {
+                "if": when(field, False),
+                "then": {
+                    "properties": {
+                        "changes": {
+                            "items": {
+                                "properties": {"transition": {"const": allowed}},
+                                "required": ["transition"],
+                            }
+                        }
+                    }
+                },
+            }
+            for field, allowed in (
+                ("present_in_base", "added"),
+                ("present_in_head", "removed"),
+            )
+        ),
+    ]
+
+    # The permission shapes the classifier can actually produce. A consumer
+    # reasons about this block — "is this read-only?" — so a combination the
+    # lattice never emits is a claim with no meaning, and stage one can say so.
+    permission = defs["CapabilityPermissionFacts"]
+    permission["allOf"] = [
+        {
+            "if": when("status", "unavailable"),
+            "then": {
+                "allOf": [
+                    {"properties": {"classes": {"maxItems": 0}}},
+                    when("side_effect_unknown", True),
+                ]
+            },
+        },
+        {
+            "if": when("status", "measured"),
+            "then": {"properties": {"classes": {"minItems": 1}}},
+        },
+        # `read` is the whole profile or not in it at all.
+        {
+            "if": {
+                "properties": {"classes": {"contains": {"const": "read"}}},
+                "required": ["classes"],
+            },
+            "then": {"properties": {"classes": {"maxItems": 1}}},
+        },
+        # `destructive` always carries `write`.
+        {
+            "if": {
+                "properties": {"classes": {"contains": {"const": "destructive"}}},
+                "required": ["classes"],
+            },
+            "then": {"properties": {"classes": {"contains": {"const": "write"}}}},
+        },
+        # Unknown side effects and the `unknown` class are the same statement,
+        # in both directions.
+        {
+            "if": when("side_effect_unknown", True),
+            "then": {
+                "anyOf": [
+                    when("status", "unavailable"),
+                    {"properties": {"classes": {"contains": {"const": "unknown"}}}},
+                ]
+            },
+        },
+        {
+            "if": {
+                "properties": {"classes": {"contains": {"const": "unknown"}}},
+                "required": ["classes"],
+            },
+            "then": when("side_effect_unknown", True),
+        },
+    ]
+
+    # A membership change has no second record to compare against.
+    for transition in ("added", "removed"):
+        entry["allOf"].append(
+            {
+                "if": when("transition", transition),
+                "then": {"properties": {"semantic_changes": {"maxItems": 0}}},
+            }
+        )
+
+    # Naming a subject outside analysis requires having looked.
+    defs["CapabilityAnalysisCoverage"]["allOf"] = [
+        {
+            "if": {
+                "properties": {"status": {"not": {"const": "complete"}}},
+                "required": ["status"],
+            },
+            "then": {"properties": {"subjects_outside_analysis": {"maxItems": 0}}},
+        }
+    ]
+
+    # Identical rows are the cheap half of "one subject, one row"; the rest is
+    # stage two, because uniqueness is on a sub-key.
+    for name, field in (
+        ("CapabilityStatePayloadV1", "subjects"),
+        ("CapabilityDeltaPayloadV1", "subjects"),
+        ("CapabilityStateSubject", "capabilities"),
+        ("CapabilityDeltaSubject", "changes"),
+        ("CapabilityAnalysisCoverage", "subjects_outside_analysis"),
+        ("CapabilityCoverageDelta", "newly_outside_analysis"),
+        ("CapabilityCoverageDelta", "no_longer_outside_analysis"),
+        ("CapabilityRecordTransitionEntry", "semantic_changes"),
+        ("CapabilityRecordTransitionEntry", "changed_dimensions"),
+        ("CapabilityPermissionFacts", "classes"),
+        ("CapabilityRecord", "resource"),
+        ("CapabilityRecord", "scope"),
+        ("CapabilityRecord", "risk_tags"),
+        ("CapabilityAuthorityFacts", "scopes"),
+        ("CapabilityAuthorityFacts", "broad_scopes"),
+    ):
+        defs[name]["properties"][field]["uniqueItems"] = True
+
+    # Every object in the published schema requires every property it declares.
+    # A field with a schema default drops out of `required`, and a wire format
+    # whose spec says "always present" must not have any.
+    for name, definition in defs.items():
+        if definition.get("type") != "object" or "properties" not in definition:
+            continue
+        missing = sorted(set(definition["properties"]) - set(definition.get("required", [])))
+        if missing:  # pragma: no cover - the generator would be shipping a hole
+            raise AssertionError(
+                f"{name} publishes optional properties {missing}; every field of "
+                "the capability payload must be required on the wire"
+            )
+
+
+def build_capability_payload_schema() -> tuple[Path, str]:
+    """Generate the frozen shared capability payload schema (#469)."""
+
+    from agents_shipgate.schemas.capability_payload import (
+        CAPABILITY_PAYLOAD_SCHEMA_VERSION,
+        CapabilityPayloadV1,
+    )
+
+    schema = CapabilityPayloadV1.model_json_schema()
+    _postprocess_capability_payload(schema)
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        "main/docs/capability-payload-schema.v1.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = "Agents Shipgate Capability Payload v1"
+    schema["description"] = (
+        "Frozen JSON Schema for "
+        f"{CAPABILITY_PAYLOAD_SCHEMA_VERSION} — the one capability payload "
+        "shared by the exported capability delta and the committed capability "
+        "state. Generated from "
+        "agents_shipgate.schemas.capability_payload.CapabilityPayloadV1. Two "
+        "views discriminated on `view`; one subject is one row. "
+        "VALIDATION IS TWO STAGES: this file is stage one and is not "
+        "sufficient on its own. The rules that require recomputation — "
+        "subject-key derivation, summary and transition rollups, changed-"
+        "dimension derivation, state-digest verification, cross-row "
+        "uniqueness, and the coverage transition — cannot be expressed in "
+        "JSON Schema and are listed as stage two in "
+        "docs/capability-payload.md; a consumer that runs only stage one does "
+        "not have the guarantees the spec states. It is non-gating and is not "
+        "part of report.json; release_decision.decision remains the only gate."
+    )
+    target = DOCS / "capability-payload-schema.v1.json"
+    return target, _canonical_json(schema)
+
+
+# The worked examples are projected from a shipped sample rather than written
+# by hand, for the reason #425 recorded: a hand-written example is a claim
+# about the format that nothing checks, and it drifts silently. Generating
+# them here puts them under the same `--check` drift gate as the schemas.
+_PAYLOAD_EXAMPLE_SAMPLE = REPO_ROOT / "samples" / "ai_generated_refund_pr"
+
+
+def _capability_payload_example_facts() -> tuple[list[Any], list[Any]]:
+    """Build the base and head capability facts of the refund-PR sample.
+
+    The sample keeps its head tool surface under ``_head/`` because the fixture
+    runner materializes a two-commit history from it. Reproduce that here with a
+    temporary copy: static inputs only, no git, no network.
+    """
+
+    import shutil
+    import tempfile
+
+    from agents_shipgate.cli.capability import build_capability_lock_from_config
+
+    base = build_capability_lock_from_config(
+        config=_PAYLOAD_EXAMPLE_SAMPLE / "shipgate.yaml",
+        no_plugins=True,
+        verbose=False,
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        head_root = Path(tmp) / "head"
+        shutil.copytree(_PAYLOAD_EXAMPLE_SAMPLE, head_root)
+        shutil.copyfile(head_root / "_head" / "tools.json", head_root / "tools.json")
+        head = build_capability_lock_from_config(
+            config=head_root / "shipgate.yaml",
+            no_plugins=True,
+            verbose=False,
+        )
+    return base.capabilities, head.capabilities
+
+
+def build_capability_payload_state_example() -> tuple[Path, str]:
+    """Generate the worked state-view example from the shipped sample."""
+
+    from agents_shipgate.core.capability_payload import project_capability_state
+
+    base_facts, _ = _capability_payload_example_facts()
+    payload = project_capability_state(base_facts, ref="samples/ai_generated_refund_pr")
+    target = DOCS / "examples" / "capability-payload.v1.state.example.json"
+    return target, _canonical_json(payload.model_dump(mode="json"))
+
+
+def build_capability_payload_delta_example() -> tuple[Path, str]:
+    """Generate the worked delta-view example from the shipped sample."""
+
+    from agents_shipgate.core.capability_payload import project_capability_delta
+
+    base_facts, head_facts = _capability_payload_example_facts()
+    payload = project_capability_delta(
+        base_facts,
+        head_facts,
+        base_ref="samples/ai_generated_refund_pr",
+        head_ref="samples/ai_generated_refund_pr/_head",
+    )
+    target = DOCS / "examples" / "capability-payload.v1.delta.example.json"
+    return target, _canonical_json(payload.model_dump(mode="json"))
+
+
 def build_governance_benchmark_catalog_schema() -> tuple[Path, str]:
     """Generate the stable governance-benchmark catalog schema."""
 
@@ -2356,6 +2694,9 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("preflight", build_preflight_schema),
     ("capability_lock", build_capability_lock_schema),
     ("capability_lock_diff", build_capability_lock_diff_schema),
+    ("capability_payload", build_capability_payload_schema),
+    ("capability_payload_state_example", build_capability_payload_state_example),
+    ("capability_payload_delta_example", build_capability_payload_delta_example),
     ("attestation", build_attestation_schema),
     ("org_governance", build_org_governance_schema),
     ("org_evidence_bundle", build_org_evidence_bundle_schema),
@@ -2386,6 +2727,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     DOCS.mkdir(parents=True, exist_ok=True)
+    (DOCS / "examples").mkdir(parents=True, exist_ok=True)
     drift: list[str] = []
     for _name, builder in BUILDERS:
         target, content = builder()

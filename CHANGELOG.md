@@ -67,6 +67,99 @@
   this tool's contract with full confidence", shared by the semantic resolver,
   `low_confidence_tool_count`, and the boundary generator.
 
+- **One capability schema, frozen before either surface that will ship it.**
+  (#469) Two planned public surfaces serialize the same internal truth: the
+  exported capability delta published as a standalone attestation (#470) and
+  the committed capability state (#474). `shipgate.capability_payload/v1` is
+  now the one payload both consume — a JSON Schema
+  ([`docs/capability-payload-schema.v1.json`](docs/capability-payload-schema.v1.json)),
+  a prose spec ([`docs/capability-payload.md`](docs/capability-payload.md))
+  stating the identity keys, the required/optional split and the evolution
+  policy, and one projection (`agents_shipgate.core.capability_payload`) that
+  fills it. One document, two views discriminated on `view`: `state` for a
+  point in time, `delta` for the movement between two.
+
+  **A payload cannot contradict itself.** `subject.key` is recomputed from the
+  row's own agent/provider/tool id — deliberately not from the subject kind —
+  so a tool and its action are one row and two rows cannot split one logical
+  tool between them. Subject `transition` is a statement about presence
+  (`present_in_base` / `present_in_head`), never a rollup of change kinds: a
+  tool that keeps one operation and loses another is `modified`, because it is
+  still there. `summary`, every transition, every `changed_dimensions`, and a
+  state's digests are recomputed on parse, and a payload that disagrees with
+  its own rows is rejected rather than repaired. A change entry cannot claim
+  `evidence_only` while its two published records differ in semantics, so a
+  permission expansion the fact layer folds into `evidence_hash` alone can
+  never be published as provenance-only.
+
+  **The format is specified for consumers that are not this program.** Canonical
+  bytes are UTF-8 and unescaped, with sorted keys, integers bounded to the I-JSON
+  safe range, and no fallback serialization — so a Python and a JavaScript
+  implementation compute the same digests, and the spec publishes cross-language
+  vectors. Every object key is ASCII by enforcement rather than by assumption:
+  `capability_id` is the one dynamic key and is constrained to its canonical
+  form, because Python orders keys by code point and RFC 8785 by UTF-16 code
+  unit and those disagree above the BMP. The reference parser uses strict
+  scalars, so it accepts exactly the language the published schema does — no
+  `"2"` for an integer, no `"false"` for a boolean. Every field
+  is required in the schema's `required` arrays, not merely in prose — a
+  version field or a `view` discriminator a consumer may omit and have repaired
+  is not one. Validation is explicitly two stages: everything JSON Schema can
+  express is in the published file, and the rules that need a recomputation are
+  enumerated as stage two in the spec and in the schema's own description.
+
+  `analysis_coverage` carries the subjects the analysed surface left out — an
+  added-but-unbound tool produces no capability fact, so without it the first
+  surface that had to report one (#437) would have needed a second payload
+  shape. A delta carries **both sides** plus the recomputed
+  `newly_outside_analysis`, because one snapshot cannot tell a newly unbound
+  tool from one that was already unbound. `status` is
+  `not_requested | unavailable | complete`, neither of the first two means
+  zero, only `complete` may name subjects, and a comparison is only as
+  established as its weaker side.
+
+  The published field set is closed: every model forbids unknown properties,
+  each internal field the payload does not publish is recorded with its reason
+  (`UNPUBLISHED_FACT_FIELDS`, `UNPUBLISHED_LOCK_FIELDS`), and tests assert those
+  maps cover every `CapabilityFactV1` field **and** that every published field
+  keeps the internal field's type — so a widened `Literal` is a schema decision
+  someone makes, not a `ValidationError` an adopter discovers. Because the set
+  is closed, `v1` is closed: any addition is `/v2`, and the spec says so instead
+  of promising an additivity the shipped validators do not implement.
+
+  **The semantic fields are derived, not asserted.** `semantic_direction` and
+  `semantic_changes` are computed from the two records a change entry carries,
+  dimension by dimension, and a payload declaring anything else is rejected —
+  relabelling a row `broadened` or deleting its explanations both validated
+  before. The direction is therefore *the direction of what this payload
+  publishes*, and `evidence_only` means exactly "the two records are equal apart
+  from provenance". The change record is a payload-owned type rather than the
+  internal report model, so its values stay inside the canonical domain and a
+  future internal field cannot widen `v1` unnoticed.
+
+  A state publishes three digests — semantics, provenance, and coverage —
+  together binding everything it publishes, and verifies its own on parse. The
+  two state refs of a delta are bound to its membership rows, so a head ref
+  cannot claim counts the rows do not support. The
+  permission block shares one classifier with `mcp audit`, is restricted to
+  shapes that classifier can produce, and is fail-closed when unmeasured. That
+  classifier's class ordering is now total: `financial` and `production` share a
+  rank, so a rank-only sort inherited hash-randomized set iteration and two runs
+  of the same repository could publish different bytes.
+
+  Both projection entrypoints snapshot their inputs before reading them. They
+  walk each side several times, so a caller-owned list that answered differently
+  on a later pass produced a payload whose rows and whose digests described
+  different revisions.
+
+  Nothing emits the payload yet, by design: no command, no artifact, no check,
+  no change to `contract_version`, `report_schema_version`, `.well-known`, or
+  any existing schema. The capability lock and lock diff are unchanged, and
+  `release_decision.decision` remains the only release gate. Worked state and
+  delta examples are generated from `samples/ai_generated_refund_pr` by
+  `scripts/generate_schemas.py` and gated on drift.
+
+
 - **Reviewed risk overrides no longer masquerade as scan observations.** (#460)
   `risk_overrides.tags` is excluded from `effect_readings` and the derived
   action `basis`, so adding or removing a reviewed tag no longer reopens a

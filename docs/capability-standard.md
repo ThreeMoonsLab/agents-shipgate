@@ -18,6 +18,19 @@ they do not create a second verdict.
 - Frozen lock-diff reference: [`capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json)
 - Frozen experimental lock reference: [`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json)
 
+## Relationship To The Capability Payload
+
+[`capability-payload.md`](capability-payload.md) freezes
+`shipgate.capability_payload/v1` — the single payload the planned exported
+delta attestation and committed capability state both serialize. It is a
+projection of the same capability facts described here, closed to a published
+field set and counted by subject rather than by change.
+
+The lock is the internal-facing artifact and carries the full fact, including
+the derivation. The payload is the external-facing one. Where they overlap the
+lock is the source and the payload is the projection; nothing on this page
+changes, and no artifact emits the payload yet.
+
 ## CLI Workflow
 
 ```bash
