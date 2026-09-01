@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.42",
+  "report_schema_version": "0.43",
   "run_id": "agents_shipgate_e7d73ad08011dd4d",
   "request_id": null,
   "subject_id": null,
@@ -728,6 +728,20 @@
           "unscoped_authority": 2
         },
         "acknowledged_overrides": [],
+        "declaration_review": {
+          "enabled": false,
+          "base_kind": "none",
+          "changed_count": 0,
+          "summary": {
+            "evidence_consistent": 0,
+            "unverified": 0,
+            "acknowledged_override": 0
+          },
+          "rows": [],
+          "notes": [
+            "No trustworthy base declaration snapshot was available; declaration review disabled."
+          ]
+        },
         "declaration_questions": {
           "total": 4,
           "answered": 4,
@@ -2229,6 +2243,53 @@
     "modified": [],
     "notes": [
       "No action-surface comparison source was provided."
+    ]
+  },
+  "action_declaration_facts": {
+    "snapshot_version": "0.1",
+    "rows": [
+      {
+        "row_id": "action_declaration_3e54ca55cb2aebd67c2d",
+        "selector": {
+          "tool": "send_customer_email",
+          "tool_id": null,
+          "source_type": null,
+          "source_id": null,
+          "provider": null,
+          "operation": null
+        },
+        "subject": "send_customer_email [openai_api]",
+        "subject_id": "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
+        "resolution": "resolved",
+        "declared_effect": "external_communication",
+        "declared_risk_tags": [],
+        "has_override": false,
+        "override_identity": null,
+        "basis": null,
+        "declaration_hash": "action_declaration_value_41a7b8d807dbf4e007f8",
+        "manifest_path": "shipgate.yaml#action_surface.actions[1]"
+      },
+      {
+        "row_id": "action_declaration_979609b9df08c7a858d4",
+        "selector": {
+          "tool": "create_refund",
+          "tool_id": null,
+          "source_type": null,
+          "source_id": null,
+          "provider": null,
+          "operation": null
+        },
+        "subject": "create_refund [openai_api]",
+        "subject_id": "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
+        "resolution": "resolved",
+        "declared_effect": "financial_write",
+        "declared_risk_tags": [],
+        "has_override": false,
+        "override_identity": null,
+        "basis": null,
+        "declaration_hash": "action_declaration_value_f003c8343832b77a3bea",
+        "manifest_path": "shipgate.yaml#action_surface.actions[0]"
+      }
     ]
   },
   "binding_surface_facts": {

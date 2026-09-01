@@ -196,7 +196,7 @@ def test_local_contract_renderer_has_required_fields() -> None:
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["commands"]["verify_local"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
-    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v8"
+    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v9"
     assert payload["agent_handoff_artifact"] == "agents-shipgate-reports/agent-handoff.json"
     assert payload["current_control_artifact"] == (
         "agents-shipgate-reports/current-control.json"

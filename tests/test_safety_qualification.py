@@ -19,6 +19,7 @@ from agents_shipgate.core.verification_identity import (
 from agents_shipgate.schemas.agent_control import HumanControlAction
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
+from agents_shipgate.schemas.manifest_provenance import ManifestProvenance
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.safety_qualification import (
     LEGACY_QUALIFICATION_ENVELOPES,
@@ -115,6 +116,7 @@ def _verification_plan(case_id: str) -> VerificationPlan:
     )
     input_payload = {
         "evaluation_date": "2026-07-13",
+        "manifest_provenance": ManifestProvenance.repository(),
         "config": config,
         "diff": diff,
         "baseline": None,
@@ -228,7 +230,7 @@ def _test_requirements() -> SafetyQualificationRequirementsV1:
         minimum_blocked_exact=1,
         minimum_review_exact=1,
         minimum_insufficient_evidence_exact=1,
-        required_report_schema_version="0.42",
+        required_report_schema_version="0.43",
     )
 
 
@@ -422,8 +424,9 @@ def _fixture(
             input_set_id=plan.inputs.input_set_id,
             engine_requirement_id=plan.engine.engine_requirement_id,
             executor_id=executor.executor_id,
-            decision_id=decision_id,
-            config="shipgate.yaml",
+                decision_id=decision_id,
+                config="shipgate.yaml",
+                manifest_provenance=plan.inputs.manifest_provenance,
             base_ref="origin/main",
             head_ref="HEAD",
             base_status="succeeded",
@@ -459,6 +462,7 @@ def _fixture(
                 merge_verdict=EXPECTED_MERGE_VERDICT[actual],
                 can_merge_without_human=actual == "passed",
                 control=verifier.control,
+                manifest_provenance=plan.inputs.manifest_provenance,
             ),
             artifacts={},
         )

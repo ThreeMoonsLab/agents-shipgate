@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -58,6 +58,32 @@ def builtin_tool_source_types_text() -> str:
 BUILTIN_PER_SCAN_ONLY_TOOL_SOURCE_TYPES: frozenset[str] = frozenset(
     {"n8n", "openai_api", "anthropic_api", "validation"}
 )
+
+
+# Closed manifest vocabulary for the built-in MCP source-code grammar
+# registry. Grammar expansion requires a new versioned id; a manifest cannot
+# provide matching logic of its own.
+MCP_CODE_IDIOM_REGISTRY_VERSION = "1"
+TYPESCRIPT_MCP_SDK_V1 = "typescript_mcp_sdk_v1"
+TYPESCRIPT_STATIC_TOOL_V1 = "typescript_static_tool_v1"
+GO_MUSTTOOL_V1 = "go_musttool_v1"
+GO_ADDTOOL_V1 = "go_addtool_v1"
+MCP_TOOL_SNAPSHOT_V1 = "mcp_tool_snapshot_v1"
+McpCodeIdiomId = Literal[
+    "typescript_mcp_sdk_v1",
+    "typescript_static_tool_v1",
+    "go_musttool_v1",
+    "go_addtool_v1",
+]
+MCP_CODE_IDIOM_IDS: tuple[str, ...] = get_args(McpCodeIdiomId)
+McpIdiomId = Literal[
+    "typescript_mcp_sdk_v1",
+    "typescript_static_tool_v1",
+    "go_musttool_v1",
+    "go_addtool_v1",
+    "mcp_tool_snapshot_v1",
+]
+MCP_IDIOM_IDS: tuple[str, ...] = get_args(McpIdiomId)
 
 
 #: The reviewed modes a source may declare. Identical to
@@ -226,6 +252,11 @@ class ToolSourceConfig(BaseModel):
     path: str | None = None
     trust: str | None = None
     mode: str | None = None
+    # A source-code MCP surface may select one immutable built-in grammar.
+    # The manifest cannot supply its own regex: that would let the same PR
+    # redefine the evidence used to review it. JSON MCP exports leave this
+    # absent and keep the established high-confidence loader.
+    idiom: McpIdiomId | None = None
     optional: bool = False
     # #410 increment 3. Additive: a source with no ``authority`` block behaves
     # exactly as before, and every existing per-action declaration keeps
@@ -303,4 +334,15 @@ class ToolSourceConfig(BaseModel):
                 f"tool source {self.id!r} has invalid codex_plugin mode "
                 f"{self.mode!r}; expected 'package' or 'marketplace'"
             )
+        if self.idiom is not None:
+            if self.type != "mcp":
+                raise ValueError(
+                    f"tool source {self.id!r} declares idiom {self.idiom!r}, but "
+                    "only type 'mcp' accepts a built-in source-code idiom"
+                )
+            if self.idiom not in MCP_IDIOM_IDS:
+                raise ValueError(
+                    f"tool source {self.id!r} has unknown MCP idiom "
+                    f"{self.idiom!r}; expected one of {', '.join(MCP_IDIOM_IDS)}"
+                )
         return self

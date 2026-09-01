@@ -14,6 +14,7 @@ from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.schemas.agent_control import HumanControlAction
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
+from agents_shipgate.schemas.manifest_provenance import ManifestProvenance
 from agents_shipgate.schemas.verifier import (
     VerifierArtifact,
     VerifierDiffStatus,
@@ -119,6 +120,7 @@ def _verifier(
             workspace="/tmp/repo",
             diff_status=VerifierDiffStatus(),
             config="shipgate.yaml",
+            manifest_provenance=ManifestProvenance.repository(),
             execution="failed",
             head_status="failed",
             release_decision=None,
@@ -135,6 +137,7 @@ def _verifier(
         workspace="/tmp/repo",
         diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
+        manifest_provenance=ManifestProvenance.repository(),
         execution="succeeded",
         head_status="succeeded",
         release_decision=_release_decision(decision),

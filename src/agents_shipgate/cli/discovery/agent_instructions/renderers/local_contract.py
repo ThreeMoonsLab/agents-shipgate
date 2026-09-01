@@ -32,6 +32,9 @@ PRIOR_RENDER_SHA256: tuple[str, ...] = (
     # revision replaces. A repo pinned to it must upgrade in place, or its
     # agents keep reading "no rule matched means skip" from a stale contract.
     "c63117b02849e6e7400f366bd32c42c978db1f6c7a1bb3d9f64c125a9a1d4e47",
+    # v10 before manifest-provenance binding moved the verifier, verify-run,
+    # verification plan/receipt, and handoff schemas together.
+    "6694dc6ae3d1ea5f7c585d261443b5b8f5e8dd11eb031c0ad8b8176c0a308b76",
 )
 
 

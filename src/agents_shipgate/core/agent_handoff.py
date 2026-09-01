@@ -11,8 +11,13 @@ from agents_shipgate.schemas.agent_handoff import (
     AgentHandoffSubject,
 )
 from agents_shipgate.schemas.contract import CONTRACT_VERSION
+from agents_shipgate.schemas.manifest_provenance import ManifestProvenance
 from agents_shipgate.schemas.verifier import VerifierArtifact
-from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION, VerifyRunArtifact
+from agents_shipgate.schemas.verify_run import (
+    VerifyRunArtifact,
+    VerifyRunArtifactV5,
+    load_verify_run_artifact,
+)
 
 
 def build_agent_handoff(
@@ -34,9 +39,7 @@ def build_agent_handoff(
     report_payload = _model_payload(report) if report is not None else {}
     verify_run_payload = _model_payload(verify_run) if verify_run is not None else {}
     verify_run_model = (
-        VerifyRunArtifact.model_validate(verify_run_payload)
-        if verify_run_payload.get("schema_version") == VERIFY_RUN_SCHEMA_VERSION
-        else None
+        load_verify_run_artifact(verify_run_payload) if verify_run_payload else None
     )
     if verify_run_model is not None:
         verify_run_payload = verify_run_model.model_dump(mode="json")
@@ -47,7 +50,7 @@ def build_agent_handoff(
             "verify-run outcome control and verifier control disagree; refusing "
             "to emit a trusted handoff"
         )
-    if verify_run_model is not None:
+    if isinstance(verify_run_model, (VerifyRunArtifactV5, VerifyRunArtifact)):
         outcome = verify_run_model.outcome
         projections = {
             "execution": (outcome.execution, verifier_model.execution),
@@ -59,6 +62,14 @@ def build_agent_handoff(
                 verifier_model.can_merge_without_human,
             ),
             "base_status": (outcome.base_status, verifier_model.base_status),
+            "manifest_provenance": (
+                (
+                    outcome.manifest_provenance
+                    if isinstance(verify_run_model, VerifyRunArtifact)
+                    else ManifestProvenance.repository()
+                ),
+                verifier_model.manifest_provenance,
+            ),
         }
         mismatches = [
             name
@@ -100,6 +111,7 @@ def build_agent_handoff(
         gate=gate,
         control=verifier_model.control,
         authorization=verifier_model.authorization,
+        manifest_provenance=verifier_model.manifest_provenance,
         fix_task=_dict_or_none(verifier_payload.get("fix_task")),
         blocked_by=_blocked_by(release_decision),
         remediation_plan=_remediation_plan(verifier_payload.get("fix_task")),

@@ -76,8 +76,8 @@ The static scan fixtures write:
 - `agents-shipgate-reports/report.sarif` when requested or when using the GitHub Action
 
 The JSON output is the stable contract for tools and coding agents. See
-[report-schema.v0.42.json](report-schema.v0.42.json) (current; emitted reports
-carry `report_schema_version: "0.42"`, the surface-exclusion ledger, binding
+[report-schema.v0.43.json](report-schema.v0.43.json) (current; emitted reports
+carry `report_schema_version: "0.43"`, the surface-exclusion ledger, binding
 verify-native request and
 decision identities while retaining typed policy-evidence support over the
 binding graph from its entry points and normalized semantic assessments

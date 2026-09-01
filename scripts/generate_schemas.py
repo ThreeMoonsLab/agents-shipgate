@@ -18,20 +18,20 @@ Writes / verifies:
                                 (from agents_shipgate.schemas.packet.EvidencePacket)
 - docs/verifier-schema.v0.<minor>.json
                                 (from agents_shipgate.schemas.verifier.VerifierArtifact)
-- docs/verify-run-schema.v3.json
+- docs/verify-run-schema.v6.json
                                 (from agents_shipgate.schemas.verify_run.
                                  VerifyRunArtifact)
-- docs/verification-plan-schema.v1.json
+- docs/verification-plan-schema.v2.json
 - docs/verification-unit-result-schema.v1.json
 - docs/verification-artifact-manifest-schema.v1.json
-- docs/verification-receipt-schema.v1.json
+- docs/verification-receipt-schema.v2.json
 - docs/current-control-schema.v1.json
 - docs/agent-control-schema.v1.json
                                 (from agents_shipgate.schemas.verification_identity)
 - docs/human-authorization-schema.v1.json
                                 (authorization request, signed grant,
                                  evaluation, and trust policy union)
-- docs/agent-handoff-schema.v6.json
+- docs/agent-handoff-schema.v9.json
                                 (from agents_shipgate.schemas.agent_handoff.
                                  AgentHandoffArtifact)
 - docs/agent-result-schema.v2.json
@@ -111,7 +111,7 @@ DOCS = REPO_ROOT / "docs"
 # generated file sitting under the previous version's name.
 _AGENT_RESULT_SUFFIX = "v3"
 _BOUNDARY_SUFFIX = "v2"
-_VERIFY_RUN_SUFFIX = "v5"
+_VERIFY_RUN_SUFFIX = "v6"
 SRC = REPO_ROOT / "src"
 
 # Allow `python scripts/generate_schemas.py` from a checkout without install.
@@ -250,6 +250,7 @@ def build_report_schema() -> tuple[Path, str]:
     from agents_shipgate.schemas.report import ReadinessReport
 
     schema = ReadinessReport.model_json_schema()
+    _postprocess_declaration_review(schema)
     minor = ReadinessReport.model_fields["report_schema_version"].default
     title = f"Agents Shipgate Readiness Report v{minor}"
     schema_id = (
@@ -356,6 +357,11 @@ def build_report_schema() -> tuple[Path, str]:
             # run decline to look at?" must never read the answer as "the
             # field is missing, so probably nothing".
             "surface_exclusions",
+            # v0.43: the privacy-safe manifest declaration projection is a
+            # first-class input to base-vs-head declaration review. Omitting
+            # it is not equivalent to an empty manifest, so current report
+            # bytes must always carry the explicit snapshot envelope.
+            "action_declaration_facts",
         ]
     )
     # Preserve version constants. Pydantic emits these as plain strings
@@ -1253,6 +1259,7 @@ def build_packet_schema() -> tuple[Path, str]:
     from agents_shipgate.schemas.packet import EvidencePacket
 
     schema = EvidencePacket.model_json_schema()
+    _postprocess_declaration_review(schema)
     minor = str(EvidencePacket.model_fields["packet_schema_version"].default)
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
@@ -1341,13 +1348,89 @@ def _postprocess_authorization_evaluation(schema: dict[str, Any]) -> None:
         properties["reason_codes"]["uniqueItems"] = True
 
 
+def _postprocess_declaration_review(schema: dict[str, Any]) -> None:
+    """Pin the current declaration-review wire shape in every embedding schema.
+
+    These models deliberately carry defaults so legacy report/packet/verifier
+    normalizers can construct the honest disabled-empty projection. Current
+    emitted artifacts, however, always serialize every key. Requiring those
+    keys prevents a current-version payload from using Python defaults to erase
+    review rows or their counts.
+    """
+
+    defs = schema.get("$defs", {})
+    required_by_definition = {
+        "ActionDeclarationSelectorFact": [
+            "tool",
+            "tool_id",
+            "source_type",
+            "source_id",
+            "provider",
+            "operation",
+        ],
+        "ActionDeclarationFact": [
+            "row_id",
+            "selector",
+            "subject",
+            "subject_id",
+            "resolution",
+            "declared_effect",
+            "declared_risk_tags",
+            "has_override",
+            "override_identity",
+            "basis",
+            "declaration_hash",
+            "manifest_path",
+        ],
+        "ActionDeclarationFacts": ["snapshot_version", "rows"],
+        "DeclarationReviewSummary": [
+            "evidence_consistent",
+            "unverified",
+            "acknowledged_override",
+        ],
+        "DeclarationReviewRow": [
+            "row_id",
+            "change_type",
+            "bucket",
+            "subject",
+            "subject_id",
+            "declared_effect",
+            "declared_risk_tags",
+            "observed_readings",
+            "reason",
+            "manifest_path",
+            "acknowledged_overrides",
+        ],
+        "DeclarationReviewDecision": [
+            "enabled",
+            "base_kind",
+            "changed_count",
+            "summary",
+            "rows",
+            "notes",
+        ],
+    }
+    for name, required in required_by_definition.items():
+        definition = defs.get(name)
+        if isinstance(definition, dict):
+            definition["required"] = sorted(required)
+
+    semantic = defs.get("SemanticCoverageDecision")
+    if isinstance(semantic, dict):
+        semantic["required"] = sorted(
+            set(semantic.get("required", [])) | {"declaration_review"}
+        )
+
+
 def build_verifier_schema() -> tuple[Path, str]:
     """Generate docs/verifier-schema.v0.1.json from VerifierArtifact."""
 
     from agents_shipgate.schemas.verifier import VerifierArtifact
 
     schema = VerifierArtifact.model_json_schema()
+    _postprocess_declaration_review(schema)
     _postprocess_authorization_evaluation(schema)
+    schema["required"] = sorted(set(schema.get("required", [])) | {"side_effects"})
     minor = str(VerifierArtifact.model_fields["verifier_schema_version"].default)
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
@@ -1442,7 +1525,7 @@ def build_verify_run_schema() -> tuple[Path, str]:
         f"main/docs/verify-run-schema.{_VERIFY_RUN_SUFFIX}.json"
     )
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-    schema["title"] = "Agents Shipgate Verify Run v3"
+    schema["title"] = "Agents Shipgate Verify Run v6"
     schema["description"] = (
         "JSON Schema for agents-shipgate-reports/verify-run.json. Generated "
         "from agents_shipgate.schemas.verify_run.VerifyRunArtifact. Do not "
@@ -1470,8 +1553,8 @@ def build_verification_plan_schema() -> tuple[Path, str]:
 
     return _verification_identity_schema(
         model=VerificationPlan,
-        filename="verification-plan-schema.v1.json",
-        title="Agents Shipgate Verification Plan v1",
+        filename="verification-plan-schema.v2.json",
+        title="Agents Shipgate Verification Plan v2",
         description="Content-addressed immutable verification request plan.",
     )
 
@@ -1503,8 +1586,8 @@ def build_verification_receipt_schema() -> tuple[Path, str]:
 
     return _verification_identity_schema(
         model=VerificationReceipt,
-        filename="verification-receipt-schema.v1.json",
-        title="Agents Shipgate Verification Receipt v1",
+        filename="verification-receipt-schema.v2.json",
+        title="Agents Shipgate Verification Receipt v2",
         description="Terminal closure record written after every artifact is finalized.",
     )
 

@@ -19,6 +19,17 @@ model calls, no MCP connections, and no network access.
 - Keep file processing deterministic: manifest references in declared order,
   supplemental discovered files sorted by resolved path, and AST objects in
   source order.
+- For source-code idioms shared across projects, expose a closed, versioned
+  built-in identifier in the manifest schema. Do not accept user-provided
+  regular expressions or matching code from the surface being reviewed.
+- Bound both individual files and the aggregate source bytes read across all
+  recognizers. A cap is an explicit omission and incomplete survey, never a
+  complete negative.
+- Pin each cross-project idiom to measured ecosystem evidence and adversarial
+  fixtures. MCP registry v1, for example, records 30 distinct public
+  repositories in the first 100 `server.registerTool` hits and 32 for
+  `server.tool`, plus Grafana's exact mounted-registration delta; generic
+  method names without independent framework provenance stay negative tests.
 
 ## Tool Normalization
 
@@ -94,6 +105,9 @@ model calls, no MCP connections, and no network access.
 - Emit source warnings for dynamic or unresolved tool surfaces, including
   factory calls, loop-built lists, comprehensions, unresolved imports, and
   external schema classes that cannot be inspected safely.
+- Preserve recognized call sites whose names are runtime-built as typed source
+  omissions, including in discovery-only and zero-install flows; do not turn a
+  recognized-but-unenumerable surface into an absent project.
 - Add framework-specific findings only when static extraction cannot enumerate
   the surface and no explicit inventory resolves it.
 - Keep warning ordering stable, normally by `(source_ref, line, message)`.

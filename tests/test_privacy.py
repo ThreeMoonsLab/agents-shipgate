@@ -425,6 +425,7 @@ agent_bindings:
     )
     report_text = (reports / "report.json").read_text(encoding="utf-8")
     action_ids = [action.action_id for action in report.action_surface_facts.actions]
+    declaration_rows = report.action_declaration_facts.rows
 
     assert raw_one not in report_text
     assert raw_two not in report_text
@@ -432,6 +433,12 @@ agent_bindings:
     assert hashlib.sha256(raw_two.encode()).hexdigest() not in report_text
     assert len(action_ids) == 2
     assert len(set(action_ids)) == 2
+    # Redaction is many-to-one, but it must not collapse or reject valid raw
+    # declaration rows. Public ordinals retain both facts and ambiguity makes
+    # the semantic join fail closed rather than borrowing one row's evidence.
+    assert len(declaration_rows) == 2
+    assert len({row.row_id for row in declaration_rows}) == 2
+    assert {row.resolution for row in declaration_rows} == {"ambiguous"}
     assert report.privacy_audit.redacted_occurrence_count > 0
 
 
@@ -457,6 +464,7 @@ def test_report_sensitive_field_inventory_covers_current_report_fields():
         "tool_surface_facts",
         "action_surface_facts",
         "action_surface_diff",
+        "action_declaration_facts",
         "api_surface",
         "anthropic_surface",
         "frameworks",
@@ -464,6 +472,18 @@ def test_report_sensitive_field_inventory_covers_current_report_fields():
         "agent",
         "project",
         "privacy_audit",
+    } <= report_paths
+    assert {
+        "action_declaration_facts.rows[].row_id",
+        "action_declaration_facts.rows[].selector.tool",
+        "action_declaration_facts.rows[].subject",
+        "action_declaration_facts.rows[].override_identity",
+        "action_declaration_facts.rows[].declaration_hash",
+        "action_declaration_facts.rows[].manifest_path",
+        "release_decision.evidence_coverage.semantic_coverage.declaration_review.rows[].subject",
+        "release_decision.evidence_coverage.semantic_coverage.declaration_review.rows[].observed_readings",
+        "release_decision.evidence_coverage.semantic_coverage.declaration_review.rows[].acknowledged_overrides[].evidence",
+        "release_decision.evidence_coverage.semantic_coverage.declaration_review.rows[].acknowledged_overrides[].manifest_path",
     } <= report_paths
 
 

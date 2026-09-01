@@ -48,6 +48,7 @@ from agents_shipgate.schemas.agent_control_envelope import (
     truncate_prose,
 )
 from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
+from agents_shipgate.schemas.manifest_provenance import ManifestProvenance
 from agents_shipgate.schemas.report import (
     AgentSummary,
     BaselineDelta,
@@ -561,6 +562,7 @@ def test_a_hostile_title_does_not_expand_the_pr_comment(tmp_path):
         workspace=str(tmp_path),
         diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
+        manifest_provenance=ManifestProvenance.repository(),
         authorization=AuthorizationEvaluationV1.not_requested(),
         trigger={"rationale": "1 run_shipgate rule(s) matched."},
         execution="succeeded",
@@ -949,6 +951,7 @@ def test_the_pr_comment_reports_the_proven_fact_not_the_routing_flag(tmp_path):
             workspace=str(tmp_path),
             diff_status=VerifierDiffStatus(),
             config="shipgate.yaml",
+            manifest_provenance=ManifestProvenance.repository(),
             authorization=AuthorizationEvaluationV1.not_requested(),
             trigger={"rationale": "1 run_shipgate rule(s) matched."},
             execution="succeeded",

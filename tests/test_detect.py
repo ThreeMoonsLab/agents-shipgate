@@ -517,6 +517,345 @@ def test_wildcard_mcp_export_stays_suggested(tmp_path: Path) -> None:
     assert result.excluded_sources == []
 
 
+def test_mongodb_typescript_static_tool_idiom_is_a_named_mcp_source(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "package.json").write_text(
+        '{"name":"mongodb-mcp-server"}', encoding="utf-8"
+    )
+    tools = tmp_path / "src" / "tools"
+    tools.mkdir(parents=True)
+    (tools / "dropDatabase.ts").write_text(
+        """
+export class DropDatabaseTool extends MongoDBToolBase {
+  static toolName = "drop-database";
+  static operationType: OperationType = "delete";
+}
+""",
+        encoding="utf-8",
+    )
+    (tools / "deleteMany.ts").write_text(
+        """
+export class DeleteManyTool extends MongoDBToolBase {
+  static toolName = "delete-many";
+  static operationType: OperationType = "delete";
+}
+""",
+        encoding="utf-8",
+    )
+
+    result = detect_workspace(tmp_path)
+
+    assert result.is_agent_project is True
+    assert {framework.type for framework in result.frameworks} == {"mcp_server"}
+    assert result.suggested_sources == [
+        {
+            "type": "mcp",
+            "path": "src/tools",
+            "idiom": "typescript_static_tool_v1",
+        }
+    ]
+    evidence = result.frameworks[0].evidence
+    assert any("2 literal tool registration(s)" in row for row in evidence)
+
+
+def test_grafana_go_musttool_idiom_is_detected(tmp_path: Path) -> None:
+    (tmp_path / "go.mod").write_text(
+        "module github.com/grafana/mcp-grafana\n", encoding="utf-8"
+    )
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    (tools / "incident.go").write_text(
+        """
+package tools
+var UpdateIncident = mcpgrafana.MustTool(
+  "update_incident", "Update an incident", updateIncident,
+)
+func RegisterTools(mcp *server.MCPServer) {
+  UpdateIncident.Register(mcp)
+}
+""",
+        encoding="utf-8",
+    )
+
+    result = detect_workspace(tmp_path)
+
+    assert result.is_agent_project is True
+    assert result.suggested_sources == [
+        {"type": "mcp", "path": "tools/incident.go", "idiom": "go_musttool_v1"}
+    ]
+
+
+def test_generic_typescript_sdk_registration_is_detected(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text(
+        '{"dependencies":{"@modelcontextprotocol/sdk":"^1.0.0"}}',
+        encoding="utf-8",
+    )
+    (tmp_path / "server.ts").write_text(
+        'server.registerTool("lookup", {description: "Look up"}, lookup);\n'
+        'server.tool("legacy_lookup", "Look up", legacyLookup);\n',
+        encoding="utf-8",
+    )
+
+    result = detect_workspace(tmp_path)
+
+    assert result.is_agent_project is True
+    assert result.suggested_sources == [
+        {
+            "type": "mcp",
+            "path": "server.ts",
+            "idiom": "typescript_mcp_sdk_v1",
+        }
+    ]
+
+
+def test_mcp_source_import_is_an_independent_discovery_marker(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text(
+        '{"name":"ordinary-package-name"}', encoding="utf-8"
+    )
+    (tmp_path / "server.ts").write_text(
+        """
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+const server = new McpServer({name: "catalog", version: "1"});
+server.registerTool("lookup", {}, lookup);
+""",
+        encoding="utf-8",
+    )
+
+    result = detect_workspace(tmp_path)
+
+    assert result.suggested_sources == [
+        {
+            "type": "mcp",
+            "path": "server.ts",
+            "idiom": "typescript_mcp_sdk_v1",
+        }
+    ]
+
+
+def test_dynamic_only_mcp_registration_is_detected_and_routed_to_ledger(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "package.json").write_text(
+        '{"dependencies":{"@modelcontextprotocol/sdk":"^1.0.0"}}',
+        encoding="utf-8",
+    )
+    (tmp_path / "server.ts").write_text(
+        "server.registerTool(toolNameFromConfig(), {}, handler);\n",
+        encoding="utf-8",
+    )
+
+    result = detect_workspace(tmp_path)
+
+    assert result.is_agent_project is True
+    assert result.suggested_sources == [
+        {
+            "type": "mcp",
+            "path": "server.ts",
+            "idiom": "typescript_mcp_sdk_v1",
+        }
+    ]
+    mcp = next(item for item in result.frameworks if item.type == "mcp_server")
+    assert any("1 runtime-built name(s) omitted" in row for row in mcp.evidence)
+
+
+def test_checked_in_mcp_export_is_preferred_over_code_in_same_project(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "package.json").write_text(
+        '{"name":"published-mcp"}', encoding="utf-8"
+    )
+    (tmp_path / "server.ts").write_text(
+        'server.registerTool("lookup", {}, lookup);', encoding="utf-8"
+    )
+    (tmp_path / "published-mcp.json").write_text(
+        '{"tools":[{"name":"lookup","annotations":{"readOnlyHint":true}}]}',
+        encoding="utf-8",
+    )
+
+    result = detect_workspace(tmp_path)
+
+    assert result.is_agent_project is True
+    assert result.suggested_sources == [
+        {"type": "mcp", "path": "published-mcp.json"}
+    ]
+    mcp = next(item for item in result.frameworks if item.type == "mcp_server")
+    assert any("preferred source" in row for row in mcp.evidence)
+
+
+def test_checked_in_mcp_export_does_not_hide_a_distinct_code_server(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "package.json").write_text(
+        '{"name":"two-mcp-servers"}', encoding="utf-8"
+    )
+    (tmp_path / "server.ts").write_text(
+        'server.registerTool("source-only", {}, handler);', encoding="utf-8"
+    )
+    (tmp_path / "published-mcp.json").write_text(
+        '{"tools":[{"name":"export-only"}]}', encoding="utf-8"
+    )
+
+    result = detect_workspace(tmp_path)
+
+    assert result.suggested_sources == [
+        {"type": "mcp", "path": "published-mcp.json"},
+        {
+            "type": "mcp",
+            "path": "server.ts",
+            "idiom": "typescript_mcp_sdk_v1",
+        },
+    ]
+
+
+def test_github_per_tool_snapshots_are_high_confidence_and_preferred(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "go.mod").write_text(
+        "module github.com/github/github-mcp-server\n", encoding="utf-8"
+    )
+    snapshots = tmp_path / "pkg" / "github" / "__toolsnaps__"
+    snapshots.mkdir(parents=True)
+    (snapshots / "delete_repository.snap").write_text(
+        '{"name":"delete_repository","inputSchema":{"type":"object"}}',
+        encoding="utf-8",
+    )
+    (tmp_path / "server.ts").write_text(
+        'server.registerTool("delete_repository", {}, handler);', encoding="utf-8"
+    )
+
+    result = detect_workspace(tmp_path)
+
+    assert result.suggested_sources == [
+        {
+            "type": "mcp",
+            "path": "pkg/github/__toolsnaps__",
+            "idiom": "mcp_tool_snapshot_v1",
+        }
+    ]
+    mcp = next(item for item in result.frameworks if item.type == "mcp_server")
+    assert mcp.confidence == "high"
+    assert any("checked-in per-tool MCP snapshot" in row for row in mcp.evidence)
+
+
+def test_typescript_regex_registration_text_does_not_activate_detect(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "package.json").write_text(
+        '{"dependencies":{"@modelcontextprotocol/sdk":"^1"}}', encoding="utf-8"
+    )
+    (tmp_path / "server.ts").write_text(
+        r'const pattern = /server\.registerTool\("phantom", \{\}, handler\)/;',
+        encoding="utf-8",
+    )
+
+    result = detect_workspace(tmp_path)
+
+    assert result.is_agent_project is False
+    assert result.suggested_sources == []
+
+
+def test_unbalanced_mcp_source_is_detected_as_an_incomplete_idiom(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "package.json").write_text(
+        '{"dependencies":{"@modelcontextprotocol/sdk":"^1"}}', encoding="utf-8"
+    )
+    (tmp_path / "server.ts").write_text(
+        'server.registerTool("lost", {}, handler;', encoding="utf-8"
+    )
+
+    result = detect_workspace(tmp_path)
+
+    assert result.suggested_sources == [
+        {
+            "type": "mcp",
+            "path": "server.ts",
+            "idiom": "typescript_mcp_sdk_v1",
+        }
+    ]
+    mcp = next(item for item in result.frameworks if item.type == "mcp_server")
+    assert any("static recognition gap" in row for row in mcp.evidence)
+
+
+def test_mcp_code_shapes_without_independent_mcp_marker_do_not_activate_detect(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "package.json").write_text(
+        '{"name":"ordinary-widget-service"}', encoding="utf-8"
+    )
+    (tmp_path / "widget.ts").write_text(
+        """
+// MCP may be evaluated someday; prose is not an import/module marker.
+const protocolName = "mcp";
+class Widget { static toolName = "format-widget"; }
+server.tool("format-widget", formatWidget);
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "registry.go").write_text(
+        'package widgets\nfunc mount() { registry.AddTool(&Widget{Name: "format"}) }',
+        encoding="utf-8",
+    )
+
+    result = detect_workspace(tmp_path)
+
+    assert result.is_agent_project is False
+    assert result.suggested_sources == []
+    assert all(item.type != "mcp_server" for item in result.frameworks)
+
+
+def test_mcp_code_discovery_aggregate_byte_cap_is_routed_and_accounted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agents_shipgate.cli.discovery import signals
+
+    (tmp_path / "package.json").write_text(
+        '{"name":"bounded-mcp-server"}', encoding="utf-8"
+    )
+    (tmp_path / "server.ts").write_text(
+        'server.registerTool("lookup", {}, lookup);', encoding="utf-8"
+    )
+    monkeypatch.setattr(signals, "MAX_MCP_CODE_TOTAL_BYTES", 16)
+
+    result = detect_workspace(tmp_path)
+
+    assert result.is_agent_project is False
+    assert result.suggested_sources == []
+    cap = next(
+        item for item in result.excluded_sources if item.get("reason_code") == "walk_capped"
+    )
+    assert cap["path"] == "."
+    assert "aggregate" in cap["reason"]
+    assert "project rather than the enclosing monorepo" in result.next_action
+    row = next(item for item in result.surface_exclusions.entries if item.reason == "walk_capped")
+    assert row.accounting == "route_blocked"
+
+
+def test_mcp_code_discovery_per_file_byte_cap_is_routed_and_accounted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agents_shipgate.cli.discovery import signals
+
+    (tmp_path / "package.json").write_text(
+        '{"name":"bounded-mcp-server"}', encoding="utf-8"
+    )
+    (tmp_path / "server.ts").write_text(
+        'server.registerTool("lookup", {}, lookup);', encoding="utf-8"
+    )
+    monkeypatch.setattr(signals, "MAX_MCP_CODE_FILE_BYTES", 16)
+
+    result = detect_workspace(tmp_path)
+
+    assert result.is_agent_project is False
+    assert result.suggested_sources == []
+    cap = next(
+        item for item in result.excluded_sources if item.get("reason_code") == "walk_capped"
+    )
+    assert "per-file limit" in cap["reason"]
+    assert "project rather than the enclosing monorepo" in result.next_action
+
+
 # --- Agent-name candidate ranking -------------------------------------------
 #
 # Two bugs, one cause: candidates used to be emitted in file-then-AST order

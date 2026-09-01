@@ -1,0 +1,4211 @@
+{
+  "$defs": {
+    "AcknowledgedEffectOverride": {
+      "additionalProperties": false,
+      "description": "v0.36: one reviewed exception, in the shape a reviewer has to judge it.\n\nA count is not a review surface. #409 asks for the override to appear as an\nexplicit row naming the action, both readings, and the reason a human gave\n\u2014 the reviewer reads exceptions, not every action, and that is what makes\nattestation real rather than rubber-stamped. Carried on the coverage block\nthat already owns ``review_concern_count``, so the report, the verifier,\nthe packet's \u00a71, and the PR comment all project the same record.",
+      "properties": {
+        "corroborating_sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Corroborating Sources",
+          "type": "array"
+        },
+        "declared_effect": {
+          "title": "Declared Effect",
+          "type": "string"
+        },
+        "evidence": {
+          "title": "Evidence",
+          "type": "string"
+        },
+        "inferred_effect": {
+          "title": "Inferred Effect",
+          "type": "string"
+        },
+        "inferred_sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Inferred Sources",
+          "type": "array"
+        },
+        "manifest_path": {
+          "title": "Manifest Path",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "subject": {
+          "title": "Subject",
+          "type": "string"
+        },
+        "subject_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject Id"
+        }
+      },
+      "required": [
+        "subject",
+        "declared_effect",
+        "inferred_effect",
+        "evidence",
+        "reason",
+        "manifest_path"
+      ],
+      "title": "AcknowledgedEffectOverride",
+      "type": "object"
+    },
+    "AgentActionRequiredControl": {
+      "additionalProperties": false,
+      "description": "Non-terminal state with one exact coding-agent-owned next step.",
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "human_review": {
+          "$ref": "#/$defs/NoHumanReview"
+        },
+        "must_stop": {
+          "const": false,
+          "default": false,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "next_action": {
+          "$ref": "#/$defs/CodingAgentAction"
+        },
+        "permissions": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PublishOnlyPermissions"
+            },
+            {
+              "$ref": "#/$defs/NoAgentPermissions"
+            }
+          ],
+          "title": "Permissions"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "agent_action_required",
+          "title": "State",
+          "type": "string"
+        },
+        "stop_reason": {
+          "default": null,
+          "title": "Stop Reason",
+          "type": "null"
+        },
+        "verify_required": {
+          "default": false,
+          "title": "Verify Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "next_action",
+        "allowed_next_commands",
+        "human_review",
+        "stop_reason"
+      ],
+      "title": "AgentActionRequiredControl",
+      "type": "object"
+    },
+    "AgentControl": {
+      "discriminator": {
+        "mapping": {
+          "agent_action_required": "#/$defs/AgentActionRequiredControl",
+          "complete": "#/$defs/CompleteAgentControl",
+          "human_review_required": "#/$defs/HumanReviewRequiredControl",
+          "review_publishable": "#/$defs/ReviewPublishableControl"
+        },
+        "propertyName": "state"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CompleteAgentControl"
+        },
+        {
+          "$ref": "#/$defs/AgentActionRequiredControl"
+        },
+        {
+          "$ref": "#/$defs/ReviewPublishableControl"
+        },
+        {
+          "$ref": "#/$defs/HumanReviewRequiredControl"
+        }
+      ]
+    },
+    "AuthorizationEvaluationV1": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "accepted"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "authorization_id": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "authorization_request_id": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "command": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "expires_at": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "issued_at": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "key_id": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "operation_id": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "principal": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "provider": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "reason_codes": {
+                "maxItems": 0
+              },
+              "trust_policy_id": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            },
+            "required": [
+              "authorization_id",
+              "authorization_request_id",
+              "trust_policy_id",
+              "key_id",
+              "provider",
+              "principal",
+              "operation_id",
+              "command",
+              "issued_at",
+              "expires_at"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "rejected",
+                  "not_requested",
+                  "not_applicable"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "command": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "rejected"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason_codes": {
+                "minItems": 1
+              }
+            },
+            "required": [
+              "reason_codes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "not_requested",
+                  "not_applicable"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "authorization_id": {
+                "type": "null"
+              },
+              "authorization_request_id": {
+                "type": "null"
+              },
+              "command": {
+                "type": "null"
+              },
+              "expires_at": {
+                "type": "null"
+              },
+              "issued_at": {
+                "type": "null"
+              },
+              "key_id": {
+                "type": "null"
+              },
+              "operation_id": {
+                "type": "null"
+              },
+              "principal": {
+                "type": "null"
+              },
+              "provider": {
+                "type": "null"
+              },
+              "trust_policy_id": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "description": "Fail-closed authorization evaluation consumed by verifier projections.",
+      "properties": {
+        "authorization_id": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authorization Id"
+        },
+        "authorization_request_id": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authorization Request Id"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires At"
+        },
+        "issued_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Issued At"
+        },
+        "key_id": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Key Id"
+        },
+        "operation_id": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation Id"
+        },
+        "principal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Principal"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
+        "reason_codes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reason Codes",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "schema_version": {
+          "const": "shipgate.human_authorization_evaluation/v1",
+          "default": "shipgate.human_authorization_evaluation/v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "not_requested",
+            "accepted",
+            "rejected",
+            "not_applicable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "trust_policy_id": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trust Policy Id"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "AuthorizationEvaluationV1",
+      "type": "object"
+    },
+    "BaselineDelta": {
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "matched_count": {
+          "default": 0,
+          "title": "Matched Count",
+          "type": "integer"
+        },
+        "new_count": {
+          "default": 0,
+          "title": "New Count",
+          "type": "integer"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "resolved_count": {
+          "default": 0,
+          "title": "Resolved Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "title": "BaselineDelta",
+      "type": "object"
+    },
+    "BindingCoverageDecision": {
+      "properties": {
+        "gap_count": {
+          "default": 0,
+          "title": "Gap Count",
+          "type": "integer"
+        },
+        "pass_eligible": {
+          "default": false,
+          "title": "Pass Eligible",
+          "type": "boolean"
+        },
+        "possible_tools": {
+          "default": 0,
+          "title": "Possible Tools",
+          "type": "integer"
+        },
+        "reachable_tools": {
+          "default": 0,
+          "title": "Reachable Tools",
+          "type": "integer"
+        },
+        "reason_counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Reason Counts",
+          "type": "object"
+        },
+        "total_catalog_tools": {
+          "default": 0,
+          "title": "Total Catalog Tools",
+          "type": "integer"
+        },
+        "unbound_tools": {
+          "default": 0,
+          "title": "Unbound Tools",
+          "type": "integer"
+        }
+      },
+      "title": "BindingCoverageDecision",
+      "type": "object"
+    },
+    "CodingAgentAction": {
+      "discriminator": {
+        "mapping": {
+          "configure": "#/$defs/CodingAgentCommandAction",
+          "discover": "#/$defs/CodingAgentCommandAction",
+          "fetch_base": "#/$defs/CodingAgentFetchBaseAction",
+          "initialize": "#/$defs/CodingAgentCommandAction",
+          "install": "#/$defs/CodingAgentCommandAction",
+          "repair": "#/$defs/CodingAgentCommandAction",
+          "rerun": "#/$defs/CodingAgentCommandAction",
+          "verify": "#/$defs/CodingAgentCommandAction"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CodingAgentCommandAction"
+        },
+        {
+          "$ref": "#/$defs/CodingAgentFetchBaseAction"
+        }
+      ]
+    },
+    "CodingAgentCommandAction": {
+      "additionalProperties": false,
+      "description": "An executable, exact next step owned by the coding agent.",
+      "properties": {
+        "actor": {
+          "const": "coding_agent",
+          "default": "coding_agent",
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "minLength": 1,
+          "title": "Command",
+          "type": "string"
+        },
+        "expects": {
+          "default": null,
+          "title": "Expects",
+          "type": "null"
+        },
+        "kind": {
+          "enum": [
+            "verify",
+            "discover",
+            "configure",
+            "initialize",
+            "repair",
+            "install",
+            "rerun"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "command",
+        "expects",
+        "why"
+      ],
+      "title": "CodingAgentCommandAction",
+      "type": "object"
+    },
+    "CodingAgentFetchBaseAction": {
+      "additionalProperties": false,
+      "description": "A structured input request when an exact fetch command is unavailable.\n\nShipgate never fetches refs itself.  ``expects`` therefore names the exact\nref or artifact a caller must make available before rerunning verification.",
+      "properties": {
+        "actor": {
+          "const": "coding_agent",
+          "default": "coding_agent",
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "default": null,
+          "title": "Command",
+          "type": "null"
+        },
+        "expects": {
+          "minLength": 1,
+          "title": "Expects",
+          "type": "string"
+        },
+        "kind": {
+          "const": "fetch_base",
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "command",
+        "expects",
+        "why"
+      ],
+      "title": "CodingAgentFetchBaseAction",
+      "type": "object"
+    },
+    "CompleteAgentControl": {
+      "additionalProperties": false,
+      "description": "Terminal state: the coding agent may report the task complete.",
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 0,
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "const": true,
+          "default": true,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "human_review": {
+          "$ref": "#/$defs/NoHumanReview"
+        },
+        "must_stop": {
+          "const": false,
+          "default": false,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "next_action": {
+          "default": null,
+          "title": "Next Action",
+          "type": "null"
+        },
+        "permissions": {
+          "$ref": "#/$defs/FullAgentPermissions"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "complete",
+          "title": "State",
+          "type": "string"
+        },
+        "stop_reason": {
+          "default": null,
+          "title": "Stop Reason",
+          "type": "null"
+        },
+        "verify_required": {
+          "const": false,
+          "default": false,
+          "title": "Verify Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "next_action",
+        "allowed_next_commands",
+        "human_review",
+        "stop_reason"
+      ],
+      "title": "CompleteAgentControl",
+      "type": "object"
+    },
+    "ContributionRule": {
+      "additionalProperties": false,
+      "description": "Per-finding audit row explaining how a finding contributed to the\nrelease decision.\n\nAdditive in v0.17. Every finding in `report.findings` produces\nexactly one ContributionRule. Reading the contribution rule is\nsufficient to predict the gate outcome for that finding without\nre-deriving the decision logic; the set of valid `(rule, category)`\npairs is the contract documented in STABILITY.md \"Release decision\ntruth table\".",
+      "properties": {
+        "category": {
+          "enum": [
+            "blocker",
+            "review_item",
+            "excluded"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "finding_id": {
+          "title": "Finding Id",
+          "type": "string"
+        },
+        "fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fingerprint"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "rule": {
+          "enum": [
+            "policy_block_new",
+            "severity_block_new",
+            "policy_baseline_accepted",
+            "severity_baseline_accepted",
+            "review_required",
+            "sub_threshold",
+            "unsupported_evidence",
+            "suppressed"
+          ],
+          "title": "Rule",
+          "type": "string"
+        }
+      },
+      "required": [
+        "finding_id",
+        "check_id",
+        "category",
+        "rule",
+        "rationale"
+      ],
+      "title": "ContributionRule",
+      "type": "object"
+    },
+    "DeclarationQuestionCoverage": {
+      "additionalProperties": false,
+      "description": "v0.37: how much of the per-action declaration work is done.\n\nA gap count names a symptom and has no finish line. This is the same facts\nas a task with an end: how many questions this repository was ever asked,\nhow many a reviewed declaration has answered, and how many remain.\n\nThe denominator counts only what both halves can be measured on \u2014 the\n``effect`` and ``authority`` a reviewed declaration answers. An action\nwhose effect the scan established by itself was never asked about and is\nnot counted; an inventory or an ``agent_bindings`` declaration is a human\nanswer too but has no counterfactual to score against, so it is excluded\nrather than guessed at. See\n``agents_shipgate.core.declaration_questions``.\n\nv0.38: the unit is one blank a reviewer fills, so actions answered by the\nsame manifest block are one question. An authority every action of a source\nshares is answered once in that source's ``tool_sources[].authority``\nblock; ``open_questions[].answer_path`` names the block, and\n``subject_kind`` says which id space ``subject_id`` is in.\n\n``total == answered + open`` always. ``open_by_dimension`` sums to\n``open``: a question belongs to exactly one dimension.",
+      "properties": {
+        "answered": {
+          "default": 0,
+          "title": "Answered",
+          "type": "integer"
+        },
+        "open": {
+          "default": 0,
+          "title": "Open",
+          "type": "integer"
+        },
+        "open_by_dimension": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Open By Dimension",
+          "type": "object"
+        },
+        "open_questions": {
+          "items": {
+            "$ref": "#/$defs/DeclarationQuestionRow"
+          },
+          "title": "Open Questions",
+          "type": "array"
+        },
+        "total": {
+          "default": 0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "title": "DeclarationQuestionCoverage",
+      "type": "object"
+    },
+    "DeclarationQuestionRow": {
+      "additionalProperties": false,
+      "description": "v0.37: one open declaration question, in the order to answer it.\n\nOrdered by how much answering can move the verdict, rather than by what\nsorts first alphabetically. Answering the two actions that moved money and\ncommunicated outward is what reached a verdict on the fourth\n``adk-samples#1745`` walk. Ordering is ranking only \u2014 it decides what to\nread first and can never change a verdict.\n\nv0.38: a question is one blank a reviewer fills, so ``answer_path`` \u2014 the\nmanifest block that blank lives in \u2014 is its identity. Actions answered by\nthe same block are one question: a source of 117 actions with no authority\nevidence owes one ``tool_sources[].authority`` block, and counting that as\n117 questions describes one edit as a backlog (#410 increment 3).\n\nv0.38 also ranks by the **ceiling** of what an answer can establish rather\nthan by the effect already inferred. The actions nothing has bounded lead \u2014\nno effect evidence at all, a protocol default standing in for its absence,\nor only a heuristic reading this scan may not act on \u2014 because an unbounded\naction is unmeasured rather than safe, and its answer can still turn out to\nbe anything. Actions whose effect a reviewed declaration or policy-eligible\nsource evidence established keep their evidence rank behind them, strongest\nfirst. Position is not severity: the action at the top is the one *least*\nis known about.",
+      "properties": {
+        "answer_path": {
+          "default": "",
+          "title": "Answer Path",
+          "type": "string"
+        },
+        "authorable_by": {
+          "default": "human",
+          "enum": [
+            "coding_agent",
+            "human"
+          ],
+          "title": "Authorable By",
+          "type": "string"
+        },
+        "dimension": {
+          "title": "Dimension",
+          "type": "string"
+        },
+        "subject": {
+          "title": "Subject",
+          "type": "string"
+        },
+        "subject_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject Id"
+        },
+        "subject_kind": {
+          "default": "action",
+          "enum": [
+            "action",
+            "tool_source"
+          ],
+          "title": "Subject Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject",
+        "dimension"
+      ],
+      "title": "DeclarationQuestionRow",
+      "type": "object"
+    },
+    "DeclarationReviewDecision": {
+      "additionalProperties": false,
+      "description": "Base-vs-head review surface for changed action declaration rows.\n\nThis projection never gates.  ``enabled=false`` means no trustworthy\ndeclaration-row base was available; ``changed_count=0`` means the base was\ncomparable but no declaration answer changed.  Renderers stay silent for\nboth shapes.",
+      "else": {
+        "properties": {
+          "base_kind": {
+            "const": "none"
+          },
+          "changed_count": {
+            "const": 0
+          },
+          "rows": {
+            "maxItems": 0
+          }
+        },
+        "required": [
+          "base_kind",
+          "changed_count",
+          "rows"
+        ]
+      },
+      "if": {
+        "properties": {
+          "enabled": {
+            "const": true
+          }
+        },
+        "required": [
+          "enabled"
+        ]
+      },
+      "properties": {
+        "base_kind": {
+          "default": "none",
+          "enum": [
+            "none",
+            "report",
+            "absent_manifest"
+          ],
+          "title": "Base Kind",
+          "type": "string"
+        },
+        "changed_count": {
+          "default": 0,
+          "title": "Changed Count",
+          "type": "integer"
+        },
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/DeclarationReviewRow"
+          },
+          "title": "Rows",
+          "type": "array"
+        },
+        "summary": {
+          "$ref": "#/$defs/DeclarationReviewSummary"
+        }
+      },
+      "required": [
+        "base_kind",
+        "changed_count",
+        "enabled",
+        "notes",
+        "rows",
+        "summary"
+      ],
+      "then": {
+        "properties": {
+          "base_kind": {
+            "enum": [
+              "report",
+              "absent_manifest"
+            ]
+          }
+        },
+        "required": [
+          "base_kind"
+        ]
+      },
+      "title": "DeclarationReviewDecision",
+      "type": "object"
+    },
+    "DeclarationReviewRow": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "bucket": {
+                "const": "evidence_consistent"
+              }
+            },
+            "required": [
+              "bucket"
+            ]
+          },
+          "then": {
+            "anyOf": [
+              {
+                "properties": {
+                  "declared_effect": {
+                    "enum": [
+                      "read",
+                      "write",
+                      "privileged_data_access",
+                      "identity_access",
+                      "code_execution",
+                      "production_operation",
+                      "external_communication",
+                      "financial_write",
+                      "destructive"
+                    ]
+                  }
+                },
+                "required": [
+                  "declared_effect"
+                ]
+              },
+              {
+                "properties": {
+                  "declared_risk_tags": {
+                    "contains": {
+                      "enum": [
+                        "write",
+                        "writes_data",
+                        "filesystem_write",
+                        "destructive",
+                        "irreversible",
+                        "external_write",
+                        "external_communication",
+                        "customer_communication",
+                        "external_side_effect",
+                        "financial_action",
+                        "financial_write",
+                        "infrastructure_change",
+                        "production_operation",
+                        "production_ops",
+                        "sensitive_data_access",
+                        "privileged_data_access",
+                        "privileged_data",
+                        "secret_access",
+                        "code_execution",
+                        "identity_access",
+                        "unknown_side_effect"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "declared_risk_tags"
+                ]
+              }
+            ],
+            "properties": {
+              "acknowledged_overrides": {
+                "maxItems": 0
+              },
+              "observed_readings": {
+                "contains": {
+                  "properties": {
+                    "observed": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "observed"
+                  ]
+                },
+                "items": {
+                  "if": {
+                    "properties": {
+                      "observed": {
+                        "const": true
+                      }
+                    },
+                    "required": [
+                      "observed"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "policy_eligible": {
+                        "const": true
+                      }
+                    },
+                    "required": [
+                      "policy_eligible"
+                    ]
+                  }
+                },
+                "minItems": 1
+              },
+              "subject_id": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "subject_id",
+              "observed_readings",
+              "acknowledged_overrides"
+            ]
+          }
+        },
+        {
+          "else": {
+            "properties": {
+              "acknowledged_overrides": {
+                "maxItems": 0
+              }
+            },
+            "required": [
+              "acknowledged_overrides"
+            ]
+          },
+          "if": {
+            "properties": {
+              "bucket": {
+                "const": "acknowledged_override"
+              }
+            },
+            "required": [
+              "bucket"
+            ]
+          },
+          "then": {
+            "properties": {
+              "acknowledged_overrides": {
+                "minItems": 1
+              },
+              "subject_id": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "subject_id",
+              "acknowledged_overrides"
+            ]
+          }
+        }
+      ],
+      "description": "One changed head declaration, classified from the head evidence only.",
+      "properties": {
+        "acknowledged_overrides": {
+          "items": {
+            "$ref": "#/$defs/AcknowledgedEffectOverride"
+          },
+          "title": "Acknowledged Overrides",
+          "type": "array"
+        },
+        "bucket": {
+          "enum": [
+            "evidence_consistent",
+            "unverified",
+            "acknowledged_override"
+          ],
+          "title": "Bucket",
+          "type": "string"
+        },
+        "change_type": {
+          "enum": [
+            "added",
+            "modified"
+          ],
+          "title": "Change Type",
+          "type": "string"
+        },
+        "declared_effect": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Declared Effect"
+        },
+        "declared_risk_tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Declared Risk Tags",
+          "type": "array"
+        },
+        "manifest_path": {
+          "title": "Manifest Path",
+          "type": "string"
+        },
+        "observed_readings": {
+          "items": {
+            "$ref": "#/$defs/EvidenceReading"
+          },
+          "title": "Observed Readings",
+          "type": "array"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "row_id": {
+          "minLength": 1,
+          "title": "Row Id",
+          "type": "string"
+        },
+        "subject": {
+          "title": "Subject",
+          "type": "string"
+        },
+        "subject_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject Id"
+        }
+      },
+      "required": [
+        "acknowledged_overrides",
+        "bucket",
+        "change_type",
+        "declared_effect",
+        "declared_risk_tags",
+        "manifest_path",
+        "observed_readings",
+        "reason",
+        "row_id",
+        "subject",
+        "subject_id"
+      ],
+      "title": "DeclarationReviewRow",
+      "type": "object"
+    },
+    "DeclarationReviewSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged_override": {
+          "default": 0,
+          "title": "Acknowledged Override",
+          "type": "integer"
+        },
+        "evidence_consistent": {
+          "default": 0,
+          "title": "Evidence Consistent",
+          "type": "integer"
+        },
+        "unverified": {
+          "default": 0,
+          "title": "Unverified",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "acknowledged_override",
+        "evidence_consistent",
+        "unverified"
+      ],
+      "title": "DeclarationReviewSummary",
+      "type": "object"
+    },
+    "DeclareActionPatch": {
+      "additionalProperties": false,
+      "description": "Write one action declaration the scan derived from its own evidence.\n\nEvery other patch kind repairs something the manifest already says. This\none *adds* a reviewed-shape claim to the trust root, so it is deliberately\na distinct kind rather than a ``set_pointer`` at a computed index:\n\n* **It is not in the default ``--kinds``.** Every ``apply-patches`` and\n  ``bootstrap`` invocation in the wild passes the default set, and a\n  declaration arriving under ``append_pointer`` would start writing the\n  manifest for callers who never asked for it. Answering a declaration\n  question is an explicit act, and the route that proposes it\n  (``next_action.kind: confirm_declarations``) spells the flag.\n* **It names its subject.** A reviewer reading the dry-run diff \u2014 or the\n  PR the agent pushed \u2014 sees which action is being declared and as what,\n  not a JSON pointer whose meaning depends on the list it indexes into.\n* **It refuses to overwrite.** ``declaration`` is written only into fields\n  the row leaves silent. A row that already answers one of them differently\n  is a human's answer, and no evidence-derived proposal may replace it \u2014\n  only a human may assert against the evidence (#410 \u00a7D).\n\nWhat may be proposed is decided upstream, by\n``EvidenceGapAction.authorable_by``: the scan filled every blank in the\ntemplate, from the closed effect vocabulary, never weaker than any reading\nit observed. This model carries the result; it does not re-decide it.",
+      "properties": {
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "declaration": {
+          "additionalProperties": true,
+          "title": "Declaration",
+          "type": "object"
+        },
+        "kind": {
+          "const": "declare_action",
+          "default": "declare_action",
+          "title": "Kind",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "selector": {
+          "additionalProperties": true,
+          "title": "Selector",
+          "type": "object"
+        },
+        "target_format": {
+          "const": "yaml",
+          "default": "yaml",
+          "title": "Target Format",
+          "type": "string"
+        },
+        "target_path": {
+          "title": "Target Path",
+          "type": "string"
+        },
+        "target_sha256": {
+          "title": "Target Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target_path",
+        "selector",
+        "declaration",
+        "confidence",
+        "rationale",
+        "target_sha256"
+      ],
+      "title": "DeclareActionPatch",
+      "type": "object"
+    },
+    "EvidenceCoverageDecision": {
+      "properties": {
+        "binding_coverage": {
+          "$ref": "#/$defs/BindingCoverageDecision"
+        },
+        "evidence_gaps": {
+          "items": {
+            "$ref": "#/$defs/EvidenceGap"
+          },
+          "title": "Evidence Gaps",
+          "type": "array"
+        },
+        "human_review_recommended": {
+          "title": "Human Review Recommended",
+          "type": "boolean"
+        },
+        "identity_coverage": {
+          "$ref": "#/$defs/IdentityCoverageDecision"
+        },
+        "level": {
+          "title": "Level",
+          "type": "string"
+        },
+        "low_confidence_tool_count": {
+          "title": "Low Confidence Tool Count",
+          "type": "integer"
+        },
+        "policy_gap_count": {
+          "default": 0,
+          "title": "Policy Gap Count",
+          "type": "integer"
+        },
+        "semantic_coverage": {
+          "$ref": "#/$defs/SemanticCoverageDecision"
+        },
+        "source_warning_count": {
+          "title": "Source Warning Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "level",
+        "human_review_recommended",
+        "source_warning_count",
+        "low_confidence_tool_count"
+      ],
+      "title": "EvidenceCoverageDecision",
+      "type": "object"
+    },
+    "EvidenceGap": {
+      "description": "v0.26: one structured row per measurable evidence gap.\n\n``insufficient_evidence`` previously diagnosed without prescribing;\neach gap names the degraded subject and the specific next action\nthat raises extraction confidence. Purely explanatory \u2014 gating\nstill uses only the counts (the gap list is a projection of them).",
+      "properties": {
+        "kind": {
+          "enum": [
+            "low_confidence_tool",
+            "source_warning",
+            "incomplete_surface",
+            "unattested_surface",
+            "missing_effect_evidence",
+            "inferred_effect_only",
+            "conflicting_effect_evidence",
+            "declaration_below_inferred_evidence",
+            "declaration_drift",
+            "missing_authority_evidence",
+            "partial_authority_evidence",
+            "conflicting_authority_evidence",
+            "invalid_semantic_annotation",
+            "incomplete_tool_identity",
+            "conflicting_tool_identity",
+            "unresolved_tool_selector",
+            "ambiguous_tool_selector",
+            "ambiguous_legacy_tool_identity",
+            "invalid_tool_binding",
+            "missing_binding_evidence",
+            "partial_binding_evidence",
+            "conflicting_binding_evidence",
+            "ambiguous_root_agent",
+            "unresolved_agent_binding",
+            "unresolved_bound_tool",
+            "incomplete_handoff_graph",
+            "invalid_binding_annotation",
+            "invalid_evidence_provenance",
+            "inferred_policy_applicability",
+            "mixed_policy_evidence",
+            "unknown_policy_evidence",
+            "conflicting_policy_evidence"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "next_action": {
+          "$ref": "#/$defs/EvidenceGapAction"
+        },
+        "policy_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Policy Id"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Ref"
+        },
+        "source_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Type"
+        },
+        "subject": {
+          "title": "Subject",
+          "type": "string"
+        },
+        "subject_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject Id"
+        },
+        "subject_kind": {
+          "default": "action",
+          "enum": [
+            "action",
+            "tool_source"
+          ],
+          "title": "Subject Kind",
+          "type": "string"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "subject",
+        "why",
+        "next_action"
+      ],
+      "title": "EvidenceGap",
+      "type": "object"
+    },
+    "EvidenceGapAction": {
+      "description": "One concrete, mechanically-executable step that closes a gap.\n\nMirrors the agent-mode ``next_actions[]`` error shape\n(``kind``/``command``/``path``/``why``/``expects``) so agents reuse\none routing vocabulary across error recovery and evidence repair.",
+      "properties": {
+        "accepted_values": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Accepted Values",
+          "type": "array"
+        },
+        "authorable_by": {
+          "default": "human",
+          "enum": [
+            "coding_agent",
+            "human"
+          ],
+          "title": "Authorable By",
+          "type": "string"
+        },
+        "auto_apply": {
+          "const": false,
+          "default": false,
+          "title": "Auto Apply",
+          "type": "boolean"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "declaration_template": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Declaration Template"
+        },
+        "expects": {
+          "title": "Expects",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "declare_tool_inventory",
+            "provide_source",
+            "review_warning",
+            "declare_action_effect",
+            "declare_action_authority",
+            "provide_complete_inventory",
+            "resolve_semantic_conflict",
+            "declare_source_identity",
+            "qualify_tool_selector",
+            "provide_tool_binding",
+            "resolve_tool_identity_conflict",
+            "regenerate_identity_artifact",
+            "declare_agent_root",
+            "declare_agent_bindings",
+            "provide_static_binding_source",
+            "provide_complete_binding_graph",
+            "resolve_binding_conflict",
+            "regenerate_binding_artifact",
+            "provide_policy_evidence",
+            "review_policy_evidence",
+            "resolve_policy_evidence_conflict"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "observed_readings": {
+          "items": {
+            "$ref": "#/$defs/EvidenceReading"
+          },
+          "title": "Observed Readings",
+          "type": "array"
+        },
+        "patch": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeclareActionPatch"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "requires_human_review": {
+          "const": true,
+          "default": true,
+          "title": "Requires Human Review",
+          "type": "boolean"
+        },
+        "suggested_patch_kind": {
+          "default": "manual",
+          "enum": [
+            "manual",
+            "declare_action"
+          ],
+          "title": "Suggested Patch Kind",
+          "type": "string"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "why",
+        "expects"
+      ],
+      "title": "EvidenceGapAction",
+      "type": "object"
+    },
+    "EvidenceReading": {
+      "additionalProperties": false,
+      "description": "v0.37: one effect the evidence for an action can be read as.\n\nA blank asking for an action's effect is only answerable in place if the\nreader can see what the scan actually saw. These rows are that: the\ndistinct readings the non-declaration effect claims support, each with the\nproducers that support it.\n\n``observed`` separates evidence *about this action* from a default standing\nin for the absence of any. An MCP tool with no annotations gets a\n``write`` reading from the protocol default \u2014 worth showing, never worth\npre-filling, because it is a statement about the protocol rather than an\nobservation of the tool.\n\nv0.39: ``policy_eligible`` is the reading's *strength* \u2014 true when at least\none non-manifest claim behind it is evidence the scanner may act on\n(protocol structure, a typed provider fact, or a source-owned structural\nscope) rather than a heuristic that may only challenge. Reviewed manifest\ndeclarations are constraints, not observations, and therefore never\nproduce a reading. Strength is the strongest class among the remaining\nclaims, never a per-producer flag. Published because it is half of what\n``action_surface.actions[].basis`` pins: without it, a reading whose\nauthoritative half was deleted is indistinguishable from one that never had\nit, and a consumer cannot reproduce the pin from the row it is printed on.",
+      "properties": {
+        "effect": {
+          "title": "Effect",
+          "type": "string"
+        },
+        "observed": {
+          "default": true,
+          "title": "Observed",
+          "type": "boolean"
+        },
+        "policy_eligible": {
+          "default": false,
+          "title": "Policy Eligible",
+          "type": "boolean"
+        },
+        "sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "effect"
+      ],
+      "title": "EvidenceReading",
+      "type": "object"
+    },
+    "FailPolicy": {
+      "properties": {
+        "ci_mode": {
+          "title": "Ci Mode",
+          "type": "string"
+        },
+        "exit_code": {
+          "title": "Exit Code",
+          "type": "integer"
+        },
+        "fail_on": {
+          "items": {
+            "enum": [
+              "info",
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ],
+            "type": "string"
+          },
+          "title": "Fail On",
+          "type": "array"
+        },
+        "new_findings_only": {
+          "default": false,
+          "title": "New Findings Only",
+          "type": "boolean"
+        },
+        "would_fail_ci": {
+          "title": "Would Fail Ci",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ci_mode",
+        "would_fail_ci",
+        "exit_code"
+      ],
+      "title": "FailPolicy",
+      "type": "object"
+    },
+    "FindingSupport": {
+      "additionalProperties": false,
+      "description": "Authoritative support for finding confidence and release contribution.\n\nRule metadata may request a severity or block, but it cannot upgrade the\nunderlying evidence. ``support_hash`` binds baselines and audit surfaces\nto the predicate evidence that actually made the finding eligible.",
+      "properties": {
+        "blocking_eligible": {
+          "default": false,
+          "title": "Blocking Eligible",
+          "type": "boolean"
+        },
+        "claim_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "confidence": {
+          "default": "low",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "evidence_bases": {
+          "items": {
+            "enum": [
+              "reviewed_declaration",
+              "protocol_structure",
+              "typed_provider_fact",
+              "structural_scope",
+              "inferred_keyword",
+              "inferred_regex",
+              "protocol_default",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "title": "Evidence Bases",
+          "type": "array"
+        },
+        "policy_eligible": {
+          "default": false,
+          "title": "Policy Eligible",
+          "type": "boolean"
+        },
+        "predicates": {
+          "items": {
+            "$ref": "#/$defs/PolicyPredicateEvidence"
+          },
+          "title": "Predicates",
+          "type": "array"
+        },
+        "status": {
+          "default": "matched",
+          "enum": [
+            "matched",
+            "not_matched",
+            "indeterminate",
+            "conflicting"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "support_hash": {
+          "title": "Support Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "support_hash"
+      ],
+      "title": "FindingSupport",
+      "type": "object"
+    },
+    "FullAgentPermissions": {
+      "additionalProperties": false,
+      "description": "Terminal authority: the verifier already authorizes merge.",
+      "properties": {
+        "commit": {
+          "const": true,
+          "default": true,
+          "title": "Commit",
+          "type": "boolean"
+        },
+        "edit": {
+          "const": true,
+          "default": true,
+          "title": "Edit",
+          "type": "boolean"
+        },
+        "merge": {
+          "const": true,
+          "default": true,
+          "title": "Merge",
+          "type": "boolean"
+        },
+        "push": {
+          "const": true,
+          "default": true,
+          "title": "Push",
+          "type": "boolean"
+        },
+        "report_complete": {
+          "const": true,
+          "default": true,
+          "title": "Report Complete",
+          "type": "boolean"
+        },
+        "update_pr": {
+          "const": true,
+          "default": true,
+          "title": "Update Pr",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "edit",
+        "commit",
+        "push",
+        "update_pr",
+        "merge",
+        "report_complete"
+      ],
+      "title": "FullAgentPermissions",
+      "type": "object"
+    },
+    "HumanControlAction": {
+      "additionalProperties": false,
+      "description": "A human-owned route.  Human actions never expose executable commands.",
+      "properties": {
+        "actor": {
+          "const": "human",
+          "default": "human",
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "default": null,
+          "title": "Command",
+          "type": "null"
+        },
+        "expects": {
+          "default": null,
+          "title": "Expects",
+          "type": "null"
+        },
+        "kind": {
+          "enum": [
+            "review",
+            "stop"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "command",
+        "expects",
+        "why"
+      ],
+      "title": "HumanControlAction",
+      "type": "object"
+    },
+    "HumanReviewAction": {
+      "additionalProperties": false,
+      "description": "A human *review* route, never a hard stop.\n\nA distinct type rather than a runtime check on ``kind``: the publishable\nreview state must reject a stop route in generated JSON Schema too, not\nonly in Pydantic.",
+      "properties": {
+        "actor": {
+          "const": "human",
+          "default": "human",
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "default": null,
+          "title": "Command",
+          "type": "null"
+        },
+        "expects": {
+          "default": null,
+          "title": "Expects",
+          "type": "null"
+        },
+        "kind": {
+          "const": "review",
+          "default": "review",
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "command",
+        "expects",
+        "why"
+      ],
+      "title": "HumanReviewAction",
+      "type": "object"
+    },
+    "HumanReviewRequiredControl": {
+      "additionalProperties": false,
+      "description": "Stopping state: no further coding-agent action is authorized.\n\nReserved for results Shipgate cannot vouch for \u2014 a policy block, untrusted\nor unreadable input, or an evaluation that did not complete. Publication is\ndenied here precisely because there is no trustworthy evidence to publish.",
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 0,
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "human_review": {
+          "$ref": "#/$defs/RequiredHumanReview"
+        },
+        "must_stop": {
+          "const": true,
+          "default": true,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "next_action": {
+          "$ref": "#/$defs/HumanControlAction"
+        },
+        "permissions": {
+          "$ref": "#/$defs/NoAgentPermissions"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "human_review_required",
+          "title": "State",
+          "type": "string"
+        },
+        "stop_reason": {
+          "minLength": 1,
+          "title": "Stop Reason",
+          "type": "string"
+        },
+        "verify_required": {
+          "default": false,
+          "title": "Verify Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "next_action",
+        "allowed_next_commands",
+        "human_review",
+        "stop_reason"
+      ],
+      "title": "HumanReviewRequiredControl",
+      "type": "object"
+    },
+    "IdentityCoverageDecision": {
+      "properties": {
+        "ambiguous_name_count": {
+          "default": 0,
+          "title": "Ambiguous Name Count",
+          "type": "integer"
+        },
+        "bound_tools": {
+          "default": 0,
+          "title": "Bound Tools",
+          "type": "integer"
+        },
+        "canonical_tools": {
+          "default": 0,
+          "title": "Canonical Tools",
+          "type": "integer"
+        },
+        "gap_count": {
+          "default": 0,
+          "title": "Gap Count",
+          "type": "integer"
+        },
+        "pass_eligible_tools": {
+          "default": 0,
+          "title": "Pass Eligible Tools",
+          "type": "integer"
+        },
+        "reason_counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Reason Counts",
+          "type": "object"
+        },
+        "total_observations": {
+          "default": 0,
+          "title": "Total Observations",
+          "type": "integer"
+        }
+      },
+      "title": "IdentityCoverageDecision",
+      "type": "object"
+    },
+    "ManifestProvenance": {
+      "additionalProperties": false,
+      "description": "Whether a manifest can participate in release-authoritative evidence.",
+      "oneOf": [
+        {
+          "properties": {
+            "binding_id": {
+              "type": "null"
+            },
+            "ephemeral": {
+              "const": false
+            },
+            "kind": {
+              "const": "repository"
+            },
+            "release_authoritative": {
+              "const": true
+            }
+          },
+          "required": [
+            "kind",
+            "ephemeral",
+            "release_authoritative",
+            "binding_id"
+          ]
+        },
+        {
+          "properties": {
+            "binding_id": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "ephemeral": {
+              "const": true
+            },
+            "kind": {
+              "const": "local_review"
+            },
+            "release_authoritative": {
+              "const": false
+            }
+          },
+          "required": [
+            "kind",
+            "ephemeral",
+            "release_authoritative",
+            "binding_id"
+          ]
+        },
+        {
+          "properties": {
+            "binding_id": {
+              "type": "null"
+            },
+            "ephemeral": {
+              "const": false
+            },
+            "kind": {
+              "const": "not_evaluated"
+            },
+            "release_authoritative": {
+              "const": false
+            }
+          },
+          "required": [
+            "kind",
+            "ephemeral",
+            "release_authoritative",
+            "binding_id"
+          ]
+        }
+      ],
+      "properties": {
+        "binding_id": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Binding Id"
+        },
+        "ephemeral": {
+          "title": "Ephemeral",
+          "type": "boolean"
+        },
+        "kind": {
+          "enum": [
+            "repository",
+            "local_review",
+            "not_evaluated"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "release_authoritative": {
+          "title": "Release Authoritative",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "ephemeral",
+        "release_authoritative",
+        "binding_id"
+      ],
+      "title": "ManifestProvenance",
+      "type": "object"
+    },
+    "NoAgentPermissions": {
+      "additionalProperties": false,
+      "description": "None of the six pull-request actions is authorized.\n\nTwo different states carry this vector, for the same underlying reason \u2014\nShipgate has no assessment it is willing to stand behind.\n``human_review_required`` additionally ends the turn.  An\n``agent_action_required`` route whose subject was never evaluated does not\nend the turn, but the only thing it authorizes is the named\n``next_action``: there is no evaluated change yet, so there is nothing to\npublish and no basis for saying publishing it is safe.",
+      "properties": {
+        "commit": {
+          "const": false,
+          "default": false,
+          "title": "Commit",
+          "type": "boolean"
+        },
+        "edit": {
+          "const": false,
+          "default": false,
+          "title": "Edit",
+          "type": "boolean"
+        },
+        "merge": {
+          "const": false,
+          "default": false,
+          "title": "Merge",
+          "type": "boolean"
+        },
+        "push": {
+          "const": false,
+          "default": false,
+          "title": "Push",
+          "type": "boolean"
+        },
+        "report_complete": {
+          "const": false,
+          "default": false,
+          "title": "Report Complete",
+          "type": "boolean"
+        },
+        "update_pr": {
+          "const": false,
+          "default": false,
+          "title": "Update Pr",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "edit",
+        "commit",
+        "push",
+        "update_pr",
+        "merge",
+        "report_complete"
+      ],
+      "title": "NoAgentPermissions",
+      "type": "object"
+    },
+    "NoHumanReview": {
+      "additionalProperties": false,
+      "description": "Exact negative human-review projection for non-stopping states.",
+      "properties": {
+        "required": {
+          "const": false,
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "required_reviewers": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 0,
+          "title": "Required Reviewers",
+          "type": "array"
+        },
+        "why": {
+          "default": null,
+          "title": "Why",
+          "type": "null"
+        }
+      },
+      "required": [
+        "required",
+        "why",
+        "required_reviewers"
+      ],
+      "title": "NoHumanReview",
+      "type": "object"
+    },
+    "PolicyPredicateEvidence": {
+      "additionalProperties": false,
+      "description": "One tri-state policy predicate and the evidence that supports it.",
+      "properties": {
+        "claim_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "confidence": {
+          "default": "low",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "evidence_bases": {
+          "items": {
+            "enum": [
+              "reviewed_declaration",
+              "protocol_structure",
+              "typed_provider_fact",
+              "structural_scope",
+              "inferred_keyword",
+              "inferred_regex",
+              "protocol_default",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "title": "Evidence Bases",
+          "type": "array"
+        },
+        "expected": {
+          "default": null,
+          "title": "Expected"
+        },
+        "observed": {
+          "default": null,
+          "title": "Observed"
+        },
+        "policy_eligible": {
+          "default": false,
+          "title": "Policy Eligible",
+          "type": "boolean"
+        },
+        "predicate": {
+          "title": "Predicate",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "matched",
+            "not_matched",
+            "indeterminate",
+            "conflicting"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "why": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Why"
+        }
+      },
+      "required": [
+        "predicate",
+        "status"
+      ],
+      "title": "PolicyPredicateEvidence",
+      "type": "object"
+    },
+    "PublishOnlyPermissions": {
+      "additionalProperties": false,
+      "description": "Progress authority without merge or completion authority.",
+      "properties": {
+        "commit": {
+          "const": true,
+          "default": true,
+          "title": "Commit",
+          "type": "boolean"
+        },
+        "edit": {
+          "const": true,
+          "default": true,
+          "title": "Edit",
+          "type": "boolean"
+        },
+        "merge": {
+          "const": false,
+          "default": false,
+          "title": "Merge",
+          "type": "boolean"
+        },
+        "push": {
+          "const": true,
+          "default": true,
+          "title": "Push",
+          "type": "boolean"
+        },
+        "report_complete": {
+          "const": false,
+          "default": false,
+          "title": "Report Complete",
+          "type": "boolean"
+        },
+        "update_pr": {
+          "const": true,
+          "default": true,
+          "title": "Update Pr",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "edit",
+        "commit",
+        "push",
+        "update_pr",
+        "merge",
+        "report_complete"
+      ],
+      "title": "PublishOnlyPermissions",
+      "type": "object"
+    },
+    "ReleaseDecision": {
+      "properties": {
+        "baseline_delta": {
+          "$ref": "#/$defs/BaselineDelta"
+        },
+        "blockers": {
+          "items": {
+            "$ref": "#/$defs/ReleaseDecisionItem"
+          },
+          "title": "Blockers",
+          "type": "array"
+        },
+        "contribution_rules": {
+          "items": {
+            "$ref": "#/$defs/ContributionRule"
+          },
+          "title": "Contribution Rules",
+          "type": "array"
+        },
+        "decision": {
+          "enum": [
+            "blocked",
+            "review_required",
+            "insufficient_evidence",
+            "passed"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "evidence_coverage": {
+          "$ref": "#/$defs/EvidenceCoverageDecision"
+        },
+        "fail_policy": {
+          "$ref": "#/$defs/FailPolicy"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "review_items": {
+          "items": {
+            "$ref": "#/$defs/ReleaseDecisionItem"
+          },
+          "title": "Review Items",
+          "type": "array"
+        },
+        "runtime_behavior_verified": {
+          "const": false,
+          "default": false,
+          "title": "Runtime Behavior Verified",
+          "type": "boolean"
+        },
+        "static_analysis_only": {
+          "const": true,
+          "default": true,
+          "title": "Static Analysis Only",
+          "type": "boolean"
+        },
+        "static_verdict_disclaimer": {
+          "default": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
+          "title": "Static Verdict Disclaimer",
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision",
+        "reason",
+        "evidence_coverage",
+        "baseline_delta",
+        "fail_policy"
+      ],
+      "title": "ReleaseDecision",
+      "type": "object"
+    },
+    "ReleaseDecisionItem": {
+      "properties": {
+        "baseline_status": {
+          "anyOf": [
+            {
+              "enum": [
+                "new",
+                "matched",
+                "resolved"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Status"
+        },
+        "blocks_release": {
+          "default": false,
+          "title": "Blocks Release",
+          "type": "boolean"
+        },
+        "capability_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capability Refs",
+          "type": "array"
+        },
+        "capability_trace_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capability Trace Refs",
+          "type": "array"
+        },
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fingerprint"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "policy_evidence_source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "support": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FindingSupport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check_id",
+        "severity",
+        "title"
+      ],
+      "title": "ReleaseDecisionItem",
+      "type": "object"
+    },
+    "RequiredHumanReview": {
+      "additionalProperties": false,
+      "description": "Human-review evidence carried by the stopping state.",
+      "properties": {
+        "required": {
+          "const": true,
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "required_reviewers": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Required Reviewers",
+          "type": "array"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "required",
+        "why",
+        "required_reviewers"
+      ],
+      "title": "RequiredHumanReview",
+      "type": "object"
+    },
+    "ReviewPublishableControl": {
+      "additionalProperties": false,
+      "description": "Human review gates merge; publishing the review evidence does not.\n\nThe change was evaluated and the only outstanding obligation is human\njudgement, so the coding agent keeps the authority it needs to put a\ncoherent, reviewable state in front of that human \u2014 edit, commit, push,\nupdate the pull request \u2014 while ``merge`` and ``report_complete`` stay\ndenied until a fresh verifier artifact says otherwise.\n\n``next_action`` stays human-owned: the *route* is still \"a person decides\".\n``allowed_next_commands`` carries at most the one exact rerun command that\nregenerates this same evidence after committing, and is empty when the\ncaller has no exact command to offer.\n\n``permissions`` deliberately has **no default**. Every other variant keeps\none so that a pre-contract-20 artifact still parses, but this state cannot\nbe legacy input \u2014 it did not exist before v20 \u2014 so an omitted permission\nvector is a malformed current payload, not an old one, and must fail closed\nrather than silently synthesize publication authority.",
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 1,
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "human_review": {
+          "$ref": "#/$defs/RequiredHumanReview"
+        },
+        "must_stop": {
+          "const": false,
+          "default": false,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "next_action": {
+          "$ref": "#/$defs/HumanReviewAction"
+        },
+        "permissions": {
+          "$ref": "#/$defs/PublishOnlyPermissions"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "review_publishable",
+          "title": "State",
+          "type": "string"
+        },
+        "stop_reason": {
+          "default": null,
+          "title": "Stop Reason",
+          "type": "null"
+        },
+        "verify_required": {
+          "default": false,
+          "title": "Verify Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "next_action",
+        "allowed_next_commands",
+        "permissions",
+        "human_review",
+        "stop_reason"
+      ],
+      "title": "ReviewPublishableControl",
+      "type": "object"
+    },
+    "SemanticCoverageDecision": {
+      "description": "v0.29 pass eligibility across the normalized action surface.\n\nUnlike extraction-confidence thresholds, semantic gaps are\nzero-tolerance: any non-pass-eligible unknown/partial/conflicting\ndimension prevents ``passed``. Known review concerns are counted\nseparately so they deterministically route to ``review_required``\nrather than ``insufficient_evidence``: ambient or unscoped\ncredentials, and (v0.36+) a declared effect that a reviewer\nacknowledged as weaker than the evidence inferred for it.\n``reason_counts`` names which.",
+      "properties": {
+        "acknowledged_overrides": {
+          "items": {
+            "$ref": "#/$defs/AcknowledgedEffectOverride"
+          },
+          "title": "Acknowledged Overrides",
+          "type": "array"
+        },
+        "declaration_questions": {
+          "$ref": "#/$defs/DeclarationQuestionCoverage"
+        },
+        "declaration_review": {
+          "$ref": "#/$defs/DeclarationReviewDecision"
+        },
+        "gap_count": {
+          "default": 0,
+          "title": "Gap Count",
+          "type": "integer"
+        },
+        "pass_eligible_actions": {
+          "default": 0,
+          "title": "Pass Eligible Actions",
+          "type": "integer"
+        },
+        "reason_counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Reason Counts",
+          "type": "object"
+        },
+        "review_concern_count": {
+          "default": 0,
+          "title": "Review Concern Count",
+          "type": "integer"
+        },
+        "total_actions": {
+          "default": 0,
+          "title": "Total Actions",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "declaration_review"
+      ],
+      "title": "SemanticCoverageDecision",
+      "type": "object"
+    },
+    "SourceReference": {
+      "additionalProperties": true,
+      "properties": {
+        "end_line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Line"
+        },
+        "location": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Location"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "pointer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pointer"
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ref"
+        },
+        "start_column": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Column"
+        },
+        "start_line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Line"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "SourceReference",
+      "type": "object"
+    },
+    "VerifierCapabilityChange": {
+      "additionalProperties": false,
+      "description": "One reviewer-facing capability change projected for verifier output.",
+      "properties": {
+        "change_bucket": {
+          "enum": [
+            "added",
+            "modified",
+            "removed"
+          ],
+          "title": "Change Bucket",
+          "type": "string"
+        },
+        "change_type": {
+          "title": "Change Type",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "impact": {
+          "default": "informational",
+          "enum": [
+            "blocks_release",
+            "review_required",
+            "insufficient_evidence",
+            "informational",
+            "none"
+          ],
+          "title": "Impact",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "related_finding_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Related Finding Ids",
+          "type": "array"
+        },
+        "source_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Path"
+        },
+        "source_start_line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Start Line"
+        },
+        "subject": {
+          "title": "Subject",
+          "type": "string"
+        },
+        "subject_kind": {
+          "title": "Subject Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "change_type",
+        "change_bucket",
+        "subject_kind",
+        "subject",
+        "rationale"
+      ],
+      "title": "VerifierCapabilityChange",
+      "type": "object"
+    },
+    "VerifierCapabilityReview": {
+      "additionalProperties": false,
+      "description": "Derived capability-review rollup for PR comments and Action outputs.\n\nThis is a projection only. It never gates independently of\n``report.json.release_decision.decision``.",
+      "properties": {
+        "added": {
+          "default": 0,
+          "title": "Added",
+          "type": "integer"
+        },
+        "modified": {
+          "default": 0,
+          "title": "Modified",
+          "type": "integer"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "policy_weakened": {
+          "default": false,
+          "title": "Policy Weakened",
+          "type": "boolean"
+        },
+        "policy_weakening_proven": {
+          "default": false,
+          "title": "Policy Weakening Proven",
+          "type": "boolean"
+        },
+        "removed": {
+          "default": 0,
+          "title": "Removed",
+          "type": "integer"
+        },
+        "top_changes": {
+          "items": {
+            "$ref": "#/$defs/VerifierCapabilityChange"
+          },
+          "title": "Top Changes",
+          "type": "array"
+        },
+        "trust_root_touched": {
+          "default": false,
+          "title": "Trust Root Touched",
+          "type": "boolean"
+        }
+      },
+      "title": "VerifierCapabilityReview",
+      "type": "object"
+    },
+    "VerifierDeclarationConfirmation": {
+      "additionalProperties": false,
+      "description": "The declarations this run can have an agent write, and what is left.\n\nPresent only when at least one open question is the agent's to draft, and\nonly beside a published patch that writes it \u2014 a route naming a step the\nreport does not carry would loop the agent against an unchanged manifest.\n\n``questions`` carries *every* open question, not only the agent-authorable\nones. The agent needs both halves in one payload: what to write now, and\nwhat to hand to a human when it has, with the exact blocks named rather\nthan a count (#410 \u00a7D).",
+      "properties": {
+        "command": {
+          "minLength": 1,
+          "title": "Command",
+          "type": "string"
+        },
+        "questions": {
+          "items": {
+            "$ref": "#/$defs/VerifierDeclarationQuestion"
+          },
+          "minItems": 1,
+          "title": "Questions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "command",
+        "questions"
+      ],
+      "title": "VerifierDeclarationConfirmation",
+      "type": "object"
+    },
+    "VerifierDeclarationQuestion": {
+      "additionalProperties": false,
+      "description": "One declaration question, as the coding-agent route publishes it.\n\nThe same row ``semantic_coverage.declaration_questions.open_questions[]``\ncarries, restated here because the route has to be readable on its own: an\nagent holding only the control envelope has no report to join against, and\n\"some questions remain\" is the generic stop this design exists to replace.",
+      "properties": {
+        "answer_path": {
+          "title": "Answer Path",
+          "type": "string"
+        },
+        "authorable_by": {
+          "enum": [
+            "coding_agent",
+            "human"
+          ],
+          "title": "Authorable By",
+          "type": "string"
+        },
+        "dimension": {
+          "title": "Dimension",
+          "type": "string"
+        },
+        "subject": {
+          "title": "Subject",
+          "type": "string"
+        },
+        "subject_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject Id"
+        },
+        "subject_kind": {
+          "default": "action",
+          "enum": [
+            "action",
+            "tool_source"
+          ],
+          "title": "Subject Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject",
+        "dimension",
+        "answer_path",
+        "authorable_by"
+      ],
+      "title": "VerifierDeclarationQuestion",
+      "type": "object"
+    },
+    "VerifierDiffStatus": {
+      "additionalProperties": false,
+      "description": "Whether the compared change set was actually read, and why not.\n\nEmitted on every verifier artifact so automation never has to infer input\nhealth from a verdict. ``completeness: \"complete\"`` is the only value that\nlicenses reading a negative trigger result \u2014 anything else means the\nevidence the verdict would rest on was missing, and the artifact says so\ninstead of reporting \"nothing in this PR signals a tool-surface change\".",
+      "properties": {
+        "completeness": {
+          "default": "complete",
+          "enum": [
+            "complete",
+            "partial",
+            "unavailable",
+            "unknown"
+          ],
+          "title": "Completeness",
+          "type": "string"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "fetch_repairable": {
+          "default": false,
+          "title": "Fetch Repairable",
+          "type": "boolean"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "not_attempted",
+                "refs_missing",
+                "merge_base_missing",
+                "unrelated_histories",
+                "objects_missing",
+                "metadata_limit_exceeded",
+                "body_limit_exceeded",
+                "git_timeout",
+                "git_failed"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "remediation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Remediation"
+        }
+      },
+      "title": "VerifierDiffStatus",
+      "type": "object"
+    },
+    "VerifierFixTask": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "actor": {
+                "const": "human"
+              }
+            },
+            "required": [
+              "actor"
+            ]
+          },
+          "then": {
+            "properties": {
+              "safe_to_attempt": {
+                "const": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "actor": {
+                "const": "coding_agent"
+              },
+              "safe_to_attempt": {
+                "const": true
+              }
+            },
+            "required": [
+              "actor",
+              "safe_to_attempt"
+            ]
+          },
+          "then": {
+            "properties": {
+              "verification_command": {
+                "minLength": 1,
+                "pattern": "\\S",
+                "type": "string"
+              }
+            },
+            "required": [
+              "verification_command"
+            ]
+          }
+        }
+      ],
+      "description": "The single repair task a verify run hands to whoever acts next.\n\nRouting is deterministic and projected from the head scan \u2014 never an LLM\njudgment. ``coding_agent`` + ``safe_to_attempt=True`` means the gating\ngaps are mechanical (every gating finding is ``autofix_safe``): the agent\nmay fix them and re-run ``verification_command``. ``human`` +\n``safe_to_attempt=False`` means an authority gap a coding agent must not\ninvent its way past \u2014 missing approval/idempotency evidence, a weakened\npolicy, or a touched trust root. ``forbidden_shortcuts`` are the\nreward-hacking moves that are never acceptable for either actor.\n``patches`` (v0.12+) carries the machine-applicable suggested patches for\nthe gating findings when verify ran with ``--suggest-patches`` and the\ntask routes to the coding agent.",
+      "properties": {
+        "actor": {
+          "enum": [
+            "coding_agent",
+            "human"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "allowed_repairs": {
+          "items": {
+            "$ref": "#/$defs/VerifierRepair"
+          },
+          "title": "Allowed Repairs",
+          "type": "array"
+        },
+        "declaration_confirmation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VerifierDeclarationConfirmation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "forbidden_repairs": {
+          "items": {
+            "$ref": "#/$defs/VerifierRepair"
+          },
+          "title": "Forbidden Repairs",
+          "type": "array"
+        },
+        "forbidden_shortcuts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Forbidden Shortcuts",
+          "type": "array"
+        },
+        "instructions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Instructions",
+          "type": "array"
+        },
+        "patches": {
+          "items": {
+            "$ref": "#/$defs/VerifierFixTaskPatch"
+          },
+          "title": "Patches",
+          "type": "array"
+        },
+        "safe_to_attempt": {
+          "title": "Safe To Attempt",
+          "type": "boolean"
+        },
+        "verification_command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verification Command"
+        }
+      },
+      "required": [
+        "actor",
+        "safe_to_attempt"
+      ],
+      "title": "VerifierFixTask",
+      "type": "object"
+    },
+    "VerifierFixTaskPatch": {
+      "additionalProperties": false,
+      "description": "A machine-applicable patch projected into the fix task.\n\nRepair aid only \u2014 never a gate input. ``patch`` carries the\ndiscriminated Patch payload (``set_pointer`` / ``append_pointer`` /\n``remove_pointer``) exactly as the head scan emitted it; ``manual``\npatches are intentionally excluded because their guidance already\nappears in ``instructions``.",
+      "properties": {
+        "check_id": {
+          "default": "",
+          "title": "Check Id",
+          "type": "string"
+        },
+        "finding_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finding Id"
+        },
+        "patch": {
+          "additionalProperties": true,
+          "title": "Patch",
+          "type": "object"
+        }
+      },
+      "title": "VerifierFixTaskPatch",
+      "type": "object"
+    },
+    "VerifierRepair": {
+      "additionalProperties": false,
+      "description": "One deterministic repair affordance or prohibition.\n\nThe verifier owns the actor and safety boundary. These rows are not model\nsuggestions: they are a structured projection of remediation metadata and\ntrust-root rules so coding agents can distinguish mechanical fixes from\nhuman-only authority decisions.",
+      "properties": {
+        "actor": {
+          "enum": [
+            "coding_agent",
+            "human"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "check_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Check Id"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "finding_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finding Id"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        }
+      },
+      "required": [
+        "id",
+        "actor",
+        "kind",
+        "reason"
+      ],
+      "title": "VerifierRepair",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verifier-schema.v0.16.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "decision": {
+            "const": "passed"
+          }
+        },
+        "required": [
+          "decision"
+        ]
+      },
+      "then": {
+        "properties": {
+          "applicability": {
+            "const": "verified"
+          },
+          "can_merge_without_human": {
+            "const": true
+          },
+          "capability_review": {
+            "properties": {
+              "policy_weakened": {
+                "const": false
+              },
+              "trust_root_touched": {
+                "const": false
+              }
+            }
+          },
+          "control": {
+            "properties": {
+              "state": {
+                "const": "complete"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "execution": {
+            "const": "succeeded"
+          },
+          "fix_task": {
+            "type": "null"
+          },
+          "head_status": {
+            "const": "succeeded"
+          },
+          "merge_verdict": {
+            "const": "mergeable"
+          },
+          "release_decision": {
+            "properties": {
+              "blockers": {
+                "maxItems": 0
+              },
+              "decision": {
+                "const": "passed"
+              },
+              "evidence_coverage": {
+                "properties": {
+                  "evidence_gaps": {
+                    "maxItems": 0
+                  },
+                  "human_review_recommended": {
+                    "const": false
+                  }
+                }
+              },
+              "review_items": {
+                "maxItems": 0
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "else": {
+        "properties": {
+          "control": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "agent_action_required",
+                  "review_publishable",
+                  "human_review_required"
+                ]
+              }
+            },
+            "required": [
+              "state"
+            ]
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "can_merge_without_human": {
+            "const": true
+          }
+        },
+        "required": [
+          "can_merge_without_human"
+        ]
+      },
+      "then": {
+        "oneOf": [
+          {
+            "properties": {
+              "applicability": {
+                "const": "verified"
+              },
+              "decision": {
+                "const": "passed"
+              },
+              "execution": {
+                "const": "succeeded"
+              }
+            }
+          },
+          {
+            "properties": {
+              "applicability": {
+                "const": "not_applicable"
+              },
+              "decision": {
+                "type": "null"
+              },
+              "execution": {
+                "const": "skipped"
+              }
+            }
+          }
+        ],
+        "properties": {
+          "control": {
+            "properties": {
+              "state": {
+                "const": "complete"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "control": {
+            "properties": {
+              "completion_allowed": {
+                "const": false
+              },
+              "permissions": {
+                "properties": {
+                  "update_pr": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "update_pr"
+                ]
+              }
+            },
+            "required": [
+              "completion_allowed",
+              "permissions"
+            ]
+          },
+          "declaration_continuation": {
+            "not": {
+              "const": true
+            }
+          }
+        },
+        "required": [
+          "control"
+        ]
+      },
+      "then": {
+        "properties": {
+          "diff_status": {
+            "properties": {
+              "completeness": {
+                "const": "complete"
+              }
+            },
+            "required": [
+              "completeness"
+            ]
+          },
+          "execution": {
+            "const": "succeeded"
+          },
+          "release_decision": {
+            "properties": {
+              "decision": {
+                "not": {
+                  "const": "blocked"
+                },
+                "type": "string"
+              }
+            },
+            "required": [
+              "decision"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "execution",
+          "diff_status",
+          "release_decision"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "authorization": {
+            "properties": {
+              "status": {
+                "const": "accepted"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          }
+        },
+        "required": [
+          "authorization"
+        ]
+      },
+      "then": {
+        "properties": {
+          "applicability": {
+            "const": "verified"
+          },
+          "can_merge_without_human": {
+            "const": false
+          },
+          "control": {
+            "properties": {
+              "allowed_next_commands": {
+                "maxItems": 1,
+                "minItems": 1
+              },
+              "completion_allowed": {
+                "const": false
+              },
+              "next_action": {
+                "properties": {
+                  "kind": {
+                    "const": "repair"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              "state": {
+                "const": "agent_action_required"
+              }
+            },
+            "required": [
+              "state",
+              "completion_allowed",
+              "next_action",
+              "allowed_next_commands"
+            ]
+          },
+          "decision": {
+            "const": "review_required"
+          },
+          "execution": {
+            "const": "succeeded"
+          },
+          "fix_task": {
+            "type": "null"
+          },
+          "head_status": {
+            "const": "succeeded"
+          },
+          "merge_verdict": {
+            "const": "human_review_required"
+          },
+          "release_decision": {
+            "properties": {
+              "decision": {
+                "const": "review_required"
+              }
+            },
+            "required": [
+              "decision"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "execution",
+          "head_status",
+          "release_decision",
+          "decision",
+          "merge_verdict",
+          "applicability",
+          "can_merge_without_human",
+          "control",
+          "fix_task"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "manifest_provenance": {
+            "properties": {
+              "release_authoritative": {
+                "const": false
+              }
+            },
+            "required": [
+              "release_authoritative"
+            ]
+          }
+        },
+        "required": [
+          "manifest_provenance"
+        ]
+      },
+      "then": {
+        "properties": {
+          "authorization": {
+            "properties": {
+              "status": {
+                "not": {
+                  "const": "accepted"
+                }
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "can_merge_without_human": {
+            "const": false
+          },
+          "control": {
+            "properties": {
+              "completion_allowed": {
+                "const": false
+              },
+              "permissions": {
+                "properties": {
+                  "merge": {
+                    "const": false
+                  },
+                  "report_complete": {
+                    "const": false
+                  }
+                },
+                "required": [
+                  "merge",
+                  "report_complete"
+                ]
+              },
+              "state": {
+                "not": {
+                  "const": "complete"
+                }
+              }
+            },
+            "required": [
+              "state",
+              "completion_allowed",
+              "permissions"
+            ]
+          },
+          "decision": {
+            "not": {
+              "const": "passed"
+            }
+          },
+          "merge_verdict": {
+            "not": {
+              "const": "mergeable"
+            }
+          },
+          "release_decision": {
+            "properties": {
+              "decision": {
+                "not": {
+                  "const": "passed"
+                }
+              }
+            },
+            "required": [
+              "decision"
+            ]
+          }
+        },
+        "required": [
+          "decision",
+          "merge_verdict",
+          "can_merge_without_human",
+          "authorization",
+          "control",
+          "release_decision"
+        ]
+      }
+    }
+  ],
+  "description": "JSON Schema for verifier.json. Generated from agents_shipgate.schemas.verifier.VerifierArtifact. Do not edit by hand.",
+  "properties": {
+    "agent_summary": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Agent Summary"
+    },
+    "applicability": {
+      "default": "not_evaluated",
+      "enum": [
+        "not_evaluated",
+        "verified",
+        "not_applicable",
+        "failed"
+      ],
+      "title": "Applicability",
+      "type": "string"
+    },
+    "artifacts": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Artifacts",
+      "type": "object"
+    },
+    "authorization": {
+      "$ref": "#/$defs/AuthorizationEvaluationV1"
+    },
+    "base_notes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Base Notes",
+      "type": "array"
+    },
+    "base_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Base Ref"
+    },
+    "base_report_json": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Base Report Json"
+    },
+    "base_status": {
+      "default": "not_requested",
+      "enum": [
+        "not_requested",
+        "skipped",
+        "diff_from_provided",
+        "ref_missing",
+        "archive_failed",
+        "missing_manifest",
+        "scan_failed",
+        "cache_hit",
+        "succeeded"
+      ],
+      "title": "Base Status",
+      "type": "string"
+    },
+    "base_tree_sha": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Base Tree Sha"
+    },
+    "can_merge_without_human": {
+      "default": false,
+      "title": "Can Merge Without Human",
+      "type": "boolean"
+    },
+    "capability_review": {
+      "$ref": "#/$defs/VerifierCapabilityReview"
+    },
+    "changed_files": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Changed Files",
+      "type": "array"
+    },
+    "config": {
+      "title": "Config",
+      "type": "string"
+    },
+    "control": {
+      "$ref": "#/$defs/AgentControl"
+    },
+    "decision": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Decision"
+    },
+    "decision_id": {
+      "anyOf": [
+        {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Decision Id"
+    },
+    "declaration_continuation": {
+      "default": false,
+      "title": "Declaration Continuation",
+      "type": "boolean"
+    },
+    "diff_status": {
+      "$ref": "#/$defs/VerifierDiffStatus"
+    },
+    "diff_text_available": {
+      "default": false,
+      "title": "Diff Text Available",
+      "type": "boolean"
+    },
+    "engine_requirement_id": {
+      "anyOf": [
+        {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Engine Requirement Id"
+    },
+    "execution": {
+      "default": "not_run",
+      "enum": [
+        "not_run",
+        "succeeded",
+        "skipped",
+        "failed"
+      ],
+      "title": "Execution",
+      "type": "string"
+    },
+    "executor_id": {
+      "anyOf": [
+        {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Executor Id"
+    },
+    "fix_task": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VerifierFixTask"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "forbidden_actions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Forbidden Actions",
+      "type": "array"
+    },
+    "forbidden_file_edits": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Forbidden File Edits",
+      "type": "array"
+    },
+    "head_exit_code": {
+      "default": 0,
+      "title": "Head Exit Code",
+      "type": "integer"
+    },
+    "head_ref": {
+      "default": "HEAD",
+      "title": "Head Ref",
+      "type": "string"
+    },
+    "head_report_json": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Head Report Json"
+    },
+    "head_status": {
+      "default": "not_run",
+      "enum": [
+        "not_run",
+        "succeeded",
+        "skipped",
+        "failed"
+      ],
+      "title": "Head Status",
+      "type": "string"
+    },
+    "head_tree_sha": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Head Tree Sha"
+    },
+    "headline": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Headline"
+    },
+    "input_set_id": {
+      "anyOf": [
+        {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Input Set Id"
+    },
+    "manifest_provenance": {
+      "$ref": "#/$defs/ManifestProvenance"
+    },
+    "merge_verdict": {
+      "default": "unknown",
+      "enum": [
+        "mergeable",
+        "human_review_required",
+        "insufficient_evidence",
+        "blocked",
+        "unknown"
+      ],
+      "title": "Merge Verdict",
+      "type": "string"
+    },
+    "mode": {
+      "default": "advisory",
+      "title": "Mode",
+      "type": "string"
+    },
+    "release_decision": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReleaseDecision"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "request_id": {
+      "anyOf": [
+        {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Request Id"
+    },
+    "reviewer_summary": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reviewer Summary"
+    },
+    "runtime_behavior_verified": {
+      "const": false,
+      "default": false,
+      "title": "Runtime Behavior Verified",
+      "type": "boolean"
+    },
+    "side_effects": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Side Effects",
+      "type": "array"
+    },
+    "static_analysis_only": {
+      "const": true,
+      "default": true,
+      "title": "Static Analysis Only",
+      "type": "boolean"
+    },
+    "static_verdict_disclaimer": {
+      "default": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
+      "title": "Static Verdict Disclaimer",
+      "type": "string"
+    },
+    "subject_id": {
+      "anyOf": [
+        {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Subject Id"
+    },
+    "trigger": {
+      "additionalProperties": true,
+      "title": "Trigger",
+      "type": "object"
+    },
+    "verifier_schema_version": {
+      "const": "0.16",
+      "default": "0.16",
+      "title": "Verifier Schema Version",
+      "type": "string"
+    },
+    "workspace": {
+      "title": "Workspace",
+      "type": "string"
+    }
+  },
+  "required": [
+    "authorization",
+    "config",
+    "control",
+    "diff_status",
+    "manifest_provenance",
+    "side_effects",
+    "workspace"
+  ],
+  "title": "Agents Shipgate Verifier Artifact v0.16",
+  "type": "object"
+}

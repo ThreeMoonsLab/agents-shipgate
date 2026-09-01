@@ -206,6 +206,18 @@ def test_missing_semantic_assessment_is_zero_tolerance_ie_and_strict_failure():
         "review_concern_count": 0,
         "reason_counts": {"incomplete_surface": 1},
         "acknowledged_overrides": [],
+        "declaration_review": {
+            "enabled": False,
+            "base_kind": "none",
+            "changed_count": 0,
+            "summary": {
+                "evidence_consistent": 0,
+                "unverified": 0,
+                "acknowledged_override": 0,
+            },
+            "rows": [],
+            "notes": [],
+        },
         # No assessment means nothing was resolved, so nothing can be said
         # about what this action owes — counting it as an open question would
         # invent a denominator out of a resolver failure.

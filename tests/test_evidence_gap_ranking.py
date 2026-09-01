@@ -91,6 +91,7 @@ from agents_shipgate.packet.markdown import render_packet_markdown
 from agents_shipgate.report.markdown import render_markdown_report
 from agents_shipgate.report.summary_text import primary_evidence_remediation_text
 from agents_shipgate.schemas.manifest import ToolIdentityConfig
+from agents_shipgate.schemas.manifest_provenance import ManifestProvenance
 from agents_shipgate.schemas.report import (
     BaselineDelta,
     BindingCoverageDecision,
@@ -133,6 +134,7 @@ def _verifier_with(task, report) -> VerifierArtifact:
     return VerifierArtifact(
         workspace="/tmp/work",
         config="shipgate.yaml",
+        manifest_provenance=ManifestProvenance.repository(),
         diff_status=VerifierDiffStatus(),
         authorization=AuthorizationEvaluationV1.not_requested(),
         control=derive_agent_control(
@@ -2770,6 +2772,7 @@ def test_agent_result_consumers_inherit_the_sanitized_fix_task():
     verifier = VerifierArtifact(
         workspace="/tmp/work",
         config="shipgate.yaml",
+        manifest_provenance=ManifestProvenance.repository(),
         diff_status=VerifierDiffStatus(),
         authorization=AuthorizationEvaluationV1.not_requested(),
         control=derive_agent_control(

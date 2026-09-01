@@ -1549,8 +1549,9 @@ def test_every_reason_the_ledger_owns_renders_a_phrase():
     text nobody would notice. Scoped to the vocabularies this package owns —
     the two report-side builders and the two bundled MCP loaders — because a
     third-party adapter may coin any token and the fallback is the right
-    answer for it. A new emitter here is meant to fail this test and be added
-    deliberately.
+    answer for it. The bounded discovery ledger and named MCP code reader are
+    included for the same reason. A new emitter here is meant to fail this test
+    and be added deliberately.
 
     A reason spelled as a module constant is resolved to its value. Reading
     only ``ast.Constant`` would have skipped ``reason=DUPLICATE_SERVER_-
@@ -1562,6 +1563,7 @@ def test_every_reason_the_ledger_owns_renders_a_phrase():
 
     from agents_shipgate.core import surface_exclusions as module
     from agents_shipgate.inputs import mcp as mcp_module
+    from agents_shipgate.inputs import mcp_code as mcp_code_module
     from agents_shipgate.inputs import mcp_manifest as mcp_manifest_module
 
     def _module_constants(tree: ast.AST) -> dict[str, str]:
@@ -1616,9 +1618,21 @@ def test_every_reason_the_ledger_owns_renders_a_phrase():
     emitted = (
         _keyword_reasons(
             Path(module.__file__),
-            {"_binding_exclusions", "_surface_completeness_exclusions"},
+            {
+                "_binding_exclusions",
+                "_surface_completeness_exclusions",
+                "build_detect_exclusions",
+            },
         )
         | _omit_reasons(Path(mcp_module.__file__))
+        | _keyword_reasons(
+            Path(mcp_code_module.__file__),
+            {
+                "load_mcp_code_tools",
+                "scan_mcp_code_idiom",
+                "_dynamic_name_omission",
+            },
+        )
         | _keyword_reasons(
             Path(mcp_manifest_module.__file__), {"_merge_server_declarations"}
         )

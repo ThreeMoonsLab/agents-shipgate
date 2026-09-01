@@ -46,7 +46,7 @@ from agents_shipgate.schemas.human_authorization import (
     build_git_push_operation,
     build_human_authorization_request,
 )
-from agents_shipgate.schemas.verification_identity import VerificationPlan
+from agents_shipgate.schemas.verification_identity import load_verification_plan
 from agents_shipgate.schemas.verifier import VerifierArtifact
 
 authorization_app = typer.Typer(no_args_is_help=True)
@@ -124,7 +124,7 @@ def request_authorization(
         )
         if receipt.decision != "review_required":
             raise ValueError("human authorization requests require decision='review_required'")
-        plan = VerificationPlan.model_validate(
+        plan = load_verification_plan(
             _load_json_bytes(_required_artifact(artifacts, "verification_plan_json"))
         )
         if plan.inputs.options.get("plugins_enabled") is not False:
@@ -235,7 +235,7 @@ def execute_authorization(
         if receipt.decision != "review_required":
             raise ValueError("authorized execution requires decision='review_required'")
 
-        plan = VerificationPlan.model_validate(
+        plan = load_verification_plan(
             _load_json_bytes(_required_artifact(artifacts, "verification_plan_json"))
         )
         report = _load_json_bytes(_required_artifact(artifacts, "report_json"))

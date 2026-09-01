@@ -69,9 +69,10 @@ from agents_shipgate.schemas.current_control import RECEIPT_ARTIFACT_KEY
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verification_identity import (
     VerificationPlan,
-    VerificationReceipt,
     VerificationUnitResult,
     content_id,
+    load_verification_plan,
+    load_verification_receipt,
 )
 from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.schemas.verify_run import (
@@ -476,7 +477,7 @@ def worker(
     """Validate one task's immutable inputs and emit decision-free worker IR."""
     require_workspace(workspace)
 
-    plan = VerificationPlan.model_validate(_load_json(plan_path))
+    plan = load_verification_plan(_load_json(plan_path))
     resolved_diff = diff_path or plan_path.with_name(plan.inputs.diff.path)
     try:
         validate_engine_requirement(
@@ -521,7 +522,12 @@ def assemble(
 ) -> None:
     """Validate worker IR and close the sole-engine verifier projections."""
 
-    plan = VerificationPlan.model_validate(_load_json(plan_path))
+    plan = load_verification_plan(_load_json(plan_path))
+    if not isinstance(plan, VerificationPlan):
+        raise InputParseError(
+            "assembly requires verification plan v2 so the terminal receipt "
+            "can bind manifest provenance"
+        )
     units = [VerificationUnitResult.model_validate(_load_json(path)) for path in unit_paths]
     verifier = VerifierArtifact.model_validate(_load_json(verifier_path))
     try:
@@ -660,6 +666,7 @@ def assemble(
         merge_verdict=verifier.merge_verdict,
         can_merge_without_human=verifier.can_merge_without_human,
         control=verifier.control,
+        manifest_provenance=plan.inputs.manifest_provenance,
     )
     verify_run = build_verify_run_artifact(
         plan=plan,
@@ -727,7 +734,7 @@ def reproduce(
 ) -> None:
     """Validate a terminal receipt and every artifact hash without execution."""
 
-    receipt = VerificationReceipt.model_validate(_load_json(receipt_path))
+    receipt = load_verification_receipt(_load_json(receipt_path))
     try:
         validate_receipt_artifacts(receipt, root=artifacts_root.resolve())
     except ValueError as exc:

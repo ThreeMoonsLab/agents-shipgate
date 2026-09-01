@@ -97,7 +97,9 @@ available at all.
 ## Supported Tool Sources
 
 - `openapi`: local OpenAPI 3.0/3.1 YAML or JSON.
-- `mcp`: local exported MCP tools JSON.
+- `mcp`: local exported MCP tools JSON, a GitHub-style checked-in per-tool
+  snapshot directory, or a source file/tree selected by one of the closed
+  built-in MCP idioms below.
 - `openai_agents_sdk`: optional static Python AST extraction.
 - `google_adk`: static Google ADK Python entrypoint or Agent Config YAML.
 - `langchain`: static LangChain/LangGraph Python entrypoint.
@@ -105,7 +107,68 @@ available at all.
 - `codex_config`: static repo-local Codex config and boundary metadata.
 - `codex_plugin`: static Codex plugin package or marketplace metadata.
 
-When two sources declare the same tool name, Agents Shipgate keeps the higher-fidelity source, merges non-schema metadata such as annotations, auth scopes, risk hints, and owner, and emits a source warning. Current precedence is OpenAI API artifacts, then OpenAPI, then Google ADK/LangChain/CrewAI inventories, then MCP JSON, then SDK/ADK/LangChain/CrewAI static extraction. Low-confidence framework stubs rank below static custom function/class tools.
+Same-name observations from explicitly configured sources stay distinct. Agents
+Shipgate never joins them by name or silently replaces one with a
+higher-confidence observation; a reviewed `tool_identity.bindings[]` entry is
+the only way to assert that separate observations describe one mounted
+capability. Source preference is an adoption convenience: `detect` and
+auto-`init` prefer an accepted checked-in inventory/export when its tool names
+cover the same statically enumerated server. A different code-only server in
+the same project remains suggested. Every source a manifest explicitly names
+is still loaded and reviewed.
+
+## Built-in MCP idioms
+
+Use an `idiom` only when the MCP server has no checked-in `tools/list` export or
+equivalent local inventory:
+
+```yaml
+tool_sources:
+  - id: catalog_server
+    type: mcp
+    path: src/server.ts
+    idiom: typescript_mcp_sdk_v1
+```
+
+The vocabulary is closed and versioned. A manifest cannot supply a regular
+expression or extend a grammar from the same change being reviewed.
+
+| Idiom | Static shape | Completeness |
+| --- | --- | --- |
+| `typescript_mcp_sdk_v1` | Literal first argument to `server.tool(...)` or `server.registerTool(...)` | Enumerated only when every recognized name is literal |
+| `typescript_static_tool_v1` | Class-level literal `static toolName`, with optional literal `operationType` | Always partial: definitions do not prove runtime registration |
+| `go_musttool_v1` | MCP-qualified `var Identifier = …MustTool(literal, ...)` definitions linked to static `Identifier.Register(mcp)` call sites in the Go package | Enumerated only when every registration links uniquely to a literal definition |
+| `go_addtool_v1` | Literal `Name`/`mcp.NewTool(...)` in `mcp.AddTool(...)`, or in a method `AddTool(...)` whose argument is visibly MCP-constructed | Enumerated only when every recognized name is literal |
+| `mcp_tool_snapshot_v1` | Directory of checked-in per-tool JSON `*.snap` objects such as `pkg/github/__toolsnaps__` | High-confidence enumeration when every bounded snapshot is readable and named |
+
+The four source-code adapters are static-only and report `medium` extraction
+confidence; the checked-in snapshot export reports `high`. They read bounded
+local text and never import packages, compile or execute the server, connect to
+MCP, or call tools. Each scan reads at most 5,000 candidate files, 1 MiB per
+file, and 32 MiB in aggregate. Runtime-built names, ambiguous or unresolved Go
+registration links, structural parse gaps, unreadable files, and file/byte caps
+become typed source omissions rather than disappearing from coverage. The
+TypeScript static-definition idiom also carries the
+`definition_only_runtime_binding` gap even when every name is literal.
+
+For the TypeScript static-tool idiom, literal `operationType` is preserved as a
+typed provider fact. `metadata`/`read` yield a medium-confidence read-only hint,
+`create`/`update` yield a write hint, and `delete` yields write plus destructive.
+`connect` stays unknown because connection selection alone does not prove a
+data mutation.
+
+Discovery additionally requires an independent project-local MCP marker, such
+as `@modelcontextprotocol/sdk`, an MCP module/import, or an MCP-named Go module.
+This keeps ordinary application methods named `tool`, `AddTool`, or `MustTool`
+from activating MCP detection. An explicit `tool_sources[].idiom` row is the
+opt-in escape hatch for an MCP project whose package spelling is not recognized.
+
+The v1 TypeScript beachhead is measured rather than hypothetical: the first 100
+GitHub code-search hits covered 30 distinct public repositories using
+`server.registerTool` and 32 using `server.tool`. The Go registration-link rule
+pins Grafana's measured 99-to-100 mounted-tool change while excluding its larger
+unmounted definition catalog. New ecosystem shapes require a new versioned
+idiom and focused false-positive fixtures.
 
 ## Google ADK Artifacts
 

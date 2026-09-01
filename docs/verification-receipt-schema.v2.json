@@ -1,0 +1,356 @@
+{
+  "$defs": {
+    "ManifestProvenance": {
+      "additionalProperties": false,
+      "description": "Whether a manifest can participate in release-authoritative evidence.",
+      "oneOf": [
+        {
+          "properties": {
+            "binding_id": {
+              "type": "null"
+            },
+            "ephemeral": {
+              "const": false
+            },
+            "kind": {
+              "const": "repository"
+            },
+            "release_authoritative": {
+              "const": true
+            }
+          },
+          "required": [
+            "kind",
+            "ephemeral",
+            "release_authoritative",
+            "binding_id"
+          ]
+        },
+        {
+          "properties": {
+            "binding_id": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "ephemeral": {
+              "const": true
+            },
+            "kind": {
+              "const": "local_review"
+            },
+            "release_authoritative": {
+              "const": false
+            }
+          },
+          "required": [
+            "kind",
+            "ephemeral",
+            "release_authoritative",
+            "binding_id"
+          ]
+        },
+        {
+          "properties": {
+            "binding_id": {
+              "type": "null"
+            },
+            "ephemeral": {
+              "const": false
+            },
+            "kind": {
+              "const": "not_evaluated"
+            },
+            "release_authoritative": {
+              "const": false
+            }
+          },
+          "required": [
+            "kind",
+            "ephemeral",
+            "release_authoritative",
+            "binding_id"
+          ]
+        }
+      ],
+      "properties": {
+        "binding_id": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Binding Id"
+        },
+        "ephemeral": {
+          "title": "Ephemeral",
+          "type": "boolean"
+        },
+        "kind": {
+          "enum": [
+            "repository",
+            "local_review",
+            "not_evaluated"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "release_authoritative": {
+          "title": "Release Authoritative",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "ephemeral",
+        "release_authoritative",
+        "binding_id"
+      ],
+      "title": "ManifestProvenance",
+      "type": "object"
+    },
+    "VerificationArtifactManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_set_id": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Artifact Set Id",
+          "type": "string"
+        },
+        "artifacts": {
+          "additionalProperties": {
+            "$ref": "#/$defs/VerificationArtifactRef"
+          },
+          "minProperties": 1,
+          "title": "Artifacts",
+          "type": "object"
+        },
+        "decision_id": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Decision Id",
+          "type": "string"
+        },
+        "request_id": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "shipgate.verification_artifact_manifest/v1",
+          "default": "shipgate.verification_artifact_manifest/v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_set_id",
+        "request_id",
+        "decision_id",
+        "artifacts"
+      ],
+      "title": "VerificationArtifactManifest",
+      "type": "object"
+    },
+    "VerificationArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "media_type": {
+          "title": "Media Type",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes",
+        "media_type"
+      ],
+      "title": "VerificationArtifactRef",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verification-receipt-schema.v2.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Terminal closure record written after every artifact is finalized.",
+  "if": {
+    "properties": {
+      "manifest_provenance": {
+        "properties": {
+          "release_authoritative": {
+            "const": false
+          }
+        },
+        "required": [
+          "release_authoritative"
+        ]
+      }
+    },
+    "required": [
+      "manifest_provenance"
+    ]
+  },
+  "properties": {
+    "artifact_manifest": {
+      "$ref": "#/$defs/VerificationArtifactManifest"
+    },
+    "artifact_set_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Artifact Set Id",
+      "type": "string"
+    },
+    "attempt_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Attempt Id"
+    },
+    "can_merge_without_human": {
+      "title": "Can Merge Without Human",
+      "type": "boolean"
+    },
+    "decision": {
+      "anyOf": [
+        {
+          "enum": [
+            "passed",
+            "review_required",
+            "insufficient_evidence",
+            "blocked"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Decision"
+    },
+    "decision_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Decision Id",
+      "type": "string"
+    },
+    "engine_requirement_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Engine Requirement Id",
+      "type": "string"
+    },
+    "executor_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Executor Id",
+      "type": "string"
+    },
+    "input_set_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Input Set Id",
+      "type": "string"
+    },
+    "manifest_provenance": {
+      "$ref": "#/$defs/ManifestProvenance"
+    },
+    "merge_verdict": {
+      "enum": [
+        "mergeable",
+        "human_review_required",
+        "insufficient_evidence",
+        "blocked",
+        "unknown"
+      ],
+      "title": "Merge Verdict",
+      "type": "string"
+    },
+    "receipt_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Receipt Id",
+      "type": "string"
+    },
+    "request_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Request Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "shipgate.verification_receipt/v2",
+      "default": "shipgate.verification_receipt/v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "subject_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Subject Id",
+      "type": "string"
+    },
+    "unit_result_ids": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Unit Result Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "receipt_id",
+    "request_id",
+    "subject_id",
+    "input_set_id",
+    "engine_requirement_id",
+    "executor_id",
+    "decision_id",
+    "artifact_set_id",
+    "manifest_provenance",
+    "unit_result_ids",
+    "merge_verdict",
+    "can_merge_without_human",
+    "artifact_manifest"
+  ],
+  "then": {
+    "properties": {
+      "can_merge_without_human": {
+        "const": false
+      },
+      "decision": {
+        "not": {
+          "const": "passed"
+        }
+      },
+      "merge_verdict": {
+        "not": {
+          "const": "mergeable"
+        }
+      }
+    },
+    "required": [
+      "decision",
+      "merge_verdict",
+      "can_merge_without_human"
+    ]
+  },
+  "title": "Agents Shipgate Verification Receipt v2",
+  "type": "object"
+}

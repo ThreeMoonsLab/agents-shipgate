@@ -30,7 +30,7 @@ from agents_shipgate.schemas.attestation import (
     ATTESTATION_SCHEMA_VERSION,
     ReleaseAttestationV1,
 )
-from agents_shipgate.schemas.verification_identity import VerificationReceipt
+from agents_shipgate.schemas.verification_identity import load_verification_receipt
 
 
 def _attest_command(
@@ -135,7 +135,7 @@ def _attest_command(
     if verifier.get("verifier_schema_version") in {"0.5", "0.6", "0.7"}:
         if not receipt_payload:
             raise typer.Exit(3)
-        receipt = VerificationReceipt.model_validate(receipt_payload)
+        receipt = load_verification_receipt(receipt_payload)
         validate_receipt_artifacts(receipt, root=source.parent)
         receipt_payload = receipt.model_dump(mode="json")
         receipt_sha256 = hashlib.sha256(receipt_path.read_bytes()).hexdigest()

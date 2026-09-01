@@ -70,6 +70,7 @@ from agents_shipgate.report.pr_comment import (
 from agents_shipgate.report.pr_comment import _escape as _pr_escape
 from agents_shipgate.schemas.common import Severity, SourceReference
 from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
+from agents_shipgate.schemas.manifest_provenance import ManifestProvenance
 from agents_shipgate.schemas.report import (
     BaselineDelta,
     EvidenceCoverageDecision,
@@ -219,6 +220,7 @@ def _pr_comment(
         workspace=".",
         diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
+        manifest_provenance=ManifestProvenance.repository(),
         authorization=AuthorizationEvaluationV1.not_requested(),
         trigger={"rationale": trigger_rationale},
         execution="succeeded",

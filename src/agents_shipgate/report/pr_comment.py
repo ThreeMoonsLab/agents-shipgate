@@ -13,6 +13,7 @@ from agents_shipgate.core.findings.subject_rollup import (
 from agents_shipgate.report.capability_lock_diff_markdown import (
     render_capability_lock_diff_markdown,
 )
+from agents_shipgate.report.declaration_review import declaration_review_lines
 from agents_shipgate.report.human_order import (
     CapabilityDeltaSubjectRollup,
     HumanArtifactContext,
@@ -56,6 +57,12 @@ _COMMENT_CAPABILITY_SOURCE_LIMIT = 3
 _COMMENT_CAPABILITY_MAX_CHARS = 1200
 _COMMENT_PROSE_FIELD_MAX_CHARS = 400
 _COMMENT_PROSE_OMISSION = "- … additional human summary detail omitted; see report.md."
+# Changed declaration exceptions receive their own deterministic block budget.
+# Packet §1 remains exhaustive; only the PR surface names a bounded prefix and
+# states exactly how many rows live in report.json.
+_COMMENT_DECLARATION_ROW_LIMIT = 3
+_COMMENT_DECLARATION_BLOCK_MAX_CHARS = 1_000
+_COMMENT_DECLARATION_DETAIL_MAX_CHARS = 400
 
 
 def render_pr_comment(
@@ -202,6 +209,17 @@ def _human_summary_lines(
     )
     if progress:
         lines.append(f"- {_escape(progress)}")
+    for line in declaration_review_lines(
+        decision.evidence_coverage.semantic_coverage.declaration_review,
+        detail_limit=_COMMENT_DECLARATION_ROW_LIMIT,
+        block_char_limit=_COMMENT_DECLARATION_BLOCK_MAX_CHARS,
+        row_char_limit=_COMMENT_DECLARATION_DETAIL_MAX_CHARS,
+        # Budgets apply to the bytes a reviewer actually sees, including the
+        # list prefix and Markdown escaping. A raw 390-character row can grow
+        # well past 400 when every character needs a backslash.
+        render_for_budget=_render_declaration_comment_line,
+    ):
+        lines.append(_render_declaration_comment_line(line))
     lines.append(
         "- Fail policy: "
         f"would_fail_ci=`{str(decision.fail_policy.would_fail_ci).lower()}` "
@@ -999,6 +1017,10 @@ def _longest_bounded_rendering(
         else:
             high = midpoint - 1
     return best
+
+
+def _render_declaration_comment_line(line: str) -> str:
+    return f"- {_escape(line)}"
 
 
 def _table_cell(value: object) -> str:

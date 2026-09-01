@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.42",
+  "report_schema_version": "0.43",
   "run_id": "agents_shipgate_04bf80ddd3b94d21",
   "request_id": null,
   "subject_id": null,
@@ -135,6 +135,20 @@
           "ambient_authority": 1
         },
         "acknowledged_overrides": [],
+        "declaration_review": {
+          "enabled": false,
+          "base_kind": "none",
+          "changed_count": 0,
+          "summary": {
+            "evidence_consistent": 0,
+            "unverified": 0,
+            "acknowledged_override": 0
+          },
+          "rows": [],
+          "notes": [
+            "No trustworthy base declaration snapshot was available; declaration review disabled."
+          ]
+        },
         "declaration_questions": {
           "total": 0,
           "answered": 0,
@@ -1194,6 +1208,74 @@
     "modified": [],
     "notes": [
       "No action-surface comparison source was provided."
+    ]
+  },
+  "action_declaration_facts": {
+    "snapshot_version": "0.1",
+    "rows": [
+      {
+        "row_id": "action_declaration_01031102aaecaf32dd49",
+        "selector": {
+          "tool": "summarize_case",
+          "tool_id": null,
+          "source_type": null,
+          "source_id": null,
+          "provider": null,
+          "operation": null
+        },
+        "subject": "summarize_case [crewai_agent]",
+        "subject_id": "tool_v2_d38c0379eb241f5063861aecb39b242b58e030f320ede64d7c862bfd6f68d638",
+        "resolution": "resolved",
+        "declared_effect": "read",
+        "declared_risk_tags": [],
+        "has_override": false,
+        "override_identity": null,
+        "basis": null,
+        "declaration_hash": "action_declaration_value_83fa75b49c74e60dfa15",
+        "manifest_path": "shipgate.yaml#action_surface.actions[1]"
+      },
+      {
+        "row_id": "action_declaration_07f43f15621215ea7658",
+        "selector": {
+          "tool": "FileReadTool",
+          "tool_id": null,
+          "source_type": null,
+          "source_id": null,
+          "provider": null,
+          "operation": null
+        },
+        "subject": "FileReadTool [crewai_agent]",
+        "subject_id": "tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212",
+        "resolution": "resolved",
+        "declared_effect": "read",
+        "declared_risk_tags": [],
+        "has_override": false,
+        "override_identity": null,
+        "basis": null,
+        "declaration_hash": "action_declaration_value_83fa75b49c74e60dfa15",
+        "manifest_path": "shipgate.yaml#action_surface.actions[2]"
+      },
+      {
+        "row_id": "action_declaration_1a042d906882c562631a",
+        "selector": {
+          "tool": "lookup_case",
+          "tool_id": null,
+          "source_type": null,
+          "source_id": null,
+          "provider": null,
+          "operation": null
+        },
+        "subject": "lookup_case [crewai_agent]",
+        "subject_id": "tool_v2_8bb9341b31f3731d4ef2337cde788263775c2f388329654c2bc8a8b521170ed1",
+        "resolution": "resolved",
+        "declared_effect": "read",
+        "declared_risk_tags": [],
+        "has_override": false,
+        "override_identity": null,
+        "basis": null,
+        "declaration_hash": "action_declaration_value_83fa75b49c74e60dfa15",
+        "manifest_path": "shipgate.yaml#action_surface.actions[0]"
+      }
     ]
   },
   "binding_surface_facts": {

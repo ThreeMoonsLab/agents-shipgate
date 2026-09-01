@@ -1254,6 +1254,32 @@ def test_the_drafted_proposal_reaches_review(tmp_path: Path) -> None:
     ]
 
 
+def test_the_published_proposal_is_rendered_as_a_declaration_change(
+    tmp_path: Path,
+) -> None:
+    """#427's apply/rerun loop feeds #428's reviewer surface end to end."""
+
+    repo = _repo(tmp_path / "repo")
+    assert _verify(repo, "--base", "HEAD")["next_action"]["kind"] == "confirm_declarations"
+    _apply(repo)
+    assert _verify(repo, "--base", "HEAD")["control_state"] == "review_publishable"
+
+    report = _artifact(repo, "report.json")
+    review = report["release_decision"]["evidence_coverage"]["semantic_coverage"][
+        "declaration_review"
+    ]
+    assert review["enabled"] is True
+    assert review["changed_count"] == 1
+    assert review["summary"] == {
+        "evidence_consistent": 0,
+        "unverified": 1,
+        "acknowledged_override": 0,
+    }
+    comment = (repo / "sg-out" / "pr-comment.md").read_text(encoding="utf-8")
+    assert "Declaration changes" in comment
+    assert "send\\_email" in comment or "send_email" in comment
+
+
 def test_without_the_receipt_a_blocked_run_authorizes_nothing(tmp_path: Path) -> None:
     """The carve-out is the receipt's, not the verdict's.
 
@@ -1371,9 +1397,9 @@ def test_a_published_continuation_validates_against_its_own_schemas(
 
     root = Path(__file__).resolve().parent.parent
     for artifact, schema in (
-        ("verifier.json", "verifier-schema.v0.15.json"),
-        ("agent-handoff.json", "agent-handoff-schema.v8.json"),
-        ("verify-run.json", "verify-run-schema.v5.json"),
+        ("verifier.json", "verifier-schema.v0.16.json"),
+        ("agent-handoff.json", "agent-handoff-schema.v9.json"),
+        ("verify-run.json", "verify-run-schema.v6.json"),
     ):
         payload = json.loads((repo / "sg-out" / artifact).read_text(encoding="utf-8"))
         validator = Draft202012Validator(
@@ -1405,7 +1431,7 @@ def test_a_blocked_run_without_a_continuation_still_fails_the_schema(
     root = Path(__file__).resolve().parent.parent
     payload = json.loads((repo / "sg-out" / "verifier.json").read_text(encoding="utf-8"))
     validator = Draft202012Validator(
-        json.loads((root / "docs" / "verifier-schema.v0.15.json").read_text("utf-8"))
+        json.loads((root / "docs" / "verifier-schema.v0.16.json").read_text("utf-8"))
     )
     payload.pop("declaration_continuation")
     assert list(validator.iter_errors(payload))

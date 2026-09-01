@@ -21,6 +21,15 @@ from agents_shipgate.schemas.agent_handoff import (
     AgentHandoffSubject,
 )
 from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
+from agents_shipgate.schemas.manifest_provenance import ManifestProvenance
+from agents_shipgate.schemas.verify_run import (
+    VerifyRunArtifactV1,
+    VerifyRunInputs,
+    VerifyRunOutcomeV1,
+    VerifyRunSubject,
+    VerifyRunTool,
+    compute_verify_run_id,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 runner = CliRunner()
@@ -33,6 +42,35 @@ AUTHORIZED_COMMAND = (
 
 def _content_id(character: str) -> str:
     return f"sha256:{character * 64}"
+
+
+def _legacy_verify_run_payload() -> dict:
+    tool = VerifyRunTool(version="0.16.0b7")
+    subject = VerifyRunSubject(config="shipgate.yaml")
+    inputs = VerifyRunInputs(
+        config_sha256="config-hash",
+        policy_packs=[{"path": "policies/org.yaml", "sha256": "pack-hash"}],
+    )
+    return VerifyRunArtifactV1(
+        run_id=compute_verify_run_id(subject=subject, inputs=inputs, tool=tool),
+        tool=tool,
+        subject=subject,
+        inputs=inputs,
+        outcome=VerifyRunOutcomeV1(
+            exit_code=20,
+            base_status="not_run",
+            head_status="succeeded",
+            decision="blocked",
+            merge_verdict="blocked",
+            can_merge_without_human=False,
+        ),
+        artifacts={
+            "verifier_json": {
+                "path": "agents-shipgate-reports/verifier.json",
+                "sha256": "verifier-hash",
+            }
+        },
+    ).model_dump(mode="json")
 
 
 def _accepted_authorization() -> AuthorizationEvaluationV1:
@@ -173,24 +211,10 @@ def _authorized_verifier_payload() -> dict:
 def test_agent_handoff_projects_verifier_report_and_verify_run() -> None:
     handoff = build_agent_handoff(
         verifier=_verifier_payload(),
-        verify_run={
-            "run_id": "sha256:" + "a" * 64,
-            "inputs": {
-                "config_sha256": "config-hash",
-                "baseline_sha256": None,
-                "policy_packs": [{"path": "policies/org.yaml", "sha256": "pack-hash"}],
-            },
-            "artifacts": {
-                "verifier_json": {
-                    "path": "agents-shipgate-reports/verifier.json",
-                    "sha256": "verifier-hash",
-                }
-            },
-            "outcome": {"control": _verifier_payload()["control"]},
-        },
+        verify_run=_legacy_verify_run_payload(),
     )
 
-    assert handoff.schema_version == "shipgate.agent_handoff/v8"
+    assert handoff.schema_version == "shipgate.agent_handoff/v9"
     assert handoff.gate.decision == "blocked"
     assert handoff.gate.merge_verdict == "blocked"
     assert handoff.gate.ci_would_fail is True
@@ -202,12 +226,12 @@ def test_agent_handoff_projects_verifier_report_and_verify_run() -> None:
         "allowed",
         "forbidden",
     }
-    assert handoff.reproducibility.run_id == "sha256:" + "a" * 64
+    assert handoff.reproducibility.run_id == _legacy_verify_run_payload()["run_id"]
     assert handoff.reproducibility.artifact_sha256 == {"verifier_json": "verifier-hash"}
 
 
 def test_agent_handoff_schema_validates_sample_projection() -> None:
-    schema = json.loads((ROOT / "docs" / "agent-handoff-schema.v8.json").read_text())
+    schema = json.loads((ROOT / "docs" / "agent-handoff-schema.v9.json").read_text())
     payload = build_agent_handoff(verifier=_verifier_payload()).model_dump(mode="json")
 
     Draft202012Validator(schema).validate(payload)
@@ -225,6 +249,7 @@ def test_agent_handoff_has_exact_top_level_sections() -> None:
         "gate",
         "control",
         "authorization",
+        "manifest_provenance",
         "fix_task",
         "blocked_by",
         "remediation_plan",
@@ -277,10 +302,7 @@ def test_agent_handoff_cli_rerenders_existing_artifacts(tmp_path: Path) -> None:
         json.dumps({"release_decision": {"decision": "blocked"}}),
         encoding="utf-8",
     )
-    verify_run_path.write_text(
-        json.dumps({"run_id": "sha256:" + "b" * 64, "inputs": {}, "artifacts": {}}),
-        encoding="utf-8",
-    )
+    verify_run_path.write_text(json.dumps(_legacy_verify_run_payload()), encoding="utf-8")
 
     result = runner.invoke(
         app,
@@ -303,7 +325,7 @@ def test_agent_handoff_cli_rerenders_existing_artifacts(tmp_path: Path) -> None:
     emitted = json.loads(result.output)
     written = json.loads(out_path.read_text(encoding="utf-8"))
     assert emitted == written
-    assert emitted["schema_version"] == "shipgate.agent_handoff/v8"
+    assert emitted["schema_version"] == "shipgate.agent_handoff/v9"
     assert emitted["gate"]["decision"] == "blocked"
 
 
@@ -326,6 +348,7 @@ def test_agent_handoff_rejects_mismatched_decision_and_merge_verdict() -> None:
     with pytest.raises(ValidationError):
         AgentHandoffArtifact(
             contract_version="14",
+            manifest_provenance=ManifestProvenance.repository(),
             operation="verify_pr",
             subject=AgentHandoffSubject(workspace="/tmp/repo", config="shipgate.yaml"),
             gate=AgentHandoffGate(
@@ -346,6 +369,7 @@ def test_agent_handoff_rejects_controller_completion_mismatch() -> None:
     with pytest.raises(ValidationError):
         AgentHandoffArtifact(
             contract_version="14",
+            manifest_provenance=ManifestProvenance.repository(),
             operation="verify_pr",
             subject=AgentHandoffSubject(workspace="/tmp/repo", config="shipgate.yaml"),
             gate=AgentHandoffGate(
@@ -388,6 +412,7 @@ def test_preview_handoff_carries_standing_forbidden_lists() -> None:
         "can_merge_without_human": False,
         "diff_status": {"completeness": "complete"},
         "authorization": AuthorizationEvaluationV1.not_requested().model_dump(mode="json"),
+        "manifest_provenance": ManifestProvenance.not_evaluated().model_dump(mode="json"),
         "control": derive_agent_control(
             reason="Configure Agents Shipgate before verification.",
             next_action=CodingAgentCommandAction(

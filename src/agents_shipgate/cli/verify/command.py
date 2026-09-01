@@ -17,6 +17,10 @@ from agents_shipgate.cli.agent_mode import emit_agent_mode_error, is_agent_mode
 from agents_shipgate.cli.current_workspace import live_workspace
 from agents_shipgate.cli.diagnostics import input_parse_recovery, top_next_actions
 from agents_shipgate.cli.discovery.gitignore_block import REPORTS_DIR_NAME
+from agents_shipgate.cli.local_review import (
+    is_reserved_local_review_manifest,
+    load_local_review_binding,
+)
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_control_envelope import (
     control_headline_lines,
@@ -43,6 +47,7 @@ from agents_shipgate.schemas.agent_control_envelope import (
 )
 from agents_shipgate.schemas.current_control import VERIFIER_ARTIFACT_KEY
 from agents_shipgate.schemas.diagnostics import NextAction
+from agents_shipgate.schemas.manifest_provenance import ManifestProvenance
 from agents_shipgate.schemas.verifier import VerifierArtifact
 
 from .git import ensure_git_workspace, staged_paths_under
@@ -120,10 +125,21 @@ def verify(
         help=(
             "Lightweight relevance check: evaluate triggers and report "
             "whether Shipgate is relevant + what to run next, WITHOUT "
-            "running a scan, requiring a manifest, or writing any files "
-            "beyond the verifier artifacts. Exits 0 for every workspace it "
-            "evaluates; a --workspace that does not exist is refused as an "
-            "invocation error (exit 2) before anything is created."
+            "running a scan or requiring a manifest. An unconfigured "
+            "first-look preview uses and removes transient artifacts; a "
+            "configured or ref-bound preview writes verifier artifacts. "
+            "Exits 0 for every workspace it evaluates; a --workspace that "
+            "does not exist is refused as an invocation error (exit 2) "
+            "before anything is created."
+        ),
+    ),
+    local_review: bool = typer.Option(
+        False,
+        "--local-review",
+        help=(
+            "Consume only the typed provisional manifest bound by init "
+            "--local-review for this worktree. The result is always review-only "
+            "and never grants merge, completion, or human-authorization evidence."
         ),
     ),
     out: Path | None = typer.Option(
@@ -246,6 +262,20 @@ def verify(
         parsed_pr_comment_style = _parse_pr_comment_style(pr_comment_style)
         if preview and authorization is not None:
             raise ConfigError("--authorization cannot be combined with --preview")
+        if local_review:
+            conflicts = [
+                label
+                for label, present in (
+                    ("--preview", preview),
+                    ("--config", config is not None),
+                    ("--out", out is not None),
+                    ("--head", head is not None),
+                    ("--authorization", authorization is not None),
+                )
+                if present
+            ]
+            if conflicts:
+                raise ConfigError("--local-review cannot be combined with " + ", ".join(conflicts))
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
         guidance = "Fix the invalid CLI flag value referenced in the error and re-run verify."
@@ -266,7 +296,14 @@ def verify(
 
     try:
         effective_config = config
-        if effective_config is None:
+        effective_out = out
+        manifest_provenance = ManifestProvenance.repository()
+        if local_review:
+            local_paths, local_binding = load_local_review_binding(workspace.resolve())
+            effective_config = local_paths.manifest
+            effective_out = local_paths.reports
+            manifest_provenance = local_binding.provenance
+        elif effective_config is None:
             if preview:
                 try:
                     config_root = ensure_git_workspace(workspace.resolve())
@@ -275,13 +312,19 @@ def verify(
             else:
                 config_root = ensure_git_workspace(workspace.resolve())
             effective_config = config_root / "shipgate.yaml"
+        elif is_reserved_local_review_manifest(effective_config):
+            raise ConfigError(
+                "The reserved local-review manifest cannot be used through ordinary "
+                "--config. Re-run with --local-review so its worktree binding and "
+                "non-authoritative provenance are validated."
+            )
         if preview:
             verifier, _report, exit_code = run_preview(
                 workspace=workspace,
                 config=effective_config,
                 base=base,
                 head=head,
-                out=out,
+                out=effective_out,
                 pr_comment_style=parsed_pr_comment_style,
                 auto_base=base is None and not no_base,
             )
@@ -293,7 +336,7 @@ def verify(
                 base=base,
                 head=head_ref,
                 archive_head=head is not None,
-                out=out,
+                out=effective_out,
                 ci_mode=ci_mode,
                 fail_on=parsed_fail_on,
                 baseline=baseline,
@@ -308,10 +351,25 @@ def verify(
                 pr_comment_style=parsed_pr_comment_style,
                 verbose=verbose,
                 auto_base=base is None and not no_base,
+                manifest_provenance=manifest_provenance,
+                local_review=local_review,
             )
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
-        if _unsafe_config_identity_error(exc):
+        if str(exc).startswith("Local-review metadata recovery required:"):
+            guidance = str(exc)
+            flattened = [
+                NextAction(
+                    kind="review",
+                    why=guidance,
+                    expects=(
+                        "User data is preserved outside the reserved paths; only the "
+                        "exact managed exclude block is removed; init --local-review "
+                        "then creates a fresh authenticated binding."
+                    ),
+                )
+            ]
+        elif _unsafe_config_identity_error(exc):
             guidance = (
                 "Review the configured manifest identity and rerun verify only "
                 "after selecting an exact in-workspace, non-symlink path."
@@ -439,7 +497,7 @@ def verify(
         )
         raise typer.Exit(4) from exc
 
-    _warn_if_reports_staged(workspace, out)
+    _warn_if_reports_staged(workspace, effective_out)
 
     # Rendering runs inside the structured error boundary. Every envelope
     # invariant restates one the verifier already enforces, so a failure here
@@ -644,6 +702,21 @@ def _verify_envelope(
             execution=verifier.execution,
             exit_code=exit_code,
             reason=reason,
+        )
+
+    # An unconfigured first-look preview intentionally destroys its temporary
+    # artifact directory before returning. It cannot carry release authority:
+    # the verifier model fixes execution to ``not_run``, has no release
+    # decision, and its preview control denies every permission. Project that
+    # in-memory routing answer directly; requiring a durable current-control
+    # pointer here would turn the side-effect-free preview into an unusable
+    # human stop merely because it kept its promise to leave no artifacts.
+    if preview and not verifier.artifacts:
+        return envelope_from_verifier(
+            verifier,
+            operation=operation,
+            source="run",
+            exit_code=exit_code,
         )
 
     reports_dir = _reports_dir_from_artifacts(verifier, workspace)

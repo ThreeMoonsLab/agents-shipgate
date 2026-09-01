@@ -22,6 +22,7 @@ from agents_shipgate.schemas.human_authorization import (
     HumanAuthorizationRequestV1,
     authorization_review_items,
 )
+from agents_shipgate.schemas.manifest_provenance import ManifestProvenance
 from agents_shipgate.schemas.verification_identity import (
     VerificationBlob,
     VerificationEngineRequirement,
@@ -77,6 +78,7 @@ def _plan(*, committed: bool, plugins_enabled: bool = False) -> VerificationPlan
     )
     input_payload = {
         "evaluation_date": "2026-07-18",
+        "manifest_provenance": ManifestProvenance.repository(),
         "config": config,
         "diff": diff,
         "baseline": None,
@@ -178,6 +180,7 @@ def _write_receipt_bundle(
             ),
             human_review_required=True,
         ),
+        manifest_provenance=plan.inputs.manifest_provenance,
     )
     verify_run = build_verify_run_artifact(
         plan=plan,

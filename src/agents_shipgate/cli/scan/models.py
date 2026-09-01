@@ -24,7 +24,7 @@ from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, Bindin
 from agents_shipgate.schemas.codex_plugin import CodexPluginSurface
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest, CiConfig
 from agents_shipgate.schemas.report import PolicyAudit
-from agents_shipgate.schemas.surfaces import ActionSurfaceFacts
+from agents_shipgate.schemas.surfaces import ActionDeclarationFacts, ActionSurfaceFacts
 
 
 @dataclass(frozen=True)
@@ -159,6 +159,9 @@ class _SanitizedSurfaces:
 
     manifest: AgentsShipgateManifest
     manifest_dir: str
+    #: Sanitized workspace-relative manifest spelling when verify supplied
+    #: one; filename-only for plain scans that have no workspace identity.
+    manifest_path: str
     project: Any
     environment: Any
     agent: Agent
@@ -180,6 +183,9 @@ class _SanitizedSurfaces:
     loaded_plugins: Any
     loaded_adapters: Any  # v0.20: list[dict[str, Any]]; sanitized via redact_data
     diff_reference: ToolSurfaceDiffReference | None
+    manifest_introduced: bool
+    configured_gate_introduced: bool
+    action_declaration_facts: ActionDeclarationFacts
     base_action_surface_facts: ActionSurfaceFacts | None
     action_surface_facts: ActionSurfaceFacts
     action_surface_diff: Any

@@ -43,8 +43,9 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`determinism-boundary.json`](determinism-boundary.json) — machine-readable determinism boundary (`shipgate.determinism_boundary/v1`; regenerated from the adapter registry, drift-checked in CI)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.42.json`](report-schema.v0.42.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.42"`, and `effective_policy.control_pack` names the control pack in force, so a base-vs-head comparison can see a pack moved to one that requires less)
-- [`report-schema.v0.41.json`](report-schema.v0.41.json) — frozen reference (`effective_policy.control_pack` names the control pack in force)
+- [`report-schema.v0.43.json`](report-schema.v0.43.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.43"` and a privacy-safe `declaration_review` projection for PR verification)
+- [`report-schema.v0.42.json`](report-schema.v0.42.json) — frozen reference (`effective_policy.control_pack` names the control pack in force)
+- [`report-schema.v0.41.json`](report-schema.v0.41.json) — frozen reference
 - [`report-schema.v0.39.json`](report-schema.v0.39.json) — frozen reference (a confirmed declaration whose evidence has since moved re-opens as a `declaration_drift` gap)
 - [`report-schema.v0.38.json`](report-schema.v0.38.json) — frozen v0.38 reference; pre-v0.39 reports validate against this
 - [`report-schema.v0.37.json`](report-schema.v0.37.json) — frozen reference (added `semantic_coverage.declaration_questions`, the questionnaire projection that says how many declarations a repository still owes)
@@ -59,7 +60,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.27.json`](report-schema.v0.27.json) — frozen v0.27 reference schema; pre-v0.28 reports validate against this
 - [`report-schema.v0.26.json`](report-schema.v0.26.json) — frozen v0.26 reference schema; pre-v0.27 reports validate against this
 - [`report-schema.v0.25.json`](report-schema.v0.25.json) — frozen v0.25 reference schema; pre-v0.26 reports validate against this
-- [`verifier-schema.v0.15.json`](verifier-schema.v0.15.json) — current JSON Schema for `verifier.json`, including the fail-closed signed authorization evaluation, the `diff_status` input-health block, and `capability_review.policy_weakening_proven`
+- [`verifier-schema.v0.16.json`](verifier-schema.v0.16.json) — current JSON Schema for `verifier.json`, including typed manifest provenance and fail-closed release authority
+- [`verifier-schema.v0.15.json`](verifier-schema.v0.15.json) — frozen verifier reference
 - [`verifier-schema.v0.12.json`](verifier-schema.v0.12.json) — frozen v0.12 reference; pre-v0.13 verifier artifacts validate against this
 - [`verifier-schema.v0.11.json`](verifier-schema.v0.11.json) — frozen v0.11 reference; pre-v0.12 verifier artifacts validate against this
 - [`verifier-schema.v0.8.json`](verifier-schema.v0.8.json) — frozen prior JSON Schema for `verifier.json`
@@ -69,17 +71,21 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`verifier-schema.v0.3.json`](verifier-schema.v0.3.json) — frozen v0.3 verifier reference
 - [`verifier-schema.v0.2.json`](verifier-schema.v0.2.json) — frozen v0.2 verifier reference
 - [`verifier-schema.v0.1.json`](verifier-schema.v0.1.json) — frozen v0.1 verifier reference
-- [`verify-run-schema.v5.json`](verify-run-schema.v5.json) — JSON Schema for `verify-run.json`, the deterministic verify-run reproducibility artifact
+- [`verify-run-schema.v6.json`](verify-run-schema.v6.json) — JSON Schema for `verify-run.json`, the deterministic provenance-bound verify-run reproducibility artifact
+- [`verify-run-schema.v5.json`](verify-run-schema.v5.json) — frozen provenance-free verify-run reference
 - [`verify-run-schema.v2.json`](verify-run-schema.v2.json) — frozen verify-run v2 reference
 - [`verify-run-schema.v1.json`](verify-run-schema.v1.json) — frozen verify-run v1 reference
 - [`human-authorization-schema.v1.json`](human-authorization-schema.v1.json) — current schema family for unsigned requests, externally signed grants, evaluations, and external trust policies
 - [`human-authorization-signature-v1.json`](human-authorization-signature-v1.json) — canonical Ed25519 signature interoperability vector
-- [`agent-handoff-schema.v8.json`](agent-handoff-schema.v8.json) — current compact verifier handoff schema with authorization provenance
+- [`agent-handoff-schema.v9.json`](agent-handoff-schema.v9.json) — current compact verifier handoff schema with manifest and authorization provenance
+- [`agent-handoff-schema.v8.json`](agent-handoff-schema.v8.json) — frozen handoff reference
 - [`agent-handoff-schema.v5.json`](agent-handoff-schema.v5.json) — frozen handoff v5 reference
-- [`verification-plan-schema.v1.json`](verification-plan-schema.v1.json) — content-addressed verification subject, inputs, engine requirement, and task plan
+- [`verification-plan-schema.v2.json`](verification-plan-schema.v2.json) — content-addressed verification subject, provenance-bound inputs, engine requirement, and task plan
+- [`verification-plan-schema.v1.json`](verification-plan-schema.v1.json) — frozen provenance-free plan reference
 - [`verification-unit-result-schema.v1.json`](verification-unit-result-schema.v1.json) — decision-free worker result contract
 - [`verification-artifact-manifest-schema.v1.json`](verification-artifact-manifest-schema.v1.json) — content-addressed terminal artifact set
-- [`verification-receipt-schema.v1.json`](verification-receipt-schema.v1.json) — terminal request, decision, executor, and artifact closure
+- [`verification-receipt-schema.v2.json`](verification-receipt-schema.v2.json) — terminal request, manifest provenance, decision, executor, and artifact closure
+- [`verification-receipt-schema.v1.json`](verification-receipt-schema.v1.json) — frozen provenance-free receipt reference
 - [`current-control-schema.v1.json`](current-control-schema.v1.json) — the atomic pointer naming which control identity is current
 - [`agent-control-schema.v1.json`](agent-control-schema.v1.json) — the compact `shipgate.agent_control/v1` control envelope emitted on stdout
 - [`agent-handoff-schema.v4.json`](agent-handoff-schema.v4.json) — frozen handoff v4 reference
@@ -150,7 +156,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.8.json`](report-schema.v0.8.json) — frozen v0.8 reference schema; pre-v0.9 reports validate against this
 - [`report-schema.v0.7.json`](report-schema.v0.7.json) — frozen v0.7 reference schema; pre-v0.8 reports validate against this
 - [`report-schema.v0.6.json`](report-schema.v0.6.json) — frozen v0.6 reference schema; pre-v0.7 reports validate against this
-- [`packet-schema.v0.17.json`](packet-schema.v0.17.json) — JSON Schema for the Release Evidence Packet (current; emitted packets project typed policy support, evidence gaps, semantic coverage, and the static-only verdict boundary in §1)
+- [`packet-schema.v0.18.json`](packet-schema.v0.18.json) — JSON Schema for the Release Evidence Packet (current; emitted packets add exhaustive base-vs-head declaration review while the PR comment remains attention-only)
+- [`packet-schema.v0.17.json`](packet-schema.v0.17.json) — frozen packet reference
 - [`packet-schema.v0.15.json`](packet-schema.v0.15.json) — frozen v0.15 reference; pre-v0.16 packets validate against this
 - [`packet-schema.v0.14.json`](packet-schema.v0.14.json) — frozen v0.14 declaration-questionnaire packet reference; pre-v0.15 packets validate against this
 - [`packet-schema.v0.11.json`](packet-schema.v0.11.json) — frozen v0.11 typed policy-evidence packet reference

@@ -45,6 +45,7 @@ from agents_shipgate.core.semantic_assessment import (
     reviewed_risk_tag_effects,
 )
 from agents_shipgate.schemas.manifest import ActionDeclarationConfig
+from agents_shipgate.schemas.manifest_provenance import ManifestProvenance
 from agents_shipgate.schemas.report import (
     DeclarationQuestionCoverage,
     DeclarationQuestionRow,
@@ -2066,6 +2067,7 @@ def test_the_pr_comment_reports_progress_and_omits_it_when_nothing_was_asked(
         workspace=str(tmp_path),
         diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
+        manifest_provenance=ManifestProvenance.repository(),
         authorization=AuthorizationEvaluationV1.not_requested(),
         trigger={"rationale": "1 run_shipgate rule(s) matched."},
         execution="succeeded",

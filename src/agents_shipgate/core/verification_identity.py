@@ -26,7 +26,10 @@ from agents_shipgate.inputs.protocol import REGISTRY
 from agents_shipgate.schemas.manifest.declared_paths import (
     declared_manifest_input_paths,
 )
+from agents_shipgate.schemas.manifest_provenance import ManifestProvenance
 from agents_shipgate.schemas.verification_identity import (
+    ReadableVerificationPlan,
+    ReadableVerificationReceipt,
     VerificationArtifactManifest,
     VerificationArtifactRef,
     VerificationBlob,
@@ -35,11 +38,15 @@ from agents_shipgate.schemas.verification_identity import (
     VerificationGitSubject,
     VerificationInputSet,
     VerificationPlan,
+    VerificationPlanV1,
     VerificationReceipt,
+    VerificationReceiptV1,
     VerificationSubject,
     VerificationTask,
     VerificationUnitResult,
     content_id,
+    load_verification_plan,
+    load_verification_receipt,
 )
 
 _GENERATED_DISTRIBUTION_DIRECTORY_NAMES = frozenset({"agents-shipgate-reports"})
@@ -188,6 +195,9 @@ def build_verification_plan(
     diff_logical_path: str = "verification-input.diff",
     external_input_root: Path | None = None,
     captured_input_paths: list[Path] | None = None,
+    config_source: str | None = None,
+    config_blob_path: Path | None = None,
+    manifest_provenance: ManifestProvenance | None = None,
 ) -> VerificationPlan:
     effective_plugins_enabled = _plugins_enabled(plugins_enabled)
     normalized_options = dict(options)
@@ -228,9 +238,9 @@ def build_verification_plan(
     subject = VerificationSubject(subject_id=content_id(git_subject), git=git_subject)
 
     config_blob = build_blob(
-        path=config_path,
+        path=config_blob_path or config_path,
         logical_path=config_logical_path,
-        source="git_blob" if archived_head else "worktree",
+        source=config_source or ("git_blob" if archived_head else "worktree"),
     )
     diff_bytes = diff_text.encode("utf-8")
     diff_blob = VerificationBlob(
@@ -263,11 +273,7 @@ def build_verification_plan(
         else list(captured_input_paths)
     )
     tool_sources = _blobs(
-        [
-            path
-            for path in candidate_input_paths
-            if _lexical_path(path) not in excluded_paths
-        ],
+        [path for path in candidate_input_paths if _lexical_path(path) not in excluded_paths],
         root=input_root,
         source="git_blob" if archived_head else "worktree",
     )
@@ -286,6 +292,7 @@ def build_verification_plan(
     diff_from_blob = _optional_blob(diff_from_path, root=bundle_root)
     inputs_payload = {
         "evaluation_date": evaluation_date,
+        "manifest_provenance": manifest_provenance or ManifestProvenance.repository(),
         "config": config_blob,
         "diff": diff_blob,
         "baseline": baseline_blob,
@@ -346,7 +353,7 @@ def build_verification_plan(
 
 def build_unit_result(
     *,
-    plan: VerificationPlan,
+    plan: ReadableVerificationPlan,
     normalized_ir: dict[str, Any],
     status: str = "succeeded",
     issues: list[str] | None = None,
@@ -381,6 +388,7 @@ def build_terminal_receipt(
     artifact_paths: dict[str, Path],
     artifact_root: Path | None = None,
     attempt_id: str | None = None,
+    manifest_provenance: ManifestProvenance | None = None,
 ) -> tuple[VerificationArtifactManifest, VerificationReceipt]:
     executor_ids = {result.executor.executor_id for result in unit_results}
     if len(executor_ids) != 1:
@@ -455,6 +463,7 @@ def build_terminal_receipt(
         "executor_id": next(iter(executor_ids)),
         "decision_id": decision_id,
         "artifact_set_id": manifest.artifact_set_id,
+        "manifest_provenance": manifest_provenance or ManifestProvenance.repository(),
         "unit_result_ids": sorted(result.unit_result_id for result in unit_results),
         "attempt_id": attempt_id,
         "decision": decision,
@@ -474,7 +483,11 @@ def build_terminal_receipt(
     )
 
 
-def validate_receipt_artifacts(receipt: VerificationReceipt, *, root: Path) -> None:
+def validate_receipt_artifacts(
+    receipt: ReadableVerificationReceipt,
+    *,
+    root: Path,
+) -> None:
     resolved: dict[str, Path] = {}
     for name, ref in receipt.artifact_manifest.artifacts.items():
         path = Path(ref.path)
@@ -499,7 +512,16 @@ def validate_receipt_artifacts(receipt: VerificationReceipt, *, root: Path) -> N
     plan_path = resolved.get("verification_plan_json")
     if plan_path is None:
         raise ValueError("receipt does not bind a verification plan")
-    plan = VerificationPlan.model_validate(_load_json_object(plan_path))
+    plan = load_verification_plan(_load_json_object(plan_path))
+    if isinstance(receipt, VerificationReceipt):
+        if not isinstance(plan, VerificationPlan):
+            raise ValueError("verification receipt v2 requires verification plan v2")
+        if plan.inputs.manifest_provenance != receipt.manifest_provenance:
+            raise ValueError(
+                "receipt manifest provenance disagrees with the verification plan"
+            )
+    elif not isinstance(plan, VerificationPlanV1):
+        raise ValueError("verification receipt v1 requires verification plan v1")
     diff_path = resolved.get("verification_input_diff")
     if diff_path is None:
         raise ValueError("receipt does not bind the verification diff input")
@@ -524,7 +546,6 @@ def validate_receipt_artifacts(receipt: VerificationReceipt, *, root: Path) -> N
     for field, expected in mirrors.items():
         if getattr(receipt, field) != expected:
             raise ValueError(f"receipt {field} disagrees with the verification plan")
-
     unit_paths = [
         path
         for name, path in sorted(resolved.items())
@@ -545,9 +566,18 @@ def validate_receipt_artifacts(receipt: VerificationReceipt, *, root: Path) -> N
     verify_run_path = resolved.get("verify_run_json")
     if verify_run_path is None:
         raise ValueError("receipt does not bind verify-run.json")
-    from agents_shipgate.schemas.verify_run import VerifyRunArtifact
+    from agents_shipgate.schemas.verify_run import (
+        VerifyRunArtifact,
+        VerifyRunArtifactV5,
+        load_verify_run_artifact,
+    )
 
-    verify_run = VerifyRunArtifact.model_validate(_load_json_object(verify_run_path))
+    verify_run = load_verify_run_artifact(_load_json_object(verify_run_path))
+    if isinstance(receipt, VerificationReceipt):
+        if not isinstance(verify_run, VerifyRunArtifact):
+            raise ValueError("verification receipt v2 requires verify-run v6")
+    elif not isinstance(verify_run, VerifyRunArtifactV5):
+        raise ValueError("verification receipt v1 requires verify-run v5")
     if verify_run.request_id != receipt.request_id:
         raise ValueError("verify-run request_id disagrees with the receipt")
     if verify_run.decision_id != receipt.decision_id:
@@ -567,6 +597,9 @@ def validate_receipt_artifacts(receipt: VerificationReceipt, *, root: Path) -> N
         receipt.can_merge_without_human,
     ):
         raise ValueError("verify-run outcome disagrees with the receipt")
+    if isinstance(receipt, VerificationReceipt):
+        if outcome.manifest_provenance != receipt.manifest_provenance:
+            raise ValueError("verify-run manifest provenance disagrees with the receipt")
 
     _validate_verify_run_artifact_refs(
         verify_run=verify_run,
@@ -586,7 +619,7 @@ def validated_receipt_snapshot(
     max_artifact_count: int = 64,
     max_artifact_size: int = 64 * 1024 * 1024,
     max_total_size: int = 256 * 1024 * 1024,
-) -> Iterator[tuple[VerificationReceipt, Path]]:
+) -> Iterator[tuple[ReadableVerificationReceipt, Path]]:
     """Yield one immutable, validated snapshot of a terminal artifact closure.
 
     Every source file is opened beneath ``root`` with no-follow directory/file
@@ -604,7 +637,7 @@ def validated_receipt_snapshot(
         "verification-receipt.json",
         max_size=4 * 1024 * 1024,
     )
-    receipt = VerificationReceipt.model_validate(_json_object_bytes(receipt_bytes, "receipt"))
+    receipt = load_verification_receipt(_json_object_bytes(receipt_bytes, "receipt"))
     artifact_refs = receipt.artifact_manifest.artifacts
     if len(artifact_refs) > max_artifact_count:
         raise ValueError("receipt binds too many artifacts")
@@ -667,7 +700,7 @@ def load_validated_receipt_artifacts(
     max_artifact_count: int = 64,
     max_artifact_size: int = 64 * 1024 * 1024,
     max_total_size: int = 256 * 1024 * 1024,
-) -> tuple[VerificationReceipt, dict[str, bytes]]:
+) -> tuple[ReadableVerificationReceipt, dict[str, bytes]]:
     """Load receipt-bound artifact bytes from one validated snapshot."""
 
     with validated_receipt_snapshot(
@@ -704,7 +737,11 @@ def read_regular_file_beneath(
     """
 
     parts = Path(logical_path).parts
-    if not parts or Path(logical_path).is_absolute() or any(part in {"", ".", ".."} for part in parts):
+    if (
+        not parts
+        or Path(logical_path).is_absolute()
+        or any(part in {"", ".", ".."} for part in parts)
+    ):
         raise ValueError(f"{label} path is not portable: {logical_path!r}")
     directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
     file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
@@ -755,8 +792,6 @@ def read_regular_file_beneath(
                 os.close(descriptor)
 
 
-
-
 _read_regular_file_beneath = read_regular_file_beneath
 
 
@@ -773,7 +808,7 @@ def _json_object_bytes(data: bytes, label: str) -> dict[str, Any]:
 def _validate_verify_run_artifact_refs(
     *,
     verify_run: Any,
-    receipt: VerificationReceipt,
+    receipt: ReadableVerificationReceipt,
     resolved: dict[str, Path],
 ) -> None:
     """Close every non-cyclic verify-run artifact ref over receipt-bound bytes."""
@@ -816,7 +851,7 @@ def _load_json_object(path: Path) -> dict[str, Any]:
 
 
 def _validate_projection_ids(
-    receipt: VerificationReceipt,
+    receipt: ReadableVerificationReceipt,
     resolved: dict[str, Path],
 ) -> None:
     expected = {
@@ -834,6 +869,17 @@ def _validate_projection_ids(
         for field, value in expected.items():
             if payload.get(field) != value:
                 raise ValueError(f"receipt artifact {name!r} has inconsistent {field}")
+        if name == "verifier_json":
+            expected_provenance = (
+                receipt.manifest_provenance.model_dump(mode="json")
+                if isinstance(receipt, VerificationReceipt)
+                else ManifestProvenance.repository().model_dump(mode="json")
+            )
+            actual_provenance = payload.get("manifest_provenance")
+            if actual_provenance is None and isinstance(receipt, VerificationReceiptV1):
+                actual_provenance = ManifestProvenance.repository().model_dump(mode="json")
+            if actual_provenance != expected_provenance:
+                raise ValueError("verifier manifest provenance disagrees with the receipt")
     handoff_path = resolved.get("agent_handoff_json")
     if handoff_path is not None:
         handoff = _load_json_object(handoff_path)
@@ -844,10 +890,20 @@ def _validate_projection_ids(
         for field, value in handoff_expected.items():
             if reproducibility.get(field) != value:
                 raise ValueError(f"agent handoff has inconsistent {field}")
+        expected_provenance = (
+            receipt.manifest_provenance.model_dump(mode="json")
+            if isinstance(receipt, VerificationReceipt)
+            else ManifestProvenance.repository().model_dump(mode="json")
+        )
+        actual_provenance = handoff.get("manifest_provenance")
+        if actual_provenance is None and isinstance(receipt, VerificationReceiptV1):
+            actual_provenance = ManifestProvenance.repository().model_dump(mode="json")
+        if actual_provenance != expected_provenance:
+            raise ValueError("agent handoff manifest provenance disagrees with the receipt")
 
 
 def validate_plan_inputs(
-    plan: VerificationPlan,
+    plan: ReadableVerificationPlan,
     *,
     root: Path,
     diff_path: Path | None = None,

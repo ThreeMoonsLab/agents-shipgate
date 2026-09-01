@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.42",
+  "report_schema_version": "0.43",
   "run_id": "agents_shipgate_e7535b101fdbdc1b",
   "request_id": null,
   "subject_id": null,
@@ -306,6 +306,20 @@
           "unattested_surface": 1
         },
         "acknowledged_overrides": [],
+        "declaration_review": {
+          "enabled": false,
+          "base_kind": "none",
+          "changed_count": 0,
+          "summary": {
+            "evidence_consistent": 0,
+            "unverified": 0,
+            "acknowledged_override": 0
+          },
+          "rows": [],
+          "notes": [
+            "No trustworthy base declaration snapshot was available; declaration review disabled."
+          ]
+        },
         "declaration_questions": {
           "total": 2,
           "answered": 2,
@@ -414,7 +428,7 @@
   ],
   "release_consequence": {
     "decision": "insufficient_evidence",
-    "summary": "Static evidence is incomplete; capability/intent analysis may miss release-relevant signal \u2014 gather deeper sources before shipping.",
+    "summary": "Static evidence is incomplete; capability/intent analysis may miss release-relevant signal — gather deeper sources before shipping.",
     "blocker_misalignment_count": 0,
     "review_misalignment_count": 2,
     "fail_policy": {
@@ -712,6 +726,32 @@
     "modified": [],
     "notes": [
       "No action-surface comparison source was provided."
+    ]
+  },
+  "action_declaration_facts": {
+    "snapshot_version": "0.1",
+    "rows": [
+      {
+        "row_id": "action_declaration_ac11f59bcb25f9465a56",
+        "selector": {
+          "tool": "lookup_order",
+          "tool_id": null,
+          "source_type": null,
+          "source_id": null,
+          "provider": null,
+          "operation": null
+        },
+        "subject": "lookup_order [conductor_workflows]",
+        "subject_id": "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+        "resolution": "resolved",
+        "declared_effect": "read",
+        "declared_risk_tags": [],
+        "has_override": false,
+        "override_identity": null,
+        "basis": null,
+        "declaration_hash": "action_declaration_value_83fa75b49c74e60dfa15",
+        "manifest_path": "shipgate.yaml#action_surface.actions[0]"
+      }
     ]
   },
   "binding_surface_facts": {

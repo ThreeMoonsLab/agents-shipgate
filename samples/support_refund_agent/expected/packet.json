@@ -1714,7 +1714,7 @@
       }
     ]
   },
-  "packet_schema_version": "0.17",
+  "packet_schema_version": "0.18",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",
@@ -2539,6 +2539,20 @@
           "open_by_dimension": {},
           "open_questions": [],
           "total": 2
+        },
+        "declaration_review": {
+          "base_kind": "none",
+          "changed_count": 0,
+          "enabled": false,
+          "notes": [
+            "No trustworthy base declaration snapshot was available; declaration review disabled."
+          ],
+          "rows": [],
+          "summary": {
+            "acknowledged_override": 0,
+            "evidence_consistent": 0,
+            "unverified": 0
+          }
         },
         "gap_count": 7,
         "pass_eligible_actions": 0,

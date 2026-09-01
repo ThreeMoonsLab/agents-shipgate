@@ -162,6 +162,20 @@ def test_openai_agents_sdk_directory_fixture_scans_static_tools(tmp_path):
         "review_concern_count": 0,
         "reason_counts": {},
         "acknowledged_overrides": [],
+        "declaration_review": {
+            "enabled": False,
+            "base_kind": "none",
+            "changed_count": 0,
+            "summary": {
+                "evidence_consistent": 0,
+                "unverified": 0,
+                "acknowledged_override": 0,
+            },
+            "rows": [],
+            "notes": [
+                "No trustworthy base declaration snapshot was available; declaration review disabled."
+            ],
+        },
         # Nothing was ever asked: both actions' effect and authority come
         # from the reviewed inventory's own annotations, so the scan proved
         # them without a declaration. The counter says so rather than crediting
