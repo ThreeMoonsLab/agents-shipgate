@@ -522,6 +522,131 @@ def test_a_committed_export_keeps_the_route_it_already_had(tmp_path):
     assert "mcp-tools.json" in withheld[0]["reason"]
 
 
+def test_an_export_for_one_server_does_not_erase_another_s_registrations(tmp_path):
+    """The export has to name *this* surface before it displaces it.
+
+    Withholding on the mere existence of an export anywhere in the workspace
+    meant that in a repository holding two servers, an export committed for one
+    deleted every source-only registration of the other. The route that stood
+    down was the only route those tools had.
+    """
+
+    workspace = tmp_path / "two"
+    for name, tool in (("alpha", "alpha_read"), ("beta", "beta_write")):
+        package = workspace / "servers" / name
+        package.mkdir(parents=True)
+        (package / "package.json").write_text(
+            json.dumps({"dependencies": {"@modelcontextprotocol/sdk": "^1"}}),
+            encoding="utf-8",
+        )
+        (package / "index.ts").write_text(
+            f'server.registerTool("{tool}", {{}}, handler);\n', encoding="utf-8"
+        )
+    # Only alpha commits an export.
+    (workspace / "servers" / "alpha" / "mcp-tools.json").write_text(
+        json.dumps({"tools": [{"name": "alpha_read", "inputSchema": {}}]}),
+        encoding="utf-8",
+    )
+
+    found = discover_mcp_server_source(
+        workspace,
+        files=_inventory(workspace),
+        exported_source_paths=["servers/alpha/mcp-tools.json"],
+    )
+
+    assert found.detected
+    assert "beta_write" in found.tool_names
+    assert found.excluded == ()
+    assert any("does not name 1 of these registrations" in line for line in found.evidence)
+    assert any("beta_write" in line for line in found.evidence)
+
+
+def test_a_partial_export_does_not_erase_the_rest_of_one_server(tmp_path):
+    """Same rule inside a single server: cover the surface or stand aside."""
+
+    workspace = _grafana_shaped(tmp_path)
+    (workspace / "tools" / "extra.go").write_text(
+        "package tools\n"
+        'var Delete = mcpgrafana.MustTool("delete_incident", d, h)\n',
+        encoding="utf-8",
+    )
+    (workspace / "tools.json").write_text(
+        json.dumps({"tools": [{"name": "update_incident", "inputSchema": {}}]}),
+        encoding="utf-8",
+    )
+
+    found = discover_mcp_server_source(
+        workspace, files=_inventory(workspace), exported_source_paths=["tools.json"]
+    )
+
+    assert found.detected
+    assert "delete_incident" in found.tool_names
+    assert found.excluded == ()
+
+
+def test_a_complete_export_still_displaces_the_source_route(tmp_path):
+    """The withheld case is unchanged where the export really does cover."""
+
+    workspace = _grafana_shaped(tmp_path)
+    (workspace / "tools.json").write_text(
+        json.dumps({"tools": [{"name": "update_incident", "inputSchema": {}}]}),
+        encoding="utf-8",
+    )
+
+    found = discover_mcp_server_source(
+        workspace, files=_inventory(workspace), exported_source_paths=["tools.json"]
+    )
+
+    assert not found.detected
+    assert len(found.excluded) == 1
+    assert "names every one of these 1 registrations" in found.excluded[0]["reason"]
+
+
+def test_a_wildcard_export_never_displaces_the_source_route(tmp_path):
+    """A wildcard claims a surface without naming it, so it contains nothing."""
+
+    workspace = _grafana_shaped(tmp_path)
+    (workspace / "tools.json").write_text(
+        json.dumps({"wildcard": True, "tools": []}), encoding="utf-8"
+    )
+
+    found = discover_mcp_server_source(
+        workspace, files=_inventory(workspace), exported_source_paths=["tools.json"]
+    )
+
+    assert found.detected
+    assert found.excluded == ()
+
+
+def test_detect_and_scan_read_a_file_the_same_way(tmp_path):
+    """One decoding contract, or `detect` names a route `scan` cannot fill.
+
+    Discovery decoded with `errors="replace"`, so it could resolve a
+    registration out of a file the adapter then refuses as `unreadable_file` —
+    `detect` promising tools that `scan` does not enumerate.
+    """
+
+    workspace = _grafana_shaped(tmp_path)
+    # The undecodable bytes sit in a comment and the registration beside them
+    # is perfectly ordinary. That is what makes the two readers disagree: a
+    # lenient decode replaces the bytes and goes on to resolve `broken_file`,
+    # while the adapter refuses the file and enumerates nothing from it. A
+    # test whose bad bytes are *inside the name* cannot see the difference,
+    # because the replacement characters fail the tool-name shape either way.
+    (workspace / "tools" / "broken.go").write_bytes(
+        b"package tools\n"
+        b"// \xff\xfe\n"
+        b'var T = mcpgrafana.MustTool("broken_file", d, h)\n'
+    )
+
+    found = discover_mcp_server_source(workspace, files=_inventory(workspace))
+    loaded = load_mcp_server_source(_source("tools"), workspace)
+
+    assert set(found.tool_names) == {tool.name for tool in loaded.tools}
+    assert "broken_file" not in found.tool_names
+    assert "unreadable_file" in {omission.reason for omission in loaded.omissions}
+
+
 # --- detect -----------------------------------------------------------------
 
 

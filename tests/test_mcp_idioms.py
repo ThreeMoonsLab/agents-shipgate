@@ -24,6 +24,7 @@ from agents_shipgate.inputs.mcp_idioms import (
     OMISSION_REASONS,
     PREFILTER_TOKEN,
     SourceScanResult,
+    decode_literal,
     is_scannable_path,
     language_for_path,
     mask_source,
@@ -414,6 +415,66 @@ _ADVERSARIAL: list[tuple[str, str, str, list[str], list[str]]] = [
         [],
     ),
     (
+        "a Go octal escape decodes with Go's grammar, not JavaScript's",
+        "go",
+        'mcpgrafana.MustTool("delete\\137all", desc, handler)\n',
+        ["delete_all"],
+        [],
+    ),
+    (
+        "a Go hex and unicode escape decode exactly",
+        "go",
+        'mcpgrafana.MustTool("\\x61\\u0062c", desc, handler)\n',
+        ["abc"],
+        [],
+    ),
+    (
+        "an escape Go does not define is refused, not guessed",
+        "go",
+        'mcpgrafana.MustTool("delete\\qall", desc, handler)\n',
+        [],
+        ["name_not_literal"],
+    ),
+    (
+        "a truncated Go octal escape is refused",
+        "go",
+        'mcpgrafana.MustTool("delete\\13", desc, handler)\n',
+        [],
+        ["name_not_literal"],
+    ),
+    (
+        "a TypeScript hex escape decodes, and octal is refused",
+        "typescript",
+        'server.registerTool("\\x61bc", {}, h);\n'
+        'server.registerTool("de\\137f", {}, h);\n',
+        ["abc"],
+        ["name_not_literal"],
+    ),
+    (
+        "a regex beginning an if body cannot register a tool",
+        "typescript",
+        'if (ok) /\\.registerTool("fake", handler)/.test(value);\n'
+        'server.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        "a regex beginning a while body cannot register a tool",
+        "typescript",
+        'while (ok) /\\.registerTool("fake", h)/.test(v);\n'
+        'server.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        "division after a call is still division",
+        "typescript",
+        "const ratio = total(a) / scale(b) / 2;\n"
+        'server.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
         "a concatenated Go struct name is not the literal it starts with",
         "go",
         'mcp.Tool{Name: "issue_" + verb, Description: "x"}\n',
@@ -496,6 +557,46 @@ def test_an_attribute_assignment_is_not_the_description_field():
 
     assert site.name == "t"
     assert site.description == "Runs an aggregation"
+
+
+def test_each_language_decodes_with_its_own_grammar():
+    """One decoder shared between two grammars is a silent mistranslation.
+
+    Go writes an octal escape as three digits and JavaScript does not, so a
+    JavaScript-shaped decoder turned `delete\\137all` — the name Go registers as
+    `delete_all` — into `delete137all`: the real action missing from the
+    catalog and an action id nobody serves standing in for it.
+    """
+
+    assert decode_literal(r"delete\137all", "go") == "delete_all"
+    # The same bytes in TypeScript are a legacy octal whose meaning depends on
+    # a strictness mode this reader does not track, so it refuses.
+    assert decode_literal(r"delete\137all", "typescript") is None
+
+    assert decode_literal(r"\x41\u0042", "go") == "AB"
+    assert decode_literal(r"\x41\u0042", "typescript") == "AB"
+    assert decode_literal(r"\u{1F600}", "typescript") == "\U0001F600"
+
+
+@pytest.mark.parametrize(
+    ("body", "language"),
+    [
+        (r"a\qb", "go"),
+        (r"a\13b", "go"),
+        (r"a\400b", "go"),
+        (r"a\x4", "go"),
+        (r"a\u12", "go"),
+        (r"a\x4", "typescript"),
+        (r"a\u{}", "typescript"),
+        (r"a\1b", "typescript"),
+    ],
+)
+def test_an_escape_that_cannot_be_decoded_exactly_is_refused(
+    body: str, language: str
+):
+    """A refusal becomes an omission; a guess becomes a wrong tool name."""
+
+    assert decode_literal(body, language) is None
 
 
 # --- Masking failures -------------------------------------------------------

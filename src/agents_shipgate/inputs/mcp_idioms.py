@@ -400,6 +400,12 @@ _STRING_FILL = "\x00"
 # what matters, because a regex body read as code can contain `"` and desync
 # every string boundary after it.
 _REGEX_PRECEDING_CHARS = frozenset("(,=:[!&|?{};+-*%~^<>")
+#: Keywords whose parenthesised condition can be followed directly by a regex
+#: that begins the statement's body. `)` alone cannot decide: `foo(a) / 2`
+#: divides and `if (a) /re/.test(b)` does not.
+_REGEX_PRECEDING_STATEMENTS = frozenset(
+    {"if", "for", "while", "switch", "catch", "with"}
+)
 _REGEX_PRECEDING_WORDS = frozenset(
     {
         "return",
@@ -425,20 +431,25 @@ _REGEX_PRECEDING_WORDS = frozenset(
 #: through it in Python is what made the pass cost a second on a large module.
 _INTERESTING = re.compile(r"""[/'"`]""")
 
-_SIMPLE_ESCAPES = {
+#: Escapes both languages spell the same way and mean the same thing.
+_SHARED_ESCAPES = {
     "n": "\n",
     "t": "\t",
     "r": "\r",
     "b": "\b",
     "f": "\f",
     "v": "\v",
-    "0": "\0",
     "\\": "\\",
     "'": "'",
     '"': '"',
-    "`": "`",
-    "\n": "",
 }
+#: JavaScript adds a backtick, ``\0`` for NUL, and a line continuation.
+_TYPESCRIPT_ESCAPES = {**_SHARED_ESCAPES, "`": "`", "\n": ""}
+#: Go adds the bell and has no line continuation and no bare ``\0``.
+_GO_ESCAPES = {**_SHARED_ESCAPES, "a": "\a"}
+
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+_OCTAL_DIGITS = frozenset("01234567")
 
 
 @dataclass(frozen=True)
@@ -505,48 +516,141 @@ def mask_source(text: str, language: SourceLanguage) -> MaskedSource:
     return _mask_typescript(text)
 
 
-def _decode_escapes(body: str) -> str:
+def decode_literal(body: str, language: SourceLanguage) -> str | None:
+    """The literal's value, or ``None`` when it cannot be decoded exactly.
+
+    Escape grammars are per language, and one decoder shared between them is a
+    silent mistranslation rather than a parse error. Go writes an octal escape
+    as three digits — ``mcp.MustTool("delete\\137all", …)`` registers
+    ``delete_all`` — and a JavaScript-shaped decoder read the ``1`` as an
+    unknown escape and produced ``delete137all``: the real action absent from
+    the catalog, and an action id nobody serves in its place.
+
+    So each language gets its own grammar, and **anything either grammar does
+    not define is refused**. A refusal returns ``None``, which reaches
+    :func:`_resolve_name` as ``name_not_literal`` — the tool becomes a recorded
+    omission instead of a guessed name. Guessing is the one outcome a reader of
+    a *name* cannot afford.
+    """
+
     if "\\" not in body:
         return body
+    if language == "go":
+        return _decode_go(body)
+    return _decode_typescript(body)
+
+
+def _hex_value(body: str, start: int, width: int) -> int | None:
+    digits = body[start : start + width]
+    if len(digits) != width or any(char not in _HEX_DIGITS for char in digits):
+        return None
+    return int(digits, 16)
+
+
+def _decode_typescript(body: str) -> str | None:
     out: list[str] = []
     index = 0
     length = len(body)
     while index < length:
         char = body[index]
-        if char != "\\" or index + 1 >= length:
+        if char != "\\":
             out.append(char)
             index += 1
             continue
+        if index + 1 >= length:
+            return None
         marker = body[index + 1]
-        if marker == "u" and index + 2 < length and body[index + 2] == "{":
-            close = body.find("}", index + 3)
-            if close != -1:
-                try:
-                    out.append(chr(int(body[index + 3 : close], 16)))
-                except ValueError:
-                    out.append(body[index + 3 : close])
+        if marker in _TYPESCRIPT_ESCAPES:
+            out.append(_TYPESCRIPT_ESCAPES[marker])
+            index += 2
+            continue
+        if marker == "0" and (index + 2 >= length or body[index + 2] not in "0123456789"):
+            out.append("\0")
+            index += 2
+            continue
+        if marker == "x":
+            value = _hex_value(body, index + 2, 2)
+            if value is None:
+                return None
+            out.append(chr(value))
+            index += 4
+            continue
+        if marker == "u":
+            if index + 2 < length and body[index + 2] == "{":
+                close = body.find("}", index + 3)
+                digits = body[index + 3 : close] if close != -1 else ""
+                if not digits or any(char not in _HEX_DIGITS for char in digits):
+                    return None
+                point = int(digits, 16)
+                if point > 0x10FFFF:
+                    return None
+                out.append(chr(point))
                 index = close + 1
                 continue
-        if marker in {"u", "x"}:
-            width = 4 if marker == "u" else 2
-            digits = body[index + 2 : index + 2 + width]
-            if len(digits) == width:
-                try:
-                    out.append(chr(int(digits, 16)))
-                    index += 2 + width
-                    continue
-                except ValueError:
-                    pass
-        out.append(_SIMPLE_ESCAPES.get(marker, marker))
+            value = _hex_value(body, index + 2, 4)
+            if value is None:
+                return None
+            out.append(chr(value))
+            index += 6
+            continue
+        if marker.isdigit():
+            # Legacy octal (`\1`-`\7`) is a syntax error under `use strict`
+            # and in a template literal, and octal *elsewhere*; `\8`/`\9` are
+            # their own special case. Which one a file means depends on a mode
+            # this reader does not track, so it refuses rather than pick.
+            return None
+        out.append(marker)
         index += 2
+    return "".join(out)
+
+
+def _decode_go(body: str) -> str | None:
+    out: list[str] = []
+    index = 0
+    length = len(body)
+    while index < length:
+        char = body[index]
+        if char != "\\":
+            out.append(char)
+            index += 1
+            continue
+        if index + 1 >= length:
+            return None
+        marker = body[index + 1]
+        if marker in _GO_ESCAPES:
+            out.append(_GO_ESCAPES[marker])
+            index += 2
+            continue
+        if marker in _OCTAL_DIGITS:
+            digits = body[index + 1 : index + 4]
+            if len(digits) != 3 or any(char not in _OCTAL_DIGITS for char in digits):
+                return None
+            value = int(digits, 8)
+            if value > 255:
+                return None
+            out.append(chr(value))
+            index += 4
+            continue
+        widths = {"x": 2, "u": 4, "U": 8}
+        if marker in widths:
+            value = _hex_value(body, index + 2, widths[marker])
+            if value is None or value > 0x10FFFF:
+                return None
+            out.append(chr(value))
+            index += 2 + widths[marker]
+            continue
+        # Every other escape is a Go compile error, so the file this reader is
+        # looking at is not the file that built the server.
+        return None
     return "".join(out)
 
 
 class _Masker:
     """Shared bookkeeping for the two language maskers."""
 
-    def __init__(self, text: str) -> None:
+    def __init__(self, text: str, language: SourceLanguage) -> None:
         self.text = text
+        self.language = language
         self.out: list[str] = list(text)
         self.literals: dict[int, tuple[str | None, int]] = {}
         self.anomalies: list[str] = []
@@ -580,10 +684,12 @@ class _Masker:
         )
 
 
-def _previous_significant(masked: list[str], index: int) -> str:
+def _previous_significant(masked: list[str], index: int) -> tuple[str, int]:
+    """The last non-whitespace character at or before ``index``, and where."""
+
     while index >= 0 and masked[index].isspace():
         index -= 1
-    return masked[index] if index >= 0 else ""
+    return (masked[index], index) if index >= 0 else ("", -1)
 
 
 def _preceding_word(text: str, index: int) -> str:
@@ -596,7 +702,7 @@ def _preceding_word(text: str, index: int) -> str:
 
 
 def _mask_typescript(text: str) -> MaskedSource:
-    masker = _Masker(text)
+    masker = _Masker(text, "typescript")
     index = 0
     length = len(text)
     while index < length:
@@ -634,12 +740,41 @@ def _mask_typescript(text: str) -> MaskedSource:
 
 
 def _opens_regex(out: list[str], text: str, index: int) -> bool:
-    previous = _previous_significant(out, index - 1)
+    previous, previous_index = _previous_significant(out, index - 1)
     if previous == "" or previous in _REGEX_PRECEDING_CHARS:
         return True
+    if previous == ")":
+        # A `)` is usually the end of a call or a parenthesised expression, and
+        # `foo(a) / 2` divides. But it is also the end of a control statement's
+        # condition, and there a regex validly *begins the body*:
+        # `if (ok) /\.registerTool("fake", handler)/.test(value);` is
+        # JavaScript, and reading its `/` as division scanned the pattern as
+        # code and reported a `fake` tool — a registration invented out of a
+        # regex body, which is the one thing this module's masking exists to
+        # make impossible. Which of the two it is, is decided by the keyword in
+        # front of the matching `(`.
+        opener = _matching_open(out, previous_index)
+        if opener is None:
+            return False
+        return _preceding_word(text, opener - 1) in _REGEX_PRECEDING_STATEMENTS
     if previous.isalnum() or previous in "_$":
         return _preceding_word(text, index - 1) in _REGEX_PRECEDING_WORDS
     return False
+
+
+def _matching_open(out: list[str], close_index: int) -> int | None:
+    """Index of the ``(`` matching the ``)`` at ``close_index``."""
+
+    depth = 0
+    for index in range(close_index, -1, -1):
+        char = out[index]
+        if char == ")":
+            depth += 1
+        elif char == "(":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
 
 
 def _consume_quoted(
@@ -654,7 +789,9 @@ def _consume_quoted(
             index += 2
             continue
         if char == quote:
-            masker.record(start, index + 1, _decode_escapes(text[start + 1 : index]))
+            masker.record(
+                start, index + 1, decode_literal(text[start + 1 : index], masker.language)
+            )
             return index + 1
         if char == "\n" and not allow_newline:
             break
@@ -695,7 +832,11 @@ def _consume_template(masker: _Masker, start: int) -> int:
             continue
         if char == "`":
             body = text[start + 1 : index]
-            masker.record(start, index + 1, None if substituted else _decode_escapes(body))
+            masker.record(
+                start,
+                index + 1,
+                None if substituted else decode_literal(body, masker.language),
+            )
             return index + 1
         index += 1
     masker.blank(start, length, _STRING_FILL)
@@ -728,7 +869,7 @@ def _consume_regex(masker: _Masker, start: int) -> int:
 
 
 def _mask_go(text: str) -> MaskedSource:
-    masker = _Masker(text)
+    masker = _Masker(text, "go")
     index = 0
     length = len(text)
     while index < length:

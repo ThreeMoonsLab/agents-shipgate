@@ -35,7 +35,10 @@
   name built at runtime is reported as an unenumerated subject in the exclusion
   ledger and holds its own file's surface at `partial`, and a file whose masking
   pass cannot complete is reported unreadable rather than read as though the
-  rest were code. A `static operationType = "delete"` literal arrives as a
+  rest were code. String escapes are decoded with each language's own grammar
+  and anything neither grammar defines is refused rather than guessed, because
+  a mistranslated name is an action id nobody serves standing in for a real
+  one. A `static operationType = "delete"` literal arrives as a
   low-confidence inferred hint that can contradict a reviewer declaring the tool
   read-only and can never prove anything on its own; `read` is deliberately
   unmapped, because a tool server asserting its own harmlessness is the one

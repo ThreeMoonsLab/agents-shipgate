@@ -38,6 +38,8 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
+from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.inputs.common import load_text_file
 from agents_shipgate.inputs.mcp_idioms import (
     GO_FRAMEWORK_MODULES,
     MAX_SOURCE_FILE_BYTES,
@@ -152,6 +154,7 @@ def discover_mcp_server_source(
     languages: set[SourceLanguage] = set()
     unresolved_by_file: dict[str, int] = {}
     candidate_files: list[str] = []
+    unreadable = 0
     for path, relative in scannable[:max_source_files]:
         language = language_for_path(path)
         if language is None:  # pragma: no cover - filtered above
@@ -159,8 +162,15 @@ def discover_mcp_server_source(
         try:
             if path.stat().st_size > MAX_SOURCE_FILE_BYTES:
                 continue
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+            # The adapter's own reader, not a lenient copy of it. Decoding here
+            # with `errors="replace"` let `detect` resolve a registration out of
+            # a file `load_mcp_server_source` then refuses as `unreadable_file`,
+            # so the route this promised enumerated fewer tools than it named —
+            # the detect/scan agreement is the whole point of sharing
+            # `is_scannable_path`, and the read has to be shared too.
+            text = load_text_file(path)
+        except (OSError, InputParseError):
+            unreadable += 1
             continue
         result = scan_source(text, language)
         resolved = [site.name for site in result.sites if site.name is not None]
@@ -191,7 +201,9 @@ def discover_mcp_server_source(
     evidence = _evidence_lines(
         framework, languages, names, root, truncated, unresolved
     )
-    covering_export = _preferred_export(exported_source_paths)
+    covering_export, uncovered = _covering_export(
+        workspace, exported_source_paths, names
+    )
     if covering_export is not None:
         return McpSourceDiscovery(
             unresolved_count=unresolved,
@@ -202,12 +214,31 @@ def discover_mcp_server_source(
                     "path": root,
                     "reason": (
                         f"An MCP tool export ({covering_export}) already names "
-                        "this server's surface, and an export is read at high "
-                        "confidence with its input schemas; reading the "
-                        "registrations in source would restate it at medium."
+                        f"every one of these {len(names)} registrations, and an "
+                        "export is read at high confidence with its input "
+                        "schemas; reading them in source would restate it at "
+                        "medium."
                     ),
                 },
             ),
+        )
+    if uncovered:
+        # An export exists and does not account for the whole surface. It used
+        # to withhold this route anyway, which in a workspace holding two
+        # servers meant an export for one erased every source-only registration
+        # of the other, and for one server meant a partial export erased the
+        # remainder. Both routes are suggested instead, and the overlap is
+        # named: two sources describing one server are reconciled by a reviewed
+        # `tool_identity` binding (#386), never by dropping one of them.
+        sample = ", ".join(sorted(uncovered)[:_EVIDENCE_NAME_LIMIT])
+        if len(uncovered) > _EVIDENCE_NAME_LIMIT:
+            sample += ", …"
+        evidence = (
+            *evidence,
+            f"An MCP tool export is also present and does not name "
+            f"{len(uncovered)} of these registrations ({sample}); both routes "
+            "are suggested, and a reviewed tool_identity binding is what joins "
+            "the two surfaces",
         )
 
     return McpSourceDiscovery(
@@ -317,25 +348,55 @@ def _common_directory(relative_files: Sequence[str]) -> str:
     return PurePosixPath(*common).as_posix() if common else "."
 
 
-def _preferred_export(exported_source_paths: Iterable[str]) -> str | None:
-    """The MCP export, if any, that this route stands down for.
+def _covering_export(
+    workspace: Path, exported_source_paths: Iterable[str], names: set[str]
+) -> tuple[str | None, set[str]]:
+    """The export that names *every* registration, and what no export names.
 
-    Any accepted export in the workspace counts, not only one sitting inside
-    the registration directory — a server commits its export at the repository
-    root (``tools.json``, ``mcp-tools.json``) as readily as beside the code,
-    and a containment test read those two placements differently for one
-    server. ``detect`` refuses to answer for a workspace holding more than one
-    project scope, so "an export in this workspace" and "an export for this
-    server" are the same statement wherever this route is offered at all.
+    Location is not the test, and neither is mere existence. A server commits
+    its export at the repository root as readily as beside the code, so a
+    containment test read two placements of one server's export differently;
+    but "any export anywhere wins" is worse in the other direction, because a
+    workspace holding two servers has an export for one and source-only
+    registrations for the other, and a partial export covers part of a single
+    server. Both cases silently deleted real actions.
 
-    The alternative — suggesting both — is worse than a withheld route that
-    names itself: two sources describing one server put every tool in the
-    catalog twice, under two providers, with no reviewed identity binding to
-    join them.
+    So the question asked is the one that matters: does the exported surface
+    *contain* the surface read from source? Only then is the source route pure
+    restatement, and only then is withholding it lossless.
     """
 
-    candidates = sorted(exported_source_paths)
-    return candidates[0] if candidates else None
+    covered: set[str] = set()
+    for candidate in sorted(exported_source_paths):
+        exported = _export_tool_names(workspace, candidate)
+        if exported is None:
+            continue
+        covered |= exported
+        if names <= covered:
+            return candidate, set()
+    return None, names - covered
+
+
+def _export_tool_names(workspace: Path, relative: str) -> set[str] | None:
+    """Tool names an accepted MCP export publishes, read by the real adapter.
+
+    ``None`` when the export declines to name them — a wildcard export claims a
+    surface without enumerating it, so it can never be shown to contain
+    anything, and the source route is the more informative of the two.
+    """
+
+    from agents_shipgate.inputs.mcp import load_mcp_tools
+    from agents_shipgate.schemas.manifest import ToolSourceConfig
+
+    try:
+        loaded = load_mcp_tools(
+            ToolSourceConfig(id="export_probe", type="mcp", path=relative), workspace
+        )
+    except (InputParseError, OSError):
+        return None
+    if any(tool.annotations.get("wildcard_tools") is True for tool in loaded.tools):
+        return None
+    return {tool.name for tool in loaded.tools}
 
 
 def _evidence_lines(

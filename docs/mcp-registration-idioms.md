@@ -75,6 +75,14 @@ description literal where one sits beside the name. It runs no code, evaluates
 no schema library (Zod included), infers no type, and reads no annotation the
 source declares about itself.
 
+Escape sequences are decoded with **each language's own grammar**, and anything
+either grammar does not define is refused rather than guessed. Go writes an
+octal escape as three digits — `MustTool("delete\137all", …)` registers
+`delete_all` — and one decoder shared between the two languages read that as
+`delete137all`: the real action missing from the catalog with an action id
+nobody serves standing in its place. A refusal becomes a recorded omission,
+which is the only affordable outcome for a *name*.
+
 The name is checkable against the registration site that carries it. Effect and
 authority still come from the declaration questionnaire, which is where they
 came from for an exported surface too. A `static operationType = "delete"`
@@ -104,9 +112,20 @@ untrusted source has an incentive to make.
 A literal at a registration site is `medium`. A committed export stays `high`
 and remains the better route wherever one exists: it is the server's own
 published contract and it carries the input schemas this input does not read.
-`detect` therefore withholds the source route whenever a parseable MCP export
-covers the workspace, and records the withheld route in `excluded_sources` with
-the export that displaced it — named and visible, never silently dropped.
+`detect` therefore withholds the source route when a committed export **names
+every tool the source route resolved**, and records the withheld route in
+`excluded_sources` with the export that displaced it — named and visible, never
+silently dropped.
+
+Containment is the test, not location and not mere existence. "Any export in
+the workspace wins" deleted real actions in two ways: in a repository holding
+two servers, an export committed for one suppressed every source-only
+registration of the other; and a partial export suppressed the rest of a single
+server's surface. Where an export exists but does not contain the source
+surface, both routes are suggested and the shortfall is named in the evidence —
+two sources describing one server are reconciled by a reviewed `tool_identity`
+binding, never by dropping one of them. A wildcard export claims a surface
+without enumerating it, so it can never be shown to contain anything.
 
 ## Known limitation: a monorepo publishing several servers
 
