@@ -2,6 +2,71 @@
 
 ## Unreleased
 
+- **The pre-1.0 qualification corpus now has a committed sourcing plan.** (#456)
+  `benchmark/safety-qualification/strata-inventory.csv` maps the known candidate
+  pool onto all 28 profile × decision cells the `pre_1_0` policy requires — 59
+  slots, each either a pinned candidate, an identified-but-unpinned one, or a gap
+  with the lead that would close it. It is a plan, not evidence: it carries no
+  label, no verdict and no receipt, nothing in it reaches the qualification
+  runner, and it is not an admissible rater input, because it names a target
+  decision for every slot.
+
+  Each slot records its **exposure** — whether the engine was developed against
+  that candidate — and holdout eligibility is derived from it rather than from
+  where the candidate's bytes live. That is what the plan turns on: every vendor
+  MCP server the adoption walks measured produced an issue, a fix, or a
+  regression test, so the four best-understood candidates in the pool can only
+  ever be tuning cases, and three `mcp_openapi_declared_binding` cells carry a
+  third slot whose only job is to be holdout-eligible. The cell targeting drawn
+  from miner labels is disclosed as **not verifier-independent**: the labeling
+  worksheet shows the engine's own verdict columns, which biases which cell a
+  candidate is aimed at (it does not reach the corpus label, which Amendment 1
+  raters produce blind).
+
+  `tests/test_strata_inventory.py` derives the grid and the holdout floor from
+  `pre_release_safety_requirements()` rather than restating them, so a policy
+  move fails the inventory instead of leaving it silently aimed at the wrong
+  shape. It re-reads every cited miner label, pinned SHA, declared exposure, and
+  candidate profile and merge state from the source that records it — so an
+  origin cannot outrun the PR that supplies it (an open PR is not history, and a
+  closed-unmerged one is not `real_history`), and a profile cannot be changed on
+  one side only.
+
+  The plan's own shape is the finding: 26 of 59 slots have a candidate, the
+  origin floor (23 qualifying cases) is the binding constraint rather than the
+  case count, `n8n` has one sourced slot of eight, and the sweeps that produced
+  the pool ran before #403 — so their zero-trigger repositories are unexplored,
+  not empty.
+
+- **The determinism boundary is now a published specification, generated from
+  the code.** (#473) `docs/determinism-boundary.md` and its machine-readable
+  companion `docs/determinism-boundary.json`
+  (`shipgate.determinism_boundary/v1`) state, for every built-in input and each
+  of the four declaration shapes — export artifact, literal registration,
+  factory, dynamic construction — what the scan reads, which
+  `Tool.source_type` it produces, the extraction-confidence ceiling that route
+  reaches, and what that ceiling means for a release verdict.
+
+  Nothing on the page is hand-maintained. Each adapter declares its coverage
+  beside the code that mints its confidences; the consequence column is
+  computed by asking the engine's own completeness predicates about those
+  declared facts, so the page cannot claim an outcome the engine does not
+  reach. Generation is fail-closed in both directions: an adapter registered
+  without coverage, and a source type added to the engine's ceiling
+  vocabularies without a route, both break the build rather than being omitted
+  from the page. `python scripts/generate_schemas.py --check` enforces that the
+  committed page equals the regenerated one, as it already does for the
+  schemas.
+
+  Every `insufficient_evidence` verdict now links to it — in `scan` stdout,
+  `verify` stdout, the GitHub step summary, and `report.md` — so an honest
+  abstention reads as a scoping answer rather than a dead end.
+  `.well-known/agents-shipgate.json` publishes both URLs.
+
+  `extraction_is_complete()` is now the one definition of "the adapter read
+  this tool's contract with full confidence", shared by the semantic resolver,
+  `low_confidence_tool_count`, and the boundary generator.
+
 - **One capability schema, frozen before either surface that will ship it.**
   (#469) Two planned public surfaces serialize the same internal truth: the
   exported capability delta published as a standalone attestation (#470) and
@@ -93,6 +158,7 @@
   `release_decision.decision` remains the only release gate. Worked state and
   delta examples are generated from `samples/ai_generated_refund_pr` by
   `scripts/generate_schemas.py` and gated on drift.
+
 
 - **Reviewed risk overrides no longer masquerade as scan observations.** (#460)
   `risk_overrides.tags` is excluded from `effect_readings` and the derived

@@ -507,13 +507,16 @@
     "host_grants_baseline": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/host-grants-baseline-schema.v0.2.json",
     "host_grants_drift": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/host-grants-drift-schema.v0.2.json",
     "scenario": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/scenario-schema.v0.1.json",
-    "checks_catalog": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json"
+    "checks_catalog": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json",
+    "determinism_boundary": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/determinism-boundary.json"
   },
   "agent_instructions": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/AGENTS.md",
   "agent_contract": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-contract-current.md",
   "passed_verdict_contract": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/passed-verdict-contract.md",
   "agent_native_merge_contract": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-native-merge-contract.md",
   "capability_standard": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-standard.md",
+  "determinism_boundary_url": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/determinism-boundary.md",
+  "determinism_boundary_schema_version": "shipgate.determinism_boundary/v1",
   "governance_benchmark": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark.md",
   "stability_contract": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/STABILITY.md",
   "triggers_url": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json",

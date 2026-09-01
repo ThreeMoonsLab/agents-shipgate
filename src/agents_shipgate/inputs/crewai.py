@@ -23,6 +23,7 @@ from agents_shipgate.inputs._python_framework import (
 )
 from agents_shipgate.inputs.common import stable_tool_id, tool_name_warning
 from agents_shipgate.inputs.config_trace import trace_config_binding
+from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.python_static import (
     dotted_name,
@@ -493,6 +494,76 @@ class CrewAIAdapter:
     source_type: ClassVar[str] = "crewai"
     scope: ClassVar[Literal["per_source", "per_scan"]] = "per_scan"
     artifact_class: ClassVar[type | None] = CrewAiArtifacts
+
+    coverage: ClassVar[SourceCoverage] = SourceCoverage(
+        adapter="crewai",
+        label="CrewAI",
+        reads=(
+            "CrewAI Python modules parsed with `ast`, plus any reviewed inventory "
+            "`crewai.tool_inventories[]` declares."
+        ),
+        manifest_section="crewai",
+        cells=(
+            BoundaryCell(
+                shape="export_artifact",
+                variant="reviewed inventory",
+                status="extracted",
+                reads=(
+                    "A reviewed tool inventory in MCP export form, read as a "
+                    "published contract."
+                ),
+                emits=("crewai_inventory",),
+                ceiling="high",
+            ),
+            BoundaryCell(
+                shape="export_artifact",
+                variant="wildcard inventory",
+                status="extracted",
+                reads=(
+                    "An inventory that declares `wildcard: true` instead of "
+                    "listing tools. It is a reviewed file and still names "
+                    "nothing, so it loads at `high` and proves no surface — a "
+                    "reviewed statement that says nothing is not evidence."
+                ),
+                emits=("crewai_inventory",),
+                ceiling="high",
+                surface_flags=("wildcard_tools",),
+            ),
+            BoundaryCell(
+                shape="literal_registration",
+                status="extracted",
+                reads=(
+                    "An `@tool`-decorated function, or a `BaseTool` subclass whose "
+                    "name, description, and `args_schema` are literals in the same "
+                    "file."
+                ),
+                emits=("crewai_function", "crewai_class_tool"),
+                ceiling="medium",
+            ),
+            BoundaryCell(
+                shape="factory",
+                status="extracted",
+                reads=(
+                    "A `crewai_tools` prebuilt constructor such as `FileReadTool()`. "
+                    "The name is read; the schema lives in the installed package, "
+                    "not in the repository, so the action is recorded as "
+                    "low-confidence metadata."
+                ),
+                emits=("crewai_prebuilt_tool",),
+                ceiling="low",
+            ),
+            BoundaryCell(
+                shape="dynamic_construction",
+                status="not_extracted",
+                reads=(
+                    "A tools list built by a comprehension, a config read, or a "
+                    "rebound variable records a dynamic tool surface and adds "
+                    "nothing to the catalog."
+                ),
+                raises=("SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",),
+            ),
+        ),
+    )
 
     def load(
         self,

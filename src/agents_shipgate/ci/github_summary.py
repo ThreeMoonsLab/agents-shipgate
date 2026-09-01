@@ -3,7 +3,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
+from agents_shipgate.core.disclaimers import (
+    DETERMINISM_BOUNDARY_REFERENCE,
+    STATIC_VERDICT_DISCLAIMER,
+)
 from agents_shipgate.core.findings.subject_rollup import (
     roll_up_findings,
     top_findings_block,
@@ -164,6 +167,7 @@ def _decision_lines(report: ReadinessReport) -> list[str]:
             "Improve evidence: "
             f"{_safe_markdown_text(primary_evidence_remediation_text(decision.evidence_coverage))}"
         )
+        lines.append(DETERMINISM_BOUNDARY_REFERENCE)
     if agent_summary and agent_summary.first_recommended_action:
         lines.append(_agent_next_action_line(agent_summary.first_recommended_action))
     fp = decision.fail_policy

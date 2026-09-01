@@ -33,11 +33,13 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`trust-model.md`](trust-model.md) — what the scanner does and doesn't do
 - [`baseline.md`](baseline.md) — baseline workflow
 - [`framework-adapter-checklist.md`](framework-adapter-checklist.md) — checklist for adding static framework adapters
+- [`determinism-boundary.md`](determinism-boundary.md) — generated coverage matrix: what each input can establish per declaration shape, the extraction-confidence ceiling it reaches, and what that ceiling means for a verdict
 
 ## Reference
 
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
+- [`determinism-boundary.json`](determinism-boundary.json) — machine-readable determinism boundary (`shipgate.determinism_boundary/v1`; regenerated from the adapter registry, drift-checked in CI)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
 - [`report-schema.v0.42.json`](report-schema.v0.42.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.42"`, and `effective_policy.control_pack` names the control pack in force, so a base-vs-head comparison can see a pack moved to one that requires less)
 - [`report-schema.v0.41.json`](report-schema.v0.41.json) — frozen reference (`effective_policy.control_pack` names the control pack in force)
