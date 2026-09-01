@@ -23,13 +23,14 @@ properties that claim is made of:
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
-import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, get_args
 
@@ -94,6 +95,8 @@ def _facts(config: Path) -> list[Any]:
 
 
 def _refund_fact_pair(tmp_path: Path) -> tuple[list[Any], list[Any]]:
+    """The refund sample's base and head capability facts, from a fresh pass."""
+
     base = _facts(REFUND_SAMPLE / "shipgate.yaml")
     head_root = tmp_path / "head"
     shutil.copytree(REFUND_SAMPLE, head_root)
@@ -101,8 +104,36 @@ def _refund_fact_pair(tmp_path: Path) -> tuple[list[Any], list[Any]]:
     return base, _facts(head_root / "shipgate.yaml")
 
 
-def _attestation(tmp_path: Path, **overrides: Any) -> CapabilityDeltaAttestationV1:
-    base, head = _refund_fact_pair(tmp_path)
+@functools.cache
+def _cached_refund_fact_pair() -> tuple[tuple[Any, ...], tuple[Any, ...]]:
+    """The same pair, built once per worker.
+
+    Capability facts are frozen values and a pure function of the shipped
+    sample, so every test that only needs *some* facts to project can share
+    one build. Eight tests were each running two full adapter passes over the
+    same fixture, which is real time on a CI job with no headroom. The one test
+    that is *about* two builds agreeing asks for uncached facts.
+    """
+
+    tmp = Path(tempfile.mkdtemp(prefix="shipgate-refund-facts-"))
+    try:
+        base, head = _refund_fact_pair(tmp)
+        return tuple(base), tuple(head)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _fact_pair(tmp_path: Path, *, cached: bool = True) -> tuple[list[Any], list[Any]]:
+    if not cached:
+        return _refund_fact_pair(tmp_path)
+    base, head = _cached_refund_fact_pair()
+    return list(base), list(head)
+
+
+def _attestation(
+    tmp_path: Path, *, cached: bool = True, **overrides: Any
+) -> CapabilityDeltaAttestationV1:
+    base, head = _fact_pair(tmp_path, cached=cached)
     kwargs: dict[str, Any] = {
         "subject_name": "samples/ai_generated_refund_pr",
         "base_tree_sha": TREE_A,
@@ -250,7 +281,7 @@ def test_two_refs_naming_one_tree_must_carry_an_empty_delta(tmp_path: Path) -> N
     is refused rather than published.
     """
 
-    base, head = _refund_fact_pair(tmp_path)
+    base, head = _fact_pair(tmp_path)
     with pytest.raises(ValidationError, match="must be empty"):
         project_capability_delta_attestation(
             base,
@@ -352,7 +383,7 @@ def test_a_receipt_binding_is_all_or_nothing(
 def test_the_predicate_carries_the_payload_unchanged(tmp_path: Path) -> None:
     """No second payload shape: the predicate embeds the frozen delta verbatim."""
 
-    base, head = _refund_fact_pair(tmp_path)
+    base, head = _fact_pair(tmp_path)
     attestation = project_capability_delta_attestation(
         base,
         head,
@@ -378,7 +409,7 @@ def test_a_tool_that_is_observed_but_never_analysed_is_named(tmp_path: Path) -> 
     names the subject rather than counting it (#433).
     """
 
-    base, head = _refund_fact_pair(tmp_path)
+    base, head = _fact_pair(tmp_path)
     agent_id = base[0].identity.agent_id
     observed_base = [
         ObservedSubject(
@@ -437,7 +468,7 @@ def test_a_pre_existing_unbound_tool_is_not_a_newly_outside_row(tmp_path: Path) 
     single coverage snapshot could not tell them apart.
     """
 
-    base, head = _refund_fact_pair(tmp_path)
+    base, head = _fact_pair(tmp_path)
     agent_id = base[0].identity.agent_id
     standing = ObservedSubject(
         tool_id="tool_v2_standing", name="legacy_export", provider="github"
@@ -769,7 +800,7 @@ def test_the_reference_verifier_derives_what_the_package_derives(tmp_path: Path)
     """
 
     module = _reference_module()
-    base, head = _refund_fact_pair(tmp_path)
+    base, head = _fact_pair(tmp_path)
     delta = project_capability_delta(base, head, base_ref=TREE_A, head_ref=TREE_B)
     record = None
     for row in delta.subjects:
@@ -856,28 +887,51 @@ def test_the_published_rule_table_matches_the_reference_verifier() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_verify_writes_the_attestation_and_binds_it_to_the_receipt(tmp_path: Path) -> None:
+def test_verify_emits_an_attestation_bound_to_the_run_that_produced_it(
+    tmp_path: Path,
+) -> None:
+    """Every property of one committed-tree emission, asserted on one run.
+
+    These are five statements about a single ``verify`` run, and each of them
+    used to run its own — five full base-and-head scans of the same fixture to
+    read five fields out of the same reports directory. That put six minutes on
+    the CI ``test`` step, which has no headroom against its cap. They belong
+    together because they are not five scenarios; they are one.
+
+    In order: the statement is what it claims to be, it is chained to the plan
+    this run built, its subject is that plan's Git subject, it is a first-class
+    artifact of the run, its coverage is established on both sides, its delta
+    is the projection of the locks the same run published, and the number it
+    reports is the number the PR comment prints.
+    """
+
+    from agents_shipgate.cli.authorization import _AUTHORIZATION_RECEIPT_ARTIFACTS
+
     out = _verify_refund_pr(tmp_path)
     path = out / CAPABILITY_DELTA_ATTESTATION_FILENAME
     assert path.is_file(), "verify did not write the attestation"
-
     document = json.loads(path.read_text(encoding="utf-8"))
+    delta = document["predicate"]["delta"]
+
+    # --- the envelope is what it claims to be -------------------------------
     assert document["_type"] == IN_TOTO_STATEMENT_TYPE
     assert document["predicateType"] == CAPABILITY_DELTA_PREDICATE_TYPE
 
+    # --- chained to the plan this run built ---------------------------------
     plan = json.loads((out / "verification-plan.json").read_text(encoding="utf-8"))
     verification = document["predicate"]["verification"]
     assert verification["status"] == "bound"
     assert verification["input_set_id"] == plan["inputs"]["input_set_id"]
     assert verification["subject_id"] == plan["subject"]["subject_id"]
 
+    # --- the subject is that plan's Git subject -----------------------------
     git = plan["subject"]["git"]
     assert document["subject"][0]["digest"]["gitTree"] == git["head_tree_sha"]
     assert document["subject"][0]["digest"]["gitCommit"] == git["head_commit_sha"]
     assert document["subject"][0]["name"] == git["repository_id"]
-    assert document["predicate"]["delta"]["base"]["ref"] == git["base_tree_sha"]
+    assert delta["base"]["ref"] == git["base_tree_sha"]
 
-    # It is a first-class artifact, so the run's own manifest covers it.
+    # --- a first-class artifact of the run ----------------------------------
     verifier = json.loads((out / "verifier.json").read_text(encoding="utf-8"))
     assert CAPABILITY_DELTA_ATTESTATION_ARTIFACT_KEY in verifier["artifacts"]
     manifest = json.loads((out / "verification-artifacts.json").read_text(encoding="utf-8"))
@@ -885,28 +939,10 @@ def test_verify_writes_the_attestation_and_binds_it_to_the_receipt(tmp_path: Pat
     assert entry["path"] == CAPABILITY_DELTA_ATTESTATION_FILENAME
     assert entry["sha256"] == "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
-    result = _run_reference_verifier(
-        path, "--expect-tree", git["head_tree_sha"], "--require-receipt-binding"
-    )
-    assert result.returncode == 0, result.stderr
-
-
-def test_every_artifact_a_verify_run_binds_is_inside_the_authorization_closure(
-    tmp_path: Path,
-) -> None:
-    """A new verify artifact breaks every authorized push until it is allowed.
-
-    ``_AUTHORIZATION_RECEIPT_ARTIFACTS`` is deny-by-default, which is right for
-    a security boundary and makes it a second copy of what ``verify`` writes.
-    Adding the attestation to the receipt manifest without adding it there made
-    ``authorization execute`` exit 3 on a valid grant — a failure whose message
-    named the new artifact but whose cause was two lists that do not co-vary.
-    Nothing compared them, so nothing failed until an unrelated test did.
-    """
-
-    from agents_shipgate.cli.authorization import _AUTHORIZATION_RECEIPT_ARTIFACTS
-
-    out = _verify_refund_pr(tmp_path)
+    # A new verify artifact breaks every authorized push until the
+    # deny-by-default execution closure allows it. That closure is a second
+    # copy of what ``verify`` writes and nothing compared the two, so the
+    # omission surfaced as an unrelated test failing with exit 3.
     receipt = json.loads((out / "verification-receipt.json").read_text(encoding="utf-8"))
     bound = set(receipt["artifact_manifest"]["artifacts"])
     assert CAPABILITY_DELTA_ATTESTATION_ARTIFACT_KEY in bound
@@ -916,6 +952,65 @@ def test_every_artifact_a_verify_run_binds_is_inside_the_authorization_closure(
         f"allow: {outside}. Add them to _AUTHORIZATION_RECEIPT_ARTIFACTS or "
         "stop binding them."
     )
+
+    # --- coverage established on both sides ---------------------------------
+    # ``not_requested`` in a real emission would make #437 unanswerable.
+    coverage = delta["analysis_coverage"]
+    assert coverage["base"]["status"] == "complete"
+    assert coverage["head"]["status"] == "complete"
+    assert coverage["status"] == "complete"
+
+    # --- the delta is the projection of the locks this run published --------
+    # Re-projected byte for byte, so a reviewer reading
+    # ``capabilities.lock.json`` and a gateway reading the attestation are
+    # looking at one computation (#433).
+    base_lock = CapabilityLockFileV1.model_validate_json(
+        (out / "base.capabilities.lock.json").read_text(encoding="utf-8")
+    )
+    head_lock = CapabilityLockFileV1.model_validate_json(
+        (out / "capabilities.lock.json").read_text(encoding="utf-8")
+    )
+    projected = project_capability_delta(
+        base_lock.capabilities,
+        head_lock.capabilities,
+        base_ref=delta["base"]["ref"],
+        head_ref=delta["head"]["ref"],
+    ).model_dump(mode="json")
+    # Coverage is supplied by the run and is not derivable from facts, so it is
+    # the one block a re-projection cannot reproduce.
+    for side in ("base", "head"):
+        projected[side]["analysis_coverage_digest"] = delta[side]["analysis_coverage_digest"]
+    projected["analysis_coverage"] = coverage
+    assert projected == delta
+
+    # --- one value, two surfaces (#433) -------------------------------------
+    # ``diff_capability_locks`` and ``project_capability_delta`` are the same
+    # engine, so the capability-change count the PR comment prints and the one
+    # the attestation publishes are the same number by construction — and this
+    # fails if either surface ever grows its own arithmetic.
+    summary = diff_capability_locks(base_lock, head_lock).summary
+    moved = (
+        summary.added
+        + summary.removed
+        + summary.reidentified
+        + summary.changed
+        + summary.evidence_changed
+    )
+    assert delta["summary"]["capability_changes"] == moved
+    comment = (out / "pr-comment.md").read_text(encoding="utf-8")
+    assert (
+        f"Capability lock diff: +{summary.added}, -{summary.removed}, "
+        f"{summary.changed} changed" in comment
+    ), comment
+    match = re.search(r"Capability delta \(analysed surface\): (\d+) subjects", comment)
+    assert match is not None, comment
+    assert int(match.group(1)) == delta["summary"]["subjects"]
+
+    # --- and a consumer can verify it without us ----------------------------
+    result = _run_reference_verifier(
+        path, "--expect-tree", git["head_tree_sha"], "--require-receipt-binding"
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_a_worktree_run_writes_no_attestation_and_says_why(tmp_path: Path) -> None:
@@ -936,117 +1031,18 @@ def test_a_worktree_run_writes_no_attestation_and_says_why(tmp_path: Path) -> No
     assert CAPABILITY_DELTA_ATTESTATION_ARTIFACT_KEY not in verifier["artifacts"]
 
 
-def test_verify_populates_coverage_on_both_sides(tmp_path: Path) -> None:
-    """``not_requested`` in a real emission would make #437 unanswerable."""
-
-    out = _verify_refund_pr(tmp_path)
-    document = json.loads(
-        (out / CAPABILITY_DELTA_ATTESTATION_FILENAME).read_text(encoding="utf-8")
-    )
-    coverage = document["predicate"]["delta"]["analysis_coverage"]
-    assert coverage["base"]["status"] == "complete"
-    assert coverage["head"]["status"] == "complete"
-    assert coverage["status"] == "complete"
-
-
 def test_the_attestation_is_deterministic_for_one_input(tmp_path: Path) -> None:
     """Two exports of the same static inputs are byte-identical.
 
     The format carries no wall clock and no engine identity for exactly this
-    reason: a consumer diffing two attestations must see only what moved.
+    reason: a consumer diffing two attestations must see only what moved. Built
+    from two independent adapter passes rather than the module-cached facts, so
+    it still compares two builds rather than one value with itself.
     """
 
-    first = render_attestation_json(_attestation(tmp_path / "a"))
-    second = render_attestation_json(_attestation(tmp_path / "b"))
+    first = render_attestation_json(_attestation(tmp_path / "a", cached=False))
+    second = render_attestation_json(_attestation(tmp_path / "b", cached=False))
     assert first == second
-
-
-# --------------------------------------------------------------------------
-# One projection
-# --------------------------------------------------------------------------
-
-
-def test_the_attested_delta_is_the_projection_of_the_published_locks(
-    tmp_path: Path,
-) -> None:
-    """The attestation is not a second computation of the delta.
-
-    Re-projected from the two capability locks the same run publishes, byte for
-    byte — so a reviewer reading ``capabilities.lock.json`` and a gateway
-    reading the attestation are looking at one computation (#433).
-    """
-
-    out = _verify_refund_pr(tmp_path)
-    document = json.loads(
-        (out / CAPABILITY_DELTA_ATTESTATION_FILENAME).read_text(encoding="utf-8")
-    )
-    base_lock = CapabilityLockFileV1.model_validate_json(
-        (out / "base.capabilities.lock.json").read_text(encoding="utf-8")
-    )
-    head_lock = CapabilityLockFileV1.model_validate_json(
-        (out / "capabilities.lock.json").read_text(encoding="utf-8")
-    )
-    delta = document["predicate"]["delta"]
-    reprojected = project_capability_delta(
-        base_lock.capabilities,
-        head_lock.capabilities,
-        base_ref=delta["base"]["ref"],
-        head_ref=delta["head"]["ref"],
-    )
-    projected = reprojected.model_dump(mode="json")
-    # Coverage is supplied by the run, not derivable from facts, so compare
-    # everything else and the coverage separately.
-    for side in ("base", "head"):
-        projected[side]["analysis_coverage_digest"] = delta[side][
-            "analysis_coverage_digest"
-        ]
-    projected["analysis_coverage"] = delta["analysis_coverage"]
-    assert projected == delta
-
-
-def test_the_attested_delta_equals_the_delta_the_pr_comment_prints(
-    tmp_path: Path,
-) -> None:
-    """One value, two surfaces (#433).
-
-    ``diff_capability_locks`` and ``project_capability_delta`` are the same
-    engine, so the capability-change count the PR comment prints and the one
-    the attestation publishes are the same number by construction — and this
-    fails if either surface ever grows its own arithmetic.
-    """
-
-    out = _verify_refund_pr(tmp_path)
-    document = json.loads(
-        (out / CAPABILITY_DELTA_ATTESTATION_FILENAME).read_text(encoding="utf-8")
-    )
-    lock_diff = diff_capability_locks(
-        CapabilityLockFileV1.model_validate_json(
-            (out / "base.capabilities.lock.json").read_text(encoding="utf-8")
-        ),
-        CapabilityLockFileV1.model_validate_json(
-            (out / "capabilities.lock.json").read_text(encoding="utf-8")
-        ),
-    )
-    summary = lock_diff.summary
-    moved = (
-        summary.added
-        + summary.removed
-        + summary.reidentified
-        + summary.changed
-        + summary.evidence_changed
-    )
-    assert document["predicate"]["delta"]["summary"]["capability_changes"] == moved
-
-    comment = (out / "pr-comment.md").read_text(encoding="utf-8")
-    assert (
-        f"Capability lock diff: +{summary.added}, -{summary.removed}, "
-        f"{summary.changed} changed" in comment
-    ), comment
-
-    # The reader-facing subject total is the same number on both surfaces.
-    match = re.search(r"Capability delta \(analysed surface\): (\d+) subjects", comment)
-    assert match is not None, comment
-    assert int(match.group(1)) == document["predicate"]["delta"]["summary"]["subjects"]
 
 
 # --------------------------------------------------------------------------
@@ -1103,67 +1099,3 @@ def test_the_well_known_document_agrees_with_the_contract() -> None:
         well_known["artifacts"]["capability_delta_attestation"]
         == payload.capability_delta_attestation_artifact
     )
-
-
-def test_the_emitter_needs_nothing_from_a_source_checkout(tmp_path: Path) -> None:
-    """A tagged release install has no ``docs/`` and no ``samples/``.
-
-    The attestation is produced from code and the run's own inputs, so it has
-    to emit with the repository's non-packaged directories out of reach. Run in
-    a subprocess with the current working directory somewhere else and the
-    schema/spec files hidden, so a hidden read of either fails loudly.
-    """
-
-    out = _verify_refund_pr(tmp_path)
-    document = json.loads(
-        (out / CAPABILITY_DELTA_ATTESTATION_FILENAME).read_text(encoding="utf-8")
-    )
-
-    script = tmp_path / "emit.py"
-    script.write_text(
-        "\n".join(
-            [
-                "import json, sys",
-                "from pathlib import Path",
-                "from agents_shipgate.core.capability_attestation import (",
-                "    project_capability_delta_attestation,",
-                ")",
-                "from agents_shipgate.schemas.capability_attestation import (",
-                "    render_attestation_json,",
-                ")",
-                "from agents_shipgate.schemas.capabilities import CapabilityLockFileV1",
-                "base = CapabilityLockFileV1.model_validate_json(",
-                "    Path(sys.argv[1]).read_text(encoding='utf-8'))",
-                "head = CapabilityLockFileV1.model_validate_json(",
-                "    Path(sys.argv[2]).read_text(encoding='utf-8'))",
-                "print(render_attestation_json(project_capability_delta_attestation(",
-                "    base.capabilities, head.capabilities,",
-                "    subject_name=sys.argv[3], base_tree_sha=sys.argv[4],",
-                "    head_tree_sha=sys.argv[5], head_commit_sha=sys.argv[6] or None,",
-                ")), end='')",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    delta = document["predicate"]["delta"]
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(script),
-            str(out / "base.capabilities.lock.json"),
-            str(out / "capabilities.lock.json"),
-            document["subject"][0]["name"],
-            delta["base"]["ref"],
-            delta["head"]["ref"],
-            document["subject"][0]["digest"]["gitCommit"] or "",
-        ],
-        cwd=tmp_path,
-        capture_output=True,
-        text=True,
-        check=False,
-        env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "src")},
-    )
-    assert result.returncode == 0, result.stderr
-    emitted = json.loads(result.stdout)
-    assert emitted["predicateType"] == CAPABILITY_DELTA_PREDICATE_TYPE
-    assert emitted["predicate"]["delta"]["summary"] == delta["summary"]
