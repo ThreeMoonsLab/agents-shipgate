@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from email import message_from_bytes
 from pathlib import Path
 
@@ -44,11 +45,7 @@ def built_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
         ),
     )
     stale_report = (
-        source_root
-        / "samples"
-        / "support_refund_agent"
-        / "agents-shipgate-reports"
-        / "report.json"
+        source_root / "samples" / "support_refund_agent" / "agents-shipgate-reports" / "report.json"
     )
     stale_report.parent.mkdir(parents=True)
     stale_report.write_text('{"stale": true}\n', encoding="utf-8")
@@ -62,6 +59,34 @@ def built_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
     wheels = list(out_dir.glob("*.whl"))
     assert len(wheels) == 1, f"expected exactly one wheel, got {wheels!r}"
     return wheels[0]
+
+
+@pytest.fixture(scope="session")
+def installed_wheel_site(
+    built_wheel: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Path:
+    """Install the built wheel into an isolated target without network access."""
+
+    root = tmp_path_factory.mktemp("installed-wheel")
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--no-deps",
+            "--force-reinstall",
+            "--target",
+            str(root),
+            str(built_wheel),
+        ],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return root
 
 
 def test_wheel_includes_adoption_kits(built_wheel: Path) -> None:
@@ -85,12 +110,95 @@ def test_wheel_includes_nested_sample_fixtures(built_wheel: Path) -> None:
         assert path in names
 
 
-def test_wheel_emits_a_capability_delta_attestation(
-    built_wheel: Path, tmp_path: Path
+def test_installed_wheel_replays_incident_fixtures(
+    installed_wheel_site: Path,
+    tmp_path: Path,
+) -> None:
+    """The three demos run from an installed artifact, not the source tree."""
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(installed_wheel_site)
+    env["PYTHONNOUSERSITE"] = "1"
+    fixtures = (
+        (
+            "agent_weakens_gate",
+            "Merge verdict: blocked",
+            "blocked",
+            "blocked",
+            ("SHIP-VERIFY-CI-GATE-REMOVED",),
+            (),
+        ),
+        (
+            "governed_edits_governance",
+            "Fixture expectation: expected-fail",
+            "mergeable",
+            "passed",
+            (),
+            ("SHIP-VERIFY-TRUST-ROOT-TOUCHED",),
+        ),
+        (
+            "prompt_change_rides_release",
+            "Merge verdict: human_review_required",
+            "human_review_required",
+            "review_required",
+            (
+                "SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED",
+                "SHIP-VERIFY-TRUST-ROOT-TOUCHED",
+            ),
+            (),
+        ),
+    )
+
+    def replay(
+        expectation: tuple[str, str, str, str, tuple[str, ...], tuple[str, ...]],
+    ) -> tuple[
+        tuple[str, str, str, str, tuple[str, ...], tuple[str, ...]],
+        Path,
+        subprocess.CompletedProcess[str],
+    ]:
+        name = expectation[0]
+        out = tmp_path / name
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "agents_shipgate",
+                "fixture",
+                "run",
+                name,
+                "--out",
+                str(out),
+            ],
+            cwd=tmp_path,
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        return expectation, out, result
+
+    with ThreadPoolExecutor(max_workers=len(fixtures)) as executor:
+        results = list(executor.map(replay, fixtures))
+
+    for expectation, out, result in results:
+        name, expected_output, merge_verdict, decision, required_checks, absent_checks = expectation
+        assert result.returncode == 0, f"{name}: {result.stdout}{result.stderr}"
+        assert expected_output in result.stdout
+        verifier = json.loads((out / "verifier.json").read_text(encoding="utf-8"))
+        report = json.loads((out / "report.json").read_text(encoding="utf-8"))
+        assert verifier["merge_verdict"] == merge_verdict
+        assert report["release_decision"]["decision"] == decision
+        check_ids = {finding["check_id"] for finding in report["findings"]}
+        assert set(required_checks) <= check_ids
+        assert not (set(absent_checks) & check_ids)
+
+
+def test_installed_wheel_emits_a_capability_delta_attestation(
+    installed_wheel_site: Path, tmp_path: Path
 ) -> None:
     """#470: the attestation must reach an installed release, not only a checkout.
 
-    Run against the *extracted wheel alone*, with the working directory outside
+    Run against the installed wheel alone, with the working directory outside
     the repository, so a hidden read of ``docs/`` or ``samples/`` — neither of
     which an installed release has at those paths — fails rather than silently
     succeeding from the developer's tree. The wheel carries the shipped samples
@@ -98,15 +206,12 @@ def test_wheel_emits_a_capability_delta_attestation(
     facts to work from without the repository.
     """
 
-    site = tmp_path / "site"
-    with zipfile.ZipFile(built_wheel) as archive:
-        archive.extractall(site)
     workdir = tmp_path / "elsewhere"
     workdir.mkdir()
     script = workdir / "emit.py"
     script.write_text(
         """
-import json, shutil, sys
+import shutil, sys
 from pathlib import Path
 
 import agents_shipgate
@@ -117,7 +222,7 @@ from agents_shipgate.core.capability_attestation import (
 from agents_shipgate.schemas.capability_attestation import render_attestation_json
 
 assert Path(agents_shipgate.__file__).parent.parent == Path(sys.argv[1]), (
-    "the script must run against the extracted wheel, not the source tree"
+    "the script must run against the installed wheel, not the source tree"
 )
 sample = Path(agents_shipgate.__file__).parent / "_fixtures" / "ai_generated_refund_pr"
 base = build_capability_lock_from_config(
@@ -141,13 +246,16 @@ sys.stdout.write(render_attestation_json(attestation))
 """,
         encoding="utf-8",
     )
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(installed_wheel_site)
+    env["PYTHONNOUSERSITE"] = "1"
     result = subprocess.run(
-        [sys.executable, str(script), str(site)],
+        [sys.executable, str(script), str(installed_wheel_site)],
         cwd=workdir,
         capture_output=True,
         text=True,
         check=False,
-        env={**os.environ, "PYTHONPATH": str(site)},
+        env=env,
     )
     assert result.returncode == 0, result.stderr
     document = json.loads(result.stdout)

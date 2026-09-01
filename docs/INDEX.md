@@ -167,6 +167,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 
 - [`examples.md`](examples.md) — narrative tour of sample agents and CI recipes
 - [`../examples/golden-prs/`](../examples/golden-prs/) — end-to-end advisory PR examples for humans and coding agents
+- [`incidents/`](incidents/) — three replayable public-incident shapes, an honest expected-fail, and the response-article template
 - [`manifest-v0.1.example.minimal.yaml`](manifest-v0.1.example.minimal.yaml) — smallest valid manifest
 - [`manifest-v0.1.example.full.yaml`](manifest-v0.1.example.full.yaml) — every section populated
 - [`examples/capability-fact.v0.2.example.json`](examples/capability-fact.v0.2.example.json) — capability-standard v0.2 fact with normalized semantic evidence
