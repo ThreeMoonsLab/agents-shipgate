@@ -53,6 +53,7 @@ SOURCE_ID_PREFIXES: dict[str, str] = {
     "google_adk": "adk",
     "openai_agents_sdk": "openai_sdk",
     "mcp": "mcp",
+    "mcp_server_source": "mcp_src",
     "openapi": "openapi",
     "codex_plugin": "codex_plugin",
 }

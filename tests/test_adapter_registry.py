@@ -150,6 +150,7 @@ def test_canonical_registration_order():
 
     expected = [
         "mcp",
+        "mcp_server_source",
         "openapi",
         "openai_agents_sdk",
         "google_adk",
