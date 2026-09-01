@@ -2,6 +2,62 @@
 
 ## Unreleased
 
+- **An MCP server whose tool surface exists only as code now has a route.**
+  (#431) `detect` reported the official MongoDB and Grafana MCP servers as *not
+  an agent project*: both publish dozens of tools — `drop-database`,
+  `delete-many`, `update_incident` — and neither commits an export, so every
+  route discovery had was filename-shaped and found nothing. The discriminator
+  was never the language (two of the three servers walked are Go); it was
+  whether the repository happens to *emit* its tool list.
+
+  New input `tool_sources[].type: mcp_server_source` reads the tool name where
+  every one of them writes it: as a string literal at a registration site. It
+  runs no code, evaluates no schema library, infers no type, and reads no
+  annotation the source declares about itself. Which sites count comes from a
+  built-in, versioned registry of **named registration idioms**
+  (`agents_shipgate.inputs.mcp_idioms`), never from a configured pattern — at
+  `detect` time there is no manifest, and post-adoption a configured regex would
+  hand the definition of evidence to configuration shipping in the same pull
+  request as the tool it could hide. Five idioms ship, chosen by a 30-server
+  survey published at [`docs/mcp-registration-idioms.md`](docs/mcp-registration-idioms.md);
+  Python's FastMCP decorator is the largest measured shape and is deliberately
+  deferred (#484), because it is a different extraction mechanism and #393
+  requires each one to bring its own adversarial probe list.
+
+  `detect` offers the route only where a declared MCP dependency and a resolved
+  registration hold *together* — a class of one's own that spells a field
+  `toolName` is a coincidence of spelling until the repository says it speaks
+  MCP. Where a parseable MCP export also exists it stays preferred (`high`, with
+  the input schemas this route does not read) and the source route is withheld
+  and named in `excluded_sources` rather than silently dropped.
+
+  Extraction is `medium` and completeness is measured per file, not assumed: a
+  name built at runtime is reported as an unenumerated subject in the exclusion
+  ledger and holds its own file's surface at `partial`, and a file whose masking
+  pass cannot complete is reported unreadable rather than read as though the
+  rest were code. String escapes are decoded with each language's own grammar
+  and anything neither grammar defines is refused rather than guessed, because
+  a mistranslated name is an action id nobody serves standing in for a real
+  one. A `static operationType = "delete"` literal arrives as a
+  low-confidence inferred hint that can contradict a reviewer declaring the tool
+  read-only and can never prove anything on its own; `read` is deliberately
+  unmapped, because a tool server asserting its own harmlessness is the one
+  claim an untrusted source has an incentive to make.
+
+  `TRIGGER-MCP-TOOL-REGISTRATION-SOURCE` routes such a diff, on tokens derived
+  from the same registry and pinned against it. The trigger catalog's
+  `schema_version` is unchanged: the rule uses existing predicates and adds no
+  field, so no consumer has to change to keep reading it.
+
+  The zero-install detector (`tools/shipgate-detect.py`) does **not** gain this
+  detection, so it reports a repository whose tool surface exists only as code
+  as *not* an agent project while the installed CLI reports it as one. Porting
+  the reader means a second implementation of the load-bearing matcher and
+  needs its own increment with a shared conformance corpus; the divergence is
+  named in the script's own "intentional simplifications" list and pinned by
+  `test_framework_vocabulary_names_every_cli_omission`, which fails on any
+  further omission (#485).
+
 - **Verifier and evidence explanations now preserve the fact that produced
   them.** (#436, #396, #414, #420) Plain blocked-run headlines name the
   deterministic worst blocker and bound untrusted multibyte titles by the

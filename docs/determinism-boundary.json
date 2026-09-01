@@ -117,6 +117,100 @@
       "reads": "A committed MCP `tools/list` response, or any file carrying the same `tools` array."
     },
     {
+      "adapter": "mcp_server_source",
+      "cells": [
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_applicable",
+          "raises": [],
+          "reads": "A committed export is the server's own contract and is read by the MCP tool-export input at `high`, which stays the better route wherever one exists.",
+          "shape": "export_artifact",
+          "status": "not_applicable",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No such declaration exists for this input."
+        },
+        {
+          "ceiling": "medium",
+          "emits": [
+            "mcp_server_source"
+          ],
+          "evidence_gaps": [
+            "low_confidence_tool",
+            "unattested_surface"
+          ],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "low_confidence",
+          "raises": [],
+          "reads": "A tool name written as a string literal at a registration site \u2014 `static toolName = \"\u2026\"`, `.registerTool(\"\u2026\"`, `MustTool(\"\u2026\"`, `NewTool(\"\u2026\"`, `Tool{Name: \"\u2026\"}` \u2014 plus the sibling operation-class literal where the idiom defines one.",
+          "shape": "literal_registration",
+          "status": "extracted",
+          "surface": "enumerated",
+          "surface_complete": true,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "Every action from this route raises `low_confidence_tool` and either `unattested_surface` (when its set was enumerated) or `incomplete_surface` (when it was not), so none can be pass-eligible. Only the latter adds an exclusion-ledger row for an unread remainder. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_extracted",
+          "raises": [],
+          "reads": "A helper that registers a table of tools contributes nothing on its own: resolving what it registers would mean evaluating it. Any registration site inside the helper is read on its own terms.",
+          "shape": "factory",
+          "status": "not_extracted",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No action enters the catalog, so nothing here carries an action-level ceiling. That is not the same as unseen: the scan records that it read this construct and refused to guess what it produces, and a framework check may raise a finding on the record itself \u2014 see the row's own `Raises` column."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_extracted",
+          "raises": [],
+          "reads": "A registration whose name is a variable, a concatenation, or a template substitution names no tool this reader can check. It enters no catalog and is recorded as an unenumerated subject in the exclusion ledger, which holds its file's surface at `partial`.",
+          "shape": "dynamic_construction",
+          "status": "not_extracted",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": null,
+          "verdict": "No action enters the catalog, so nothing here carries an action-level ceiling. That is not the same as unseen: the scan records that it read this construct and refused to guess what it produces, and a framework check may raise a finding on the record itself \u2014 see the row's own `Raises` column."
+        }
+      ],
+      "configured_as": [
+        "tool_sources"
+      ],
+      "inventory_key": null,
+      "label": "MCP server source",
+      "manifest_section": null,
+      "manifest_section_role": "activates",
+      "reads": "The TypeScript or Go source of an MCP server that does not commit an export, through a built-in registry of registration idioms."
+    },
+    {
       "adapter": "openapi",
       "cells": [
         {

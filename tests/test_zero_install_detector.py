@@ -123,6 +123,49 @@ def test_script_does_not_claim_drop_in_parity(script_module):
     )
 
 
+def test_framework_vocabulary_names_every_cli_omission(script_module):
+    """Every framework the CLI can report is either here or a named omission.
+
+    The parity test above compares the two on ``samples/``, which is only as
+    strong as the fixtures: a detection the CLI gains and the script does not
+    is invisible to it until a sample exercises the difference. That is exactly
+    what happened with ``mcp_server_source`` (#431) — the CLI reads an MCP
+    server's tool names out of TypeScript or Go registration sites, no sample
+    contains one, and the script goes on reporting a repository like
+    ``mongodb-js/mongodb-mcp-server`` as *not an agent project*.
+
+    So the omission is written down instead of discovered. Adding a detection
+    to the CLI now fails here until it is either ported or listed, and the list
+    is the thing a reader can check against the script's own documented
+    simplifications.
+    """
+
+    from agents_shipgate.cli.discovery.signals import _initial_framework_scores
+
+    # Documented, deliberate, and filed as #485. Porting the reader means a
+    # second implementation of the load-bearing matcher, which needs its own
+    # increment and a conformance corpus shared with the package.
+    known_omissions = {"mcp_server_source"}
+
+    cli = set(_initial_framework_scores())
+    script = set(script_module.FRAMEWORKS)
+
+    assert script <= cli, (
+        f"the script reports frameworks the CLI cannot: {sorted(script - cli)}"
+    )
+    assert cli - script == known_omissions, (
+        "the script's framework vocabulary drifted from the CLI's: "
+        f"{sorted((cli - script) ^ known_omissions)}. Port the detection, or "
+        "add it to `known_omissions` here and to the script's `Intentional "
+        "simplifications` list."
+    )
+    for omitted in known_omissions:
+        assert omitted in SCRIPT_PATH.read_text(encoding="utf-8"), (
+            f"{omitted!r} is a known omission but the script never says so; "
+            "a reader of the script cannot discover it."
+        )
+
+
 def test_script_emits_canonical_top_level_keys(script_module):
     """The script's JSON output must carry the same top-level keys as
     DetectResult, plus ``script_version`` to distinguish it from the

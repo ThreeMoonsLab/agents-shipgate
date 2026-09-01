@@ -57,6 +57,7 @@ _EFFECT_VALUES = frozenset(_EFFECT_RANK)
 MCP_SOURCE_TYPES = frozenset(
     {
         "mcp",
+        "mcp_server_source",
         "codex_config_mcp",
         "codex_plugin_mcp_inventory",
         "n8n_mcp_client_tool",
@@ -71,6 +72,7 @@ MCP_SOURCE_TYPES = frozenset(
 #: type that says nothing is treated as incomplete.
 AST_ONLY_SOURCE_TYPES = frozenset(
     {
+        "mcp_server_source",
         "sdk_function",
         "langchain_function",
         "langchain_structured_tool",

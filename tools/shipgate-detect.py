@@ -48,6 +48,14 @@ Intentional simplifications vs. the canonical CLI:
 
 - No ``diagnostics[]`` / ``next_actions[]`` (the diagnostic engine is
   not in scope for stdlib-only / zero-install).
+- **No ``mcp_server_source`` detection.** The installed CLI reads an MCP
+  server's tool names out of TypeScript or Go registration sites through a
+  built-in idiom registry (#431); this script does not, so a repository whose
+  tool surface exists only as code is reported here as *not* an agent project
+  while the CLI reports it as one. That is the largest divergence in this list
+  and the only one that changes ``is_agent_project``. No sample exercises it
+  today, so the parity test cannot see it; ``test_framework_vocabulary_names_every_cli_omission``
+  pins it instead, and it is filed as #485.
 - ``agent_scope`` / ``agent_scope_truncated`` / ``python_parse_truncated`` /
   ``agent_project_candidates[]``
   are carried, and the contract test pins them against the CLI: an agent that

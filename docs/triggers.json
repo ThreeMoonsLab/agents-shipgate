@@ -95,6 +95,23 @@
       "command": "agents-shipgate verify --preview --json"
     },
     {
+      "id": "TRIGGER-MCP-TOOL-REGISTRATION-SOURCE",
+      "surface_class": "capability",
+      "agents_md_row": "Adds/changes an MCP tool registration written in TypeScript or Go source (`static toolName`, `.registerTool(`, `MustTool(`, `NewTool(`, `mcp.Tool{`)",
+      "when": {
+        "any_of": [
+          {"diff_contains": ".registerTool("},
+          {"diff_contains": "MustTool("},
+          {"diff_contains": "NewTool("},
+          {"diff_contains": "mcp.Tool{"},
+          {"diff_contains": "static toolName"}
+        ]
+      },
+      "action": "run_shipgate",
+      "rationale": "Most MCP servers never emit their tool list: the official MongoDB and Grafana servers declare every tool as a string literal at a registration site in TypeScript or Go, and no filename or schema-content rule matches such a diff. These five tokens are the high-precision subset of the built-in idiom registry (`agents_shipgate.inputs.mcp_idioms.DIFF_TOKENS`), narrower than what that reader matches because a matched capability rule overrides the workspace stop condition. Routing this diff stops the silent miss; the `mcp_server_source` input reads the whole surface once the repository is adopted.",
+      "command": "agents-shipgate verify --preview --json"
+    },
+    {
       "id": "TRIGGER-OPENAPI-SPEC-CHANGED",
       "surface_class": "capability",
       "agents_md_row": "Adds/changes MCP exports, OpenAPI specs, or `tools/*openai*tools*.json`",
