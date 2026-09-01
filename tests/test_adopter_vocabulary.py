@@ -63,6 +63,7 @@ from agents_shipgate.core import source_warnings as sw
 from agents_shipgate.core.adopter_text import (
     DUPLICATE_TOOL_IN_SOURCE,
     INTERNAL_ONLY_TERMS,
+    INTERNAL_POLICY_IDS,
     internal_vocabulary,
 )
 from agents_shipgate.core.domain import Tool
@@ -207,6 +208,12 @@ def test_an_anchor_cannot_rescue_a_field_that_exists_in_no_file() -> None:
     assert "native_locator" in internal_vocabulary(anchored)
 
 
+@pytest.mark.parametrize("policy_id", INTERNAL_POLICY_IDS)
+def test_an_engine_policy_id_is_internal_adopter_vocabulary(policy_id: str) -> None:
+    message = f"{policy_id}: Policy applicability needs review."
+    assert policy_id in internal_vocabulary(message)
+
+
 # --- 1. every gap kind, through the real renderers ---------------------------
 
 
@@ -274,7 +281,9 @@ def test_every_gap_kind_renders_an_adopter_facing_fix_task_instruction() -> None
         ),
     )
     instructions = _insufficient_evidence_remedies(report)
-    assert len(instructions) >= len(_gap_kinds()) - 2, instructions
+    # The low-confidence row and its two surface variants are intentionally
+    # re-derived as one inventory repair rather than repeated three times.
+    assert len(instructions) >= len(_gap_kinds()) - 3, instructions
     for line in instructions:
         assert internal_vocabulary(line) == (), line
 
@@ -864,6 +873,8 @@ ADOPTER_FACING_MODULES = (
     "core/agent_controls.py",
     "core/agent_handoff.py",
     "core/evidence_actions.py",
+    "core/policy_evidence.py",
+    "core/semantic_assessment.py",
     "core/findings/subject_rollup.py",
     "core/source_warnings.py",
     "core/tool_identity.py",

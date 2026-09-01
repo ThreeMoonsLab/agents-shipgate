@@ -850,12 +850,29 @@ def _assess_effect(
             )
         )
 
-    if not extraction_is_complete(tool) or not surface_is_complete(tool):
+    extraction_complete = extraction_is_complete(tool)
+    surface_complete = surface_is_complete(tool)
+    if not surface_complete:
         issues.append(
             _issue(
                 "incomplete_surface",
                 "effect",
-                "tool surface enumeration is incomplete or not high confidence",
+                "tool surface enumeration is incomplete",
+                "tool_extraction",
+                pointer,
+            )
+        )
+    elif not extraction_complete:
+        enumerated = tool.extraction.get("surface") == SURFACE_ENUMERATED
+        surface = "the enumerated surface" if enumerated else "this surface"
+        issues.append(
+            _issue(
+                "unattested_surface",
+                "effect",
+                (
+                    f"no reviewed tool inventory attests {surface} "
+                    f"(extraction_confidence={tool.extraction_confidence})"
+                ),
                 "tool_extraction",
                 pointer,
             )

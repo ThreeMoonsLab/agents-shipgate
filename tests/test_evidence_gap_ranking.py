@@ -65,6 +65,7 @@ from agents_shipgate.core.evidence_actions import (
     display_literal,
     evidence_gap_action_text,
     evidence_gap_command,
+    evidence_gap_headline,
     evidence_gap_target,
     has_visible_content,
     is_addressable_gap,
@@ -98,6 +99,7 @@ from agents_shipgate.schemas.report import (
     EvidenceGapAction,
     FailPolicy,
     Finding,
+    IdentityCoverageDecision,
     ReadinessReport,
     ReleaseDecision,
     ReleaseDecisionItem,
@@ -275,6 +277,62 @@ def test_every_evidence_gap_kind_has_a_headline_phrase():
         "EvidenceGap.kind and the headline phrase table diverged. Add the "
         "new kind to _GAP_PHRASE in core/evidence_actions.py in the same PR."
     )
+
+
+def test_an_enumerated_surface_names_missing_attestation_not_missing_tools():
+    """#396: 12/12 reachable cannot honestly headline as non-enumerable."""
+
+    gap = EvidenceGap(
+        kind="unattested_surface",
+        subject="create_salesforce_quote [adk_agent]",
+        source_type="google_adk_function",
+        why=(
+            "no reviewed tool inventory attests the enumerated surface "
+            "(extraction_confidence=medium)"
+        ),
+        next_action=EvidenceGapAction(
+            kind="declare_tool_inventory",
+            path="suggested-inventory.json",
+            why="A reviewed inventory attests the static extraction.",
+            expects="Review the explicit inventory and rerun verification.",
+            accepted_values=["reviewed_explicit_inventory"],
+        ),
+    )
+    evidence = EvidenceCoverageDecision(
+        level="mixed",
+        human_review_recommended=True,
+        source_warning_count=0,
+        low_confidence_tool_count=12,
+        evidence_gaps=[gap],
+        semantic_coverage=SemanticCoverageDecision(
+            total_actions=12,
+            pass_eligible_actions=0,
+            gap_count=36,
+        ),
+        identity_coverage=IdentityCoverageDecision(
+            canonical_tools=12,
+            pass_eligible_tools=12,
+            ambiguous_name_count=0,
+            gap_count=0,
+        ),
+        binding_coverage=BindingCoverageDecision(
+            total_catalog_tools=12,
+            reachable_tools=12,
+            unbound_tools=0,
+            possible_tools=0,
+            pass_eligible=True,
+            gap_count=0,
+        ),
+    )
+
+    headline = evidence_gap_headline(gap)
+    reason = _decision_reason("insufficient_evidence", [], [], evidence)
+    expected = "no reviewed tool inventory attests this surface"
+    assert expected in headline
+    assert expected in reason
+    assert "could not be fully enumerated" not in headline
+    assert "could not be fully enumerated" not in reason
+    assert "12 low-confidence tool(s)" in reason
 
 
 def _gap(kind: str, subject: str, *, path: str | None) -> EvidenceGap:

@@ -236,7 +236,7 @@ EVIDENCE_COMPLETENESS_CASES = [
     ),
     SemanticCanary(
         "evidence_completeness",
-        "low_confidence_extraction_is_incomplete",
+        "low_confidence_extraction_requires_attestation",
         tool={
             "source_type": "openapi",
             "annotations": {"httpMethod": "GET"},
@@ -248,7 +248,7 @@ EVIDENCE_COMPLETENESS_CASES = [
         effect="read",
         authority_status="structural",
         authority_mode="none",
-        effect_issues=frozenset({"incomplete_surface"}),
+        effect_issues=frozenset({"unattested_surface"}),
     ),
     SemanticCanary(
         "evidence_completeness",

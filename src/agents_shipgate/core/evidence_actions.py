@@ -251,6 +251,7 @@ _GAP_PHRASE: dict[str, str] = {
     "low_confidence_tool": "a tool was extracted with low confidence",
     "source_warning": "a source loader degraded while reading declared inputs",
     "incomplete_surface": "the tool surface could not be fully enumerated",
+    "unattested_surface": "no reviewed tool inventory attests this surface",
     "missing_effect_evidence": "an action has no declared effect",
     "inferred_effect_only": "an action's effect is inferred, not declared",
     "conflicting_effect_evidence": "an action carries conflicting effect evidence",
@@ -280,11 +281,10 @@ _GAP_PHRASE: dict[str, str] = {
     "invalid_binding_annotation": "a binding annotation is invalid",
     "invalid_evidence_provenance": "an evidence provenance claim is invalid",
     "inferred_policy_applicability": "policy applicability is inferred, not declared",
-    "mixed_policy_evidence": "policy evidence mixes declared and inferred sources",
+    "mixed_policy_evidence": "authoritative and heuristic policy evidence need review",
     "unknown_policy_evidence": "policy applicability is unknown",
     "conflicting_policy_evidence": "policy evidence conflicts",
 }
-
 
 def evidence_gap_target(gap: EvidenceGap) -> str:
     """The surface a gap names, rendered for display — empty when it names none.

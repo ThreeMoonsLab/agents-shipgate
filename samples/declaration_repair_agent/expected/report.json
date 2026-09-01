@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "report_schema_version": "0.42",
-  "run_id": "agents_shipgate_036ea97ed643dd47",
+  "run_id": "agents_shipgate_ef0028285245d596",
   "request_id": null,
   "subject_id": null,
   "input_set_id": null,
@@ -202,7 +202,8 @@
           "subject_kind": "action",
           "source_type": null,
           "source_ref": "tools.json",
-          "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
+          "policy_id": "builtin-effect-control-applicability",
+          "why": "Policy applicability combines a reviewed declaration with keyword inference. Review the heuristic match against a reviewed declaration; correct whichever evidence source is wrong or add a reviewed declaration that resolves the conflict, then rerun verification.",
           "next_action": {
             "kind": "review_policy_evidence",
             "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
@@ -231,7 +232,8 @@
           "subject_kind": "action",
           "source_type": null,
           "source_ref": "tools.json",
-          "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
+          "policy_id": "builtin-effect-control-applicability",
+          "why": "Policy applicability combines a reviewed declaration with keyword inference. Review the heuristic match against a reviewed declaration; correct whichever evidence source is wrong or add a reviewed declaration that resolves the conflict, then rerun verification.",
           "next_action": {
             "kind": "review_policy_evidence",
             "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
@@ -2435,7 +2437,8 @@
       "subject_kind": "action",
       "source_type": null,
       "source_ref": "tools.json",
-      "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
+      "policy_id": "builtin-effect-control-applicability",
+      "why": "Policy applicability combines a reviewed declaration with keyword inference. Review the heuristic match against a reviewed declaration; correct whichever evidence source is wrong or add a reviewed declaration that resolves the conflict, then rerun verification.",
       "next_action": {
         "kind": "review_policy_evidence",
         "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
@@ -2464,7 +2467,8 @@
       "subject_kind": "action",
       "source_type": null,
       "source_ref": "tools.json",
-      "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
+      "policy_id": "builtin-effect-control-applicability",
+      "why": "Policy applicability combines a reviewed declaration with keyword inference. Review the heuristic match against a reviewed declaration; correct whichever evidence source is wrong or add a reviewed declaration that resolves the conflict, then rerun verification.",
       "next_action": {
         "kind": "review_policy_evidence",
         "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",

@@ -58,6 +58,7 @@ __all__ = [
     "FINGERPRINT_PATTERN",
     "INTERNAL_ID_SHAPES",
     "INTERNAL_ONLY_TERMS",
+    "INTERNAL_POLICY_IDS",
     "LOCATABLE_ANCHORS",
     "MANIFEST_SPELLED_TERMS",
     "OBSERVATION_ID_PATTERN",
@@ -100,6 +101,16 @@ INTERNAL_ONLY_TERMS: tuple[str, ...] = (
     "native_locator",
     "observation_id",
     "observation identity",
+)
+
+#: Engine-owned policy identifiers are useful structured evidence and poor
+#: adopter prose. They name an implementation rule rather than a file, tool,
+#: value, or decision the reader can act on. Kept as a separate category from
+#: identity-model vocabulary because neither term class implies the other;
+#: this is the guard #420 adds beside #329's identity guard.
+INTERNAL_POLICY_IDS: tuple[str, ...] = (
+    "builtin-effect-control-applicability",
+    "builtin-high-impact-approval",
 )
 
 #: Nothing may precede a derived id but a boundary. Agent names, tool names and
@@ -222,6 +233,9 @@ def internal_vocabulary(
     if unknown:
         raise ValueError(f"unknown derived id kinds: {sorted(unknown)}")
     offenders = {term for term in INTERNAL_ONLY_TERMS if term in text}
+    offenders.update(
+        identifier for identifier in INTERNAL_POLICY_IDS if identifier in text
+    )
     offenders.update(
         match.group(0)
         for kind, shape in INTERNAL_ID_SHAPES.items()

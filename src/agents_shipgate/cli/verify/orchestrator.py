@@ -2955,6 +2955,30 @@ def _report_primary_headline(
     return f"{summary} Most severe: {title}."
 
 
+def _report_primary_within_budget(
+    report: ReadinessReport, *, byte_budget: int = MAX_ENVELOPE_PROSE_BYTES
+) -> str:
+    """Keep the generated verdict whole and spend the remainder on the title.
+
+    ``_bounded_bytes`` is safe for UTF-8, but applying it to the completed
+    headline can still cut the generated ``Most severe`` clause in half. The
+    only elastic part is the repository-derived blocker title, so measure the
+    fixed prose first and bound that title by bytes before composing the line.
+    """
+
+    full = _report_primary_headline(report)
+    if len(full.encode("utf-8")) <= byte_budget:
+        return full
+    summary = _report_primary_headline(report, title_byte_budget=0)
+    if len(summary.encode("utf-8")) >= byte_budget:
+        return _bounded_bytes(summary, byte_budget)
+    fixed = f"{summary} Most severe: ."
+    title_budget = byte_budget - len(fixed.encode("utf-8"))
+    if title_budget <= 0:
+        return summary
+    return _report_primary_headline(report, title_byte_budget=title_budget)
+
+
 def _blockers_outrank_governance(release_decision: ReleaseDecision | None) -> bool:
     """Whether a release blocker should lead the headline over the notice.
 
@@ -3021,6 +3045,7 @@ def _verifier_headline(
         carries the excluded subjects, and ``truncate_prose`` cuts bytes.
         """
 
+        primary = _bounded_bytes(primary, MAX_ENVELOPE_PROSE_BYTES)
         context = _fit_sentences(
             sentences, MAX_ENVELOPE_PROSE_BYTES - len(primary.encode("utf-8")) - 1
         )
@@ -3036,8 +3061,8 @@ def _verifier_headline(
         suffix is never touched by any of this.
         """
 
-        primary = _report_primary_headline(source)
         room = MAX_ENVELOPE_PROSE_BYTES - len(suffix.encode("utf-8")) - 1
+        primary = _report_primary_within_budget(source, byte_budget=max(room, 0))
         context = _fit_sentences(
             sentences, room - len(primary.encode("utf-8")) - 1
         )
@@ -3083,7 +3108,14 @@ def _verifier_headline(
             note,
         )
     if report is not None and report.agent_summary is not None:
-        return _lead(_one_clause(report.agent_summary.headline))
+        # The plain path is the common blocked-PR path: an already-adopted
+        # repository changed a capability without touching its trust root.
+        # Route it through the same picker as the two governance branches
+        # above so the one line copied into the PR comment and control envelope
+        # names the blocking cause rather than only counting blockers (#436).
+        # ``_report_primary_headline`` returns the summary unchanged when no
+        # blocker exists, so review/passed wording does not move.
+        return _lead(_report_primary_within_budget(report))
     if head_status == "skipped":
         return _lead(
             "No agent-capability changes detected; Shipgate did not need to run."
@@ -3355,6 +3387,44 @@ def _matched_diff_evidence(trigger: dict[str, Any]) -> bool:
     )
 
 
+def _embedded_trigger(trigger: dict[str, Any]) -> dict[str, Any]:
+    """The trigger result after the verifier has consumed its generic route.
+
+    Standalone trigger evaluation owns a useful ``next_action``: it tells a
+    caller that has not run the verifier yet to start with verify preview. Once
+    embedded in a verifier artifact, that precondition is already satisfied
+    and repeating the command creates a self-loop above the verifier's exact
+    control route (#414).
+
+    Preserve the evaluated route's kind and evidence — ``input_required`` and
+    ``stop`` are facts about the diff, not commands — while removing every
+    executable preview command. Precedence is explicit at the first action a
+    top-down reader encounters; only ``control.next_action`` and
+    ``control.allowed_next_commands`` are operational in a verifier artifact.
+    """
+
+    embedded = dict(trigger)
+    next_action = dict(trigger.get("next_action") or {})
+    next_action.setdefault("kind", "none")
+    next_action.update(
+        {
+            "command": None,
+            "why": (
+            "The verifier consumed the trigger route; follow "
+            "control.next_action for the current operation."
+            ),
+            "authoritative": False,
+            "authoritative_path": "control.next_action",
+        }
+    )
+    embedded["next_action"] = next_action
+    embedded["matched_rules"] = [
+        {**rule, "command": None} if isinstance(rule, dict) else rule
+        for rule in trigger.get("matched_rules", [])
+    ]
+    return embedded
+
+
 def _diff_failure_headline(context: DiffContext | None) -> str | None:
     """Summarize a diff-input failure in the terms its control route uses.
 
@@ -3593,7 +3663,7 @@ def _build_verifier(
         changed_files=changed_files,
         diff_text_available=bool(diff_text),
         diff_status=resolved_diff_status,
-        trigger=trigger,
+        trigger=_embedded_trigger(trigger),
         base_status=base_status,
         base_tree_sha=base_tree,
         head_tree_sha=head_tree,
@@ -5769,7 +5839,7 @@ def run_preview(
         changed_files=changed_files,
         diff_text_available=bool(diff_text),
         diff_status=_diff_status_artifact(diff_input),
-        trigger=trigger,
+        trigger=_embedded_trigger(trigger),
         base_status="not_requested",
         base_notes=notes,
         execution="not_run",

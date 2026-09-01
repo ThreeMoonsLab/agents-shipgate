@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "report_schema_version": "0.42",
-  "run_id": "agents_shipgate_7a7430f9672871d1",
+  "run_id": "agents_shipgate_e7535b101fdbdc1b",
   "request_id": null,
   "subject_id": null,
   "input_set_id": null,
@@ -149,19 +149,19 @@
           }
         },
         {
-          "kind": "incomplete_surface",
+          "kind": "unattested_surface",
           "subject": "lookup_order [conductor_workflows]",
           "subject_id": "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
           "subject_kind": "action",
           "source_type": "conductor_mcp_call",
           "source_ref": "/tasks/3",
-          "why": "tool surface enumeration is incomplete or not high confidence",
+          "why": "no reviewed tool inventory attests this surface (extraction_confidence=medium)",
           "next_action": {
             "kind": "provide_complete_inventory",
             "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
             "path": "shipgate.yaml#tool_sources",
-            "why": "The complete statically-bound tool surface must be enumerable.",
-            "expects": "Provide a complete MCP export, OpenAPI spec, or reviewed explicit tool inventory, then rerun verification.",
+            "why": "The statically-bound tool surface needs reviewed attestation.",
+            "expects": "Bind a complete MCP export, OpenAPI spec, or reviewed explicit tool inventory to this source, then rerun verification.",
             "accepted_values": [
               "complete_mcp_export",
               "openapi_spec",
@@ -303,7 +303,7 @@
         "gap_count": 1,
         "review_concern_count": 0,
         "reason_counts": {
-          "incomplete_surface": 1
+          "unattested_surface": 1
         },
         "acknowledged_overrides": [],
         "declaration_questions": {
@@ -620,9 +620,9 @@
             ],
             "issues": [
               {
-                "kind": "incomplete_surface",
+                "kind": "unattested_surface",
                 "dimension": "effect",
-                "message": "tool surface enumeration is incomplete or not high confidence",
+                "message": "no reviewed tool inventory attests this surface (extraction_confidence=medium)",
                 "source": "tool_extraction",
                 "source_pointer": "/tasks/3"
               }
@@ -1045,9 +1045,9 @@
           ],
           "issues": [
             {
-              "kind": "incomplete_surface",
+              "kind": "unattested_surface",
               "dimension": "effect",
-              "message": "tool surface enumeration is incomplete or not high confidence",
+              "message": "no reviewed tool inventory attests this surface (extraction_confidence=medium)",
               "source": "tool_extraction",
               "source_pointer": "/tasks/3"
             }
@@ -1227,9 +1227,9 @@
           ],
           "issues": [
             {
-              "kind": "incomplete_surface",
+              "kind": "unattested_surface",
               "dimension": "effect",
-              "message": "tool surface enumeration is incomplete or not high confidence",
+              "message": "no reviewed tool inventory attests this surface (extraction_confidence=medium)",
               "source": "tool_extraction",
               "source_pointer": "/tasks/3"
             }
@@ -1409,20 +1409,10 @@
     ]
   },
   "surface_exclusions": {
-    "entries": [
-      {
-        "stage": "surface_completeness",
-        "subject": "lookup_order [conductor_workflows]",
-        "reason": "surface_not_enumerated",
-        "source_ref": "/tasks/3",
-        "detail": "The tool's own surface could not be established as complete, so an unknown remainder of it was never analysed.",
-        "accounting": "evidence_gap",
-        "accounted_by": "lookup_order [conductor_workflows]"
-      }
-    ],
-    "total": 1,
-    "gated": 1,
-    "gap_backed": 1,
+    "entries": [],
+    "total": 0,
+    "gated": 0,
+    "gap_backed": 0,
     "truncated": false
   }
 }

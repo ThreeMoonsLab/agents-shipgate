@@ -348,6 +348,52 @@ def test_an_ast_adapter_that_proved_the_surface_closes_the_surface_gap() -> None
     }
 
 
+def test_an_enumerated_lower_confidence_surface_names_the_attestation_gap() -> None:
+    """Enumeration and reviewed confidence are separate facts (#396)."""
+
+    assessment = assess_tool_semantics(
+        _tool(
+            source_type="google_adk_function",
+            extraction_confidence="medium",
+            extraction={
+                "method": "google_adk_python_ast",
+                "confidence": "medium",
+                "surface": "enumerated",
+                "surface_gaps": [],
+            },
+        )
+    )
+
+    issue = next(
+        issue for issue in assessment.effect.issues if issue.kind == "unattested_surface"
+    )
+    assert issue.message == (
+        "no reviewed tool inventory attests the enumerated surface "
+        "(extraction_confidence=medium)"
+    )
+    assert assessment.pass_eligible is False
+
+
+def test_a_default_complete_surface_does_not_claim_it_was_enumerated() -> None:
+    """Only the adapter's explicit surface fact earns positive enumeration copy."""
+
+    assessment = assess_tool_semantics(
+        _tool(
+            extraction_confidence="medium",
+            extraction={"method": "mcp_json", "confidence": "medium"},
+        )
+    )
+
+    issue = next(
+        issue for issue in assessment.effect.issues if issue.kind == "unattested_surface"
+    )
+    assert issue.message == (
+        "no reviewed tool inventory attests this surface "
+        "(extraction_confidence=medium)"
+    )
+    assert "enumerated" not in issue.message
+
+
 @pytest.mark.parametrize(
     "extraction",
     [

@@ -3565,6 +3565,109 @@ def test_verify_preview_docs_only_diff_does_not_recommend_init(tmp_path: Path) -
     )
 
 
+def test_verify_preview_consumes_the_trigger_route_before_publishing_control(
+    tmp_path: Path,
+) -> None:
+    """#414: one preview payload must not tell the caller to preview again."""
+
+    repo = _init_repo(tmp_path)
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit_all(repo, "base")
+    _set_origin_main(repo)
+    (repo / "agent.py").write_text(
+        "from google.adk.agents import LlmAgent\n"
+        "root_agent = LlmAgent(name='closer', tools=[])\n",
+        encoding="utf-8",
+    )
+    _commit_all(repo, "add agent")
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--preview",
+            "--base",
+            "origin/main",
+            "--head",
+            "HEAD",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["trigger"]["should_run"] is True
+    trigger_action = payload["trigger"]["next_action"]
+    assert trigger_action == {
+        "kind": "command",
+        "command": None,
+        "why": (
+            "The verifier consumed the trigger route; follow "
+            "control.next_action for the current operation."
+        ),
+        "authoritative": False,
+        "authoritative_path": "control.next_action",
+    }
+    assert all(
+        rule.get("command") is None for rule in payload["trigger"]["matched_rules"]
+    )
+    control_action = payload["control"]["next_action"]
+    assert control_action["kind"] == "initialize"
+    assert " init " in f" {control_action['command']} "
+    assert payload["control"]["allowed_next_commands"] == [control_action["command"]]
+
+
+def test_build_verifier_preserves_trigger_state_but_scrubs_embedded_commands(
+    tmp_path: Path,
+) -> None:
+    """#414: normal verifier construction embeds evidence, never a second route."""
+
+    repo = _init_repo(tmp_path)
+    out_dir = repo / "agents-shipgate-reports"
+    trigger = {
+        "should_run": True,
+        "rationale": "the diff input is incomplete",
+        "matched_rules": [
+            {
+                "rule_id": "changed-agent-source",
+                "action": "input_required",
+                "command": "agents-shipgate verify --preview --json",
+            }
+        ],
+        "next_action": {
+            "kind": "input_required",
+            "command": "agents-shipgate verify --preview --json",
+            "why": "Provide a complete diff.",
+        },
+    }
+
+    verifier = verify_orchestrator._build_verifier(
+        git_root=repo,
+        config_path=repo / "shipgate.yaml",
+        base=None,
+        head="HEAD",
+        changed_files=["agent.py"],
+        diff_text="",
+        trigger=trigger,
+        base_status="not_requested",
+        base_tree=None,
+        base_report=None,
+        base_notes=[],
+        report=None,
+        head_status="skipped",
+        head_exit_code=0,
+        out_dir=out_dir,
+    )
+
+    assert verifier.trigger["next_action"]["kind"] == "input_required"
+    assert verifier.trigger["next_action"]["command"] is None
+    assert verifier.trigger["next_action"]["authoritative"] is False
+    assert verifier.trigger["matched_rules"][0]["action"] == "input_required"
+    assert verifier.trigger["matched_rules"][0]["command"] is None
+
+
 def test_verify_preview_missing_base_without_manifest_reports_the_missing_ref(
     tmp_path: Path,
 ) -> None:
