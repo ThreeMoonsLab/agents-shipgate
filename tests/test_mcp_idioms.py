@@ -446,6 +446,57 @@ def test_adversarial_constructs(
             assert site.unresolved_reason in OMISSION_REASONS
 
 
+# --- Regressions from review ------------------------------------------------
+
+
+def test_a_class_that_registers_elsewhere_keeps_its_own_omission():
+    """A lookup scope is not a wrapper.
+
+    The unresolved field site needs the class body to find its sibling
+    `operationType` and `description` literals. Carrying that body as the
+    site's *span* made the containment rule read any registration written
+    inside the class as "the same registration", so a class whose `toolName`
+    is built at runtime lost its omission the moment its body also called
+    `.registerTool(` — neither enumerated nor recorded, which is the silent
+    miss this input exists to end.
+    """
+
+    text = (
+        "export class T extends Base {\n"
+        "    static toolName = DYNAMIC_NAME;\n"
+        '    register(s) { s.registerTool("inner", {}, h); }\n'
+        "}\n"
+    )
+    result = scan_source(text, "typescript")
+
+    assert sorted(site.name for site in result.sites if site.name) == ["inner"]
+    assert [
+        site.unresolved_reason for site in result.sites if site.name is None
+    ] == ["name_not_literal"]
+
+
+def test_an_attribute_assignment_is_not_the_description_field():
+    """`this.description = …` is not the class's description.
+
+    The lookbehind admitted a leading dot, and `_first_literal_in` returns the
+    first match in the body, so an assignment in a constructor won over the
+    real field and published a description that is not the tool's — into the
+    report and into the declaration questionnaire a reviewer answers from.
+    """
+
+    text = (
+        "class T {\n"
+        '    constructor() { this.description = "scratch label"; }\n'
+        '    static toolName = "t";\n'
+        '    public description = "Runs an aggregation";\n'
+        "}\n"
+    )
+    site = scan_source(text, "typescript").sites[0]
+
+    assert site.name == "t"
+    assert site.description == "Runs an aggregation"
+
+
 # --- Masking failures -------------------------------------------------------
 
 

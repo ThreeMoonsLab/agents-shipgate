@@ -538,8 +538,17 @@ def _score_mcp_server_source(
         return
     state = scores[SOURCE_TYPE]
     state.add(2.0, "strong", discovery.evidence[0])
-    for index, line in enumerate(discovery.evidence[1:]):
-        state.add(1.0 if index == 0 else 0.0, "medium", line)
+    # The declared dependency carries the same point it carries for every other
+    # framework, and it is identified by *value* — the line is one of the
+    # discovery result's `framework_evidence` entries. Awarding it to
+    # `evidence[1]` read the point off a list position instead, in a list that
+    # is ordered for a human and gains conditional entries at the end.
+    reasons = set(discovery.framework_evidence)
+    awarded = False
+    for line in discovery.evidence[1:]:
+        dependency = not awarded and line in reasons
+        awarded = awarded or dependency
+        state.add(1.0 if dependency else 0.0, "medium" if dependency else "supporting", line)
     state.add_file(discovery.path)
 
 

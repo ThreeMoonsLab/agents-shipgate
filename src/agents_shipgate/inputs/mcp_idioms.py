@@ -780,8 +780,14 @@ _TS_STATIC_TOOL_NAME_RE = re.compile(
 _TS_STATIC_OPERATION_TYPE_RE = re.compile(
     rf"(?<![\w$])static\s+{_TS_MODIFIERS}operationType\s*(?::[^=;\n]*)?=\s*"
 )
+# ``(?<![\w$.])`` and not ``(?<![\w$])``: the character before ``description``
+# in ``this.description = "…"`` is a dot, which the narrower lookbehind admits,
+# so an assignment inside a method read as the class's description field — and
+# ``_first_literal_in`` returns the *first* match in the body, so it could win
+# over the real one. ``operationType`` never had the problem because its
+# pattern requires a leading ``static``.
 _TS_DESCRIPTION_RE = re.compile(
-    rf"(?<![\w$])(?:static\s+)?{_TS_MODIFIERS}description\s*(?::[^=;\n]*)?=\s*"
+    rf"(?<![\w$.])(?:static\s+)?{_TS_MODIFIERS}description\s*(?::[^=;\n]*)?=\s*"
 )
 _TS_REGISTER_TOOL_RE = re.compile(r"\.\s*(?:registerTool|tool)\s*\(\s*")
 _GO_MUST_TOOL_RE = re.compile(r"(?<![\w])MustTool\s*\(\s*")
@@ -946,14 +952,20 @@ def _ts_static_tool_name_sites(source: MaskedSource) -> list[RegistrationSite]:
                 source, _TS_STATIC_OPERATION_TYPE_RE, block
             )
             description = _first_literal_in(source, _TS_DESCRIPTION_RE, block)
-        span = block if block is not None else (match.start(), match.end())
+        # The construct, never the enclosing class body. `block` is the scope
+        # the sibling literals are looked up in; using it as the span made
+        # `_contains_another_site` read *any* registration written inside the
+        # class as "the same registration", so a class whose `toolName` is
+        # built at runtime lost its omission the moment it also called
+        # `.registerTool(` anywhere in its body — the exact silent miss this
+        # input exists to end.
         sites.append(
             RegistrationSite(
                 idiom="ts_static_tool_name",
                 name=name,
                 line=line,
                 column=column,
-                span=span,
+                span=(match.start(), max(end, match.end())),
                 description=description,
                 operation_type=operation_type,
                 unresolved_reason=unresolved,
@@ -1122,6 +1134,12 @@ def _contains_another_site(
     a literal is not a second registration; it is the outside of the one the
     nested site already reports, resolved or not. Reporting both turned
     ``NewTool(meta, mcp.Tool{Name: name})`` into two omissions for one tool.
+
+    This is sound only because every ``span`` is the *construct* that
+    registers — a call and its argument list, a composite literal, a field's
+    own statement. A span standing for a lookup *scope* would make any
+    registration written inside that scope suppress the site, which is a
+    different relationship entirely.
     """
 
     start, end = site.span

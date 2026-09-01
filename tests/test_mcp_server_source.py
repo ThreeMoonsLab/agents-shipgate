@@ -438,6 +438,66 @@ def test_a_dependency_without_a_registration_claims_nothing(tmp_path):
     ).detected
 
 
+def test_discovery_reads_no_more_files_than_it_says_it_did(tmp_path):
+    """The cap and the flag that reports it must describe the same walk.
+
+    The slice was dropped when the loop was rewritten, so `truncated` was
+    published on a run that had read every file: the evidence line told a
+    reader "this count is a lower bound" for a count that was exact, and
+    `detect` — which runs on an unknown workspace with no manifest — walked an
+    unbounded number of source files.
+    """
+
+    workspace = tmp_path / "many"
+    (workspace / "src").mkdir(parents=True)
+    (workspace / "package.json").write_text(
+        json.dumps({"dependencies": {"@modelcontextprotocol/sdk": "^1"}}),
+        encoding="utf-8",
+    )
+    for index in range(6):
+        (workspace / "src" / f"t{index}.ts").write_text(
+            f'server.registerTool("tool_{index}", {{}}, handler);\n', encoding="utf-8"
+        )
+
+    capped = discover_mcp_server_source(
+        workspace, files=_inventory(workspace), max_source_files=2
+    )
+    assert capped.truncated is True
+    assert len(capped.tool_names) == 2
+    assert any("lower bound" in line for line in capped.evidence)
+
+    whole = discover_mcp_server_source(workspace, files=_inventory(workspace))
+    assert whole.truncated is False
+    assert len(whole.tool_names) == 6
+    assert not any("lower bound" in line for line in whole.evidence)
+
+
+def test_the_dependency_point_is_awarded_to_dependency_evidence(tmp_path):
+    """Scored by value, not by position in the rendered evidence list.
+
+    `evidence` is ordered for a human and gains conditional lines at the end,
+    so awarding the point to `evidence[1]` made the published confidence
+    depend on a list index rather than on the fact it stands for.
+    """
+
+    workspace = _grafana_shaped(tmp_path)
+    found = discover_mcp_server_source(workspace, files=_inventory(workspace))
+
+    assert found.framework_evidence
+    # At least one dependency reason is rendered, which is what the scoring
+    # matches on. Not containment: `_evidence_lines` caps the reasons it shows,
+    # so a workspace with many declaring packages renders only some of them.
+    assert set(found.framework_evidence) & set(found.evidence)
+    detection = next(
+        item
+        for item in detect_workspace(workspace).frameworks
+        if item.type == SOURCE_TYPE
+    )
+    # 2.0 registration + 1.0 declared dependency.
+    assert detection.score == 3.0
+    assert detection.confidence == "medium"
+
+
 def test_a_committed_export_keeps_the_route_it_already_had(tmp_path):
     """Acceptance: the snapshot route stays preferred where both see one server.
 

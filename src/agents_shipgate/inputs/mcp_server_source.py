@@ -164,7 +164,7 @@ def load_mcp_server_source(source: ToolSourceConfig, base_dir: Path) -> LoadedTo
     for path in files:
         language = language_for_path(path)
         assert language is not None  # guaranteed by _scannable_files
-        relative = _relative_source_path(path, root, source.path, base_dir)
+        relative = _relative_source_path(path, source.path, base_dir)
         unread = _unread_reason(path)
         if unread is None:
             try:
@@ -347,16 +347,18 @@ def _scannable_files(root: Path) -> tuple[list[Path], bool]:
     return candidates[:MAX_SCANNED_FILES], len(candidates) > MAX_SCANNED_FILES
 
 
-def _relative_source_path(
-    path: Path, root: Path, configured: str, base_dir: Path
-) -> str:
+def _relative_source_path(path: Path, configured: str, base_dir: Path) -> str:
     """The manifest-relative path of the file a tool was read from.
 
     Not the configured ``path``: that is a directory for every real server, and
     a finding pointing at a directory sends a reviewer to look for a
-    registration in 300 files. ``resolve_input_path`` already refused anything
-    outside the manifest directory, so the relative form always exists — the
-    fallback is for the single-file case, where ``root`` *is* the file.
+    registration in 300 files.
+
+    ``resolve_input_path`` already refuses a source path outside the manifest
+    directory, so the relative form exists for every file this walk reaches.
+    The fallback covers the case that refusal cannot: a path that escapes
+    through a symlink after resolution, where naming the configured source is
+    better than raising in the middle of a catalog.
     """
 
     try:

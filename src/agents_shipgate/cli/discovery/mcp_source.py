@@ -41,6 +41,7 @@ from pathlib import Path, PurePosixPath
 from agents_shipgate.inputs.mcp_idioms import (
     GO_FRAMEWORK_MODULES,
     MAX_SOURCE_FILE_BYTES,
+    SKIP_DIRECTORY_NAMES,
     TYPESCRIPT_FRAMEWORK_PACKAGES,
     SourceLanguage,
     is_scannable_path,
@@ -86,6 +87,11 @@ class McpSourceDiscovery:
     unresolved_count: int = 0
     #: Human-readable evidence for ``FrameworkDetection.evidence``.
     evidence: tuple[str, ...] = ()
+    #: The declared-dependency reasons behind the language gate, on their own.
+    #: Scoring reads this rather than indexing into ``evidence``: the rendered
+    #: lines are ordered for a human and gain conditional entries at the end,
+    #: so "the dependency reason" was a list position rather than a fact.
+    framework_evidence: tuple[str, ...] = ()
     #: Workspace-relative files that carried a resolved registration.
     candidate_files: tuple[str, ...] = ()
     #: ``{type, path, reason}`` rows for a route discovery found and withheld.
@@ -136,12 +142,17 @@ def discover_mcp_server_source(
         if pair[1] is not None
         and _language_in_scope(pair[1], framework.languages)
     ]
+    # Sorted before the cap, so which files are read is a property of the
+    # workspace and not of the walk order — and capped where the flag is set,
+    # rather than beside it: reporting `truncated` while reading every file
+    # published "this count is a lower bound" for a count that was exact.
+    scannable.sort(key=lambda pair: pair[1])
     truncated = len(scannable) > max_source_files
     names: set[str] = set()
     languages: set[SourceLanguage] = set()
     unresolved_by_file: dict[str, int] = {}
     candidate_files: list[str] = []
-    for path, relative in sorted(scannable, key=lambda item: item[1]):
+    for path, relative in scannable[:max_source_files]:
         language = language_for_path(path)
         if language is None:  # pragma: no cover - filtered above
             continue
@@ -205,6 +216,7 @@ def discover_mcp_server_source(
         tool_names=tuple(sorted(names)),
         unresolved_count=unresolved,
         evidence=evidence,
+        framework_evidence=tuple(sorted(framework.reasons)),
         candidate_files=tuple(sorted(candidate_files)),
         truncated=truncated,
     )
@@ -221,8 +233,13 @@ def _framework_evidence(
         relative = _relative(path, workspace)
         if relative is None:
             continue
+        # The same skip set the source walk uses, not a narrower one of its
+        # own: a manifest under `coverage/` or `out/` is no more this
+        # repository's declaration than one under `node_modules/`, and two
+        # lists would let a directory be skipped for registrations while still
+        # granting the language gate that admits them.
         parts = PurePosixPath(relative).parts
-        if any(part in {"node_modules", "vendor", "dist", "build"} for part in parts):
+        if any(part in SKIP_DIRECTORY_NAMES for part in parts):
             continue
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
