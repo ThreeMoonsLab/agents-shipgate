@@ -54,7 +54,9 @@ MAX_LISTED_SCOPE_CANDIDATES = 10
 MANIFEST_NAME = "shipgate.yaml"
 
 
-def rebased_kit_flags(kit: Path | None, *, source: Path, target: Path) -> list[str] | None:
+def rebased_kit_flags(
+    kit: Path | None, *, source: Path, target: Path
+) -> list[str] | None:
     """``--agent-instructions-kit`` for a command run in ``target``.
 
     Returns ``None`` when the kit cannot be named from there, which is a
@@ -122,7 +124,9 @@ def describe_candidate(candidate: AgentProjectCandidate, *, workspace: Path) -> 
     return f"{candidate.path} ({detail})" + (" — already adopted" if adopted else "")
 
 
-def candidate_caveats(workspace: Path, candidates: Sequence[AgentProjectCandidate]) -> list[str]:
+def candidate_caveats(
+    workspace: Path, candidates: Sequence[AgentProjectCandidate]
+) -> list[str]:
     """What the "re-run init on one of these" line does not cover.
 
     Emitted only for the candidates actually present, so neither line becomes
@@ -266,7 +270,9 @@ def scope_candidate_actions(
             if (
                 requested_control_pack is not None
                 and candidate_pack is not None
-                and unapplied_control_pack(requested=requested_control_pack, on_disk=candidate_pack)
+                and unapplied_control_pack(
+                    requested=requested_control_pack, on_disk=candidate_pack
+                )
             ):
                 # Reconcile before handing off, exactly as the workspace's own
                 # `init` route does. Ranked here, among the candidate commands,
@@ -319,7 +325,9 @@ def scope_candidate_actions(
             actions.append(
                 NextAction(
                     kind="command",
-                    command=render_command(["doctor", "--config", str(manifest), "--json"]),
+                    command=render_command(
+                        ["doctor", "--config", str(manifest), "--json"]
+                    ),
                     why=(
                         f"{candidate.path} already carries a manifest"
                         + (f" and defines {defines}." if defines else ".")

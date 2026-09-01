@@ -173,18 +173,24 @@ Then read `report.json.release_decision.decision`, the source-of-truth gate:
 
 ### Temporary external repository review
 
-Run the exact local-review command `verify --preview` emits:
+Local review is explicit opt-in. Preview the reserved config path to request
+that route; ordinary preview continues to recommend durable `init --write`:
 
 ```bash
+agents-shipgate verify --preview --workspace . \
+  --config .agents-shipgate-local-review.yaml --json
 agents-shipgate init --workspace . --local-review --json
 agents-shipgate verify --workspace . \
-  --config .agents-shipgate-local-review.yaml --json
+  --config .agents-shipgate-local-review.yaml \
+  --base origin/main --head HEAD --json
 ```
 
 This creates an ephemeral manifest and adds private ignore entries in
 `.git/info/exclude` for that manifest and `agents-shipgate-reports/`; tracked
 files stay untouched and generated reports stay out of `git status`. The init
-JSON enumerates every effect and its recovery path. Verifier output identifies
+JSON enumerates every effect and an executable cleanup command;
+`init --local-review --undo --json` removes the local manifest and exclusion
+block while preserving reports. Verifier output identifies
 the manifest as `local_review` and routes the ordinary release decision to
 human review, so it cannot become `passed` or `mergeable` evidence. Durable
 adoption remains `init --write`, including its managed `.gitignore` behavior.

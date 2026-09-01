@@ -100,9 +100,8 @@ block release through ordinary `SHIP-VERIFY-*` findings.
 ```bash
 pipx install agents-shipgate
 agents-shipgate verify --preview --json
-agents-shipgate init --workspace . --local-review --json
-agents-shipgate verify --config .agents-shipgate-local-review.yaml \
-  --base origin/main --head HEAD --json
+agents-shipgate init --workspace . --write --json
+agents-shipgate verify --base origin/main --head HEAD --json
 ```
 
 - `verify --preview --json` is a lightweight relevance check — no scan, no
@@ -112,20 +111,19 @@ agents-shipgate verify --config .agents-shipgate-local-review.yaml \
   `--workspace` names a directory that does not exist, preview refuses with
   `config_error` (exit 2) and creates nothing — run it after the clone, not
   before.
-- `init --local-review --json` writes an ephemeral manifest while privately
-  excluding it and generated reports through `.git/info/exclude`. It changes no
-  tracked project file, lists every local effect and recovery path in JSON, and
-  produces provisional verification evidence only: a local-review manifest can
-  never yield release-authoritative `passed` or `mergeable` output.
-- `init --write --json` is deliberate durable adoption: it writes
-  `shipgate.yaml` and retains the managed tracked `.gitignore` behavior. CI and
-  agent-instruction trust roots remain separate, explicitly reviewed setup
-  steps.
+- `init --write --json` writes `shipgate.yaml`. CI and agent-instruction trust
+  roots remain separate, explicitly reviewed setup steps.
 - `verify --base origin/main --head HEAD --json` runs the authoritative head
   scan with diff context and writes the verifier artifacts. `verify` never
   fetches, so make the base ref available first (`fetch-depth: 0` in CI, or
   `git fetch origin main` locally); if the requested diff cannot be inspected,
   verify emits `merge_verdict: unknown` and exits 2 instead of guessing.
+
+For a temporary external-repository assessment, explicitly preview with
+`--config .agents-shipgate-local-review.yaml`, then run the emitted
+`init --local-review` route. It keeps tracked files untouched, supports the
+same base/head verification command, and remains provisional; clean up with
+`init --local-review --undo --json`.
 
 To evaluate just the run/skip trigger for a diff:
 

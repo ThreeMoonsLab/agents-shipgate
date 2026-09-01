@@ -86,14 +86,15 @@ So Shipgate scopes rather than guesses:
   beside a sibling project does not send the answer back to the root. When the
   changed project already carries its own `shipgate.yaml`, preview routes you
   to `verify` there instead of to setup.
-- An unconfigured project routes to `init --local-review`, not `init --write`.
-  The former is a temporary assessment stage: it creates
+- An unconfigured project routes to durable `init --write` by default. For a
+  temporary external assessment, explicitly preview with
+  `--config .agents-shipgate-local-review.yaml`; that route creates
   `.agents-shipgate-local-review.yaml`, privately excludes it and the report
   directory through `.git/info/exclude`, and leaves the worktree clean. Its
   verifier finding `SHIP-VERIFY-LOCAL-REVIEW-PROVISIONAL` makes the one release
   decision review-required, so a structurally valid local manifest cannot look
-  like reviewed release policy. Choose `init --write` explicitly when the
-  repository is adopting Shipgate durably.
+  like durable release policy. Run `init --local-review --undo --json` to remove
+  the local manifest and exclusion block while preserving reports.
 - Preview reads project markers from the **working tree**, because that is the
   tree the `init` it recommends would write to. So `verify --preview --head
   <ref>` claims no scope whenever `<ref>` is not the commit the worktree has

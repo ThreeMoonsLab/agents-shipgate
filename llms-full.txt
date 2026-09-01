@@ -3711,15 +3711,16 @@ Two sub-kinds, both `low` severity:
 
 ### SHIP-VERIFY-LOCAL-REVIEW-PROVISIONAL
 
-`verify` loaded a manifest Git could not prove is a committed repository trust
-root. The reserved `.agents-shipgate-local-review.yaml` path is always
+`verify` loaded a manifest Git could not prove is a committed repository input.
+The reserved `.agents-shipgate-local-review.yaml` path is always
 `local_review`; another untracked custom path is `uncommitted`; Git inspection
 failure is `unknown`. The finding goes through the ordinary
 `release_decision.decision` engine at review-required severity; it is not a
 second verdict. Verifier notes, the verification plan, and handoff blockers
 record the exact provenance, while the terminal receipt denies merge
-authority. Adopt `shipgate.yaml` through `init --write` and human review before
-using the policy as release evidence.
+authority. Adopt `shipgate.yaml` through `init --write`, verify it from the
+evaluated Git tree, and follow any resulting human-review route before using
+the policy as release evidence. Git presence alone does not prove human review.
 
 ### SHIP-VERIFY-TRUST-ROOT-TOUCHED
 

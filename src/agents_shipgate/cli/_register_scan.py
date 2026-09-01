@@ -21,11 +21,13 @@ from agents_shipgate.cli._helpers import (
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
 from agents_shipgate.cli.diagnostics import input_parse_recovery, top_next_actions
 from agents_shipgate.cli.scan.orchestrator import run_scan
+from agents_shipgate.cli.verify.git import path_committed_at_head
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_controls import git_root_for
 from agents_shipgate.core.current_control import CurrentControlPublishError
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
+from agents_shipgate.core.manifest_provenance import manifest_provenance
 from agents_shipgate.core.trust_roots import inspect_lexical_path_identity
 from agents_shipgate.schemas.diagnostics import NextAction
 from agents_shipgate.schemas.verification import VerificationContext
@@ -385,9 +387,23 @@ def register(app: typer.Typer) -> None:
                     )
                 )
                 config_paths[0] = validated_config_path
+                manifest_root = git_root_for(validated_config_path.parent)
+                committed_at_head = (
+                    path_committed_at_head(
+                        manifest_root,
+                        Path(configured_manifest_path),
+                    )
+                    if manifest_root is not None
+                    else None
+                )
                 verification_context = verification_context.model_copy(
                     update={
-                        "configured_manifest_path": configured_manifest_path
+                        "configured_manifest_path": configured_manifest_path,
+                        "manifest_provenance": manifest_provenance(
+                            Path(configured_manifest_path),
+                            present=validated_config_path.is_file(),
+                            committed_at_head=committed_at_head,
+                        ),
                     }
                 )
             if len(config_paths) == 1:

@@ -3021,7 +3021,7 @@
       "autofix_safe": false,
       "category": "verify",
       "default_severity": "medium",
-      "description": "Verification is using a local-review, uncommitted, or otherwise unproven manifest rather than a committed repository trust root.",
+      "description": "Verification is using a local-review, uncommitted, or otherwise Git-unproven manifest rather than a committed repository input.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-verify-local-review-provisional",
       "dynamic_default": false,
       "evidence_fields": [
@@ -3034,8 +3034,8 @@
       "floor_severity": "medium",
       "id": "SHIP-VERIFY-LOCAL-REVIEW-PROVISIONAL",
       "mvp_tier": "lifecycle",
-      "rationale": "A locally generated assessment policy has not been reviewed by the target repository. Letting structurally valid local declarations produce a passing release artifact would launder local assertions into release authority, so the existing release decision must remain review-required.",
-      "recommendation": "Treat the result as provisional static assessment only. Adopt shipgate.yaml through init --write and have a human review the committed repository trust root before relying on release authority.",
+      "rationale": "A locally generated assessment policy is not durable repository policy. Letting structurally valid local declarations produce a passing release artifact would launder local assertions into release authority, so the existing release decision must remain review-required. Git presence alone does not prove human review.",
+      "recommendation": "Treat the result as provisional static assessment only. Adopt shipgate.yaml through init --write, verify that it is present in the evaluated Git tree, and route any resulting human-review requirement before relying on release authority.",
       "requires_human_review": true,
       "requires_human_review_regardless_of_patch": false,
       "suggested_patch_kind": "manual"

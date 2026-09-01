@@ -209,6 +209,7 @@ def setup_control_envelope(
     recheck_command: str | None = None,
     placeholders: Sequence[Mapping[str, object]] | None = None,
     manifest_display_path: str | None = None,
+    human_review_suffix: str | None = None,
     execution: AgentControlExecution = "succeeded",
     exit_code: int | None = None,
 ) -> SetupRouting:
@@ -270,9 +271,14 @@ def setup_control_envelope(
         # run, so the next one surfaces it.
         selected, kind, decision = advance, advance_kind, advance_decision
     elif pending_human:
+        placeholder_why = _placeholder_review_why(
+            pending_human,
+            manifest_display_path,
+            reserved_suffix=human_review_suffix,
+        )
         selected = NextAction(
             kind="review",
-            why=_placeholder_review_why(pending_human, manifest_display_path),
+            why=placeholder_why,
             expects="Every human-owned field above holds a value a person supplied.",
         )
         kind, decision = "configure", SETUP_INCOMPLETE
@@ -577,6 +583,8 @@ _PLACEHOLDER_REVIEW_TAIL = (
 def _placeholder_review_why(
     entries: Sequence[Mapping[str, object]],
     manifest_display_path: str | None,
+    *,
+    reserved_suffix: str | None = None,
 ) -> str:
     """Name the exact fields and lines a person has to fill in.
 
@@ -601,7 +609,8 @@ def _placeholder_review_why(
     def size(text: str) -> int:
         return len(text.encode("utf-8"))
 
-    budget = MAX_ENVELOPE_PROSE_BYTES - size(_PLACEHOLDER_REVIEW_TAIL)
+    suffix = f" {reserved_suffix}" if reserved_suffix else ""
+    budget = MAX_ENVELOPE_PROSE_BYTES - size(_PLACEHOLDER_REVIEW_TAIL) - size(suffix)
     manifest = manifest_display_path or "shipgate.yaml"
     # The manifest is named once and the lines refer to it, rather than repeated
     # per entry. Repeating it spent the whole budget on a deep absolute path
@@ -653,7 +662,7 @@ def _placeholder_review_why(
             break
         used += (2 if shown else 0) + size(candidate)
         shown.append(candidate)
-    return prefix + ", ".join(shown) + _PLACEHOLDER_REVIEW_TAIL
+    return prefix + ", ".join(shown) + _PLACEHOLDER_REVIEW_TAIL + suffix
 
 
 def _basename(path: str) -> str:

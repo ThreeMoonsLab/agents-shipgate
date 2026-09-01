@@ -14,10 +14,21 @@ from typing import Literal
 
 LOCAL_REVIEW_MANIFEST_NAME = ".agents-shipgate-local-review.yaml"
 
-ManifestProvenance = Literal["repository", "local_review", "uncommitted", "unknown"]
+ManifestProvenance = Literal[
+    "repository",
+    "local_review",
+    "uncommitted",
+    "absent",
+    "unknown",
+]
 
 
-def manifest_provenance(path: Path, *, committed_at_head: bool | None = True) -> ManifestProvenance:
+def manifest_provenance(
+    path: Path,
+    *,
+    present: bool,
+    committed_at_head: bool | None,
+) -> ManifestProvenance:
     """Classify a manifest without trusting declarations inside that manifest.
 
     The reserved local-review name always wins, including when force-added to
@@ -26,6 +37,8 @@ def manifest_provenance(path: Path, *, committed_at_head: bool | None = True) ->
     merely because its filename is different.
     """
 
+    if not present:
+        return "absent"
     if path.name == LOCAL_REVIEW_MANIFEST_NAME:
         return "local_review"
     if committed_at_head is True:
@@ -36,25 +49,28 @@ def manifest_provenance(path: Path, *, committed_at_head: bool | None = True) ->
 
 
 def is_local_review_manifest(path: Path) -> bool:
-    return manifest_provenance(path) == "local_review"
+    return path.name == LOCAL_REVIEW_MANIFEST_NAME
 
 
 LOCAL_REVIEW_PROVISIONAL_NOTE = (
     "Manifest provenance: local_review (ephemeral and uncommitted by design). "
-    "Conclusions are provisional static-assessment output; a committed, "
-    "human-reviewed repository trust root is required for release authority."
+    "Conclusions are provisional static-assessment output; the manifest must "
+    "be adopted at a repository path and present as a blob in the evaluated "
+    "Git tree before this run can carry release authority. Git presence alone "
+    "does not prove human review."
 )
 
 
 def provisional_manifest_note(provenance: ManifestProvenance) -> str | None:
-    if provenance == "repository":
+    if provenance in {"repository", "absent"}:
         return None
     if provenance == "local_review":
         return LOCAL_REVIEW_PROVISIONAL_NOTE
     return (
         f"Manifest provenance: {provenance}. Conclusions are provisional "
-        "static-assessment output; Git must prove a committed, human-reviewed "
-        "repository trust root before this run can carry release authority."
+        "static-assessment output; the manifest must be present as a blob in "
+        "the evaluated Git tree before this run can carry release authority. "
+        "Git presence alone does not prove human review."
     )
 
 

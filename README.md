@@ -269,23 +269,30 @@ trust-root changes such as weakened CI or manifest policy.
 
 ### Temporary external repository review
 
-Follow `verify --preview` with the local-review command it emits:
+Local review is an explicit opt-in. Point preview at the reserved manifest so
+it emits the local-review setup route instead of the default durable
+`init --write` route:
 
 ```bash
+agents-shipgate verify --preview --workspace . \
+  --config .agents-shipgate-local-review.yaml --json
 agents-shipgate init --workspace . --local-review --json
 agents-shipgate verify --workspace . \
-  --config .agents-shipgate-local-review.yaml --json
+  --config .agents-shipgate-local-review.yaml \
+  --base origin/main --head HEAD --json
 ```
 
 `--local-review` writes an ephemeral manifest at the workspace root so its
 relative source paths still resolve, and privately excludes that file plus
 `agents-shipgate-reports/` through `.git/info/exclude`. It does not edit tracked
-project files. The JSON result lists the manifest and private-exclude effects,
-their cleanup paths, and the report-directory cleanup path. Verification marks
+project files. The JSON result lists the manifest and private-exclude effects
+plus an executable cleanup command; `init --local-review --undo --json` removes
+those local setup effects while preserving reports. Verification marks
 the reserved manifest as `local_review` and always keeps the result
 provisional. The same fail-safe applies to differently named uncommitted or
 Git-unproven manifests: `passed`, `mergeable`, and human-authorization evidence
-require a committed, human-reviewed repository trust root.
+require a manifest that Git proves is present in the evaluated repository
+tree. Git presence alone does not prove human review.
 
 Use `init --write` for deliberate durable adoption. That existing path still
 writes `shipgate.yaml` and maintains the repository's managed `.gitignore`

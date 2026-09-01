@@ -38,9 +38,9 @@ def run(context: ScanContext) -> list[Finding]:
             source=SourceReference(type="manifest", path=manifest),
             recommendation=(
                 "Use this run only as provisional static assessment. For "
-                "release authority, adopt shipgate.yaml in the repository "
-                "through init --write and have a human review the committed "
-                "trust root."
+                "release authority, adopt shipgate.yaml through init --write, "
+                "verify it from the evaluated Git tree, and follow any "
+                "resulting human-review route."
             ),
         )
     ]

@@ -40,6 +40,7 @@ from agents_shipgate.cli.discovery.gitignore_block import (
 from agents_shipgate.cli.discovery.local_contract import LOCAL_CONTRACT_RELATIVE_PATH
 from agents_shipgate.cli.discovery.local_review import (
     LocalReviewExcludeOutcome,
+    cleanup_local_review,
     ensure_local_review_excludes,
     local_review_side_effects,
     rollback_local_review_excludes,
@@ -66,7 +67,7 @@ from agents_shipgate.core.control_packs import (
     CONTROL_PACK_IDS,
     DEFAULT_CONTROL_PACK_ID,
 )
-from agents_shipgate.core.errors import DiscoveryError
+from agents_shipgate.core.errors import ConfigError, DiscoveryError
 from agents_shipgate.core.manifest_provenance import LOCAL_REVIEW_MANIFEST_NAME
 from agents_shipgate.invocation import render_command
 from agents_shipgate.schemas.agent_control import AgentActionKind
@@ -418,6 +419,36 @@ def _recovery_command(
     )
 
 
+def _emit_local_review_error(
+    *,
+    workspace: Path,
+    message: str,
+    action: NextAction | None = None,
+    action_kind: AgentActionKind = "configure",
+) -> None:
+    """Publish local-review setup failures through the shared JSON route."""
+
+    typer.echo(f"Config error: {message}", err=True)
+    route = action or NextAction(
+        kind="review",
+        why=message,
+        expects="Choose a Git checkout and setup mode that can contain its side effects.",
+    )
+    _emit_agent_mode_error_routing(
+        "config_error",
+        routing=setup_failure_routing(
+            operation="init",
+            workspace=workspace,
+            reason=message,
+            exit_code=2,
+            action=route,
+            action_kind=action_kind,
+        ),
+        message=message,
+        exit_code=2,
+    )
+
+
 def _unresolved_scope_message(
     workspace: Path,
     candidates: list[AgentProjectCandidate],
@@ -468,7 +499,8 @@ def _unresolved_scope_message(
     remaining = len(candidates) - MAX_LISTED_SCOPE_CANDIDATES
     if remaining > 0:
         lines.append(
-            f"  - ... ({remaining} more; see auto_detected.agent_project_candidates in --json)"
+            f"  - ... ({remaining} more; see auto_detected.agent_project_candidates "
+            "in --json)"
         )
     if parse_truncated and scope != "unknown":
         # The refusal hands this list over as the thing to choose from, so it
@@ -597,7 +629,10 @@ def _unresolved_scope_actions(
     decision = NextAction(
         kind="review",
         why=why,
-        expects=("One project directory chosen from auto_detected.agent_project_candidates."),
+        expects=(
+            "One project directory chosen from "
+            "auto_detected.agent_project_candidates."
+        ),
     )
     return [
         *([retry] if retry is not None else []),
@@ -891,7 +926,9 @@ def _init_advance(
         # reads "None".
         and requested_control_pack is not None
         and manifest_control_pack is not None
-        and unapplied_control_pack(requested=requested_control_pack, on_disk=manifest_control_pack)
+        and unapplied_control_pack(
+            requested=requested_control_pack, on_disk=manifest_control_pack
+        )
     ):
         # The manifest was left alone, and this invocation asked for a
         # configuration it does not carry. Both branches below hand the caller
@@ -1057,6 +1094,15 @@ def register(app: typer.Typer) -> None:
                 "cannot produce release-authoritative passed evidence."
             ),
         ),
+        undo: bool = typer.Option(
+            False,
+            "--undo",
+            help=(
+                "With --local-review, remove the reserved ephemeral manifest "
+                "and its managed private-exclude block. Generated reports are "
+                "left in place and become visible to Git again."
+            ),
+        ),
         json_output: bool = typer.Option(
             False,
             "--json",
@@ -1171,6 +1217,10 @@ def register(app: typer.Typer) -> None:
         """
         require_workspace(workspace)
         workspace_resolved = workspace.resolve()
+        if undo and not local_review:
+            message = "--undo is only valid together with --local-review"
+            _emit_local_review_error(workspace=workspace_resolved, message=message)
+            raise typer.Exit(2)
         if local_review and any(
             (
                 write,
@@ -1180,12 +1230,109 @@ def register(app: typer.Typer) -> None:
                 agent_instructions_kit is not None,
             )
         ):
-            raise typer.BadParameter(
+            message = (
                 "--local-review cannot be combined with --write, --ci, "
                 "--claude-code, --agent-instructions, or "
                 "--agent-instructions-kit; those options configure durable "
                 "repository adoption."
             )
+            _emit_local_review_error(workspace=workspace_resolved, message=message)
+            raise typer.Exit(2)
+        if local_review and undo:
+            try:
+                cleanup = cleanup_local_review(workspace_resolved)
+            except ConfigError as exc:
+                _emit_local_review_error(
+                    workspace=workspace_resolved,
+                    message=str(exc),
+                )
+                raise typer.Exit(2) from exc
+            preview = NextAction(
+                kind="command",
+                command=render_command(
+                    [
+                        "verify",
+                        "--workspace",
+                        str(workspace_resolved),
+                        "--preview",
+                        "--json",
+                    ]
+                ),
+                why=(
+                    "The ephemeral manifest and managed exclusion are removed; "
+                    "preview the workspace before choosing another setup mode."
+                ),
+                expects="Preview reports the workspace as unconfigured.",
+            )
+            routing = setup_control_envelope(
+                operation="init",
+                input_id=setup_input_id(
+                    operation="init",
+                    workspace=workspace_resolved,
+                    manifest_path=None,
+                    manifest_bytes=None,
+                    routing_facts=("local_review_cleanup", cleanup.to_json()),
+                ),
+                reason="Removed local-review setup state.",
+                advance=preview,
+                advance_kind="verify",
+                advance_decision=SETUP_INCOMPLETE,
+            )
+            if json_output:
+                typer.echo(
+                    json.dumps(
+                        {
+                            "path": cleanup.manifest_path,
+                            "created": False,
+                            "manifest_status": "local_review_removed",
+                            "local_review_cleanup": cleanup.to_json(),
+                            "next_action": routing.legacy_next_action,
+                            "next_actions": routing.json_actions(),
+                            "control": routing.envelope.model_dump(mode="json"),
+                        },
+                        indent=2,
+                    )
+                )
+            else:
+                typer.echo(f"Removed local-review manifest: {cleanup.manifest_path}")
+                typer.echo(
+                    "Removed private exclude block "
+                    f"{cleanup.block_id}: {cleanup.exclude_block_removed}"
+                )
+                typer.echo(f"Reports were left in place: {cleanup.reports_path}")
+            return
+
+        durable_manifest = workspace_resolved / "shipgate.yaml"
+        if local_review and durable_manifest.exists():
+            verify_existing = NextAction(
+                kind="command",
+                command=render_command(
+                    [
+                        "verify",
+                        "--workspace",
+                        str(workspace_resolved),
+                        "--config",
+                        str(durable_manifest),
+                        "--json",
+                    ]
+                ),
+                why=(
+                    "This workspace already has shipgate.yaml; use its "
+                    "repository trust root instead of shadowing it with an "
+                    "ephemeral manifest."
+                ),
+                expects="Verification evaluates the existing repository manifest.",
+            )
+            _emit_local_review_error(
+                workspace=workspace_resolved,
+                message=(
+                    "Refusing --local-review because shipgate.yaml already exists; "
+                    "use the repository manifest instead."
+                ),
+                action=verify_existing,
+                action_kind="verify",
+            )
+            raise typer.Exit(2)
         # Local review is a writing setup stage of its own.  Reuse the mature
         # manifest/scoping/control path below while keeping the public modes
         # mutually exclusive and the durable --write behavior unchanged.
@@ -1230,7 +1377,10 @@ def register(app: typer.Typer) -> None:
                     ),
                 ),
                 why=message,
-                expects=("shipgate.yaml carrying policies.control_pack with a built-in pack id."),
+                expects=(
+                    "shipgate.yaml carrying policies.control_pack with a "
+                    "built-in pack id."
+                ),
             )
             _emit_agent_mode_error_routing(
                 "config_error",
@@ -1315,7 +1465,9 @@ def register(app: typer.Typer) -> None:
         scope_project_roots = 0
         scope_python_files = 0
         if minimal:
-            rendered = render_manifest_template(workspace_resolved, control_pack=control_pack)
+            rendered = render_manifest_template(
+                workspace_resolved, control_pack=control_pack
+            )
             template = rendered.text
             tool_surface_origin = rendered.tool_surface_origin
             scaffold_summary = rendered.scaffold_summary
@@ -1323,7 +1475,9 @@ def register(app: typer.Typer) -> None:
             auto_detected: dict[str, object] = {}
             next_action_create = NextAction(
                 kind="command",
-                command=render_command(["scan", "-c", _scan_command_config(target.resolve())]),
+                command=render_command(
+                    ["scan", "-c", _scan_command_config(target.resolve())]
+                ),
                 why=(
                     "Replace every value listed in placeholders[] in shipgate.yaml, "
                     "then scan the declared tool surface."
@@ -1336,7 +1490,10 @@ def register(app: typer.Typer) -> None:
                     workspace_resolved, max_python_files=max_python_files
                 )
             except DiscoveryError as exc:
-                message = f"Workspace discovery could not establish bounded coverage: {exc}"
+                message = (
+                    "Workspace discovery could not establish bounded coverage: "
+                    f"{exc}"
+                )
                 action = NextAction(
                     kind="review",
                     why=message,
@@ -1401,7 +1558,10 @@ def register(app: typer.Typer) -> None:
                         "Auto-detected manifest failed schema validation. "
                         "Fall back to the legacy CHANGE_ME-heavy template."
                     ),
-                    expects=("shipgate.yaml renders with placeholder fields you fill in manually."),
+                    expects=(
+                        "shipgate.yaml renders with placeholder fields "
+                        "you fill in manually."
+                    ),
                 )
                 _emit_agent_mode_error_routing(
                     "internal_error",
@@ -1444,7 +1604,8 @@ def register(app: typer.Typer) -> None:
                 # why it was made. Without the rationale a reordering
                 # regression looks identical to correct behaviour.
                 "agent_name_candidates": [
-                    c.model_dump(mode="json") for c in detect_result.agent_name_candidates
+                    c.model_dump(mode="json")
+                    for c in detect_result.agent_name_candidates
                 ],
                 # Which directory this manifest is entitled to describe. On
                 # "ambiguous", `chosen_agent_name` above is one of several
@@ -1462,7 +1623,9 @@ def register(app: typer.Typer) -> None:
                 # `--write` refuses on it — and a caller has to be able to read
                 # why (#399 review).
                 "python_parse_truncated": detect_result.python_parse_truncated,
-                "workspace_signals": detect_result.workspace_signals.model_dump(mode="json"),
+                "workspace_signals": detect_result.workspace_signals.model_dump(
+                    mode="json"
+                ),
                 "agent_project_candidates": [
                     candidate.model_dump(mode="json")
                     for candidate in detect_result.agent_project_candidates
@@ -1512,8 +1675,8 @@ def register(app: typer.Typer) -> None:
                 ),
                 why=(
                     "Review the ephemeral manifest, then run the verifier. "
-                    "Its conclusions remain provisional until the repository "
-                    "adopts a committed, human-reviewed trust root."
+                    "Its conclusions remain provisional until the manifest is "
+                    "adopted and verified from the evaluated Git tree."
                 ),
                 expects=(
                     "A verifier artifact that identifies local-review manifest "
@@ -1601,8 +1764,12 @@ def register(app: typer.Typer) -> None:
                         local_review_exclude_outcome = ensure_local_review_excludes(
                             workspace_resolved
                         )
-                    except Exception as exc:  # noqa: BLE001 - CLI validation boundary.
-                        raise typer.BadParameter(str(exc)) from exc
+                    except ConfigError as exc:
+                        _emit_local_review_error(
+                            workspace=workspace_resolved,
+                            message=str(exc),
+                        )
+                        raise typer.Exit(2) from exc
                 manifest_status = "skipped_existing"
                 manifest_exit = 2
                 manifest_message = f"Config already exists: {target}"
@@ -1631,13 +1798,23 @@ def register(app: typer.Typer) -> None:
                         local_review_exclude_outcome = ensure_local_review_excludes(
                             workspace_resolved
                         )
-                    except Exception as exc:  # noqa: BLE001 - CLI validation boundary.
-                        raise typer.BadParameter(str(exc)) from exc
+                    except ConfigError as exc:
+                        _emit_local_review_error(
+                            workspace=workspace_resolved,
+                            message=str(exc),
+                        )
+                        raise typer.Exit(2) from exc
                 try:
                     target.write_text(template, encoding="utf-8")
-                except OSError:
+                except OSError as exc:
                     if local_review_exclude_outcome is not None:
                         rollback_local_review_excludes(local_review_exclude_outcome)
+                    if local_review:
+                        _emit_local_review_error(
+                            workspace=workspace_resolved,
+                            message=f"Could not write {target}: {exc}",
+                        )
+                        raise typer.Exit(2) from exc
                     raise
                 manifest_status = "written"
                 manifest_message = (
@@ -1934,6 +2111,22 @@ def register(app: typer.Typer) -> None:
             recheck_command=_doctor_command(target),
             placeholders=control_placeholders,
             manifest_display_path=str(target),
+            human_review_suffix=(
+                "A human must decide whether to keep this setup provisional "
+                "or adopt it durably. If approved, use `"
+                + render_command(
+                    [
+                        "init",
+                        "--workspace",
+                        str(workspace_resolved),
+                        "--write",
+                        "--json",
+                    ]
+                )
+                + "`."
+                if local_review and not scope_refused
+                else None
+            ),
             exit_code=max(manifest_exit, agent_instructions_exit) or None,
         )
         if scope_refused:
@@ -1965,6 +2158,7 @@ def register(app: typer.Typer) -> None:
                 path=str(target),
             )
 
+
         # Output
         if json_output:
             payload: dict[str, object] = {
@@ -1993,7 +2187,9 @@ def register(app: typer.Typer) -> None:
                 # at `path` is somebody else's; describing its tool surface from
                 # a render nobody kept is the defect #399 fixed one field over.
                 "tool_surface_origin": (
-                    tool_surface_origin if manifest_status == "written" or not write else None
+                    tool_surface_origin
+                    if manifest_status == "written" or not write
+                    else None
                 ),
             }
             if manifest_message:
@@ -2029,12 +2225,14 @@ def register(app: typer.Typer) -> None:
                         "version": pack.version,
                         "summary": pack.summary,
                     }
-                    for pack in (BUILTIN_CONTROL_PACKS[pack_id] for pack_id in CONTROL_PACK_IDS)
+                    for pack in (
+                        BUILTIN_CONTROL_PACKS[pack_id] for pack_id in CONTROL_PACK_IDS
+                    )
                 ],
             }
             if gitignore_outcome is not None:
                 payload["gitignore"] = gitignore_outcome.to_json()
-            if local_review:
+            if local_review and not scope_refused:
                 payload["local_review"] = local_review_side_effects(
                     workspace=workspace_resolved,
                     manifest_status=manifest_status,
@@ -2105,6 +2303,11 @@ def register(app: typer.Typer) -> None:
                     print(gitignore_outcome.message, file=stream)
             if local_review_exclude_outcome is not None:
                 typer.echo(local_review_exclude_outcome.message)
+                typer.echo(
+                    "Local-review cleanup: "
+                    f"{local_review_exclude_outcome.cleanup_command} "
+                    f"(block {local_review_exclude_outcome.block_id})"
+                )
                 typer.echo(
                     "Local-review verification is provisional; durable release "
                     "authority requires repository adoption through init --write."

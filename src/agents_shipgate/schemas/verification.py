@@ -40,8 +40,8 @@ class VerificationContext(BaseModel):
     # reserved ephemeral setup path: checks must route it through the ordinary
     # release decision as review-required, never as an authoritative pass.
     manifest_provenance: Literal[
-        "repository", "local_review", "uncommitted", "unknown"
-    ] = "repository"
+        "repository", "local_review", "uncommitted", "absent", "unknown"
+    ] = "unknown"
     # True only when the comparison base carries no Shipgate manifest at all —
     # this diff *introduces* the gate rather than modifying one. Checks that
     # fail safe on a missing base use it to say so honestly; it never relaxes a
