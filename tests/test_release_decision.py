@@ -20,7 +20,10 @@ from agents_shipgate.core.domain import (
     Tool,
     ToolSemanticAssessment,
 )
+from agents_shipgate.core.evidence_actions import evidence_gap_headline
+from agents_shipgate.core.semantic_assessment import assess_tool_semantics
 from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment
+from agents_shipgate.schemas.manifest import ActionDeclarationConfig
 from agents_shipgate.schemas.report import (
     BaselineSummary,
     Finding,
@@ -220,6 +223,52 @@ def test_missing_semantic_assessment_is_zero_tolerance_ie_and_strict_failure():
     assert gap.next_action.kind == "provide_complete_inventory"
     assert decision.fail_policy.exit_code == GATE_FAILURE_EXIT_CODE
     assert decision.fail_policy.would_fail_ci is True
+
+
+def test_enumerated_lower_confidence_surface_routes_to_attestation_end_to_end():
+    """#396: producer, gate row, action, and headline share one discriminator."""
+
+    tool = Tool(
+        id="tool-adk-process-order",
+        name="process_order",
+        source_type="google_adk_function",
+        source_id="orders-agent",
+        source_pointer="agent.py:12",
+        auth=AuthInfo(mode="none", explicit=True),
+        extraction_confidence="medium",
+        extraction={
+            "method": "google_adk_python_ast",
+            "confidence": "medium",
+            "surface": "enumerated",
+            "surface_gaps": [],
+        },
+    )
+    declaration = ActionDeclarationConfig.model_validate(
+        {
+            "tool": "process_order",
+            "effect": "write",
+            "authority": {"mode": "none"},
+        }
+    )
+    tool.semantic_assessment = assess_tool_semantics(tool, declaration)
+
+    decision = _build(_report(tools=[tool]), tools=[tool])
+    gap = next(
+        gap
+        for gap in decision.evidence_coverage.evidence_gaps
+        if gap.kind == "unattested_surface"
+    )
+
+    assert gap.why == (
+        "no reviewed tool inventory attests the enumerated surface "
+        "(extraction_confidence=medium)"
+    )
+    assert gap.next_action.kind == "declare_tool_inventory"
+    assert "reviewed attestation" in gap.next_action.why
+    assert "make the full surface enumerable" not in gap.next_action.why
+    assert evidence_gap_headline(gap).startswith(
+        "no reviewed tool inventory attests this surface"
+    )
 
 
 @pytest.mark.parametrize("safe_count", [1, 2, 10, 100])

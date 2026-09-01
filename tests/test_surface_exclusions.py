@@ -1913,13 +1913,13 @@ def test_a_second_exclusion_of_one_gap_identity_is_still_new(tmp_path):
 
 
 def test_an_inherited_exclusion_is_not_named_by_a_new_gap_of_another_kind():
-    """One subject, two gap kinds — the clause must follow the ledger.
+    """An attestation gap does not invent an unread surface remainder.
 
-    `samples/conductor_agent` carries both `incomplete_surface` and
+    `samples/conductor_agent` carries both `unattested_surface` and
     `low_confidence_tool` for `lookup_order [conductor_workflows]`, and only
-    the first has a ledger row. Selecting on the subject alone let a new
-    `low_confidence_tool` gap pull in the inherited `surface_not_enumerated`
-    exclusion and print its cause as this diff's doing.
+    explicit enumeration failure belongs in the exclusion ledger. Selecting
+    on low confidence or subject identity must not turn missing reviewed
+    attestation into a claim that some tool was never analysed.
     """
 
     from agents_shipgate.cli.verify.orchestrator import _gap_provenance_note
@@ -1935,7 +1935,11 @@ def test_an_inherited_exclusion_is_not_named_by_a_new_gap_of_another_kind():
         gaps = report.release_decision.evidence_coverage.evidence_gaps
         subject = "lookup_order [conductor_workflows]"
         kinds = {gap.kind for gap in gaps if gap.subject == subject}
-        assert {"incomplete_surface", "low_confidence_tool"} <= kinds, kinds
+        assert {"unattested_surface", "low_confidence_tool"} <= kinds, kinds
+        assert not any(
+            row.stage == "surface_completeness" and row.subject == subject
+            for row in report.surface_exclusions.entries
+        )
 
         # A synthetic base identical to the head but for the low-confidence
         # row, so that gap — and only that gap — is new.
@@ -1952,7 +1956,7 @@ def test_an_inherited_exclusion_is_not_named_by_a_new_gap_of_another_kind():
         note = " ".join(_gap_provenance_note(report=report, base_report=base))
 
     assert "1 of 7 evidence gap(s) are new in this diff." in note
-    # The exclusion is in the base ledger, so nothing about it is new.
+    # No enumeration exclusion exists, so nothing can be misreported as new.
     assert "not fully analysed" not in note
 
 

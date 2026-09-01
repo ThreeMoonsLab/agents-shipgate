@@ -147,6 +147,12 @@ def test_frozen_v028_report_schema_does_not_backport_v029_semantic_evidence() ->
     assert "suggested_patch_kind" in v29_gap_action
 
 
+def test_current_report_schema_keeps_policy_identity_out_of_gap_prose() -> None:
+    current_gap = _report_schema_definition_properties("0.42", "EvidenceGap")
+
+    assert "policy_id" in current_gap
+
+
 def test_frozen_v07_packet_schema_does_not_backport_v08_static_boundary() -> None:
     v7 = _packet_schema_definition_properties("0.7", "ReleaseDecisionSection")
     v8 = _packet_schema_definition_properties("0.8", "ReleaseDecisionSection")

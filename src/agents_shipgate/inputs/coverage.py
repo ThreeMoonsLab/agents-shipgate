@@ -376,10 +376,12 @@ class SourceCoverage(BaseModel):
 #: reach half the analysed surface — the ``_LOW_CONFIDENCE_TOOL_RATIO`` clause
 #: of :func:`~agents_shipgate.ci.release_decision.evidence_below_ie_threshold`.
 #: That clause is real and it is never the one that fires first: every action
-#: below ``high`` also raises an ``incomplete_surface`` semantic issue, and the
-#: predicate's *first* clause treats ``semantic_coverage.gap_count > 0`` as
-#: sufficient on its own. Publishing the ratio would have told an adopter with
-#: one medium action in ten that they were under the bar.
+#: below ``high`` also raises a semantic surface issue — ``unattested_surface``
+#: when no enumeration defect was measured, otherwise ``incomplete_surface`` —
+#: and the predicate's *first* clause treats
+#: ``semantic_coverage.gap_count > 0`` as sufficient on its own. Publishing the
+#: ratio would have told an adopter with one medium action in ten that they were
+#: under the bar.
 CELL_OUTCOME_VERDICTS: dict[CellOutcome, str] = {
     "not_applicable": "No such declaration exists for this input.",
     "not_extracted": (
@@ -403,11 +405,12 @@ CELL_OUTCOME_VERDICTS: dict[CellOutcome, str] = {
     ),
     "low_confidence": (
         "Every action from this route raises `low_confidence_tool` and "
-        "`incomplete_surface`, so none of them can be pass-eligible, and the "
-        "exclusion ledger records what was not established. Semantic evidence "
-        "gaps are zero-tolerance, so **one** such action is already enough to "
-        "put the run below the evidence threshold and withhold a verdict. A "
-        "reviewed tool inventory is the route out."
+        "either `unattested_surface` (when its set was enumerated) or "
+        "`incomplete_surface` (when it was not), so none can be pass-eligible. "
+        "Only the latter adds an exclusion-ledger row for an unread remainder. "
+        "Semantic evidence gaps are zero-tolerance, so **one** such action is "
+        "already enough to put the run below the evidence threshold and "
+        "withhold a verdict. A reviewed tool inventory is the route out."
     ),
 }
 
@@ -545,16 +548,16 @@ def _resolve_cell(cell: BoundaryCell) -> ResolvedCell:
     if cell.status == "extracted":
         if not extraction_complete:
             gaps.append("low_confidence_tool")
-        if not (extraction_complete and surface_complete):
+        if not surface_complete:
             gaps.append("incomplete_surface")
             # The ledger row follows the *gap*, not the completeness bit:
             # ``_surface_completeness_exclusions`` builds one row per
-            # ``incomplete_surface`` evidence gap, and that gap fires on low
-            # confidence as readily as on an unproven surface. Deriving it from
-            # ``surface_complete`` alone published "no exclusion" for every
-            # medium-confidence contract input (n8n, Conductor), which the
-            # ledger contradicts on the same run.
+            # ``incomplete_surface`` evidence gap. A lower-confidence but
+            # enumerated route raises ``unattested_surface`` instead and has no
+            # unread remainder to place in this ledger.
             exclusion_reason = "surface_not_enumerated"
+        elif not extraction_complete:
+            gaps.append("unattested_surface")
 
     raises = set(cell.raises)
     if "wildcard_tools" in cell.surface_flags:

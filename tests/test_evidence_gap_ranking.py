@@ -283,12 +283,12 @@ def test_an_enumerated_surface_names_missing_attestation_not_missing_tools():
     """#396: 12/12 reachable cannot honestly headline as non-enumerable."""
 
     gap = EvidenceGap(
-        kind="incomplete_surface",
+        kind="unattested_surface",
         subject="create_salesforce_quote [adk_agent]",
         source_type="google_adk_function",
         why=(
-            "tool surface is fully enumerated, but no reviewed tool inventory "
-            "attests it (extraction_confidence=medium)"
+            "no reviewed tool inventory attests the enumerated surface "
+            "(extraction_confidence=medium)"
         ),
         next_action=EvidenceGapAction(
             kind="declare_tool_inventory",
@@ -327,10 +327,7 @@ def test_an_enumerated_surface_names_missing_attestation_not_missing_tools():
 
     headline = evidence_gap_headline(gap)
     reason = _decision_reason("insufficient_evidence", [], [], evidence)
-    expected = (
-        "no reviewed tool inventory attests this surface "
-        "(extraction_confidence=medium)"
-    )
+    expected = "no reviewed tool inventory attests this surface"
     assert expected in headline
     assert expected in reason
     assert "could not be fully enumerated" not in headline

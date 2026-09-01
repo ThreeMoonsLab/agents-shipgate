@@ -3400,6 +3400,7 @@
             "low_confidence_tool",
             "source_warning",
             "incomplete_surface",
+            "unattested_surface",
             "missing_effect_evidence",
             "inferred_effect_only",
             "conflicting_effect_evidence",
@@ -3434,6 +3435,18 @@
         },
         "next_action": {
           "$ref": "#/$defs/EvidenceGapAction"
+        },
+        "policy_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Policy Id"
         },
         "source_ref": {
           "anyOf": [
@@ -5448,6 +5461,7 @@
             "ambiguous_legacy_tool_identity",
             "invalid_tool_binding",
             "incomplete_surface",
+            "unattested_surface",
             "missing_effect_evidence",
             "inferred_effect_only",
             "conflicting_effect_evidence",

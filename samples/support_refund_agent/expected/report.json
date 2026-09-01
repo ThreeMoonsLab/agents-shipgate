@@ -869,6 +869,7 @@
           "subject_kind": "action",
           "source_type": null,
           "source_ref": "inventories/sdk-tools.json",
+          "policy_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
           "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Policy applicability is supported only by heuristic evidence.",
           "next_action": {
             "kind": "provide_policy_evidence",
@@ -898,6 +899,7 @@
           "subject_kind": "action",
           "source_type": null,
           "source_ref": "specs/support-tools.openapi.yaml",
+          "policy_id": "SHIP-SCHEMA-MISSING-BOUNDS",
           "why": "SHIP-SCHEMA-MISSING-BOUNDS: Policy applicability is supported only by heuristic evidence.",
           "next_action": {
             "kind": "provide_policy_evidence",
@@ -927,6 +929,7 @@
           "subject_kind": "action",
           "source_type": null,
           "source_ref": "specs/support-tools.openapi.yaml",
+          "policy_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
           "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Policy applicability is supported only by heuristic evidence.",
           "next_action": {
             "kind": "provide_policy_evidence",
@@ -956,6 +959,7 @@
           "subject_kind": "action",
           "source_type": null,
           "source_ref": ".agents-shipgate/mcp-tools.json",
+          "policy_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
           "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Policy applicability is supported only by heuristic evidence.",
           "next_action": {
             "kind": "provide_policy_evidence",
@@ -985,6 +989,7 @@
           "subject_kind": "action",
           "source_type": null,
           "source_ref": "shipgate.yaml",
+          "policy_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
           "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
           "next_action": {
             "kind": "provide_policy_evidence",
@@ -1014,6 +1019,7 @@
           "subject_kind": "action",
           "source_type": null,
           "source_ref": "shipgate.yaml",
+          "policy_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
           "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
           "next_action": {
             "kind": "provide_policy_evidence",
@@ -1043,6 +1049,7 @@
           "subject_kind": "action",
           "source_type": null,
           "source_ref": "shipgate.yaml",
+          "policy_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
           "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
           "next_action": {
             "kind": "provide_policy_evidence",
@@ -10920,6 +10927,7 @@
       "subject_kind": "action",
       "source_type": null,
       "source_ref": "inventories/sdk-tools.json",
+      "policy_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
       "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Policy applicability is supported only by heuristic evidence.",
       "next_action": {
         "kind": "provide_policy_evidence",
@@ -10949,6 +10957,7 @@
       "subject_kind": "action",
       "source_type": null,
       "source_ref": "specs/support-tools.openapi.yaml",
+      "policy_id": "SHIP-SCHEMA-MISSING-BOUNDS",
       "why": "SHIP-SCHEMA-MISSING-BOUNDS: Policy applicability is supported only by heuristic evidence.",
       "next_action": {
         "kind": "provide_policy_evidence",
@@ -10978,6 +10987,7 @@
       "subject_kind": "action",
       "source_type": null,
       "source_ref": "specs/support-tools.openapi.yaml",
+      "policy_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
       "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Policy applicability is supported only by heuristic evidence.",
       "next_action": {
         "kind": "provide_policy_evidence",
@@ -11007,6 +11017,7 @@
       "subject_kind": "action",
       "source_type": null,
       "source_ref": ".agents-shipgate/mcp-tools.json",
+      "policy_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
       "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Policy applicability is supported only by heuristic evidence.",
       "next_action": {
         "kind": "provide_policy_evidence",
@@ -11036,6 +11047,7 @@
       "subject_kind": "action",
       "source_type": null,
       "source_ref": "shipgate.yaml",
+      "policy_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
       "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
       "next_action": {
         "kind": "provide_policy_evidence",
@@ -11065,6 +11077,7 @@
       "subject_kind": "action",
       "source_type": null,
       "source_ref": "shipgate.yaml",
+      "policy_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
       "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
       "next_action": {
         "kind": "provide_policy_evidence",
@@ -11094,6 +11107,7 @@
       "subject_kind": "action",
       "source_type": null,
       "source_ref": "shipgate.yaml",
+      "policy_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
       "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
       "next_action": {
         "kind": "provide_policy_evidence",

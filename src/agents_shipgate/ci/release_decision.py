@@ -486,15 +486,15 @@ REVIEW_REQUIRED_SENTINEL = _REVIEW_REQUIRED_SENTINEL
 def _inventory_remediation(
     manifest_key: str, source_id: str | None, *, rerun: str
 ) -> str:
-    """The prescribed repair for a source static extraction cannot enumerate.
+    """The inventory repair for an incomplete or unattested static extraction.
 
-    Two gap kinds prescribe the same repair (``incomplete_surface`` and
-    ``low_confidence_tool``), so the words live here once. ``source_id`` is not
-    decoration: an inventory referenced without it is an *independent* source
-    whose entries merely share names with the extracted ones, which grows the
-    catalog, leaves this gap open, and makes the action selectors that used to
-    resolve ambiguous (#386). Naming the source is what turns the file into a
-    completion of the surface that raised the gap.
+    Surface-enumeration, surface-attestation, and low-confidence rows can all
+    prescribe the same inventory binding, so the words live here once.
+    ``source_id`` is not decoration: an inventory referenced without it is an
+    *independent* source whose entries merely share names with the extracted
+    ones, which grows the catalog, leaves this gap open, and makes the action
+    selectors that used to resolve ambiguous (#386). Naming the source is what
+    turns the file into evidence about the surface that raised the gap.
     """
 
     binding = (
@@ -1720,16 +1720,23 @@ def _semantic_gap(
         accepted_values = ["match_structural_graph", "correct_source_wiring"]
         action_why = "Conflicting binding evidence cannot be auto-resolved."
         expects = "Reconcile positive structural evidence and reviewed declarations, then rerun verification."
-    elif kind == "incomplete_surface":
+    elif kind in {"incomplete_surface", "unattested_surface"}:
         manifest_key = inventory_manifest_key(tool.source_type)
         if manifest_key is not None:
             action_kind = "declare_tool_inventory"
             accepted_values = ["reviewed_explicit_inventory"]
-            action_why = (
-                f"{tool.source_type} extraction is static-only; an explicit "
-                "local tool inventory bound to this source is the supported "
-                "way to make the full surface enumerable."
-            )
+            if kind == "unattested_surface":
+                action_why = (
+                    f"{tool.source_type} extraction produced a static surface; "
+                    "an explicit local tool inventory bound to this source is "
+                    "the reviewed attestation the release evidence lacks."
+                )
+            else:
+                action_why = (
+                    f"{tool.source_type} extraction is static-only; an explicit "
+                    "local tool inventory bound to this source is the supported "
+                    "way to make the full surface enumerable."
+                )
             expects = _inventory_remediation(
                 manifest_key, tool.source_id, rerun="rerun verification."
             )
@@ -1744,10 +1751,14 @@ def _semantic_gap(
                 "openapi_spec",
                 "reviewed_explicit_inventory",
             ]
-            action_why = "The complete statically-bound tool surface must be enumerable."
+            action_why = (
+                "The statically-bound tool surface needs reviewed attestation."
+                if kind == "unattested_surface"
+                else "The complete statically-bound tool surface must be enumerable."
+            )
             expects = (
-                "Provide a complete MCP export, OpenAPI spec, or reviewed explicit "
-                "tool inventory, then rerun verification."
+                "Bind a complete MCP export, OpenAPI spec, or reviewed explicit "
+                "tool inventory to this source, then rerun verification."
             )
     elif kind in {
         "missing_effect_evidence",
@@ -2302,7 +2313,7 @@ def _semantic_gap_path(kind: str, tool: Tool, issue_source: str | None = None) -
         # questionnaire counts by, so a row can never be excluded from the
         # counter as unanswerable while still publishing a manifest route.
         return _source_artifact_path(tool)
-    if kind == "incomplete_surface":
+    if kind in {"incomplete_surface", "unattested_surface"}:
         if inventory_manifest_key(tool.source_type) is not None:
             return SUGGESTED_INVENTORY_FILENAME
         return "shipgate.yaml#tool_sources"

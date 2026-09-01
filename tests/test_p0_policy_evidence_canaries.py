@@ -217,6 +217,8 @@ def test_release_contribution_canary(case: ReleaseCanary) -> None:
         if case.gap_status is not None
         else None
     )
+    if gap is not None:
+        assert gap.policy_id == "p0-canary"
     finding = Finding(
         id=f"finding-{case.name}",
         fingerprint=f"fp-{case.name}",
@@ -375,13 +377,62 @@ action_surface:
     gaps = [gap for gap in report.policy_evidence_gaps if gap.kind == "mixed_policy_evidence"]
     assert len(gaps) == 1
     assert gaps[0].kind == "mixed_policy_evidence"
+    assert gaps[0].policy_id == "builtin-effect-control-applicability"
     assert "builtin-effect-control-applicability" not in gaps[0].why
     assert "a reviewed declaration" in gaps[0].why
     assert "keyword inference" in gaps[0].why
-    assert "Confirm the reviewed declaration" in gaps[0].why
+    assert "Review the heuristic match" in gaps[0].why
     assert internal_vocabulary(gaps[0].why) == ()
     assert internal_vocabulary(evidence_gap_headline(gaps[0])) == ()
     assert gaps[0].next_action.kind == "review_policy_evidence"
+
+
+@pytest.mark.parametrize(
+    ("authoritative_basis", "label"),
+    [
+        ("reviewed_declaration", "a reviewed declaration"),
+        ("protocol_structure", "protocol structure"),
+        ("typed_provider_fact", "typed provider facts"),
+        ("structural_scope", "structural scope evidence"),
+    ],
+)
+def test_mixed_policy_remedy_names_the_authoritative_basis_it_received(
+    authoritative_basis: str, label: str
+) -> None:
+    support = finding_support(
+        [
+            predicate_evidence(
+                "authoritative",
+                "matched",
+                evidence_bases=[authoritative_basis],
+                confidence="high",
+                policy_eligible=True,
+            ),
+            predicate_evidence(
+                "heuristic",
+                "indeterminate",
+                evidence_bases=["inferred_keyword"],
+                confidence="low",
+                policy_eligible=False,
+            ),
+        ],
+        status="indeterminate",
+    )
+
+    gap = policy_evidence_gap(
+        status="indeterminate",
+        subject="wire_funds",
+        policy_id="builtin-high-impact-approval",
+        source_ref="tools.json#/wire_funds",
+        support=support,
+        manifest_path="policy_packs[0].rules[0].match",
+    )
+
+    assert gap.policy_id == "builtin-high-impact-approval"
+    assert "builtin-high-impact-approval" not in gap.why
+    assert label in gap.why
+    assert f"against {label}" in gap.why
+    assert internal_vocabulary(gap.why) == ()
 
 
 def test_empty_finding_support_is_fail_closed() -> None:

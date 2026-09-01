@@ -33,9 +33,14 @@ _POLICY_EVIDENCE_LABELS = {
 
 
 def _join_evidence_labels(bases: set[EvidenceBasis]) -> str:
-    labels = [_POLICY_EVIDENCE_LABELS[basis] for basis in sorted(bases)]
-    if len(labels) <= 1:
-        return labels[0] if labels else "static evidence"
+    if not bases:
+        raise ValueError("at least one evidence basis is required")
+    labels = [
+        _POLICY_EVIDENCE_LABELS.get(basis, basis.replace("_", " "))
+        for basis in sorted(bases)
+    ]
+    if len(labels) == 1:
+        return labels[0]
     if len(labels) == 2:
         return " and ".join(labels)
     return f"{', '.join(labels[:-1])}, and {labels[-1]}"
@@ -188,8 +193,10 @@ def policy_evidence_gap(
         why = (
             "Policy applicability combines "
             f"{_join_evidence_labels(authoritative)} with "
-            f"{_join_evidence_labels(heuristic)}. Confirm the reviewed "
-            "declaration or provide structural evidence, then rerun verification."
+            f"{_join_evidence_labels(heuristic)}. Review the heuristic match "
+            f"against {_join_evidence_labels(authoritative)}; correct whichever "
+            "evidence source is wrong or add a reviewed declaration that resolves "
+            "the conflict, then rerun verification."
         )
     else:
         kind = "unknown_policy_evidence"
@@ -200,10 +207,13 @@ def policy_evidence_gap(
         subject=subject,
         subject_id=subject_id,
         source_ref=source_ref,
+        policy_id=policy_id,
         # Public and organization-defined check ids remain useful, stable gap
         # labels. Engine-owned ids are different: a reader cannot locate or
         # act on ``builtin-effect-control-applicability``, so exposing it in
-        # adopter prose only leaks the implementation vocabulary (#420).
+        # adopter prose only leaks the implementation vocabulary (#420). The
+        # id remains exact in structured ``policy_id`` above; this prohibition
+        # applies to prose, not machine identity.
         why=why if policy_id in INTERNAL_POLICY_IDS else f"{policy_id}: {why}",
         next_action=EvidenceGapAction(
             kind=cast(Any, action_kind),

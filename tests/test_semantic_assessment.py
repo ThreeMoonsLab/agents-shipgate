@@ -365,13 +365,33 @@ def test_an_enumerated_lower_confidence_surface_names_the_attestation_gap() -> N
     )
 
     issue = next(
-        issue for issue in assessment.effect.issues if issue.kind == "incomplete_surface"
+        issue for issue in assessment.effect.issues if issue.kind == "unattested_surface"
     )
     assert issue.message == (
-        "tool surface is fully enumerated, but no reviewed tool inventory "
-        "attests it (extraction_confidence=medium)"
+        "no reviewed tool inventory attests the enumerated surface "
+        "(extraction_confidence=medium)"
     )
     assert assessment.pass_eligible is False
+
+
+def test_a_default_complete_surface_does_not_claim_it_was_enumerated() -> None:
+    """Only the adapter's explicit surface fact earns positive enumeration copy."""
+
+    assessment = assess_tool_semantics(
+        _tool(
+            extraction_confidence="medium",
+            extraction={"method": "mcp_json", "confidence": "medium"},
+        )
+    )
+
+    issue = next(
+        issue for issue in assessment.effect.issues if issue.kind == "unattested_surface"
+    )
+    assert issue.message == (
+        "no reviewed tool inventory attests this surface "
+        "(extraction_confidence=medium)"
+    )
+    assert "enumerated" not in issue.message
 
 
 @pytest.mark.parametrize(

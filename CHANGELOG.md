@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Verifier and evidence explanations now preserve the fact that produced
+  them.** (#436, #396, #414, #420) Plain blocked-run headlines name the
+  deterministic worst blocker and bound untrusted multibyte titles by the
+  control envelope's byte budget. A lower-confidence tool extraction without
+  an enumeration defect is now `unattested_surface`, distinct from an
+  incomplete enumeration, and its
+  repair asks for reviewed attestation. Policy gaps retain exact structured
+  `policy_id` while adopter prose omits engine-owned ids and derives mixed-
+  evidence remedies from the authoritative basis actually present. Embedded
+  trigger results preserve their evaluated state but clear commands from both
+  `next_action` and `matched_rules[]`; verifier control remains the sole route.
+
 - **The pre-1.0 qualification corpus now has a committed sourcing plan.** (#456)
   `benchmark/safety-qualification/strata-inventory.csv` maps the known candidate
   pool onto all 28 profile × decision cells the `pre_1_0` policy requires — 59

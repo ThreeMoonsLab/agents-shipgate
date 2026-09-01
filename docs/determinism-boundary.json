@@ -9,7 +9,7 @@
   "description": "What each built-in input can establish, per declaration shape: the extraction-confidence ceiling and what that ceiling means for a release verdict. Generated from agents_shipgate.inputs.coverage.build_boundary_matrix(). Do not edit by hand.",
   "generated_for_version": "0.16.0b7",
   "outcomes": {
-    "low_confidence": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out.",
+    "low_confidence": "Every action from this route raises `low_confidence_tool` and either `unattested_surface` (when its set was enumerated) or `incomplete_surface` (when it was not), so none can be pass-eligible. Only the latter adds an exclusion-ledger row for an unread remainder. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out.",
     "not_applicable": "No such declaration exists for this input.",
     "not_extracted": "No action enters the catalog, so nothing here carries an action-level ceiling. That is not the same as unseen: the scan records that it read this construct and refused to guess what it produces, and a framework check may raise a finding on the record itself \u2014 see the row's own `Raises` column.",
     "proven": "Extraction evidence is complete: an action from this route can be pass-eligible. Effect, authority, identity, and binding evidence are judged separately and can still withhold a pass.",
@@ -251,7 +251,7 @@
           "surface_complete": false,
           "surface_flags": [],
           "variant": null,
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and either `unattested_surface` (when its set was enumerated) or `incomplete_surface` (when it was not), so none can be pass-eligible. Only the latter adds an exclusion-ledger row for an unread remainder. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
           "ceiling": null,
@@ -419,7 +419,7 @@
           "surface_complete": false,
           "surface_flags": [],
           "variant": "agent config",
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and either `unattested_surface` (when its set was enumerated) or `incomplete_surface` (when it was not), so none can be pass-eligible. Only the latter adds an exclusion-ledger row for an unread remainder. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
           "ceiling": "medium",
@@ -445,7 +445,7 @@
           "surface_complete": false,
           "surface_flags": [],
           "variant": "module function",
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and either `unattested_surface` (when its set was enumerated) or `incomplete_surface` (when it was not), so none can be pass-eligible. Only the latter adds an exclusion-ledger row for an unread remainder. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
           "ceiling": "medium",
@@ -455,10 +455,10 @@
           ],
           "evidence_gaps": [
             "low_confidence_tool",
-            "incomplete_surface"
+            "unattested_surface"
           ],
-          "exclusion_detail": "not established as a complete surface",
-          "exclusion_reason": "surface_not_enumerated",
+          "exclusion_detail": null,
+          "exclusion_reason": null,
           "extraction_complete": false,
           "extraction_permits_pass": false,
           "outcome": "low_confidence",
@@ -470,7 +470,7 @@
           "surface_complete": true,
           "surface_flags": [],
           "variant": "resolved toolset actions in the same module",
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and either `unattested_surface` (when its set was enumerated) or `incomplete_surface` (when it was not), so none can be pass-eligible. Only the latter adds an exclusion-ledger row for an unread remainder. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
           "ceiling": "medium",
@@ -494,7 +494,7 @@
           "surface_complete": false,
           "surface_flags": [],
           "variant": "module function",
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and either `unattested_surface` (when its set was enumerated) or `incomplete_surface` (when it was not), so none can be pass-eligible. Only the latter adds an exclusion-ledger row for an unread remainder. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
           "ceiling": "medium",
@@ -504,10 +504,10 @@
           ],
           "evidence_gaps": [
             "low_confidence_tool",
-            "incomplete_surface"
+            "unattested_surface"
           ],
-          "exclusion_detail": "not established as a complete surface",
-          "exclusion_reason": "surface_not_enumerated",
+          "exclusion_detail": null,
+          "exclusion_reason": null,
           "extraction_complete": false,
           "extraction_permits_pass": false,
           "outcome": "low_confidence",
@@ -519,7 +519,7 @@
           "surface_complete": true,
           "surface_flags": [],
           "variant": "resolved toolset actions in the same module",
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and either `unattested_surface` (when its set was enumerated) or `incomplete_surface` (when it was not), so none can be pass-eligible. Only the latter adds an exclusion-ledger row for an unread remainder. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         }
       ],
       "configured_as": [
@@ -606,7 +606,7 @@
           "surface_complete": false,
           "surface_flags": [],
           "variant": null,
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and either `unattested_surface` (when its set was enumerated) or `incomplete_surface` (when it was not), so none can be pass-eligible. Only the latter adds an exclusion-ledger row for an unread remainder. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
           "ceiling": null,
@@ -735,7 +735,7 @@
           "surface_complete": false,
           "surface_flags": [],
           "variant": null,
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and either `unattested_surface` (when its set was enumerated) or `incomplete_surface` (when it was not), so none can be pass-eligible. Only the latter adds an exclusion-ledger row for an unread remainder. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
           "ceiling": "low",
@@ -759,7 +759,7 @@
           "surface_complete": false,
           "surface_flags": [],
           "variant": null,
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and either `unattested_surface` (when its set was enumerated) or `incomplete_surface` (when it was not), so none can be pass-eligible. Only the latter adds an exclusion-ledger row for an unread remainder. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
           "ceiling": null,
@@ -856,10 +856,10 @@
           ],
           "evidence_gaps": [
             "low_confidence_tool",
-            "incomplete_surface"
+            "unattested_surface"
           ],
-          "exclusion_detail": "not established as a complete surface",
-          "exclusion_reason": "surface_not_enumerated",
+          "exclusion_detail": null,
+          "exclusion_reason": null,
           "extraction_complete": false,
           "extraction_permits_pass": false,
           "outcome": "low_confidence",
@@ -871,7 +871,7 @@
           "surface_complete": true,
           "surface_flags": [],
           "variant": null,
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and either `unattested_surface` (when its set was enumerated) or `incomplete_surface` (when it was not), so none can be pass-eligible. Only the latter adds an exclusion-ledger row for an unread remainder. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
           "ceiling": null,
@@ -899,10 +899,10 @@
           ],
           "evidence_gaps": [
             "low_confidence_tool",
-            "incomplete_surface"
+            "unattested_surface"
           ],
-          "exclusion_detail": "not established as a complete surface",
-          "exclusion_reason": "surface_not_enumerated",
+          "exclusion_detail": null,
+          "exclusion_reason": null,
           "extraction_complete": false,
           "extraction_permits_pass": false,
           "outcome": "low_confidence",
@@ -916,7 +916,7 @@
           "surface_complete": true,
           "surface_flags": [],
           "variant": "expression-backed tool name",
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and either `unattested_surface` (when its set was enumerated) or `incomplete_surface` (when it was not), so none can be pass-eligible. Only the latter adds an exclusion-ledger row for an unread remainder. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
           "ceiling": "medium",
@@ -945,7 +945,7 @@
             "wildcard_tools"
           ],
           "variant": "MCP client wildcard",
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and either `unattested_surface` (when its set was enumerated) or `incomplete_surface` (when it was not), so none can be pass-eligible. Only the latter adds an exclusion-ledger row for an unread remainder. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         }
       ],
       "configured_as": [
@@ -986,10 +986,10 @@
           ],
           "evidence_gaps": [
             "low_confidence_tool",
-            "incomplete_surface"
+            "unattested_surface"
           ],
-          "exclusion_detail": "not established as a complete surface",
-          "exclusion_reason": "surface_not_enumerated",
+          "exclusion_detail": null,
+          "exclusion_reason": null,
           "extraction_complete": false,
           "extraction_permits_pass": false,
           "outcome": "low_confidence",
@@ -1001,7 +1001,7 @@
           "surface_complete": true,
           "surface_flags": [],
           "variant": null,
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and either `unattested_surface` (when its set was enumerated) or `incomplete_surface` (when it was not), so none can be pass-eligible. Only the latter adds an exclusion-ledger row for an unread remainder. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
           "ceiling": null,
@@ -1050,10 +1050,10 @@
           ],
           "evidence_gaps": [
             "low_confidence_tool",
-            "incomplete_surface"
+            "unattested_surface"
           ],
-          "exclusion_detail": "not established as a complete surface",
-          "exclusion_reason": "surface_not_enumerated",
+          "exclusion_detail": null,
+          "exclusion_reason": null,
           "extraction_complete": false,
           "extraction_permits_pass": false,
           "outcome": "low_confidence",
@@ -1067,7 +1067,7 @@
           "surface_complete": true,
           "surface_flags": [],
           "variant": "expression-backed server",
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and either `unattested_surface` (when its set was enumerated) or `incomplete_surface` (when it was not), so none can be pass-eligible. Only the latter adds an exclusion-ledger row for an unread remainder. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         }
       ],
       "configured_as": [
@@ -1328,7 +1328,7 @@
             "mcp_unknown_schema"
           ],
           "variant": "tool without a schema",
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and either `unattested_surface` (when its set was enumerated) or `incomplete_surface` (when it was not), so none can be pass-eligible. Only the latter adds an exclusion-ledger row for an unread remainder. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
           "ceiling": null,
@@ -1377,7 +1377,7 @@
             "mcp_unknown_schema"
           ],
           "variant": null,
-          "verdict": "Every action from this route raises `low_confidence_tool` and `incomplete_surface`, so none of them can be pass-eligible, and the exclusion ledger records what was not established. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
+          "verdict": "Every action from this route raises `low_confidence_tool` and either `unattested_surface` (when its set was enumerated) or `incomplete_surface` (when it was not), so none can be pass-eligible. Only the latter adds an exclusion-ledger row for an unread remainder. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         }
       ],
       "configured_as": [

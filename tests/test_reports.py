@@ -355,6 +355,14 @@ def test_sample_expected_report_json_uses_repo_placeholder_for_manifest_dir():
             )
 
 
+def test_sample_report_goldens_match_the_product_json_writer_terminator() -> None:
+    """Generated `report.json` ends at `}`, so fixtures must do the same."""
+
+    for path in sorted(Path("samples").glob("*/expected/report.json")):
+        assert not path.read_bytes().endswith(b"\n"), (
+            f"{path} has a trailing newline that write_json_report() does not emit; "
+            "regenerate it with a real scan instead of a text editor"
+        )
 def test_sample_expected_goldens_are_committed_with_lf_newlines():
     """Read as bytes, because every other comparison in this repo cannot.
 

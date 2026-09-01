@@ -2274,6 +2274,7 @@
             "suggested_patch_kind": "manual",
             "why": "Heuristic or unknown evidence cannot create a blocking policy finding."
           },
+          "policy_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
           "source_ref": "inventories/sdk-tools.json",
           "source_type": null,
           "subject": "send_email_preview [openai_sdk_static]",
@@ -2303,6 +2304,7 @@
             "suggested_patch_kind": "manual",
             "why": "Heuristic or unknown evidence cannot create a blocking policy finding."
           },
+          "policy_id": "SHIP-SCHEMA-MISSING-BOUNDS",
           "source_ref": "specs/support-tools.openapi.yaml",
           "source_type": null,
           "subject": "stripe.create_refund [support_openapi]",
@@ -2332,6 +2334,7 @@
             "suggested_patch_kind": "manual",
             "why": "Heuristic or unknown evidence cannot create a blocking policy finding."
           },
+          "policy_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
           "source_ref": "specs/support-tools.openapi.yaml",
           "source_type": null,
           "subject": "zendesk.update_ticket [support_openapi]",
@@ -2361,6 +2364,7 @@
             "suggested_patch_kind": "manual",
             "why": "Heuristic or unknown evidence cannot create a blocking policy finding."
           },
+          "policy_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
           "source_ref": ".agents-shipgate/mcp-tools.json",
           "source_type": null,
           "subject": "gmail.send_customer_email [support_mcp_tools]",
@@ -2390,6 +2394,7 @@
             "suggested_patch_kind": "manual",
             "why": "Heuristic or unknown evidence cannot create a blocking policy finding."
           },
+          "policy_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
           "source_ref": "shipgate.yaml",
           "source_type": null,
           "subject": "send_email_preview [openai_sdk_static]",
@@ -2419,6 +2424,7 @@
             "suggested_patch_kind": "manual",
             "why": "Heuristic or unknown evidence cannot create a blocking policy finding."
           },
+          "policy_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
           "source_ref": "shipgate.yaml",
           "source_type": null,
           "subject": "stripe.create_refund [support_openapi]",
@@ -2448,6 +2454,7 @@
             "suggested_patch_kind": "manual",
             "why": "Heuristic or unknown evidence cannot create a blocking policy finding."
           },
+          "policy_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
           "source_ref": "shipgate.yaml",
           "source_type": null,
           "subject": "gmail.send_customer_email [support_mcp_tools]",

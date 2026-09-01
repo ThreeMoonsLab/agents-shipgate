@@ -664,6 +664,7 @@ class EvidenceGap(BaseModel):
         "low_confidence_tool",
         "source_warning",
         "incomplete_surface",
+        "unattested_surface",
         "missing_effect_evidence",
         "inferred_effect_only",
         "conflicting_effect_evidence",
@@ -711,6 +712,12 @@ class EvidenceGap(BaseModel):
     subject_kind: Literal["action", "tool_source"] = "action"
     source_type: str | None = None
     source_ref: str | None = None
+    # The policy whose applicability produced this row. Kept separate from
+    # ``why`` so adopter prose never has to expose an engine-owned id, while
+    # machines retain the exact identity needed to join the gap back to its
+    # rule. ``builtin-*`` is forbidden only in adopter-facing prose; it is the
+    # correct value in this structured field.
+    policy_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
     why: str
     next_action: EvidenceGapAction
 

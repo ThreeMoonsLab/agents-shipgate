@@ -281,7 +281,9 @@ def test_every_gap_kind_renders_an_adopter_facing_fix_task_instruction() -> None
         ),
     )
     instructions = _insufficient_evidence_remedies(report)
-    assert len(instructions) >= len(_gap_kinds()) - 2, instructions
+    # The low-confidence row and its two surface variants are intentionally
+    # re-derived as one inventory repair rather than repeated three times.
+    assert len(instructions) >= len(_gap_kinds()) - 3, instructions
     for line in instructions:
         assert internal_vocabulary(line) == (), line
 
@@ -871,6 +873,8 @@ ADOPTER_FACING_MODULES = (
     "core/agent_controls.py",
     "core/agent_handoff.py",
     "core/evidence_actions.py",
+    "core/policy_evidence.py",
+    "core/semantic_assessment.py",
     "core/findings/subject_rollup.py",
     "core/source_warnings.py",
     "core/tool_identity.py",

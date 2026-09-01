@@ -181,7 +181,10 @@ def classify_semantic_permission(
         "inferred",
         "unknown",
         "conflicting",
-    } or any(issue.kind == "incomplete_surface" for issue in assessment.effect.issues)
+    } or any(
+        issue.kind in {"incomplete_surface", "unattested_surface"}
+        for issue in assessment.effect.issues
+    )
     if side_effect_unknown:
         classes.add("unknown")
 

@@ -388,7 +388,6 @@ def test_the_plain_path_adds_no_cause_when_there_is_no_blocker():
         blockers=[],
         headline="2 review item(s) flagged.",
     )
-
     assert (
         _verifier_headline(
             report=report,
@@ -399,6 +398,39 @@ def test_the_plain_path_adds_no_cause_when_there_is_no_blocker():
         == "2 review item(s) flagged."
     )
 
+
+def test_the_plain_blocked_headline_bounds_a_multibyte_title_by_bytes():
+    report = _report_with(
+        decision="blocked",
+        blockers=[
+            _blocker(
+                "SHIP-MULTIBYTE-BLOCKER",
+                "critical",
+                "支払い" * 2_000,
+            )
+        ],
+        headline="1 active finding(s) block release.",
+    )
+
+    headline = _verifier_headline(
+        report=report,
+        merge_verdict="blocked",
+        head_status="succeeded",
+        capability_review=_review(),
+        context_note=["This context yields after the blocking cause."],
+    )
+
+    assert headline is not None
+    assert len(headline.encode("utf-8")) <= MAX_ENVELOPE_PROSE_BYTES
+    assert truncate_prose(headline) == headline
+    assert headline.startswith("1 active finding(s) block release. Most severe:")
+    assert headline.endswith("….")
+    # Context is whole or absent; spending the envelope on the cause may evict
+    # it, but never cut it into an invented sentence.
+    assert (
+        "This context yields after the blocking cause." in headline
+        or "This context yields" not in headline
+    )
 
 def test_a_failed_scan_still_wins_over_every_ranking():
     report = _report_with(

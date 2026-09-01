@@ -12,24 +12,31 @@ agents-shipgate contract --json
 
 ### Unreleased projection-only migration
 
-No schema or runtime-contract version moves for the current projection fixes.
+No schema or runtime-contract version moves for the current fixes; the current
+v0.42 report schema gains the typed `unattested_surface` gap and optional
+`EvidenceGap.policy_id`.
 Completed blocked verifier runs now append the deterministically selected worst
 blocker to the plain headline as well as the adoption/self-approval branches;
 that same headline feeds `control.reason` and `control.next_action.why`. Runs
-with no blocker do not gain the clause. `incomplete_surface` prose now
-distinguishes a genuinely incomplete enumeration from a fully enumerated but
-lower-confidence surface that has no reviewed inventory attestation, and
+with no blocker do not gain the clause. A genuinely incomplete enumeration
+remains `incomplete_surface`; a lower-confidence extraction without an
+enumeration defect is the distinct `unattested_surface` gap, and only an explicit
+`surface: enumerated` adapter fact earns positive enumeration wording. Its
+remedy asks for reviewed attestation. Policy gaps retain their exact identity
+in structured `policy_id`, while
 policy-evidence gap prose no longer prefixes `why` with an engine-owned
 `builtin-*` policy id. Public and organization-defined check ids remain stable
-labels. These are prose changes only; never branch on them. See the
+labels. Branch on the typed gap kind and `policy_id`, never on the explanatory
+sentences. See the
 [verifier-explanation migration note](../STABILITY.md#migration-note-unreleased-verifier-explanations).
 
 Standalone trigger evaluation is unchanged. Inside a verifier artifact,
 however, its generic route has already been consumed. Embedded
-`trigger.next_action` is therefore a non-command `kind: "none"` row with
-`authoritative: false` and
+`trigger.next_action` therefore preserves the evaluated kind while clearing
+its command and adding `authoritative: false` and
 `authoritative_path: "control.next_action"`; the self-referential preview
-command is not repeated. In verifier, verify-run, and preview output, follow
+command is not repeated. Commands on embedded `matched_rules[]` are cleared as
+well. In verifier, verify-run, and preview output, follow
 only `control.next_action` and `control.allowed_next_commands`. See the
 [embedded-trigger migration note](../STABILITY.md#migration-note-unreleased-embedded-trigger-routing).
 
@@ -643,7 +650,70 @@ In `agents-shipgate-reports/report.json`:
 - `release_decision.evidence_coverage.semantic_coverage.declaration_questions` (v0.37+) — the same action surface counted as a questionnaire: `{total, answered, open, open_by_dimension, open_questions[]}`. A *question* is one `(action, dimension)` a reviewed `action_surface.actions` row has to answer, and only `effect` and `authority` are counted — an action whose effect the scan established by itself (an OpenAPI method, an MCP annotation) was never asked and is not in `total`, and an inventory or `agent_bindings` declaration has no per-action counterfactual to score against. `answered` is exact rather than optimistic: it counts dimensions that gap when the same action is re-resolved *without* its declaration. `total == answered + open`, and `open_by_dimension` sums to `open`. `open_questions[]` is the answer order and joins to `evidence_gaps[].subject_id`. v0.38 ranks it by the ceiling of what an answer can establish: the actions nothing has bounded first — no effect evidence, a protocol default standing in for its absence, or only a heuristic reading the scan may not act on — then the actions a reviewed declaration or policy-eligible source evidence established, strongest-acting first, with `effect` before `authority` within one action. Position is not severity: the action at the top is the one *least* is known about. Nothing here gates; it is a projection of counts the decision already made, published so a coding agent (and the generated questionnaire) can report progress instead of a gap tally.
 - `release_decision.evidence_coverage.policy_gap_count` and top-level `policy_evidence_gaps[]` (v0.33+) — policy applicability that is heuristic-only, mixed, unknown, or conflicting. These rows are outside Findings and cannot be suppressed, baselined, severity-overridden, acknowledged, or removed by `--no-heuristics`; any row prevents `passed`.
 - `release_decision.evidence_coverage.identity_coverage` (v0.30+) — `{total_observations, canonical_tools, bound_tools, pass_eligible_tools, ambiguous_name_count, gap_count, reason_counts}`. Provider-scoped observations remain separate unless an exact reviewed `tool_identity.bindings[]` entry joins them. Any ambiguous selector, invalid binding, or conflicting identity prevents `passed`.
-- `release_decision.evidence_coverage.evidence_gaps[]` (v0.26+; semantic kinds added v0.29) — one structured row per measurable gap: `{kind, subject, source_type, source_ref, why, next_action}`. In addition to `low_confidence_tool` and `source_warning`, v0.29 adds `incomplete_surface`, `missing_effect_evidence`, `inferred_effect_only`, `conflicting_effect_evidence`, `missing_authority_evidence`, `partial_authority_evidence`, `conflicting_authority_evidence`, and `invalid_semantic_annotation`. v0.36 adds `declaration_below_inferred_evidence`: the declared effect is weaker than evidence this scan inferred for the same action. The declaration still stands as the operative effect — heuristics never drive a verdict — but the action is not evidence-backed-pass until a reviewer raises the declared effect or adds `action_surface.actions[].override` with the `evidence` they checked and the `reason` it does not apply. An acknowledged override keeps the action pass-eligible and is reported as one semantic review concern, so the run can never read `passed`. Each acknowledgement is also emitted as a row in `release_decision.evidence_coverage.semantic_coverage.acknowledged_overrides[]` (v0.36+) naming the action, both readings, the hint source, any source evidence that agrees, and the reviewer's evidence and reason — the packet's §1 and the PR comment render it, because a count is not a review surface. The acknowledgement is consumed by policy applicability as well, so applying it reaches the review route rather than trading one gap for another. Semantic next actions use `declare_action_effect`, `declare_action_authority`, `declare_tool_inventory`, `provide_complete_inventory`, or `resolve_semantic_conflict`, include accepted values and exact source/manifest pointers, and are always human-routed. v0.37 adds `next_action.observed_readings[]` on effect rows — `{effect, sources[], observed}`, the distinct readings this scan's non-declaration evidence supports, so the row can be answered without opening `action_surface_facts`. Where those readings support one conservative answer, `next_action.declaration_template` carries it **pre-filled** instead of a `<REVIEW_REQUIRED>` blank. That value is a proposal, not an assertion: it is drawn from the closed `ActionEffect` vocabulary (never from source content), it is never weaker than any reading, and it is offered only where something was observed — a protocol default standing in for the absence of evidence, or a heuristic reading of `read`, keeps the blank. Their declaration placeholders carry `auto_apply=false` and `requires_human_review=true`, and a pre-filled template is still operative only once a human merges it into the manifest. **v0.41 adds `next_action.authorable_by`** (`coding_agent` | `human`, default `human`) — who may write the *first draft* of the answer. It is `coding_agent` only where the scan filled every blank in `declaration_template` **and** the gap kind is not one that asks a person to look again (`declaration_drift` restates a confirmed answer beside a moved pin and stays `human`, because an agent re-stamping the pin would close the request the row exists for). Such a row also carries `suggested_patch_kind: "declare_action"` and a `next_action.patch` that is *exactly* the template, split into the keys naming the action and the fields written — the schema rejects any other pairing, and `target_path` is relative to `manifest_dir` so the row reads the same in the packet, the SARIF file, and a cached base scan. `auto_apply` stays `false` and `requires_human_review` stays `true` on every row: the manifest is the trust root, so a declaration reaches the gate only through a human merge whoever typed it. The patch is outside `apply-patches --kinds` by default and is applied by the `confirm_declarations` control route that proposes it. v0.37 also re-routes `partial_authority_evidence`: it is raised when the *source's* authority evidence is ambiguous or incomplete, and the resolver preserves it whatever the manifest declares ("reviewed authority cannot replace ambiguous or incomplete source authority alternatives"). Its `next_action.kind` is therefore `provide_source` with no declaration template, rather than a `declare_action_authority` block that could not close the row it was printed on. It is excluded from `declaration_questions` for the same reason. Work the rows in order instead of guessing; Agents Shipgate never auto-asserts effect or authority.
+- `release_decision.evidence_coverage.evidence_gaps[]` (v0.26+;
+  semantic kinds added v0.29) — one structured row per measurable gap:
+  `{kind, subject, source_type, source_ref, policy_id, why, next_action}`.
+  `policy_id` is optional and present on policy-applicability rows; it retains
+  exact machine identity even when an engine-owned id is intentionally omitted
+  from adopter prose. In addition to `low_confidence_tool` and
+  `source_warning`, semantic rows include `incomplete_surface` for enumeration
+  failure and `unattested_surface` when lower-confidence extraction lacks
+  reviewed inventory attestation without an enumeration defect. Only an exact
+  adapter `surface: enumerated` fact earns positive enumeration wording. Other
+  semantic kinds include `missing_effect_evidence`, `inferred_effect_only`,
+  `conflicting_effect_evidence`, `missing_authority_evidence`,
+  `partial_authority_evidence`, `conflicting_authority_evidence`, and
+  `invalid_semantic_annotation`.
+
+  v0.36 adds `declaration_below_inferred_evidence`: the declared effect is
+  weaker than evidence this scan inferred for the same action. The declaration
+  still stands as the operative effect — heuristics never drive a verdict —
+  but the action is not evidence-backed-pass until a reviewer raises the
+  declared effect or adds `action_surface.actions[].override` with the
+  `evidence` they checked and the `reason` it does not apply. An acknowledged
+  override keeps the action pass-eligible and is reported as one semantic
+  review concern, so the run can never read `passed`. Each acknowledgement is
+  also emitted in
+  `release_decision.evidence_coverage.semantic_coverage.acknowledged_overrides[]`
+  naming the action, both readings, the hint source, any source evidence that
+  agrees, and the reviewer's evidence and reason. The packet's §1 and the PR
+  comment render it, and policy applicability consumes it, so applying an
+  override reaches review rather than trading one gap for another.
+
+  Semantic next actions use `declare_action_effect`,
+  `declare_action_authority`, `declare_tool_inventory`,
+  `provide_complete_inventory`, or `resolve_semantic_conflict`, include
+  accepted values and exact source/manifest pointers, and are human-routed.
+  v0.37 adds `next_action.observed_readings[]` on effect rows —
+  `{effect, sources[], observed}` — so the row can be answered without opening
+  `action_surface_facts`. Where those readings support one conservative answer,
+  `next_action.declaration_template` carries it pre-filled instead of a
+  `<REVIEW_REQUIRED>` blank. The value is a proposal, never an assertion: it
+  comes from the closed `ActionEffect` vocabulary, is never weaker than any
+  reading, and is offered only where something was observed. A protocol
+  default standing in for absent evidence, or a heuristic `read`, keeps the
+  blank. The placeholders carry `auto_apply=false` and
+  `requires_human_review=true`; only a reviewed manifest edit makes one
+  operative.
+
+  v0.41 adds `next_action.authorable_by` (`coding_agent` | `human`, default
+  `human`) — who may write the first draft. It is `coding_agent` only where the
+  scan filled every blank in `declaration_template` and the gap is not one that
+  asks a person to look again. `declaration_drift` therefore stays human-owned.
+  An agent-authorable row carries `suggested_patch_kind: "declare_action"` and
+  a `next_action.patch` exactly matching the template, split into the action
+  selector and fields written; the schema rejects any other pairing.
+  `target_path` is relative to `manifest_dir`. `auto_apply` stays false and
+  `requires_human_review` stays true for every row, and the patch remains
+  outside `apply-patches --kinds` by default; only the
+  `confirm_declarations` route proposes it.
+
+  v0.37 also re-routes `partial_authority_evidence`: it is raised when source
+  authority evidence is ambiguous or incomplete, and persists whatever the
+  manifest declares. Its action is `provide_source` with no declaration
+  template, not a declaration that could not close the row, and it is excluded
+  from `declaration_questions` for the same reason. Work the rows in order
+  instead of guessing; Agents Shipgate never auto-asserts effect or authority.
 - `loaded_policy_packs[].{source,sha256,sha256_status,owner}` (v0.27+) — policy-pack distribution and ownership metadata for organization audit. `sha256_status` is `"verified"` only when the manifest pin matched; otherwise it is `"unpinned"`. This is report metadata; normal pack matching and release gating still come from deterministic rules and `release_decision.decision`.
 - `findings[].support` (v0.33+) — typed predicate support with status, effective confidence, policy/block eligibility, claim IDs, evidence bases, predicate rows, and `support_hash`. Rule confidence and `block: true` are ceilings/requests; they cannot upgrade the support. Baseline matching for supported findings requires the same support hash.
 - `findings[].policy_routing` (v0.28+) — optional policy-pack owner, reviewers, and approval-routing metadata. This is non-enforcing reviewer/audit metadata, not `Finding.evidence`; it does not affect fingerprints, suppressions, baselines, `blocks_release`, or `release_decision`.
@@ -832,9 +902,10 @@ operational overlay and cannot change those fields.
 - `trigger` — the run/skip evaluation. Read `evaluation_status` first; two of
   its three values withhold the verdict, and in both `should_run` /
   `run_shipgate` / `skip` / `skip_reason` are `null`. Never read `null` as
-  `false`. The embedded `next_action` is diagnostic only: it is always a
-  non-command `kind: "none"` row with `authoritative: false` and points at
-  `control.next_action`, which is the route to follow. The standalone
+  `false`. The embedded `next_action` is diagnostic only: it preserves the
+  evaluated kind but carries no command, sets `authoritative: false`, and
+  points at `control.next_action`, which is the route to follow. Embedded
+  `matched_rules[]` carry no commands either. The standalone
   `agents-shipgate trigger --json` command retains its own actionable
   `next_action`.
   - `"not_evaluated"` — the diff could not be read. Repair the input through
