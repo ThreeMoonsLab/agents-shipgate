@@ -242,24 +242,31 @@ def test_tree_identity_rejects_portable_collision_even_on_an_exact_hit(
         capture_output=True,
         text=True,
     ).stdout.strip()
-    blob = subprocess.run(
-        ["git", "hash-object", "-w", "--stdin"],
-        cwd=repo,
-        check=True,
-        input=b'version: "0.1"\n',
-        capture_output=True,
-    ).stdout.decode("ascii").strip()
-    tree_input = b"".join(
-        f"100644 blob {blob}\t{name}".encode() + b"\0"
-        for name in sorted(("GATE.yml", "gate.yml"))
+    blob = (
+        subprocess.run(
+            ["git", "hash-object", "-w", "--stdin"],
+            cwd=repo,
+            check=True,
+            input=b'version: "0.1"\n',
+            capture_output=True,
+        )
+        .stdout.decode("ascii")
+        .strip()
     )
-    tree = subprocess.run(
-        ["git", "mktree", "-z"],
-        cwd=repo,
-        check=True,
-        input=tree_input,
-        capture_output=True,
-    ).stdout.decode("ascii").strip()
+    tree_input = b"".join(
+        f"100644 blob {blob}\t{name}".encode() + b"\0" for name in sorted(("GATE.yml", "gate.yml"))
+    )
+    tree = (
+        subprocess.run(
+            ["git", "mktree", "-z"],
+            cwd=repo,
+            check=True,
+            input=tree_input,
+            capture_output=True,
+        )
+        .stdout.decode("ascii")
+        .strip()
+    )
     commit = subprocess.run(
         ["git", "commit-tree", tree, "-p", parent, "-m", "portable collision"],
         cwd=repo,
@@ -385,22 +392,17 @@ def test_no_base_worktree_runs_exclude_their_own_outputs_from_identity(
     first = runner.invoke(app, args)
     assert first.exit_code == 0, first.output
     first_payload = json.loads(first.output)
-    first_diff = (
-        repo / "agents-shipgate-reports" / "verification-input.diff"
-    ).read_bytes()
+    first_diff = (repo / "agents-shipgate-reports" / "verification-input.diff").read_bytes()
 
     second = runner.invoke(app, args)
     assert second.exit_code == 0, second.output
     second_payload = json.loads(second.output)
-    second_diff = (
-        repo / "agents-shipgate-reports" / "verification-input.diff"
-    ).read_bytes()
+    second_diff = (repo / "agents-shipgate-reports" / "verification-input.diff").read_bytes()
 
     assert first_payload["changed_files"] == second_payload["changed_files"]
     assert first_payload["changed_files"] == ["tools.json"]
     assert not any(
-        path.startswith("agents-shipgate-reports/")
-        for path in second_payload["changed_files"]
+        path.startswith("agents-shipgate-reports/") for path in second_payload["changed_files"]
     )
     assert first_diff == second_diff
     for field in ("request_id", "subject_id", "input_set_id", "decision_id"):
@@ -438,9 +440,7 @@ def test_verify_rejects_an_index_hidden_source_in_worktree_mode(
     payload = json.loads(result.output)
     assert payload["head_status"] == "failed"
     assert payload["control"]["state"] == "human_review_required"
-    assert "Git index flags hide paths from worktree collection" in " ".join(
-        payload["base_notes"]
-    )
+    assert "Git index flags hide paths from worktree collection" in " ".join(payload["base_notes"])
     assert not (repo / "agents-shipgate-reports" / "report.json").exists()
 
 
@@ -523,8 +523,7 @@ def test_verify_json_missing_config_emits_verifier_unknown(tmp_path: Path) -> No
     assert payload["can_merge_without_human"] is False
     assert payload["control"]["state"] == "agent_action_required"
     assert payload["control"]["next_action"]["command"] == (
-        f"agents-shipgate verify --workspace {repo} --config missing.yaml "
-        "--preview --json"
+        f"agents-shipgate verify --workspace {repo} --config missing.yaml --preview --json"
     )
     assert "schema_version" not in payload
     assert not (repo / "agents-shipgate-reports" / "report.json").exists()
@@ -889,7 +888,7 @@ root_agent = LlmAgent(name="support_reader", tools=[lookup_tool])
         encoding="utf-8",
     )
     (repo / "shipgate.yaml").write_text(
-        '''
+        """
 version: "0.1"
 project:
   name: google-adk-remediation
@@ -902,7 +901,7 @@ tool_sources:
   - id: adk
     type: google_adk
     path: agent.py
-'''.lstrip(),
+""".lstrip(),
         encoding="utf-8",
     )
     _commit_all(repo, "add google adk agent")
@@ -1252,13 +1251,12 @@ def test_capability_review_keeps_same_named_provider_tools_as_distinct_subjects(
         "search [beta]",
     }
     assert all(
-        subject.change_types == ("action_added", "tool_added")
-        for subject in rollup.subjects
+        subject.change_types == ("action_added", "tool_added") for subject in rollup.subjects
     )
     by_subject = {subject.subject: subject for subject in rollup.subjects}
-    assert [(source.path, source.start_line) for source in by_subject["search [alpha]"].sources] == [
-        ("alpha-tools.json", 10)
-    ]
+    assert [
+        (source.path, source.start_line) for source in by_subject["search [alpha]"].sources
+    ] == [("alpha-tools.json", 10)]
     assert [(source.path, source.start_line) for source in by_subject["search [beta]"].sources] == [
         ("beta-tools.json", 20)
     ]
@@ -1388,9 +1386,9 @@ def test_capability_review_keeps_only_exact_finding_source_on_name_collision() -
     rollup = capability_delta_subject_rollup(report)
     by_subject = {subject.subject: subject for subject in rollup.subjects}
 
-    assert [(source.path, source.start_line) for source in by_subject["search [alpha]"].sources] == [
-        ("alpha.py", 42)
-    ]
+    assert [
+        (source.path, source.start_line) for source in by_subject["search [alpha]"].sources
+    ] == [("alpha.py", 42)]
     assert by_subject["search [beta]"].sources == ()
 
 
@@ -3051,8 +3049,7 @@ def test_authorization_rerun_path_is_invocation_absolute_and_lexical(
 def test_retained_manifest_probe_parses_quoted_flow_mapping(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     (repo / "old-gate.yml").write_text(
-        '{"version": "0.1", "project": {"name": "demo"}, '
-        '"agent": {"name": "assistant"}}\n',
+        '{"version": "0.1", "project": {"name": "demo"}, "agent": {"name": "assistant"}}\n',
         encoding="utf-8",
     )
     _commit_all(repo, "quoted manifest")
@@ -3071,8 +3068,7 @@ def test_retained_manifest_probe_batches_large_small_file_tree(
             encoding="utf-8",
         )
     (repo / "release.gate").write_text(
-        '{"version": "0.1", "project": {"name": "demo"}, '
-        '"agent": {"name": "assistant"}}\n',
+        '{"version": "0.1", "project": {"name": "demo"}, "agent": {"name": "assistant"}}\n',
         encoding="utf-8",
     )
     _commit_all(repo, "large small-file tree")
@@ -3459,9 +3455,7 @@ def test_verify_preview_rejects_a_manifest_directory(
 
     assert result.exit_code == 2, result.output
     assert "must identify one singly-linked regular file" in result.output
-    payload = json.loads(
-        [line for line in result.output.splitlines() if line.startswith("{")][-1]
-    )
+    payload = json.loads([line for line in result.output.splitlines() if line.startswith("{")][-1])
     assert payload["error"] == "config_error"
     assert payload["next_actions"][0]["kind"] == "command"
     assert " verify " in payload["next_actions"][0]["command"]
@@ -3493,9 +3487,7 @@ def test_verify_preview_rejects_a_symlinked_config(
 
     assert result.exit_code == 2, result.output
     assert "--config must not contain symlink components" in result.output
-    payload = json.loads(
-        [line for line in result.output.splitlines() if line.startswith("{")][-1]
-    )
+    payload = json.loads([line for line in result.output.splitlines() if line.startswith("{")][-1])
     assert [action["kind"] for action in payload["next_actions"]] == ["review"]
 
 
@@ -3524,9 +3516,7 @@ def test_verify_preview_rejects_an_external_absolute_config(
 
     assert result.exit_code == 2, result.output
     assert "--config must be inside --workspace" in result.output
-    payload = json.loads(
-        [line for line in result.output.splitlines() if line.startswith("{")][-1]
-    )
+    payload = json.loads([line for line in result.output.splitlines() if line.startswith("{")][-1])
     assert [action["kind"] for action in payload["next_actions"]] == ["review"]
 
 
@@ -3561,7 +3551,7 @@ def test_verify_preview_docs_only_diff_does_not_recommend_init(tmp_path: Path) -
     assert payload["control"]["state"] == "agent_action_required"
     assert payload["control"]["next_action"]["kind"] == "initialize"
     assert payload["control"]["next_action"]["command"] == (
-        f"shipgate init --workspace {repo} --write --json"
+        f"shipgate init --workspace {repo} --local-review --json"
     )
 
 
@@ -3575,8 +3565,7 @@ def test_verify_preview_consumes_the_trigger_route_before_publishing_control(
     _commit_all(repo, "base")
     _set_origin_main(repo)
     (repo / "agent.py").write_text(
-        "from google.adk.agents import LlmAgent\n"
-        "root_agent = LlmAgent(name='closer', tools=[])\n",
+        "from google.adk.agents import LlmAgent\nroot_agent = LlmAgent(name='closer', tools=[])\n",
         encoding="utf-8",
     )
     _commit_all(repo, "add agent")
@@ -3610,9 +3599,7 @@ def test_verify_preview_consumes_the_trigger_route_before_publishing_control(
         "authoritative": False,
         "authoritative_path": "control.next_action",
     }
-    assert all(
-        rule.get("command") is None for rule in payload["trigger"]["matched_rules"]
-    )
+    assert all(rule.get("command") is None for rule in payload["trigger"]["matched_rules"])
     control_action = payload["control"]["next_action"]
     assert control_action["kind"] == "initialize"
     assert " init " in f" {control_action['command']} "

@@ -63,6 +63,10 @@ If a repo is not configured yet, use the verify flow's preview entry point:
 agents-shipgate verify --preview --json
 ```
 
+When assessing someone else's repository without adopting Shipgate, follow the
+[temporary local-review flow](#temporary-external-repository-review) after
+preview. It is separate from durable repository adoption.
+
 The short `shipgate verify` alias remains invokable for compatibility, but
 agent-facing PR-gate guidance uses `agents-shipgate verify`.
 
@@ -166,6 +170,24 @@ Then read `report.json.release_decision.decision`, the source-of-truth gate:
 | `insufficient_evidence` | The scan cannot confidently gate release from the available static evidence; this does not prove the agent is unsafe. | Follow the first structured evidence-gap action. Supported frameworks name the generated local inventory and exact manifest route; unidentified source shapes receive the generic source guidance. Then rerun. |
 | `review_required` | Human review is needed for accepted debt or evidence gaps below the blocked threshold. | Review the listed items before promotion. |
 | `passed` | No active blocker or review signal was found. | Keep the report artifact with the PR/release record. |
+
+### Temporary external repository review
+
+Run the exact local-review command `verify --preview` emits:
+
+```bash
+agents-shipgate init --workspace . --local-review --json
+agents-shipgate verify --workspace . \
+  --config .agents-shipgate-local-review.yaml --json
+```
+
+This creates an ephemeral manifest and adds private ignore entries in
+`.git/info/exclude` for that manifest and `agents-shipgate-reports/`; tracked
+files stay untouched and generated reports stay out of `git status`. The init
+JSON enumerates every effect and its recovery path. Verifier output identifies
+the manifest as `local_review` and routes the ordinary release decision to
+human review, so it cannot become `passed` or `mergeable` evidence. Durable
+adoption remains `init --write`, including its managed `.gitignore` behavior.
 
 ## First adoption helper
 

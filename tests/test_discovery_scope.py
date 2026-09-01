@@ -365,7 +365,7 @@ def test_preview_routes_init_to_the_changed_project(monorepo: Path) -> None:
     assert action["kind"] == "initialize"
     assert action["command"].endswith(
         f"init --workspace {monorepo / 'python/agents/crypto-payroll-agent'} "
-        "--write --json"
+        "--local-review --json"
     )
     assert "python/agents/crypto-payroll-agent" in action["why"]
     assert payload["control"]["allowed_next_commands"] == [action["command"]]
@@ -532,7 +532,7 @@ def test_checking_the_head_out_clears_the_preview_that_asked_for_it(
     action = _preview_other_head(monorepo)["control"]["next_action"]
     assert action["kind"] == "initialize"
     assert (
-        f"--workspace {monorepo / 'python/agents/crypto-payroll-agent'} --write"
+        f"--workspace {monorepo / 'python/agents/crypto-payroll-agent'} --local-review"
         in action["command"]
     )
 
@@ -721,7 +721,7 @@ def test_preview_keeps_the_workspace_root_for_a_single_project_repo(
 
     action = payload["control"]["next_action"]
     assert action["kind"] == "initialize"
-    assert action["command"].endswith(f"init --workspace {repo} --write --json")
+    assert action["command"].endswith(f"init --workspace {repo} --local-review --json")
 
 
 def test_preview_sees_uncommitted_work(monorepo: Path) -> None:
@@ -1106,7 +1106,7 @@ def test_preview_routes_init_to_a_requirements_only_project(
     assert action["kind"] == "initialize"
     assert action["command"].endswith(
         f"init --workspace {weak_marker_monorepo / 'python/agents/smart_closer'} "
-        "--write --json"
+        "--local-review --json"
     )
     assert "python/agents/smart_closer" in action["why"]
 

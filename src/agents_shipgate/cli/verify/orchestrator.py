@@ -62,6 +62,11 @@ from agents_shipgate.core.human_authorization import (
     default_human_authorization_trust_policy_path,
     evaluate_human_authorization,
 )
+from agents_shipgate.core.manifest_provenance import (
+    ManifestProvenance,
+    manifest_provenance,
+    provisional_manifest_note,
+)
 from agents_shipgate.core.static_inputs import (
     StaticInputSnapshot,
     activate_static_input_snapshot,
@@ -170,6 +175,7 @@ from .git import (
     ensure_git_workspace,
     git_path,
     merge_base_sha,
+    path_committed_at_head,
     path_present_at_ref,
     read_bytes_at_ref,
     read_file_at_ref,
@@ -230,6 +236,24 @@ MAX_WORKTREE_CHANGED_FILE_BYTES = 64 * 1024 * 1024
 _BASE_COMPARISON_FAILURES = frozenset({"ref_missing", "archive_failed", "scan_failed"})
 
 
+def _configured_manifest_provenance(
+    *,
+    git_root: Path,
+    config_path: Path,
+    committed_snapshot: bool,
+) -> ManifestProvenance:
+    """Classify config authority from its Git identity, never its contents."""
+
+    logical_path = config_path
+    if config_path.is_absolute():
+        try:
+            logical_path = config_path.resolve().relative_to(git_root.resolve())
+        except ValueError:
+            return manifest_provenance(config_path, committed_at_head=None)
+    committed = True if committed_snapshot else path_committed_at_head(git_root, logical_path)
+    return manifest_provenance(logical_path, committed_at_head=committed)
+
+
 @owns_current_control("verify")
 def run_verify(
     *,
@@ -260,9 +284,7 @@ def run_verify(
         config,
         requested_workspace=workspace,
     )
-    out_dir = _resolve_out_dir(
-        git_root=git_root, requested_workspace=workspace.resolve(), out=out
-    )
+    out_dir = _resolve_out_dir(git_root=git_root, requested_workspace=workspace.resolve(), out=out)
     baseline_path = (
         _resolve_static_input_path(
             git_root,
@@ -300,11 +322,7 @@ def run_verify(
             ("config", config_path),
             *([("baseline", baseline_path)] if baseline_path is not None else []),
             *[("policy pack", path) for path in (policy_pack_paths or [])],
-            *(
-                [("diff-from", static_diff_from_path)]
-                if static_diff_from_path is not None
-                else []
-            ),
+            *([("diff-from", static_diff_from_path)] if static_diff_from_path is not None else []),
         ],
     )
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -383,10 +401,7 @@ def run_verify(
                 completeness="unavailable",
                 reason="not_attempted",
                 detail="verify stopped at the missing manifest.",
-                remediation=(
-                    "Point --config at the manifest, or initialize Shipgate, "
-                    "then rerun."
-                ),
+                remediation=("Point --config at the manifest, or initialize Shipgate, then rerun."),
             ),
             base_report=None,
             base_notes=[],
@@ -466,9 +481,7 @@ def run_verify(
                 completeness="unavailable",
                 reason="refs_missing",
                 detail=message,
-                remediation=(
-                    "Fetch the head ref locally, then rerun verify."
-                ),
+                remediation=("Fetch the head ref locally, then rerun verify."),
                 fetch_repairable=True,
             ),
             base_report=None,
@@ -559,8 +572,7 @@ def run_verify(
                     base_status = "archive_failed"
                     diff_failures.append((collected, f"{base}...{head}"))
                     base_notes.append(
-                        f"Could not collect the {base}...{head} diff in full. "
-                        f"{collected.note}"
+                        f"Could not collect the {base}...{head} diff in full. {collected.note}"
                     )
             else:
                 try:
@@ -659,14 +671,11 @@ def run_verify(
             # "changed paths were collected" in the notes while handing the
             # trigger an empty list would lose the path-rule match the paths
             # exist to produce.
-            changed_files = _dedupe_paths(
-                [*changed_files, *worktree_failure.changed_files]
-            )
+            changed_files = _dedupe_paths([*changed_files, *worktree_failure.changed_files])
             diff_text = _join_diff_text(diff_text, worktree_failure.diff_text)
             diff_failures.append((worktree_failure, head))
             base_notes.append(
-                f"Could not collect working-tree diff context. "
-                f"{worktree_failure.note}"
+                f"Could not collect working-tree diff context. {worktree_failure.note}"
             )
 
     # A worktree shortfall is never softened by a committed-ref diff that did
@@ -1005,9 +1014,7 @@ def run_verify(
             override_human_manifest_committed(True if archive_head else None),
         ):
             head_snapshot_token = (
-                activate_static_input_snapshot(head_snapshot)
-                if head_snapshot is not None
-                else None
+                activate_static_input_snapshot(head_snapshot) if head_snapshot is not None else None
             )
             try:
                 report, head_exit_code = run_scan(
@@ -1032,6 +1039,11 @@ def run_verify(
                         diff_text_available=bool(diff_text),
                         trigger_result=trigger,
                         configured_manifest_path=config_relative.as_posix(),
+                        manifest_provenance=_configured_manifest_provenance(
+                            git_root=git_root,
+                            config_path=config_relative,
+                            committed_snapshot=archive_head,
+                        ),
                         manifest_introduced=manifest_introduced,
                         # A base ref was resolved and the comparison could not
                         # be performed. ``diff_from_path`` is simply ``None``
@@ -1050,14 +1062,11 @@ def run_verify(
                         # exist, making adoption over a partially-wired catalog
                         # unfinishable without falsely binding unrelated tools
                         # (PR #404 review 2).
-                        base_comparison_unavailable=base_status
-                        in _BASE_COMPARISON_FAILURES,
+                        base_comparison_unavailable=base_status in _BASE_COMPARISON_FAILURES,
                     ),
                     capability_lock_callback=capture_capability_lock,
                     human_context_callback=capture_human_context,
-                    manifest_text=(
-                        head_manifest_text if archive_head else worktree_manifest_text
-                    ),
+                    manifest_text=(head_manifest_text if archive_head else worktree_manifest_text),
                 )
             except AgentsShipgateError as exc:
                 # `run_scan` records the manifest it read, and when the head is
@@ -1578,8 +1587,7 @@ def _bind_changed_files(
             snapshot.read_bytes(candidate, max_bytes=MAX_WORKTREE_CHANGED_FILE_BYTES)
         except (OSError, ValueError) as exc:
             raise ConfigError(
-                f"Changed worktree input {relative!r} could not be captured "
-                f"for verification: {exc}"
+                f"Changed worktree input {relative!r} could not be captured for verification: {exc}"
             ) from exc
 
 
@@ -1694,9 +1702,7 @@ def _rerun_options(
         # identity now. ``abspath`` normalizes ``..`` without following a
         # symlink and silently changing the operator-supplied grant path.
         authorization_path = Path(os.path.abspath(os.fspath(authorization)))
-        options.extend(
-            ["--authorization", shlex.quote(str(authorization_path))]
-        )
+        options.extend(["--authorization", shlex.quote(str(authorization_path))])
     return options
 
 
@@ -1841,9 +1847,7 @@ def _gate_introduction_is_unshared(
         return False
 
     def _is_the_manifest(path: str) -> bool:
-        return is_configured_manifest(
-            config_relative, path.replace("\\", "/"), workspace=git_root
-        )
+        return is_configured_manifest(config_relative, path.replace("\\", "/"), workspace=git_root)
 
     changed = {str(path).replace("\\", "/") for path in changed_files}
     inputs = set(touched_policy_surfaces(sorted(changed)))
@@ -1853,10 +1857,7 @@ def _gate_introduction_is_unshared(
     for path in external_policy_inputs:
         if path is not None:
             inputs.add(_repository_relative(str(path), git_root))
-    return not any(
-        candidate in changed and not _is_the_manifest(candidate)
-        for candidate in inputs
-    )
+    return not any(candidate in changed and not _is_the_manifest(candidate) for candidate in inputs)
 
 
 def _repository_relative(path: str, git_root: Path, *, anchor: Path | None = None) -> str:
@@ -2089,11 +2090,7 @@ def _self_approval_note(
         # trust-root facts can support adoption guidance. Scan-failure routing
         # must remain the authoritative headline and next action.
         return None
-    if (
-        manifest_introduced
-        and pure_adoption_review
-        and not capability_review.policy_weakened
-    ):
+    if manifest_introduced and pure_adoption_review and not capability_review.policy_weakened:
         manifest = (
             f"the configured manifest {configured_manifest!r}"
             if configured_manifest
@@ -2211,9 +2208,7 @@ _VOLATILE_PATH_RE = re.compile(r"(/[^\s'\"]*)+")
 def _stable_subject(subject: str) -> str:
     """A subject with run-specific absolute paths collapsed."""
 
-    return _VOLATILE_PATH_RE.sub(
-        lambda match: f"/…/{PurePosixPath(match.group(0)).name}", subject
-    )
+    return _VOLATILE_PATH_RE.sub(lambda match: f"/…/{PurePosixPath(match.group(0)).name}", subject)
 
 
 def _declaration_continuation_holds(
@@ -2252,9 +2247,7 @@ def _declaration_continuation_holds(
         return False
     receipt_path = out_dir / DECLARATION_CONTINUATION_ARTIFACT_NAME
     try:
-        receipt = DeclarationContinuationV1.model_validate_json(
-            receipt_path.read_bytes()
-        )
+        receipt = DeclarationContinuationV1.model_validate_json(receipt_path.read_bytes())
     except (OSError, ValueError):
         return False
     # The receipt names its own target, and it must be the gate this run is
@@ -2272,18 +2265,14 @@ def _declaration_continuation_holds(
     # ``config_relative`` that lost its directory turned a scoped
     # ``services/closer/shipgate.yaml`` into ``shipgate.yaml`` and read a file
     # that does not exist (#429 review).
-    manifest_absolute = (
-        config_path if config_path.is_absolute() else (git_root / config_path)
-    )
+    manifest_absolute = config_path if config_path.is_absolute() else (git_root / config_path)
     try:
         manifest_relative = manifest_absolute.resolve().relative_to(git_root.resolve())
     except (OSError, ValueError):
         return False
     if not is_configured_manifest(
         manifest_relative,
-        _repository_relative(
-            receipt.manifest_path, git_root, anchor=manifest_absolute.parent
-        ),
+        _repository_relative(receipt.manifest_path, git_root, anchor=manifest_absolute.parent),
         workspace=git_root,
     ):
         return False
@@ -2427,9 +2416,7 @@ def _row_only_gained_answers(before: dict, after: dict) -> bool:
 
     if set(before) - set(after):
         return False
-    return all(
-        after.get(key) == value or value is None for key, value in before.items()
-    )
+    return all(after.get(key) == value or value is None for key, value in before.items())
 
 
 def _withheld_declaration_note(
@@ -2503,8 +2490,7 @@ def _gap_provenance_note(
     if coverage is None or not coverage.evidence_gaps:
         return []
     head = Counter(
-        (str(gap.kind), _stable_subject(str(gap.subject or "")))
-        for gap in coverage.evidence_gaps
+        (str(gap.kind), _stable_subject(str(gap.subject or ""))) for gap in coverage.evidence_gaps
     )
     if base_report is None or not base_report.is_file():
         return []
@@ -2558,16 +2544,14 @@ def _gap_provenance_note(
     # accounted for by a gap the base already carried, which is exactly the
     # adapter case that had no surface at all.
     sentences = [
-        f"This diff introduces no new evidence gap; all {total} are "
-        "pre-existing on the base."
+        f"This diff introduces no new evidence gap; all {total} are pre-existing on the base."
     ]
     if excluded:
         sentences.append(excluded)
     if scaffolded:
         subset = "all of them" if scaffolded == total else f"{scaffolded} of them"
         sentences.append(
-            f"A one-time human declaration closes {subset} "
-            f"({SUGGESTED_DECLARATIONS_FILENAME})."
+            f"A one-time human declaration closes {subset} ({SUGGESTED_DECLARATIONS_FILENAME})."
         )
     return sentences
 
@@ -2711,9 +2695,7 @@ def _excluded_subject_clause(
     )
 
 
-def _render_exclusion_clause(
-    named: Sequence[tuple[str, str]], remainder: int
-) -> str:
+def _render_exclusion_clause(named: Sequence[tuple[str, str]], remainder: int) -> str:
     """``New in this diff and not fully analysed: 'a', 'b' — <phrase>; and 4 more.``
 
     Grouped by phrase so the common case — a diff that adds several tools and
@@ -2740,9 +2722,7 @@ def _render_exclusion_clause(
     grouped: dict[str, list[str]] = {}
     for label, phrase in named:
         grouped.setdefault(phrase, []).append(label)
-    parts = [
-        f"{_and_list(subjects)} — {phrase}" for phrase, subjects in grouped.items()
-    ]
+    parts = [f"{_and_list(subjects)} — {phrase}" for phrase, subjects in grouped.items()]
     if remainder:
         parts.append(f"and {remainder} more")
     return "New in this diff and not fully analysed: " + "; ".join(parts) + "."
@@ -2787,9 +2767,7 @@ def _worst_blocker(release_decision: ReleaseDecision | None) -> ReleaseDecisionI
 # a property a release artifact should depend on. ``Zl``/``Zp`` are the
 # line/paragraph separators that ``str.split`` already folds, listed so the
 # rule is stated once and completely.
-_UNSAFE_UNICODE_CATEGORIES = frozenset(
-    {"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"}
-)
+_UNSAFE_UNICODE_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"})
 
 # How much of the worst blocker's title the headline will carry. The title is
 # an untrusted value — it embeds a tool name read out of an OpenAPI spec, an
@@ -2816,8 +2794,7 @@ def _one_clause(value: str) -> str:
     """
 
     stripped = "".join(
-        " " if unicodedata.category(char) in _UNSAFE_UNICODE_CATEGORIES else char
-        for char in value
+        " " if unicodedata.category(char) in _UNSAFE_UNICODE_CATEGORIES else char for char in value
     )
     return " ".join(stripped.split())
 
@@ -2997,8 +2974,7 @@ def _blockers_outrank_governance(release_decision: ReleaseDecision | None) -> bo
     if release_decision is None:
         return False
     return any(
-        blocker.severity in _HEADLINE_LEADING_SEVERITIES
-        for blocker in release_decision.blockers
+        blocker.severity in _HEADLINE_LEADING_SEVERITIES for blocker in release_decision.blockers
     )
 
 
@@ -3063,9 +3039,7 @@ def _verifier_headline(
 
         room = MAX_ENVELOPE_PROSE_BYTES - len(suffix.encode("utf-8")) - 1
         primary = _report_primary_within_budget(source, byte_budget=max(room, 0))
-        context = _fit_sentences(
-            sentences, room - len(primary.encode("utf-8")) - 1
-        )
+        context = _fit_sentences(sentences, room - len(primary.encode("utf-8")) - 1)
         return f"{primary} {context}" if context else primary
 
     # A failed scan has no adoption evidence to act on. Lead with the failure,
@@ -3097,14 +3071,10 @@ def _verifier_headline(
     if note is not None:
         # Same ranking as the adoption branch above, for the repository that
         # has already adopted: the blocker leads and the prohibition follows.
-        if report is not None and _blockers_outrank_governance(
-            report.release_decision
-        ):
+        if report is not None and _blockers_outrank_governance(report.release_decision):
             return _compose_with_reserved_suffix(_report_lead(report, note), note)
         return _compose_with_reserved_suffix(
-            _fit_sentences(
-                sentences, MAX_ENVELOPE_PROSE_BYTES - len(note.encode("utf-8")) - 1
-            ),
+            _fit_sentences(sentences, MAX_ENVELOPE_PROSE_BYTES - len(note.encode("utf-8")) - 1),
             note,
         )
     if report is not None and report.agent_summary is not None:
@@ -3117,9 +3087,7 @@ def _verifier_headline(
         # blocker exists, so review/passed wording does not move.
         return _lead(_report_primary_within_budget(report))
     if head_status == "skipped":
-        return _lead(
-            "No agent-capability changes detected; Shipgate did not need to run."
-        )
+        return _lead("No agent-capability changes detected; Shipgate did not need to run.")
     return _fit_sentences(sentences, MAX_ENVELOPE_PROSE_BYTES) or None
 
 
@@ -3168,9 +3136,7 @@ def _derive_verifier_control(
         and diff_status.completeness == "complete"
     )
     subject_evaluated = bool(
-        read_the_change
-        and release_decision is not None
-        and release_decision.decision != "blocked"
+        read_the_change and release_decision is not None and release_decision.decision != "blocked"
     )
     # The one blocked result that may still be published, and only to the
     # extent of reaching review. The run read the change, the gate's own knobs
@@ -3219,16 +3185,9 @@ def _derive_verifier_control(
         )
 
     if fix_task is not None and fix_task.actor == "coding_agent" and fix_task.safe_to_attempt:
-        repair_commands = [
-            repair.command
-            for repair in fix_task.allowed_repairs
-            if repair.command
-        ]
+        repair_commands = [repair.command for repair in fix_task.allowed_repairs if repair.command]
         commands = list(dict.fromkeys(repair_commands))
-        if (
-            fix_task.verification_command
-            and fix_task.verification_command not in commands
-        ):
+        if fix_task.verification_command and fix_task.verification_command not in commands:
             commands.append(fix_task.verification_command)
         if not commands:
             raise ValueError("agent-safe verifier repair requires an exact repair command")
@@ -3410,8 +3369,8 @@ def _embedded_trigger(trigger: dict[str, Any]) -> dict[str, Any]:
         {
             "command": None,
             "why": (
-            "The verifier consumed the trigger route; follow "
-            "control.next_action for the current operation."
+                "The verifier consumed the trigger route; follow "
+                "control.next_action for the current operation."
             ),
             "authoritative": False,
             "authoritative_path": "control.next_action",
@@ -3468,9 +3427,7 @@ def _trigger_input_status(context: DiffContext | None) -> str:
     return _TRIGGER_INPUT_STATUS[context.completeness]
 
 
-def _diff_failure_action(
-    context: DiffContext, *, expects: str
-) -> AgentControlAction:
+def _diff_failure_action(context: DiffContext, *, expects: str) -> AgentControlAction:
     """Route a diff-input failure to the action that can actually repair it.
 
     A missing merge base or an unfetched partial-clone object is repaired by
@@ -3517,6 +3474,14 @@ def _build_verifier(
     worktree_ref: str | None = None,
     rerun_options: list[str] | None = None,
 ) -> VerifierArtifact:
+    provenance = _configured_manifest_provenance(
+        git_root=git_root,
+        config_path=config_path,
+        committed_snapshot=not worktree,
+    )
+    provenance_note = provisional_manifest_note(provenance)
+    if provenance_note is not None and provenance_note not in base_notes:
+        base_notes = [*base_notes, provenance_note]
     release_decision_model = report.release_decision if report is not None else None
     release_decision = (
         release_decision_model.model_dump(mode="json")
@@ -3590,9 +3555,7 @@ def _build_verifier(
         git_root=git_root,
         config_path=config_path,
         config_relative=(
-            config_path.relative_to(git_root)
-            if config_path.is_absolute()
-            else Path(config_path)
+            config_path.relative_to(git_root) if config_path.is_absolute() else Path(config_path)
         ),
         out_dir=out_dir,
         # The comparison the run evaluated, not ``head``: with a base, a
@@ -3668,9 +3631,7 @@ def _build_verifier(
         base_tree_sha=base_tree,
         head_tree_sha=head_tree,
         base_report_json=(
-            artifacts.get("verification_base_report_json")
-            if base_report is not None
-            else None
+            artifacts.get("verification_base_report_json") if base_report is not None else None
         ),
         base_notes=base_notes,
         execution=head_status,  # type: ignore[arg-type]
@@ -3860,9 +3821,7 @@ def _evaluate_authorization_overlay(
         )
     if plan.inputs.options.get("plugins_enabled") is not False:
         return (
-            AuthorizationEvaluationV1.not_applicable(
-                "authorization_requires_plugins_disabled"
-            ),
+            AuthorizationEvaluationV1.not_applicable("authorization_requires_plugins_disabled"),
             None,
         )
     try:
@@ -3993,9 +3952,7 @@ def _write_artifacts(
     verifier_path.parent.mkdir(parents=True, exist_ok=True)
     portable_diff_from_path: Path | None = None
     if diff_from_path is not None and diff_from_path.is_file():
-        portable_diff_from_path = verifier_path.with_name(
-            "verification-base-report.json"
-        )
+        portable_diff_from_path = verifier_path.with_name("verification-base-report.json")
         source_bytes = read_static_input_bytes(
             diff_from_path,
             max_bytes=64 * 1024 * 1024,
@@ -4057,6 +4014,7 @@ def _write_artifacts(
         *([baseline_path] if baseline_path is not None else []),
         *([diff_from_path] if diff_from_path is not None else []),
     ]
+
     def _finalize(snapshot: StaticInputSnapshot | None) -> None:
         """Seal one snapshot, rejecting any input that moved under it."""
 
@@ -4077,8 +4035,7 @@ def _write_artifacts(
 
     _finalize(active_snapshot)
     original_static_inputs = {
-        Path(os.path.abspath(os.path.normpath(os.fspath(path))))
-        for path in original_paths
+        Path(os.path.abspath(os.path.normpath(os.fspath(path)))) for path in original_paths
     }
     # Identity must rest on what the adapters actually read, which is the only
     # account that reaches an input discovered while parsing an entrypoint
@@ -4098,8 +4055,7 @@ def _write_artifacts(
             # Blob paths are logical and relative to the evaluated input root,
             # so a read outside it cannot become one. In practice this only
             # drops the externally supplied inputs already bound by name.
-            if path not in original_static_inputs
-            and (resolved_input_root in path.parents)
+            if path not in original_static_inputs and (resolved_input_root in path.parents)
         ]
         if evaluated_snapshot is not None
         else None
@@ -4113,13 +4069,10 @@ def _write_artifacts(
         )
         for path in policy_pack_paths
     ]
-    baseline_was_captured = (
-        baseline_path is not None
-        and (
-            active_snapshot.has(baseline_path)
-            if active_snapshot is not None and active_snapshot.contains(baseline_path)
-            else baseline_path.is_file()
-        )
+    baseline_was_captured = baseline_path is not None and (
+        active_snapshot.has(baseline_path)
+        if active_snapshot is not None and active_snapshot.contains(baseline_path)
+        else baseline_path.is_file()
     )
     portable_baseline_path = (
         _write_portable_static_input(
@@ -4188,9 +4141,7 @@ def _write_artifacts(
             repository_id=repository_identity(git_root),
             base_commit_sha=base_commit,
             base_tree_sha=(
-                tree_sha(git_root, verifier.base_ref)
-                if verifier.base_ref and base_commit
-                else None
+                tree_sha(git_root, verifier.base_ref) if verifier.base_ref and base_commit else None
             ),
             source_head_commit_sha=source_head_commit,
             head_commit_sha=head_commit,
@@ -4211,6 +4162,11 @@ def _write_artifacts(
                 "fail_on": sorted(fail_on or []),
                 "no_heuristics": no_heuristics,
                 "plugins_enabled": plugins_enabled is not False,
+                "manifest_provenance": _configured_manifest_provenance(
+                    git_root=git_root,
+                    config_path=Path(logical_config),
+                    committed_snapshot=archived_head,
+                ),
                 **resolved_options,
             },
             plugins_enabled=plugins_enabled,
@@ -4442,9 +4398,7 @@ def _publish_run_control(
         # A preview never runs a scan, so report.json and packet.json in this
         # directory belong to some earlier run.  Binding them would present two
         # generations as one current artifact set.
-        artifact_keys=(
-            VERIFIER_ROUTE_CONTROL_ARTIFACT_KEYS if operation == "preview" else None
-        ),
+        artifact_keys=(VERIFIER_ROUTE_CONTROL_ARTIFACT_KEYS if operation == "preview" else None),
     )
 
 
@@ -4522,9 +4476,7 @@ def _safe_worktree_overlay(git_root: Path, *, exclude: Path) -> tuple[bool, str 
     return (True, content_id(rows) if rows else None)
 
 
-def _safe_worktree_sha(
-    git_root: Path, resolve: Callable[[Path, str], str | None]
-) -> str | None:
+def _safe_worktree_sha(git_root: Path, resolve: Callable[[Path, str], str | None]) -> str | None:
     """This worktree's HEAD identity, or ``None`` outside a readable repository."""
 
     try:
@@ -4618,9 +4570,7 @@ def _static_input_sha256(path: Path | None) -> str | None:
 
     if path is None or not path.is_file():
         return None
-    return hashlib.sha256(
-        read_static_input_bytes(path, max_bytes=64 * 1024 * 1024)
-    ).hexdigest()
+    return hashlib.sha256(read_static_input_bytes(path, max_bytes=64 * 1024 * 1024)).hexdigest()
 
 
 def _write_capability_review_artifacts(
@@ -4695,9 +4645,7 @@ def _load_base_capability_lock(
         return None
 
 
-def _resolve_out_dir(
-    *, git_root: Path, requested_workspace: Path, out: Path | None
-) -> Path:
+def _resolve_out_dir(*, git_root: Path, requested_workspace: Path, out: Path | None) -> Path:
     """Where this run writes its artifacts.
 
     The *default* follows the workspace the caller named, not the repository
@@ -4747,9 +4695,7 @@ def _resolve_static_input_path(
     except OSError as exc:
         raise ConfigError(f"{label} could not be inspected safely: {path}") from exc
     if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
-        raise ConfigError(
-            f"{label} must identify one singly-linked regular file: {path}"
-        )
+        raise ConfigError(f"{label} must identify one singly-linked regular file: {path}")
     return lexical
 
 
@@ -4768,15 +4714,11 @@ def _resolve_config_under_workspace(
     """
 
     requested_anchor = (
-        requested_workspace.resolve()
-        if requested_workspace is not None
-        else workspace
+        requested_workspace.resolve() if requested_workspace is not None else workspace
     )
     candidate = path if path.is_absolute() else requested_anchor / path
     if path.is_absolute() and requested_workspace is not None:
-        lexical_requested = Path(
-            os.path.abspath(os.path.normpath(os.fspath(requested_workspace)))
-        )
+        lexical_requested = Path(os.path.abspath(os.path.normpath(os.fspath(requested_workspace))))
         canonical_requested = requested_workspace.resolve()
         lexical_path = Path(os.path.normpath(os.fspath(path)))
         try:
@@ -4859,12 +4801,9 @@ def _reject_symlink_components(
             else "a differently spelled filesystem entry"
         )
         raise ConfigError(
-            f"{label} must use the exact filesystem spelling: "
-            f"{requested} resolves to {actual}"
+            f"{label} must use the exact filesystem spelling: {requested} resolves to {actual}"
         )
-    raise ConfigError(
-        f"{label} could not be inspected safely: {requested}: {issue.detail}"
-    )
+    raise ConfigError(f"{label} could not be inspected safely: {requested}: {issue.detail}")
 
 
 def _dedupe_paths(paths: list[str]) -> list[str]:
@@ -4941,8 +4880,7 @@ def _project_archived_report_paths(
                 ) from exc
             if patch_target != archived_target:
                 raise ConfigError(
-                    "Archived suggested patch targets an unsupported file: "
-                    f"{target_file}"
+                    f"Archived suggested patch targets an unsupported file: {target_file}"
                 )
             patch.target_file = str(checkout_target)
 
@@ -5030,8 +4968,7 @@ def _reject_output_input_overlap(
         except ValueError:
             continue
         raise ConfigError(
-            f"Verifier --out overlaps the {label} input at "
-            f"{_display_path(candidate, git_root)}."
+            f"Verifier --out overlaps the {label} input at {_display_path(candidate, git_root)}."
         )
 
 
@@ -5048,7 +4985,7 @@ def _preview_init_command(workspace: Path, *, scope: ChangeScope | None = None) 
                 "init",
                 "--workspace",
                 str(command_workspace),
-                "--write",
+                "--local-review",
                 "--json",
             ]
         )
@@ -5211,9 +5148,7 @@ def _preview_scope(
             else ("unreadable_inventory" if "unreadable_inventory" in causes else "parse_budget")
         )
         return _PreviewScope(
-            resolution=ScopeResolution(
-                status="not_evaluated", detail=evidence.detail
-            ),
+            resolution=ScopeResolution(status="not_evaluated", detail=evidence.detail),
             cause=cause,
             python_file_total=evidence.python_file_total,
         )
@@ -5472,9 +5407,7 @@ def run_preview(
         config,
         requested_workspace=workspace,
     )
-    out_dir = _resolve_out_dir(
-        git_root=root, requested_workspace=requested_root, out=out
-    )
+    out_dir = _resolve_out_dir(git_root=root, requested_workspace=requested_root, out=out)
     _reject_output_input_overlap(
         git_root=root,
         out_dir=out_dir,
@@ -5540,9 +5473,7 @@ def run_preview(
         try:
             # The merge base, not the base ref: comparing against the tip of
             # the base branch would report its own commits as this change.
-            comparison_ref = (
-                require_merge_base_sha(root, base, "HEAD") if base else "HEAD"
-            )
+            comparison_ref = require_merge_base_sha(root, base, "HEAD") if base else "HEAD"
             worktree_paths, worktree_diff = working_tree_context(
                 root,
                 comparison_ref=comparison_ref,
@@ -5583,9 +5514,7 @@ def run_preview(
     resolution = preview_scope.resolution
     scope = resolution.scope
     scoped_config = (
-        _scoped_manifest_path(scope.directory, config_path.name)
-        if scope is not None
-        else None
+        _scoped_manifest_path(scope.directory, config_path.name) if scope is not None else None
     )
     scoped_manifest_present = scoped_config is not None
     # Which of the contested projects already carry their own manifest. A
@@ -5595,9 +5524,7 @@ def run_preview(
     contested_configured = tuple(
         relative
         for relative in resolution.contested
-        if _scoped_manifest_path(
-            root if relative == "." else root / relative, config_path.name
-        )
+        if _scoped_manifest_path(root if relative == "." else root / relative, config_path.name)
         is not None
     )
 
@@ -5665,9 +5592,7 @@ def run_preview(
             ),
         )
         read = (
-            "could only partly read"
-            if diff_input.completeness == "partial"
-            else "could not read"
+            "could only partly read" if diff_input.completeness == "partial" else "could not read"
         )
         # Partial evidence can still carry a sound run verdict — a matched path
         # rule needs no diff body — and the evaluator publishes it. Saying "no
@@ -5692,8 +5617,7 @@ def run_preview(
                 "before trusting any merge verdict"
             )
         headline = (
-            f"Shipgate preview {read} the requested PR diff "
-            f"({diff_input.reason}); {outcome}."
+            f"Shipgate preview {read} the requested PR diff ({diff_input.reason}); {outcome}."
         )
     elif scope is not None and scoped_manifest_present:
         # The changed project carries its own manifest, so that is the gate
@@ -5787,30 +5711,29 @@ def run_preview(
         # write a manifest for whichever agent happens to be in the current
         # checkout (#363 review). Which recovery says so depends on why it
         # could not tell, so the route is chosen from the cause.
-        next_action, headline = _unresolved_scope_route(
-            scope=preview_scope, workspace=workspace
-        )
+        next_action, headline = _unresolved_scope_route(scope=preview_scope, workspace=workspace)
     elif trigger.get("should_run") or trigger.get("dry_run_recommended"):
         next_action = CodingAgentCommandAction(
             kind="initialize",
             command=init_command,
             why=(
-                "This unconfigured workspace looks agent-related; initialize "
-                "the local Shipgate contract and advisory agent workflow."
+                "This unconfigured workspace looks agent-related; create a "
+                "side-effect-contained local-review manifest before verifying."
                 + (f" {scope_note}" if scope_note else "")
             ),
         )
-        headline = "Shipgate is relevant to this diff; initialize the local agent workflow."
+        headline = "Shipgate is relevant to this diff; initialize a provisional local review."
     elif not (base or head):
         next_action = CodingAgentCommandAction(
             kind="initialize",
             command=init_command,
             why=(
                 "No PR diff was supplied and no shipgate.yaml was found; "
-                "initialize Shipgate if this workspace contains an agent."
+                "initialize a provisional local review if this workspace "
+                "contains an agent."
             ),
         )
-        headline = "Shipgate is not set up here yet; initialize it to gate agent-capability PRs."
+        headline = "Shipgate is not set up here yet; initialize a provisional local review."
     else:
         next_action = CodingAgentCommandAction(
             kind="initialize",

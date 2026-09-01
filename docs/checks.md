@@ -157,6 +157,7 @@ baseline summary and do not fail CI.
 | `SHIP-MANIFEST-STALE-RISK-OVERRIDE` | medium | A risk override references a missing tool. |
 | `SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING` | high | A high-risk production or production-like tool lacks owner metadata. |
 | `SHIP-MANIFEST-UNUSED-SCOPE` | medium/high | `permissions.scopes` contains a scope unused by any loaded tool; broad unused scopes are high. |
+| `SHIP-VERIFY-LOCAL-REVIEW-PROVISIONAL` | medium | Verification uses an ephemeral local-review manifest; the result is provisional and cannot carry release authority. |
 | `SHIP-VERIFY-TRUST-ROOT-TOUCHED` | medium | A PR changed a release trust-root file; emitted only when a verification context (changed files) is supplied. |
 | `SHIP-VERIFY-POLICY-WEAKENED` | high | Base-vs-head effective policy weakened (CI mode downgraded, fail-on loosened, a severity override lowered across a tier, or the control pack moved to one that requires less). |
 | `SHIP-VERIFY-POLICY-BASE-ABSENT` | medium | A policy or manifest trust root changed and no base policy could be compared — no base report, a first adoption, or a control pack this build cannot resolve; routed to human review without a weakening claim. |
@@ -939,6 +940,18 @@ Two sub-kinds, both `low` severity:
   `baseline save` does not rewrite check IDs).
 - `resolved_not_pruned` — entry matched no active scan finding. Re-run
   `agents-shipgate baseline save` to drop the entry from the baseline.
+
+### SHIP-VERIFY-LOCAL-REVIEW-PROVISIONAL
+
+`verify` loaded a manifest Git could not prove is a committed repository trust
+root. The reserved `.agents-shipgate-local-review.yaml` path is always
+`local_review`; another untracked custom path is `uncommitted`; Git inspection
+failure is `unknown`. The finding goes through the ordinary
+`release_decision.decision` engine at review-required severity; it is not a
+second verdict. Verifier notes, the verification plan, and handoff blockers
+record the exact provenance, while the terminal receipt denies merge
+authority. Adopt `shipgate.yaml` through `init --write` and human review before
+using the policy as release evidence.
 
 ### SHIP-VERIFY-TRUST-ROOT-TOUCHED
 

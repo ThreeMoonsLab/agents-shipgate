@@ -367,7 +367,14 @@ def _resolve_human_declaration(workspace: Path) -> bool:
     manifest that still owes a declaration.
     """
 
-    manifest = workspace / "shipgate.yaml"
+    manifest = next(
+        path
+        for path in (
+            workspace / ".agents-shipgate-local-review.yaml",
+            workspace / "shipgate.yaml",
+        )
+        if path.is_file()
+    )
     before = manifest.read_text(encoding="utf-8")
     answer = "Read and close customer support tickets"
     lines = []
@@ -421,9 +428,13 @@ def test_a_route_is_the_same_route_only_when_both_subject_and_step_are():
     assert _route_key(repeated) != _route_key(moved_step)
     # A terminal state carries no action and must not collide with a step that
     # merely published no command.
-    assert _route_key(
-        _fake_step(operation="verify", input_id=None, action=None)
-    ) == ("verify", None, None, None, None)
+    assert _route_key(_fake_step(operation="verify", input_id=None, action=None)) == (
+        "verify",
+        None,
+        None,
+        None,
+        None,
+    )
 
 
 def test_the_adoption_walk_routes_end_to_end_on_the_envelope_alone(
@@ -467,8 +478,7 @@ def test_the_adoption_walk_routes_end_to_end_on_the_envelope_alone(
             assert step.envelope["control_state"] == "human_review_required"
             assert step.envelope["human_review"]["required"] is True
             assert _resolve_human_declaration(workspace), (
-                "the walk stopped for a human with nothing for a human to resolve: "
-                f"{action['why']}"
+                f"the walk stopped for a human with nothing for a human to resolve: {action['why']}"
             )
             # The only resume an envelope-only caller has: re-run the command
             # that stopped.
@@ -483,8 +493,7 @@ def test_the_adoption_walk_routes_end_to_end_on_the_envelope_alone(
         # that nothing in the walk asked for, which is how the non-advancing
         # `init --write` route was found.
         assert action["kind"] != "edit", (
-            "the walk was handed a coding-agent file edit with no obligation "
-            f"behind it: {action}"
+            f"the walk was handed a coding-agent file edit with no obligation behind it: {action}"
         )
         command = action["command"]
         assert command, "an agent_action_required route published no command"
@@ -810,9 +819,7 @@ def ambiguous_workspace(tmp_path: Path) -> Path:
     for name in ("a", "b"):
         project = workspace / name
         project.mkdir(parents=True)
-        (project / "agent.py").write_text(
-            _TWO_PROJECT_AGENT.format(name=name), encoding="utf-8"
-        )
+        (project / "agent.py").write_text(_TWO_PROJECT_AGENT.format(name=name), encoding="utf-8")
         (project / "pyproject.toml").write_text(
             f'[project]\nname = "{name}"\nversion = "0.1"\n', encoding="utf-8"
         )
@@ -930,9 +937,7 @@ def test_an_adopted_candidate_reconciles_the_pack_before_handing_off(
     )
     routes = refusal.payload["next_actions"]
     for_candidate = [
-        action
-        for action in routes
-        if action.get("path") == str(project / "shipgate.yaml")
+        action for action in routes if action.get("path") == str(project / "shipgate.yaml")
     ]
     assert for_candidate, routes
     action = for_candidate[0]
@@ -992,9 +997,7 @@ def test_an_explicit_default_pack_is_a_request_and_a_weakening(
     assert set(asked.envelope["permissions"].values()) == {False}
 
     # …while omitting the option entirely is not a request at all.
-    quiet = walk.execute(
-        walk.cli("init", "--workspace", str(workspace), "--write", "--json")
-    )
+    quiet = walk.execute(walk.cli("init", "--workspace", str(workspace), "--write", "--json"))
     _assert_shared_envelope(quiet)
     assert quiet.envelope["control_state"] == "agent_action_required"
     assert _rank_one(quiet)["kind"] == "configure"

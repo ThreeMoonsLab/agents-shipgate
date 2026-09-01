@@ -57,6 +57,19 @@
   named in the script's own "intentional simplifications" list and pinned by
   `test_framework_vocabulary_names_every_cli_omission`, which fails on any
   further omission (#485).
+- **External PRs can now be evaluated without mutating tracked project files.**
+  (#326) `verify --preview` routes unconfigured repositories to the new
+  `init --local-review` stage, which writes a reserved ephemeral manifest and
+  privately excludes it plus generated reports through `.git/info/exclude`.
+  Structured setup output inventories each local effect and its removal path;
+  durable `init --write` keeps its existing `shipgate.yaml` and managed
+  `.gitignore` behavior. Verification binds manifest provenance into its plan,
+  records the provisional boundary in verifier and handoff evidence, and emits
+  `SHIP-VERIFY-LOCAL-REVIEW-PROVISIONAL` through the one release-decision
+  engine. The reserved manifest is permanently provisional, and differently
+  named uncommitted or Git-unproven manifests fail closed too, so an ephemeral
+  policy cannot produce authoritative `passed`, `mergeable`, or
+  human-authorization evidence.
 
 - **Verifier and evidence explanations now preserve the fact that produced
   them.** (#436, #396, #414, #420) Plain blocked-run headlines name the

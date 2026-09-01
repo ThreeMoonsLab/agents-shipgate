@@ -15,6 +15,28 @@
 # docs/checks.md is human-maintained — update it by hand when the
 # user-facing prose (description/rationale/recommendation) changes.
 checks:
+- id: SHIP-VERIFY-LOCAL-REVIEW-PROVISIONAL
+  default_severity: medium
+  floor_severity: medium
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: Verification is using a local-review, uncommitted, or otherwise
+    unproven manifest rather than a committed repository trust root.
+  rationale: A locally generated assessment policy has not been reviewed by the
+    target repository. Letting structurally valid local declarations produce a
+    passing release artifact would launder local assertions into release
+    authority, so the existing release decision must remain review-required.
+  fires_when: A VerificationContext identifies the configured manifest provenance
+    as local_review, uncommitted, or unknown. Emits nothing on plain scan or
+    manifests Git proves are committed repository inputs.
+  evidence_fields:
+  - manifest
+  - manifest_provenance
+  - ephemeral
+  - release_authoritative
+  recommendation: Treat the result as provisional static assessment only. Adopt
+    shipgate.yaml through init --write and have a human review the committed
+    repository trust root before relying on release authority.
 - id: SHIP-VERIFY-TRUST-ROOT-TOUCHED
   default_severity: medium
   floor_severity: medium

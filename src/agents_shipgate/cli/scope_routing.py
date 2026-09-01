@@ -54,9 +54,7 @@ MAX_LISTED_SCOPE_CANDIDATES = 10
 MANIFEST_NAME = "shipgate.yaml"
 
 
-def rebased_kit_flags(
-    kit: Path | None, *, source: Path, target: Path
-) -> list[str] | None:
+def rebased_kit_flags(kit: Path | None, *, source: Path, target: Path) -> list[str] | None:
     """``--agent-instructions-kit`` for a command run in ``target``.
 
     Returns ``None`` when the kit cannot be named from there, which is a
@@ -76,7 +74,7 @@ def rebased_kit_flags(
     return ["--agent-instructions-kit", relative.as_posix()]
 
 
-def is_adopted(directory: Path) -> Path | None:
+def is_adopted(directory: Path, *, manifest_name: str = MANIFEST_NAME) -> Path | None:
     """The manifest already in ``directory``, when one is there to route to.
 
     A symlinked manifest is treated as absent: the loader refuses a manifest
@@ -85,7 +83,7 @@ def is_adopted(directory: Path) -> Path | None:
     and reports the real problem.
     """
 
-    candidate = directory / MANIFEST_NAME
+    candidate = directory / manifest_name
     try:
         if candidate.is_symlink() or not candidate.is_file():
             return None
@@ -124,9 +122,7 @@ def describe_candidate(candidate: AgentProjectCandidate, *, workspace: Path) -> 
     return f"{candidate.path} ({detail})" + (" — already adopted" if adopted else "")
 
 
-def candidate_caveats(
-    workspace: Path, candidates: Sequence[AgentProjectCandidate]
-) -> list[str]:
+def candidate_caveats(workspace: Path, candidates: Sequence[AgentProjectCandidate]) -> list[str]:
     """What the "re-run init on one of these" line does not cover.
 
     Emitted only for the candidates actually present, so neither line becomes
@@ -170,6 +166,9 @@ def scope_candidate_actions(
     kit: Path | None = None,
     init_refreshes_existing: bool = False,
     requested_control_pack: str | None = None,
+    manifest_name: str = MANIFEST_NAME,
+    alternate_manifest_name: str | None = None,
+    write_flag: str = "--write",
 ) -> list[NextAction]:
     """One exact command per candidate project, in the caller's order.
 
@@ -259,15 +258,15 @@ def scope_candidate_actions(
     for candidate in routable:
         target = workspace / candidate.path
         defines = ", ".join(candidate.agent_names)
-        manifest = is_adopted(target)
+        manifest = is_adopted(target, manifest_name=manifest_name)
+        if manifest is None and alternate_manifest_name is not None:
+            manifest = is_adopted(target, manifest_name=alternate_manifest_name)
         if manifest is not None and not init_refreshes_existing:
             candidate_pack = manifest_control_pack_at(manifest)
             if (
                 requested_control_pack is not None
                 and candidate_pack is not None
-                and unapplied_control_pack(
-                    requested=requested_control_pack, on_disk=candidate_pack
-                )
+                and unapplied_control_pack(requested=requested_control_pack, on_disk=candidate_pack)
             ):
                 # Reconcile before handing off, exactly as the workspace's own
                 # `init` route does. Ranked here, among the candidate commands,
@@ -320,9 +319,7 @@ def scope_candidate_actions(
             actions.append(
                 NextAction(
                     kind="command",
-                    command=render_command(
-                        ["doctor", "--config", str(manifest), "--json"]
-                    ),
+                    command=render_command(["doctor", "--config", str(manifest), "--json"]),
                     why=(
                         f"{candidate.path} already carries a manifest"
                         + (f" and defines {defines}." if defines else ".")
@@ -361,7 +358,7 @@ def scope_candidate_actions(
                         "init",
                         "--workspace",
                         str(target),
-                        "--write",
+                        write_flag,
                         *setup_flags,
                         *kit_flags,
                         "--json",

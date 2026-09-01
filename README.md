@@ -192,6 +192,10 @@ If a repo is not configured yet, use the verify flow's preview entry point:
 agents-shipgate verify --preview --json
 ```
 
+For a temporary assessment of an external repository, follow the
+[side-effect-contained local-review flow](#temporary-external-repository-review)
+below. Durable repository adoption remains a separate, deliberate setup path.
+
 The short `shipgate verify` alias remains invokable for compatibility, but
 agent-facing PR-gate guidance uses `agents-shipgate verify`.
 
@@ -262,6 +266,30 @@ Then read `report.json.release_decision.decision`, the source-of-truth gate:
 Common review signals include missing confirmation, missing idempotency
 evidence, broad-scope permissions, prohibited-action policy gaps, and
 trust-root changes such as weakened CI or manifest policy.
+
+### Temporary external repository review
+
+Follow `verify --preview` with the local-review command it emits:
+
+```bash
+agents-shipgate init --workspace . --local-review --json
+agents-shipgate verify --workspace . \
+  --config .agents-shipgate-local-review.yaml --json
+```
+
+`--local-review` writes an ephemeral manifest at the workspace root so its
+relative source paths still resolve, and privately excludes that file plus
+`agents-shipgate-reports/` through `.git/info/exclude`. It does not edit tracked
+project files. The JSON result lists the manifest and private-exclude effects,
+their cleanup paths, and the report-directory cleanup path. Verification marks
+the reserved manifest as `local_review` and always keeps the result
+provisional. The same fail-safe applies to differently named uncommitted or
+Git-unproven manifests: `passed`, `mergeable`, and human-authorization evidence
+require a committed, human-reviewed repository trust root.
+
+Use `init --write` for deliberate durable adoption. That existing path still
+writes `shipgate.yaml` and maintains the repository's managed `.gitignore`
+block.
 
 ### Authorize one exact coding-agent action
 

@@ -57,7 +57,7 @@ Use this before reading the full manifest schema.
 | Install fails in an older project environment | — | Agents Shipgate requires Python 3.12+. Install with `pipx` or `uv` using a Python 3.12+ interpreter. |
 | A fix or an upgrade behaves as though it never happened; a documented subcommand looks "missing" | — | Another copy is answering. `doctor --json` reports `environment.mismatches[]` with the interpreter, the imported package, and a runnable recovery command. See [diagnostics.md](diagnostics.md#which-shipgate-answered-the-environment-block). |
 | `agents-shipgate` exits with `ModuleNotFoundError` or "bad interpreter" before printing anything | — | The console script outlived the environment that backed it, so nothing in Shipgate can report it. Run `python -m agents_shipgate doctor --json` with a working interpreter: it names the stale wrapper as `console_script_interpreter_missing`. Then reinstall or remove that wrapper. |
-| Reports show up as untracked files | — | Add `agents-shipgate-reports/` to `.gitignore`; do not commit reports by default. |
+| Reports show up as untracked files | — | For durable adoption, add `agents-shipgate-reports/` to `.gitignore`. For a temporary external-repository assessment, rerun setup with `init --local-review`; it uses `.git/info/exclude` and reports its cleanup paths without editing tracked files. |
 
 When run under `AGENTS_SHIPGATE_AGENT_MODE=1`, errors carry a `next_actions: [...]` array alongside the legacy `next_action: str`. The full catalog and schema is in [diagnostics.md](diagnostics.md).
 
@@ -86,6 +86,14 @@ So Shipgate scopes rather than guesses:
   beside a sibling project does not send the answer back to the root. When the
   changed project already carries its own `shipgate.yaml`, preview routes you
   to `verify` there instead of to setup.
+- An unconfigured project routes to `init --local-review`, not `init --write`.
+  The former is a temporary assessment stage: it creates
+  `.agents-shipgate-local-review.yaml`, privately excludes it and the report
+  directory through `.git/info/exclude`, and leaves the worktree clean. Its
+  verifier finding `SHIP-VERIFY-LOCAL-REVIEW-PROVISIONAL` makes the one release
+  decision review-required, so a structurally valid local manifest cannot look
+  like reviewed release policy. Choose `init --write` explicitly when the
+  repository is adopting Shipgate durably.
 - Preview reads project markers from the **working tree**, because that is the
   tree the `init` it recommends would write to. So `verify --preview --head
   <ref>` claims no scope whenever `<ref>` is not the commit the worktree has
