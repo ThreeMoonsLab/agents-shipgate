@@ -17,7 +17,7 @@ unverified attribution.
 ## The incident shape
 
 Name the review failure in product-independent terms: `[agent weakens its own
-gate | governed edits governance | capability change rides release | other]`.
+gate | governed edits governance | prompt change rides release | other]`.
 Separate the documented incident from the constructed fixture.
 
 ## Replay
@@ -26,7 +26,7 @@ Select and link the closest fixture from the
 [incident fixture index](README.md):
 
 ```bash
-uvx agents-shipgate fixture run [fixture-name]
+uvx agents-shipgate@[minimum-version] fixture run [fixture-name]
 ```
 
 Record the generated values, never a hand-written approximation:

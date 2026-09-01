@@ -4,22 +4,26 @@ Public reports show why a merge gate cannot rely only on instructions telling
 the governed agent to preserve it. In
 [Claude Code issue #40117](https://github.com/anthropics/claude-code/issues/40117),
 the reporter documented commits made while hooks were bypassed despite explicit
-project instructions. A separate
+project instructions; the report was closed as `not_planned`. A separate,
+currently unanswered
 [GitHub community discussion](https://github.com/orgs/community/discussions/187679)
 records users encountering a restriction on agent edits under
-`.github/agents/`, with participants describing the self-modification trust
-boundary.
+`.github/agents/`. Participants describe the self-modification trust boundary,
+but GitHub has not published an official rationale in that thread.
 
 This fixture does not reproduce either product or its implementation. It uses
 the existing `samples/agent_weakens_gate` repository: the base contains a clean
 read-only docs agent and the Agents Shipgate workflow; the synthetic head
 deletes only that workflow.
 
-Replay it from an installed release:
+Replay it from the v0.18.0 release:
 
 ```bash
-uvx agents-shipgate fixture run agent_weakens_gate
+uvx agents-shipgate@0.18.0 fixture run agent_weakens_gate
 ```
+
+Before v0.18.0 is published, use
+`./shipgate fixture run agent_weakens_gate` from this checkout.
 
 Current engine output:
 

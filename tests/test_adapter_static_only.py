@@ -352,7 +352,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/fixture.py",
         surface="attr_call:subprocess.run",
-        line=509,
+        line=519,
         snippet=(
             "subprocess.run(['git', *args], cwd=cwd, check=True, capture_output=True, text=True)"
         ),
@@ -422,7 +422,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="fixtures.py",
         surface="attr_call:importlib.resources.files",
-        line=152,
+        line=178,
         snippet="files('agents_shipgate')",
         rationale=(
             "Resolves the bundled fixture directory (samples/*) inside the "

@@ -25,10 +25,13 @@ agents-shipgate fixture run support_refund_agent
 Three PR-shaped demos map public incident shapes to fresh verifier output:
 
 ```bash
-agents-shipgate fixture run agent_weakens_gate
-agents-shipgate fixture run governed_edits_governance
-agents-shipgate fixture run capability_change_rides_release
+./shipgate fixture run agent_weakens_gate
+./shipgate fixture run governed_edits_governance
+./shipgate fixture run prompt_change_rides_release
 ```
+
+Those commands run from this checkout. The installed suite is available from
+v0.18.0 as `uvx agents-shipgate@0.18.0 fixture run <name>`.
 
 The second command is an explicit expected-fail for the unshipped
 `.github/agents/**` governance surface. It prints both the desired and observed

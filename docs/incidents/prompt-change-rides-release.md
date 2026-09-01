@@ -1,4 +1,4 @@
-# Incident shape: a capability change rides a routine release
+# Incident shape: a prompt change rides a routine release
 
 AWS reported that malicious code reached version 1.84.0 of the Amazon Q
 Developer VS Code extension after a repository credential was abused and the
@@ -13,15 +13,24 @@ prompt under `prompts/release.md` changes beside `package.json` and
 `CHANGELOG.md` in a routine patch release. It neither reproduces the vendor's
 code nor attempts a destructive action.
 
+Replay it from the v0.18.0 release:
+
 ```bash
-uvx agents-shipgate fixture run capability_change_rides_release
+uvx agents-shipgate@0.18.0 fixture run prompt_change_rides_release
 ```
+
+Before v0.18.0 is published, use
+`./shipgate fixture run prompt_change_rides_release` from this checkout.
 
 Current engine output:
 
 - changed files: `CHANGELOG.md`, `package.json`, and `prompts/release.md`;
-- `SHIP-VERIFY-TRUST-ROOT-TOUCHED` names `prompts/release.md` and the
-  `**/prompts/**` match;
+- `SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED` and
+  `SHIP-VERIFY-TRUST-ROOT-TOUCHED` are both present; the latter names
+  `prompts/release.md` and its `**/prompts/**` match;
+- `verifier.json.trigger.matched_rules` includes
+  `TRIGGER-PROMPTS-OR-POLICIES` with action `run_shipgate`, the top-level
+  trigger has `run_shipgate: true`, and `TRIGGER-DOCS-ONLY-NEGATIVE` is absent;
 - `report.json.release_decision.decision` is `review_required`;
 - `verifier.json.merge_verdict` is `human_review_required`;
 - `can_merge_without_human` is `false`.

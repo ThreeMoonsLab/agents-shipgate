@@ -125,30 +125,37 @@ def test_installed_wheel_replays_incident_fixtures(
             "Merge verdict: blocked",
             "blocked",
             "blocked",
-            "SHIP-VERIFY-CI-GATE-REMOVED",
-            True,
+            ("SHIP-VERIFY-CI-GATE-REMOVED",),
+            (),
         ),
         (
             "governed_edits_governance",
             "Fixture expectation: expected-fail",
             "mergeable",
             "passed",
-            "SHIP-VERIFY-TRUST-ROOT-TOUCHED",
-            False,
+            (),
+            ("SHIP-VERIFY-TRUST-ROOT-TOUCHED",),
         ),
         (
-            "capability_change_rides_release",
+            "prompt_change_rides_release",
             "Merge verdict: human_review_required",
             "human_review_required",
             "review_required",
-            "SHIP-VERIFY-TRUST-ROOT-TOUCHED",
-            True,
+            (
+                "SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED",
+                "SHIP-VERIFY-TRUST-ROOT-TOUCHED",
+            ),
+            (),
         ),
     )
 
     def replay(
-        expectation: tuple[str, str, str, str, str, bool],
-    ) -> tuple[tuple[str, str, str, str, str, bool], Path, subprocess.CompletedProcess[str]]:
+        expectation: tuple[str, str, str, str, tuple[str, ...], tuple[str, ...]],
+    ) -> tuple[
+        tuple[str, str, str, str, tuple[str, ...], tuple[str, ...]],
+        Path,
+        subprocess.CompletedProcess[str],
+    ]:
         name = expectation[0]
         out = tmp_path / name
         result = subprocess.run(
@@ -174,7 +181,7 @@ def test_installed_wheel_replays_incident_fixtures(
         results = list(executor.map(replay, fixtures))
 
     for expectation, out, result in results:
-        name, expected_output, merge_verdict, decision, check_id, check_present = expectation
+        name, expected_output, merge_verdict, decision, required_checks, absent_checks = expectation
         assert result.returncode == 0, f"{name}: {result.stdout}{result.stderr}"
         assert expected_output in result.stdout
         verifier = json.loads((out / "verifier.json").read_text(encoding="utf-8"))
@@ -182,7 +189,8 @@ def test_installed_wheel_replays_incident_fixtures(
         assert verifier["merge_verdict"] == merge_verdict
         assert report["release_decision"]["decision"] == decision
         check_ids = {finding["check_id"] for finding in report["findings"]}
-        assert (check_id in check_ids) is check_present
+        assert set(required_checks) <= check_ids
+        assert not (set(absent_checks) & check_ids)
 
 
 def test_wheel_excludes_generated_shipgate_reports(built_wheel: Path) -> None:

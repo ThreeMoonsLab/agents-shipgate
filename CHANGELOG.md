@@ -159,7 +159,28 @@
   delta examples are generated from `samples/ai_generated_refund_pr` by
   `scripts/generate_schemas.py` and gated on drift.
 
+- **Replayable incident fixtures turn first-contact activation into a
+  verifiable product path.** (#471) `fixture run` now materializes three
+  PR-shaped histories and feeds them through the real verifier:
+  `agent_weakens_gate` blocks removal of the Shipgate workflow,
+  `prompt_change_rides_release` routes a protected prompt change beside
+  ordinary release metadata to human review, and
+  `governed_edits_governance` openly records the still-unshipped
+  `.github/agents/**` path boundary as an expected-fail owned by #474. The
+  expected-fail contract fails closed when the report is absent and only
+  declares the gap resolved when a review finding names the missing path.
 
+  The v0.18.0 package will include the replay metadata and synthetic changes
+  without duplicating protected sample manifests. `fixture list --json`
+  distinguishes replay identities from their backing sample paths, and
+  `fixture copy` writes an incident-specific README. A source-checkout command
+  is documented until that package exists, so first contact never invokes a
+  PyPI version that cannot know the fixture name.
+
+  The headline metric is **activation**: each public incident shape now has a
+  one-command, deterministic verifier result plus a reusable response-article
+  template and a filled evidence-disciplined example. No detection engine,
+  schema, check ID, or release-decision rule changes in this work.
 - **Reviewed risk overrides no longer masquerade as scan observations.** (#460)
   `risk_overrides.tags` is excluded from `effect_readings` and the derived
   action `basis`, so adding or removing a reviewed tag no longer reopens a

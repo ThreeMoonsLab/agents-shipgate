@@ -2,8 +2,10 @@
 
 GitHub custom-agent files live under `.github/agents/`. A
 [public GitHub community discussion](https://github.com/orgs/community/discussions/187679)
-documents Copilot refusing edits in that directory and discusses the risk of an
-agent changing the configuration that controls its own behavior and access.
+documents a user encountering Copilot refusing edits in that directory. The
+thread is currently unanswered; participants discuss the risk of an agent
+changing the configuration that controls its own behavior and access, but
+GitHub has not published an official rationale there.
 
 The constructed replay starts with conservative
 `.github/agents/release-reviewer.agent.md` instructions. The synthetic PR
@@ -11,14 +13,18 @@ changes only that file to remove the separate-review boundary. It does not copy
 GitHub's instructions or any vendor vulnerability.
 
 ```bash
-uvx agents-shipgate fixture run governed_edits_governance
+uvx agents-shipgate@0.18.0 fixture run governed_edits_governance
 ```
+
+Before v0.18.0 is published, use
+`./shipgate fixture run governed_edits_governance` from this checkout.
 
 Current engine output is intentionally an **expected-fail**:
 
 - desired verdict: `human_review_required`;
 - observed `report.json` decision: `passed`;
 - observed `verifier.json` verdict: `mergeable`;
+- observed `can_merge_without_human`: `true`;
 - missing path-level signal: `SHIP-VERIFY-TRUST-ROOT-TOUCHED` for
   `.github/agents/**`.
 

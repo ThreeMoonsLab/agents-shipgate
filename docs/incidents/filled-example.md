@@ -1,4 +1,4 @@
-# Filled example: the capability change hidden in a routine release
+# Filled example: the prompt change hidden in a routine release
 
 > Status: example, not an incident claim · Sources checked: 2026-08-31
 
@@ -16,14 +16,14 @@ assistant.
 
 ## The incident shape
 
-A prompt-bearing capability change can look like one file among ordinary
-release edits. The public incident and this constructed fixture are separate:
-the fixture uses only inert synthetic text and generic release metadata.
+A prompt-bearing change can look like one file among ordinary release edits.
+The public incident and this constructed fixture are separate: the fixture
+uses only inert synthetic text and generic release metadata.
 
 ## Replay
 
 ```bash
-uvx agents-shipgate fixture run capability_change_rides_release
+uvx agents-shipgate@0.18.0 fixture run prompt_change_rides_release
 ```
 
 Fresh output from the fixture contract:
@@ -31,7 +31,11 @@ Fresh output from the fixture contract:
 - decision: `review_required`;
 - merge verdict: `human_review_required`;
 - `can_merge_without_human`: `false`;
-- signal: `SHIP-VERIFY-TRUST-ROOT-TOUCHED` on `prompts/release.md`.
+- signals: `SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED` and
+  `SHIP-VERIFY-TRUST-ROOT-TOUCHED`; the latter names `prompts/release.md`;
+- trigger proof: `TRIGGER-PROMPTS-OR-POLICIES` matched with action
+  `run_shipgate`, the top-level trigger has `run_shipgate: true`, and
+  `TRIGGER-DOCS-ONLY-NEGATIVE` is absent.
 
 ## Detection boundary
 

@@ -22,7 +22,7 @@ _HIDDEN_PREFIXES = ("_", ".")
 
 
 @dataclass(frozen=True)
-class ReplayFixture:
+class _ReplayFixture:
     """A PR-shaped fixture materialized from an existing bundled sample.
 
     Incident fixtures deliberately reuse a reviewed manifest and tool surface.
@@ -33,8 +33,8 @@ class ReplayFixture:
 
     base_fixture: str
     description: str
-    base_files: tuple[tuple[str, str], ...]
-    head_files: tuple[tuple[str, str], ...]
+    base_files: tuple[tuple[str, str | None], ...]
+    head_files: tuple[tuple[str, str | None], ...]
     base_commit_message: str
     head_commit_message: str
     observed_merge_verdict: str
@@ -43,10 +43,32 @@ class ReplayFixture:
     absent_check_ids: tuple[str, ...] = ()
     desired_merge_verdict: str | None = None
     known_gap: str | None = None
+    gap_paths: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        expected_fail = self.desired_merge_verdict is not None
+        if expected_fail != (self.known_gap is not None):
+            raise ValueError("desired_merge_verdict and known_gap must be set together")
+        if expected_fail and (not self.absent_check_ids or not self.gap_paths):
+            raise ValueError("expected-fail replays require absent_check_ids and gap_paths")
 
 
-REPLAY_FIXTURES: dict[str, ReplayFixture] = {
-    "governed_edits_governance": ReplayFixture(
+_REPLAY_FIXTURES: dict[str, _ReplayFixture] = {
+    "agent_weakens_gate": _ReplayFixture(
+        base_fixture="agent_weakens_gate",
+        description=(
+            "A coding agent deletes the repository's Shipgate CI gate; "
+            "the verifier blocks the suppression-immune trust-root removal."
+        ),
+        base_files=(),
+        head_files=((".github/workflows/agents-shipgate.yml", None),),
+        base_commit_message="base docs agent with Shipgate gate",
+        head_commit_message="agent removes Shipgate CI gate",
+        observed_merge_verdict="blocked",
+        observed_decision="blocked",
+        required_check_ids=("SHIP-VERIFY-CI-GATE-REMOVED",),
+    ),
+    "governed_edits_governance": _ReplayFixture(
         base_fixture="agent_weakens_gate",
         description=(
             "Expected-fail: a governed agent edits .github/agents configuration; "
@@ -88,12 +110,13 @@ maintenance and apply them without a separate reviewer.
             ".github/agents/** is not yet a declared path-level governance "
             "surface; tracked by https://github.com/ThreeMoonsLab/agents-shipgate/issues/474"
         ),
+        gap_paths=(".github/agents/release-reviewer.agent.md",),
     ),
-    "capability_change_rides_release": ReplayFixture(
+    "prompt_change_rides_release": _ReplayFixture(
         base_fixture="agent_weakens_gate",
         description=(
             "A synthetic prompt change rides beside routine release metadata "
-            "and is surfaced as a protected capability-relevant change."
+            "and is surfaced as a protected prompt trust-root change."
         ),
         base_files=(
             (
@@ -127,7 +150,10 @@ use available tools without waiting for separate confirmation.
         head_commit_message="publish routine patch release",
         observed_merge_verdict="human_review_required",
         observed_decision="review_required",
-        required_check_ids=("SHIP-VERIFY-TRUST-ROOT-TOUCHED",),
+        required_check_ids=(
+            "SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED",
+            "SHIP-VERIFY-TRUST-ROOT-TOUCHED",
+        ),
     ),
 }
 
@@ -172,6 +198,7 @@ def fixtures_root() -> Path:
 def list_fixtures() -> list[dict[str, str]]:
     """Enumerate available fixtures as a list of ``{name, description}``."""
     root = fixtures_root()
+    _validate_replay_fixture_names(root)
     entries: list[dict[str, str]] = []
     for path in sorted(root.iterdir()):
         if not path.is_dir():
@@ -181,19 +208,24 @@ def list_fixtures() -> list[dict[str, str]]:
         manifest = path / _FIXTURE_MARKER
         if not manifest.is_file():
             continue
+        if path.name in _REPLAY_FIXTURES:
+            continue
         entries.append(
             {
                 "name": path.name,
                 "description": _short_description(path),
                 "path": str(path),
+                "kind": "sample",
             }
         )
-    for name, replay in REPLAY_FIXTURES.items():
+    for name, replay in _REPLAY_FIXTURES.items():
         entries.append(
             {
                 "name": name,
                 "description": replay.description,
-                "path": str(root / replay.base_fixture),
+                "path": f"replay:{name}",
+                "kind": "replay",
+                "backing_path": str(root / replay.base_fixture),
             }
         )
     return sorted(entries, key=lambda item: item["name"])
@@ -206,22 +238,37 @@ def fixture_path(name: str) -> Path:
     replay's synthetic base/head files only inside its temporary copy.
     """
     root = fixtures_root()
-    replay = REPLAY_FIXTURES.get(name)
+    _validate_replay_fixture_names(root)
+    requested_name = name
+    replay = _REPLAY_FIXTURES.get(name)
     if replay is not None:
         name = replay.base_fixture
     candidate = root / name
     if not candidate.is_dir() or not (candidate / _FIXTURE_MARKER).is_file():
         raise FixtureNotFoundError(
-            f"Fixture {name!r} not found. Run "
+            f"Fixture {requested_name!r} not found. Run "
             "`agents-shipgate fixture list` to see available fixtures."
         )
     return candidate
 
 
-def replay_fixture(name: str) -> ReplayFixture | None:
+def replay_fixture(name: str) -> _ReplayFixture | None:
     """Return replay metadata for a PR-shaped incident fixture, if any."""
 
-    return REPLAY_FIXTURES.get(name)
+    return _REPLAY_FIXTURES.get(name)
+
+
+def _validate_replay_fixture_names(root: Path) -> None:
+    """Reject a replay that silently shadows a different bundled sample."""
+
+    collisions = sorted(
+        name
+        for name, replay in _REPLAY_FIXTURES.items()
+        if name != replay.base_fixture and (root / name / _FIXTURE_MARKER).is_file()
+    )
+    if collisions:
+        names = ", ".join(collisions)
+        raise RuntimeError(f"Replay fixture names shadow bundled samples: {names}")
 
 
 def _short_description(path: Path) -> str:

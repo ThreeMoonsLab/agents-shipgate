@@ -8,7 +8,7 @@ public motivation and static-analysis boundary are documented in
 [`docs/incidents/agent-weakens-gate.md`](../../docs/incidents/agent-weakens-gate.md).
 
 ```bash
-agents-shipgate fixture run agent_weakens_gate
+./shipgate fixture run agent_weakens_gate
 ```
 
 The fixture builds a temporary base/head git history:

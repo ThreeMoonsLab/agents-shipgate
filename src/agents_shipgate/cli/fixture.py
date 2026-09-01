@@ -10,6 +10,7 @@ import shutil
 import subprocess
 from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 
@@ -20,11 +21,15 @@ from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputP
 from agents_shipgate.fixtures import (
     FixtureNotFoundError,
     FixturesUnavailableError,
-    ReplayFixture,
     fixture_path,
     list_fixtures,
     replay_fixture,
 )
+from agents_shipgate.schemas.report import ReadinessReport
+from agents_shipgate.schemas.verifier import VerifierArtifact
+
+if TYPE_CHECKING:
+    from agents_shipgate.fixtures import _ReplayFixture
 
 fixture_app = typer.Typer(
     help="Run, copy, list, or verify bundled sample fixtures.",
@@ -104,16 +109,6 @@ def fixture_run(
         )
         return
 
-    if name == "agent_weakens_gate":
-        _run_agent_weakens_gate_fixture(
-            name=name,
-            src=src,
-            out=out,
-            ci_mode=ci_mode,
-            keep=keep,
-        )
-        return
-
     import tempfile
 
     workdir = Path(tempfile.mkdtemp(prefix=f"shipgate-fixture-{name}-"))
@@ -178,6 +173,14 @@ def fixture_copy(
     shutil.copytree(src, target)
     if replay is not None:
         _apply_fixture_files(target, dict(replay.base_files))
+        (target / "README.md").write_text(
+            f"# {name}\n\n{replay.description}\n\n"
+            f"This replay uses the reviewed `{replay.base_fixture}` sample as its "
+            "backing manifest and tool surface. The copied directory is the base "
+            "state; the run command materializes its synthetic head commit.\n\n"
+            f"Run it with `agents-shipgate fixture run {name}`.\n",
+            encoding="utf-8",
+        )
         (target / "INCIDENT-FIXTURE.md").write_text(
             f"# {name}\n\n{replay.description}\n\n"
             f"Replay from the installed package with "
@@ -290,38 +293,11 @@ def _run_ai_generated_refund_pr_fixture(
     )
 
 
-def _run_agent_weakens_gate_fixture(
-    *,
-    name: str,
-    src: Path,
-    out: Path | None,
-    ci_mode: str | None,
-    keep: bool,
-) -> None:
-    """Run the trust-root demo: the head commit deletes the Shipgate CI
-    gate workflow — the cheapest reward-hack — and the verifier blocks the
-    merge via the suppression-immune SHIP-VERIFY-CI-GATE-REMOVED check."""
-
-    def head_files(_target: Path) -> dict[str, str | None]:
-        return {".github/workflows/agents-shipgate.yml": None}
-
-    _run_verify_pr_fixture(
-        name=name,
-        src=src,
-        out=out,
-        ci_mode=ci_mode,
-        keep=keep,
-        head_files_for=head_files,
-        base_commit_message="base docs agent with Shipgate gate",
-        head_commit_message="agent removes Shipgate CI gate",
-    )
-
-
 def _run_replay_pr_fixture(
     *,
     name: str,
     src: Path,
-    replay: ReplayFixture,
+    replay: _ReplayFixture,
     out: Path | None,
     ci_mode: str | None,
     keep: bool,
@@ -359,7 +335,7 @@ def _run_verify_pr_fixture(
     head_files_for: Callable[[Path], dict[str, str | None]],
     base_commit_message: str,
     head_commit_message: str,
-    expectation: ReplayFixture | None = None,
+    expectation: _ReplayFixture | None = None,
 ) -> None:
     import tempfile
 
@@ -435,35 +411,50 @@ def _run_verify_pr_fixture(
 
 
 def _report_replay_expectation(
-    replay: ReplayFixture,
+    replay: _ReplayFixture,
     *,
-    verifier: object,
-    report: object,
+    verifier: VerifierArtifact,
+    report: ReadinessReport | None,
 ) -> int:
     """Pin a replay to the engine output it claims, including honest gaps."""
 
-    merge_verdict = getattr(verifier, "merge_verdict", None)
-    release_decision = getattr(verifier, "release_decision", None)
-    decision = getattr(release_decision, "decision", None)
-    findings = getattr(report, "findings", [])
-    check_ids = {getattr(finding, "check_id", None) for finding in findings}
-    resolved_check_ids = sorted(set(replay.absent_check_ids) & check_ids)
+    if report is None:
+        typer.echo(
+            "Fixture expectation unavailable: the verifier emitted no readiness "
+            "report; refusing to treat missing findings as expected absence.",
+            err=True,
+        )
+        return 20
+
+    merge_verdict = verifier.merge_verdict
+    release_decision = verifier.release_decision
+    decision = release_decision.decision if release_decision is not None else None
+    check_ids = {finding.check_id for finding in report.findings}
+    unexpectedly_present = sorted(set(replay.absent_check_ids) & check_ids)
+    resolved_paths: dict[str, set[str]] = {}
+    for finding in report.findings:
+        for path in replay.gap_paths:
+            if _evidence_contains_path(finding.evidence, path):
+                resolved_paths.setdefault(path, set()).add(finding.check_id)
 
     if (
         replay.desired_merge_verdict is not None
         and merge_verdict == replay.desired_merge_verdict
-        and resolved_check_ids
+        and resolved_paths
     ):
+        named_paths = "; ".join(
+            f"{path} via {', '.join(sorted(checks))}"
+            for path, checks in sorted(resolved_paths.items())
+        )
         typer.echo(
             "Expected-fail resolved: the engine now emits the desired "
-            f"{replay.desired_merge_verdict!r} verdict with "
-            f"{', '.join(resolved_check_ids)}; update this fixture's contract.",
+            f"{replay.desired_merge_verdict!r} verdict and names {named_paths}; "
+            "update this fixture's contract.",
             err=True,
         )
         return 20
 
     missing = sorted(set(replay.required_check_ids) - check_ids)
-    unexpectedly_present = sorted(set(replay.absent_check_ids) & check_ids)
     mismatches: list[str] = []
     if merge_verdict != replay.observed_merge_verdict:
         mismatches.append(
@@ -480,6 +471,13 @@ def _report_replay_expectation(
         typer.echo("Fixture expectation diverged:", err=True)
         for mismatch in mismatches:
             typer.echo(f"  - {mismatch}", err=True)
+        if replay.desired_merge_verdict is not None:
+            typer.echo(f"Known gap: {replay.known_gap}", err=True)
+            typer.echo(
+                "Inspect fresh report.json; convert this fixture only when a "
+                "review finding names the gap path.",
+                err=True,
+            )
         return 20
 
     if replay.desired_merge_verdict is not None:
@@ -490,6 +488,18 @@ def _report_replay_expectation(
     else:
         typer.echo("Fixture expectation: confirmed")
     return 0
+
+
+def _evidence_contains_path(value: object, path: str) -> bool:
+    """Return whether structured finding evidence names ``path`` exactly."""
+
+    if isinstance(value, str):
+        return value == path
+    if isinstance(value, Mapping):
+        return any(_evidence_contains_path(item, path) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_evidence_contains_path(item, path) for item in value)
+    return False
 
 
 def _finish_fixture_copy(
