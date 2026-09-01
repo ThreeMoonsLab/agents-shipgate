@@ -10,7 +10,156 @@ permissions:
   contents: read
 
 jobs:
+  suite:
+    # The aggregate test run, split across parallel jobs.
+    #
+    # It used to be one step inside `test`, and that job spent 456-839s of its
+    # 15-minute budget on it depending on runner speed — so whether a green
+    # commit stayed green was decided by which runner it drew, and `main`
+    # itself was cancelled at the cap. Splitting the *suite* rather than
+    # raising the number keeps a real bound: each shard is roughly a third of
+    # the work, so the margin grows back and stays there as the suite grows
+    # (add a shard).
+    #
+    # `conftest.py` assigns whole test *files* to shards, deterministically,
+    # from the collection alone — nothing is exchanged between these jobs.
+    # `tests/test_shard_partition.py` asserts the union of the shards is the
+    # suite, because a partition that silently drops a file leaves every job
+    # green while a test stops running.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            constraints/dev.txt
+            constraints/build-backend.txt
+
+      - name: Install
+        # The same hash-locked closure the `test` job installs; the rationale
+        # for each flag is on that job. `pip check` runs there rather than
+        # three more times here.
+        run: |
+          python -m pip install --require-hashes --requirement constraints/dev.txt
+          python -m pip install --require-hashes --requirement constraints/build-backend.txt
+          python -m pip install -e . --no-deps --no-build-isolation
+
+      - name: Verify the dependency locks match the declared requirements
+        # Repeated from the `test` job on purpose. It exists to fail by name
+        # *before* the suite, rather than surfacing as a confusing ImportError
+        # partway through it — and now that the suite runs in its own job, a
+        # copy in `test` alone would merely race it.
+        run: python scripts/verify_dependency_lock.py
+
+      - name: Test (shard ${{ matrix.shard }} of 3)
+        # Excludes the `perf` marker — the latency budget tests run in the
+        # `test` job, alone, so their timing isn't disturbed by parallel load.
+        #
+        # The static adapter invariant lint runs as its own fail-fast step
+        # there too, so keep it out of the coverage pass rather than doing the
+        # same AST sweep twice on every PR.
+        #
+        # No `--cov-fail-under` here: a shard covers a third of the suite, so
+        # its coverage is a fragment. The threshold is enforced once, on the
+        # combined data, in `coverage` below.
+        env:
+          SHIPGATE_TEST_SHARDS: 3
+          SHIPGATE_TEST_SHARD: ${{ matrix.shard }}
+        run: python -m pytest -n auto -m "not perf" --ignore=tests/test_adapter_static_only.py --cov=agents_shipgate --cov-report=
+
+      - name: Upload coverage fragment
+        # Renamed off the leading dot on purpose: `.coverage` is a hidden file
+        # and whether the uploader picks one up depends on the action version
+        # this workflow pins. A fragment that silently fails to upload would
+        # leave the gate measuring two thirds of the suite and passing.
+        run: mv .coverage coverage-fragment.dat
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: coverage-${{ matrix.shard }}
+          path: coverage-fragment.dat
+          if-no-files-found: error
+
+  coverage:
+    # The coverage gate, enforced once over the combined fragments.
+    #
+    # Splitting the suite split its coverage with it, and three partial
+    # measurements each fail an 85% threshold that the whole run passes. This
+    # job is where the number is a number about the suite again.
+    needs: [suite]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: constraints/dev.txt
+
+      - name: Install
+        run: |
+          python -m pip install --require-hashes --requirement constraints/dev.txt
+          python -m pip install -e . --no-deps --no-build-isolation
+
+      - name: Download coverage fragments
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: coverage-*
+          path: coverage-fragments
+
+      - name: Combine and enforce the threshold
+        # v0.21 (E7): bumped from 75 → 85. Actual aggregate coverage on
+        # current main is ~88%, so the gate is +10pp tighter with ~3pp
+        # headroom for day-to-day movement. The bump catches the next time a
+        # refactor lands materially less-covered code without a corresponding
+        # test pass.
+        #
+        # `coverage combine` consumes its inputs, so the fragments are copied
+        # to distinct names first — three files all called `.coverage` in
+        # separate directories would otherwise collide on the way in.
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          fragments=(coverage-fragments/coverage-*/coverage-fragment.dat)
+          if [ "${#fragments[@]}" -eq 0 ]; then
+            echo "no coverage fragments were downloaded; the shards produced none." >&2
+            exit 1
+          fi
+          index=0
+          for fragment in "${fragments[@]}"; do
+            index=$((index + 1))
+            cp "${fragment}" ".coverage.${index}"
+          done
+          echo "combining ${index} coverage fragment(s)"
+          python -m coverage combine
+          python -m coverage report --show-missing --fail-under=85
+
   test:
+    # Everything that is not the aggregate suite: the fail-fast lints, the
+    # named safety canaries, the latency budget, and the release-shaped
+    # packaging checks.
+    #
+    # Deliberately independent of `suite`. Several of these steps exist to
+    # fail *before* the long run, by name — a `needs` here would make them
+    # report after it instead, which is the opposite of what they are for.
+    # Every job is its own required check, so "CI passed" is still all of
+    # them passing.
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -89,22 +238,6 @@ jobs:
         # Cross-host boundary completeness is a separate trust dimension.
         # Keep false-complete, input-integrity, and secret-redaction failures
         # visible before the aggregate coverage run.
-
-      - name: Test
-        # v0.21 (E7): bumped from 75 → 85. Actual aggregate coverage on
-        # current main is ~88%, so the gate is +10pp tighter with ~3pp
-        # headroom for day-to-day movement. The bump catches the next
-        # time a refactor lands materially less-covered code without
-        # a corresponding test pass.
-        #
-        # Excludes the `perf` marker — the latency budget tests run as
-        # a separate step below (after the main suite finishes so their
-        # timing isn't disturbed by parallel test load).
-        #
-        # The static adapter invariant lint runs in its own fail-fast
-        # step above, so keep it out of the coverage pass to avoid
-        # doing the same AST sweep twice on every PR.
-        run: python -m pytest -n auto -m "not perf" --ignore=tests/test_adapter_static_only.py --cov=agents_shipgate --cov-report=term-missing --cov-fail-under=85
 
       - name: Latency budget
         # Runs the `benchmark/perf/scenarios/` synthetic scans and

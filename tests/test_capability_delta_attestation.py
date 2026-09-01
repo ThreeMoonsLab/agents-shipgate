@@ -23,6 +23,7 @@ properties that claim is made of:
 
 from __future__ import annotations
 
+import copy
 import functools
 import hashlib
 import json
@@ -592,10 +593,12 @@ def test_the_reference_verifier_imports_nothing_of_ours() -> None:
     third_party = imports - {
         "__future__",
         "argparse",
+        "collections.abc",
         "hashlib",
         "json",
-        "sys",
         "pathlib",
+        "re",
+        "sys",
         "typing",
         # Optional, and only to run JSON Schema stage one when it is installed.
         "jsonschema",
@@ -865,6 +868,205 @@ def test_the_reference_verifier_derives_what_the_package_derives(tmp_path: Path)
     ) == ("evidence_only", [])
 
 
+def test_the_reference_verifier_restates_the_published_vocabularies() -> None:
+    """A closed format's verifier must know exactly which values exist.
+
+    The script cannot import these, so it carries copies — and a copy that
+    drifts *widens* the language it accepts, which for a safety vocabulary is
+    the failure that matters. Nothing but this compares them.
+    """
+
+    from agents_shipgate.schemas.capabilities import CapabilityEvidenceProvenanceKind
+    from agents_shipgate.schemas.capability_change import CapabilitySubjectKind
+    from agents_shipgate.schemas.capability_payload import (
+        CAPABILITY_ID_PATTERN,
+        MAX_SAFE_INTEGER,
+        PAYLOAD_DIGEST_PATTERN,
+        SUBJECT_KEY_PATTERN,
+        CapabilityAnalysisStatus,
+        CapabilityPermissionClass,
+        CapabilityPermissionStatus,
+        CapabilityRecordTransition,
+        CapabilitySubjectTransition,
+    )
+    from agents_shipgate.schemas.capability_semantics import CapabilitySemanticDirection
+    from agents_shipgate.schemas.common import Confidence
+    from agents_shipgate.schemas.surfaces import ActionEffect
+
+    module = _reference_module()
+    for published, restated in (
+        (ActionEffect, module.ACTION_EFFECTS),
+        (CapabilitySubjectKind, module.SUBJECT_KINDS),
+        (CapabilityEvidenceProvenanceKind, module.PROVENANCE_KINDS),
+        (Confidence, module.CONFIDENCE),
+        (CapabilityPermissionStatus, module.PERMISSION_STATUSES),
+        (CapabilityPermissionClass, module.PERMISSION_CLASSES),
+        (CapabilityAnalysisStatus, module.ANALYSIS_STATUSES),
+        (CapabilityRecordTransition, module.RECORD_TRANSITIONS),
+        (CapabilitySubjectTransition, module.SUBJECT_TRANSITIONS),
+        (CapabilitySemanticDirection, module.SEMANTIC_DIRECTIONS),
+        (CapabilityChangeKind, module.CHANGE_KINDS),
+    ):
+        assert set(get_args(published)) == set(restated), published
+
+    assert module.MAX_SAFE_INTEGER == MAX_SAFE_INTEGER
+    assert module.CAPABILITY_ID_RE == CAPABILITY_ID_PATTERN
+    assert module.SUBJECT_KEY_RE == SUBJECT_KEY_PATTERN
+    assert module.PAYLOAD_DIGEST_RE == PAYLOAD_DIGEST_PATTERN
+
+
+@pytest.mark.parametrize(
+    ("pointer", "value", "rule"),
+    [
+        # The reviewer's reproduction: a safety value outside the closed v1
+        # enum reached `valid: true`, because a membership change carries no
+        # second record and nothing ever looked at it.
+        (
+            ("predicate", "delta", "subjects", 0, "changes", 0, "after", "effect", "effect"),
+            "harmless",
+            "S3",
+        ),
+        # `isinstance(True, int)` is true in Python, so a boolean count then
+        # satisfies every arithmetic rule downstream.
+        (("predicate", "delta", "summary", "added_subjects"), True, "S2"),
+        (("predicate", "delta", "subjects", 0, "subject", "name"), 7, "S2"),
+        (("predicate", "delta", "base", "capability_count"), -1, "S5"),
+        (
+            ("predicate", "delta", "subjects", 0, "changes", 0, "after", "capability_id"),
+            "cap_nothex",
+            "S4",
+        ),
+        (
+            ("predicate", "delta", "subjects", 0, "changes", 0, "after", "evidence", "confidence"),
+            "certain",
+            "S3",
+        ),
+        (("predicate", "delta", "base", "capability_standard_version"), "99.9", "P12"),
+    ],
+)
+def test_the_default_path_rejects_out_of_contract_content(
+    tmp_path: Path, pointer: tuple[Any, ...], value: Any, rule: str
+) -> None:
+    """No ``--schema``: the documented 30-second command has to be safe alone.
+
+    A closed format whose reference consumer accepts content it cannot account
+    for is not closed. These all used to exit 0 with ``"valid": true``.
+    """
+
+    document = json.loads(EXAMPLE.read_text(encoding="utf-8"))
+    cursor: Any = document
+    for step in pointer[:-1]:
+        cursor = cursor[step]
+    cursor[pointer[-1]] = value
+    path = tmp_path / "out-of-contract.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+    result = _run_reference_verifier(path, "--json")
+    payload = json.loads(result.stdout)
+    assert result.returncode == 1, payload
+    assert payload["valid"] is False
+    assert payload["stage_one"] == "not_requested"
+    assert rule in {problem["rule"] for problem in payload["problems"]}, payload["problems"]
+
+
+@pytest.mark.parametrize(
+    "permission",
+    [
+        # "measured and harmless" is the combination the payload spec says must
+        # be unrepresentable: unmeasured is unknown, not read-only.
+        {"status": "unavailable", "classes": [], "side_effect_unknown": False},
+        {"status": "unavailable", "classes": ["write"], "side_effect_unknown": True},
+        {"status": "measured", "classes": [], "side_effect_unknown": False},
+        {"status": "measured", "classes": ["read", "write"], "side_effect_unknown": False},
+        {"status": "measured", "classes": ["destructive"], "side_effect_unknown": False},
+        {"status": "measured", "classes": ["unknown"], "side_effect_unknown": False},
+    ],
+)
+def test_a_permission_profile_the_classifier_cannot_produce_is_refused(
+    tmp_path: Path, permission: dict[str, Any]
+) -> None:
+    """A consumer reasons about this block, so a meaningless shape is a defect."""
+
+    document = json.loads(EXAMPLE.read_text(encoding="utf-8"))
+    document["predicate"]["delta"]["subjects"][0]["changes"][0]["after"]["permission"] = (
+        permission
+    )
+    path = tmp_path / "permission.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+    result = _run_reference_verifier(path, "--json")
+    payload = json.loads(result.stdout)
+    assert payload["valid"] is False, permission
+    assert "S7" in {problem["rule"] for problem in payload["problems"]}, payload["problems"]
+
+
+def test_no_mutation_of_the_shipped_example_escapes_as_a_traceback() -> None:
+    """Every parseable document stays on the rule-result path.
+
+    A mutation pass found thirty shapes that raised instead — nested values the
+    derived rules reached before anything had checked them. Structure now runs
+    first and the derived rules are skipped when it fails, so this is the
+    property that keeps it that way. Run in-process against the module so the
+    whole sweep is affordable; the subprocess contract is covered separately.
+    """
+
+    module = _reference_module()
+    base = json.loads(EXAMPLE.read_text(encoding="utf-8"))
+
+    def pointers(node: Any, prefix: tuple[Any, ...] = ()) -> Any:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                yield prefix + (key,)
+                yield from pointers(value, prefix + (key,))
+        elif isinstance(node, list):
+            for index, value in enumerate(node[:2]):
+                yield prefix + (index,)
+                yield from pointers(value, prefix + (index,))
+
+    replacements = [5, True, [], {}, None, "wrong", -1, 1.5, [1], {"x": 1}]
+    checked = 0
+    for pointer in pointers(base):
+        for value in replacements:
+            document = copy.deepcopy(base)
+            cursor: Any = document
+            for step in pointer[:-1]:
+                cursor = cursor[step]
+            cursor[pointer[-1]] = value
+            checked += 1
+            try:
+                module.verify(document)
+                # The optional consumer checks read the document too, and were
+                # the other half of the crashing cases.
+                module._attested_digests(document)
+                module._declared_binding(document)
+            except Exception as exc:  # noqa: BLE001 - that is the assertion
+                pytest.fail(
+                    f"{'.'.join(str(step) for step in pointer)} = {value!r} raised "
+                    f"{type(exc).__name__}: {exc}"
+                )
+    assert checked > 1000, f"the sweep only tried {checked} mutations"
+
+
+def test_require_receipt_binding_is_documented_as_shape_only() -> None:
+    """It checks what the file says about itself; `--receipt` checks a receipt.
+
+    The option used to be presented as the gate check for the receipt chain
+    while only reading a self-declared string, so any statement could set
+    ``bound`` and two well-formed content ids and pass.
+    """
+
+    help_text = subprocess.run(
+        [sys.executable, str(VERIFIER_SCRIPT), "--help"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "Shape only" in help_text
+    page = SPEC_PAGE.read_text(encoding="utf-8")
+    assert "`status: \"bound\"` is a claim, not a check." in page
+    assert "--receipt" in page
+
+
 def test_the_published_rule_table_matches_the_reference_verifier() -> None:
     """The docs page says what a passing run establishes; the script decides it.
 
@@ -877,7 +1079,7 @@ def test_the_published_rule_table_matches_the_reference_verifier() -> None:
     for rule, statement in module.CHECKS:
         assert f"| `{rule}` |" in page, f"{rule} is not published on the spec page"
         assert statement, rule
-    published = set(re.findall(r"^\| `([EP]\d+)` \|", page, re.M))
+    published = set(re.findall(r"^\| `([ESPR]\d+)` \|", page, re.M))
     assert published == {rule for rule, _ in module.CHECKS}
     assert f"{len(module.CHECKS)} rules checked" in page
 
@@ -1011,6 +1213,94 @@ def test_verify_emits_an_attestation_bound_to_the_run_that_produced_it(
         path, "--expect-tree", git["head_tree_sha"], "--require-receipt-binding"
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_the_receipt_join_checks_a_receipt_and_not_a_claim(tmp_path: Path) -> None:
+    """``--receipt`` is where "bound" stops being the file's word for it.
+
+    ``--require-receipt-binding`` reads a self-declared string, so any
+    statement could carry ``bound`` and two well-formed content ids and pass.
+    Four negatives, because each is a different way the chain can be absent
+    while the attestation still says it is there: a forged identity, a
+    substituted receipt, a receipt that binds different bytes, and one that
+    binds these bytes under some other artifact.
+    """
+
+    out = _verify_refund_pr(tmp_path)
+    attestation = out / CAPABILITY_DELTA_ATTESTATION_FILENAME
+    receipt_path = out / "verification-receipt.json"
+
+    accepted = _run_reference_verifier(attestation, "--receipt", str(receipt_path))
+    assert accepted.returncode == 0, accepted.stderr
+
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    digest = "sha256:" + hashlib.sha256(attestation.read_bytes()).hexdigest()
+    assert any(
+        entry["sha256"] == digest for entry in receipt["artifact_manifest"]["artifacts"].values()
+    ), "the receipt should already bind the attestation's bytes"
+
+    def reject(name: str, mutate: Any, rule: str) -> None:
+        broken = json.loads(receipt_path.read_text(encoding="utf-8"))
+        mutate(broken)
+        path = tmp_path / f"receipt-{name}.json"
+        path.write_text(json.dumps(broken), encoding="utf-8")
+        result = _run_reference_verifier(attestation, "--receipt", str(path), "--json")
+        payload = json.loads(result.stdout)
+        assert payload["valid"] is False, name
+        assert rule in {problem["rule"] for problem in payload["problems"]}, (
+            name,
+            payload["problems"],
+        )
+
+    reject(
+        "identity",
+        lambda r: r.__setitem__("input_set_id", "sha256:" + "0" * 64),
+        "R1",
+    )
+    reject(
+        "subject",
+        lambda r: r.__setitem__("subject_id", "sha256:" + "1" * 64),
+        "R1",
+    )
+    reject(
+        "other-bytes",
+        lambda r: r["artifact_manifest"]["artifacts"].__setitem__(
+            CAPABILITY_DELTA_ATTESTATION_ARTIFACT_KEY,
+            {
+                **r["artifact_manifest"]["artifacts"][CAPABILITY_DELTA_ATTESTATION_ARTIFACT_KEY],
+                "sha256": "sha256:" + "2" * 64,
+            },
+        ),
+        "R2",
+    )
+    reject(
+        "other-artifact",
+        lambda r: r["artifact_manifest"]["artifacts"].__setitem__(
+            CAPABILITY_DELTA_ATTESTATION_ARTIFACT_KEY,
+            {
+                **r["artifact_manifest"]["artifacts"][CAPABILITY_DELTA_ATTESTATION_ARTIFACT_KEY],
+                "path": "report.json",
+            },
+        ),
+        "R2",
+    )
+
+
+def test_an_unbound_statement_cannot_be_handed_a_receipt(tmp_path: Path) -> None:
+    """The shipped example is honestly ``unbound``; there is no chain to check.
+
+    Reported rather than ignored: a consumer that passed ``--receipt`` asked
+    for the join, and silently not performing it is how "verified" comes to
+    mean nothing.
+    """
+
+    receipt = tmp_path / "verification-receipt.json"
+    receipt.write_text(json.dumps({"input_set_id": "sha256:" + "0" * 64}), encoding="utf-8")
+    result = _run_reference_verifier(EXAMPLE, "--receipt", str(receipt), "--json")
+    payload = json.loads(result.stdout)
+    assert payload["valid"] is False
+    rules = {problem["rule"] for problem in payload["problems"]}
+    assert "require-receipt-binding" in rules, payload["problems"]
 
 
 def test_a_worktree_run_writes_no_attestation_and_says_why(tmp_path: Path) -> None:

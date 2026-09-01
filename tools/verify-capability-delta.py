@@ -55,7 +55,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +74,14 @@ SUBJECT_KEY_DIGEST_CHARS = 16
 #: One line per rule, in the order they are applied. Published so a passing run
 #: means something specific, and pinned against the docs page by the test suite.
 CHECKS: tuple[tuple[str, str], ...] = (
+    ("S0", "the derived rules ran, because the structure below holds"),
+    ("S1", "every published object carries exactly its declared fields"),
+    ("S2", "every published value has its declared type (a boolean is not an integer)"),
+    ("S3", "every published vocabulary value is one this version defines"),
+    ("S4", "ids, digests and git object ids match their published patterns"),
+    ("S5", "every published integer is inside the I-JSON safe range"),
+    ("S6", "arrays are non-empty where required and never repeat an entry"),
+    ("S7", "permission profiles are shapes the classifier can actually produce"),
     ("E1", "_type is the in-toto Statement type"),
     ("E2", "predicateType is the capability-delta predicate type"),
     ("E3", "exactly one subject, with a name and a gitTree digest"),
@@ -92,6 +102,9 @@ CHECKS: tuple[tuple[str, str], ...] = (
     ("P9", "the two state refs reconcile with the membership rows"),
     ("P10", "an empty delta names two states whose capability digests agree"),
     ("P11", "rows and lists are in the published sort order"),
+    ("P12", "both state refs declare the payload's own capability standard version"),
+    ("R1", "the named receipt carries the identities the attestation claims"),
+    ("R2", "that receipt's artifact manifest binds these exact bytes"),
 )
 
 # --------------------------------------------------------------------------
@@ -422,6 +435,521 @@ def semantic_shift(
 
 
 # --------------------------------------------------------------------------
+# Stage one, natively. The closed vocabularies and shapes of the published
+# schema, restated here because the format is closed and a *reference* consumer
+# of a closed format has to be able to reject content it cannot account for
+# without depending on a JSON Schema library. Pinned against the package by
+# tests/test_capability_delta_attestation.py, the same way the rank tables are.
+# --------------------------------------------------------------------------
+
+ACTION_EFFECTS = (
+    "read",
+    "write",
+    "destructive",
+    "external_communication",
+    "financial_write",
+    "production_operation",
+    "privileged_data_access",
+    "code_execution",
+    "identity_access",
+)
+REVERSIBILITY = ("reversible", "irreversible", "unknown")
+SUBJECT_KINDS = (
+    "tool",
+    "action",
+    "scope",
+    "policy",
+    "ci",
+    "baseline",
+    "agent_instruction",
+    "manifest",
+    "unknown",
+)
+PROVENANCE_KINDS = (
+    "static_declaration",
+    "ast_extraction",
+    "keyword_heuristic",
+    "regex_heuristic",
+    "policy_pack",
+)
+CONFIDENCE = ("low", "medium", "high")
+PERMISSION_STATUSES = ("measured", "unavailable")
+PERMISSION_CLASSES = (
+    "read",
+    "write",
+    "destructive",
+    "external",
+    "financial",
+    "production",
+    "unknown",
+)
+ANALYSIS_STATUSES = ("not_requested", "unavailable", "complete")
+RECORD_TRANSITIONS = ("added", "removed", "changed", "reidentified")
+SUBJECT_TRANSITIONS = ("added", "removed", "modified")
+SEMANTIC_DIRECTIONS = (
+    "added",
+    "removed",
+    "broadened",
+    "narrowed",
+    "mixed",
+    "unknown",
+    "evidence_only",
+)
+CHANGE_KINDS = (
+    "scope_changed",
+    "resource_changed",
+    "authority_scope_changed",
+    "broad_scope_changed",
+    "risk_tags_changed",
+    "effect_changed",
+    "effect_flag_changed",
+    "reversibility_changed",
+    "idempotency_evidence_changed",
+    "permission_changed",
+    "control_changed",
+    "authority_identity_changed",
+    "control_metadata_changed",
+    "operation_changed",
+)
+
+MAX_SAFE_INTEGER = 9007199254740991
+CAPABILITY_ID_RE = r"^cap_[0-9a-f]{16}$"
+SUBJECT_KEY_RE = r"^capsubj_[0-9a-f]{16}$"
+PAYLOAD_DIGEST_RE = r"^[0-9a-f]{64}$"
+DIGEST_TOKEN_RE = r"^[0-9a-z_]{1,64}$"
+
+
+class Invalid(Exception):
+    """One structural violation, carrying the rule it broke and where."""
+
+    def __init__(self, rule: str, path: str, message: str) -> None:
+        super().__init__(message)
+        self.rule = rule
+        self.path = path
+        self.message = message
+
+
+def _text(value: Any, path: str) -> None:
+    if type(value) is not str:
+        raise Invalid("S2", path, f"must be a string, got {type(value).__name__}")
+
+
+def _flag(value: Any, path: str) -> None:
+    if type(value) is not bool:
+        raise Invalid("S2", path, f"must be a boolean, got {type(value).__name__}")
+
+
+def _count(value: Any, path: str, *, minimum: int = 0) -> None:
+    # `type(value) is int`, never `isinstance`: Python's ``bool`` *is* an
+    # ``int``, so ``isinstance`` accepts ``true`` for a count and then
+    # ``True == 1`` satisfies every arithmetic rule downstream.
+    if type(value) is not int:
+        raise Invalid("S2", path, f"must be an integer, got {type(value).__name__}")
+    if not (minimum <= value <= MAX_SAFE_INTEGER):
+        raise Invalid(
+            "S5",
+            path,
+            f"{value} is outside the I-JSON safe range [{minimum}, {MAX_SAFE_INTEGER}]",
+        )
+
+
+def _enum(value: Any, path: str, allowed: tuple[str, ...]) -> None:
+    _text(value, path)
+    if value not in allowed:
+        raise Invalid(
+            "S3", path, f"{value!r} is not one of the published values {list(allowed)}"
+        )
+
+
+def _matches(value: Any, path: str, expression: str) -> None:
+    _text(value, path)
+    if re.fullmatch(expression, value) is None:
+        raise Invalid("S4", path, f"{value!r} does not match {expression}")
+
+
+def _nullable(check: Callable[[Any, str], None]) -> Callable[[Any, str], None]:
+    def guarded(value: Any, path: str) -> None:
+        if value is None:
+            return
+        check(value, path)
+
+    return guarded
+
+
+def _array(
+    item: Callable[[Any, str], None],
+    *,
+    minimum: int = 0,
+    unique: bool = False,
+) -> Callable[[Any, str], None]:
+    def guarded(value: Any, path: str) -> None:
+        if not isinstance(value, list):
+            raise Invalid("S2", path, f"must be an array, got {type(value).__name__}")
+        if len(value) < minimum:
+            raise Invalid("S6", path, f"must carry at least {minimum} entry/entries")
+        for index, element in enumerate(value):
+            item(element, f"{path}[{index}]")
+        if unique:
+            rendered = [canonical_json(element) for element in value]
+            if len(set(rendered)) != len(rendered):
+                raise Invalid("S6", path, "must not repeat an entry")
+
+    return guarded
+
+
+def _object(fields: dict[str, Callable[[Any, str], None]]) -> Callable[[Any, str], None]:
+    """A *closed* object: every field required, nothing else admitted.
+
+    Both halves matter for a frozen format. A missing field is a payload a
+    consumer cannot read; an extra one is content it cannot account for, and
+    silently ignoring it is how a v1 reader comes to believe it understood a v2
+    document.
+    """
+
+    def guarded(value: Any, path: str) -> None:
+        if not isinstance(value, dict):
+            raise Invalid("S2", path, f"must be an object, got {type(value).__name__}")
+        missing = sorted(set(fields) - set(value))
+        if missing:
+            raise Invalid("S1", path, f"is missing required field(s) {missing}")
+        unknown = sorted(set(value) - set(fields))
+        if unknown:
+            raise Invalid("S1", path, f"carries unknown field(s) {unknown}")
+        for name, check in fields.items():
+            check(value[name], f"{path}.{name}")
+
+    return guarded
+
+
+def _git_object(value: Any, path: str) -> None:
+    _text(value, path)
+    if not is_git_object_id(value):
+        raise Invalid("S4", path, f"{value!r} is not a git object id")
+
+
+def _content_id(value: Any, path: str) -> None:
+    _text(value, path)
+    if not is_content_id(value):
+        raise Invalid("S4", path, f"{value!r} is not a sha256 content id")
+
+
+def _digest(value: Any, path: str) -> None:
+    _matches(value, path, PAYLOAD_DIGEST_RE)
+
+
+def _line(value: Any, path: str) -> None:
+    _count(value, path)
+
+
+def _change_value(value: Any, path: str) -> None:
+    """A change's before/after: the canonical domain, and nothing wider.
+
+    ``null``, a string, a boolean, a safe integer, or an array of strings. The
+    payload types this narrowly on purpose — a float or a nested object here
+    would be a value the canonical serialization cannot digest identically
+    across languages.
+    """
+
+    if value is None or type(value) in (str, bool):
+        return
+    if type(value) is int:
+        _count(value, path, minimum=-MAX_SAFE_INTEGER)
+        return
+    if isinstance(value, list):
+        for index, element in enumerate(value):
+            _text(element, f"{path}[{index}]")
+        return
+    raise Invalid("S2", path, "must be null, a string, a boolean, an integer or an array of strings")
+
+
+_SUBJECT_REF = _object(
+    {
+        "key": lambda v, p: _matches(v, p, SUBJECT_KEY_RE),
+        "name": _text,
+        "agent": _text,
+        "provider": _text,
+        "tool_id": _text,
+    }
+)
+
+_EFFECT_FACTS = _object(
+    {
+        "effect": lambda v, p: _enum(v, p, ACTION_EFFECTS),
+        "externally_visible": _flag,
+        "handles_sensitive_data": _flag,
+        "financial": _flag,
+        "code_execution": _flag,
+        "reversibility": lambda v, p: _enum(v, p, REVERSIBILITY),
+        "idempotency_known": _nullable(_flag),
+        "high_risk": _flag,
+    }
+)
+
+_AUTHORITY_FACTS = _object(
+    {
+        "auth_type": _nullable(_text),
+        "credential_mode": _nullable(_text),
+        "source": _nullable(_text),
+        "scopes": _array(_text, unique=True),
+        "broad_scopes": _array(_text, unique=True),
+    }
+)
+
+_CONTROL_FACTS = _object(
+    {
+        "approval_required": _nullable(_flag),
+        "approval_threshold": _nullable(_text),
+        "confirmation_required": _flag,
+        "safeguard_idempotency": _nullable(_flag),
+        "safeguard_audit_log": _nullable(_flag),
+        "safeguard_rollback": _nullable(_flag),
+        "safeguard_dry_run": _nullable(_flag),
+        "evidence_owner": _nullable(_text),
+        "evidence_runbook": _nullable(_text),
+        "evidence_approval_ticket": _nullable(_text),
+    }
+)
+
+def _permission_facts(value: Any, path: str) -> None:
+    """The permission block, including the combinations the lattice can produce.
+
+    A consumer reasons about this block — "is this read-only?" — so a
+    combination the classifier never emits is not a harmless oddity, it is a
+    claim with no meaning. The one that matters most is the fail-closed pair:
+    ``unavailable`` is *not* "no side effects", so it may not be written as a
+    measured, empty, known-side-effect profile.
+    """
+
+    _object(
+        {
+            "status": lambda v, p: _enum(v, p, PERMISSION_STATUSES),
+            "classes": _array(lambda v, p: _enum(v, p, PERMISSION_CLASSES), unique=True),
+            "side_effect_unknown": _flag,
+        }
+    )(value, path)
+    status, classes, unknown = value["status"], value["classes"], value["side_effect_unknown"]
+    if status == "unavailable" and (classes or not unknown):
+        raise Invalid(
+            "S7",
+            path,
+            "status 'unavailable' is fail-closed: it carries no classes and "
+            "side_effect_unknown true, never a measured-and-harmless shape",
+        )
+    if status == "measured" and not classes:
+        raise Invalid("S7", path, "status 'measured' must name at least one class")
+    if "read" in classes and len(classes) > 1:
+        raise Invalid("S7", path, "'read' is the whole profile or not in it at all")
+    if "destructive" in classes and "write" not in classes:
+        raise Invalid("S7", path, "'destructive' always carries 'write'")
+    if unknown and status != "unavailable" and "unknown" not in classes:
+        raise Invalid(
+            "S7", path, "side_effect_unknown and the 'unknown' class are one statement"
+        )
+    if "unknown" in classes and not unknown:
+        raise Invalid(
+            "S7", path, "the 'unknown' class and side_effect_unknown are one statement"
+        )
+
+
+_PERMISSION_FACTS = _permission_facts
+
+_EVIDENCE_REF = _object(
+    {
+        "source_type": _text,
+        "source_id": _nullable(_text),
+        "source_ref": _nullable(_text),
+        "source_path": _nullable(_text),
+        "source_start_line": _nullable(_line),
+        "source_end_line": _nullable(_line),
+        "source_start_column": _nullable(_line),
+        "source_pointer": _nullable(_text),
+        "provenance_kind": lambda v, p: _enum(v, p, PROVENANCE_KINDS),
+        "confidence": lambda v, p: _enum(v, p, CONFIDENCE),
+    }
+)
+
+_DIGESTS = _object(
+    {name: lambda v, p: _matches(v, p, DIGEST_TOKEN_RE) for name in DIGEST_DIMENSIONS}
+)
+
+_RECORD = _object(
+    {
+        "capability_id": lambda v, p: _matches(v, p, CAPABILITY_ID_RE),
+        "operation": _text,
+        "subject_kind": lambda v, p: _enum(v, p, SUBJECT_KINDS),
+        "resource": _array(_text, unique=True),
+        "scope": _array(_text, unique=True),
+        "effect": _EFFECT_FACTS,
+        "authority": _AUTHORITY_FACTS,
+        "controls": _CONTROL_FACTS,
+        "permission": _PERMISSION_FACTS,
+        "evidence": _EVIDENCE_REF,
+        "risk_tags": _array(_text, unique=True),
+        "digests": _DIGESTS,
+    }
+)
+
+_CHANGE_FACT = _object(
+    {
+        "kind": lambda v, p: _enum(v, p, CHANGE_KINDS),
+        "field": _text,
+        "direction": lambda v, p: _enum(v, p, SEMANTIC_DIRECTIONS),
+        "before": _change_value,
+        "after": _change_value,
+        "rationale": _text,
+    }
+)
+
+_TRANSITION_ENTRY = _object(
+    {
+        "transition": lambda v, p: _enum(v, p, RECORD_TRANSITIONS),
+        "changed_dimensions": _array(
+            lambda v, p: _enum(v, p, DIGEST_DIMENSIONS), unique=True
+        ),
+        "semantic_direction": lambda v, p: _enum(v, p, SEMANTIC_DIRECTIONS),
+        "semantic_changes": _array(_CHANGE_FACT, unique=True),
+        "before": _nullable(_RECORD),
+        "after": _nullable(_RECORD),
+    }
+)
+
+_DELTA_SUBJECT = _object(
+    {
+        "subject": _SUBJECT_REF,
+        "present_in_base": _flag,
+        "present_in_head": _flag,
+        "transition": lambda v, p: _enum(v, p, SUBJECT_TRANSITIONS),
+        "changes": _array(_TRANSITION_ENTRY, minimum=1, unique=True),
+    }
+)
+
+_COVERAGE_SIDE = _object(
+    {
+        "status": lambda v, p: _enum(v, p, ANALYSIS_STATUSES),
+        "subjects_outside_analysis": _array(_SUBJECT_REF, unique=True),
+    }
+)
+
+_STATE_REF = _object(
+    {
+        "capability_standard_version": _text,
+        "subject_count": _count,
+        "capability_count": _count,
+        "capability_set_digest": _digest,
+        "evidence_set_digest": _digest,
+        "analysis_coverage_digest": _digest,
+        "ref": _nullable(_text),
+    }
+)
+
+_STATEMENT = _object(
+    {
+        "_type": lambda v, p: _enum(v, p, (IN_TOTO_STATEMENT_TYPE,)),
+        "predicateType": lambda v, p: _enum(v, p, (PREDICATE_TYPE,)),
+        "subject": _array(
+            _object(
+                {
+                    "name": _text,
+                    # in-toto types a DigestSet `map<string, string>`, so an
+                    # algorithm the producer did not compute is absent rather
+                    # than null. `gitCommit` is therefore the one optional key
+                    # in this whole document, and it is optional because the
+                    # type belongs to in-toto and not to this format.
+                    "digest": lambda v, p: _digest_set(v, p),
+                }
+            ),
+            minimum=1,
+        ),
+        "predicate": _object(
+            {
+                "predicate_schema_version": lambda v, p: _enum(
+                    v, p, (PREDICATE_SCHEMA_VERSION,)
+                ),
+                "capability_payload_schema_version": lambda v, p: _enum(
+                    v, p, (PAYLOAD_SCHEMA_VERSION,)
+                ),
+                "verification": _object(
+                    {
+                        "status": lambda v, p: _enum(v, p, ("bound", "unbound")),
+                        "input_set_id": _nullable(_content_id),
+                        "subject_id": _nullable(_content_id),
+                    }
+                ),
+                "delta": _object(
+                    {
+                        "capability_payload_schema_version": lambda v, p: _enum(
+                            v, p, (PAYLOAD_SCHEMA_VERSION,)
+                        ),
+                        "capability_standard_version": _text,
+                        "view": lambda v, p: _enum(v, p, ("delta",)),
+                        "base": _STATE_REF,
+                        "head": _STATE_REF,
+                        "analysis_coverage": _object(
+                            {
+                                "base": _COVERAGE_SIDE,
+                                "head": _COVERAGE_SIDE,
+                                "status": lambda v, p: _enum(v, p, ANALYSIS_STATUSES),
+                                "newly_outside_analysis": _array(_SUBJECT_REF, unique=True),
+                                "no_longer_outside_analysis": _array(
+                                    _SUBJECT_REF, unique=True
+                                ),
+                            }
+                        ),
+                        "summary": _object(
+                            {
+                                "subjects": _count,
+                                "added_subjects": _count,
+                                "removed_subjects": _count,
+                                "modified_subjects": _count,
+                                "capability_changes": _count,
+                            }
+                        ),
+                        "subjects": _array(_DELTA_SUBJECT, unique=True),
+                    }
+                ),
+            }
+        ),
+    }
+)
+
+
+def _digest_set(value: Any, path: str) -> None:
+    if not isinstance(value, dict):
+        raise Invalid("S2", path, f"must be an object, got {type(value).__name__}")
+    unknown = sorted(set(value) - {"gitTree", "gitCommit"})
+    if unknown:
+        raise Invalid("S1", path, f"carries unknown digest algorithm(s) {unknown}")
+    if "gitTree" not in value:
+        raise Invalid("S1", path, "must carry a gitTree digest")
+    for name, entry in value.items():
+        _git_object(entry, f"{path}.{name}")
+
+
+def validate_structure(document: Any, problems: Problems) -> bool:
+    """Every published value's declared type, vocabulary, pattern and bound.
+
+    Run *before* anything derived, and the derived rules are skipped when it
+    fails. That ordering is the point: the semantic rules read the document as
+    though it conforms, so on a document that does not they either crash or,
+    worse, agree with it. `effect: "harmless"` used to reach `valid: true` on
+    this path because a membership change carries no second record to compare
+    against, so nothing ever looked at the value.
+
+    This is the same ground the published JSON Schema covers. It is restated
+    natively because the default command must not need a JSON Schema library to
+    be safe — the ``--schema`` pass stays available and covers the residue this
+    does not: conditional couplings expressed with `if`/`then`.
+    """
+
+    try:
+        _STATEMENT(document, "$")
+    except Invalid as invalid:
+        problems.add(invalid.rule, f"{invalid.path} {invalid.message}")
+        return False
+    return True
+
+
+# --------------------------------------------------------------------------
 # Verification
 # --------------------------------------------------------------------------
 
@@ -538,9 +1066,22 @@ def coverage_delta_status(base: str, head: str) -> str:
 
 
 def verify(document: Any) -> Problems:
-    """Every rule in ``CHECKS``, applied to one parsed attestation."""
+    """Every rule in ``CHECKS``, applied to one parsed attestation.
+
+    Structure first, then the derived rules — and never the second without the
+    first. The derived rules read the document as though it conforms, so on one
+    that does not they either raise or, worse, agree with it.
+    """
 
     problems = Problems()
+    if not validate_structure(document, problems):
+        problems.add(
+            "S0",
+            "the derived rules were not run: they assume the shapes and closed "
+            "vocabularies above, and a document that breaks them cannot be "
+            "checked against itself",
+        )
+        return problems
     statement = _require_mapping(document, "the attestation", problems, "E1")
     if not statement:
         return problems
@@ -627,7 +1168,13 @@ def verify(document: Any) -> Problems:
     _verify_rows(rows, problems)
     _verify_summary(delta, rows, problems)
     _verify_coverage(delta, base_ref_block, head_ref_block, problems)
-    _verify_refs(base_ref_block, head_ref_block, rows, problems)
+    _verify_refs(
+        base_ref_block,
+        head_ref_block,
+        rows,
+        problems,
+        standard_version=delta.get("capability_standard_version"),
+    )
     return problems
 
 
@@ -922,7 +1469,18 @@ def _verify_refs(
     head_ref_block: dict[str, Any],
     rows: list[Any],
     problems: Problems,
+    standard_version: str | None = None,
 ) -> None:
+    if standard_version is not None:
+        for side, block in (("base", base_ref_block), ("head", head_ref_block)):
+            declared = block.get("capability_standard_version")
+            if declared != standard_version:
+                problems.add(
+                    "P12",
+                    f"delta.{side}.capability_standard_version is {declared!r} but "
+                    f"the payload declares {standard_version!r}: a state produced "
+                    "under a different standard cannot be diffed against this one",
+                )
     added = removed = 0
     arrivals = departures = 0
     for row in rows:
@@ -962,6 +1520,95 @@ def _verify_refs(
                     f"an empty delta claims two states are the same state, but "
                     f"{name} differs between them",
                 )
+
+
+# --------------------------------------------------------------------------
+# The receipt join
+# --------------------------------------------------------------------------
+
+
+ATTESTATION_FILENAME = "capability-delta-attestation.json"
+
+
+def verify_receipt_binding(
+    document: Any, raw: bytes, receipt_path: Path, problems: Problems
+) -> None:
+    """Check the chain the attestation *claims*, against the receipt itself.
+
+    ``verification.status: "bound"`` is a statement by the producer, and until
+    something reads the receipt it is only that: any file can carry the word
+    ``bound`` and two syntactically valid content ids. This is where the claim
+    becomes a check.
+
+    Two joins, and the second is the one that matters. The identities have to
+    agree, and the receipt's artifact manifest has to bind **these exact
+    bytes** — a digest of the file in hand, matched against the manifest entry
+    for the attestation. Identities alone would accept an attestation from a
+    different run of the same inputs; the content join would not.
+
+    Reads only the receipt handed to it. It does not go looking for one beside
+    the attestation: a consumer that has to be told where the receipt is has to
+    think about whether it trusts that receipt.
+    """
+
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        problems.add("R1", f"could not read the receipt at {receipt_path}: {exc}")
+        return
+    if not isinstance(receipt, dict):
+        problems.add("R1", "the receipt must be a JSON object")
+        return
+
+    verification = document["predicate"]["verification"]
+    if verification["status"] != "bound":
+        problems.add(
+            "R1",
+            "a receipt was supplied but the attestation declares "
+            f"verification.status={verification['status']!r}: there is no chain to check",
+        )
+        return
+    for field in ("input_set_id", "subject_id"):
+        claimed = verification[field]
+        actual = receipt.get(field)
+        if actual != claimed:
+            problems.add(
+                "R1",
+                f"the attestation claims {field}={claimed!r} but the receipt "
+                f"names {actual!r}",
+            )
+
+    manifest = receipt.get("artifact_manifest")
+    artifacts = manifest.get("artifacts") if isinstance(manifest, dict) else None
+    if not isinstance(artifacts, dict):
+        problems.add("R2", "the receipt carries no artifact_manifest.artifacts map")
+        return
+    expected = "sha256:" + hashlib.sha256(raw).hexdigest()
+    # Joined on content, then confirmed by name. Looking the entry up by our
+    # own artifact key would be a route table written on this side of the wire,
+    # and the digest is the thing that actually binds.
+    matches = [
+        (name, entry)
+        for name, entry in artifacts.items()
+        if isinstance(entry, dict) and entry.get("sha256") == expected
+    ]
+    if not matches:
+        problems.add(
+            "R2",
+            f"no artifact in the receipt has this attestation's digest ({expected}): "
+            "the receipt does not bind these bytes",
+        )
+        return
+    if not any(
+        str(entry.get("path", "")).rsplit("/", 1)[-1] == ATTESTATION_FILENAME
+        for _name, entry in matches
+    ):
+        bound = sorted(str(entry.get("path")) for _name, entry in matches)
+        problems.add(
+            "R2",
+            "the receipt binds these bytes under an artifact that is not the "
+            f"capability delta attestation: {bound}",
+        )
 
 
 # --------------------------------------------------------------------------
@@ -1070,6 +1717,21 @@ def _attested_digests(document: Any) -> dict[str, Any]:
     return digests if isinstance(digests, dict) else {}
 
 
+def _declared_binding(document: Any) -> str | None:
+    """What the document says about its own receipt chain, or ``None``."""
+
+    if not isinstance(document, dict):
+        return None
+    predicate = document.get("predicate")
+    if not isinstance(predicate, dict):
+        return None
+    verification = predicate.get("verification")
+    if not isinstance(verification, dict):
+        return None
+    status = verification.get("status")
+    return status if isinstance(status, str) else None
+
+
 def _run_stage_one(document: Any, schema_path: Path) -> tuple[str, list[str]]:
     try:
         import jsonschema  # type: ignore[import-not-found]
@@ -1107,7 +1769,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--require-receipt-binding",
         action="store_true",
-        help="Reject an attestation not chained to a verification receipt.",
+        help=(
+            "Shape only: reject an attestation whose verification.status is not "
+            "'bound'. This checks what the file says about itself, not a "
+            "receipt. Pass --receipt to check the chain."
+        ),
+    )
+    parser.add_argument(
+        "--receipt",
+        type=Path,
+        help=(
+            "Path to the verification-receipt.json this attestation claims. "
+            "Checks the identities agree and that the receipt's artifact "
+            "manifest binds these exact bytes. Implies "
+            "--require-receipt-binding."
+        ),
     )
     parser.add_argument(
         "--schema",
@@ -1122,13 +1798,33 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        raw = sys.stdin.read() if args.path == "-" else Path(args.path).read_text(encoding="utf-8")
-        document = json.loads(raw)
+        # The bytes, not the text: the receipt binds a digest of the file, so a
+        # decode-and-re-encode round trip would compare a different artifact.
+        raw = (
+            sys.stdin.buffer.read()
+            if args.path == "-"
+            else Path(args.path).read_bytes()
+        )
+        document = json.loads(raw.decode("utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         print(f"verify-capability-delta: cannot read attestation: {exc}", file=sys.stderr)
         return 2
 
-    problems = verify(document)
+    try:
+        problems = verify(document)
+    except Exception as exc:  # noqa: BLE001 - the exit contract outranks the stack trace
+        # A backstop, not the mechanism. `validate_structure` runs before every
+        # derived rule precisely so a malformed document produces rule rows
+        # rather than a traceback; this is here because the promise a consumer
+        # reads — exit 1 and a list of rules — must hold even for a shape
+        # nobody anticipated. If this ever fires it is a bug in this script,
+        # and it says so.
+        problems = Problems()
+        problems.add(
+            "internal",
+            f"this verifier raised while checking the document ({type(exc).__name__}: {exc}). "
+            "The document is not valid, and this script has a gap: please report it.",
+        )
 
     stage_one = "not_requested"
     if args.schema is not None:
@@ -1149,14 +1845,17 @@ def main(argv: list[str] | None = None) -> int:
             f"attested commit {digests.get('gitCommit')!r} is not the expected "
             f"{args.expect_commit!r}",
         )
-    if args.require_receipt_binding:
-        predicate = document.get("predicate") or {} if isinstance(document, dict) else {}
-        verification = predicate.get("verification") or {}
-        if verification.get("status") != "bound":
+    if args.require_receipt_binding or args.receipt is not None:
+        if _declared_binding(document) != "bound":
             problems.add(
                 "require-receipt-binding",
-                "this attestation is not chained to a verification receipt",
+                "this attestation does not declare a receipt binding",
             )
+    if args.receipt is not None and not problems:
+        # Only once the document itself verifies. The join reads fields the
+        # structural rules have already established, and running it over a
+        # document that failed them would be checking a shape nobody confirmed.
+        verify_receipt_binding(document, raw, args.receipt, problems)
 
     if args.json:
         print(

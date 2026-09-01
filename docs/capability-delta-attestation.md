@@ -64,7 +64,7 @@ Outside the analysed surface
   newly outside analysis: none
   no longer outside analysis: none
 
-VALID — 20 rules checked. Unsigned: this proves self-consistency, not authorship.
+VALID — 31 rules checked. Unsigned: this proves self-consistency, not authorship.
 ```
 
 The script is stdlib-only, one file, and imports nothing of ours. That is the
@@ -72,8 +72,10 @@ point of publishing a format at all: if consuming it needed our package, it
 would not be an interchange format, it would be an API.
 
 Exit `0` valid, `1` invalid (every failed rule is printed), `2` unreadable
-input. `--json` gives the same result machine-readably; `--expect-tree`,
-`--expect-commit` and `--require-receipt-binding` add the consumer-supplied checks described under [Consuming it](#consuming-it).
+input — a malformed document always produces rule rows, never a stack trace.
+`--json` gives the same result machine-readably; `--expect-tree`,
+`--expect-commit`, `--require-receipt-binding` and `--receipt` add the
+consumer-supplied checks described under [Consuming it](#consuming-it).
 
 ## The shape
 
@@ -163,6 +165,27 @@ reason.
 `verify` always emits `bound`. `unbound` is what a delta projected outside a
 verification run says, and the worked example on this page is one.
 
+**`status: "bound"` is a claim, not a check.** Any file can carry the word and
+two well-formed content ids. `--require-receipt-binding` refuses an `unbound`
+statement and nothing more — it is a *shape* check, and it is named and
+documented as one. To check the chain, hand the verifier the receipt:
+
+```bash
+python3 verify-capability-delta.py agents-shipgate-reports/capability-delta-attestation.json \
+  --receipt agents-shipgate-reports/verification-receipt.json
+```
+
+That reads the receipt you supplied and checks two things. `R1`: the receipt
+carries the same `input_set_id` and `subject_id` the attestation claims. `R2`:
+the receipt's artifact manifest binds **these exact bytes** — the digest of the
+file in hand, found among the manifest's artifacts and confirmed to be the
+attestation entry. The second is the one that matters: identities alone would
+accept an attestation from a different run over the same inputs.
+
+The verifier will not go looking for a receipt beside the attestation. A
+consumer that has to say where the receipt is has to think about whether it
+trusts that receipt — which is the question, since nothing here is signed.
+
 Two identities and no more. `input_set_id` is the content address of *what was
 reviewed* and `subject_id` is the resolved git subject; both are properties of
 the inputs, so two runs of one review on two machines publish the same values.
@@ -208,6 +231,14 @@ table by the test suite, so the two cannot drift.
 
 | Rule | The attestation … |
 |---|---|
+| `S0` | had its derived rules run at all, because the structure below holds |
+| `S1` | carries exactly the declared fields of every published object — none missing, none extra |
+| `S2` | gives every value its declared type (a boolean is not an integer) |
+| `S3` | uses only vocabulary values this version defines |
+| `S4` | matches the published patterns for ids, digests and git object ids |
+| `S5` | keeps every integer inside the I-JSON safe range |
+| `S6` | has arrays that are non-empty where required and never repeat an entry |
+| `S7` | carries permission profiles the classifier can actually produce |
 | `E1` | `_type` is the in-toto Statement type |
 | `E2` | `predicateType` is the capability-delta predicate type |
 | `E3` | names exactly one subject, with a name and a `gitTree` digest |
@@ -228,8 +259,23 @@ table by the test suite, so the two cannot drift.
 | `P9` | has state refs that reconcile with the membership rows |
 | `P10` | backs an empty delta with two states whose capability digests agree |
 | `P11` | is in the published sort order, so two builds of one input are byte-identical |
+| `P12` | has both state refs declaring the payload's own capability standard version |
+| `R1` | names identities the receipt you supplied actually carries (`--receipt`) |
+| `R2` | is bound, byte for byte, by that receipt's artifact manifest (`--receipt`) |
 
-`P1`–`P11` are the payload's own **stage two** rules, listed in
+`S1`–`S7` are stage one, implemented natively. The published JSON Schema covers
+the same ground, and the reference verifier restates it rather than depending on
+a JSON Schema library — because the default command has to be safe without one.
+Order matters and is enforced: the derived rules read the document as though it
+conforms, so they are skipped entirely when the structure does not hold, and
+`S0` says so. `effect: "harmless"` would otherwise have reached `valid: true`,
+because a membership change carries no second record and nothing ever looked at
+the value.
+
+`R1`–`R2` run only when you pass `--receipt`, and they are the difference
+between what the file says about itself and what a receipt confirms.
+
+`P1`–`P12` are the payload's own **stage two** rules, listed in
 [`capability-payload.md` § *Validating a payload: two stages*](capability-payload.md#validating-a-payload-two-stages),
 restricted to the delta view. Recomputing them is what makes a tampered
 attestation fail: you cannot raise a count, drop a row, relabel a direction, or
@@ -245,12 +291,13 @@ names. It is not evidence that Agents Shipgate produced it. Wrap the bytes in a
 trust the transport that handed you the file. Signing is a separate increment,
 deliberately out of `v1`.
 
-**Stage one, unless you ask for it.** JSON Schema validation needs a validator
-the reference script will not depend on. Pass
+**A residue of stage one, unless you ask for it.** `S1`–`S7` above are stage
+one implemented natively, so the default command needs no JSON Schema library
+to reject an out-of-contract value. What they do not cover is the conditional
+couplings the published schema expresses with `if`/`then`. Pass
 `--schema docs/capability-delta-attestation-schema.v1.json` and, if the
-`jsonschema` package is importable, stage one runs too; otherwise the run
-reports it as skipped. The structural checks the script's own rules need always
-run, so a malformed document fails regardless.
+`jsonschema` package is importable, the full schema runs too; otherwise the run
+reports it as skipped rather than implying it ran.
 
 **The two state digests.** `base`/`head` carry `capability_set_digest` and
 `evidence_set_digest` for two *full state* payloads that a delta does not
@@ -270,11 +317,12 @@ attestation = json.load(open("agents-shipgate-reports/capability-delta-attestati
 delta = attestation["predicate"]["delta"]
 
 # 1. Verify before you read. Never branch on an unverified attestation.
+#    `--receipt` is what turns the file's own "bound" claim into a check.
 check = subprocess.run(
     [sys.executable, "verify-capability-delta.py",
      "agents-shipgate-reports/capability-delta-attestation.json",
      "--expect-tree", my_reviewed_tree_sha,
-     "--require-receipt-binding"],
+     "--receipt", "agents-shipgate-reports/verification-receipt.json"],
     capture_output=True, text=True,
 )
 if check.returncode != 0:

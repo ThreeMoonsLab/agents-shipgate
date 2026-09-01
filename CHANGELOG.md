@@ -42,12 +42,24 @@
 
   [`tools/verify-capability-delta.py`](tools/verify-capability-delta.py) is the
   reference consumer: stdlib-only, one file, importing nothing of ours. It
-  applies 20 published rules — the envelope's nine plus the payload's own
-  stage-two eleven — and rejects a relabelled subject, an inflated summary, a
-  forged subject key, a downgraded coverage status, a forged receipt binding,
-  and a silently escalated effect. It re-implements the payload's semantics
-  independently, and a perturbation test compares it against the package's
-  derivation dimension by dimension so the two cannot drift.
+  applies 31 published rules — stage one implemented natively (`S1`-`S7`), the
+  envelope's nine, the payload's own stage-two twelve, and two that check a
+  supplied receipt — and rejects a relabelled subject, an inflated summary, a
+  forged subject key, a downgraded coverage status, a silently escalated
+  effect, and any value outside the closed v1 vocabularies. It re-implements
+  the payload's semantics independently, and tests pin every restated
+  vocabulary and rank table against the package's so the two cannot drift.
+
+  Structure is validated **before** anything derived, and the derived rules are
+  skipped when it fails: they read the document as though it conforms, so on
+  one that does not they either raise or agree with it. A 2,770-case mutation
+  sweep over the shipped example produces rule rows and never a stack trace.
+
+  `--receipt <path>` is where the attestation's `verification.status: "bound"`
+  stops being the file's word for itself: it checks that the receipt carries
+  the same `input_set_id` and `subject_id`, and that the receipt's artifact
+  manifest binds these exact bytes. `--require-receipt-binding` remains, named
+  and documented as the shape-only check it is.
 
   Nothing gates: the attestation carries no verdict, no severity and no release
   impact, and `release_decision.decision` remains the only release gate. New

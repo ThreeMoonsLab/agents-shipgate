@@ -815,9 +815,26 @@ def _test_step_command(job: dict[str, Any], name: str) -> str:
     raise AssertionError(f"no step named {name!r}")
 
 
+def _ci_suite_step() -> str:
+    """CI's aggregate test command, wherever the workflow currently runs it.
+
+    It moved out of `jobs.test` into the sharded `jobs.suite` when one
+    aggregate run grew to within seconds of the job timeout. These tests are
+    about what the command *does*, so they follow it rather than pinning where
+    it lives — but they still find it by name, so a rename has to be
+    deliberate.
+    """
+
+    suite = _load_workflow("ci.yml")["jobs"]["suite"]
+    for step in suite["steps"]:
+        if str(step.get("name", "")).startswith("Test (shard"):
+            return str(step["run"])
+    raise AssertionError("ci.yml jobs.suite has no sharded test step")
+
+
 def test_release_matches_ci_parallelism_and_excludes_perf() -> None:
     release_test = _test_step_command(_load_workflow("release-verify.yml")["jobs"]["tests"], "Test")
-    ci_test = _test_step_command(_load_workflow("ci.yml")["jobs"]["test"], "Test")
+    ci_test = _ci_suite_step()
 
     # Same supported parallelism as CI: a release candidate should not spend
     # its budget re-running serially what CI already parallelises.
@@ -830,11 +847,29 @@ def test_release_matches_ci_parallelism_and_excludes_perf() -> None:
 
 
 def test_release_does_not_weaken_the_coverage_floor() -> None:
-    release_test = _test_step_command(_load_workflow("release-verify.yml")["jobs"]["tests"], "Test")
-    ci_test = _test_step_command(_load_workflow("ci.yml")["jobs"]["test"], "Test")
+    """The floor is 85 in both pipelines — and is measured over the whole suite.
 
+    CI splits the suite across jobs, so its shards each hold a fragment of the
+    coverage data. Two things have to be true and neither is implied by the
+    other: the combined data is gated at 85, and no shard sets a threshold of
+    its own. A `--cov-fail-under` on a third of the suite would be a number
+    that cannot mean what it says, and it would pass or fail for reasons
+    unrelated to the floor.
+    """
+
+    release_test = _test_step_command(_load_workflow("release-verify.yml")["jobs"]["tests"], "Test")
     assert "--cov-fail-under=85" in release_test
-    assert "--cov-fail-under=85" in ci_test
+
+    ci = _load_workflow("ci.yml")
+    assert "--cov-fail-under" not in _ci_suite_step()
+    assert "--cov=agents_shipgate" in _ci_suite_step()
+    combined = _job_commands(ci["jobs"]["coverage"])
+    assert "coverage combine" in combined
+    assert "--fail-under=85" in combined
+    # And the gate has to wait for every shard, or it would combine whatever
+    # happened to have finished.
+    assert ci["jobs"]["coverage"]["needs"] == ["suite"]
+    assert ci["jobs"]["suite"]["strategy"]["matrix"]["shard"] == [1, 2, 3]
 
 
 def test_adapter_static_only_lint_stays_covered_in_release() -> None:
@@ -2245,11 +2280,23 @@ def test_locks_installed_together_cannot_move_each_other() -> None:
 
 
 def test_the_lock_gate_runs_in_both_pipelines_before_the_suite() -> None:
-    for workflow, job in (("ci.yml", "test"), ("release-verify.yml", "tests")):
-        parsed = _load_workflow(workflow)["jobs"][job]
-        assert _step_index(parsed, "scripts/verify_dependency_lock.py") < _step_index(
-            parsed, "--cov-fail-under=85"
-        ), workflow
+    """A stale lock must fail by name, not as an ImportError inside the suite.
+
+    "Before" means *within the job that runs the suite*. When CI's suite moved
+    into its own sharded job, a copy of the gate left behind in `test` would
+    have raced it rather than preceded it — two jobs start together — so each
+    shard job carries the gate itself.
+    """
+
+    release = _load_workflow("release-verify.yml")["jobs"]["tests"]
+    assert _step_index(release, "scripts/verify_dependency_lock.py") < _step_index(
+        release, "--cov-fail-under=85"
+    )
+
+    suite = _load_workflow("ci.yml")["jobs"]["suite"]
+    assert _step_index(suite, "scripts/verify_dependency_lock.py") < _step_index(
+        suite, "-m pytest -n auto"
+    )
 
 
 def test_the_committed_locks_still_describe_the_declared_requirements() -> None:
