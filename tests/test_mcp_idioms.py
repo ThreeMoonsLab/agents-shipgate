@@ -23,6 +23,7 @@ from agents_shipgate.inputs.mcp_idioms import (
     LANGUAGE_EXTENSIONS,
     OMISSION_REASONS,
     PREFILTER_TOKEN,
+    SourceScanResult,
     is_scannable_path,
     language_for_path,
     mask_source,
@@ -538,10 +539,31 @@ def test_masking_preserves_offsets_so_line_numbers_are_the_file_s():
     assert scan_source(text, "typescript").sites[0].line == 3
 
 
-def test_a_file_without_the_prefilter_token_is_answered_without_masking():
-    assert scan_source("package main\n\nfunc main() {}\n", "go") == scan_source(
-        "", "go"
-    )
+def test_a_file_without_the_prefilter_token_is_answered_without_masking(monkeypatch):
+    """The shortcut has to be observable, or the test is about nothing.
+
+    Comparing the result to an empty scan passes whether or not the prefilter
+    exists — both are empty either way — so a perturbation that deleted the
+    prefilter entirely went uncaught. The claim is that the file is answered
+    *without masking it*, so that is what is asserted: `mask_source` is never
+    reached.
+    """
+
+    import agents_shipgate.inputs.mcp_idioms as module
+
+    def _fail(*args: object, **kwargs: object) -> None:
+        raise AssertionError("a file with no registration token was masked")
+
+    monkeypatch.setattr(module, "mask_source", _fail)
+    assert scan_source("package main\n\nfunc main() {}\n", "go") == SourceScanResult()
+
+    # And the shortcut is only sound because it can never hide a real
+    # registration: every idiom's own sample carries the token, which
+    # `test_the_prefilter_cannot_hide_an_idiom_this_reader_matches` pins.
+    monkeypatch.undo()
+    assert scan_source(
+        _POSITIVE_SAMPLES["go_must_tool"].text, "go"
+    ).sites
 
 
 # --- The published token list ----------------------------------------------
