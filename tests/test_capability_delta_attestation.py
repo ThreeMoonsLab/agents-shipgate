@@ -667,6 +667,40 @@ def test_the_reference_verifier_can_require_a_receipt_binding() -> None:
     assert "[require-receipt-binding]" in result.stderr
 
 
+@pytest.mark.parametrize(
+    "document",
+    [
+        5,
+        [],
+        {"subject": 5},
+        {"subject": ["not-a-descriptor"]},
+        {"subject": [{"digest": "not-a-map"}]},
+        {"predicate": []},
+    ],
+    ids=lambda value: repr(value)[:24],
+)
+def test_the_reference_verifier_reports_malformed_input_as_rules(
+    tmp_path: Path, document: object
+) -> None:
+    """A published verifier must never answer a bad file with a traceback.
+
+    ``subject: 5`` did: the consumer-supplied ``--expect-*`` checks indexed the
+    subject list after ``verify`` had already collected the real problems, so a
+    ``TypeError`` replaced the rule list the caller was going to read.
+    """
+
+    path = tmp_path / "malformed.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    result = _run_reference_verifier(
+        path, "--expect-tree", "a" * 40, "--require-receipt-binding", "--json"
+    )
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["valid"] is False
+    assert payload["problems"]
+
+
 def test_the_reference_verifier_runs_json_schema_stage_one() -> None:
     """Stage one is optional but must actually run when it is available."""
 

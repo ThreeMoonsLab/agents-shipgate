@@ -130,6 +130,13 @@ base state is named the same way, in `predicate.delta.base.ref`. The payload
 spec calls `ref` an opaque caller label; this surface narrows it to a git
 object id.
 
+`base.ref` names the tree the base capability facts were **read from**, which is
+not always a fresh scan of it. When the base scan cannot be materialized,
+`verify` falls back to the reviewed capability lock committed at that ref — the
+same fallback the lock diff has always used. Such a run publishes
+`analysis_coverage.base.status: "unavailable"`, which is how a consumer tells
+the two apart; `verifier.base_notes[]` names the source it used in prose.
+
 An attestation is written **only for a committed-tree subject**. A `verify` run
 that evaluated a worktree snapshot scanned bytes that are in no tree object, so
 publishing a tree id as "what was reviewed" would attest content nobody can

@@ -1049,6 +1049,27 @@ def render(document: dict[str, Any]) -> str:
 # --------------------------------------------------------------------------
 
 
+def _attested_digests(document: Any) -> dict[str, Any]:
+    """The subject's digest set, or an empty one for anything malformed.
+
+    Reached only after `verify` has already reported whatever is wrong with the
+    document, so this must not raise: the consumer-supplied `--expect-*` checks
+    should add their own rule lines to that list, not replace it with a
+    traceback. `subject: 5` did exactly that.
+    """
+
+    if not isinstance(document, dict):
+        return {}
+    subjects = document.get("subject")
+    if not isinstance(subjects, list) or not subjects:
+        return {}
+    subject = subjects[0]
+    if not isinstance(subject, dict):
+        return {}
+    digests = subject.get("digest")
+    return digests if isinstance(digests, dict) else {}
+
+
 def _run_stage_one(document: Any, schema_path: Path) -> tuple[str, list[str]]:
     try:
         import jsonschema  # type: ignore[import-not-found]
@@ -1058,11 +1079,12 @@ def _run_stage_one(document: Any, schema_path: Path) -> tuple[str, list[str]]:
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         return ("error", [f"could not read {schema_path}: {exc}"])
-    validator = jsonschema.Draft202012Validator(schema)
-    return (
-        "ran",
-        [error.message for error in sorted(validator.iter_errors(document), key=str)],
-    )
+    try:
+        validator = jsonschema.Draft202012Validator(schema)
+        messages = [error.message for error in sorted(validator.iter_errors(document), key=str)]
+    except Exception as exc:  # noqa: BLE001 - a broken schema file is a result, not a crash
+        return ("error", [f"stage one could not run against {schema_path}: {exc}"])
+    return ("ran", messages)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1114,8 +1136,7 @@ def main(argv: list[str] | None = None) -> int:
         for message in messages:
             problems.add("stage-one", message)
 
-    subject = (document.get("subject") or [{}])[0] if isinstance(document, dict) else {}
-    digests = subject.get("digest") or {} if isinstance(subject, dict) else {}
+    digests = _attested_digests(document)
     if args.expect_tree and digests.get("gitTree") != args.expect_tree:
         problems.add(
             "expect-tree",
