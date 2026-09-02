@@ -313,16 +313,18 @@ more than half of them.
 
 **`insufficient_evidence` then `blocked` are the scarce outcomes.** Before
 Cut B, three of 15 `insufficient_evidence` slots and 5 of 15 `blocked` slots
-had a candidate; Session A's constructions bring both to 9 and 10, but every
-one of those additions is `synthetic`, so the qualifying-origin count for
-either outcome has not moved. Merged history is the wrong place to look for
-`blocked`: a change that should have been stopped usually was, so
-`rejected_or_reverted` is the vein.
+had a candidate. Session A's constructions are all `synthetic`, so they moved
+neither outcome's qualifying-origin count; the W36 sweep did, and it confirmed
+the vein: every `blocked` slot with a qualifying origin was filled from
+closed-unmerged or reverted PRs, not from merged history, because a change
+that should have been stopped usually was.
 
-**`n8n` is the profile that can fail this deliverable.** Before Cut B one of
-its eight slots had a candidate; the constructions fill five more and hold two
-reserves, but all of them are `synthetic`, and no n8n repository has ever been
-mined at all — its two qualifying-origin slots are still gaps.
+**`n8n` was the profile most likely to fail this deliverable.** Before Cut B
+one of its eight slots had a candidate and no n8n repository had ever been
+mined; Session A's constructions fill five slots and hold two reserves, all
+`synthetic`, and the W36 sweep below supplied its first two real-history
+candidates from community workflow repositories — the profile is now fully
+sourced, with the thinnest qualifying-origin margin of the seven.
 
 **The pool was swept by a build that no longer exists.** The 2026-W24 … W26
 sweeps ran before [#403](https://github.com/ThreeMoonsLab/agents-shipgate/issues/403),
@@ -444,14 +446,20 @@ mechanical to check it against.
 Identified candidates not allocated to a slot. They exist so a relabel that
 empties a cell does not require fresh mining.
 
+Four former reserve candidates — `mongodb-js/mongodb-mcp-server#1417`,
+`awslabs/mcp#4489`, `stripe/ai#353` and `openai/openai-agents-python#3518` —
+are now the real-history calibration cases in
+[`calibration.md`](calibration.md). A calibration case is chosen by someone who
+has read this file, and the calibration round labels it before the guide is
+final, so none of the four can ever become a corpus case; they are struck from
+the reserve rather than held.
+
 | Candidate | Origin | State | Note |
 |---|---|---|---|
-| `github.com/awslabs/mcp#4489` | `real_history` | `merged` | Adds two literal FastMCP entrypoints, `budget-actions` and `budget-notifications`, to the billing-cost-management server, taking the budget tool surface from 1 to 3; both documented read-only, both requiring new `budgets:DescribeBudgetActionsFor*` IAM permissions. **Previously mis-registered here as the pre-existing `budgets` entrypoint and aimed at `insufficient_evidence`** — wrongly, since the names are static literals and are exactly what a grep-the-literal extraction reads. A `mcp_openapi_declared_binding × passed` alternate; `engine_tests` exposure via `tests/test_init_scaffold_disclosure.py`. |
 | `github.com/google/adk-samples#1745` | — | `open` | `SmartCloserAgent`: a root `LlmAgent` with `sub_agents=[salesforce_agent, sap_agent]` over a Salesforce/SAP quote-to-cash flow, with three financial writes reachable only through the sub-agents. **Still open**, so it is not history and cannot fill a slot; it is also `engine_tests` exposure through `test_declaration_questionnaire.py` and `test_detect.py`. Kept as the shape to match when mining `multi_agent_handoffs × blocked`. |
-| `github.com/mongodb-js/mongodb-mcp-server#1417` | `real_history` | `merged` | "request elicitation for aggregations"; walked repository, diff not read, placement undetermined. |
-| `github.com/openai/openai-agents-python#3461`, `#3518` | `real_history` | `merged` | `safe_to_merge`: opt-in recovery for a missing function tool; typing tool-end hook results. |
+| `github.com/openai/openai-agents-python#3461` | `real_history` | `merged` | `safe_to_merge`: opt-in recovery for a missing function tool. |
 | `github.com/aaif-goose/goose#9717`, `#9798` | `real_history` | `merged` | `safe_to_merge`: ACP search session in the desktop client; opt-in ACP last-message snippets. |
-| `github.com/stripe/ai#332`, `#336`, `#353`, `#400` | `real_history` | `merged` | `safe_to_merge` automated skill syncs. Four instances of one shape; prefer variety over volume. |
+| `github.com/stripe/ai#332`, `#336`, `#400` | `real_history` | `merged` | `safe_to_merge` automated skill syncs. Three instances of one shape; prefer variety over volume. |
 | `benchmark/safety-qualification/constructed/n8n_agent_adds_shipment_lookup` | `synthetic` | `in_tree` | `n8n` × `passed` alternate: attaches a second read-only, credential-free `GET` HTTP Request Tool with an inventory entry and a read/`none` action row. |
 | `benchmark/safety-qualification/constructed/n8n_agent_adds_crm_mcp_client` | `synthetic` | `in_tree` | `n8n` × `review_required` alternate: attaches an MCP Client Tool with an explicit one-tool allowlist (`crm.update_contact`), declared as a scoped write with no approval step. |
 | `benchmark/safety-qualification/constructed/handoff_billing_agent_receipt_lookup` | `synthetic` | `in_tree` | `multi_agent_handoffs` × `passed` alternate: gives the billing sub-agent a scoped read-only `orders.lookup_receipt` tool, declared and inventoried. |
