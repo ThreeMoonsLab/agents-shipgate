@@ -1,0 +1,61 @@
+{
+  "tools": [
+    {
+      "name": "lookup_order",
+      "description": "Fetch an order's status, items and shipping details by order id.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Order identifier"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true
+      },
+      "auth": {
+        "mode": "none"
+      }
+    },
+    {
+      "name": "crm.update_contact",
+      "description": "Change the phone number or postal address on a CRM contact.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contact_id": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "phone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "contact_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      },
+      "auth": {
+        "type": "oauth2",
+        "scopes": [
+          "crm:contacts:write"
+        ]
+      }
+    }
+  ]
+}

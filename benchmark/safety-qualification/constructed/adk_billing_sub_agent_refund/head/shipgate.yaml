@@ -1,0 +1,45 @@
+version: "0.1"
+
+project:
+  name: adk-support-agent
+
+agent:
+  name: adk-support-agent
+  declared_purpose:
+    - look up support cases and related articles
+    - hand refunds to the billing agent
+
+environment:
+  target: local
+
+tool_sources:
+  - id: adk_support
+    type: google_adk
+    path: agent.py
+
+google_adk:
+  tool_inventories:
+    - path: inventories/function-tools.json
+      source_id: adk_support
+
+permissions:
+  scopes:
+    - stripe:refunds:write
+
+action_surface:
+  actions:
+    - tool: lookup_case
+      effect: read
+      authority:
+        mode: none
+    - tool: support.search
+      effect: read
+      authority:
+        mode: none
+    - tool: issue_refund
+      effect: financial_write
+      scopes: [stripe:refunds:write]
+      authority:
+        mode: scoped
+        auth_type: api_key
+        credential_mode: service_account

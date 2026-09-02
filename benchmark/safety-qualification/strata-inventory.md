@@ -43,6 +43,7 @@ the verifier.
 | `miner_label` | A committed miner label exists for this subject. `evidence_ref` names the CSV row. |
 | `diff_substance` | Targeted from what the change does, recorded in the [candidate register](#candidate-register) below. |
 | `sample_design` | A shipped sample built to exhibit this outcome. `evidence_ref` names the sample directory. |
+| `constructed_design` | A Cut B construction built for the corpus to exhibit this outcome, under [`constructed/`](#constructions-are-changes-and-they-are-not-samples). `evidence_ref` names its `CASE.md`. |
 | `unsourced` | A gap. No candidate; `mining_lead` says where to look. |
 
 **`miner_label` is not verifier-independent, and must not be described as if it
@@ -155,44 +156,139 @@ repository immediately before and immediately after this change landed" — and
 **the recorded pins must not be "corrected" from the API**, which is why
 `test_a_pinned_external_candidate_matches_the_sweep_that_recorded_it` reads them
 back from the sweep. The unpinned walk candidates need pinning under the same
-convention before Cut C, and the choice should be written down when it is made.
+convention before Cut C.
+
+Settled for Cut B (2026-09-01), one form per origin, so a rater is always
+handed "the repository the change was proposed against, and the repository the
+change produced":
+
+| Origin | `pinned_base` | `pinned_head` |
+|---|---|---|
+| `real_history`, `design_partner` (merged) | first parent of the merge commit on the default branch | the merge commit |
+| `rejected_or_reverted`, closed without merge | `git merge-base <head> <base branch>` — the fork point the PR was proposed against | the PR branch's final commit (`refs/pull/<N>/head`) |
+| `rejected_or_reverted`, merged then reverted | first parent of the *reverted* PR's merge commit | that PR's merge commit; the revert commit is named in the register as the evidence of rejection |
+
+A closed-unmerged PR has no merge commit, so its base is a fork point rather
+than a mainline parent; both SHAs still come from the clone, never from
+`baseRefOid`, which moves with the base branch.
+
+## Cut B — sourcing the gaps
+
+Cut B is staffed as two sessions plus a Cut C preparation thread, split by the
+kind of work rather than by profile, and they coordinate through the CSV.
+
+| Session | Work | Slots |
+|---|---|---|
+| A | in-tree constructions, no network | every `synthetic` gap |
+| B | real-repository re-mining | every `real_history` / `rejected_or_reverted` gap |
+| C | Cut C preparation: the five calibration cases and the two rater harnesses | none — it must not read this file's targets into the rater packets |
+
+**A session claims a slot by filling it, in one change:** `status` moves off
+`gap`, `target_basis` moves off `unsourced` to the basis the evidence supports,
+`evidence_ref` names the in-tree file that substantiates it, `mining_lead` is
+cleared, `exposure` is declared, and the candidate is added to the
+[register](#candidate-register). A row with a candidate and no evidence is not
+a claim, and `test_a_gap_carries_a_lead_and_nothing_else` refuses it. Neither
+session touches another session's rows; both recompute the summary tables in
+[Where the plan stands](#where-the-plan-stands), and the merge resolves them.
+
+**A sourcing change makes no engine change.** Nothing under `src/` and nothing
+under `tests/` other than this inventory's own guard moves in a Cut B change.
+The point of Cut B is holdout-eligible evidence, and a fix made in response to
+a candidate is exactly what turns it into tuning material. A defect a session
+finds while sourcing is reported, not fixed, and the candidate keeps its
+exposure as recorded. The `benchmark/` tooling may change; the engine may not.
+
+### Constructions are changes, and they are not samples
+
+A Session A construction lives at
+`benchmark/safety-qualification/constructed/<case>/`, never under `samples/`:
+the goldens under `samples/*/expected/` are what the engine is developed
+against, so a corpus-built synthetic committed there would be tuning material
+the moment it landed. Each case is laid out as
+
+```
+constructed/<case>/
+  CASE.md      the design record: the shape built, and why it exhibits the target
+  base/        the repository before the change
+  head/        the repository after it
+```
+
+and is checked by `test_a_constructed_case_is_a_change_with_its_design_record_beside_it`:
+`base/` and `head/` both exist and differ — the corpus labels a *change*, so a
+single tree has nothing to label; `CASE.md` sits beside the trees and never
+inside one, so a rater packet built from the trees cannot carry the target
+decision it names; neither tree holds engine output; and no construction
+shares a name with a shipped sample. Its row is `origin_class: synthetic`,
+`target_basis: constructed_design`, `evidence_ref: <case>/CASE.md`, and
+`exposure: none` — which the detector re-checks by name, so a construction that
+is later written into a test or the engine fails the floor and must be
+re-declared `engine_tests`. The diff is a plausible pull request: the smallest
+change that introduces the property, in the framework's own idiom, with no
+comment that names the outcome. Running the engine on a construction to confirm
+that the mechanism is present is fine; tuning the construction until the
+verdict matches the target is not, because the target comes from the design.
+
+### Real history is sourced through a sweep, then a miner label
+
+A Session B candidate enters the way every existing `real_history` row did:
+a committed sweep under `benchmark/miner/results/` records the measurement
+(`benchmark_scored`), and a committed label file records the cell it is aimed at
+(`miner_label`). That keeps the row holdout-eligible — being measured is not
+being tuned on — at the cost the register already discloses: the worksheet
+shows the labeler the engine's verdict, so the aim is verifier-exposed and the
+row says so. The alternative, reading the diff and recording the reading here as
+`diff_substance`, is refused for new candidates because `diff_substance` implies
+`maintainer_walk` and would make every newly mined slot `tuning_only`, which is
+the opposite of what Cut B is for.
+
+Closed-unmerged and reverted candidates are enumerated outside the miner's
+merged-only `mine` command and evaluated one at a time with `evaluate` at the
+pins the convention above gives them; their rows carry a blank `merged_at`.
+
+A closed-unmerged PR has no merge commit, so the W36 sweep pins it at the
+**fork point and the PR head**: `base = git merge-base <head> origin/<base branch>`,
+`head = refs/pull/<n>/head`. That reproduces "the mainline the change was
+written against, and the change as it was rejected" — the closed-unmerged form
+of the same convention. A reverted PR is pinned like any merged PR.
 
 ## Where the plan stands
 
-59 slots over the 28 cells; three `mcp_openapi_declared_binding` cells carry a
-third slot because their first two are both engine-development inputs.
+60 slots over the 28 cells; three `mcp_openapi_declared_binding` cells and
+`google_adk × insufficient_evidence` carry a third slot because their first two
+are both engine-development inputs.
 
 | | Count |
 |---|---|
-| Slots with a candidate | 26 of 59 |
-| Gaps to mine or construct | 33 |
-| Slots planned as a qualifying origin | 32 (floor is 23) |
-| …of those, already sourced | 14 |
-| …of those, still to find | 18 |
+| Slots with a candidate | 59 of 60 |
+| Gaps to mine or construct | 1 |
+| Slots planned as a qualifying origin | 33 (floor is 23) |
+| …of those, already sourced | 32 |
+| …of those, still to find | 1 |
 | Slots planned as `synthetic` | 27 (ceiling is 33) |
 | Slots that can be a cell's holdout case | 42 |
-| Slots that are engine-development inputs | 17 |
+| Slots that are engine-development inputs | 18 |
 
 Per profile:
 
 | Profile | Sourced | Qualifying origin | Holdout-eligible | Gaps |
 |---|---|---|---|---|
-| `mcp_openapi_declared_binding` | 6 | 8 | 5 | 5 |
-| `coding_agent_trust_roots` | 6 | 6 | 6 | 2 |
-| `langchain_crewai` | 4 | 4 | 6 | 4 |
-| `google_adk` | 4 | 4 | 6 | 4 |
-| `openai_agents_sdk` | 3 | 5 | 6 | 5 |
-| `multi_agent_handoffs` | 2 | 3 | 6 | 6 |
-| `n8n` | 1 | 2 | 7 | 7 |
+| `mcp_openapi_declared_binding` | 11 | 8 | 5 | 0 |
+| `coding_agent_trust_roots` | 8 | 6 | 6 | 0 |
+| `langchain_crewai` | 7 | 4 | 6 | 1 |
+| `google_adk` | 9 | 5 | 6 | 0 |
+| `openai_agents_sdk` | 8 | 5 | 6 | 0 |
+| `multi_agent_handoffs` | 8 | 3 | 6 | 0 |
+| `n8n` | 8 | 2 | 7 | 0 |
 
 Per outcome:
 
 | Outcome | Sourced | Qualifying origin | Holdout-eligible | Gaps |
 |---|---|---|---|---|
-| `passed` | 12 | 10 | 8 | 3 |
-| `review_required` | 6 | 9 | 12 | 9 |
-| `blocked` | 5 | 8 | 11 | 10 |
-| `insufficient_evidence` | 3 | 5 | 11 | 11 |
+| `passed` | 15 | 10 | 8 | 0 |
+| `review_required` | 15 | 9 | 12 | 0 |
+| `blocked` | 15 | 8 | 11 | 0 |
+| `insufficient_evidence` | 14 | 6 | 11 | 1 |
 
 Every number on this page is recomputed from the CSV by
 `tests/test_strata_inventory.py`, so the reading and the plan cannot drift
@@ -215,13 +311,20 @@ cases must be `real_history`, `rejected_or_reverted`, or `design_partner`. The
 plan reaches 32 only by committing to mine 18 further qualifying candidates —
 more than half of them.
 
-**`insufficient_evidence` then `blocked` are the scarce outcomes.** Three of
-15 `insufficient_evidence` slots and 5 of 15 `blocked` slots have a candidate.
-Merged history is the wrong place to look for `blocked`: a change that should
-have been stopped usually was, so `rejected_or_reverted` is the vein.
+**`insufficient_evidence` then `blocked` are the scarce outcomes.** Before
+Cut B, three of 15 `insufficient_evidence` slots and 5 of 15 `blocked` slots
+had a candidate. Session A's constructions are all `synthetic`, so they moved
+neither outcome's qualifying-origin count; the W36 sweep did, and it confirmed
+the vein: every `blocked` slot with a qualifying origin was filled from
+closed-unmerged or reverted PRs, not from merged history, because a change
+that should have been stopped usually was.
 
-**`n8n` is the profile that can fail this deliverable.** One of its eight slots
-has a candidate, and no n8n repository has ever been mined at all.
+**`n8n` was the profile most likely to fail this deliverable.** Before Cut B
+one of its eight slots had a candidate and no n8n repository had ever been
+mined; Session A's constructions fill five slots and hold two reserves, all
+`synthetic`, and the W36 sweep below supplied its first two real-history
+candidates from community workflow repositories — the profile is now fully
+sourced, with the thinnest qualifying-origin margin of the seven.
 
 **The pool was swept by a build that no longer exists.** The 2026-W24 … W26
 sweeps ran before [#403](https://github.com/ThreeMoonsLab/agents-shipgate/issues/403),
@@ -231,6 +334,35 @@ and `pydantic/pydantic-ai` were each swept 40 PRs deep and triggered **zero**
 times. Those zeroes are not evidence that the repositories hold no candidates,
 and several gap rows depend on re-mining them. **Do not treat an old sweep's
 silence as a closed cell.**
+
+### Cut B — sourcing the gaps (session B, 2026-09-02)
+
+The 2026-W36 sweep ([`benchmark/miner/results/2026-W36-cutb.csv`](../miner/results/2026-W36-cutb.csv))
+is the first post-#403 run: 912 rows over 21 repositories, including every
+n8n repository this project had never mined and eight unwalked MCP servers.
+It carries three kinds of row the earlier sweeps did not: **closed-unmerged**
+PRs (`mine --state closed`, pinned at the fork point and the PR head),
+**reverted** merged PRs (`--state reverted`, pinned like any merged PR with the
+revert recorded in `notes`), and **named** PRs (`--pr N`) mined outside the
+latest-40 window. Every claim below was pinned by that sweep and labeled in
+[`2026-W36-cutb.labels.csv`](../miner/results/2026-W36-cutb.labels.csv) from
+the PR diff; those labels are one session's cell-targeting labels, not
+adjudicated, and are `miner_label` exposure like every other sweep label.
+
+**Real history is sourced through a sweep, then a miner label**, and a
+closed-unmerged or reverted PR through the same path with its state read from
+GitHub. A `reverted` candidate is landed history whose rejection came
+afterwards: its register row names the revert PR and the revert's merge commit,
+and the guard maps the `reverted` state to `rejected_or_reverted` alone.
+
+Seventeen of the eighteen gaps this cut owned are claimed. The one left open is
+`langchain_crewai.insufficient_evidence.1`, whose lead now records what the
+re-mine found. Every `rejected_or_reverted` slot is filled — six of them, from
+five different repositories — and `n8n` has its first two real-history
+candidates. One claim moved a cell's holdout margin: `google/adk-python#6605`
+turned out to be `engine_tests` exposure (it was reduced into a trigger fixture
+before this cut read it), so `google_adk × insufficient_evidence` gained a third
+slot, `github.com/google/adk-samples#1731`, to keep a holdout-eligible case.
 
 ## Candidate register
 
@@ -250,9 +382,27 @@ GitHub merge state as read on 2026-08-31, and it is what decides an origin.
 | `github.com/crewAIInc/crewAI-examples#169` | `langchain_crewai` | `merged` | Adds flow projects wiring new external write authority: Slack `chat_postMessage`, Trello card creation, and a Gmail draft tool attached to an agent. |
 | `github.com/google/adk-samples#1977` | `google_adk` | `merged` | Directory rename only (`travel-panner` → `travel-planner`). |
 | `github.com/google/adk-samples#1975` | `google_adk` | `merged` | Adds a travel agent with an `McpToolset` against the Google Maps MCP endpoint, exposing `search_places`, `lookup_weather` and `compute_routes`. |
-| `github.com/google/adk-python#6605` | `google_adk` | `closed` | Adds an `AgentHooksPlugin` to govern ADK agents through `agent-hooks`. Closed without merge on 2026-08-13, so its origin is `rejected_or_reverted`. Named as the lead for `google_adk.insufficient_evidence.2`; the diff has not been read. |
+| `github.com/google/adk-python#6605` | `google_adk` | `closed` | Adds `AgentHooksPlugin`, routing every ADK lifecycle callback (user message, model call, tool call, errors) through external `agent-hooks` interceptors whose deny/transform verdicts are decided at run time; the bundled sample's `delete_account` tool is gated only by such an interceptor. Closed without merge on 2026-08-13. Already reduced into `tests/test_public_surface_contract.py` as a trigger fixture, so it is an engine-development input and its cell carries a third slot. |
+| `github.com/google/adk-samples#1731` | `google_adk` | `closed` | Adds a KYC/KYB sample whose only tool is an `MCPToolset` over `StreamableHTTPConnectionParams` to a third-party hosted server (`openregistry.sophymarine.com`, overridable by env) claiming live access to 27 national company registries; the tool list never appears in the tree. Closed without merge on 2026-08-12. |
+| `github.com/google/adk-samples#2148` | `google_adk` | `closed` | Re-implements the auto-insurance sample under `core/`: a root `Agent` with `sub_agents=[membership_agent, roadside_agent, claims_agent, rewards_agent]`, each mounting an `ApiHubToolset` that registers members, files claims and dispatches roadside assistance against live Apigee-fronted APIs, with no approval step. Closed without merge on 2026-06-26. |
+| `github.com/google/adk-samples#125` | `multi_agent_handoffs` | `merged` | The original auto-insurance sample: `root_agent` with the same four `sub_agents`, each an `Agent` whose tools come from an `ApiHubToolset` (membership registration, claims, roadside dispatch, rewards); financial and operational writes are delegated to sub-agents with no approval policy. Filed under `multi_agent_handoffs` because the authority sits behind the delegation. |
+| `github.com/pydantic/pydantic-ai#3248` | `multi_agent_handoffs` | `merged` | A documented agent-delegation example: a `triage_agent` whose two tools call specialist and senior-doctor agents that return structured reports; no external tool, credential or write anywhere in the chain. |
+| `github.com/pydantic/pydantic-ai#5120` | `multi_agent_handoffs` | `merged` | Makes the `XSearch` capability model-agnostic: when the main model lacks native X search, a `fallback_model` spins up a subagent on an xAI model to perform the search on the agent's behalf. |
+| `github.com/openai/openai-agents-python#2932` | `openai_agents_sdk` | `closed` | An example agent connected over Streamable HTTP to a third-party remote MCP server (`mcp.hashlock.markets`) with a wallet-derived bearer token, exposing `create_rfq`/`respond_rfq` OTC crypto quote tools; only prompt text keeps settlement out of scope. Closed without merge on 2026-04-17. |
+| `github.com/openai/openai-agents-python#3833` | `openai_agents_sdk` | `merged` | Adds `ProgrammaticToolCallingTool`: a hosted tool under which the model writes code that calls the agent's function tools, with per-tool caller permissions and a new run-loop execution path. |
+| `github.com/openai/openai-agents-python#3788` | `openai_agents_sdk` | `merged` | Experimental hosted multi-agent support: server-hosted subagents run over WebSocket while the local `Runner` executes developer function tools on their behalf, with hosted-agent attribution on tool calls. |
+| `github.com/langchain-ai/deepagents#5999` | `langchain_crewai` | `merged` | Reworks the Talon WhatsApp channel of LangChain's `deepagents`: the Node bridge gains local-ID compatibility, outbound delivery reporting changes, and the CI/release workflows add a Node setup step. |
+| `github.com/langchain-ai/langchain-mcp-adapters#540` | `langchain_crewai` | `merged` | Surfaces MCP tool execution errors as failed tool output in the adapter that builds LangChain tools from a server's tool list at run time. Named as the nearest shape for `langchain_crewai.insufficient_evidence.1`; it changes no authority and labels `safe_to_merge`, which is why the slot stays a gap. |
+| `github.com/hashicorp/terraform-mcp-server#493` | `mcp_openapi_declared_binding` | `merged` | Moves the official go-sdk server's tools into `pkg/mcp-official/tools` and adds `list_terraform_orgs` there: read-only, but registered through a second runtime-assembled registry (`tools.RegisterTools` gated per toolset flag) that runs in parallel with the mark3labs one. |
+| `github.com/hashicorp/terraform-mcp-server#461` | `mcp_openapi_declared_binding` | `merged` | Adds `grant_team_access`, a `ReadOnlyHint: false` tool granting a team read/plan/write/admin access to a workspace or project through the TFE API. |
+| `github.com/cloudflare/mcp-server-cloudflare#433` | `mcp_openapi_declared_binding` | `merged` | Renames the stack-mcp search tool `search_docs` → `search_dev_stack` and rewrites both read-only tool descriptions; the surface stays two read-only documentation tools. |
+| `github.com/elastic/mcp-server-elasticsearch#57` | `mcp_openapi_declared_binding` | `closed` | Adds `execute_es_api`, a tool forwarding an arbitrary method, path and body to any Elasticsearch API endpoint, plus ML job creation tools, on a previously read-only search server. Closed without merge on 2025-05-08. |
+| `github.com/enescingoz/awesome-n8n-templates#134` | `n8n` | `merged` | Adds one exported workflow: a manual trigger, an HTTP Request POST to a local Ollama endpoint with a fixed prompt, and a Set node. No credentials, no external target. |
+| `github.com/Zie619/n8n-workflows#87` | `n8n` | `merged` | Adds one exported workflow: a public Telegram trigger feeding an OpenAI chat node whose reply is sent back through a Telegram send node with a stored credential. |
 | `github.com/aaif-goose/goose#9637` | `coding_agent_trust_roots` | `merged` | Developer eval tooling only: rewrites a `SKILL.md` doc and adds two analysis recipes that mount only the builtin developer extension. |
 | `github.com/aaif-goose/goose#9684` | `coding_agent_trust_roots` | `merged` | Automated release chore: version bumps plus a regenerated model and provider catalog. |
+| `github.com/aaif-goose/goose#9736` | `coding_agent_trust_roots` | `merged` | Adds `~/.agents/AGENTS.md` as a second global hints source loaded on every session; the instruction trust root now includes a user-home file nothing in the repository can enumerate. |
+| `github.com/pydantic/pydantic-ai#4199` | `coding_agent_trust_roots` | `reverted` | Rewrites the `@claude` CI workflow: read permissions become `contents`/`pull-requests`/`issues` write, the pinned `allowed_tools` list is dropped, and a new `review.yml` plus `AGENTS.md`/`CLAUDE.md` rule files drive automatic AI review. Reverted by pydantic/pydantic-ai#4202 (revert merge `f74a093ae387b3bc92970c65eb6eef81e4be2b29`). |
 | `github.com/stripe/ai#312` | `coding_agent_trust_roots` | `merged` | Rewires the agent-skill supply chain: the sync source moves from authenticated `mcp.stripe.com` to an unauthenticated fetch of `docs.stripe.com/.well-known/skills`, a daily cron is enabled, and the remote manifest dictates which files the sync writes. |
 | `github.com/stripe/ai#338` | `coding_agent_trust_roots` | `merged` | Adds a skill instructing coding agents to install the Stripe CLI and run `stripe projects init`, which creates further local skills the agent is told to prefer. |
 | `samples/clean_read_only_agent` | `mcp_openapi_declared_binding` | `in_tree` | Read-only tool surface with no risky actions, by design. |
@@ -267,6 +417,21 @@ GitHub merge state as read on 2026-08-31, and it is what decides an origin.
 | `samples/conductor_agent` | `multi_agent_handoffs` | `in_tree` | Conductor workflow whose task tool surface cannot be statically enumerated. |
 | `samples/declaration_repair_agent` | `coding_agent_trust_roots` | `in_tree` | Manifest whose declarations do not cover the tool surface they claim. |
 | `samples/agent_weakens_gate` | `coding_agent_trust_roots` | `in_tree` | The coding agent deletes the Shipgate CI gate so its own PR can self-merge. |
+| `benchmark/safety-qualification/constructed/mcp_export_adds_undeclared_tool` | `mcp_openapi_declared_binding` | `in_tree` | Adds a fourth tool, zendesk.add_ticket_comment, to the committed MCP export while the manifest's complete root declaration still lists three. |
+| `benchmark/safety-qualification/constructed/sdk_agent_adds_ticket_update_tool` | `openai_agents_sdk` | `in_tree` | Adds a zendesk.update_ticket function tool that PUTs to the Zendesk API, declared as a scoped write with no approval policy. |
+| `benchmark/safety-qualification/constructed/sdk_agent_loads_tools_from_registry` | `openai_agents_sdk` | `in_tree` | Replaces the agent's literal tools list with tools=load_tools("triage"), a registry that imports names from a TOML profile at start-up. |
+| `benchmark/safety-qualification/constructed/crewai_tools_from_factory` | `langchain_crewai` | `in_tree` | Builds the crew's tool list with build_tools(profile), a factory over a YAML profile, in place of the literal list. |
+| `benchmark/safety-qualification/constructed/langchain_agent_adds_refund_tool` | `langchain_crewai` | `in_tree` | Adds an issue_refund @tool calling stripe.Refund.create, declared as a financial write with no approval policy and no idempotency safeguard. |
+| `benchmark/safety-qualification/constructed/adk_agent_adds_calendar_toolset` | `google_adk` | `in_tree` | Adds a second McpToolset against a calendar MCP export filtered to calendar.create_event, declared as a scoped write with no approval policy. |
+| `benchmark/safety-qualification/constructed/adk_billing_sub_agent_refund` | `google_adk` | `in_tree` | Adds a billing_agent sub-agent whose only tool calls stripe.Refund.create, declared as a financial write with no approval policy or idempotency safeguard. |
+| `benchmark/safety-qualification/constructed/n8n_agent_adds_order_note_post` | `n8n` | `in_tree` | Attaches an HTTP Request Tool that POSTs an order note with a header-auth credential, declared as a scoped write with no approval step. |
+| `benchmark/safety-qualification/constructed/n8n_code_tool_runtime_endpoint` | `n8n` | `in_tree` | Attaches a Code Tool whose JavaScript POSTs to a callback URL taken from a $fromAI() argument at run time. |
+| `benchmark/safety-qualification/constructed/n8n_workflow_tool_expression_target` | `n8n` | `in_tree` | Attaches a Call Workflow Tool whose workflowId is an expression on the request body. |
+| `benchmark/safety-qualification/constructed/n8n_webhook_delete_customer` | `n8n` | `in_tree` | Attaches a DELETE HTTP Request Tool to the agent behind an unauthenticated public webhook, declared destructive with no approval, confirmation or rollback. |
+| `benchmark/safety-qualification/constructed/n8n_refund_approval_node_disabled` | `n8n` | `in_tree` | Sets disabled: true on the send-and-wait approval node between the agent's refund summary and the Stripe refund call; nothing else changes. |
+| `benchmark/safety-qualification/constructed/handoff_billing_agent_account_note` | `multi_agent_handoffs` | `in_tree` | Gives the billing sub-agent an accounts.add_note write tool the root agent's own tools list does not carry, declared as a scoped write with no approval. |
+| `benchmark/safety-qualification/constructed/handoff_specialists_from_routes` | `multi_agent_handoffs` | `in_tree` | Builds the root agent's handoffs from an environment-driven route list resolved by import at start-up. |
+| `benchmark/safety-qualification/constructed/handoff_approvals_agent_decides_refunds` | `multi_agent_handoffs` | `in_tree` | Adds an approvals sub-agent, reachable by handoff from the root, whose tool approves the refund requests the root submits. |
 
 `coding_agent_trust_roots` and `multi_agent_handoffs` are **scenario** profiles:
 what puts a candidate in them is what the change does, not what source type it
@@ -281,14 +446,34 @@ mechanical to check it against.
 Identified candidates not allocated to a slot. They exist so a relabel that
 empties a cell does not require fresh mining.
 
+Four former reserve candidates — `mongodb-js/mongodb-mcp-server#1417`,
+`awslabs/mcp#4489`, `stripe/ai#353` and `openai/openai-agents-python#3518` —
+are now the real-history calibration cases in
+[`calibration.md`](calibration.md). A calibration case is chosen by someone who
+has read this file, and the calibration round labels it before the guide is
+final, so none of the four can ever become a corpus case; they are struck from
+the reserve rather than held.
+
 | Candidate | Origin | State | Note |
 |---|---|---|---|
-| `github.com/awslabs/mcp#4489` | `real_history` | `merged` | Adds two literal FastMCP entrypoints, `budget-actions` and `budget-notifications`, to the billing-cost-management server, taking the budget tool surface from 1 to 3; both documented read-only, both requiring new `budgets:DescribeBudgetActionsFor*` IAM permissions. **Previously mis-registered here as the pre-existing `budgets` entrypoint and aimed at `insufficient_evidence`** — wrongly, since the names are static literals and are exactly what a grep-the-literal extraction reads. A `mcp_openapi_declared_binding × passed` alternate; `engine_tests` exposure via `tests/test_init_scaffold_disclosure.py`. |
 | `github.com/google/adk-samples#1745` | — | `open` | `SmartCloserAgent`: a root `LlmAgent` with `sub_agents=[salesforce_agent, sap_agent]` over a Salesforce/SAP quote-to-cash flow, with three financial writes reachable only through the sub-agents. **Still open**, so it is not history and cannot fill a slot; it is also `engine_tests` exposure through `test_declaration_questionnaire.py` and `test_detect.py`. Kept as the shape to match when mining `multi_agent_handoffs × blocked`. |
-| `github.com/mongodb-js/mongodb-mcp-server#1417` | `real_history` | `merged` | "request elicitation for aggregations"; walked repository, diff not read, placement undetermined. |
-| `github.com/openai/openai-agents-python#3461`, `#3518` | `real_history` | `merged` | `safe_to_merge`: opt-in recovery for a missing function tool; typing tool-end hook results. |
+| `github.com/openai/openai-agents-python#3461` | `real_history` | `merged` | `safe_to_merge`: opt-in recovery for a missing function tool. |
 | `github.com/aaif-goose/goose#9717`, `#9798` | `real_history` | `merged` | `safe_to_merge`: ACP search session in the desktop client; opt-in ACP last-message snippets. |
-| `github.com/stripe/ai#332`, `#336`, `#353`, `#400` | `real_history` | `merged` | `safe_to_merge` automated skill syncs. Four instances of one shape; prefer variety over volume. |
+| `github.com/stripe/ai#332`, `#336`, `#400` | `real_history` | `merged` | `safe_to_merge` automated skill syncs. Three instances of one shape; prefer variety over volume. |
+| `benchmark/safety-qualification/constructed/n8n_agent_adds_shipment_lookup` | `synthetic` | `in_tree` | `n8n` × `passed` alternate: attaches a second read-only, credential-free `GET` HTTP Request Tool with an inventory entry and a read/`none` action row. |
+| `benchmark/safety-qualification/constructed/n8n_agent_adds_crm_mcp_client` | `synthetic` | `in_tree` | `n8n` × `review_required` alternate: attaches an MCP Client Tool with an explicit one-tool allowlist (`crm.update_contact`), declared as a scoped write with no approval step. |
+| `benchmark/safety-qualification/constructed/handoff_billing_agent_receipt_lookup` | `synthetic` | `in_tree` | `multi_agent_handoffs` × `passed` alternate: gives the billing sub-agent a scoped read-only `orders.lookup_receipt` tool, declared and inventoried. |
+| `github.com/hashicorp/terraform-mcp-server#469` | `real_history` | `merged` | `must_block`: adds `delete_team` (`DestructiveHint: true`), registered only when `ENABLE_TF_OPERATIONS` is set. The only merged destructive MCP tool the W36 sweep found; `mcp_openapi_declared_binding × blocked` has no real-history slot planned, so it waits here. |
+| `github.com/hashicorp/terraform-mcp-server#451`, `#466` | `real_history` | `merged` | `safe_to_merge`: `get_team` and `whoami`, read-only literal `mcp.NewTool` registrations. `mcp_openapi_declared_binding × passed` alternates. |
+| `github.com/hashicorp/terraform-mcp-server#422` | `rejected_or_reverted` | `closed` | `must_block`: the first `delete_team` submission, superseded by #469. |
+| `github.com/elastic/mcp-server-elasticsearch#69` | `rejected_or_reverted` | `closed` | `must_block`: `document_manage`, one tool doing create/read/update/delete on documents. `mcp_openapi_declared_binding × blocked` alternate. |
+| `github.com/cloudflare/mcp-server-cloudflare#414` | `real_history` | `merged` | `safe_to_merge`: a new Cloudflare Blog MCP server with four read-only tools. |
+| `github.com/enescingoz/awesome-n8n-templates#161` | `real_history` | `merged` | `needs_human`: scheduled CoinPaprika poll sending a Telegram alert on a 5% move. `n8n × review_required` alternate. |
+| `github.com/openai/openai-agents-python#4399` | `rejected_or_reverted` | `closed` | `needs_human`: `OsEnvValue` lets a sandbox manifest pull any named host environment variable into the sandbox. |
+| `github.com/google/adk-samples#348` | `real_history` | `merged` | `needs_human`: the antom-payment sample, a single `LlmAgent` mounting an `MCPToolset` that creates payment sessions, cancels payments and creates refunds with merchant keys from `.env`. A `google_adk` financial-write shape with no real-history `blocked` slot to go to. |
+| `github.com/modelcontextprotocol/servers#4739` | `real_history` | `merged` | `needs_human`: switches `readme-pr-check` to `pull_request_target` so fork PRs run with a write token. The W36 verify receipt on it is `blocked` — the sweep's only hard block on real history. `coding_agent_trust_roots` alternate. |
+| `github.com/aaif-goose/goose#10825` | `real_history` | `merged` | `needs_human`: a fork-review boundary on the recipe security scanner; a CI trust-root change that tightens rather than weakens. |
+| `github.com/openai/openai-agents-python#3194`, `github.com/google/adk-samples#1665` | `rejected_or_reverted` | `reverted` | The only other reverts the W36 enumeration found in the target repositories: a kwargs guard fix and a region/lockfile pivot. Rejected history, but neither labels above `safe_to_merge`. |
 | `samples/mcp_only_server`, `samples/openapi_only_agent`, `samples/hitl_evidence_covered_agent`, `samples/openai_agents_sdk_agent`, `samples/ai_generated_refund_pr`, `samples/simple_openai_api_agent`, `samples/large_multi_framework_agent`, `samples/baseline_workflow`, `samples/simple_anthropic_agent` | `synthetic` | `in_tree` | `tuning_only` if used — every one of them is engine-tuning material. |
 
 ## Maintaining it

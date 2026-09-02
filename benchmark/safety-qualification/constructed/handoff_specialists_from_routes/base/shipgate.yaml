@@ -1,0 +1,106 @@
+version: "0.1"
+
+project:
+  name: support-triage-workspace
+  owner: support-platform
+
+agent:
+  name: triage
+  sdk:
+    type: openai-agents
+    language: python
+    entrypoint: agents
+    object: triage_agent
+    static_extract: true
+    deep_import: false
+  declared_purpose:
+    - look up support tickets
+    - hand billing questions to the billing agent
+    - submit refund requests for a person in billing to approve
+
+environment:
+  target: local
+
+tool_sources:
+  - id: triage_sdk
+    type: openai_agents_sdk
+    path: agents
+    mode: static
+  # Each workspace publishes the inventory of the tools its agent binds.
+  - id: support_inventory
+    type: mcp
+    path: support/tools.json
+  - id: billing_inventory
+    type: mcp
+    path: billing/tools.json
+
+agent_bindings:
+  root:
+    source_id: triage_sdk
+    object: triage_agent
+
+tool_identity:
+  bindings:
+    - id: sdk_support_lookup_ticket
+      provider: triage_sdk
+      reason: the published inventory describes the bound SDK function
+      primary: {source_id: support_inventory, tool: support.lookup_ticket}
+      members:
+        - {source_id: triage_sdk, tool: support.lookup_ticket}
+        - {source_id: support_inventory, tool: support.lookup_ticket}
+    - id: sdk_orders_request_refund
+      provider: triage_sdk
+      reason: the published inventory describes the bound SDK function
+      primary: {source_id: support_inventory, tool: orders.request_refund}
+      members:
+        - {source_id: triage_sdk, tool: orders.request_refund}
+        - {source_id: support_inventory, tool: orders.request_refund}
+    - id: sdk_orders_return_quote
+      provider: triage_sdk
+      reason: the published inventory describes the bound SDK function
+      primary: {source_id: billing_inventory, tool: orders.return_quote}
+      members:
+        - {source_id: triage_sdk, tool: orders.return_quote}
+        - {source_id: billing_inventory, tool: orders.return_quote}
+
+permissions:
+  scopes:
+    - zendesk:tickets:read
+    - orders:read
+    - orders:refund-requests:write
+
+policies:
+  require_approval_for_tools:
+    - tool: orders.request_refund
+      reason: a person in billing approves every refund before it is paid
+  require_idempotency_for_tools:
+    - orders.request_refund
+
+action_surface:
+  actions:
+    - tool: support.lookup_ticket
+      effect: read
+      scopes: [zendesk:tickets:read]
+      authority:
+        mode: scoped
+        auth_type: oauth2
+        credential_mode: delegated
+    - tool: orders.return_quote
+      effect: read
+      scopes: [orders:read]
+      authority:
+        mode: scoped
+        auth_type: api_key
+        credential_mode: service_account
+    - tool: orders.request_refund
+      effect: financial_write
+      scopes: [orders:refund-requests:write]
+      authority:
+        mode: scoped
+        auth_type: api_key
+        credential_mode: service_account
+      approval:
+        required: true
+      safeguards:
+        idempotency: true
+        audit_log: true

@@ -1,0 +1,28 @@
+{
+  "tools": [
+    {
+      "name": "lookup_order",
+      "description": "Fetch an order's status, items and shipping details by order id.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Order identifier"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true
+      },
+      "auth": {
+        "mode": "none"
+      }
+    }
+  ]
+}

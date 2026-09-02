@@ -1,0 +1,56 @@
+{
+  "tools": [
+    {
+      "name": "support.lookup_ticket",
+      "description": "Fetch a support ticket's subject, status and customer id.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ticket_id": {
+            "type": "string"
+          },
+          "include_comments": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "ticket_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "auth": {
+        "mode": "none"
+      }
+    },
+    {
+      "name": "support.draft_reply",
+      "description": "Draft a reply to the customer for a person to edit and send.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ticket_id": {
+            "type": "string"
+          },
+          "tone": {
+            "type": "string",
+            "default": "concise"
+          }
+        },
+        "required": [
+          "ticket_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "auth": {
+        "mode": "none"
+      }
+    }
+  ]
+}

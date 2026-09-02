@@ -1,0 +1,64 @@
+version: "0.1"
+
+project:
+  name: support-triage-assistant
+
+agent:
+  name: triage-assistant
+  sdk:
+    type: openai-agents
+    language: python
+    entrypoint: agents
+    object: triage_assistant
+    static_extract: true
+    deep_import: false
+  declared_purpose:
+    - look up support tickets
+    - draft replies for a support engineer to send
+
+environment:
+  target: local
+
+tool_sources:
+  - id: triage_sdk
+    type: openai_agents_sdk
+    path: agents
+    mode: static
+  # The published inventory describes the tools the assistant binds.
+  - id: triage_inventory
+    type: mcp
+    path: inventories/tools.json
+
+tool_identity:
+  bindings:
+    - id: sdk_lookup_ticket
+      provider: triage_sdk
+      reason: the published inventory describes the bound SDK function
+      primary: {source_id: triage_inventory, tool: support.lookup_ticket}
+      members:
+        - {source_id: triage_sdk, tool: support.lookup_ticket}
+        - {source_id: triage_inventory, tool: support.lookup_ticket}
+    - id: sdk_draft_reply
+      provider: triage_sdk
+      reason: the published inventory describes the bound SDK function
+      primary: {source_id: triage_inventory, tool: support.draft_reply}
+      members:
+        - {source_id: triage_sdk, tool: support.draft_reply}
+        - {source_id: triage_inventory, tool: support.draft_reply}
+
+action_surface:
+  actions:
+    - tool: support.lookup_ticket
+      effect: read
+      authority:
+        mode: none
+    - tool: support.draft_reply
+      effect: read
+      authority:
+        mode: none
+
+checks:
+  ignore:
+    - check_id: SHIP-SCHEMA-FREEFORM-OUTPUT
+      tool: support.draft_reply
+      reason: "The draft is free text by design; a person edits it before anything is sent."

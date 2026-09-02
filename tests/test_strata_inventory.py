@@ -60,7 +60,21 @@ SOURCING_STATUSES = frozenset({"pinned", "unpinned", "gap"})
 # match the engine's own verdicts cannot measure the engine. `miner_label` is
 # not thereby verifier-*independent* -- see
 # `test_the_miner_label_basis_is_disclosed_as_verifier_exposed`.
-TARGET_BASES = frozenset({"miner_label", "diff_substance", "sample_design", "unsourced"})
+TARGET_BASES = frozenset(
+    {"miner_label", "diff_substance", "sample_design", "constructed_design", "unsourced"}
+)
+
+# Cut B constructions live here, never under `samples/`: the goldens under
+# `samples/*/expected/` are what the engine is developed against, so a
+# corpus-built synthetic committed there would become tuning material the
+# moment it landed. Each case is a change -- `base/` and `head/` trees -- with
+# its design record (`CASE.md`) beside them, outside both trees, so a rater
+# packet built from the trees can never carry it.
+CONSTRUCTED_PREFIX = "benchmark/safety-qualification/constructed/"
+CONSTRUCTED_TREES = ("base", "head")
+# Files that must never appear inside a constructed case's trees: the design
+# record names the target decision, and the others are engine output.
+CONSTRUCTED_TREE_CONTRABAND = ("CASE.md", "agents-shipgate-reports", ".agents-shipgate")
 
 # Holdout means evidence the engine was never tuned on. That is a fact about
 # this project's development history, not about where the candidate's bytes
@@ -71,10 +85,13 @@ EXPOSURES = frozenset(
 EXPOSURES_BLOCKING_HOLDOUT = frozenset({"engine_tests", "maintainer_walk", "shipped_sample"})
 
 # A merged PR is history; a closed-unmerged or reverted one is the rejected
-# vein; an open PR is neither and cannot fill a slot.
+# vein; an open PR is neither and cannot fill a slot. `reverted` is landed
+# history whose rejection came afterwards: the register names the revert PR,
+# and the candidate is pinned at its own merge like any merged PR.
 STATE_ORIGINS = {
     "merged": frozenset({"real_history", "design_partner"}),
     "closed": frozenset({"rejected_or_reverted"}),
+    "reverted": frozenset({"rejected_or_reverted"}),
     "in_tree": frozenset({"synthetic"}),
 }
 SPLIT_ELIGIBILITIES = frozenset({"tuning_only", "either"})
@@ -128,6 +145,16 @@ def _declared_exposure(row: dict[str, str]) -> set[str]:
     return {mark for mark in row["exposure"].split(";") if mark and mark != "none"}
 
 
+def _is_in_tree(candidate_ref: str) -> bool:
+    """A candidate this repository's own history pins: a sample or a construction."""
+
+    return candidate_ref.startswith("samples/") or candidate_ref.startswith(CONSTRUCTED_PREFIX)
+
+
+def _constructed_case_name(candidate_ref: str) -> str:
+    return candidate_ref.removeprefix(CONSTRUCTED_PREFIX)
+
+
 def _candidate_ref_for(pr_url: str) -> str:
     """Spell a miner ``pr_url`` the way the inventory spells a candidate."""
 
@@ -152,9 +179,9 @@ def _miner_labels() -> dict[str, dict[str, str]]:
         relative = source.relative_to(REPO_ROOT).as_posix()
         with source.open(encoding="utf-8", newline="") as handle:
             for entry in csv.DictReader(handle):
-                labels.setdefault(_candidate_ref_for(entry["pr_url"]), {})[relative] = (
-                    entry["label"]
-                )
+                labels.setdefault(_candidate_ref_for(entry["pr_url"]), {})[relative] = entry[
+                    "label"
+                ]
     return labels
 
 
@@ -172,12 +199,33 @@ def _swept_candidates() -> set[str]:
 
 
 @lru_cache(maxsize=1)
-def _lines_citing_a_candidate_number() -> dict[str, tuple[tuple[str, str], ...]]:
-    """PR number -> the ``tests/``/``src/`` lines that mention it.
+def _engine_source_lines() -> tuple[tuple[str, str], ...]:
+    """Every ``tests/``/``src/`` line, read once for every detector below.
 
-    One pass over the tree for every candidate rather than one pass each: the
-    per-candidate form took 34 seconds, which is a guard nobody keeps.
+    One pass over the tree rather than one per candidate: the per-candidate
+    form took 34 seconds, which is a guard nobody keeps.
     """
+
+    this_file = Path(__file__).resolve()
+    lines: list[tuple[str, str]] = []
+    for root in SEARCHED_FOR_EXPOSURE:
+        for path in sorted((REPO_ROOT / root).rglob("*.py")):
+            # This file names every candidate by construction. Its own
+            # docstrings are not evidence that the engine was built against
+            # them, and counting them would make every row self-exposing.
+            if path == this_file:
+                continue
+            location = path.relative_to(REPO_ROOT).as_posix()
+            for offset, line in enumerate(
+                path.read_text(encoding="utf-8", errors="replace").splitlines(), 1
+            ):
+                lines.append((f"{location}:{offset}", line))
+    return tuple(lines)
+
+
+@lru_cache(maxsize=1)
+def _lines_citing_a_candidate_number() -> dict[str, tuple[tuple[str, str], ...]]:
+    """PR number -> the ``tests/``/``src/`` lines that mention it."""
 
     numbers = sorted(
         {
@@ -191,21 +239,28 @@ def _lines_citing_a_candidate_number() -> dict[str, tuple[tuple[str, str], ...]]
 
     wanted = re.compile(rf"(?<![0-9])({'|'.join(map(re.escape, numbers))})(?![0-9])")
     found: dict[str, list[tuple[str, str]]] = {number: [] for number in numbers}
-    this_file = Path(__file__).resolve()
-    for root in SEARCHED_FOR_EXPOSURE:
-        for path in sorted((REPO_ROOT / root).rglob("*.py")):
-            # This file names every candidate by construction. Its own
-            # docstrings are not evidence that the engine was built against
-            # them, and counting them would make every row self-exposing.
-            if path == this_file:
-                continue
-            location = path.relative_to(REPO_ROOT).as_posix()
-            for offset, line in enumerate(
-                path.read_text(encoding="utf-8", errors="replace").splitlines(), 1
-            ):
-                for match in wanted.finditer(line):
-                    found[match.group(1)].append((f"{location}:{offset}", line))
+    for location, line in _engine_source_lines():
+        for match in wanted.finditer(line):
+            found[match.group(1)].append((location, line))
     return {number: tuple(hits) for number, hits in found.items()}
+
+
+def _constructed_case_named_in_engine_sources(candidate_ref: str) -> str | None:
+    """The first ``tests/`` or ``src/`` line naming this constructed case.
+
+    This is the corollary rule made mechanical: a construction built for the
+    corpus stays holdout-eligible only while nothing in the engine or its
+    tests is written against it. The day one is, its row has to say
+    ``engine_tests`` or fail here.
+    """
+
+    name = re.compile(
+        rf"(?<![A-Za-z0-9_]){re.escape(_constructed_case_name(candidate_ref))}(?![A-Za-z0-9_])"
+    )
+    for location, line in _engine_source_lines():
+        if name.search(line):
+            return location
+    return None
 
 
 def _named_in_engine_sources(candidate_ref: str) -> str | None:
@@ -304,9 +359,7 @@ def test_the_inventory_covers_the_policy_grid_and_takes_its_cells_from_the_polic
 
     assert set(present) == set(required), "the inventory grid is not the policy's grid"
     understocked = {
-        cell: (present[cell], count)
-        for cell, count in required.items()
-        if present[cell] < count
+        cell: (present[cell], count) for cell, count in required.items() if present[cell] < count
     }
     assert understocked == {}
 
@@ -389,7 +442,7 @@ def test_a_pin_is_a_full_sha_or_the_slot_is_not_pinned(rows: list[dict[str, str]
 
     for row in rows:
         base, head = row["pinned_base"], row["pinned_head"]
-        in_tree = row["candidate_ref"].startswith("samples/")
+        in_tree = _is_in_tree(row["candidate_ref"])
 
         if row["status"] == "unpinned":
             assert not in_tree, f"{row['slot_id']}: an in-tree sample is pinned by this repository"
@@ -419,8 +472,8 @@ def test_every_candidate_resolves_and_no_subject_fills_two_slots(
 
     for row in sourced:
         ref = row["candidate_ref"]
-        if ref.startswith("samples/"):
-            assert (REPO_ROOT / ref).is_dir(), f"{row['slot_id']} names a sample that does not exist"
+        if _is_in_tree(ref):
+            assert (REPO_ROOT / ref).is_dir(), f"{row['slot_id']} names a tree that does not exist"
         else:
             assert EXTERNAL_CANDIDATE.match(ref), f"{row['slot_id']} candidate_ref is malformed"
 
@@ -433,7 +486,9 @@ def test_every_candidate_resolves_and_no_subject_fills_two_slots(
                 for line in target.read_text(encoding="utf-8").splitlines()
                 if line.startswith("#")
             }
-            assert anchor in headings, f"{row['slot_id']} cites a section that is not there: #{anchor}"
+            assert anchor in headings, (
+                f"{row['slot_id']} cites a section that is not there: #{anchor}"
+            )
 
 
 def test_declared_exposure_is_at_least_what_the_tree_shows(
@@ -462,6 +517,11 @@ def test_declared_exposure_is_at_least_what_the_tree_shows(
         if ref.startswith("samples/"):
             found.add("shipped_sample")
             witness["shipped_sample"] = ref
+        elif ref.startswith(CONSTRUCTED_PREFIX):
+            cited = _constructed_case_named_in_engine_sources(ref)
+            if cited is not None:
+                found.add("engine_tests")
+                witness["engine_tests"] = cited
         else:
             cited = _named_in_engine_sources(ref)
             if cited is not None:
@@ -528,9 +588,58 @@ def test_a_sample_design_row_cites_the_sample_it_is_about(
             continue
         assert row["candidate_ref"].startswith("samples/"), row["slot_id"]
         assert row["evidence_ref"] == row["candidate_ref"], (
-            f"{row['slot_id']} cites {row['evidence_ref']}, "
-            f"but it is about {row['candidate_ref']}"
+            f"{row['slot_id']} cites {row['evidence_ref']}, but it is about {row['candidate_ref']}"
         )
+
+
+def test_a_constructed_case_is_a_change_with_its_design_record_beside_it(
+    rows: list[dict[str, str]],
+) -> None:
+    """A construction is a PR-shaped pair of trees, never a single tree.
+
+    The corpus labels a *change*, so a case with no diff has nothing to label.
+    The design record names the target decision; it lives beside the trees, not
+    in them, so a rater packet built from ``base/`` and ``head/`` cannot carry
+    it -- and neither tree may hold engine output. A construction sharing a
+    name with a shipped sample is one copy away from being tuning material,
+    so that is refused too.
+    """
+
+    for row in rows:
+        if row["target_basis"] != "constructed_design":
+            continue
+        ref = row["candidate_ref"]
+        assert ref.startswith(CONSTRUCTED_PREFIX), (
+            f"{row['slot_id']}: a constructed_design row must name a construction, not {ref}"
+        )
+        assert row["origin_class"] == "synthetic", row["slot_id"]
+        case_dir = REPO_ROOT / ref
+        assert row["evidence_ref"] == f"{ref}/CASE.md", (
+            f"{row['slot_id']} must cite its own design record, not {row['evidence_ref']}"
+        )
+        assert (case_dir / "CASE.md").is_file(), f"{ref} has no CASE.md"
+        assert not (REPO_ROOT / "samples" / _constructed_case_name(ref)).exists(), (
+            f"{ref} shares its name with a shipped sample"
+        )
+
+        trees = {}
+        for tree in CONSTRUCTED_TREES:
+            root = case_dir / tree
+            assert root.is_dir(), f"{ref} has no {tree}/ tree"
+            files = {
+                path.relative_to(root).as_posix(): path.read_bytes()
+                for path in root.rglob("*")
+                if path.is_file()
+            }
+            assert files, f"{ref}/{tree} is empty"
+            contraband = sorted(
+                name
+                for name in files
+                if any(part in CONSTRUCTED_TREE_CONTRABAND for part in Path(name).parts)
+            )
+            assert contraband == [], f"{ref}/{tree} carries {contraband}"
+            trees[tree] = files
+        assert trees["base"] != trees["head"], f"{ref} is not a change: base and head are identical"
 
 
 def test_every_sourced_candidate_is_registered_with_its_profile_and_state(
@@ -613,9 +722,13 @@ def test_a_sample_profile_matches_the_source_type_it_declares(
 
     for row in rows:
         ref = row["candidate_ref"]
-        if not ref.startswith("samples/") or row["profile"] in SCENARIO_PROFILES:
+        if not _is_in_tree(ref) or row["profile"] in SCENARIO_PROFILES:
             continue
-        manifests = sorted((REPO_ROOT / ref).rglob("shipgate.yaml"))
+        # A construction is judged by the state the change produces.
+        searched = (
+            REPO_ROOT / ref / "head" if ref.startswith(CONSTRUCTED_PREFIX) else REPO_ROOT / ref
+        )
+        manifests = sorted(searched.rglob("shipgate.yaml"))
         if ref in PROFILE_UNCHECKED_SAMPLES:
             assert not manifests, f"{ref} has a manifest now; drop it from the unchecked list"
             continue
@@ -624,13 +737,15 @@ def test_a_sample_profile_matches_the_source_type_it_declares(
             "Add it to PROFILE_UNCHECKED_SAMPLES only with a register entry that "
             "justifies its profile some other way."
         )
-        declared = {
-            match.group(1)
-            for manifest in manifests
-            for match in re.finditer(
-                r"^\s*type:\s*([A-Za-z0-9_-]+)", manifest.read_text(encoding="utf-8"), re.M
-            )
-        }
+        declared: set[str] = set()
+        for manifest in manifests:
+            text = manifest.read_text(encoding="utf-8")
+            declared |= {
+                match.group(1) for match in re.finditer(r"^\s*type:\s*([A-Za-z0-9_-]+)", text, re.M)
+            }
+            # n8n is a top-level manifest section, not a tool-source type.
+            if re.search(r"^n8n:", text, re.M):
+                declared.add("n8n")
         admissible = {MANIFEST_TYPE_PROFILES.get(kind) for kind in declared}
         assert row["profile"] in admissible, (
             f"{row['slot_id']} files {ref} under {row['profile']}, "
@@ -840,9 +955,7 @@ def test_the_register_reports_the_plan_the_csv_actually_holds(
         total_cases - requirements.minimum_qualified_origins,
     ]
     assert totals["Slots that can be a cell's holdout case"] == [len(holdout_eligible)]
-    assert totals["Slots that are engine-development inputs"] == [
-        len(rows) - len(holdout_eligible)
-    ]
+    assert totals["Slots that are engine-development inputs"] == [len(rows) - len(holdout_eligible)]
 
     for group in ("profile", "target_decision"):
         for name in {row[group] for row in rows}:

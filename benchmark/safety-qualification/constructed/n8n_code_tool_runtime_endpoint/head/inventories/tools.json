@@ -1,0 +1,50 @@
+{
+  "tools": [
+    {
+      "name": "lookup_order",
+      "description": "Fetch an order's status, items and shipping details by order id.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Order identifier"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true
+      },
+      "auth": {
+        "mode": "none"
+      }
+    },
+    {
+      "name": "notify_carrier",
+      "description": "Tell the order's carrier that a pickup is ready, using the callback URL stored on the order.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Order identifier"
+          },
+          "carrier_callback_url": {
+            "type": "string",
+            "description": "Carrier callback URL from the order record"
+          }
+        },
+        "required": [
+          "order_id",
+          "carrier_callback_url"
+        ]
+      }
+    }
+  ]
+}

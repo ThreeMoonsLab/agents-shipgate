@@ -1,0 +1,45 @@
+{
+  "tools": [
+    {
+      "name": "calendar.create_event",
+      "description": "Create an event on the support team calendar and invite the customer.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "duration_minutes": {
+            "type": "integer",
+            "minimum": 15,
+            "maximum": 120
+          },
+          "attendee_email": {
+            "type": "string",
+            "format": "email"
+          }
+        },
+        "required": [
+          "title",
+          "start",
+          "attendee_email"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      },
+      "auth": {
+        "type": "oauth2",
+        "scopes": [
+          "calendar:events:write"
+        ]
+      }
+    }
+  ]
+}

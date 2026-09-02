@@ -8,7 +8,14 @@ Usage:
     python -m benchmark.miner evaluate --repo-path <clone> \
         --base <sha> --head <sha>
 
+    python -m benchmark.miner mine --repo <owner/name> --state closed ...
+    python -m benchmark.miner mine --repo <owner/name> --state reverted ...
+
 ``mine`` needs the network (gh + git clone); ``evaluate`` is local-only.
+``--state closed`` and ``--state reverted`` enumerate the rejected vein
+(closed-unmerged PRs; merged PRs that were later reverted) for the
+safety-qualification corpus, since merged history rarely holds a change that
+should have been blocked.
 """
 
 from __future__ import annotations
@@ -20,9 +27,14 @@ from pathlib import Path
 
 from benchmark.miner.candidates import (
     Candidate,
+    candidate_for_pr,
     ensure_clone,
+    enumerate_closed_unmerged_prs,
     enumerate_merged_prs,
+    enumerate_reverted_prs,
     resolve_base,
+    resolve_closed_pins,
+    resolve_pins_for,
 )
 from benchmark.miner.evaluate import evaluate_pr
 from benchmark.miner.rows import (
@@ -51,20 +63,48 @@ def unresolved_candidate_row(candidate: Candidate) -> MinedRow:
         base_sha="",
         head_sha=candidate.merge_sha,
         status=STATUS_ERROR,
-        notes="merge_commit_not_in_clone",
+        notes=_note(candidate, "merge_commit_not_in_clone"),
     )
+
+
+def _note(candidate: Candidate, note: str) -> str:
+    return f"{candidate.notes};{note}" if candidate.notes else note
+
+
+# What ``--state`` enumerates, and how each candidate is pinned in the clone.
+# Merged and reverted PRs are pinned at the merge commit and its parent; a
+# closed-unmerged PR has no merge commit, so it is pinned at its head and the
+# fork point from its base branch.
+_STATE_ENUMERATORS = {
+    "merged": (enumerate_merged_prs, resolve_base),
+    "closed": (enumerate_closed_unmerged_prs, resolve_closed_pins),
+    "reverted": (enumerate_reverted_prs, resolve_base),
+}
 
 
 def _cmd_mine(args: argparse.Namespace) -> int:
     workdir = Path(args.workdir)
     rows: list[MinedRow] = []
+    enumerate_prs, resolve_pins = _STATE_ENUMERATORS[args.state]
     for repo in args.repo:
-        print(f"[miner] enumerating merged PRs: {repo} (limit {args.limit})", flush=True)
-        candidates = enumerate_merged_prs(repo, limit=args.limit)
+        if args.pr:
+            # Named PRs, each in whatever state it is in; an open one is
+            # reported and skipped rather than pinned to a moving target.
+            resolve_pins = resolve_pins_for
+            candidates = []
+            for number in args.pr:
+                candidate = candidate_for_pr(repo, number)
+                if candidate is None:
+                    print(f"[miner] {repo}#{number}: open or unresolvable; skipped", flush=True)
+                    continue
+                candidates.append(candidate)
+        else:
+            print(f"[miner] enumerating {args.state} PRs: {repo} (limit {args.limit})", flush=True)
+            candidates = enumerate_prs(repo, limit=args.limit)
         print(f"[miner] cloning {repo} …", flush=True)
         clone = ensure_clone(repo, workdir)
         for candidate in candidates:
-            if not resolve_base(clone, candidate):
+            if not resolve_pins(clone, candidate):
                 row = unresolved_candidate_row(candidate)
                 rows.append(row)
                 print(
@@ -83,6 +123,7 @@ def _cmd_mine(args: argparse.Namespace) -> int:
                 title=candidate.title,
                 merged_at=candidate.merged_at,
                 force_run=args.force_run,
+                notes=candidate.notes,
             )
             rows.append(row)
             print(
@@ -190,7 +231,25 @@ def main(argv: list[str] | None = None) -> int:
 
     mine = sub.add_parser("mine", help="Enumerate, clone, and evaluate merged PRs.")
     mine.add_argument("--repo", action="append", required=True, help="owner/name; repeatable.")
-    mine.add_argument("--limit", type=int, default=50, help="Merged PRs per repo.")
+    mine.add_argument("--limit", type=int, default=50, help="PRs per repo.")
+    mine.add_argument(
+        "--pr",
+        action="append",
+        type=int,
+        default=None,
+        help="Mine only these PR numbers (repeatable), merged or closed-unmerged, "
+        "instead of enumerating by --state.",
+    )
+    mine.add_argument(
+        "--state",
+        choices=sorted(_STATE_ENUMERATORS),
+        default="merged",
+        help=(
+            "Which PRs to enumerate: merged (default); closed = closed without merging, "
+            "pinned at fork point and PR head; reverted = merged PRs a later Revert PR "
+            "undid, pinned like merged PRs with the revert recorded in notes."
+        ),
+    )
     mine.add_argument("--workdir", default=".miner-work", help="Clone cache directory.")
     mine.add_argument("--out", default=None, help="CSV output path.")
     mine.add_argument("--jsonl", default=None, help="JSONL output path.")

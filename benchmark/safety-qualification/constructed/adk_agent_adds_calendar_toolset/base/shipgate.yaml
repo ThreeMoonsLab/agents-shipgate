@@ -1,0 +1,33 @@
+version: "0.1"
+
+project:
+  name: adk-support-agent
+
+agent:
+  name: adk-support-agent
+  declared_purpose:
+    - look up support cases and related articles
+
+environment:
+  target: local
+
+tool_sources:
+  - id: adk_support
+    type: google_adk
+    path: agent.py
+
+google_adk:
+  tool_inventories:
+    - path: inventories/function-tools.json
+      source_id: adk_support
+
+action_surface:
+  actions:
+    - tool: lookup_case
+      effect: read
+      authority:
+        mode: none
+    - tool: support.search
+      effect: read
+      authority:
+        mode: none

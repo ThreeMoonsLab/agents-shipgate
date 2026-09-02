@@ -1,0 +1,35 @@
+{
+  "tools": [
+    {
+      "name": "orders.return_quote",
+      "description": "Quote what returning these items would credit back to the customer, without submitting anything.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "order_id": {
+            "type": "string"
+          },
+          "amount_cents": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "order_id",
+          "amount_cents"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true
+      },
+      "auth": {
+        "type": "api_key",
+        "scopes": [
+          "orders:read"
+        ]
+      }
+    }
+  ]
+}

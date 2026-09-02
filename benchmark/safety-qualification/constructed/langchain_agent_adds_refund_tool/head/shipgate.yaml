@@ -1,0 +1,45 @@
+version: "0.1"
+
+project:
+  name: support-case-agent
+
+agent:
+  name: support-case-agent
+  declared_purpose:
+    - look up and summarize support case metadata
+    - refund the charge on a case
+
+environment:
+  target: local
+
+tool_sources:
+  - id: langchain_agent
+    type: langchain
+    path: agent.py
+
+langchain:
+  tool_inventories:
+    - path: inventories/tools.json
+      source_id: langchain_agent
+
+permissions:
+  scopes:
+    - stripe:refunds:write
+
+action_surface:
+  actions:
+    - tool: lookup_case
+      effect: read
+      authority:
+        mode: none
+    - tool: summarize_case
+      effect: read
+      authority:
+        mode: none
+    - tool: issue_refund
+      effect: financial_write
+      scopes: [stripe:refunds:write]
+      authority:
+        mode: scoped
+        auth_type: api_key
+        credential_mode: service_account
