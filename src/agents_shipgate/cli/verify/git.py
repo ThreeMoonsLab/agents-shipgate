@@ -660,6 +660,20 @@ def git_path(workspace: Path, path: str) -> Path:
     return (workspace / resolved).resolve()
 
 
+def git_directories(workspace: Path) -> tuple[Path, Path]:
+    """Return the checkout-specific Git dir and the repository common dir."""
+
+    values: list[Path] = []
+    for flag in ("--git-dir", "--git-common-dir"):
+        result = _run_git(workspace, ["rev-parse", flag])
+        raw = result.stdout.strip()
+        if not raw:
+            raise ConfigError(f"Git did not report {flag} for {workspace}")
+        value = Path(raw)
+        values.append(value.resolve() if value.is_absolute() else (workspace / value).resolve())
+    return values[0], values[1]
+
+
 def diff_context(workspace: Path, base: str, head: str) -> tuple[list[str], str]:
     """Return committed-ref diff paths and body, or raise on any shortfall.
 
@@ -2283,6 +2297,7 @@ __all__ = [
     "diff_context",
     "diff_revspec_context",
     "ensure_git_workspace",
+    "git_directories",
     "git_path",
     "GitPushEndpoint",
     "merge_base_sha",

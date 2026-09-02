@@ -76,7 +76,7 @@ def rebased_kit_flags(
     return ["--agent-instructions-kit", relative.as_posix()]
 
 
-def is_adopted(directory: Path) -> Path | None:
+def is_adopted(directory: Path, *, manifest_name: str = MANIFEST_NAME) -> Path | None:
     """The manifest already in ``directory``, when one is there to route to.
 
     A symlinked manifest is treated as absent: the loader refuses a manifest
@@ -85,7 +85,7 @@ def is_adopted(directory: Path) -> Path | None:
     and reports the real problem.
     """
 
-    candidate = directory / MANIFEST_NAME
+    candidate = directory / manifest_name
     try:
         if candidate.is_symlink() or not candidate.is_file():
             return None
@@ -170,6 +170,9 @@ def scope_candidate_actions(
     kit: Path | None = None,
     init_refreshes_existing: bool = False,
     requested_control_pack: str | None = None,
+    manifest_name: str = MANIFEST_NAME,
+    alternate_manifest_name: str | None = None,
+    write_flag: str = "--write",
 ) -> list[NextAction]:
     """One exact command per candidate project, in the caller's order.
 
@@ -259,7 +262,9 @@ def scope_candidate_actions(
     for candidate in routable:
         target = workspace / candidate.path
         defines = ", ".join(candidate.agent_names)
-        manifest = is_adopted(target)
+        manifest = is_adopted(target, manifest_name=manifest_name)
+        if manifest is None and alternate_manifest_name is not None:
+            manifest = is_adopted(target, manifest_name=alternate_manifest_name)
         if manifest is not None and not init_refreshes_existing:
             candidate_pack = manifest_control_pack_at(manifest)
             if (
@@ -361,7 +366,7 @@ def scope_candidate_actions(
                         "init",
                         "--workspace",
                         str(target),
-                        "--write",
+                        write_flag,
                         *setup_flags,
                         *kit_flags,
                         "--json",

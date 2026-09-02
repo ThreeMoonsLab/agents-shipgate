@@ -19,7 +19,7 @@ orchestration fields additively.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -36,6 +36,12 @@ class VerificationContext(BaseModel):
     # so ``ScanContext.config_path`` alone cannot be compared with repository-
     # relative changed paths without leaking or depending on that temp path.
     configured_manifest_path: str | None = None
+    # How the configured manifest may be used. ``local_review`` is the
+    # reserved ephemeral setup path: checks must route it through the ordinary
+    # release decision as review-required, never as an authoritative pass.
+    manifest_provenance: Literal[
+        "repository", "local_review", "uncommitted", "absent", "unknown"
+    ] = "unknown"
     # True only when the comparison base carries no Shipgate manifest at all —
     # this diff *introduces* the gate rather than modifying one. Checks that
     # fail safe on a missing base use it to say so honestly; it never relaxes a

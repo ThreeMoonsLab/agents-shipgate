@@ -1093,14 +1093,24 @@ class VerifierArtifact(BaseModel):
                 raise ValueError("human control requires a human-owned, non-safe fix task")
             if self.control.state == "review_publishable":
                 # Publishing evidence is authority over the pull request, not
-                # over Shipgate: the only command a review route may authorize
-                # is the exact rerun that regenerates this same evidence.
+                # over Shipgate. Besides the exact evidence rerun, a provisional
+                # local-review result may name one human-owned durable-adoption
+                # route. That route changes the provenance question; it does
+                # not approve the resulting repository trust root.
                 rerun = self.fix_task.verification_command if self.fix_task is not None else None
                 permitted = {rerun} if rerun else set()
+                if self.fix_task is not None:
+                    permitted.update(
+                        repair.command
+                        for repair in self.fix_task.allowed_repairs
+                        if repair.actor == "human"
+                        and repair.kind == "durable_adoption"
+                        and repair.command
+                    )
                 if not set(self.control.allowed_next_commands) <= permitted:
                     raise ValueError(
-                        "a publishable review may authorize only the exact fix-task "
-                        "rerun command"
+                        "a publishable review may authorize only an exact fix-task "
+                        "rerun or human-owned durable-adoption command"
                     )
         self._assert_publication_rests_on_an_evaluated_change()
         self._assert_passed_substrate_is_consistent()

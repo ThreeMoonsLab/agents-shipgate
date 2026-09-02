@@ -62,6 +62,12 @@ from agents_shipgate.core.human_authorization import (
     default_human_authorization_trust_policy_path,
     evaluate_human_authorization,
 )
+from agents_shipgate.core.manifest_provenance import (
+    LOCAL_REVIEW_MANIFEST_NAME,
+    ManifestProvenance,
+    manifest_provenance,
+    provisional_manifest_note,
+)
 from agents_shipgate.core.static_inputs import (
     StaticInputSnapshot,
     activate_static_input_snapshot,
@@ -85,7 +91,7 @@ from agents_shipgate.core.verification_identity import (
     build_verification_plan,
     worktree_overlay,
 )
-from agents_shipgate.invocation import retarget_command
+from agents_shipgate.invocation import render_command, retarget_command
 from agents_shipgate.packet.json_packet import load_packet_json, write_packet_json
 from agents_shipgate.report.capability_lock_diff_markdown import (
     render_capability_lock_diff_markdown,
@@ -132,6 +138,7 @@ from agents_shipgate.schemas.verifier import (
     VerifierCapabilityReview,
     VerifierDiffStatus,
     VerifierFixTask,
+    VerifierRepair,
     applicability_for,
     merge_verdict_for,
 )
@@ -230,6 +237,39 @@ MAX_WORKTREE_CHANGED_FILE_BYTES = 64 * 1024 * 1024
 _BASE_COMPARISON_FAILURES = frozenset({"ref_missing", "archive_failed", "scan_failed"})
 
 
+def _configured_manifest_provenance(
+    *,
+    git_root: Path,
+    config_path: Path,
+    evaluated_ref: str,
+) -> tuple[ManifestProvenance, bool | None]:
+    """Classify config authority once from its filesystem and Git identities."""
+
+    logical_path = config_path
+    present = config_path.is_file()
+    if config_path.is_absolute():
+        try:
+            logical_path = config_path.resolve().relative_to(git_root.resolve())
+        except ValueError:
+            return (
+                manifest_provenance(
+                    config_path,
+                    present=present,
+                    committed_at_head=None,
+                ),
+                None,
+            )
+    committed = path_present_at_ref(git_root, evaluated_ref, logical_path)
+    return (
+        manifest_provenance(
+            logical_path,
+            present=present,
+            committed_at_head=committed,
+        ),
+        committed,
+    )
+
+
 @owns_current_control("verify")
 def run_verify(
     *,
@@ -259,6 +299,13 @@ def run_verify(
         git_root,
         config,
         requested_workspace=workspace,
+    )
+    configured_manifest_provenance, config_blob_at_head = (
+        _configured_manifest_provenance(
+            git_root=git_root,
+            config_path=config_path,
+            evaluated_ref=head,
+        )
     )
     out_dir = _resolve_out_dir(
         git_root=git_root, requested_workspace=workspace.resolve(), out=out
@@ -394,6 +441,7 @@ def run_verify(
             head_status="failed",
             head_exit_code=2,
             out_dir=out_dir,
+            manifest_provenance_value=configured_manifest_provenance,
             ci_mode=ci_mode,
             headline_override=message,
             first_next_action_override=CodingAgentCommandAction(
@@ -416,6 +464,7 @@ def run_verify(
             pr_comment_path,
             report=None,
             git_root=git_root,
+            manifest_provenance_value=configured_manifest_provenance,
             config_path=config_path,
             config_logical_path=config_relative.as_posix(),
             baseline_path=baseline_path,
@@ -477,6 +526,7 @@ def run_verify(
             head_status="failed",
             head_exit_code=2,
             out_dir=out_dir,
+            manifest_provenance_value=configured_manifest_provenance,
             ci_mode=ci_mode,
             headline_override=message,
             first_next_action_override=CodingAgentFetchBaseAction(
@@ -495,6 +545,7 @@ def run_verify(
             pr_comment_path,
             report=None,
             git_root=git_root,
+            manifest_provenance_value=configured_manifest_provenance,
             config_path=config_path,
             config_logical_path=config_relative.as_posix(),
             baseline_path=baseline_path,
@@ -514,8 +565,9 @@ def run_verify(
     if tree_config_relative is not None:
         config_relative = tree_config_relative
 
+    overlay_worktree_manifest = archive_head and config_blob_at_head is False
     worktree_manifest_text: str | None = None
-    if not archive_head:
+    if not archive_head or overlay_worktree_manifest:
         try:
             worktree_manifest_text = read_identity_bound_text(
                 git_root,
@@ -708,6 +760,7 @@ def run_verify(
         head_status="skipped",
         head_exit_code=0,
         out_dir=out_dir,
+        manifest_provenance_value=configured_manifest_provenance,
         ci_mode=ci_mode,
         worktree=not archive_head,
         rerun_options=rerun_options,
@@ -731,6 +784,7 @@ def run_verify(
             head_status="failed",
             head_exit_code=2,
             out_dir=out_dir,
+            manifest_provenance_value=configured_manifest_provenance,
             ci_mode=ci_mode,
             first_next_action_override=diff_failure_action,
             headline_override=_diff_failure_headline(diff_input),
@@ -744,6 +798,7 @@ def run_verify(
             pr_comment_path,
             report=None,
             git_root=git_root,
+            manifest_provenance_value=configured_manifest_provenance,
             config_path=config_path,
             config_logical_path=config_relative.as_posix(),
             baseline_path=baseline_path,
@@ -775,6 +830,7 @@ def run_verify(
                 head_status="skipped",
                 head_exit_code=0,
                 out_dir=out_dir,
+                manifest_provenance_value=configured_manifest_provenance,
                 ci_mode=ci_mode,
                 worktree=not archive_head,
                 rerun_options=rerun_options,
@@ -786,6 +842,7 @@ def run_verify(
             pr_comment_path,
             report=None,
             git_root=git_root,
+            manifest_provenance_value=configured_manifest_provenance,
             config_path=config_path,
             config_logical_path=config_relative.as_posix(),
             baseline_path=baseline_path,
@@ -836,12 +893,13 @@ def run_verify(
         external_paths=external_snapshot_paths,
         excluded_paths=[out_dir],
     )
-    if not archive_head:
+    if not archive_head or overlay_worktree_manifest:
         assert worktree_manifest_text is not None
         static_snapshot.preload(
             config_path,
             worktree_manifest_text.encode("utf-8"),
         )
+    if not archive_head:
         # The overlay set is HEAD-relative and the change set is merge-base-
         # relative, so a canceled path appears only in the former. Bind the
         # union: an overlay path the snapshot contains but never read is
@@ -923,6 +981,10 @@ def run_verify(
             head_input_root = head_tree_dir
             head_tree = tree_sha(git_root, head)
             head_config_path = head_tree_dir / config_relative
+            if overlay_worktree_manifest:
+                assert worktree_manifest_text is not None
+                head_config_path.parent.mkdir(parents=True, exist_ok=True)
+                head_config_path.write_text(worktree_manifest_text, encoding="utf-8")
             _reject_symlink_components(
                 head_tree_dir,
                 config_relative,
@@ -1002,7 +1064,11 @@ def run_verify(
         # public two-value return contract or serializing the context.
         with (
             use_evaluation_date(date.fromisoformat(verification_date)),
-            override_human_manifest_committed(True if archive_head else None),
+            override_human_manifest_committed(
+                True
+                if archive_head and configured_manifest_provenance == "repository"
+                else None
+            ),
         ):
             head_snapshot_token = (
                 activate_static_input_snapshot(head_snapshot)
@@ -1032,6 +1098,7 @@ def run_verify(
                         diff_text_available=bool(diff_text),
                         trigger_result=trigger,
                         configured_manifest_path=config_relative.as_posix(),
+                        manifest_provenance=configured_manifest_provenance,
                         manifest_introduced=manifest_introduced,
                         # A base ref was resolved and the comparison could not
                         # be performed. ``diff_from_path`` is simply ``None``
@@ -1160,6 +1227,7 @@ def run_verify(
             head_status=head_status,
             head_exit_code=head_exit_code,
             out_dir=out_dir,
+            manifest_provenance_value=configured_manifest_provenance,
             ci_mode=ci_mode,
             manifest_introduced=manifest_introduced,
             # Both halves, joined only here: the structural one was decided
@@ -1192,6 +1260,7 @@ def run_verify(
                     pr_comment_path,
                     report=artifact_report,
                     git_root=git_root,
+                    manifest_provenance_value=configured_manifest_provenance,
                     config_path=head_config_path,
                     config_logical_path=config_relative.as_posix(),
                     baseline_path=head_baseline_path,
@@ -3155,6 +3224,7 @@ def _derive_verifier_control(
     pure_adoption_review: bool = False,
     configured_manifest: str | None = None,
     declaration_continuation: bool = False,
+    durable_adoption_command: str | None = None,
 ) -> AgentControl:
     """Project verifier facts through the shared operational control engine."""
 
@@ -3285,6 +3355,12 @@ def _derive_verifier_control(
         )
         or reason
     )
+    if durable_adoption_command is not None:
+        adoption_route = (
+            "A human must decide whether to adopt this provisional setup. "
+            f"If approved, the exact durable-adoption command is `{durable_adoption_command}`."
+        )
+        review_reason = _compose_with_reserved_suffix(review_reason, adoption_route)
     unsafe_block = bool(
         release_decision is not None
         and release_decision.decision == "blocked"
@@ -3296,13 +3372,14 @@ def _derive_verifier_control(
         # inventing a rerun. ``fix_task`` is present on every non-mergeable
         # verdict; an absent one simply offers no command.
         rerun = fix_task.verification_command if fix_task is not None else None
+        onward = durable_adoption_command or rerun
         return derive_agent_control(
             reason=reason,
             next_action=HumanControlAction(kind="review", why=review_reason),
             verify_required=True,
             human_review_required=True,
             publication_allowed=True,
-            allowed_next_commands=[rerun] if rerun else [],
+            allowed_next_commands=[onward] if onward else [],
             human_review_why=review_reason,
         )
     return derive_agent_control(
@@ -3507,6 +3584,7 @@ def _build_verifier(
     head_status: str,
     head_exit_code: int,
     out_dir: Path,
+    manifest_provenance_value: ManifestProvenance,
     ci_mode: str | None = None,
     preview: bool = False,
     headline_override: str | None = None,
@@ -3517,6 +3595,9 @@ def _build_verifier(
     worktree_ref: str | None = None,
     rerun_options: list[str] | None = None,
 ) -> VerifierArtifact:
+    provenance_note = provisional_manifest_note(manifest_provenance_value)
+    if report is not None and provenance_note is not None and provenance_note not in base_notes:
+        base_notes = [*base_notes, provenance_note]
     release_decision_model = report.release_decision if report is not None else None
     release_decision = (
         release_decision_model.model_dump(mode="json")
@@ -3558,6 +3639,11 @@ def _build_verifier(
         worktree=worktree,
     )
     resolved_report_path = str((out_dir / "report.json").resolve())
+    durable_adoption_command = (
+        render_command(["init", "--workspace", str(git_root), "--write", "--json"])
+        if manifest_provenance_value == "local_review"
+        else None
+    )
     fix_task = (
         None
         if safe_recovery
@@ -3576,6 +3662,22 @@ def _build_verifier(
             configured_gate_introduced=configured_gate_introduced,
         )
     )
+    if fix_task is not None and durable_adoption_command is not None:
+        fix_task.allowed_repairs.append(
+            VerifierRepair(
+                id="adopt-local-review-manifest",
+                actor="human",
+                kind="durable_adoption",
+                target=str(git_root / "shipgate.yaml"),
+                check_id="SHIP-VERIFY-LOCAL-REVIEW-PROVISIONAL",
+                command=durable_adoption_command,
+                reason=(
+                    "A human may choose to replace the provisional setup with "
+                    "a repository manifest; this command does not approve the "
+                    "resulting trust root."
+                ),
+            )
+        )
     can_merge = _can_merge_without_human(
         merge_verdict=merge_verdict,
         release_decision=release_decision_model,
@@ -3653,6 +3755,7 @@ def _build_verifier(
         # written against. A ref-bound run evaluates committed objects and has
         # nothing for the receipt to be about.
         declaration_continuation=declaration_continuation,
+        durable_adoption_command=durable_adoption_command,
     )
     return VerifierArtifact(
         declaration_continuation=declaration_continuation,
@@ -3865,6 +3968,13 @@ def _evaluate_authorization_overlay(
             ),
             None,
         )
+    if plan.inputs.options.get("manifest_provenance") != "repository":
+        return (
+            AuthorizationEvaluationV1.not_applicable(
+                "authorization_requires_committed_repository_manifest"
+            ),
+            None,
+        )
     try:
         if report is None:
             raise ValueError("authorization requires a release report")
@@ -3970,6 +4080,7 @@ def _write_artifacts(
     *,
     report: ReadinessReport | None,
     git_root: Path,
+    manifest_provenance_value: ManifestProvenance,
     operation: CurrentControlOperation = "verify",
     config_path: Path,
     config_logical_path: str | None = None,
@@ -4211,6 +4322,7 @@ def _write_artifacts(
                 "fail_on": sorted(fail_on or []),
                 "no_heuristics": no_heuristics,
                 "plugins_enabled": plugins_enabled is not False,
+                "manifest_provenance": manifest_provenance_value,
                 **resolved_options,
             },
             plugins_enabled=plugins_enabled,
@@ -5039,7 +5151,12 @@ def _shell_join(parts: list[str]) -> str:
     return " ".join(shlex.quote(part) for part in parts)
 
 
-def _preview_init_command(workspace: Path, *, scope: ChangeScope | None = None) -> str:
+def _preview_init_command(
+    workspace: Path,
+    *,
+    scope: ChangeScope | None = None,
+    local_review: bool = False,
+) -> str:
     command_workspace = _preview_command_workspace(workspace, scope=scope)
     return retarget_command(
         _shell_join(
@@ -5048,7 +5165,7 @@ def _preview_init_command(workspace: Path, *, scope: ChangeScope | None = None) 
                 "init",
                 "--workspace",
                 str(command_workspace),
-                "--write",
+                "--local-review" if local_review else "--write",
                 "--json",
             ]
         )
@@ -5621,7 +5738,11 @@ def run_preview(
     # installs the local contract, default agent kit, and advisory CI workflow
     # for unconfigured workspaces so cold-start agents do not need to infer the
     # next command from README prose.
-    init_command = _preview_init_command(workspace, scope=scope)
+    init_command = _preview_init_command(
+        workspace,
+        scope=scope,
+        local_review=config_path.name == LOCAL_REVIEW_MANIFEST_NAME,
+    )
     verify_command = _preview_verify_command(
         workspace=workspace,
         config=config,
@@ -5868,6 +5989,7 @@ def run_preview(
         pr_comment_path,
         report=None,
         git_root=root,
+        manifest_provenance_value="unknown",
         # A preview is never a merge decision.  Scoping the pointer to the
         # preview operation makes "complete" unrepresentable for this run, so
         # an agent cannot read a preview as authorization to finish.

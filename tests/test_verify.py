@@ -3659,6 +3659,7 @@ def test_build_verifier_preserves_trigger_state_but_scrubs_embedded_commands(
         head_status="skipped",
         head_exit_code=0,
         out_dir=out_dir,
+        manifest_provenance_value="unknown",
     )
 
     assert verifier.trigger["next_action"]["kind"] == "input_required"

@@ -33,6 +33,7 @@ from agents_shipgate.checks import (
     verify_capability_scope,
     verify_ci_gate,
     verify_config_binding,
+    verify_local_review,
     verify_policy,
     verify_trigger_drift,
 )
@@ -71,6 +72,10 @@ BUILTIN_CHECKS: list[Callable[[ScanContext], list[Finding]]] = [
     n8n.run,
     conductor.run,
     verify.run,
+    # Ephemeral manifests are assessment inputs, never repository-reviewed
+    # release roots. Keep this in the one decision engine as an ordinary
+    # review-required finding rather than inventing a parallel verdict.
+    verify_local_review.run,
     # M3 (v0.22): Tier B trust-root weakening checks. All category
     # "verify" (suppression-immune + floor-protected) and gated on a
     # VerificationContext — they emit nothing on a plain scan.

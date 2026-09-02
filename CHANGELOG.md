@@ -57,6 +57,23 @@
   named in the script's own "intentional simplifications" list and pinned by
   `test_framework_vocabulary_names_every_cli_omission`, which fails on any
   further omission (#485).
+- **External PRs can now be evaluated without mutating tracked project files.**
+  (#326) Explicit preview with the reserved
+  `.agents-shipgate-local-review.yaml` config routes to the new
+  `init --local-review` stage, while ordinary preview keeps durable
+  `init --write` as its default. Local review writes a reserved ephemeral
+  manifest and atomically maintains a private exclusion block; linked
+  worktrees are refused because their exclude file is shared. Structured setup
+  output inventories each local effect and an executable `--undo` cleanup
+  command. Base/head verification overlays the identity-bound local manifest
+  into the archived head without committing it. Verification binds manifest
+  provenance into its plan,
+  records the provisional boundary in verifier and handoff evidence, and emits
+  `SHIP-VERIFY-LOCAL-REVIEW-PROVISIONAL` through the one release-decision
+  engine. The reserved manifest is permanently provisional, and differently
+  named uncommitted or Git-unproven manifests fail closed too, so an ephemeral
+  policy cannot produce authoritative `passed`, `mergeable`, or
+  human-authorization evidence.
 
 - **Verifier and evidence explanations now preserve the fact that produced
   them.** (#436, #396, #414, #420) Plain blocked-run headlines name the
