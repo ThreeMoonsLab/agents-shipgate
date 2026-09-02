@@ -71,10 +71,13 @@ EXPOSURES = frozenset(
 EXPOSURES_BLOCKING_HOLDOUT = frozenset({"engine_tests", "maintainer_walk", "shipped_sample"})
 
 # A merged PR is history; a closed-unmerged or reverted one is the rejected
-# vein; an open PR is neither and cannot fill a slot.
+# vein; an open PR is neither and cannot fill a slot. `reverted` is landed
+# history whose rejection came afterwards: the register names the revert PR,
+# and the candidate is pinned at its own merge like any merged PR.
 STATE_ORIGINS = {
     "merged": frozenset({"real_history", "design_partner"}),
     "closed": frozenset({"rejected_or_reverted"}),
+    "reverted": frozenset({"rejected_or_reverted"}),
     "in_tree": frozenset({"synthetic"}),
 }
 SPLIT_ELIGIBILITIES = frozenset({"tuning_only", "either"})
