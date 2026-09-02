@@ -25,6 +25,10 @@ from agents_shipgate.core.findings.subject_rollup import (
 )
 from agents_shipgate.core.privacy import sanitize_packet
 from agents_shipgate.core.source_warnings import group_source_warnings
+from agents_shipgate.report.declaration_review import (
+    declaration_review_lines,
+    override_is_represented,
+)
 from agents_shipgate.report.human_order import (
     ColdReaderLead,
     HumanArtifactContext,
@@ -290,7 +294,11 @@ def _render_release_decision(section: ReleaseDecisionSection) -> str:
     )
     parts.append(f"<li>Evidence gaps: {semantic.gap_count}</li>")
     parts.append(f"<li>Known review concerns: {semantic.review_concern_count}</li>")
+    for line in declaration_review_lines(semantic.declaration_review):
+        parts.append(f"<li>{escape(line)}</li>")
     for override in semantic.acknowledged_overrides:
+        if override_is_represented(semantic.declaration_review, override):
+            continue
         agrees = (
             f"; source evidence agrees ({', '.join(override.corroborating_sources)})"
             if override.corroborating_sources

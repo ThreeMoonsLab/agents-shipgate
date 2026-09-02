@@ -718,7 +718,7 @@ class VerifierArtifact(BaseModel):
         },
     )
 
-    verifier_schema_version: Literal["0.15"] = "0.15"
+    verifier_schema_version: Literal["0.16"] = "0.16"
     static_analysis_only: Literal[True] = True
     runtime_behavior_verified: Literal[False] = False
     static_verdict_disclaimer: str = STATIC_VERDICT_DISCLAIMER
@@ -832,6 +832,9 @@ class VerifierArtifact(BaseModel):
             # could not mint or read the receipt, so ``false`` — publication is
             # refused on a blocked decision — is exactly what that build meant.
             "0.14",
+            # v0.15 froze before declaration review was embedded in the
+            # release-decision semantic coverage.
+            "0.15",
         }
         if not legacy:
             # Current artifacts must already carry the authoritative control
@@ -839,7 +842,7 @@ class VerifierArtifact(BaseModel):
             # control would turn an internal consistency failure into a trusted
             # handoff.  Only frozen prior readers are normalized.
             return normalized
-        normalized["verifier_schema_version"] = "0.15"
+        normalized["verifier_schema_version"] = "0.16"
         # A pre-v0.7 artifact recorded nothing about whether its diff was
         # readable. Defaulting that to ``complete`` would manufacture the one
         # claim the whole field exists to stop.

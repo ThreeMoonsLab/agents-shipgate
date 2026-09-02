@@ -20,6 +20,7 @@ from agents_shipgate.core.privacy import RedactionStats, redact_data, sanitize_m
 from agents_shipgate.schemas.codex_plugin import CodexPluginSurface
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.surfaces import (
+    ActionDeclarationFacts,
     ActionFact,
     ActionSurfaceFacts,
     ActionSurfaceHashes,
@@ -202,6 +203,16 @@ def _sanitize_diff_reference(
         if reference.action_facts is not None
         else None
     )
+    declaration_facts = (
+        sanitize_model(
+            reference.declaration_facts,
+            ActionDeclarationFacts,
+            stats=stats,
+            path="declaration_review.base.facts",
+        )
+        if reference.declaration_facts is not None
+        else None
+    )
     findings = (
         [
             item.__class__.model_validate(
@@ -223,6 +234,7 @@ def _sanitize_diff_reference(
         report_schema_version=reference.report_schema_version,
         baseline_schema_version=reference.baseline_schema_version,
         action_facts=action_facts,
+        declaration_facts=declaration_facts,
         findings=findings,
         notes=tuple(
             redact_data(

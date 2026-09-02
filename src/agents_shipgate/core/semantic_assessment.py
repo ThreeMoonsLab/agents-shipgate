@@ -7,8 +7,6 @@ from dataclasses import dataclass
 from typing import Any, Literal, cast, get_args
 
 from agents_shipgate.core.action_semantics import (
-    ACTION_EFFECT_RANK,
-    builtin_obligations,
     normalize_declared_strings,
 )
 from agents_shipgate.core.domain import (
@@ -32,6 +30,16 @@ from agents_shipgate.core.domain import (
     ToolSemanticAssessment,
 )
 from agents_shipgate.core.tool_identity import configured_tool_source
+from agents_shipgate.schemas.action_effects import (
+    EFFECT_RISK_RANK as _EFFECT_RANK,
+)
+from agents_shipgate.schemas.action_effects import (
+    RISK_TAG_EFFECTS as _TAG_EFFECTS,
+)
+from agents_shipgate.schemas.action_effects import (
+    declaration_covers,
+    declaration_effects,
+)
 from agents_shipgate.schemas.common import Confidence, ProvenanceKind, confidence_rank
 from agents_shipgate.schemas.manifest import (
     ActionDeclarationConfig,
@@ -42,17 +50,6 @@ from agents_shipgate.schemas.manifest import (
 from agents_shipgate.schemas.manifest.action_surface import CONFIRMED_BASIS_PREFIX
 from agents_shipgate.schemas.surfaces import ActionEffect
 
-_EFFECT_RANK: dict[ActionEffect, int] = {
-    "read": 0,
-    "write": 1,
-    "privileged_data_access": 2,
-    "identity_access": 3,
-    "code_execution": 4,
-    "production_operation": 5,
-    "external_communication": 6,
-    "financial_write": 7,
-    "destructive": 8,
-}
 _EFFECT_VALUES = frozenset(_EFFECT_RANK)
 MCP_SOURCE_TYPES = frozenset(
     {
@@ -97,30 +94,6 @@ _PERMISSION_EFFECTS: dict[str, ActionEffect] = {
     "external": "external_communication",
     "financial": "financial_write",
     "production": "production_operation",
-}
-_TAG_EFFECTS: dict[str, ActionEffect] = {
-    "read_only": "read",
-    "write": "write",
-    "writes_data": "write",
-    "filesystem_write": "write",
-    "destructive": "destructive",
-    "irreversible": "destructive",
-    "external_write": "external_communication",
-    "external_communication": "external_communication",
-    "customer_communication": "external_communication",
-    "external_side_effect": "external_communication",
-    "financial_action": "financial_write",
-    "financial_write": "financial_write",
-    "infrastructure_change": "production_operation",
-    "production_operation": "production_operation",
-    "production_ops": "production_operation",
-    "sensitive_data_access": "privileged_data_access",
-    "privileged_data_access": "privileged_data_access",
-    "privileged_data": "privileged_data_access",
-    "secret_access": "privileged_data_access",
-    "code_execution": "code_execution",
-    "identity_access": "identity_access",
-    "unknown_side_effect": "write",
 }
 
 
@@ -965,45 +938,6 @@ def _source_read_conflict(structural: Sequence[SemanticClaim]) -> tuple[bool, bo
     return (
         any(claim.value == "read" for claim in high),
         any(claim.value != "read" for claim in high),
-    )
-
-
-def declaration_covers(declared: str, inferred: str) -> bool:
-    """Does asserting ``declared`` account for an observation of ``inferred``?
-
-    Two conditions, both necessary.
-
-    *Risk*: the declaration must not rank below the observation under **either**
-    published rank table. They disagree — :data:`_EFFECT_RANK` orders
-    ``privileged_data_access`` above ``write`` and ``ACTION_EFFECT_RANK`` orders
-    it below — and picking a winner would either loosen an existing gate path or
-    leave this comparison contradicting the one
-    ``_non_authoritative_effect_escalation_support`` makes about the same
-    action. Requiring both makes them agree without weakening either.
-
-    *Obligations*: the declaration must oblige at least the controls the
-    observation would. Rank is a total order; obligations are not.
-    ``financial_write`` outranks ``external_communication`` and requires
-    approval, audit, and idempotency — but not confirmation, which is precisely
-    what communicating outward requires. Testing rank alone let a declaration
-    discharge a category it does not cover: the action went pass-eligible with
-    no gap and no external-communication finding, while the external-write risk
-    tag sat untouched in the same report.
-
-    Nothing here decides *policy*. An uncovered observation becomes a reviewed
-    question, never a control a heuristic imposed on its own (#357).
-    """
-
-    if declared == inferred:
-        return True
-    if declared not in _EFFECT_RANK or inferred not in _EFFECT_RANK:
-        return False
-    if _EFFECT_RANK[_as_effect(declared)] < _EFFECT_RANK[_as_effect(inferred)]:
-        return False
-    if ACTION_EFFECT_RANK[_as_effect(declared)] < ACTION_EFFECT_RANK[_as_effect(inferred)]:
-        return False
-    return builtin_obligations(_as_effect(inferred)).issubset(
-        builtin_obligations(_as_effect(declared))
     )
 
 
@@ -2494,6 +2428,7 @@ __all__ = [
     "ReviewedAuthority",
     "attach_semantic_assessments",
     "confirmed_basis",
+    "declaration_effects",
     "declared_effect_of",
     "risk_tag_answers_effect",
     "effect_derivation_id",

@@ -431,7 +431,7 @@ def production_safety_requirements() -> SafetyQualificationRequirementsV1:
         # ``test_the_qualification_gate_demands_the_schema_the_engine_emits``,
         # because a gate demanding a schema no build produces rejects every
         # receipt with "qualification report schema mismatch".
-        required_report_schema_version="0.42",
+        required_report_schema_version="0.43",
     )
 
 
@@ -500,7 +500,7 @@ def pre_release_safety_requirements() -> SafetyQualificationRequirementsV1:
         minimum_blocked_exact=14,
         minimum_review_exact=14,
         minimum_insufficient_evidence_exact=14,
-        required_report_schema_version="0.42",
+        required_report_schema_version="0.43",
     )
 
 

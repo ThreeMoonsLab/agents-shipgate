@@ -25,6 +25,10 @@ from agents_shipgate.core.lenses.action_surface import (
     compute_action_surface_diff,
     enrich_action_surface_diff_with_source,
 )
+from agents_shipgate.core.lenses.declaration_surface import (
+    build_action_declaration_facts,
+    build_public_action_declaration_facts,
+)
 from agents_shipgate.core.lenses.effective_policy import accepted_debt_fingerprints
 from agents_shipgate.core.lenses.tool_surface import (
     build_tool_surface_facts,
@@ -106,6 +110,16 @@ def _sanitize_for_output(
         stats=privacy_stats,
         path="manifest_dir",
     )
+    configured_manifest_path = (
+        decision.context.verification.configured_manifest_path
+        if decision.context.verification is not None
+        else None
+    )
+    public_manifest_path = redact_data(
+        configured_manifest_path or config_path.name,
+        stats=privacy_stats,
+        path="manifest_path",
+    )
     public_api_artifacts = (
         sanitize_model(
             inputs.api,
@@ -138,6 +152,24 @@ def _sanitize_for_output(
     )
     public_tools = sanitize_tools(tools_and_agent.tools, stats=privacy_stats)
     public_tool_catalog = sanitize_tools(tools_and_agent.tool_catalog, stats=privacy_stats)
+    # Validate and resolve declaration rows against the raw, one-to-one
+    # manifest/tool surface first. Redaction is many-to-one and cannot safely
+    # be treated as a second manifest: two valid secret-bearing selectors may
+    # deliberately collapse to the same public marker.
+    build_action_declaration_facts(
+        manifest,
+        tools_and_agent.tools,
+        manifest_path=configured_manifest_path or config_path.name,
+    )
+    public_action_declaration_facts = build_public_action_declaration_facts(
+        public_manifest,
+        public_tools,
+        manifest_path=public_manifest_path,
+        indeterminate_override_positions=_indeterminate_override_positions(
+            manifest,
+            public_manifest,
+        ),
+    )
     public_binding_graph = sanitize_model(
         tools_and_agent.binding_graph,
         AgentBindingGraphAssessment,
@@ -384,6 +416,7 @@ def _sanitize_for_output(
     return _SanitizedSurfaces(
         manifest=public_manifest,
         manifest_dir=public_manifest_dir,
+        manifest_path=public_manifest_path,
         project=public_project,
         environment=public_environment,
         agent=public_agent,
@@ -405,6 +438,22 @@ def _sanitize_for_output(
         loaded_plugins=public_loaded_plugins,
         loaded_adapters=public_loaded_adapters,
         diff_reference=public_diff_reference,
+        base_comparison_requested=bool(
+            public_diff_reference is not None
+            or (
+                decision.context.verification is not None
+                and decision.context.verification.base_comparison_unavailable
+            )
+        ),
+        manifest_introduced=bool(
+            decision.context.verification is not None
+            and decision.context.verification.manifest_introduced
+        ),
+        configured_gate_introduced=bool(
+            decision.context.verification is not None
+            and decision.context.verification.configured_gate_introduced
+        ),
+        action_declaration_facts=public_action_declaration_facts,
         base_action_surface_facts=public_base_action_surface_facts,
         action_surface_facts=public_action_surface_facts,
         action_surface_diff=public_action_surface_diff,
@@ -426,6 +475,32 @@ def _sanitize_for_output(
             for omission in loaded.omissions
         ],
     )
+
+
+def _indeterminate_override_positions(
+    raw_manifest: AgentsShipgateManifest,
+    public_manifest: AgentsShipgateManifest,
+) -> frozenset[int]:
+    """Rows whose override equality privacy redaction made unknowable.
+
+    The durable projection carries only a fixed sentinel for these rows. It
+    must not carry a digest of either raw string: evidence/reason fields often
+    contain credentials, and a deterministic raw hash is still secret-derived
+    material that enables offline guessing.
+    """
+
+    positions: set[int] = set()
+    raw_rows = raw_manifest.action_surface.actions
+    public_rows = public_manifest.action_surface.actions
+    for position, (raw, public) in enumerate(zip(raw_rows, public_rows, strict=True)):
+        if raw.override is None or public.override is None:
+            continue
+        if (
+            raw.override.evidence != public.override.evidence
+            or raw.override.reason != public.override.reason
+        ):
+            positions.add(position)
+    return frozenset(positions)
 
 
 def _public_action_surfaces(

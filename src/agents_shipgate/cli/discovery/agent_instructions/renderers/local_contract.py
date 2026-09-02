@@ -32,6 +32,9 @@ PRIOR_RENDER_SHA256: tuple[str, ...] = (
     # revision replaces. A repo pinned to it must upgrade in place, or its
     # agents keep reading "no rule matched means skip" from a stale contract.
     "c63117b02849e6e7400f366bd32c42c978db1f6c7a1bb3d9f64c125a9a1d4e47",
+    # v10 at runtime contract v28, before declaration review moved the
+    # advertised report, packet, verifier, preflight, and runtime contracts.
+    "bbad818d6b5b1ee34d412999720bb48d946a9dbb3cdc868b52221941c7b19477",
 )
 
 

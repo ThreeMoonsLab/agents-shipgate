@@ -10,10 +10,29 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
-### Unreleased projection-only migration
+### Unreleased declaration-review migration
 
-No schema or runtime-contract version moves for the current fixes; the current
-v0.42 report schema gains the typed `unattested_surface` gap and optional
+Runtime contract v29 coordinates the public artifacts that carry changed
+action declarations: report v0.43, packet v0.18, and verifier v0.16.
+`minimum_control_contract_version` remains 21 because the operational control
+envelope is unchanged.
+
+Read
+`release_decision.evidence_coverage.semantic_coverage.declaration_review` for
+the base-vs-head reviewer projection. It includes added, removed, and
+semantically modified declaration rows. A requested comparison that could not
+run is distinct from an available comparison with no changes; missing or
+conflicting identity and semantic evidence gaps cannot earn an
+`evidence_consistent` status. Report Markdown, packets, PR comments,
+annotations, and the GitHub summary consume the same bounded projection.
+
+See the
+[declaration-review migration note](../STABILITY.md#migration-note-unreleased-declaration-review).
+
+### Earlier projection-only migration
+
+That change moved no schema or runtime-contract version; the v0.42 report
+schema gained the typed `unattested_surface` gap and optional
 `EvidenceGap.policy_id`.
 Completed blocked verifier runs now append the deterministically selected worst
 blocker to the plain headline as well as the adoption/self-approval branches;
@@ -474,11 +493,11 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b7` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `28` (minimum control contract: `21`)
-- Current report schema: `0.42` — [`docs/report-schema.v0.42.json`](report-schema.v0.42.json)
-- Current packet schema: `0.17` — [`docs/packet-schema.v0.17.json`](packet-schema.v0.17.json)
+- Runtime contract: `29` (minimum control contract: `21`)
+- Current report schema: `0.43` — [`docs/report-schema.v0.43.json`](report-schema.v0.43.json)
+- Current packet schema: `0.18` — [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
-- Current verifier schema: `0.15` — [`docs/verifier-schema.v0.15.json`](verifier-schema.v0.15.json) (v0.14 and earlier stay frozen; `0.15` adds `declaration_continuation`, the one fact that lets a blocked decision authorize publication)
+- Current verifier schema: `0.16` — [`docs/verifier-schema.v0.16.json`](verifier-schema.v0.16.json) (`0.15` and earlier stay frozen; `0.16` embeds declaration review in the release decision)
 - Current verify-run schema: `shipgate.verify_run/v5` — [`docs/verify-run-schema.v5.json`](verify-run-schema.v5.json)
 - Current verification identity schemas: [`plan v1`](verification-plan-schema.v1.json), [`unit result v1`](verification-unit-result-schema.v1.json), [`artifact manifest v1`](verification-artifact-manifest-schema.v1.json), and [`terminal receipt v1`](verification-receipt-schema.v1.json)
 - Current control pointer schema: `shipgate.current_control/v1` — [`docs/current-control-schema.v1.json`](current-control-schema.v1.json)
@@ -902,7 +921,7 @@ agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --jso
 ```
 
 In `agents-shipgate-reports/verifier.json`, read the fields below (full
-schema [`docs/verifier-schema.v0.15.json`](verifier-schema.v0.15.json)). **Lead
+schema [`docs/verifier-schema.v0.16.json`](verifier-schema.v0.16.json)). **Lead
 with `control.state`.** Every release and merge field below is a mirror or
 deterministic projection of `report.json`; the authorization evaluation is an
 operational overlay and cannot change those fields.
@@ -1292,8 +1311,8 @@ For reviewer-shaped output, also read the **Release Evidence Packet** at
 `[pdf]` extras are installed). The packet is a supporting/provisional reviewer
 projection, not a second gate. Packet outputs are redacted by the same default
 privacy layer as the report. The packet has fixed reviewer sections governed by
-[`docs/packet-schema.v0.17.json`](packet-schema.v0.17.json) — see
-[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v017).
+[`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json) — see
+[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v018).
 Packet schema `0.9` carries the report's evidence-backed semantic coverage and
 gap remediation contract. Packet §1 also mirrors
 `static_analysis_only=true`, `runtime_behavior_verified=false`, and
@@ -1346,9 +1365,9 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full alpha stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.42.json`](report-schema.v0.42.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.43.json`](report-schema.v0.43.json) — machine-validatable JSON Schema for the current report.
 - [`docs/privacy.md`](privacy.md) and [`docs/report-sensitive-fields.json`](report-sensitive-fields.json) — default redaction behavior and sensitive-field inventory.
-- [`docs/packet-schema.v0.17.json`](packet-schema.v0.17.json) — machine-validatable JSON Schema for the current packet.
+- [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog, including `mvp_tier` for MVP/readiness triage.
 
 ## See also

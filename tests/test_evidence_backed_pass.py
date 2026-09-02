@@ -192,6 +192,21 @@ def test_reviewed_read_and_no_authority_can_pass(tmp_path: Path) -> None:
         "review_concern_count": 0,
         "reason_counts": {},
         "acknowledged_overrides": [],
+        "declaration_review": {
+            "enabled": False,
+            "base_comparison_requested": False,
+            "base_kind": "none",
+            "changed_count": 0,
+            "summary": {
+                "evidence_consistent": 0,
+                "unverified": 0,
+                "acknowledged_override": 0,
+            },
+            "rows": [],
+            "notes": [
+                "No trustworthy base declaration snapshot was available; declaration review disabled."
+            ],
+        },
         # Both dimensions were asked and both were answered: without the
         # declaration this action has neither effect nor authority evidence.
         "declaration_questions": {

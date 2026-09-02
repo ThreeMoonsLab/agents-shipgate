@@ -377,6 +377,16 @@
   explicitly and rendered as Markdown-safe code spans; exact hidden counts are
   emitted before bounded subject rows, so long repository-controlled names
   cannot erase the truncation disclosure.
+- **Changed action declarations have a compact reviewer attestation.** (#428)
+  Base-vs-head reports now classify added, removed, or semantically modified
+  `action_surface.actions[]` rows as evidence-consistent, unverified, or an
+  acknowledged override. The join is canonical and row-local, so aliases,
+  duplicate selectors, mixed-strength readings, unrelated overrides, and
+  missing observations fail closed. PR comments show bounded counts plus only
+  the rows needing attention; packet Markdown and HTML retain the exhaustive
+  detail from the same projection. Runtime contract moves **28 → 29** so the
+  declaration-review report, packet, verifier, and preflight versions are
+  discoverable without colliding with v28's capability-delta contract.
 
 - **Cold-reader artifacts now lead with what the agent can do.** (#463) On a
   repository with no committed Shipgate manifest, human output starts with the

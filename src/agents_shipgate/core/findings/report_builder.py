@@ -19,6 +19,7 @@ from agents_shipgate.schemas.report import (
     ReadinessReport,
 )
 from agents_shipgate.schemas.surfaces import (
+    ActionDeclarationFacts,
     ActionSurfaceDiff,
     ActionSurfaceFacts,
     ToolSurfaceDiff,
@@ -64,6 +65,7 @@ def build_report(
     tool_surface_diff: ToolSurfaceDiff | None = None,
     action_surface_facts: ActionSurfaceFacts | None = None,
     action_surface_diff: ActionSurfaceDiff | None = None,
+    action_declaration_facts: ActionDeclarationFacts | None = None,
     capability_runtime_evidence: CapabilityRuntimeEvidence | None = None,
     policy_audit: PolicyAudit | None = None,
     privacy_audit: PrivacyAudit | None = None,
@@ -83,6 +85,7 @@ def build_report(
         tool_surface_diff=tool_surface_diff or ToolSurfaceDiff(),
         action_surface_facts=action_surface_facts or ActionSurfaceFacts(),
         action_surface_diff=action_surface_diff or ActionSurfaceDiff(),
+        action_declaration_facts=action_declaration_facts or ActionDeclarationFacts(),
         binding_surface_facts=(
             binding_surface_facts
             or AgentBindingGraphAssessment(

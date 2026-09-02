@@ -49,6 +49,12 @@ class VerificationContext(BaseModel):
     # ``cli/verify/orchestrator._manifest_introduced``), so a renamed manifest
     # cannot pass itself off as a first adoption.
     manifest_introduced: bool = False
+    # True when the configured manifest itself is new in the comparison and
+    # the gate introduction is unshared. Unlike ``manifest_introduced``, this
+    # remains knowable when the bounded whole-tree manifest probe abstains.
+    # Declaration review uses it only to compare the new rows with an empty
+    # base; it never relaxes release routing.
+    configured_gate_introduced: bool = False
     # True when verify resolved a base ref and could not produce a usable base
     # report for it (ref missing, archive failed, base scan failed, base
     # manifest absent). The head scan cannot see that from ``--diff-from``,

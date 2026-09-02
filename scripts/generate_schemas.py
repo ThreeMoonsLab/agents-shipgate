@@ -18,7 +18,7 @@ Writes / verifies:
                                 (from agents_shipgate.schemas.packet.EvidencePacket)
 - docs/verifier-schema.v0.<minor>.json
                                 (from agents_shipgate.schemas.verifier.VerifierArtifact)
-- docs/verify-run-schema.v3.json
+- docs/verify-run-schema.v5.json
                                 (from agents_shipgate.schemas.verify_run.
                                  VerifyRunArtifact)
 - docs/verification-plan-schema.v1.json
@@ -31,7 +31,7 @@ Writes / verifies:
 - docs/human-authorization-schema.v1.json
                                 (authorization request, signed grant,
                                  evaluation, and trust policy union)
-- docs/agent-handoff-schema.v6.json
+- docs/agent-handoff-schema.v8.json
                                 (from agents_shipgate.schemas.agent_handoff.
                                  AgentHandoffArtifact)
 - docs/agent-result-schema.v2.json
@@ -250,6 +250,7 @@ def build_report_schema() -> tuple[Path, str]:
     from agents_shipgate.schemas.report import ReadinessReport
 
     schema = ReadinessReport.model_json_schema()
+    _postprocess_declaration_review(schema)
     minor = ReadinessReport.model_fields["report_schema_version"].default
     title = f"Agents Shipgate Readiness Report v{minor}"
     schema_id = (
@@ -356,6 +357,11 @@ def build_report_schema() -> tuple[Path, str]:
             # run decline to look at?" must never read the answer as "the
             # field is missing, so probably nothing".
             "surface_exclusions",
+            # v0.43: the privacy-safe manifest declaration projection is a
+            # first-class input to base-vs-head declaration review. Omitting
+            # it is not equivalent to an empty manifest, so current report
+            # bytes must always carry the explicit snapshot envelope.
+            "action_declaration_facts",
         ]
     )
     # Preserve version constants. Pydantic emits these as plain strings
@@ -1253,6 +1259,7 @@ def build_packet_schema() -> tuple[Path, str]:
     from agents_shipgate.schemas.packet import EvidencePacket
 
     schema = EvidencePacket.model_json_schema()
+    _postprocess_declaration_review(schema)
     minor = str(EvidencePacket.model_fields["packet_schema_version"].default)
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
@@ -1339,6 +1346,81 @@ def _postprocess_authorization_evaluation(schema: dict[str, Any]) -> None:
     properties = evaluation.get("properties", {})
     if isinstance(properties, dict) and isinstance(properties.get("reason_codes"), dict):
         properties["reason_codes"]["uniqueItems"] = True
+
+
+def _postprocess_declaration_review(schema: dict[str, Any]) -> None:
+    """Pin the current declaration-review wire shape in every embedding schema.
+
+    These models deliberately carry defaults so legacy report/packet/verifier
+    normalizers can construct the honest disabled-empty projection. Current
+    emitted artifacts, however, always serialize every key. Requiring those
+    keys prevents a current-version payload from using Python defaults to erase
+    review rows or their counts.
+    """
+
+    defs = schema.get("$defs", {})
+    required_by_definition = {
+        "ActionDeclarationSelectorFact": [
+            "tool",
+            "tool_id",
+            "source_type",
+            "source_id",
+            "provider",
+            "operation",
+        ],
+        "ActionDeclarationFact": [
+            "row_id",
+            "selector",
+            "subject",
+            "subject_id",
+            "resolution",
+            "declared_effect",
+            "declared_risk_tags",
+            "has_override",
+            "override_identity",
+            "basis",
+            "declaration_hash",
+            "manifest_path",
+        ],
+        "ActionDeclarationFacts": ["snapshot_version", "rows"],
+        "DeclarationReviewSummary": [
+            "evidence_consistent",
+            "unverified",
+            "acknowledged_override",
+        ],
+        "DeclarationReviewRow": [
+            "row_id",
+            "change_type",
+            "bucket",
+            "subject",
+            "subject_id",
+            "declared_effect",
+            "declared_risk_tags",
+            "observed_readings",
+            "reason",
+            "manifest_path",
+            "acknowledged_overrides",
+        ],
+        "DeclarationReviewDecision": [
+            "enabled",
+            "base_comparison_requested",
+            "base_kind",
+            "changed_count",
+            "summary",
+            "rows",
+            "notes",
+        ],
+    }
+    for name, required in required_by_definition.items():
+        definition = defs.get(name)
+        if isinstance(definition, dict):
+            definition["required"] = sorted(required)
+
+    semantic = defs.get("SemanticCoverageDecision")
+    if isinstance(semantic, dict):
+        semantic["required"] = sorted(
+            set(semantic.get("required", [])) | {"declaration_review"}
+        )
 
 
 def build_verifier_schema() -> tuple[Path, str]:
@@ -1442,7 +1524,7 @@ def build_verify_run_schema() -> tuple[Path, str]:
         f"main/docs/verify-run-schema.{_VERIFY_RUN_SUFFIX}.json"
     )
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-    schema["title"] = "Agents Shipgate Verify Run v3"
+    schema["title"] = "Agents Shipgate Verify Run v5"
     schema["description"] = (
         "JSON Schema for agents-shipgate-reports/verify-run.json. Generated "
         "from agents_shipgate.schemas.verify_run.VerifyRunArtifact. Do not "

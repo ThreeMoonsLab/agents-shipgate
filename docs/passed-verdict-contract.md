@@ -1,6 +1,6 @@
 # Evidence-backed `passed` verdict
 
-In the Agents Shipgate `0.16.0b7` runtime (contract v27, report schema v0.42),
+In the Agents Shipgate `0.16.0b7` runtime (contract v29, report schema v0.43),
 `release_decision.decision: passed` means the configured root
 agent and its complete reachable tool/handoff graph were statically proven,
 and every reachable capability has complete, conflict-free static identity,
@@ -39,7 +39,7 @@ to known evidence by `--no-heuristics` or `human_ack`.
 Machine consumers should inspect
 `release_decision.evidence_coverage.semantic_coverage`, `binding_coverage`,
 `identity_coverage`, and `policy_gap_count`, then work `evidence_gaps[]` in
-order. Current packet schema v0.17 mirrors this contract and binds the
+order. Current packet schema v0.18 mirrors this contract and binds the
 verification request and decision, while capability standard
 v0.5 carries the same normalized assessment and binding hash in capability
 lock v0.6 and lock-diff v0.7 artifacts.

@@ -3,6 +3,16 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from agents_shipgate.report.declaration_review import (
+    declaration_review_row_line,
+    override_is_represented,
+)
+from agents_shipgate.schemas.report import (
+    AcknowledgedEffectOverride,
+    DeclarationReviewDecision,
+    DeclarationReviewRow,
+)
+
 PR_PROJECTION_SCHEMA_VERSION = "0.1"
 
 _SEVERITY_ORDER = {
@@ -79,10 +89,25 @@ def select_pr_items(
             item = _item_from_finding(finding or decision_item, decision_item)
             _append_unique(selected, seen, item)
 
-    # A reviewed exception is the row a reviewer is meant to read: ✓ rows are
-    # machine-verified as evidence-consistent, ⚠ rows are the overrides. A
-    # count alone is not a review surface (#409, PR #411 review 2).
+    declaration_review = _declaration_review(report)
+    if declaration_review is not None:
+        for row in declaration_review.rows:
+            if row.bucket in {"unverified", "acknowledged_override"}:
+                _append_unique(
+                    selected,
+                    seen,
+                    _item_from_declaration_review_row(row),
+                )
+
+    # Keep unchanged reviewed exceptions visible (#409). Changed exceptions
+    # were already projected above through the one declaration-row renderer;
+    # do not emit a second differently-worded annotation for the same join.
     for override in _acknowledged_overrides(report):
+        if (
+            declaration_review is not None
+            and override_is_represented(declaration_review, override)
+        ):
+            continue
         _append_unique(selected, seen, _item_from_acknowledged_override(override))
 
     for change in _top_capability_changes(verifier):
@@ -172,28 +197,88 @@ def _item_from_finding(
     )
 
 
-def _acknowledged_overrides(report: dict[str, Any]) -> list[dict[str, Any]]:
+def _semantic_coverage(report: dict[str, Any]) -> dict[str, Any]:
     coverage = (
         ((report.get("release_decision") or {}).get("evidence_coverage") or {}).get(
             "semantic_coverage"
         )
         or {}
     )
-    rows = coverage.get("acknowledged_overrides")
-    return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+    return coverage if isinstance(coverage, dict) else {}
 
 
-def _item_from_acknowledged_override(override: dict[str, Any]) -> PrReviewItem:
+def _declaration_review(
+    report: dict[str, Any],
+) -> DeclarationReviewDecision | None:
+    payload = _semantic_coverage(report).get("declaration_review")
+    if not isinstance(payload, dict):
+        return None
+    try:
+        return DeclarationReviewDecision.model_validate(payload)
+    except ValueError:
+        return None
+
+
+def _acknowledged_overrides(
+    report: dict[str, Any],
+) -> list[AcknowledgedEffectOverride]:
+    rows = _semantic_coverage(report).get("acknowledged_overrides")
+    if not isinstance(rows, list):
+        return []
+    parsed: list[AcknowledgedEffectOverride] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            parsed.append(AcknowledgedEffectOverride.model_validate(row))
+        except ValueError:
+            continue
+    return parsed
+
+
+def _item_from_declaration_review_row(
+    row: DeclarationReviewRow,
+) -> PrReviewItem:
+    message = declaration_review_row_line(row)
+    manifest_path = row.manifest_path or None
+    acknowledged = row.bucket == "acknowledged_override"
+    check_id = (
+        "SHIP-ACTION-EFFECT-OVERRIDE-ACKNOWLEDGED"
+        if acknowledged
+        else "SHIP-ACTION-DECLARATION-UNVERIFIED"
+    )
+    title = (
+        f"Acknowledged override declaration: {row.subject}"
+        if acknowledged
+        else f"Unverified {row.change_type} declaration: {row.subject}"
+    )
+    return PrReviewItem(
+        check_id=check_id,
+        title=title,
+        severity="medium",
+        level=_action_level("medium"),
+        message=_truncate(message, 1000),
+        recommendation=f"Review {manifest_path}." if manifest_path else row.reason,
+        source_path=manifest_path.split("#")[0] if manifest_path else None,
+        selector=manifest_path,
+        merge_impact="review_required",
+        capability_subject=f"action:{row.subject}",
+    )
+
+
+def _item_from_acknowledged_override(
+    override: AcknowledgedEffectOverride,
+) -> PrReviewItem:
     """One ⚠ row per reviewed exception, carrying both readings and the reason."""
 
-    subject = str(override.get("subject") or "unknown")
-    declared = str(override.get("declared_effect") or "unknown")
-    inferred = str(override.get("inferred_effect") or "unknown")
-    sources = ", ".join(_string_list(override.get("inferred_sources"))) or "static evidence"
-    agrees = _string_list(override.get("corroborating_sources"))
-    evidence = str(override.get("evidence") or "")
-    reason = str(override.get("reason") or "")
-    manifest_path = _str_or_none(override.get("manifest_path"))
+    subject = override.subject
+    declared = override.declared_effect
+    inferred = override.inferred_effect
+    sources = ", ".join(override.inferred_sources) or "static evidence"
+    agrees = override.corroborating_sources
+    evidence = override.evidence
+    reason = override.reason
+    manifest_path = override.manifest_path
     message = (
         f"Acknowledged override: {subject} declares {declared!r}; "
         f"{sources} infers {inferred!r}."

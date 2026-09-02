@@ -1714,7 +1714,7 @@
       }
     ]
   },
-  "packet_schema_version": "0.17",
+  "packet_schema_version": "0.18",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",
@@ -2512,7 +2512,7 @@
             "inferred_sources": [
               "risk_hint:keyword"
             ],
-            "manifest_path": "shipgate.yaml#action_surface.actions[tool='send_email_preview'].override",
+            "manifest_path": "shipgate.yaml#action_surface.actions[6].override",
             "reason": "The name carries 'email', but this action renders a draft and has no send path or credential.",
             "subject": "send_email_preview [openai_sdk_static]",
             "subject_id": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e"
@@ -2527,7 +2527,7 @@
             "inferred_sources": [
               "risk_hint:keyword"
             ],
-            "manifest_path": "shipgate.yaml#action_surface.actions[tool='support.search_kb'].override",
+            "manifest_path": "shipgate.yaml#action_surface.actions[0].override",
             "reason": "The word 'refund' appears in the article text this tool searches, not in anything it changes.",
             "subject": "support.search_kb [support_mcp_tools]",
             "subject_id": "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a"
@@ -2539,6 +2539,21 @@
           "open_by_dimension": {},
           "open_questions": [],
           "total": 2
+        },
+        "declaration_review": {
+          "base_kind": "none",
+          "base_comparison_requested": false,
+          "changed_count": 0,
+          "enabled": false,
+          "notes": [
+            "No trustworthy base declaration snapshot was available; declaration review disabled."
+          ],
+          "rows": [],
+          "summary": {
+            "acknowledged_override": 0,
+            "evidence_consistent": 0,
+            "unverified": 0
+          }
         },
         "gap_count": 7,
         "pass_eligible_actions": 0,

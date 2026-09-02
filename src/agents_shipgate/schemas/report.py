@@ -5,6 +5,12 @@ from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from agents_shipgate.schemas.action_effects import (
+    EFFECT_RISK_RANK,
+    RISK_TAG_EFFECTS,
+    declaration_covers,
+    declaration_effects,
+)
 from agents_shipgate.schemas.bindings import (
     AgentBindingGraphAssessment,
     BindingSurfaceDiff,
@@ -35,6 +41,7 @@ from agents_shipgate.schemas.patches import (
 )
 from agents_shipgate.schemas.semantic import ToolSemanticEvidence
 from agents_shipgate.schemas.surfaces import (
+    ActionDeclarationFacts,
     ActionEffect,
     ActionSurfaceDiff,
     ActionSurfaceFacts,
@@ -777,6 +784,276 @@ class AcknowledgedEffectOverride(BaseModel):
     manifest_path: str
 
 
+class DeclarationReviewRow(BaseModel):
+    """One changed head declaration, classified from the head evidence only."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {"change_type": {"const": "removed"}},
+                        "required": ["change_type"],
+                    },
+                    "then": {
+                        "properties": {"bucket": {"const": "unverified"}},
+                        "required": ["bucket"],
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {"bucket": {"const": "evidence_consistent"}},
+                        "required": ["bucket"],
+                    },
+                    "then": {
+                        "properties": {
+                            "subject_id": {"type": "string", "minLength": 1},
+                            "observed_readings": {
+                                "minItems": 1,
+                                "contains": {
+                                    "properties": {"observed": {"const": True}},
+                                    "required": ["observed"],
+                                },
+                                "items": {
+                                    "if": {
+                                        "properties": {"observed": {"const": True}},
+                                        "required": ["observed"],
+                                    },
+                                    "then": {
+                                        "properties": {
+                                            "policy_eligible": {"const": True}
+                                        },
+                                        "required": ["policy_eligible"],
+                                    },
+                                },
+                            },
+                            "acknowledged_overrides": {"maxItems": 0},
+                        },
+                        "anyOf": [
+                            {
+                                "properties": {
+                                    "declared_effect": {
+                                        "enum": list(EFFECT_RISK_RANK)
+                                    }
+                                },
+                                "required": ["declared_effect"],
+                            },
+                            {
+                                "properties": {
+                                    "declared_risk_tags": {
+                                        "contains": {
+                                            "enum": [
+                                                tag
+                                                for tag, effect in RISK_TAG_EFFECTS.items()
+                                                if effect != "read"
+                                            ]
+                                        }
+                                    }
+                                },
+                                "required": ["declared_risk_tags"],
+                            },
+                        ],
+                        "required": [
+                            "subject_id",
+                            "observed_readings",
+                            "acknowledged_overrides",
+                        ],
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {"bucket": {"const": "acknowledged_override"}},
+                        "required": ["bucket"],
+                    },
+                    "then": {
+                        "properties": {
+                            "subject_id": {"type": "string", "minLength": 1},
+                            "acknowledged_overrides": {"minItems": 1},
+                        },
+                        "required": ["subject_id", "acknowledged_overrides"],
+                    },
+                    "else": {
+                        "properties": {"acknowledged_overrides": {"maxItems": 0}},
+                        "required": ["acknowledged_overrides"],
+                    },
+                },
+            ]
+        },
+    )
+
+    row_id: str = Field(min_length=1)
+    change_type: Literal["added", "modified", "removed"]
+    bucket: Literal[
+        "evidence_consistent",
+        "unverified",
+        "acknowledged_override",
+    ]
+    subject: str
+    subject_id: str | None = Field(default=None, min_length=1)
+    declared_effect: str | None = None
+    declared_risk_tags: list[str] = Field(default_factory=list)
+    observed_readings: list[EvidenceReading] = Field(default_factory=list)
+    reason: str
+    manifest_path: str
+    acknowledged_overrides: list[AcknowledgedEffectOverride] = Field(
+        default_factory=list
+    )
+
+    @model_validator(mode="after")
+    def bucket_matches_evidence(self) -> DeclarationReviewRow:
+        if self.change_type == "removed" and self.bucket != "unverified":
+            raise ValueError(
+                "removed declaration-review rows must remain unverified"
+            )
+        if self.bucket == "acknowledged_override":
+            if not self.acknowledged_overrides:
+                raise ValueError(
+                    "acknowledged_override declaration-review rows require exact overrides"
+                )
+            if self.subject_id is None:
+                raise ValueError(
+                    "acknowledged_override declaration-review rows require subject_id"
+                )
+            identities: set[tuple[object, ...]] = set()
+            for override in self.acknowledged_overrides:
+                if (
+                    override.subject_id != self.subject_id
+                    or override.subject != self.subject
+                    or override.declared_effect != self.declared_effect
+                ):
+                    raise ValueError(
+                        "declaration-review override must exactly match its changed row"
+                    )
+                identity = (
+                    override.subject_id,
+                    override.subject,
+                    override.declared_effect,
+                    override.inferred_effect,
+                    tuple(override.inferred_sources),
+                    tuple(override.corroborating_sources),
+                    override.evidence,
+                    override.reason,
+                    override.manifest_path,
+                )
+                if identity in identities:
+                    raise ValueError(
+                        "declaration-review row cannot repeat an acknowledged override"
+                    )
+                identities.add(identity)
+            return self
+        if self.acknowledged_overrides:
+            raise ValueError(
+                "only acknowledged_override declaration-review rows may carry overrides"
+            )
+        if self.bucket != "evidence_consistent":
+            return self
+        if self.subject_id is None:
+            raise ValueError("evidence_consistent declaration-review row requires subject_id")
+        proposals = declaration_effects(self.declared_effect, self.declared_risk_tags)
+        if not proposals:
+            raise ValueError(
+                "evidence_consistent declaration-review row requires an effect-bearing proposal"
+            )
+        observed = [reading for reading in self.observed_readings if reading.observed]
+        if not observed:
+            raise ValueError(
+                "evidence_consistent declaration-review row requires an observed reading"
+            )
+        if any(not reading.policy_eligible for reading in observed):
+            raise ValueError(
+                "evidence_consistent declaration-review row requires policy-eligible readings"
+            )
+        uncovered = [
+            reading.effect
+            for reading in observed
+            if not any(declaration_covers(proposal, reading.effect) for proposal in proposals)
+        ]
+        if uncovered:
+            raise ValueError(
+                "evidence_consistent declaration-review row has uncovered readings: "
+                + ", ".join(sorted(set(uncovered)))
+            )
+        return self
+
+
+class DeclarationReviewSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    evidence_consistent: int = 0
+    unverified: int = 0
+    acknowledged_override: int = 0
+
+
+class DeclarationReviewDecision(BaseModel):
+    """Base-vs-head review surface for changed action declaration rows.
+
+    This projection never gates. ``base_comparison_requested=true`` with
+    ``enabled=false`` means a comparison was requested but no trustworthy
+    declaration-row base was available; renderers must say so.
+    ``changed_count=0`` with ``enabled=true`` means the base was comparable but
+    no declaration answer changed.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "if": {
+                "properties": {"enabled": {"const": True}},
+                "required": ["enabled"],
+            },
+            "then": {
+                "properties": {"base_kind": {"enum": ["report", "absent_manifest"]}},
+                "required": ["base_kind"],
+            },
+            "else": {
+                "properties": {
+                    "base_kind": {"const": "none"},
+                    "changed_count": {"const": 0},
+                    "rows": {"maxItems": 0},
+                },
+                "required": ["base_kind", "changed_count", "rows"],
+            },
+        },
+    )
+
+    enabled: bool = False
+    base_comparison_requested: bool = False
+    base_kind: Literal["none", "report", "absent_manifest"] = "none"
+    changed_count: int = 0
+    summary: DeclarationReviewSummary = Field(default_factory=DeclarationReviewSummary)
+    rows: list[DeclarationReviewRow] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def counts_match_rows(self) -> DeclarationReviewDecision:
+        counts = {
+            "evidence_consistent": self.summary.evidence_consistent,
+            "unverified": self.summary.unverified,
+            "acknowledged_override": self.summary.acknowledged_override,
+        }
+        actual = {key: 0 for key in counts}
+        row_ids: set[str] = set()
+        for row in self.rows:
+            if row.row_id in row_ids:
+                raise ValueError("declaration_review row_ids must be unique")
+            row_ids.add(row.row_id)
+            actual[row.bucket] += 1
+        if self.changed_count != len(self.rows):
+            raise ValueError("declaration_review.changed_count must equal len(rows)")
+        if counts != actual:
+            raise ValueError("declaration_review.summary must count rows by bucket")
+        if self.enabled and self.base_kind == "none":
+            raise ValueError(
+                "enabled declaration_review requires report or absent_manifest base_kind"
+            )
+        if not self.enabled and self.base_kind != "none":
+            raise ValueError("disabled declaration_review requires base_kind='none'")
+        if not self.enabled and (self.rows or self.changed_count):
+            raise ValueError("disabled declaration_review cannot carry changed rows")
+        return self
+
+
 class DeclarationQuestionRow(BaseModel):
     """v0.37: one open declaration question, in the order to answer it.
 
@@ -886,6 +1163,12 @@ class SemanticCoverageDecision(BaseModel):
     # ``reason_counts["acknowledged_effect_override"]`` counts them; this is
     # what a reviewer actually has to read.
     acknowledged_overrides: list[AcknowledgedEffectOverride] = Field(default_factory=list)
+    # Base-vs-head action declaration attestation.  Only changed declaration
+    # rows appear; the renderer names the two human-attention buckets and
+    # deliberately keeps evidence-consistent row names out of prose.
+    declaration_review: DeclarationReviewDecision = Field(
+        default_factory=DeclarationReviewDecision
+    )
     # v0.37: the same action surface counted as a questionnaire rather than as
     # a pile of gaps. Purely a projection — nothing here gates.
     declaration_questions: DeclarationQuestionCoverage = Field(
@@ -1470,7 +1753,7 @@ class ReadinessReport(BaseModel):
     # manifest block that answers it (``answer_path``), so the actions one
     # ``tool_sources[].authority`` block covers are one question and one
     # evidence-gap row rather than N of each (#410 increment 3).
-    report_schema_version: str = "0.42"
+    report_schema_version: str = "0.43"
     run_id: str
     request_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
     subject_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
@@ -1507,6 +1790,13 @@ class ReadinessReport(BaseModel):
     # static tool surface plus optional manifest action declarations.
     action_surface_facts: ActionSurfaceFacts = Field(default_factory=ActionSurfaceFacts)
     action_surface_diff: ActionSurfaceDiff = Field(default_factory=ActionSurfaceDiff)
+    # Parsed manifest declaration rows.  ``action_surface_facts`` describes
+    # resolved capabilities and intentionally cannot distinguish adding a row
+    # from changing an answer in one; this snapshot preserves that PR-review
+    # distinction while joining evidence only through canonical subject ids.
+    action_declaration_facts: ActionDeclarationFacts = Field(
+        default_factory=ActionDeclarationFacts
+    )
     binding_surface_facts: AgentBindingGraphAssessment = Field(
         default_factory=lambda: AgentBindingGraphAssessment(
             root_agent_id="legacy_direct",

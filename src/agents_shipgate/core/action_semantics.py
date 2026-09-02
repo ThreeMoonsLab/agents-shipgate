@@ -2,19 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 
+from agents_shipgate.schemas.action_effects import (
+    ACTION_EFFECT_RANK,
+    BUILTIN_EFFECT_OBLIGATIONS,
+)
 from agents_shipgate.schemas.surfaces import ActionEffect
-
-ACTION_EFFECT_RANK: dict[ActionEffect, int] = {
-    "read": 0,
-    "privileged_data_access": 1,
-    "write": 2,
-    "external_communication": 3,
-    "financial_write": 4,
-    "production_operation": 4,
-    "identity_access": 4,
-    "code_execution": 4,
-    "destructive": 5,
-}
 
 #: The built-in controls each effect obliges, as the dot paths
 #: ``_current_action_policy_findings`` requires plus the ``confirmation``
@@ -32,19 +24,6 @@ ACTION_EFFECT_RANK: dict[ActionEffect, int] = {
 #: ``test_the_builtin_obligation_table_matches_the_controls_that_fire`` walks
 #: every entry through a real scan, so the table cannot drift from the branches
 #: it mirrors.
-BUILTIN_EFFECT_OBLIGATIONS: dict[ActionEffect, frozenset[str]] = {
-    "financial_write": frozenset(
-        {"approval.required", "safeguards.audit_log", "safeguards.idempotency"}
-    ),
-    "external_communication": frozenset({"safeguards.audit_log", "confirmation.required"}),
-    "destructive": frozenset(
-        {"approval.required", "safeguards.rollback", "confirmation.required"}
-    ),
-    "production_operation": frozenset({"approval.required"}),
-    "code_execution": frozenset({"approval.required"}),
-}
-
-
 #: How each built-in control path is spelled in a sentence an adopter reads.
 #:
 #: Four of the five are the manifest key itself, under

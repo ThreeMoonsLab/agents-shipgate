@@ -262,7 +262,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         tool_surface=ToolSurfaceSummary(total_tools=0, high_risk_tools=0),
     )
     report_payload = report_json_payload(report)
-    assert report_payload["report_schema_version"] == "0.42"
+    assert report_payload["report_schema_version"] == "0.43"
     assert list(report_payload) == [
         "schema_version",
         "report_schema_version",
@@ -288,6 +288,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         "tool_surface_diff",
         "action_surface_facts",
         "action_surface_diff",
+        "action_declaration_facts",
         "binding_surface_facts",
         "binding_surface_diff",
         "capability_runtime_evidence",
@@ -351,7 +352,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         not_proven=NotProvenSection(headline="not proven"),
     )
     packet_payload = serialize_packet_json(packet)
-    assert packet_payload["packet_schema_version"] == "0.17"
+    assert packet_payload["packet_schema_version"] == "0.18"
     assert "generated_at" not in packet_payload
     assert "action_surface_diff" in packet_payload
     assert report_payload["capability_runtime_evidence"]["enabled"] is False

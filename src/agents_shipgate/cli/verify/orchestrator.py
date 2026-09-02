@@ -1118,6 +1118,7 @@ def run_verify(
                         configured_manifest_path=config_relative.as_posix(),
                         manifest_provenance=configured_manifest_provenance,
                         manifest_introduced=manifest_introduced,
+                        configured_gate_introduced=configured_gate_introduced,
                         # A base ref was resolved and the comparison could not
                         # be performed. ``diff_from_path`` is simply ``None``
                         # there, which the head scan cannot tell apart from

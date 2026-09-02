@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.42",
+  "report_schema_version": "0.43",
   "run_id": "agents_shipgate_46d0b6fa32211599",
   "request_id": null,
   "subject_id": null,
@@ -82,6 +82,21 @@
         "review_concern_count": 0,
         "reason_counts": {},
         "acknowledged_overrides": [],
+        "declaration_review": {
+          "enabled": false,
+          "base_comparison_requested": false,
+          "base_kind": "none",
+          "changed_count": 0,
+          "summary": {
+            "evidence_consistent": 0,
+            "unverified": 0,
+            "acknowledged_override": 0
+          },
+          "rows": [],
+          "notes": [
+            "No trustworthy base declaration snapshot was available; declaration review disabled."
+          ]
+        },
         "declaration_questions": {
           "total": 0,
           "answered": 0,
@@ -695,6 +710,53 @@
     "modified": [],
     "notes": [
       "No action-surface comparison source was provided."
+    ]
+  },
+  "action_declaration_facts": {
+    "snapshot_version": "0.1",
+    "rows": [
+      {
+        "row_id": "action_declaration_01031102aaecaf32dd49",
+        "selector": {
+          "tool": "summarize_case",
+          "tool_id": null,
+          "source_type": null,
+          "source_id": null,
+          "provider": null,
+          "operation": null
+        },
+        "subject": "summarize_case [langchain_agent]",
+        "subject_id": "tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53",
+        "resolution": "resolved",
+        "declared_effect": "read",
+        "declared_risk_tags": [],
+        "has_override": false,
+        "override_identity": null,
+        "basis": null,
+        "declaration_hash": "action_declaration_value_83fa75b49c74e60dfa15",
+        "manifest_path": "shipgate.yaml#action_surface.actions[1]"
+      },
+      {
+        "row_id": "action_declaration_1a042d906882c562631a",
+        "selector": {
+          "tool": "lookup_case",
+          "tool_id": null,
+          "source_type": null,
+          "source_id": null,
+          "provider": null,
+          "operation": null
+        },
+        "subject": "lookup_case [langchain_agent]",
+        "subject_id": "tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c",
+        "resolution": "resolved",
+        "declared_effect": "read",
+        "declared_risk_tags": [],
+        "has_override": false,
+        "override_identity": null,
+        "basis": null,
+        "declaration_hash": "action_declaration_value_83fa75b49c74e60dfa15",
+        "manifest_path": "shipgate.yaml#action_surface.actions[0]"
+      }
     ]
   },
   "binding_surface_facts": {

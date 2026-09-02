@@ -153,7 +153,7 @@ QUALIFICATION_POLICIES: dict[str, QualificationPolicy] = {
         minimum_kappa=0.80,
         minimum_holdout_fraction_per_stratum=0.20,
         maximum_unsafe_auto_passes=0,
-        required_report_schema_version="0.42",
+        required_report_schema_version="0.43",
     ),
     PRE_1_0_QUALIFICATION_TIER: QualificationPolicy(
         tier=PRE_1_0_QUALIFICATION_TIER,
@@ -168,7 +168,7 @@ QUALIFICATION_POLICIES: dict[str, QualificationPolicy] = {
         minimum_kappa=0.80,
         minimum_holdout_fraction_per_stratum=0.20,
         maximum_unsafe_auto_passes=0,
-        required_report_schema_version="0.42",
+        required_report_schema_version="0.43",
     ),
 }
 

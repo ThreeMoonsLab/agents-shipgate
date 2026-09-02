@@ -32,6 +32,7 @@ from agents_shipgate.schemas.report import (
     ReadinessReport,
 )
 from agents_shipgate.schemas.surfaces import (
+    ActionDeclarationFacts,
     ActionSurfaceFacts,
     ToolSurfaceControlChange,
     ToolSurfaceControlFact,
@@ -68,6 +69,7 @@ class ToolSurfaceDiffReference:
     report_schema_version: str | None = None
     baseline_schema_version: str | None = None
     action_facts: ActionSurfaceFacts | None = None
+    declaration_facts: ActionDeclarationFacts | None = None
     findings: list[ToolSurfaceFindingDeltaItem] | None = None
     notes: tuple[str, ...] = ()
     action_notes: tuple[str, ...] = ()
@@ -917,6 +919,11 @@ def _reference_from_report_payload(
         raise InputParseError(f"Invalid diff report {display_path}: {exc}") from exc
     facts = report.tool_surface_facts if "tool_surface_facts" in payload else None
     action_facts = report.action_surface_facts if "action_surface_facts" in payload else None
+    declaration_facts = (
+        report.action_declaration_facts
+        if "action_declaration_facts" in payload
+        else None
+    )
     notes: list[str] = []
     action_notes: list[str] = []
     if facts is None:
@@ -934,6 +941,7 @@ def _reference_from_report_payload(
         facts=facts,
         report_schema_version=report.report_schema_version,
         action_facts=action_facts,
+        declaration_facts=declaration_facts,
         findings=[
             item
             for item in (_finding_item(finding) for finding in report.findings)

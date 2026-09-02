@@ -6,10 +6,44 @@ This document is the contract. If the runtime ever diverges from what's document
 
 Shipgate is pre-1.0. The CLI surface, exit codes, and `contract_version`
 described here are stable within the `0.x` line, but the `report.json` schema
-(`report_schema_version`, currently `0.42`) is still additive-versioned and
+(`report_schema_version`, currently `0.43`) is still additive-versioned and
 not yet frozen. A `1.0` line will not begin until the report schema reaches
 `1.0` and holds without a breaking change. Pin a version (or the Action tag)
 for reproducible CI.
+
+---
+
+<a id="migration-note-unreleased-declaration-review"></a>
+
+## Migration Note: unreleased — changed declarations become reviewer evidence
+
+`contract_version` moves **28 → 29**, `report_schema_version` moves
+**0.42 → 0.43**, packet schema moves **0.17 → 0.18**, verifier schema moves
+**0.15 → 0.16**. Those artifact bumps carry the declaration-review projection.
+Runtime v28
+already identifies the capability-delta contract, so this release does not
+reuse it for a second public surface. `minimum_control_contract_version` stays
+at `21`: `AgentControl` and `shipgate.agent_control/v1` are byte-identical.
+
+**Base-vs-head action declaration changes are explicit reviewer evidence.**
+`release_decision.evidence_coverage.semantic_coverage.declaration_review`
+classifies added, removed, and semantically modified declaration rows as
+`evidence_consistent`, `unverified`, or `acknowledged_override`. A removed row
+is always unverified. Missing or conflicting action identity, unresolved or
+ambiguous selectors, semantic evidence gaps, and comparison failure cannot
+earn `evidence_consistent`.
+
+The same bounded projection feeds report Markdown, packet JSON/Markdown/HTML,
+the PR comment, annotations, and the GitHub step summary. Machine consumers
+must branch on `enabled`, `base_comparison_requested`,
+`base_comparison_available`, `changed_count`, `summary`, and the typed row
+fields; they must not infer “no declaration change” from an unavailable
+comparison. A requested comparison that cannot run is rendered explicitly.
+
+The schemas are additive. Older report, packet, and verifier documents remain
+frozen and readable under their original identifiers. Declaration review is a
+reviewer projection, not a second gate: `release_decision.decision` remains the
+only release decision signal.
 
 ---
 
@@ -94,9 +128,10 @@ the artifact-manifest digest against a receipt you supply.
 
 ## Migration Note: unreleased — verifier explanations name the cause that acted
 
-No schema or runtime-contract version moves. The current v0.42 report schema
-adds the typed `unattested_surface` gap and optional `EvidenceGap.policy_id`;
-consumers must continue to branch on typed fields rather than matching prose.
+That projection-only change moved no schema or runtime-contract version. It
+landed against the v0.42 report schema with the typed `unattested_surface` gap
+and optional `EvidenceGap.policy_id`; consumers must continue to branch on
+typed fields rather than matching prose.
 
 - Every completed blocked verifier run now routes its plain headline through
   the same deterministic blocker picker already used by the adoption and
@@ -2522,8 +2557,8 @@ release decision. That action may be `detect`/`initialize` for
 relevant unconfigured repos, or `verify` for configured repos. Use it as the
 first touch on a repo or PR before committing to a full scan.
 
-`verifier.json` is governed by [`docs/verifier-schema.v0.14.json`](docs/verifier-schema.v0.14.json).
-Verifier v0.1 through v0.8 remain frozen references — a published schema
+`verifier.json` is governed by [`docs/verifier-schema.v0.16.json`](docs/verifier-schema.v0.16.json).
+Verifier v0.1 through v0.15 remain frozen references — a published schema
 identifier never gains an emitted field, so `0.9` carries
 `capability_review.policy_weakening_proven` and `0.8` keeps the bytes every
 consumer pinned to it already validates against. Artifacts declaring `0.8`
@@ -2722,10 +2757,10 @@ infer runtime routing, or execute tools. Action Surface Diff policy findings
 can affect release gating through `findings[].blocks_release`; Tool Surface
 Diff remains explanatory only.
 
-### Release Evidence Packet (v0.17)
+### Release Evidence Packet (v0.18)
 
 `agents-shipgate-reports/packet.json` is a supporting/provisional reviewer
-artifact governed by [`docs/packet-schema.v0.17.json`](docs/packet-schema.v0.17.json).
+artifact governed by [`docs/packet-schema.v0.18.json`](docs/packet-schema.v0.18.json).
 v0.12 adds request, subject, input-set, engine-requirement, and decision IDs
 while preserving the report release decision as the only gate. v0.11 and
 earlier packets validate against their matching frozen schemas. v0.11 added
@@ -2764,14 +2799,14 @@ refund-capability PR.
 `agents-shipgate-reports/agent-handoff.json` is the preferred compact
 machine-readable handoff object for coding agents and CI agents. The current
 schema is
-[`docs/agent-handoff-schema.v6.json`](docs/agent-handoff-schema.v6.json) with
-`schema_version: "shipgate.agent_handoff/v6"`. v1 through v5 remain frozen
+[`docs/agent-handoff-schema.v8.json`](docs/agent-handoff-schema.v8.json) with
+`schema_version: "shipgate.agent_handoff/v8"`. v1 through v7 remain frozen
 references.
 
 The handoff artifact is derived only from `verifier.json`, `verify-run.json`,
 and `report.json`. It mirrors `release_decision.decision`,
 `verifier.json.merge_verdict`, and
-the byte-identical `verifier.json.control` object. Handoff v6 also mirrors the
+the byte-identical `verifier.json.control` object. Handoff v8 also mirrors the
 verifier's `authorization` evaluation; it cannot upgrade or reinterpret it. Its
 `gate.{static_analysis_only,runtime_behavior_verified,static_verdict_disclaimer}`
 also mirrors the verifier/report boundary; construction fails if any mirror
