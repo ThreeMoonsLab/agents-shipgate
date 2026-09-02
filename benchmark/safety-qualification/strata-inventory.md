@@ -43,6 +43,7 @@ the verifier.
 | `miner_label` | A committed miner label exists for this subject. `evidence_ref` names the CSV row. |
 | `diff_substance` | Targeted from what the change does, recorded in the [candidate register](#candidate-register) below. |
 | `sample_design` | A shipped sample built to exhibit this outcome. `evidence_ref` names the sample directory. |
+| `constructed_design` | A Cut B construction built for the corpus to exhibit this outcome, under [`constructed/`](#constructions-are-changes-and-they-are-not-samples). `evidence_ref` names its `CASE.md`. |
 | `unsourced` | A gap. No candidate; `mining_lead` says where to look. |
 
 **`miner_label` is not verifier-independent, and must not be described as if it
@@ -155,7 +156,95 @@ repository immediately before and immediately after this change landed" — and
 **the recorded pins must not be "corrected" from the API**, which is why
 `test_a_pinned_external_candidate_matches_the_sweep_that_recorded_it` reads them
 back from the sweep. The unpinned walk candidates need pinning under the same
-convention before Cut C, and the choice should be written down when it is made.
+convention before Cut C.
+
+Settled for Cut B (2026-09-01), one form per origin, so a rater is always
+handed "the repository the change was proposed against, and the repository the
+change produced":
+
+| Origin | `pinned_base` | `pinned_head` |
+|---|---|---|
+| `real_history`, `design_partner` (merged) | first parent of the merge commit on the default branch | the merge commit |
+| `rejected_or_reverted`, closed without merge | `git merge-base <head> <base branch>` — the fork point the PR was proposed against | the PR branch's final commit (`refs/pull/<N>/head`) |
+| `rejected_or_reverted`, merged then reverted | first parent of the *reverted* PR's merge commit | that PR's merge commit; the revert commit is named in the register as the evidence of rejection |
+
+A closed-unmerged PR has no merge commit, so its base is a fork point rather
+than a mainline parent; both SHAs still come from the clone, never from
+`baseRefOid`, which moves with the base branch.
+
+## Cut B — sourcing the gaps
+
+Cut B is staffed as two sessions plus a Cut C preparation thread, split by the
+kind of work rather than by profile, and they coordinate through the CSV.
+
+| Session | Work | Slots |
+|---|---|---|
+| A | in-tree constructions, no network | every `synthetic` gap |
+| B | real-repository re-mining | every `real_history` / `rejected_or_reverted` gap |
+| C | Cut C preparation: the five calibration cases and the two rater harnesses | none — it must not read this file's targets into the rater packets |
+
+**A session claims a slot by filling it, in one change:** `status` moves off
+`gap`, `target_basis` moves off `unsourced` to the basis the evidence supports,
+`evidence_ref` names the in-tree file that substantiates it, `mining_lead` is
+cleared, `exposure` is declared, and the candidate is added to the
+[register](#candidate-register). A row with a candidate and no evidence is not
+a claim, and `test_a_gap_carries_a_lead_and_nothing_else` refuses it. Neither
+session touches another session's rows; both recompute the summary tables in
+[Where the plan stands](#where-the-plan-stands), and the merge resolves them.
+
+**A sourcing change makes no engine change.** Nothing under `src/` and nothing
+under `tests/` other than this inventory's own guard moves in a Cut B change.
+The point of Cut B is holdout-eligible evidence, and a fix made in response to
+a candidate is exactly what turns it into tuning material. A defect a session
+finds while sourcing is reported, not fixed, and the candidate keeps its
+exposure as recorded. The `benchmark/` tooling may change; the engine may not.
+
+### Constructions are changes, and they are not samples
+
+A Session A construction lives at
+`benchmark/safety-qualification/constructed/<case>/`, never under `samples/`:
+the goldens under `samples/*/expected/` are what the engine is developed
+against, so a corpus-built synthetic committed there would be tuning material
+the moment it landed. Each case is laid out as
+
+```
+constructed/<case>/
+  CASE.md      the design record: the shape built, and why it exhibits the target
+  base/        the repository before the change
+  head/        the repository after it
+```
+
+and is checked by `test_a_constructed_case_is_a_change_with_its_design_record_beside_it`:
+`base/` and `head/` both exist and differ — the corpus labels a *change*, so a
+single tree has nothing to label; `CASE.md` sits beside the trees and never
+inside one, so a rater packet built from the trees cannot carry the target
+decision it names; neither tree holds engine output; and no construction
+shares a name with a shipped sample. Its row is `origin_class: synthetic`,
+`target_basis: constructed_design`, `evidence_ref: <case>/CASE.md`, and
+`exposure: none` — which the detector re-checks by name, so a construction that
+is later written into a test or the engine fails the floor and must be
+re-declared `engine_tests`. The diff is a plausible pull request: the smallest
+change that introduces the property, in the framework's own idiom, with no
+comment that names the outcome. Running the engine on a construction to confirm
+that the mechanism is present is fine; tuning the construction until the
+verdict matches the target is not, because the target comes from the design.
+
+### Real history is sourced through a sweep, then a miner label
+
+A Session B candidate enters the way every existing `real_history` row did:
+a committed sweep under `benchmark/miner/results/` records the measurement
+(`benchmark_scored`), and a committed label file records the cell it is aimed at
+(`miner_label`). That keeps the row holdout-eligible — being measured is not
+being tuned on — at the cost the register already discloses: the worksheet
+shows the labeler the engine's verdict, so the aim is verifier-exposed and the
+row says so. The alternative, reading the diff and recording the reading here as
+`diff_substance`, is refused for new candidates because `diff_substance` implies
+`maintainer_walk` and would make every newly mined slot `tuning_only`, which is
+the opposite of what Cut B is for.
+
+Closed-unmerged and reverted candidates are enumerated outside the miner's
+merged-only `mine` command and evaluated one at a time with `evaluate` at the
+pins the convention above gives them; their rows carry a blank `merged_at`.
 
 ## Where the plan stands
 
