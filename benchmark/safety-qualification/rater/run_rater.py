@@ -44,6 +44,23 @@ Amendment 1 condition 2 — blindness, enforced mechanically:
   interactively. The environment passed to the CLI is rebuilt from a short
   allowlist, so no ``CLAUDE_*`` or ``ANTHROPIC_*`` variable that changes
   behaviour leaks in — only the credential needed to authenticate.
+- **The packet is re-hashed immediately before launch.** What
+  :mod:`build_packet` guaranteed is a property of the packet *as built*; a
+  session is given the packet *as it stands now*. Between those two moments a
+  file can be edited, so :func:`prepare` re-hashes every file and compares it
+  with ``MANIFEST.json``, and a mismatch refuses the run. Without that the
+  label record would bind the hash of a manifest describing a packet that no
+  longer exists, and a contaminated packet would produce an admissible label.
+- **The OpenAI family gets its own Codex home.** ``codex`` reads global
+  ``AGENTS.md`` and ``AGENTS.override.md`` from ``$CODEX_HOME``, and its
+  ``config.toml`` there can mount MCP servers and enable web search — so
+  pointing ``CODEX_HOME`` at the caller's real profile would reopen every
+  door ``HOME`` was replaced to close. ``isolated`` builds a fresh Codex home
+  per run holding one written ``config.toml`` (no MCP servers, web search
+  off, read-only sandbox, no approvals) and authenticates through
+  ``OPENAI_API_KEY``; ``shared`` keeps the real one only after checking it
+  carries no global instruction file and configures no MCP server, web
+  search, or instructions override.
 - **No verifier output, no other label.** The packet contains none, by
   construction (:mod:`build_packet`); this runner adds none.
 
@@ -62,6 +79,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -69,12 +87,37 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import tomllib
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from agents_shipgate.schemas.safety_qualification import IndependentHumanLabelV1
+
+# `benchmark/safety-qualification/` is not an importable package name, so the
+# sibling module is loaded by path -- under the same name the tests use, and
+# reusing an already-loaded copy, so there is exactly one `PacketError` class
+# in the process and `except` can catch it.
+_BUILD_PACKET = "rater_build_packet"
+
+
+def _load_build_packet():
+    loaded = sys.modules.get(_BUILD_PACKET)
+    if loaded is not None:
+        return loaded
+    spec = importlib.util.spec_from_file_location(
+        _BUILD_PACKET, Path(__file__).resolve().parent / "build_packet.py"
+    )
+    if spec is None or spec.loader is None:  # pragma: no cover - packaging accident
+        raise RuntimeError("build_packet.py is not beside run_rater.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+build_packet = _load_build_packet()
 
 FAMILIES = ("claude", "openai")
 HOME_MODES = ("isolated", "shared")
@@ -103,6 +146,32 @@ _ENV_PASSTHROUGH = ("PATH", "TMPDIR", "LANG", "LC_ALL", "TERM", "SHELL", "USER")
 _CLAUDE_CREDENTIAL_ENV = ("ANTHROPIC_API_KEY",)
 _OPENAI_CREDENTIAL_ENV = ("OPENAI_API_KEY",)
 _DEFAULT_OPENAI_MODEL = "gpt-5-codex"
+
+# Written into the isolated Codex home. Every line closes a door the real
+# profile could open: no MCP servers, no web search, no approvals, and a
+# read-only sandbox restated where config outranks a forgotten flag. The home
+# itself is a per-run temporary directory that is deleted when the session
+# ends, so history and session files cannot outlive the run either; turning
+# persistence off says so rather than leaving it to the directory's lifetime.
+#
+# Unverified against a real ``codex`` (see the module docstring): the local
+# install is broken, so this config is written from the published reference
+# and must be checked with ``--dry-run`` plus one live run before the
+# calibration round counts an OpenAI-family label.
+_ISOLATED_CODEX_CONFIG = """\
+# Written per run by run_rater.py. A rater session sees the packet, and
+# nothing else.
+sandbox_mode = "read-only"
+approval_policy = "never"
+
+[tools]
+web_search = false
+
+[history]
+persistence = "none"
+
+[mcp_servers]
+"""
 
 
 class RaterError(RuntimeError):
@@ -150,6 +219,43 @@ def check_packet_carries_no_instructions(packet: Path) -> None:
             raise RaterError(
                 f"packet root carries {name}, which the CLI would read as instructions"
             )
+
+
+def check_shared_codex_home_is_instruction_free(codex_home: Path) -> None:
+    """Refuse a shared Codex home that could speak to the session.
+
+    ``AGENTS.md`` and ``AGENTS.override.md`` at the Codex home are global
+    instructions prepended to every session; ``config.toml`` there can mount
+    MCP servers, turn on web search, or point at an instructions file. Any of
+    those makes the session something other than "the packet and nothing
+    else", so each is a refusal rather than a warning.
+    """
+
+    for name in ("AGENTS.md", "AGENTS.override.md"):
+        if (codex_home / name).exists():
+            raise RaterError(
+                f"{codex_home / name} exists: codex prepends it to every session. "
+                "Use --home-mode isolated, or move it aside."
+            )
+    config = codex_home / "config.toml"
+    if not config.is_file():
+        return
+    try:
+        parsed = tomllib.loads(config.read_text(encoding="utf-8"))
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as error:
+        raise RaterError(f"{config} cannot be read, so it cannot be cleared: {error}") from error
+    offending = []
+    if parsed.get("mcp_servers"):
+        offending.append(f"mcp_servers ({', '.join(sorted(parsed['mcp_servers']))})")
+    if (parsed.get("tools") or {}).get("web_search"):
+        offending.append("tools.web_search")
+    if parsed.get("experimental_instructions_file"):
+        offending.append("experimental_instructions_file")
+    if offending:
+        raise RaterError(
+            f"{config} configures {', '.join(offending)}, which a blind session may not have; "
+            "use --home-mode isolated"
+        )
 
 
 def check_shared_home_is_memory_free(packet: Path, home: Path) -> None:
@@ -250,11 +356,25 @@ def openai_invocation(
         "-",
     ]
     env = _base_env(_OPENAI_CREDENTIAL_ENV, effective_home)
-    # codex keeps its auth under ~/.codex; with HOME replaced it must be told
-    # where that is. Pointing CODEX_HOME at the real one keeps the credential
-    # and nothing else that matters here: codex has no per-project memory.
-    # Unverified on this machine (the local codex install is broken).
-    env["CODEX_HOME"] = os.environ.get("CODEX_HOME") or str(_real_home() / ".codex")
+    # codex reads global AGENTS.md and config.toml from CODEX_HOME, so the
+    # real profile is not a credential store this run can borrow: it is a
+    # second instruction surface. Isolated mode builds its own; shared mode
+    # keeps the real one only after it is proven to say nothing.
+    if home_mode == "isolated":
+        if not os.environ.get("OPENAI_API_KEY"):
+            raise RaterError(
+                "--home-mode isolated gives codex a fresh CODEX_HOME, which carries no "
+                "credential, so it authenticates only through OPENAI_API_KEY, and it is "
+                "unset; export it, or use --home-mode shared to keep the caller's codex "
+                "profile under the instruction checks"
+            )
+        codex_home = effective_home / ".codex"
+        codex_home.mkdir(parents=True, exist_ok=True)
+        (codex_home / "config.toml").write_text(_ISOLATED_CODEX_CONFIG, encoding="utf-8")
+    else:
+        codex_home = Path(os.environ.get("CODEX_HOME") or _real_home() / ".codex")
+        check_shared_codex_home_is_instruction_free(codex_home)
+    env["CODEX_HOME"] = str(codex_home)
     task = (packet / "TASK.md").read_text(encoding="utf-8")
     return Invocation(tuple(argv), packet, env, task, session_id)
 
@@ -419,10 +539,28 @@ def _sha256_text(text: str) -> str:
 
 
 def _check_packet(packet: Path) -> dict[str, Any]:
+    """The packet as it stands now is the packet the manifest describes.
+
+    Existence is not the property that matters. ``build_packet`` proved the
+    packet was clean when it was built; this runs at launch, so every file is
+    re-hashed against ``MANIFEST.json`` and any difference -- an edited
+    ``TASK.md``, a note added under ``repo/``, a file removed -- refuses the
+    run. Otherwise the label would record the hash of a manifest that no
+    longer describes what the rater read.
+    """
+
     manifest_path = packet / "MANIFEST.json"
     for name in ("repo", "diff.patch", "LABELING.md", "TASK.md", "MANIFEST.json"):
         if not (packet / name).exists():
             raise RaterError(f"packet is missing {name}")
+    try:
+        build_packet.verify_manifest(packet)
+    except build_packet.PacketError as error:
+        raise RaterError(
+            f"packet does not match its manifest, so it is not the built one: {error}"
+        ) from error
+    except (KeyError, json.JSONDecodeError) as error:
+        raise RaterError(f"packet manifest is unreadable: {error}") from error
     return json.loads(manifest_path.read_text(encoding="utf-8"))
 
 
@@ -562,8 +700,9 @@ def _parser() -> argparse.ArgumentParser:
         "--home-mode",
         choices=HOME_MODES,
         default="isolated",
-        help="isolated: empty HOME + --bare (needs ANTHROPIC_API_KEY); "
-        "shared: caller's HOME (OAuth) under file-level memory checks",
+        help="isolated: empty HOME + --bare and a fresh CODEX_HOME (needs "
+        "ANTHROPIC_API_KEY / OPENAI_API_KEY); shared: caller's HOME (OAuth) and "
+        "codex profile, under file-level memory and instruction checks",
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="print the command and environment; do not launch"

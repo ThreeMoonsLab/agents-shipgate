@@ -32,6 +32,15 @@ directory was pointed at, so it refuses the build outright. ``.git`` is
 dropped so history, reflogs, and remote names cannot leak a repository
 identity or an author's later fix.
 
+**Symlinks never survive into a packet.** A link is a path the rater's read
+tools resolve but the manifest cannot describe: its bytes live wherever it
+points, so a link out of the tree would put unmanifested host content inside
+the "entire world" the rater is given, and the packet would still verify. A
+link whose target stays inside the source tree is materialised -- copied as a
+regular file, so the manifest covers its bytes; one that escapes the tree, or
+dangles, refuses the build. Hashing then treats any surviving link as tamper
+rather than skipping it.
+
 **What the manifest does not say.** No PR URL, no repository name beyond
 what the tree itself contains, no target decision, no profile, no origin.
 A rater who reads it learns which case id they are on and what they were
@@ -97,9 +106,10 @@ def is_refused_name(name: str) -> bool:
 def _walk_relative(root: Path) -> Iterator[Path]:
     """Every path under ``root``, relative to it, directories included.
 
-    Does not follow symlinks; a symlinked directory is yielded as a path and
-    later copied as a link, so a link out of the tree cannot pull foreign
-    content into the packet.
+    Does not follow symlinks: a symlinked directory is yielded as a path and
+    never descended into, so a link out of the tree cannot enumerate foreign
+    content. What happens to the link itself is decided by
+    :func:`classify_symlink`.
     """
 
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
@@ -118,6 +128,53 @@ def refusals_in_tree(root: Path) -> list[str]:
     )
 
 
+# --------------------------------------------------------------------------
+# Symlinks
+# --------------------------------------------------------------------------
+
+
+def classify_symlink(root: Path, rel: Path) -> str:
+    """``internal``, ``escaping`` or ``dangling`` for the link at ``root / rel``.
+
+    ``internal`` means the link resolves to something that still lies inside
+    ``root``, so its bytes are already part of the tree and can be copied in
+    place of the link. Both other answers refuse the build: an escaping link
+    would hand the rater content the manifest cannot describe, and a dangling
+    one is a path whose meaning depends on the host it is read on.
+
+    The comparison is between fully resolved paths, so a chain of links, a
+    relative ``../`` walk, and an absolute path that happens to point back
+    inside all answer correctly.
+    """
+
+    resolved_root = root.resolve()
+    try:
+        target = (root / rel).resolve(strict=True)
+    except (OSError, RuntimeError):  # missing target, or a symlink loop
+        return "dangling"
+    return "internal" if target.is_relative_to(resolved_root) else "escaping"
+
+
+def symlinks_in_tree(root: Path) -> dict[str, list[str]]:
+    """Every symlink under ``root``, grouped by :func:`classify_symlink`."""
+
+    found: dict[str, list[str]] = {"internal": [], "escaping": [], "dangling": []}
+    for rel in _walk_relative(root):
+        if (root / rel).is_symlink():
+            found[classify_symlink(root, rel)].append(str(rel))
+    return {kind: sorted(paths) for kind, paths in found.items()}
+
+
+def symlink_refusals_in_tree(root: Path) -> list[str]:
+    """The links that refuse the build: those that escape ``root`` or dangle."""
+
+    found = symlinks_in_tree(root)
+    return sorted(
+        [f"{path} (escapes the tree)" for path in found["escaping"]]
+        + [f"{path} (dangling)" for path in found["dangling"]]
+    )
+
+
 def copy_tree_excluding(source: Path, destination: Path) -> list[str]:
     """Copy ``source`` to ``destination`` dropping excluded names.
 
@@ -130,6 +187,11 @@ def copy_tree_excluding(source: Path, destination: Path) -> list[str]:
     if refused:
         raise PacketError(
             "source tree contains the sourcing plan, which no rater may see: " + ", ".join(refused)
+        )
+    escaping = symlink_refusals_in_tree(source)
+    if escaping:
+        raise PacketError(
+            "source tree contains symlinks the packet cannot describe: " + ", ".join(escaping)
         )
     dropped: list[str] = []
     destination.mkdir(parents=True, exist_ok=False)
@@ -151,7 +213,15 @@ def copy_tree_excluding(source: Path, destination: Path) -> list[str]:
             src = Path(dirpath) / name
             dst = target_dir / name
             if src.is_symlink():
-                os.symlink(os.readlink(src), dst)
+                # Refused above unless it stays inside the tree. Copy what it
+                # points at, so the bytes the rater can read are bytes the
+                # manifest hashes -- and drop a link to an excluded name
+                # rather than resurrecting that content under another one.
+                target_rel = src.resolve().relative_to(source.resolve())
+                if any(is_excluded_name(part) for part in target_rel.parts):
+                    dropped.append(str(rel_dir / name))
+                    continue
+                shutil.copyfile(src, dst, follow_symlinks=True)
             else:
                 shutil.copy2(src, dst)
     return sorted(dropped)
@@ -167,6 +237,9 @@ def verify_packet_is_clean(packet: Path) -> None:
     )
     if offending:
         raise PacketError("packet would include forbidden names: " + ", ".join(offending))
+    links = sorted(str(rel) for rel in _walk_relative(packet) if (packet / rel).is_symlink())
+    if links:
+        raise PacketError("packet would include symlinks: " + ", ".join(links))
 
 
 # --------------------------------------------------------------------------
@@ -372,12 +445,20 @@ def sha256_file(path: Path) -> str:
 
 
 def hash_packet_files(packet: Path) -> dict[str, str]:
-    """sha256 of every regular file in the packet except MANIFEST.json."""
+    """sha256 of every regular file in the packet except MANIFEST.json.
+
+    A symlink is a failure here, not something to skip: the builder
+    materialises every admissible link, so one found in a packet is content
+    the manifest would not cover -- exactly the hole that lets an edited
+    packet keep verifying.
+    """
 
     hashes: dict[str, str] = {}
     for rel in _walk_relative(packet):
         path = packet / rel
-        if rel.as_posix() == "MANIFEST.json" or not path.is_file() or path.is_symlink():
+        if path.is_symlink():
+            raise PacketError(f"{rel} is a symlink; a packet's bytes must all be hashable")
+        if rel.as_posix() == "MANIFEST.json" or not path.is_file():
             continue
         hashes[rel.as_posix()] = sha256_file(path)
     return dict(sorted(hashes.items()))
