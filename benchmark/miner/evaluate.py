@@ -118,8 +118,13 @@ def evaluate_pr(
     title: str = "",
     merged_at: str = "",
     force_run: bool = False,
+    notes: str = "",
 ) -> MinedRow:
-    """Return the mined row for one base/head pair in a local clone."""
+    """Return the mined row for one base/head pair in a local clone.
+
+    ``notes`` seeds the row's notes (the candidate's provenance, e.g.
+    ``closed_unmerged``); evaluation appends its own notes after it.
+    """
 
     row = MinedRow(
         repo=repo,
@@ -129,6 +134,7 @@ def evaluate_pr(
         merged_at=merged_at,
         base_sha=base_sha,
         head_sha=head_sha,
+        notes=notes,
     )
     try:
         return _evaluate(row, repo_path=repo_path, force_run=force_run)
