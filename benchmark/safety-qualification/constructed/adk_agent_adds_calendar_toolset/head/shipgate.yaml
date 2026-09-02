@@ -1,0 +1,45 @@
+version: "0.1"
+
+project:
+  name: adk-support-agent
+
+agent:
+  name: adk-support-agent
+  declared_purpose:
+    - look up support cases and related articles
+    - book support calls on the team calendar
+
+environment:
+  target: local
+
+tool_sources:
+  - id: adk_support
+    type: google_adk
+    path: agent.py
+
+google_adk:
+  tool_inventories:
+    - path: inventories/function-tools.json
+      source_id: adk_support
+
+permissions:
+  scopes:
+    - calendar:events:write
+
+action_surface:
+  actions:
+    - tool: lookup_case
+      effect: read
+      authority:
+        mode: none
+    - tool: support.search
+      effect: read
+      authority:
+        mode: none
+    - tool: calendar.create_event
+      effect: write
+      scopes: [calendar:events:write]
+      authority:
+        mode: scoped
+        auth_type: oauth2
+        credential_mode: delegated
