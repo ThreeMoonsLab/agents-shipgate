@@ -337,19 +337,143 @@ in response to a single timeout without checking what got slower — a timeout
 that appears without a corresponding change in these phases is more likely a
 hung step than an undersized budget.
 
+## Cadence
+
+**Approved 2026-09-02 for [#491](https://github.com/ThreeMoonsLab/agents-shipgate/issues/491).**
+
+Releases are cut **on a schedule, not on a feature**. The schedule is the
+policy; everything below is how it is kept and what happens when it is not.
+
+| | |
+|---|---|
+| Interval | **30 days** |
+| Defect threshold | **45 days** |
+| Who tags | The release owner — Pengfei Hu (`pengfei-threemoonslab`), the same owner as [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) |
+| Where the number is read | The **Release cadence** step in every CI run: a job-summary block, and a warning annotation once the interval lapses |
+
+Why a schedule at all: at the time this was written, 5,039 of `CHANGELOG.md`'s
+6,242 lines were under `## Unreleased` — 81% of the project's shipped work,
+installable by nobody, because releases were gated on a single expensive
+artifact and therefore happened when that artifact happened, which was never.
+The cost compounds: the longer the section grows, the larger and riskier the
+eventual release note, and the more migration notes land on adopters at once.
+It had already grown past GitHub's 125,000-character release-body limit, so the
+backlog had become a *blocker* on its own.
+
+### Keeping it
+
+```bash
+python scripts/release_cadence.py --json
+```
+
+Counts days since the newest **release tag** — `v` followed by a complete PEP
+440 version, so `preview-*`, `wip-sectiond` and `m3-pre-rebase` are correctly
+not releases. It reads the repository's own tags and needs no network, so an
+operator gets the same answer a runner does. Three states:
+
+| Status | Meaning | Action |
+|---|---|---|
+| `current` | under 30 days | none |
+| `due` | 30–45 days | cut a release, or record on the tracking issue why not |
+| `overdue` | over 45 days | **a defect to be triaged**, not a state to be tolerated |
+
+The CI step deliberately **warns and does not fail**. A red check here would
+fail whichever unrelated pull request happened to arrive after the interval
+lapsed, and that author is not the actor who can fix it. `--fail-when-overdue`
+gives the non-zero exit to an operator or a scheduled job that wants one;
+nothing in `ci.yml` passes it.
+
+### When the interval is missed
+
+1. **Name the blocker.** If the release cannot be cut, something is blocking
+   it, and it is an issue with a number. At the time of writing that is
+   [#456](https://github.com/ThreeMoonsLab/agents-shipgate/issues/456): no
+   signed qualification artifact exists, so the pipeline fails closed at
+   **Verify production qualification and exact wheel binding**.
+2. **Ship what can be shipped.** Publish an [unqualified
+   preview](#the-unqualified-preview-channel) so merged work is installable
+   while the blocker is worked. A preview is not a release and does not reset
+   this metric — deliberately.
+3. **Keep the note readable.** See below; this is the part that rots silently.
+
+### Release-note hygiene is continuous, not a release-day task
+
+`CHANGELOG.md`'s `## Unreleased` section **is** the next release body, and
+verification refuses a body over 125,000 characters. At 338,932 characters it
+was 2.7× that limit — a tag could not have been cut from it even with every
+other gate green.
+
+The shape that holds:
+
+- **`CHANGELOG.md` is the release note.** One line per change: the bold
+  headline sentence and its issue references. A section stays a section
+  somebody will read end to end.
+- **`docs/changelog/<version>.md` is the record.** The full reviewed prose for
+  every entry — design rationale, the trap each fix closed, the invariants —
+  moves there when the section is promoted. Nothing is deleted; the release
+  note links to it.
+- **Write the one-liner when the change lands**, not 165 entries later. The
+  headline sentence already exists in every entry; curation is only expensive
+  when it is deferred.
+
 ## Cutting the release
 
 1. Promote the `## Unreleased` heading in `CHANGELOG.md` to
-   `## <version> - <date>`. This is the release body; verification refuses a tag
-   with no matching section.
-2. Confirm `pyproject.toml` has the release version and a rehearsal is green.
-3. Push the tag: `git tag v0.16.0 && git push origin v0.16.0`.
-4. The `verify` job runs unattended.
-5. Approve the `pypi` environment gate on the `publish` job, using the readiness
+   `## <version> - <date>`, move the full prose to
+   `docs/changelog/<version>.md`, and leave a one-line-per-change section
+   behind. This is the release body; verification refuses a tag with no
+   matching section, and refuses one over 125,000 characters.
+2. Stamp `<version>` on `STABILITY.md`'s title and on every
+   `## Migration Note: unreleased` heading.
+3. Confirm `pyproject.toml` has the release version and a rehearsal is green.
+4. Push the tag: `git tag v0.16.0 && git push origin v0.16.0`.
+5. The `verify` job runs unattended.
+6. Approve the `pypi` environment gate on the `publish` job, using the readiness
    summary as the evidence.
-6. Confirm the GitHub Release is published (not draft) with all assets and the
+7. Confirm the GitHub Release is published (not draft) with all assets and the
    changelog section as its body, then run the fan-out checks in
    [`distribution.md`](distribution.md).
+
+## The unqualified preview channel
+
+**Admissibility finding: `release-evidence-policy-decision.md`
+[§ Amendment 2](release-evidence-policy-decision.md#amendment-2--the-unqualified-preview-channel),
+approved 2026-09-02.** Read it before touching this: it records the five
+conditions the channel is admissible under, and the cases that would have made
+it inadmissible.
+
+A preview exists so merged work is installable while a release is blocked. It
+is **not a release**, and every property below is load-bearing rather than
+descriptive:
+
+| | |
+|---|---|
+| Workflow | `release-preview.yml`, `workflow_dispatch` only, with a mandatory `reason` |
+| Precondition | a successful `ci.yml` run for the exact `github.sha` |
+| Version | `<pyproject version>+preview.<date>.g<short sha>` — a PEP 440 **local** segment, which public indexes must refuse |
+| Ref | `preview-<version>`, outside the `v*` trigger namespace |
+| Assets | the wheel, and nothing else |
+| Marked | `--prerelease`, so it is never `Latest` |
+| Authority | `contents: write` in the job that runs no candidate code; `contents: read` in the job that builds. No `id-token` anywhere |
+
+To cut one, dispatch **Release Preview (unqualified)** against the commit and
+give the reason. It appears under the newest qualified release, labelled as not
+one.
+
+**It does not reset the cadence metric, and that is deliberate** —
+`release_cadence.py` counts `v*` release tags only. A channel that suppressed
+the signal which justified its existence would be worse than not having one.
+
+Three things a preview can never become:
+
+- **Release evidence.** `stage` locates the mandatory rehearsal by workflow
+  file (`release-rehearsal.yml`), so a preview run is invisible to it.
+- **A PyPI upload.** The local version segment is refused by the index at the
+  API, and no job in the file holds `id-token: write`.
+- **A qualified artifact.** It ships no `safety-qualification.json`, and
+  `verify_safety_qualification_release.py` rejects it on both the missing
+  artifact and `tag == v<version>`. The negative controls are in
+  `tests/test_release_pipeline.py` § #491.
 
 ## Recovery
 

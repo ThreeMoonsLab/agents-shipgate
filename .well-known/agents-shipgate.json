@@ -3,7 +3,7 @@
   "name": "agents-shipgate",
   "display_name": "Agents Shipgate",
   "tagline": "The deterministic merge gate for AI-generated agent capability changes",
-  "version": "0.16.0b7",
+  "version": "0.16.0",
   "license": "Apache-2.0",
   "publisher": {
     "name": "Three Moons Lab",

@@ -574,3 +574,96 @@ def test_release_validator_is_directly_executable_from_the_documented_command() 
 
     assert result.returncode == 0, result.stderr
     assert "--qualification" in result.stdout
+
+
+# --------------------------------------------------------------------------
+# #491 — the unqualified preview channel cannot be read as a qualified release
+#
+# `docs/release-evidence-policy-decision.md` § Amendment 2 finds the channel
+# admissible *conditionally*, and condition C4 is that no existing reader may
+# confuse a preview for a release. This gate is the reader with the most
+# authority — the release pipeline runs it before publication — so it is the
+# one whose refusal has to be proved rather than assumed.
+# --------------------------------------------------------------------------
+
+PREVIEW_VERSION = f"{VERSION}+preview.20260902.g1a2b3c4"
+
+
+def test_a_preview_artifact_set_is_refused_because_it_carries_no_qualification(
+    tmp_path: Path,
+) -> None:
+    """The shape a preview actually publishes: a wheel, and nothing else.
+
+    This is the first of the two independent refusals. A preview attaches one
+    asset, so the gate's required input is simply absent — and the failure is a
+    refusal, not a pass-by-default.
+    """
+
+    wheel = tmp_path / f"agents_shipgate-{PREVIEW_VERSION}-py3-none-any.whl"
+    _write_wheel(wheel, PREVIEW_VERSION)
+    missing = tmp_path / "safety-qualification.json"
+    assert not missing.exists()
+
+    with pytest.raises(ConfigError, match="qualification artifact not found"):
+        verify_release_qualification(
+            wheel_path=wheel,
+            qualification_path=missing,
+            tag=f"preview-{PREVIEW_VERSION}",
+        )
+
+    assert (
+        main(
+            [
+                "--wheel",
+                str(wheel),
+                "--qualification",
+                str(missing),
+                "--tag",
+                f"preview-{PREVIEW_VERSION}",
+            ]
+        )
+        == 1
+    )
+
+
+def test_a_preview_ref_is_refused_even_carrying_a_wholly_valid_artifact(
+    tmp_path: Path,
+) -> None:
+    """The second refusal, and the one that survives an operator error.
+
+    Supplying the *release's* own qualification artifact alongside a preview
+    ref is the realistic mistake — a paste of the documented command with the
+    wrong `--tag`. The gate requires `tag == v<wheel version>`, so a
+    `preview-` ref cannot satisfy it no matter how good the evidence beside it
+    is. Nothing about the preview channel weakened this: the check is the one
+    that was already there.
+    """
+
+    wheel, qualification = _fixture(tmp_path)
+
+    with pytest.raises(ConfigError, match="tag does not match"):
+        verify_release_qualification(
+            wheel_path=wheel,
+            qualification_path=qualification,
+            tag=f"preview-{VERSION}",
+        )
+
+
+def test_a_preview_wheel_is_refused_by_the_artifact_that_qualified_the_release(
+    tmp_path: Path,
+) -> None:
+    """A preview wheel is different bytes under a different version, so the
+    release's artifact cannot vouch for it — the digest binding refuses first,
+    and the tag binding refuses after. Both are stated because a reader that
+    only checked the tag would accept a rebuilt wheel under the right name."""
+
+    _, qualification = _fixture(tmp_path)
+    preview_wheel = tmp_path / f"agents_shipgate-{PREVIEW_VERSION}-py3-none-any.whl"
+    _write_wheel(preview_wheel, PREVIEW_VERSION)
+
+    with pytest.raises(ConfigError, match="wheel SHA-256 mismatch|tag does not match"):
+        verify_release_qualification(
+            wheel_path=preview_wheel,
+            qualification_path=qualification,
+            tag=f"v{PREVIEW_VERSION}",
+        )

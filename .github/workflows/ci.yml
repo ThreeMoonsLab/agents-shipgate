@@ -170,6 +170,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # Tags, so the cadence step below can see the newest release. The
+          # default shallow fetch brings none, and a cadence metric that
+          # silently reports `unknown` is the same defect as not having one.
+          fetch-tags: true
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
@@ -179,6 +184,20 @@ jobs:
           cache-dependency-path: |
             constraints/dev.txt
             constraints/build-backend.txt
+
+      - name: Release cadence
+        # #491: 81% of the changelog had never shipped because nothing counted
+        # the gap. This is the surface that counts it -- every pull request and
+        # every push to `main` prints the number into the job summary, and
+        # annotates a warning once the interval lapses. The policy the number
+        # is measured against is in `docs/release-runbook.md` (# Cadence).
+        #
+        # Deliberately not a failing check. Going red here would fail whichever
+        # unrelated change happened to arrive after the interval lapsed, and
+        # that author is not the actor who can fix it. `--fail-when-overdue`
+        # exists for an operator and is not passed here. It runs before the
+        # install so the number is recorded even when a later step fails.
+        run: python scripts/release_cadence.py --github
 
       - name: Install
         # The hash-locked closure, not a fresh resolve of `.[dev]`. Release

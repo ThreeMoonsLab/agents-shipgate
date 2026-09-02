@@ -492,7 +492,7 @@ Downstream repos generated with
 `.shipgate/agent-contract.json`.
 
 - Latest release: `v0.15.0`
-- In-tree runtime: `0.16.0b7` — see [pyproject.toml](../pyproject.toml)
+- In-tree runtime: `0.16.0` — see [pyproject.toml](../pyproject.toml)
 - Runtime contract: `29` (minimum control contract: `21`)
 - Current report schema: `0.43` — [`docs/report-schema.v0.43.json`](report-schema.v0.43.json)
 - Current packet schema: `0.18` — [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json)

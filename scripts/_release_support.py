@@ -238,6 +238,19 @@ def release_version_is_pre_1_0(version: str) -> bool:
     return int(match.group("release").split(".")[0]) == 0
 
 
+def is_release_version(version: str) -> bool:
+    """True when ``version`` is a complete PEP 440 version.
+
+    Shared with ``scripts/release_cadence.py`` so that "which refs are
+    releases" is decided by the same grammar the policy gates use. A second
+    regex would drift: the anchored form above already replaced a permissive
+    one that read ``0garbage`` as a version, and a cadence metric counting
+    ``m3-pre-rebase`` as a release would report a cadence nobody kept.
+    """
+
+    return _PEP440_VERSION.match(version.strip()) is not None
+
+
 def accepted_qualification_tiers(version: str) -> tuple[str, ...]:
     """Qualification tiers whose evidence may publish ``version``.
 
