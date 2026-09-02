@@ -8,27 +8,37 @@ authoritative identifiers are SHA-256 hashes of canonical JSON payloads.  An
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+from pathlib import PurePosixPath
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from agents_shipgate.schemas.content_identity import (
-    CONTENT_ID_PATTERN,
-    GIT_OBJECT_PATTERN,
-    canonical_json,
-    content_id,
-    validate_portable_path,
-)
-from agents_shipgate.schemas.manifest_provenance import ManifestProvenance
-
-VERIFICATION_PLAN_V1_SCHEMA_VERSION = "shipgate.verification_plan/v1"
-VERIFICATION_PLAN_SCHEMA_VERSION = "shipgate.verification_plan/v2"
+VERIFICATION_PLAN_SCHEMA_VERSION = "shipgate.verification_plan/v1"
 VERIFICATION_UNIT_RESULT_SCHEMA_VERSION = "shipgate.verification_unit_result/v1"
 VERIFICATION_ARTIFACT_MANIFEST_SCHEMA_VERSION = "shipgate.verification_artifact_manifest/v1"
-VERIFICATION_RECEIPT_V1_SCHEMA_VERSION = "shipgate.verification_receipt/v1"
-VERIFICATION_RECEIPT_SCHEMA_VERSION = "shipgate.verification_receipt/v2"
+VERIFICATION_RECEIPT_SCHEMA_VERSION = "shipgate.verification_receipt/v1"
+CONTENT_ID_PATTERN = r"^sha256:[0-9a-f]{64}$"
+GIT_OBJECT_PATTERN = r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+
+
+def canonical_json(value: Any) -> bytes:
+    """Return the one wire representation used by every identity hash."""
+
+    if isinstance(value, BaseModel):
+        value = value.model_dump(mode="json", exclude_none=False)
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+
+def content_id(value: Any) -> str:
+    return f"sha256:{hashlib.sha256(canonical_json(value)).hexdigest()}"
 
 
 def _identity_payload(model: BaseModel, identity_field: str) -> dict[str, Any]:
@@ -37,6 +47,26 @@ def _identity_payload(model: BaseModel, identity_field: str) -> dict[str, Any]:
         exclude={identity_field, "schema_version"},
         exclude_none=False,
     )
+
+
+def validate_portable_path(value: str) -> str:
+    """Reject absolute, escaping, or non-normalized artifact/input paths.
+
+    Every artifact reference that a consumer may resolve beneath a root goes
+    through this one check, so containment cannot drift between the receipt,
+    the artifact manifest, and the current-control pointer.
+    """
+
+    path = PurePosixPath(value)
+    if (
+        not value
+        or "\\" in value
+        or path.is_absolute()
+        or ".." in path.parts
+        or path.as_posix() != value
+    ):
+        raise ValueError("artifact and input paths must be normalized portable relative paths")
+    return value
 
 
 _validate_portable_path = validate_portable_path
@@ -90,58 +120,11 @@ class VerificationSubject(BaseModel):
         return self
 
 
-class VerificationInputSetV1(BaseModel):
-    """Frozen input-set reader for verification-plan v1.
-
-    v1 predates manifest provenance. Its content identity must continue to hash
-    exactly the fields published in the v1 schema; adding a defaulted field
-    here would rewrite every historical ``input_set_id``.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    input_set_id: str = Field(pattern=CONTENT_ID_PATTERN)
-    evaluation_date: str
-    config: VerificationBlob
-    diff: VerificationBlob
-    baseline: VerificationBlob | None = None
-    diff_from: VerificationBlob | None = None
-    policy_packs: list[VerificationBlob] = Field(default_factory=list)
-    tool_sources: list[VerificationBlob] = Field(default_factory=list)
-    changed_paths: list[str] = Field(default_factory=list)
-    changed_files: list[VerificationBlob] = Field(default_factory=list)
-    options: dict[str, Any] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def _input_set_id_is_content_addressed(self) -> VerificationInputSetV1:
-        _validate_input_set_collections(self)
-        expected = content_id(_identity_payload(self, "input_set_id"))
-        if self.input_set_id != expected:
-            raise ValueError("input_set_id must hash the complete normalized input set")
-        return self
-
-
-def _validate_input_set_collections(value: VerificationInputSetV1 | VerificationInputSet) -> None:
-    for path in value.changed_paths:
-        _validate_portable_path(path)
-    if value.changed_paths != sorted(set(value.changed_paths)):
-        raise ValueError("changed_paths must be sorted and unique")
-    for name, blobs in (
-        ("policy_packs", value.policy_packs),
-        ("tool_sources", value.tool_sources),
-        ("changed_files", value.changed_files),
-    ):
-        paths = [blob.path for blob in blobs]
-        if paths != sorted(set(paths)):
-            raise ValueError(f"{name} paths must be sorted and unique")
-
-
 class VerificationInputSet(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     input_set_id: str = Field(pattern=CONTENT_ID_PATTERN)
     evaluation_date: str
-    manifest_provenance: ManifestProvenance
     config: VerificationBlob
     diff: VerificationBlob
     baseline: VerificationBlob | None = None
@@ -154,7 +137,18 @@ class VerificationInputSet(BaseModel):
 
     @model_validator(mode="after")
     def _input_set_id_is_content_addressed(self) -> VerificationInputSet:
-        _validate_input_set_collections(self)
+        for value in self.changed_paths:
+            _validate_portable_path(value)
+        if self.changed_paths != sorted(set(self.changed_paths)):
+            raise ValueError("changed_paths must be sorted and unique")
+        for name, blobs in (
+            ("policy_packs", self.policy_packs),
+            ("tool_sources", self.tool_sources),
+            ("changed_files", self.changed_files),
+        ):
+            paths = [blob.path for blob in blobs]
+            if paths != sorted(set(paths)):
+                raise ValueError(f"{name} paths must be sorted and unique")
         expected = content_id(_identity_payload(self, "input_set_id"))
         if self.input_set_id != expected:
             raise ValueError("input_set_id must hash the complete normalized input set")
@@ -203,49 +197,10 @@ class VerificationTask(BaseModel):
         return self
 
 
-class VerificationPlanV1(BaseModel):
-    """Frozen verification-plan v1 reader.
-
-    The v1 request identity points at the v1 input-set identity. It must not be
-    normalized into a v2 plan because doing so would silently mint a different
-    request under historical bytes.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    schema_version: Literal["shipgate.verification_plan/v1"] = (
-        VERIFICATION_PLAN_V1_SCHEMA_VERSION
-    )
-    request_id: str = Field(pattern=CONTENT_ID_PATTERN)
-    subject: VerificationSubject
-    inputs: VerificationInputSetV1
-    engine: VerificationEngineRequirement
-    tasks: list[VerificationTask] = Field(min_length=1, max_length=1)
-
-    @model_validator(mode="after")
-    def _request_id_is_content_addressed(self) -> VerificationPlanV1:
-        _validate_plan_identity(self)
-        return self
-
-
-def _validate_plan_identity(value: VerificationPlanV1 | VerificationPlan) -> None:
-    if len({task.task_id for task in value.tasks}) != len(value.tasks):
-        raise ValueError("verification plan task IDs must be unique")
-    payload = {
-        "subject_id": value.subject.subject_id,
-        "input_set_id": value.inputs.input_set_id,
-        "engine_requirement_id": value.engine.engine_requirement_id,
-        "task_ids": [task.task_id for task in value.tasks],
-    }
-    expected = content_id(payload)
-    if value.request_id != expected:
-        raise ValueError("request_id must hash the verification plan identity")
-
-
 class VerificationPlan(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["shipgate.verification_plan/v2"] = VERIFICATION_PLAN_SCHEMA_VERSION
+    schema_version: Literal["shipgate.verification_plan/v1"] = VERIFICATION_PLAN_SCHEMA_VERSION
     request_id: str = Field(pattern=CONTENT_ID_PATTERN)
     subject: VerificationSubject
     inputs: VerificationInputSet
@@ -254,7 +209,17 @@ class VerificationPlan(BaseModel):
 
     @model_validator(mode="after")
     def _request_id_is_content_addressed(self) -> VerificationPlan:
-        _validate_plan_identity(self)
+        if len({task.task_id for task in self.tasks}) != len(self.tasks):
+            raise ValueError("verification plan task IDs must be unique")
+        payload = {
+            "subject_id": self.subject.subject_id,
+            "input_set_id": self.inputs.input_set_id,
+            "engine_requirement_id": self.engine.engine_requirement_id,
+            "task_ids": [task.task_id for task in self.tasks],
+        }
+        expected = content_id(payload)
+        if self.request_id != expected:
+            raise ValueError("request_id must hash the verification plan identity")
         return self
 
 
@@ -340,131 +305,12 @@ class VerificationArtifactManifest(BaseModel):
         return self
 
 
-class VerificationReceiptV1(BaseModel):
-    """Frozen terminal receipt reader for the provenance-free v1 contract."""
+class VerificationReceipt(BaseModel):
+    """Terminal closure record. It is valid only after every artifact exists."""
 
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal["shipgate.verification_receipt/v1"] = (
-        VERIFICATION_RECEIPT_V1_SCHEMA_VERSION
-    )
-    receipt_id: str = Field(pattern=CONTENT_ID_PATTERN)
-    request_id: str = Field(pattern=CONTENT_ID_PATTERN)
-    subject_id: str = Field(pattern=CONTENT_ID_PATTERN)
-    input_set_id: str = Field(pattern=CONTENT_ID_PATTERN)
-    engine_requirement_id: str = Field(pattern=CONTENT_ID_PATTERN)
-    executor_id: str = Field(pattern=CONTENT_ID_PATTERN)
-    decision_id: str = Field(pattern=CONTENT_ID_PATTERN)
-    artifact_set_id: str = Field(pattern=CONTENT_ID_PATTERN)
-    unit_result_ids: list[str] = Field(min_length=1)
-    attempt_id: str | None = None
-    decision: (
-        Literal[
-            "passed",
-            "review_required",
-            "insufficient_evidence",
-            "blocked",
-        ]
-        | None
-    ) = None
-    merge_verdict: Literal[
-        "mergeable",
-        "human_review_required",
-        "insufficient_evidence",
-        "blocked",
-        "unknown",
-    ]
-    can_merge_without_human: bool
-    artifact_manifest: VerificationArtifactManifest
-
-    @model_validator(mode="after")
-    def _receipt_closes_one_identity_graph(self) -> VerificationReceiptV1:
-        _validate_receipt_identity(self)
-        return self
-
-
-def _validate_receipt_identity(value: VerificationReceiptV1 | VerificationReceipt) -> None:
-    if len(set(value.unit_result_ids)) != len(value.unit_result_ids):
-        raise ValueError("receipt unit_result_ids must be unique")
-    if any(not re.fullmatch(CONTENT_ID_PATTERN, item) for item in value.unit_result_ids):
-        raise ValueError("receipt unit_result_ids must be SHA-256 content IDs")
-    expected_decision_id = content_id(
-        {
-            "request_id": value.request_id,
-            "unit_result_ids": sorted(value.unit_result_ids),
-            "decision": value.decision,
-            "merge_verdict": value.merge_verdict,
-            "can_merge_without_human": value.can_merge_without_human,
-        }
-    )
-    if value.decision_id != expected_decision_id:
-        raise ValueError("receipt decision_id must hash its request, units, and outcome")
-    decision_projection = {
-        "passed": ("mergeable", True),
-        "review_required": ("human_review_required", False),
-        "insufficient_evidence": ("insufficient_evidence", False),
-        "blocked": ("blocked", False),
-    }
-    if value.decision in decision_projection:
-        expected_merge, expected_can_merge = decision_projection[value.decision]
-        if (value.merge_verdict, value.can_merge_without_human) != (
-            expected_merge,
-            expected_can_merge,
-        ):
-            raise ValueError("receipt outcome contradicts its release decision")
-    elif (value.merge_verdict, value.can_merge_without_human) not in {
-        ("mergeable", True),
-        ("unknown", False),
-    }:
-        raise ValueError("receipt outcome contradicts a decision-free execution")
-    if value.artifact_manifest.request_id != value.request_id:
-        raise ValueError("receipt and artifact manifest request_id disagree")
-    if value.artifact_manifest.decision_id != value.decision_id:
-        raise ValueError("receipt and artifact manifest decision_id disagree")
-    if value.artifact_manifest.artifact_set_id != value.artifact_set_id:
-        raise ValueError("receipt and artifact manifest artifact_set_id disagree")
-    expected = content_id(
-        value.model_dump(
-            mode="json",
-            exclude={"receipt_id", "schema_version", "attempt_id"},
-            exclude_none=False,
-        )
-    )
-    if value.receipt_id != expected:
-        raise ValueError("receipt_id must hash the complete terminal receipt")
-
-
-class VerificationReceipt(BaseModel):
-    """Terminal closure record. It is valid only after every artifact exists."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        json_schema_extra={
-            "if": {
-                "properties": {
-                    "manifest_provenance": {
-                        "properties": {"release_authoritative": {"const": False}},
-                        "required": ["release_authoritative"],
-                    }
-                },
-                "required": ["manifest_provenance"],
-            },
-            "then": {
-                "properties": {
-                    "decision": {"not": {"const": "passed"}},
-                    "merge_verdict": {"not": {"const": "mergeable"}},
-                    "can_merge_without_human": {"const": False},
-                },
-                "required": [
-                    "decision",
-                    "merge_verdict",
-                    "can_merge_without_human",
-                ],
-            },
-        },
-    )
-
-    schema_version: Literal["shipgate.verification_receipt/v2"] = (
         VERIFICATION_RECEIPT_SCHEMA_VERSION
     )
     receipt_id: str = Field(pattern=CONTENT_ID_PATTERN)
@@ -475,7 +321,6 @@ class VerificationReceipt(BaseModel):
     executor_id: str = Field(pattern=CONTENT_ID_PATTERN)
     decision_id: str = Field(pattern=CONTENT_ID_PATTERN)
     artifact_set_id: str = Field(pattern=CONTENT_ID_PATTERN)
-    manifest_provenance: ManifestProvenance
     unit_result_ids: list[str] = Field(min_length=1)
     attempt_id: str | None = None
     decision: (
@@ -499,79 +344,61 @@ class VerificationReceipt(BaseModel):
 
     @model_validator(mode="after")
     def _receipt_closes_one_identity_graph(self) -> VerificationReceipt:
-        _validate_receipt_identity(self)
-        if not self.manifest_provenance.release_authoritative and (
-            self.decision == "passed"
-            or self.merge_verdict == "mergeable"
-            or self.can_merge_without_human
-        ):
-            raise ValueError("non-authoritative manifest receipt cannot carry release authority")
+        if len(set(self.unit_result_ids)) != len(self.unit_result_ids):
+            raise ValueError("receipt unit_result_ids must be unique")
+        if any(not re.fullmatch(CONTENT_ID_PATTERN, value) for value in self.unit_result_ids):
+            raise ValueError("receipt unit_result_ids must be SHA-256 content IDs")
+        expected_decision_id = content_id(
+            {
+                "request_id": self.request_id,
+                "unit_result_ids": sorted(self.unit_result_ids),
+                "decision": self.decision,
+                "merge_verdict": self.merge_verdict,
+                "can_merge_without_human": self.can_merge_without_human,
+            }
+        )
+        if self.decision_id != expected_decision_id:
+            raise ValueError("receipt decision_id must hash its request, units, and outcome")
+        decision_projection = {
+            "passed": ("mergeable", True),
+            "review_required": ("human_review_required", False),
+            "insufficient_evidence": ("insufficient_evidence", False),
+            "blocked": ("blocked", False),
+        }
+        if self.decision in decision_projection:
+            expected_merge, expected_can_merge = decision_projection[self.decision]
+            if (self.merge_verdict, self.can_merge_without_human) != (
+                expected_merge,
+                expected_can_merge,
+            ):
+                raise ValueError("receipt outcome contradicts its release decision")
+        elif (self.merge_verdict, self.can_merge_without_human) not in {
+            ("mergeable", True),
+            ("unknown", False),
+        }:
+            raise ValueError("receipt outcome contradicts a decision-free execution")
+        if self.artifact_manifest.request_id != self.request_id:
+            raise ValueError("receipt and artifact manifest request_id disagree")
+        if self.artifact_manifest.decision_id != self.decision_id:
+            raise ValueError("receipt and artifact manifest decision_id disagree")
+        if self.artifact_manifest.artifact_set_id != self.artifact_set_id:
+            raise ValueError("receipt and artifact manifest artifact_set_id disagree")
+        expected = content_id(
+            self.model_dump(
+                mode="json",
+                exclude={"receipt_id", "schema_version", "attempt_id"},
+                exclude_none=False,
+            )
+        )
+        if self.receipt_id != expected:
+            raise ValueError("receipt_id must hash the complete terminal receipt")
         return self
-
-
-ReadableVerificationPlan = VerificationPlanV1 | VerificationPlan
-ReadableVerificationReceipt = VerificationReceiptV1 | VerificationReceipt
-
-
-def _versioned_object(payload: Any, *, label: str) -> dict[str, Any]:
-    if isinstance(payload, BaseModel):
-        value = payload.model_dump(mode="json")
-    elif isinstance(payload, (str, bytes, bytearray)):
-        try:
-            value = json.loads(payload)
-        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            raise ValueError(f"{label} is not valid JSON: {exc}") from exc
-    elif isinstance(payload, dict):
-        value = dict(payload)
-    else:
-        raise ValueError(f"{label} must be a JSON object")
-    if not isinstance(value, dict):
-        raise ValueError(f"{label} must be a JSON object")
-    return value
-
-
-def load_verification_plan(payload: Any) -> ReadableVerificationPlan:
-    """Dispatch a plan by its immutable schema discriminator.
-
-    The v1 path validates the historical content identities in place. It does
-    not add provenance or rewrite the payload under v2.
-    """
-
-    value = _versioned_object(payload, label="verification plan")
-    version = value.get("schema_version")
-    if version == VERIFICATION_PLAN_V1_SCHEMA_VERSION:
-        return VerificationPlanV1.model_validate(value)
-    if version == VERIFICATION_PLAN_SCHEMA_VERSION:
-        return VerificationPlan.model_validate(value)
-    raise ValueError(
-        "unsupported verification plan schema_version: "
-        f"{version!r}; expected {VERIFICATION_PLAN_V1_SCHEMA_VERSION!r} or "
-        f"{VERIFICATION_PLAN_SCHEMA_VERSION!r}"
-    )
-
-
-def load_verification_receipt(payload: Any) -> ReadableVerificationReceipt:
-    """Dispatch a receipt without upgrading its content-addressed identity."""
-
-    value = _versioned_object(payload, label="verification receipt")
-    version = value.get("schema_version")
-    if version == VERIFICATION_RECEIPT_V1_SCHEMA_VERSION:
-        return VerificationReceiptV1.model_validate(value)
-    if version == VERIFICATION_RECEIPT_SCHEMA_VERSION:
-        return VerificationReceipt.model_validate(value)
-    raise ValueError(
-        "unsupported verification receipt schema_version: "
-        f"{version!r}; expected {VERIFICATION_RECEIPT_V1_SCHEMA_VERSION!r} or "
-        f"{VERIFICATION_RECEIPT_SCHEMA_VERSION!r}"
-    )
 
 
 __all__ = [
     "VERIFICATION_ARTIFACT_MANIFEST_SCHEMA_VERSION",
     "VERIFICATION_PLAN_SCHEMA_VERSION",
-    "VERIFICATION_PLAN_V1_SCHEMA_VERSION",
     "VERIFICATION_RECEIPT_SCHEMA_VERSION",
-    "VERIFICATION_RECEIPT_V1_SCHEMA_VERSION",
     "VERIFICATION_UNIT_RESULT_SCHEMA_VERSION",
     "VerificationArtifactManifest",
     "VerificationArtifactRef",
@@ -580,17 +407,12 @@ __all__ = [
     "VerificationExecutor",
     "VerificationGitSubject",
     "VerificationInputSet",
-    "VerificationInputSetV1",
     "VerificationPlan",
-    "VerificationPlanV1",
     "VerificationReceipt",
-    "VerificationReceiptV1",
     "VerificationSubject",
     "VerificationTask",
     "VerificationUnitResult",
     "canonical_json",
     "content_id",
-    "load_verification_plan",
-    "load_verification_receipt",
     "validate_portable_path",
 ]

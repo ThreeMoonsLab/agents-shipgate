@@ -60,7 +60,10 @@ def test_auto_init_langchain_emits_valid_manifest_with_python_source(tmp_path: P
     detect = detect_workspace(workspace)
     text = render_auto_manifest(workspace, detect).text
     manifest = _validates(text)
-    assert any(s.type == "langchain" and s.path == "agent.py" for s in manifest.tool_sources)
+    assert any(
+        s.type == "langchain" and s.path == "agent.py"
+        for s in manifest.tool_sources
+    )
 
 
 def test_auto_init_anthropic_emits_artifact_block_not_tool_source(tmp_path: Path) -> None:
@@ -75,7 +78,9 @@ def test_auto_init_anthropic_emits_artifact_block_not_tool_source(tmp_path: Path
     assert manifest.anthropic is not None
     assert manifest.anthropic.prompt_files == ["prompts/support_refund.md"]
     assert [t.path for t in manifest.anthropic.tools] == ["tools/anthropic-tools.json"]
-    assert [p.path for p in manifest.anthropic.policy_rules] == ["policies/anthropic-policy.yaml"]
+    assert [p.path for p in manifest.anthropic.policy_rules] == [
+        "policies/anthropic-policy.yaml"
+    ]
 
 
 def test_auto_init_adk_extracts_agent_name_from_literal(tmp_path: Path) -> None:
@@ -108,37 +113,6 @@ def test_auto_init_empty_workspace_falls_back_to_change_me_stub(tmp_path: Path) 
     assert any(s.id == "CHANGE_ME" for s in manifest.tool_sources)
 
 
-def test_auto_init_preserves_named_mcp_code_idiom(tmp_path: Path) -> None:
-    (tmp_path / "package.json").write_text('{"name":"source-only-mcp"}', encoding="utf-8")
-    (tmp_path / "server.ts").write_text(
-        'server.registerTool("lookup", {description: "Look up"}, lookup);',
-        encoding="utf-8",
-    )
-
-    detect = detect_workspace(tmp_path)
-    manifest = _validates(render_auto_manifest(tmp_path, detect).text)
-
-    source = next(item for item in manifest.tool_sources if item.type == "mcp")
-    assert source.path == "server.ts"
-    assert source.idiom == "typescript_mcp_sdk_v1"
-
-
-def test_auto_init_preserves_github_mcp_snapshot_idiom(tmp_path: Path) -> None:
-    snapshots = tmp_path / "pkg" / "github" / "__toolsnaps__"
-    snapshots.mkdir(parents=True)
-    (snapshots / "delete_repository.snap").write_text(
-        '{"name":"delete_repository","inputSchema":{"type":"object"}}',
-        encoding="utf-8",
-    )
-
-    detect = detect_workspace(tmp_path)
-    manifest = _validates(render_auto_manifest(tmp_path, detect).text)
-
-    source = next(item for item in manifest.tool_sources if item.type == "mcp")
-    assert source.path == "pkg/github/__toolsnaps__"
-    assert source.idiom == "mcp_tool_snapshot_v1"
-
-
 def test_minimal_template_byte_exact_to_legacy_output(tmp_path: Path) -> None:
     """``--minimal`` must reproduce the v0.5 template character-for-character
     so users with snapshot tests against today's `init` output can pin to it."""
@@ -167,12 +141,14 @@ def test_init_cli_auto_default_emits_auto_detected_payload(tmp_path: Path) -> No
     )
     assert result.exit_code == 0, result.output
     import json
-
     payload = json.loads(result.output)
     assert payload["created"] is True
     assert "auto_detected" in payload
     assert payload["auto_detected"]["is_agent_project"] is True
-    assert any(fw["type"] == "langchain" for fw in payload["auto_detected"]["frameworks"])
+    assert any(
+        fw["type"] == "langchain"
+        for fw in payload["auto_detected"]["frameworks"]
+    )
 
 
 def test_artifact_only_openai_workspace_emits_openai_api_block(tmp_path: Path) -> None:
@@ -244,7 +220,9 @@ def test_init_json_agent_name_matches_yaml_when_no_literal(tmp_path: Path) -> No
         )
     # All candidates surfaced separately so agents can override.
     assert "agent_name_candidates" in payload["auto_detected"]
-    assert all("source" in c for c in payload["auto_detected"]["agent_name_candidates"])
+    assert all(
+        "source" in c for c in payload["auto_detected"]["agent_name_candidates"]
+    )
 
 
 def test_init_json_agent_name_matches_yaml_when_literal_present(tmp_path: Path) -> None:
@@ -329,7 +307,9 @@ def test_cold_start_init_then_scan_with_mcpservers_config_present(tmp_path: Path
     workspace = _cursor_config_workspace(tmp_path, with_export=True)
     runner = CliRunner()
 
-    result = runner.invoke(app, ["init", "--workspace", str(workspace), "--write", "--json"])
+    result = runner.invoke(
+        app, ["init", "--workspace", str(workspace), "--write", "--json"]
+    )
     assert result.exit_code == 0, result.output
     payload = _json.loads(result.output)
     assert payload["created"] is True
@@ -343,7 +323,9 @@ def test_cold_start_init_then_scan_with_mcpservers_config_present(tmp_path: Path
     assert [s.path for s in manifest.tool_sources] == ["tools/payments-mcp.json"]
     assert "#   providers/cursor/plugin/mcp.json" in manifest_text
 
-    scan_result = runner.invoke(app, ["scan", "--config", str(workspace / "shipgate.yaml")])
+    scan_result = runner.invoke(
+        app, ["scan", "--config", str(workspace / "shipgate.yaml")]
+    )
     assert scan_result.exit_code == 0, scan_result.output
     assert "Input parsing error" not in scan_result.output
 
@@ -359,7 +341,9 @@ def test_init_config_only_workspace_writes_stub_not_poison_source(tmp_path: Path
     assert "Excluded 1 detected file(s)" in result.output
     manifest_text = (workspace / "shipgate.yaml").read_text(encoding="utf-8")
     manifest = _validates(manifest_text)
-    assert all(s.path != "providers/cursor/plugin/mcp.json" for s in manifest.tool_sources)
+    assert all(
+        s.path != "providers/cursor/plugin/mcp.json" for s in manifest.tool_sources
+    )
     assert any(s.id == "CHANGE_ME" for s in manifest.tool_sources)
     assert "#   providers/cursor/plugin/mcp.json" in manifest_text
 
@@ -437,12 +421,16 @@ def test_cold_start_init_then_scan_with_repeated_basenames(tmp_path: Path) -> No
     workspace = _openai_sdk_workspace(tmp_path / "strixlike", _REPEATED_BASENAMES)
     runner = CliRunner()
 
-    result = runner.invoke(app, ["init", "--workspace", str(workspace), "--write", "--json"])
+    result = runner.invoke(
+        app, ["init", "--workspace", str(workspace), "--write", "--json"]
+    )
     assert result.exit_code == 0, result.output
     payload = _json.loads(result.output)
     assert payload["created"] is True
 
-    scan_result = runner.invoke(app, ["scan", "--config", str(workspace / "shipgate.yaml")])
+    scan_result = runner.invoke(
+        app, ["scan", "--config", str(workspace / "shipgate.yaml")]
+    )
     assert scan_result.exit_code == 0, scan_result.output
     assert "Config error" not in scan_result.output
 
@@ -465,11 +453,11 @@ def test_preview_then_init_scan_removes_preview_handoff(tmp_path: Path) -> None:
     handoff_path = reports / "agent-handoff.json"
     verifier_path = reports / "verifier.json"
     pr_comment_path = reports / "pr-comment.md"
-    preview_payload = json.loads(preview.output)
-    assert preview_payload["control"]["state"] == "agent_action_required"
-    assert "--write" in preview_payload["control"]["next_action"]["command"]
-    assert preview_payload["artifacts"] == {}
-    assert not reports.exists()
+    preview_handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
+    assert preview_handoff["operation"] == "verify_preview"
+    assert preview_handoff["control"]["state"] == "agent_action_required"
+    assert verifier_path.is_file()
+    assert pr_comment_path.is_file()
 
     initialized = runner.invoke(
         app,
@@ -508,7 +496,9 @@ def test_auto_init_source_ids_are_stable_when_a_sibling_appears(tmp_path: Path) 
     )
 
     def ids_by_path(workspace: Path) -> dict[str, str]:
-        manifest = _validates(render_auto_manifest(workspace, detect_workspace(workspace)).text)
+        manifest = _validates(
+            render_auto_manifest(workspace, detect_workspace(workspace)).text
+        )
         return {s.path: s.id for s in manifest.tool_sources}
 
     before = ids_by_path(before_ws)
@@ -558,7 +548,9 @@ def test_source_id_helper_disambiguates_identically_sanitized_paths() -> None:
     )
 
     # Unknown source types (third-party adapters) keep their own name.
-    assert source_id_for("my_custom_source", "specs/api.yaml") == ("my_custom_source_specs_api")
+    assert source_id_for("my_custom_source", "specs/api.yaml") == (
+        "my_custom_source_specs_api"
+    )
 
 
 def test_source_ids_shift_only_for_entries_whose_ids_collide(
@@ -575,7 +567,9 @@ def test_source_ids_shift_only_for_entries_whose_ids_collide(
     alone = assign_source_ids([("openapi", "a-b/spec.yaml")])
     assert alone == ["openapi_a_b_spec"]
 
-    with_twin = assign_source_ids([("openapi", "a-b/spec.yaml"), ("openapi", "a_b/spec.yaml")])
+    with_twin = assign_source_ids(
+        [("openapi", "a-b/spec.yaml"), ("openapi", "a_b/spec.yaml")]
+    )
     assert with_twin[0] != alone[0]
     assert with_twin[0].startswith("openapi_a_b_spec_")
 
@@ -727,7 +721,9 @@ def test_init_writes_the_adk_root_agent_not_the_first_sub_agent(tmp_path: Path) 
         encoding="utf-8",
     )
 
-    result = CliRunner().invoke(app, ["init", "--workspace", str(workspace), "--write", "--json"])
+    result = CliRunner().invoke(
+        app, ["init", "--workspace", str(workspace), "--write", "--json"]
+    )
     assert result.exit_code == 0, result.output
 
     payload = json.loads(result.output)
@@ -768,12 +764,16 @@ def test_init_leaves_change_me_when_every_candidate_fails_the_floor(
         encoding="utf-8",
     )
 
-    result = CliRunner().invoke(app, ["init", "--workspace", str(workspace), "--write", "--json"])
+    result = CliRunner().invoke(
+        app, ["init", "--workspace", str(workspace), "--write", "--json"]
+    )
     assert result.exit_code == 0, result.output
 
     payload = json.loads(result.output)
     assert payload["auto_detected"]["agent_name"] is None
-    assert "name: CHANGE_ME" in (workspace / "shipgate.yaml").read_text(encoding="utf-8")
+    assert "name: CHANGE_ME" in (workspace / "shipgate.yaml").read_text(
+        encoding="utf-8"
+    )
     assert "agent.name" in {entry["path"] for entry in payload["placeholders"]}
 
     rejected = next(

@@ -66,12 +66,9 @@ from agents_shipgate.schemas.current_control import (
     current_control_identity_payload,
 )
 from agents_shipgate.schemas.verification_identity import (
-    ReadableVerificationPlan,
-    ReadableVerificationReceipt,
+    VerificationPlan,
     VerificationReceipt,
     content_id,
-    load_verification_plan,
-    load_verification_receipt,
     validate_portable_path,
 )
 
@@ -305,33 +302,10 @@ def _receipt_binding_refusal(
             "The bound terminal receipt closes a different request than the one "
             "this run decided, so completion authority cannot be established."
         )
-    if not isinstance(receipt, VerificationReceipt):
-        return (
-            "The bound terminal receipt predates manifest-provenance binding, "
-            "so it cannot establish completion or merge authority."
-        )
-    if not receipt.manifest_provenance.release_authoritative:
-        return (
-            "The bound terminal receipt consumed a non-authoritative manifest, "
-            "so it cannot establish completion or merge authority."
-        )
-    if (
-        receipt.manifest_provenance.kind != "repository"
-        or receipt.decision != "passed"
-        or receipt.merge_verdict != "mergeable"
-        or not receipt.can_merge_without_human
-    ):
-        return (
-            "The bound terminal receipt does not carry an authoritative repository "
-            "passed/mergeable decision, so completion authority cannot be established."
-        )
     return None
 
 
-def _load_receipt(
-    out_dir: Path,
-    ref: CurrentControlArtifactRef,
-) -> ReadableVerificationReceipt:
+def _load_receipt(out_dir: Path, ref: CurrentControlArtifactRef) -> VerificationReceipt:
     data = read_regular_file_beneath(
         out_dir,
         ref.path,
@@ -339,7 +313,7 @@ def _load_receipt(
         label="current control receipt",
     )
     try:
-        return load_verification_receipt(data)
+        return VerificationReceipt.model_validate_json(data)
     except Exception as exc:  # pydantic ValidationError and friends
         raise ValueError(str(exc)) from exc
 
@@ -439,14 +413,14 @@ def project_agent_control(
         state="agent_action_required",
         reason=control.reason,
         permissions=(
-            PublishOnlyPermissions() if control.permissions.publishes else NoAgentPermissions()
+            PublishOnlyPermissions()
+            if control.permissions.publishes
+            else NoAgentPermissions()
         ),
     )
 
 
-def workspace_identity_from_plan(
-    plan: ReadableVerificationPlan,
-) -> CurrentControlWorkspaceIdentity:
+def workspace_identity_from_plan(plan: VerificationPlan) -> CurrentControlWorkspaceIdentity:
     """Derive the pointer's workspace identity from a verification plan.
 
     The plan's subject is the same one the terminal receipt closes over, so a
@@ -744,7 +718,9 @@ def _validate_control_currency(
                 ),
                 path=out_dir,
             )
-    if grants_authority and (identity.head_commit_sha is None or identity.head_tree_sha is None):
+    if grants_authority and (
+        identity.head_commit_sha is None or identity.head_tree_sha is None
+    ):
         raise CurrentControlUnavailable(
             "workspace_unverifiable",
             (
@@ -814,7 +790,7 @@ def _validate_worktree_currency(
             max_size=MAX_BOUND_ARTIFACT_BYTES,
             label="current control plan",
         )
-        plan = load_verification_plan(data)
+        plan = VerificationPlan.model_validate_json(data)
         # Not `inputs.changed_paths`: since #336 that is the merge-base-
         # relative evaluated set, while the overlay this pointer was
         # published against is HEAD-relative and recorded separately.

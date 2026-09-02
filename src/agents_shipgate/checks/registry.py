@@ -86,7 +86,6 @@ BUILTIN_CHECKS: list[Callable[[ScanContext], list[Finding]]] = [
     verify_trigger_drift.run,
     verify_capability_scope.run,
     verify_config_binding.run,
-    verify_local_review.run,
 ]
 
 

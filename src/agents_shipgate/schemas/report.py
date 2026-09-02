@@ -793,6 +793,16 @@ class DeclarationReviewRow(BaseModel):
             "allOf": [
                 {
                     "if": {
+                        "properties": {"change_type": {"const": "removed"}},
+                        "required": ["change_type"],
+                    },
+                    "then": {
+                        "properties": {"bucket": {"const": "unverified"}},
+                        "required": ["bucket"],
+                    },
+                },
+                {
+                    "if": {
                         "properties": {"bucket": {"const": "evidence_consistent"}},
                         "required": ["bucket"],
                     },
@@ -873,7 +883,7 @@ class DeclarationReviewRow(BaseModel):
     )
 
     row_id: str = Field(min_length=1)
-    change_type: Literal["added", "modified"]
+    change_type: Literal["added", "modified", "removed"]
     bucket: Literal[
         "evidence_consistent",
         "unverified",
@@ -892,6 +902,10 @@ class DeclarationReviewRow(BaseModel):
 
     @model_validator(mode="after")
     def bucket_matches_evidence(self) -> DeclarationReviewRow:
+        if self.change_type == "removed" and self.bucket != "unverified":
+            raise ValueError(
+                "removed declaration-review rows must remain unverified"
+            )
         if self.bucket == "acknowledged_override":
             if not self.acknowledged_overrides:
                 raise ValueError(
@@ -974,10 +988,11 @@ class DeclarationReviewSummary(BaseModel):
 class DeclarationReviewDecision(BaseModel):
     """Base-vs-head review surface for changed action declaration rows.
 
-    This projection never gates.  ``enabled=false`` means no trustworthy
-    declaration-row base was available; ``changed_count=0`` means the base was
-    comparable but no declaration answer changed.  Renderers stay silent for
-    both shapes.
+    This projection never gates. ``base_comparison_requested=true`` with
+    ``enabled=false`` means a comparison was requested but no trustworthy
+    declaration-row base was available; renderers must say so.
+    ``changed_count=0`` with ``enabled=true`` means the base was comparable but
+    no declaration answer changed.
     """
 
     model_config = ConfigDict(
@@ -1003,6 +1018,7 @@ class DeclarationReviewDecision(BaseModel):
     )
 
     enabled: bool = False
+    base_comparison_requested: bool = False
     base_kind: Literal["none", "report", "absent_manifest"] = "none"
     changed_count: int = 0
     summary: DeclarationReviewSummary = Field(default_factory=DeclarationReviewSummary)

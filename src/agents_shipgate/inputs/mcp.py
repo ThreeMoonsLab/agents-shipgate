@@ -18,7 +18,6 @@ from agents_shipgate.inputs.common import (
     stable_tool_id,
     strip_untrusted_binding_annotations,
     tool_name_warning,
-    walk_input_tree,
 )
 from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
@@ -26,22 +25,9 @@ from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
     ToolSourceConfig,
 )
-from agents_shipgate.schemas.manifest.tool_sources import MCP_TOOL_SNAPSHOT_V1
-
-MAX_MCP_SNAPSHOT_FILES = 5_000
-MAX_MCP_SNAPSHOT_FILE_BYTES = 1 * 1024 * 1024
-MAX_MCP_SNAPSHOT_TOTAL_BYTES = 32 * 1024 * 1024
 
 
 def load_mcp_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource:
-    if source.idiom == MCP_TOOL_SNAPSHOT_V1:
-        return _load_mcp_tool_snapshots(source, base_dir)
-    if source.idiom is not None:
-        # Lazy to keep the long-established JSON loader independent of the
-        # optional source-code grammar registry (and its directory walk).
-        from agents_shipgate.inputs.mcp_code import load_mcp_code_tools
-
-        return load_mcp_code_tools(source, base_dir)
     assert source.path is not None
     path = resolve_input_path(base_dir, source.path)
     source_ref = source.path
@@ -193,205 +179,6 @@ def load_mcp_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource
         )
         tools.append(tool)
 
-    return LoadedToolSource(
-        source_id=source.id,
-        source_type="mcp",
-        tools=tools,
-        warnings=warnings,
-        omissions=omissions,
-    )
-
-
-def _load_mcp_tool_snapshots(
-    source: ToolSourceConfig, base_dir: Path
-) -> LoadedToolSource:
-    """Aggregate GitHub-style checked-in per-tool ``*.snap`` JSON objects."""
-
-    assert source.path is not None
-    root = resolve_input_path(base_dir, source.path)
-    if not root.is_dir():
-        raise InputParseError(
-            f"MCP tool snapshot idiom requires a directory: {root}"
-        )
-    candidates = sorted(
-        (
-            path
-            for path in walk_input_tree(root)
-            if path.is_file() and path.suffix.lower() == ".snap"
-        ),
-        key=lambda path: path.as_posix(),
-    )
-    if not candidates:
-        raise InputParseError(
-            f"MCP tool snapshot directory contains no .snap files: {root}"
-        )
-
-    warnings: list[str] = []
-    omissions: list[SourceSurfaceOmission] = []
-    if len(candidates) > MAX_MCP_SNAPSHOT_FILES:
-        omitted = len(candidates) - MAX_MCP_SNAPSHOT_FILES
-        warning = (
-            f"MCP snapshot scan stopped at {MAX_MCP_SNAPSHOT_FILES} files and "
-            f"left {omitted} file(s) unread"
-        )
-        warnings.append(warning)
-        omissions.append(
-            SourceSurfaceOmission(
-                subject=source.path,
-                reason="source_file_cap",
-                detail=warning,
-                warning=warning,
-            )
-        )
-        candidates = candidates[:MAX_MCP_SNAPSHOT_FILES]
-
-    rows: list[tuple[Path, dict[str, Any], Any]] = []
-    scheduled_bytes = 0
-    for path in candidates:
-        display = manifest_relative_path(str(path), base_dir)
-        try:
-            size = path.stat().st_size
-        except OSError as exc:
-            warning = f"MCP snapshot {display} could not be inspected: {exc}"
-            warnings.append(warning)
-            omissions.append(
-                SourceSurfaceOmission(
-                    subject=display,
-                    reason="unreadable_source_file",
-                    detail=warning,
-                    warning=warning,
-                )
-            )
-            continue
-        if size > MAX_MCP_SNAPSHOT_FILE_BYTES:
-            warning = (
-                f"MCP snapshot {display} exceeds the "
-                f"{MAX_MCP_SNAPSHOT_FILE_BYTES}-byte per-file limit"
-            )
-            warnings.append(warning)
-            omissions.append(
-                SourceSurfaceOmission(
-                    subject=display,
-                    reason="source_file_byte_cap",
-                    detail=warning,
-                    warning=warning,
-                )
-            )
-            continue
-        if scheduled_bytes + size > MAX_MCP_SNAPSHOT_TOTAL_BYTES:
-            warning = (
-                "MCP snapshot scan stopped at its aggregate "
-                f"{MAX_MCP_SNAPSHOT_TOTAL_BYTES}-byte limit"
-            )
-            warnings.append(warning)
-            omissions.append(
-                SourceSurfaceOmission(
-                    subject=source.path,
-                    reason="source_byte_cap",
-                    detail=warning,
-                    warning=warning,
-                )
-            )
-            break
-        scheduled_bytes += size
-        try:
-            raw, positions = load_structured_file_with_positions(path)
-        except InputParseError as exc:
-            warning = f"MCP snapshot {display} is not readable JSON: {exc}"
-            warnings.append(warning)
-            omissions.append(
-                SourceSurfaceOmission(
-                    subject=display,
-                    reason="unreadable_entry",
-                    detail=warning,
-                    warning=warning,
-                )
-            )
-            continue
-        if not isinstance(raw, dict):
-            warning = f"MCP snapshot {display} is not one tool object"
-            warnings.append(warning)
-            omissions.append(
-                SourceSurfaceOmission(
-                    subject=display,
-                    reason="unreadable_entry",
-                    detail=warning,
-                    warning=warning,
-                )
-            )
-            continue
-        rows.append((path, raw, positions))
-
-    valid_rows: list[tuple[Path, dict[str, Any], Any, str]] = []
-    for path, raw, positions in rows:
-        display = manifest_relative_path(str(path), base_dir)
-        name = raw.get("name")
-        if not isinstance(name, str) or not name:
-            warning = f"Skipping MCP snapshot {display} without a string name"
-            warnings.append(warning)
-            omissions.append(
-                SourceSurfaceOmission(
-                    subject=display,
-                    reason="unnamed_entry",
-                    detail=warning,
-                    warning=warning,
-                )
-            )
-            continue
-        valid_rows.append((path, raw, positions, name))
-
-    tools: list[Tool] = []
-    seen_names: set[str] = set()
-    surface = "partial" if omissions else "enumerated"
-    tool_set_proven = not omissions
-    for path, raw, positions, name in valid_rows:
-        display = manifest_relative_path(str(path), base_dir)
-        if name in seen_names:
-            warnings.append(f"Duplicate MCP tool name {name!r} in source {source.id!r}")
-        seen_names.add(name)
-        if warning := tool_name_warning(name):
-            warnings.append(warning)
-        raw_annotations = raw.get("annotations") or {}
-        annotations: dict[str, Any] = {}
-        if isinstance(raw_annotations, dict):
-            annotations, rejected = strip_untrusted_binding_annotations(raw_annotations)
-            if rejected:
-                warnings.append(
-                    f"MCP tool {name!r} contains reserved binding annotations "
-                    f"that were ignored: {', '.join(rejected)}"
-                )
-        input_schema = _first_present(raw, ["inputSchema", "input_schema"]) or {}
-        output_schema = _first_present(raw, ["outputSchema", "output_schema"]) or {}
-        position = positions.lookup("/name")
-        line, column = position if position is not None else (None, None)
-        tools.append(
-            Tool(
-                id=stable_tool_id(name),
-                name=name,
-                description=raw.get("description"),
-                source_type="mcp",
-                source_id=source.id,
-                source_ref=source.path,
-                source_path=display,
-                source_start_line=line,
-                source_start_column=column,
-                source_pointer=f"/snapshots/{path.relative_to(root).as_posix()}",
-                input_schema=input_schema if isinstance(input_schema, dict) else {},
-                output_schema=output_schema if isinstance(output_schema, dict) else {},
-                parameters=schema_to_parameters(input_schema),
-                annotations=annotations,
-                auth=_mcp_auth_info(raw.get("auth"), explicit="auth" in raw),
-                owner=raw.get("owner"),
-                extraction_confidence="high",
-                extraction={
-                    "method": "mcp_tool_snapshot",
-                    "confidence": "high",
-                    "idiom": MCP_TOOL_SNAPSHOT_V1,
-                    "surface": surface,
-                    "tool_set_proven": tool_set_proven,
-                },
-            )
-        )
     return LoadedToolSource(
         source_id=source.id,
         source_type="mcp",

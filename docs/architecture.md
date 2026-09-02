@@ -3,7 +3,7 @@
 A single-page summary of the `agents-shipgate` codebase for new
 contributors and AI coding agents extending the project. Current as of
 2026-07-13; auto-checked against `agents-shipgate contract --json`:
-runtime contract `28`, report schema `v0.43`, packet schema `v0.18`.
+runtime contract `27`, report schema `v0.43`, packet schema `v0.18`.
 
 For the per-field stability contract, see
 [`../STABILITY.md`](../STABILITY.md). For the agent-facing field index,
@@ -25,13 +25,9 @@ src/agents_shipgate/
 │                      `cli/main.py`. `fixture` and `scenario` are Typer
 │                      subapps. `cli/main.py` is an ~90-line dispatcher.
 ├── inputs/             Adapters that read user artifacts into normalized
-│                      tools. `mcp.py` reads aggregate exports, bounded
-│                      per-tool snapshot directories, and dispatches named
-│                      source-code idioms to the bounded static recognizers in
-│                      `mcp_code.py`. All adapters register a
-│                      `ToolSourceAdapter` class with
-│                      `inputs/protocol.py:REGISTRY`. No adapter may
-│                      import/exec user code (lint enforced).
+│                      tools. All adapters register a `ToolSourceAdapter`
+│                      class with `inputs/protocol.py:REGISTRY`. No
+│                      adapter may import/exec user code (lint enforced).
 ├── checks/             Pure functions `(ScanContext) -> list[Finding]`.
 │                      Built-in callables listed in
 │                      `checks/registry.py:BUILTIN_CHECKS`; built-in

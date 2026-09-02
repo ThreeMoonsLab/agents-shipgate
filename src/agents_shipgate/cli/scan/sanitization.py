@@ -438,6 +438,13 @@ def _sanitize_for_output(
         loaded_plugins=public_loaded_plugins,
         loaded_adapters=public_loaded_adapters,
         diff_reference=public_diff_reference,
+        base_comparison_requested=bool(
+            public_diff_reference is not None
+            or (
+                decision.context.verification is not None
+                and decision.context.verification.base_comparison_unavailable
+            )
+        ),
         manifest_introduced=bool(
             decision.context.verification is not None
             and decision.context.verification.manifest_introduced

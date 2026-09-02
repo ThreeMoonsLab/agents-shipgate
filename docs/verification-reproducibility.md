@@ -7,7 +7,7 @@ unbound collection of JSON files could be presented as the same verification.
 
 The terminal trust root is
 `agents-shipgate-reports/verification-receipt.json`, validated by
-[`verification-receipt-schema.v2.json`](verification-receipt-schema.v2.json).
+[`verification-receipt-schema.v1.json`](verification-receipt-schema.v1.json).
 Read it before the handoff or report. A receipt is written last and only after
 all referenced artifacts exist.
 

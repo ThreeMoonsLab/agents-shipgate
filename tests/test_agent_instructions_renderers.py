@@ -173,16 +173,16 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
     assert payload["schema_version"] == "10"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "28"
+    assert payload["contract_version"] == "27"
     assert payload["minimum_control_contract_version"] == "21"
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
     assert "verify_local" not in payload["primary_commands"]
     assert payload["commands"]["verify_local"].startswith("agents-shipgate verify")
-    assert payload["verifier_schema_version"] == "0.16"
-    assert payload["verify_run_schema_version"] == "shipgate.verify_run/v6"
-    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v9"
-    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v9.json"
+    assert payload["verifier_schema_version"] == "0.15"
+    assert payload["verify_run_schema_version"] == "shipgate.verify_run/v5"
+    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v8"
+    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v8.json"
     assert payload["agent_handoff_artifact"] == "agents-shipgate-reports/agent-handoff.json"
     assert payload["codex_boundary_result_schema_version"] == "shipgate.codex_boundary_result/v2"
     assert payload["agent_boundary_result_schema_version"] == ("shipgate.agent_boundary_result/v2")

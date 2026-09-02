@@ -623,6 +623,29 @@ def test_an_unterminated_string_is_an_anomaly_and_resyncs_at_the_line():
     assert [site.name for site in result.sites] == ["real"]
 
 
+def test_deep_template_substitutions_do_not_recurse():
+    depth = 5_000
+    text = "const value = `" + "${" * depth + "0" + "}" * depth + "`;\n"
+
+    result = scan_source(text, "typescript")
+
+    assert result.anomalies == ()
+    assert result.sites == ()
+
+
+def test_many_static_tool_classes_resolve_their_own_blocks():
+    text = "\n".join(
+        f'class Tool{i} {{ static toolName = "tool_{i}"; }}'
+        for i in range(4_000)
+    )
+
+    result = scan_source(text, "typescript")
+
+    assert len(result.sites) == 4_000
+    assert result.sites[0].name == "tool_0"
+    assert result.sites[-1].name == "tool_3999"
+
+
 def test_an_unterminated_go_raw_string_is_an_anomaly():
     result = scan_source(
         'var doc = `open\nmcpgrafana.MustTool("real", desc, handler)\n', "go"

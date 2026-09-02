@@ -19,7 +19,6 @@ from agents_shipgate.schemas.agent_result import AgentResultV2
 from agents_shipgate.schemas.capability_change import EffectivePolicy
 from agents_shipgate.schemas.common import SourceReference
 from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
-from agents_shipgate.schemas.manifest_provenance import ManifestProvenance
 from agents_shipgate.schemas.report import (
     BaselineDelta,
     ContributionRule,
@@ -465,7 +464,6 @@ def _verifier(
         workspace="/tmp/workspace",
         diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
-        manifest_provenance=ManifestProvenance.repository(),
         base_ref="origin/main",
         head_ref="HEAD",
         changed_files=changed_files or [],

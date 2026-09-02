@@ -30,10 +30,7 @@ from agents_shipgate.schemas.org_evidence_bundle import (
     OrgEvidenceBundleArtifactRef,
     OrgEvidenceBundleV1,
 )
-from agents_shipgate.schemas.verification_identity import (
-    ReadableVerificationReceipt,
-    load_verification_receipt,
-)
+from agents_shipgate.schemas.verification_identity import VerificationReceipt
 
 ORG_GOVERNANCE_EXIT_CODE = 20
 
@@ -234,12 +231,12 @@ def org_bundle(
         "verification-receipt.json",
     )
     receipt = _load_optional_json_object(receipt_path)
-    verified_receipt: ReadableVerificationReceipt | None = None
+    verified_receipt: VerificationReceipt | None = None
     if verifier.get("verifier_schema_version") in {"0.5", "0.6", "0.7"}:
         try:
             if receipt is None:
                 raise ValueError("current verifier evidence is missing verification-receipt.json")
-            verified_receipt = load_verification_receipt(receipt)
+            verified_receipt = VerificationReceipt.model_validate(receipt)
             validate_receipt_artifacts(verified_receipt, root=verifier_path.parent)
             receipt = verified_receipt.model_dump(mode="json")
         except (ValueError, OSError) as exc:

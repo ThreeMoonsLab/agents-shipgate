@@ -17,7 +17,6 @@ from agents_shipgate.core.verification_identity import (
     build_unit_result,
     validate_receipt_artifacts,
 )
-from agents_shipgate.schemas.manifest_provenance import ManifestProvenance
 from agents_shipgate.schemas.verification_identity import (
     VerificationArtifactRef,
     VerificationBlob,
@@ -60,7 +59,6 @@ def _plan() -> VerificationPlan:
     )
     inputs_payload = {
         "evaluation_date": "2026-07-13",
-        "manifest_provenance": ManifestProvenance.repository(),
         "config": config,
         "diff": diff,
         "baseline": None,

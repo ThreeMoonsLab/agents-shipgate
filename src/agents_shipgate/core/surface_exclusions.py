@@ -90,26 +90,13 @@ EXCLUSION_REASON_PHRASES: dict[str, str] = {
     ),
     # surface_completeness
     "surface_not_enumerated": "not established as a complete surface",
-    # adapter_parse (agents_shipgate.inputs.mcp, mcp_code, mcp_manifest)
+    # adapter_parse (agents_shipgate.inputs.mcp, agents_shipgate.inputs.mcp_manifest)
     "unreadable_entry": "an entry the adapter could not read into the catalog",
     "unnamed_entry": "an entry with no name, so no tool was read from it",
-    "dynamic_tool_name": "a recognized registration whose name is runtime-built",
-    "source_file_cap": "source files beyond the idiom scan's bound were not read",
-    "source_file_byte_cap": "a source file exceeded the idiom scan's byte bound",
-    "source_byte_cap": "source bytes beyond the idiom scan's bound were not read",
-    "unreadable_source_file": "a source file the idiom adapter could not read",
-    "definition_only_runtime_binding": (
-        "a definition whose runtime registration is not established"
-    ),
     "duplicate_server_declaration": (
         "a disagreeing second declaration of a server this workspace declares "
         "more than once"
     ),
-    # discovery
-    "walk_capped": "the bounded workspace survey stopped before all source was read",
-    "scope_contested": "one of several projects competing for manifest scope",
-    "scope_unknown": "a project whose manifest scope could not be resolved",
-    "source_rejected": "a discovered source candidate the adapter rejected",
 }
 
 #: What an unrecognised token renders as. Deliberately says only what every
@@ -682,16 +669,15 @@ def build_detect_exclusions(result: DetectResult) -> SurfaceExclusionLedger:
         path = str(excluded.get("path") or "")
         if not path:
             continue
-        capped = excluded.get("reason_code") == "walk_capped"
         entries.append(
             SurfaceExclusion(
                 stage="discovery",
                 subject=path,
-                reason="walk_capped" if capped else "source_rejected",
+                reason="source_rejected",
                 source_ref=str(excluded.get("type") or "") or None,
                 detail=str(excluded.get("reason") or "")
                 or "A glob-matched candidate the real input adapter rejects.",
-                accounting="route_blocked" if capped else "not_claimed",
+                accounting="not_claimed",
             )
         )
     return SurfaceExclusionLedger.from_entries(entries)

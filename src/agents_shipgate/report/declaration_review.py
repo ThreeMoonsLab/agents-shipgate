@@ -37,6 +37,23 @@ def declaration_review_lines(
     budget_renderer = render_for_budget or _identity
 
     lines: list[str] = []
+    if not review.enabled and review.base_comparison_requested:
+        note = (
+            review.notes[0]
+            if review.notes
+            else "No trustworthy base declaration snapshot was available."
+        )
+        unavailable = (
+            "Declaration changes: comparison unavailable — " + _visible(note)
+        )
+        if block_char_limit is not None and len(
+            budget_renderer(unavailable)
+        ) > block_char_limit:
+            raise ValueError(
+                "declaration review block_char_limit cannot fit its "
+                "comparison-unavailable line"
+            )
+        return [unavailable]
     if review.enabled and review.changed_count:
         summary = review.summary
         summary_line = (
@@ -54,9 +71,7 @@ def declaration_review_lines(
         ]
         detail_lines = [
             (
-                _unverified_line(row)
-                if row.bucket == "unverified"
-                else _changed_override_line(row)
+                declaration_review_row_line(row)
             )
             for row in attention_rows
         ]
@@ -151,6 +166,16 @@ def override_is_represented(
     return _override_key(override) in changed_override_keys(review)
 
 
+def declaration_review_row_line(row: DeclarationReviewRow) -> str:
+    """Render one human-attention row for every prose/annotation surface."""
+
+    return (
+        _unverified_line(row)
+        if row.bucket == "unverified"
+        else _changed_override_line(row)
+    )
+
+
 def _unverified_line(row: DeclarationReviewRow) -> str:
     effect = (
         repr(_visible(row.declared_effect))
@@ -172,7 +197,10 @@ def _changed_override_line(row: DeclarationReviewRow) -> str:
             f"{_visible(row.reason)} Review {_visible(row.manifest_path)}."
         )
     details = " ".join(_override_detail(override) for override in row.acknowledged_overrides)
-    return f"Acknowledged override declaration: {details}"
+    return (
+        f"Acknowledged override declaration: {details} "
+        f"Review {_visible(row.manifest_path)}."
+    )
 
 
 def _override_detail(override: AcknowledgedEffectOverride) -> str:
@@ -216,4 +244,9 @@ def _override_key(override: AcknowledgedEffectOverride) -> tuple[object, ...]:
     )
 
 
-__all__ = ["declaration_review_lines", "override_is_represented"]
+__all__ = [
+    "changed_override_keys",
+    "declaration_review_lines",
+    "declaration_review_row_line",
+    "override_is_represented",
+]

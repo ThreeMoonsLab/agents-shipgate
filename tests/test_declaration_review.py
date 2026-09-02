@@ -7,7 +7,10 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.ci.github_summary import write_github_step_summary
 from agents_shipgate.cli.verify.git import _MAX_MANIFEST_BYTES
 from agents_shipgate.cli.verify.orchestrator import (
     _configured_gate_introduced,
@@ -24,20 +27,24 @@ from agents_shipgate.packet.builder import build_packet_from_report
 from agents_shipgate.packet.html import render_packet_html
 from agents_shipgate.packet.markdown import render_packet_markdown
 from agents_shipgate.report.declaration_review import declaration_review_lines
+from agents_shipgate.report.markdown import render_markdown_report
 from agents_shipgate.report.pr_comment import render_pr_comment
+from agents_shipgate.report.pr_projection import select_pr_items
 from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
-from agents_shipgate.schemas.manifest_provenance import ManifestProvenance
 from agents_shipgate.schemas.report import (
     AcknowledgedEffectOverride,
     DeclarationReviewDecision,
     DeclarationReviewRow,
     DeclarationReviewSummary,
+    EvidenceGap,
+    EvidenceGapAction,
 )
 from agents_shipgate.schemas.semantic import (
     AuthoritySemanticEvidence,
     EffectSemanticEvidence,
     SemanticClaimEvidence,
+    SemanticIssueEvidence,
     ToolSemanticEvidence,
 )
 from agents_shipgate.schemas.surfaces import (
@@ -328,6 +335,134 @@ def test_row_local_incomparable_effect_set_passes_and_removal_fails() -> None:
     assert "external_communication" in removed.rows[0].reason
 
 
+def test_removed_declaration_is_unverified_on_every_review_surface() -> None:
+    base = build_action_declaration_facts(
+        _manifest([{"tool": "alpha", "effect": "write"}]),
+        [_tool("alpha")],
+    )
+    review = build_declaration_review(
+        head=ActionDeclarationFacts(),
+        base=base,
+        action_surface_facts=ActionSurfaceFacts(),
+        evidence_gaps=[],
+        acknowledged_overrides=[],
+    )
+
+    assert review.changed_count == 1
+    row = review.rows[0]
+    assert row.change_type == "removed"
+    assert row.bucket == "unverified"
+    assert "removed" in row.reason
+    assert "Unverified declaration" in "\n".join(declaration_review_lines(review))
+
+    items = select_pr_items(
+        {
+            "release_decision": {
+                "evidence_coverage": {
+                    "semantic_coverage": {
+                        "declaration_review": review.model_dump(mode="json"),
+                        "acknowledged_overrides": [],
+                    }
+                }
+            }
+        }
+    )
+    assert [item.check_id for item in items] == [
+        "SHIP-ACTION-DECLARATION-UNVERIFIED"
+    ]
+    assert "removed" in items[0].title
+    assert items[0].selector == base.rows[0].manifest_path
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "unattested_surface",
+        "conflicting_tool_identity",
+        "ambiguous_tool_selector",
+        "incomplete_tool_identity",
+    ],
+)
+def test_identity_gaps_block_machine_verified_declaration(kind: str) -> None:
+    head = build_action_declaration_facts(
+        _manifest([{"tool": "alpha", "effect": "write"}]),
+        [_tool("alpha")],
+    )
+    gap = EvidenceGap(
+        kind=kind,  # type: ignore[arg-type]
+        subject="alpha [api]",
+        subject_id="tool:alpha",
+        why="identity is not proven",
+        next_action=EvidenceGapAction(
+            kind="provide_source",
+            why="identity is not proven",
+            expects="Provide canonical identity evidence and rerun verification.",
+        ),
+    )
+    review = build_declaration_review(
+        head=head,
+        base=ActionDeclarationFacts(),
+        action_surface_facts=ActionSurfaceFacts(
+            actions=[
+                _action(
+                    "alpha",
+                    value="write",
+                    basis="typed_provider_fact",
+                    policy_eligible=True,
+                    status="structural",
+                )
+            ]
+        ),
+        evidence_gaps=[gap],
+        acknowledged_overrides=[],
+    )
+    assert review.rows[0].bucket == "unverified"
+    assert kind in review.rows[0].reason
+
+
+def test_effect_issue_blocks_machine_verified_declaration() -> None:
+    head = build_action_declaration_facts(
+        _manifest([{"tool": "alpha", "effect": "write"}]),
+        [_tool("alpha")],
+    )
+    action = _action(
+        "alpha",
+        value="write",
+        basis="typed_provider_fact",
+        policy_eligible=True,
+        status="structural",
+    )
+    assert action.semantic_assessment is not None
+    action = action.model_copy(
+        update={
+            "semantic_assessment": action.semantic_assessment.model_copy(
+                update={
+                    "effect": action.semantic_assessment.effect.model_copy(
+                        update={
+                            "issues": [
+                                SemanticIssueEvidence(
+                                    kind="declaration_drift",
+                                    dimension="effect",
+                                    message="the evidence basis moved",
+                                )
+                            ]
+                        }
+                    )
+                }
+            )
+        }
+    )
+    review = build_declaration_review(
+        head=head,
+        base=ActionDeclarationFacts(),
+        action_surface_facts=ActionSurfaceFacts(actions=[action]),
+        evidence_gaps=[],
+        acknowledged_overrides=[],
+    )
+    assert review.rows[0].bucket == "unverified"
+    assert "declaration_drift" in review.rows[0].reason
+
+
 def test_mixed_strength_observed_effects_never_machine_verify() -> None:
     head = build_action_declaration_facts(
         _manifest(
@@ -429,6 +564,28 @@ def test_projection_counts_three_buckets_and_names_only_attention_rows() -> None
     assert "unknown [api]" in rendered
     assert "override [api]" in rendered
     assert "consistent [api]" not in rendered
+    assert "Review shipgate.yaml#action_surface.actions[2]." in rendered
+    items = select_pr_items(
+        {
+            "release_decision": {
+                "evidence_coverage": {
+                    "semantic_coverage": {
+                        "declaration_review": review.model_dump(mode="json"),
+                        "acknowledged_overrides": [
+                            override.model_dump(mode="json")
+                        ],
+                    }
+                }
+            }
+        }
+    )
+    assert len(
+        [
+            item
+            for item in items
+            if item.check_id == "SHIP-ACTION-EFFECT-OVERRIDE-ACKNOWLEDGED"
+        ]
+    ) == 1
 
 
 def test_override_must_join_the_changed_row_by_canonical_subject_id() -> None:
@@ -539,6 +696,17 @@ def test_legacy_or_duplicate_base_disables_without_rendering() -> None:
     )
     assert disabled.enabled is False
     assert declaration_review_lines(disabled) == []
+
+    unavailable = build_declaration_review(
+        head=ActionDeclarationFacts(),
+        base=None,
+        action_surface_facts=ActionSurfaceFacts(),
+        evidence_gaps=[],
+        acknowledged_overrides=[],
+        base_comparison_requested=True,
+    )
+    assert unavailable.base_comparison_requested is True
+    assert "comparison unavailable" in declaration_review_lines(unavailable)[0]
 
     row = build_action_declaration_facts(
         _manifest([{"tool": "alpha", "effect": "write"}]), [_tool("alpha")]
@@ -676,7 +844,6 @@ def _pr_comment(report) -> str:
         workspace=".",
         diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
-        manifest_provenance=ManifestProvenance.repository(),
         authorization=AuthorizationEvaluationV1.not_requested(),
         trigger={"rationale": "1 rule matched."},
         execution="succeeded",
@@ -868,6 +1035,69 @@ def test_pr_declaration_budget_counts_prefix_and_markdown_escaping(
     assert omitted == len(rows) - len(details)
 
 
+def test_row_character_budget_omits_a_moderately_oversized_row() -> None:
+    row = DeclarationReviewRow(
+        row_id="moderately-oversized",
+        change_type="modified",
+        bucket="unverified",
+        subject="alpha",
+        subject_id="tool:alpha",
+        declared_effect="write",
+        reason="x" * 500,
+        manifest_path="shipgate.yaml#action_surface.actions[0]",
+    )
+    review = DeclarationReviewDecision(
+        enabled=True,
+        base_comparison_requested=True,
+        base_kind="report",
+        changed_count=1,
+        summary=DeclarationReviewSummary(unverified=1),
+        rows=[row],
+    )
+    lines = declaration_review_lines(review, row_char_limit=400)
+    assert len(lines) == 2
+    assert "moderately-oversized" not in "\n".join(lines)
+    assert lines[-1] == "1 additional rows; see report.json."
+
+
+def test_report_and_step_summary_use_shared_declaration_renderer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    report = _rendering_report(tmp_path)
+    assert report.release_decision is not None
+    row = DeclarationReviewRow(
+        row_id="summary-row",
+        change_type="removed",
+        bucket="unverified",
+        subject="send_email [google_adk]",
+        subject_id="tool:send_email",
+        declared_effect="external_communication",
+        reason="The reviewed declaration row was removed.",
+        manifest_path="services/mailer/shipgate.yaml#action_surface.actions[0]",
+    )
+    report.release_decision.evidence_coverage.semantic_coverage.declaration_review = (
+        DeclarationReviewDecision(
+            enabled=True,
+            base_comparison_requested=True,
+            base_kind="report",
+            changed_count=1,
+            summary=DeclarationReviewSummary(unverified=1),
+            rows=[row],
+        )
+    )
+
+    markdown = render_markdown_report(report)
+    assert "## Declaration Review" in markdown
+    assert "The reviewed declaration row was removed" in markdown
+
+    summary_path = tmp_path / "step-summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_path))
+    write_github_step_summary(report)
+    summary = summary_path.read_text(encoding="utf-8")
+    assert "### Declaration review" in summary
+    assert "The reviewed declaration row was removed" in summary
+
+
 def test_scan_carries_base_snapshot_and_packet_renders_changed_row(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
@@ -989,7 +1219,15 @@ action_surface:
         legacy_head.release_decision.evidence_coverage.semantic_coverage.declaration_review
     )
     assert legacy_review.enabled is False
-    assert declaration_review_lines(legacy_review) == []
+    assert legacy_review.base_comparison_requested is True
+    assert "comparison unavailable" in declaration_review_lines(legacy_review)[0]
+    legacy_packet = build_packet_from_report(legacy_head)
+    for rendered in (
+        _pr_comment(legacy_head),
+        render_packet_markdown(legacy_packet),
+        render_packet_html(legacy_packet),
+    ):
+        assert "comparison unavailable" in rendered
 
 
 def test_scan_preserves_sanitized_workspace_relative_manifest_path(
@@ -1023,6 +1261,47 @@ action_surface:
     assert len(report.action_declaration_facts.rows) == 1
     assert report.action_declaration_facts.rows[0].manifest_path.startswith(
         "services/billing/shipgate.yaml#action_surface.actions["
+    )
+
+
+def test_scoped_override_uses_the_configured_manifest_location(
+    tmp_path: Path,
+) -> None:
+    scoped = tmp_path / "workspace" / "services" / "billing"
+    scoped.mkdir(parents=True)
+    (scoped / "agent.py").write_text(_AGENT, encoding="utf-8")
+    manifest = scoped / "shipgate.yaml"
+    manifest.write_text(
+        _BASE_MANIFEST
+        + """
+action_surface:
+  actions:
+    - tool: send_email
+      source_id: adk
+      effect: read
+      override:
+        evidence: no mail client is constructed
+        reason: the fixture returns a local dictionary
+""",
+        encoding="utf-8",
+    )
+    report, _ = run_scan(
+        config_path=manifest,
+        output_dir=tmp_path / "scoped-override-report",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+        verification_context=VerificationContext(
+            configured_manifest_path="services/billing/shipgate.yaml"
+        ),
+    )
+    assert report.release_decision is not None
+    overrides = (
+        report.release_decision.evidence_coverage.semantic_coverage.acknowledged_overrides
+    )
+    assert len(overrides) == 1
+    assert overrides[0].manifest_path == (
+        "services/billing/shipgate.yaml#action_surface.actions[0].override"
     )
 
 

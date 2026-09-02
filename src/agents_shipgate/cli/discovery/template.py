@@ -184,38 +184,32 @@ def _tool_sources_block(
     suppress duplicate config blocks downstream)."""
     lines: list[str] = []
     used: set[str] = set()
-    # (type, path, mode, idiom). `idiom` is an immutable built-in grammar,
-    # not user-supplied matching logic.
-    entries: list[tuple[str, str, str | None, str | None]] = []
-    seen_entries: set[tuple[str, str, str | None]] = set()
+    entries: list[tuple[str, str, str | None]] = []  # (type, path, mode)
+    seen_paths: set[str] = set()
 
     for framework in detect_result.frameworks:
         if framework.type not in PYTHON_AST_FRAMEWORKS:
             continue
         for candidate in framework.candidate_files:
-            key = (framework.type, candidate, None)
-            if key in seen_entries:
+            if candidate in seen_paths:
                 continue
-            seen_entries.add(key)
-            entries.append((framework.type, candidate, None, None))
+            seen_paths.add(candidate)
+            entries.append((framework.type, candidate, None))
             used.add(framework.type)
 
     for source in detect_result.suggested_sources:
         path = source["path"]
-        idiom = source.get("idiom")
-        key = (source["type"], path, idiom)
-        if key in seen_entries:
+        if path in seen_paths:
             continue
-        seen_entries.add(key)
-        entries.append((source["type"], path, None, idiom))
+        seen_paths.add(path)
+        entries.append((source["type"], path, None))
 
     for candidate in detect_result.codex_plugin_candidates:
         path = candidate.path
-        key = ("codex_plugin", path, None)
-        if key in seen_entries:
+        if path in seen_paths:
             continue
-        seen_entries.add(key)
-        entries.append(("codex_plugin", path, candidate.mode, None))
+        seen_paths.add(path)
+        entries.append(("codex_plugin", path, candidate.mode))
 
     if not entries:
         return [], used
@@ -223,24 +217,15 @@ def _tool_sources_block(
     # Ids are assigned for the block as a whole: paths are deduplicated
     # above, but two distinct paths must not end up sharing an id — the
     # manifest schema rejects the whole render when they do (#307).
-    entry_ids = assign_source_ids(
-        [
-            (entry[0], f"{entry[1]}:{entry[3]}" if entry[3] is not None else entry[1])
-            for entry in entries
-        ]
-    )
+    entry_ids = assign_source_ids([(entry[0], entry[1]) for entry in entries])
 
     lines.append("tool_sources:")
-    for (framework_type, path, mode, idiom), entry_id in zip(
-        entries, entry_ids, strict=True
-    ):
+    for (framework_type, path, mode), entry_id in zip(entries, entry_ids, strict=True):
         lines.append(f"  - id: {entry_id}")
         lines.append(f"    type: {framework_type}")
         lines.append(f"    path: {path}")
         if mode is not None:
             lines.append(f"    mode: {mode}")
-        if idiom is not None:
-            lines.append(f"    idiom: {idiom}")
     return lines, used
 
 

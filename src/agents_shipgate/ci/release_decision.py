@@ -325,7 +325,15 @@ def build_release_decision(
     low_confidence_tool_count = sum(
         1 for tool in tools if not extraction_is_complete(tool)
     )
-    semantic_coverage, semantic_gaps = _semantic_coverage(tools)
+    declaration_paths = {
+        row.subject_id: row.manifest_path
+        for row in report.action_declaration_facts.rows
+        if row.resolution == "resolved" and row.subject_id is not None
+    }
+    semantic_coverage, semantic_gaps = _semantic_coverage(
+        tools,
+        declaration_paths=declaration_paths,
+    )
     identity_coverage = _identity_coverage(tools)
     binding_coverage, binding_gaps = _binding_coverage(report, catalog)
     evidence = EvidenceCoverageDecision(
@@ -1221,6 +1229,8 @@ def _unavailable_base_gap(report: ReadinessReport) -> EvidenceGap:
 
 def _semantic_coverage(
     tools: list[Tool],
+    *,
+    declaration_paths: dict[str, str] | None = None,
 ) -> tuple[SemanticCoverageDecision, list[EvidenceGap]]:
     """Project normalized tool assessments into zero-tolerance gate evidence."""
 
@@ -1305,7 +1315,11 @@ def _semantic_coverage(
         # A review concern is exactly that tier: it cannot reach ``passed`` and
         # it cannot block, so the reviewer sees the exception and decides. The
         # count says how many; the row says what a reviewer has to judge.
-        for row in _acknowledged_overrides(tool, assessment):
+        for row in _acknowledged_overrides(
+            tool,
+            assessment,
+            manifest_path=(declaration_paths or {}).get(tool.id),
+        ):
             acknowledged_overrides.append(row)
             review_concern_count += 1
             _increment(reason_counts, "acknowledged_effect_override")
@@ -1498,6 +1512,8 @@ def _in_question_order(
 def _acknowledged_overrides(
     tool: Tool,
     assessment: ToolSemanticAssessment,
+    *,
+    manifest_path: str | None = None,
 ) -> list[AcknowledgedEffectOverride]:
     """Project each reviewed exception into the row a reviewer has to judge.
 
@@ -1532,7 +1548,12 @@ def _acknowledged_overrides(
                     evidence=str(evidence.get("evidence") or ""),
                     reason=str(evidence.get("reason") or ""),
                     manifest_path=(
-                        f"shipgate.yaml#action_surface.actions[tool={tool.name!r}].override"
+                        f"{manifest_path}.override"
+                        if manifest_path
+                        else (
+                            "shipgate.yaml#action_surface.actions"
+                            f"[tool={tool.name!r}].override"
+                        )
                     ),
                 )
             )

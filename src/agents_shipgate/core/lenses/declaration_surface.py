@@ -38,14 +38,20 @@ from agents_shipgate.schemas.surfaces import (
     ActionSurfaceFacts,
 )
 
-_EFFECT_GAP_KINDS = {
+_DECLARATION_GAP_KINDS = {
     "incomplete_surface",
+    "unattested_surface",
     "missing_effect_evidence",
     "inferred_effect_only",
     "conflicting_effect_evidence",
     "declaration_below_inferred_evidence",
     "declaration_drift",
     "invalid_semantic_annotation",
+    "incomplete_tool_identity",
+    "conflicting_tool_identity",
+    "unresolved_tool_selector",
+    "ambiguous_tool_selector",
+    "ambiguous_legacy_tool_identity",
 }
 
 # A public report must never preserve a digest derived from secret override
@@ -248,9 +254,10 @@ def build_declaration_review(
     evidence_gaps: list[EvidenceGap],
     acknowledged_overrides: list[AcknowledgedEffectOverride],
     base_kind: Literal["report", "absent_manifest"] = "report",
+    base_comparison_requested: bool = False,
     unavailable_note: str | None = None,
 ) -> DeclarationReviewDecision:
-    """Classify only added/modified head declaration rows.
+    """Classify added, modified, and removed declaration rows.
 
     The three buckets are exhaustive by construction. Anything that cannot be
     proved evidence-consistent is ``unverified`` unless the exact canonical
@@ -262,26 +269,33 @@ def build_declaration_review(
 
     if base is None:
         return DeclarationReviewDecision(
+            base_comparison_requested=base_comparison_requested,
             notes=[
                 unavailable_note
                 or "No trustworthy base declaration snapshot was available; declaration review disabled."
             ]
         )
 
-    head_by_id = _unique_rows(head, side="head")
-    base_by_id = _unique_rows(base, side="base")
+    head_by_id = _unique_rows(head)
+    base_by_id = _unique_rows(base)
     if head_by_id is None or base_by_id is None:
         return DeclarationReviewDecision(
+            base_comparison_requested=True,
             notes=[
                 "A declaration snapshot contained duplicate row ids; declaration review disabled."
             ]
         )
 
-    changed: list[tuple[ActionDeclarationFact, Literal["added", "modified"]]] = []
-    for row_id in sorted(head_by_id):
-        row = head_by_id[row_id]
+    changed: list[
+        tuple[ActionDeclarationFact, Literal["added", "modified", "removed"]]
+    ] = []
+    for row_id in sorted(set(head_by_id) | set(base_by_id)):
+        row = head_by_id.get(row_id)
         before = base_by_id.get(row_id)
-        if before is None:
+        if row is None:
+            assert before is not None
+            changed.append((before, "removed"))
+        elif before is None:
             changed.append((row, "added"))
         elif (
             before.declaration_hash != row.declaration_hash
@@ -307,7 +321,8 @@ def build_declaration_review(
             change_type=change_type,
             action=actions.get(row.subject_id or ""),
             effect_gap_kinds=(
-                gaps_by_subject.get(row.subject_id or "", set()) & _EFFECT_GAP_KINDS
+                gaps_by_subject.get(row.subject_id or "", set())
+                & _DECLARATION_GAP_KINDS
             ),
             overrides=overrides_by_subject.get(row.subject_id or "", []),
         )
@@ -316,6 +331,7 @@ def build_declaration_review(
     counts = Counter(row.bucket for row in rows)
     return DeclarationReviewDecision(
         enabled=True,
+        base_comparison_requested=True,
         base_kind=base_kind,
         changed_count=len(rows),
         summary=DeclarationReviewSummary(
@@ -330,11 +346,21 @@ def build_declaration_review(
 def _classify_changed_row(
     row: ActionDeclarationFact,
     *,
-    change_type: Literal["added", "modified"],
+    change_type: Literal["added", "modified", "removed"],
     action: Any | None,
     effect_gap_kinds: set[str],
     overrides: list[AcknowledgedEffectOverride],
 ) -> DeclarationReviewRow:
+    if change_type == "removed":
+        return _review_row(
+            row,
+            change_type,
+            "unverified",
+            reason=(
+                "The reviewed declaration row was removed; current head evidence "
+                "cannot machine-verify an answer that is no longer present."
+            ),
+        )
     if row.resolution != "resolved" or row.subject_id is None:
         return _review_row(
             row,
@@ -468,7 +494,7 @@ def _classify_changed_row(
 
 def _review_row(
     row: ActionDeclarationFact,
-    change_type: Literal["added", "modified"],
+    change_type: Literal["added", "modified", "removed"],
     bucket: Literal["evidence_consistent", "unverified", "acknowledged_override"],
     *,
     reason: str,
@@ -492,8 +518,6 @@ def _review_row(
 
 def _unique_rows(
     facts: ActionDeclarationFacts,
-    *,
-    side: str,
 ) -> dict[str, ActionDeclarationFact] | None:
     rows: dict[str, ActionDeclarationFact] = {}
     for row in facts.rows:

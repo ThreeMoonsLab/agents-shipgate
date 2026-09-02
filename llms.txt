@@ -70,11 +70,11 @@
 - Verifier orchestration record (ongoing-PR verify): `agents-shipgate-reports/verifier.json`.
 - Agent handoff artifact (preferred compact agent projection for verify): `agents-shipgate-reports/agent-handoff.json`.
 - Terminal verification receipt (read and validate first): `agents-shipgate-reports/verification-receipt.json`.
-- Verification receipt schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verification-receipt-schema.v2.json
-- Agent handoff schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-handoff-schema.v9.json
+- Verification receipt schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verification-receipt-schema.v1.json
+- Agent handoff schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-handoff-schema.v8.json
 - PR comment (ongoing-PR verify): `agents-shipgate-reports/pr-comment.md`.
-- Proactive preflight routing JSON: `agents-shipgate preflight --workspace . --plan - --json` emits `preflight_schema_version: "0.4"`; switch on `control.state`. It routes protected-surface edits, host permission requests, and high-risk capability evidence gaps but is not a release verdict.
-- Preflight schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/preflight-schema.v0.4.json
+- Proactive preflight routing JSON: `agents-shipgate preflight --workspace . --plan - --json` emits `preflight_schema_version: "0.3"`; switch on `control.state`. It routes protected-surface edits, host permission requests, and high-risk capability evidence gaps but is not a release verdict.
+- Preflight schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/preflight-schema.v0.3.json
 - Capability lock (stable static envelope): `.agents-shipgate/capabilities.lock.json`.
 - Verify head capability lock: `agents-shipgate-reports/capabilities.lock.json`.
 - Verify base capability lock and diff, when the base scan can be materialized: `agents-shipgate-reports/base.capabilities.lock.json`, `agents-shipgate-reports/capability-lock-diff.{json,md}`.
@@ -164,7 +164,7 @@
 - Report schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.43.json
 - Privacy/redaction docs: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/privacy.md
 - Packet schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.18.json
-- Preflight schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/preflight-schema.v0.4.json
+- Preflight schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/preflight-schema.v0.3.json
 - Capability standard: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-standard.md
 - Capability lock schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-schema.v0.8.json
 - Capability lock diff schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-diff-schema.v0.9.json
@@ -173,7 +173,7 @@
 - Governance benchmark: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark.md
 - Current agent contract: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-contract-current.md
 - Verification identity contract: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verification-reproducibility.md
-- Agent handoff schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-handoff-schema.v9.json
+- Agent handoff schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-handoff-schema.v8.json
 
 ## Category vocabulary
 

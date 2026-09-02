@@ -75,7 +75,7 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     ]
     assert payload["schema_version"] == LOCAL_CONTRACT_SCHEMA_VERSION == "10"
     assert payload["agents_shipgate_version"] == __version__
-    assert payload["contract_version"] == CONTRACT_VERSION == "28"
+    assert payload["contract_version"] == CONTRACT_VERSION == "27"
     assert payload["minimum_control_contract_version"] == "21"
     assert payload["default_paths"]["local_contract"] == LOCAL_CONTRACT_RELATIVE_PATH
     assert payload["primary_commands"] == dict(PRIMARY_COMMANDS)
@@ -125,8 +125,8 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     ]
     assert payload["verifier_read_order"][-2:] == ["request_id", "decision_id"]
     assert payload["gating_signal"] == GATING_SIGNAL
-    assert payload["verifier_schema_version"] == "0.16"
-    assert payload["verify_run_schema_version"] == "shipgate.verify_run/v6"
+    assert payload["verifier_schema_version"] == "0.15"
+    assert payload["verify_run_schema_version"] == "shipgate.verify_run/v5"
     assert payload["human_authorization_request_schema_version"] == (
         "shipgate.human_authorization_request/v1"
     )
@@ -145,8 +145,8 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     assert payload["human_authorization_schema_path"] == (
         "docs/human-authorization-schema.v1.json"
     )
-    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v9"
-    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v9.json"
+    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v8"
+    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v8.json"
     assert payload["agent_handoff_artifact"] == "agents-shipgate-reports/agent-handoff.json"
     assert payload["codex_boundary_result_schema_version"] == "shipgate.codex_boundary_result/v2"
     assert payload["agent_boundary_result_schema_version"] == ("shipgate.agent_boundary_result/v2")

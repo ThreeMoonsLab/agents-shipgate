@@ -2486,25 +2486,6 @@
           "title": "Id",
           "type": "string"
         },
-        "idiom": {
-          "anyOf": [
-            {
-              "enum": [
-                "typescript_mcp_sdk_v1",
-                "typescript_static_tool_v1",
-                "go_musttool_v1",
-                "go_addtool_v1",
-                "mcp_tool_snapshot_v1"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Idiom"
-        },
         "mode": {
           "anyOf": [
             {

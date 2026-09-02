@@ -100,23 +100,6 @@ curl -sSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/t
 
 If `is_agent_project: true` (or `suggested_sources` / `codex_plugin_candidates` is non-empty), continue with the install below. If `is_agent_project: false`, `suggested_sources: []`, `codex_plugin_candidates: []`, **and `python_parse_truncated: false`**, Shipgate is not the right tool for this repo. (`python_parse_truncated: true` means the Python parse stopped at its cap, so that negative describes the files that were read rather than the repository — re-run with `--max-python-files <workspace_signals.python_file_total>` before concluding anything.) See [`docs/zero-install.md`](zero-install.md) for `uvx` and GitHub Action alternatives that also avoid a local install.
 
-### Provisional local review
-
-For an assessment that must not adopt repository policy, choose the explicit
-local-review commands:
-
-```bash
-agents-shipgate init --workspace . --local-review --json
-agents-shipgate verify --workspace . --local-review --json
-```
-
-This creates only worktree-bound, Git-excluded provisional inputs and reports;
-Git porcelain status stays unchanged. Local-review artifacts are explicitly
-ephemeral and never authorize a passed decision, merge, accepted human
-authorization, or completion. Use the cleanup command returned by init when
-finished. Creating the durable repository trust root is still the separate
-`agents-shipgate init --write --json` flow.
-
 ## Install
 
 ```bash

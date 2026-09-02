@@ -183,6 +183,7 @@ class _SanitizedSurfaces:
     loaded_plugins: Any
     loaded_adapters: Any  # v0.20: list[dict[str, Any]]; sanitized via redact_data
     diff_reference: ToolSurfaceDiffReference | None
+    base_comparison_requested: bool
     manifest_introduced: bool
     configured_gate_introduced: bool
     action_declaration_facts: ActionDeclarationFacts

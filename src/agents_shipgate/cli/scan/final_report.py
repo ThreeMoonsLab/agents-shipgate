@@ -126,6 +126,11 @@ def _build_final_report(
             evidence_gaps=report.release_decision.evidence_coverage.evidence_gaps,
             acknowledged_overrides=semantic.acknowledged_overrides,
             base_kind=base_kind,
+            base_comparison_requested=sanitized.base_comparison_requested,
+            unavailable_note=(
+                "The requested base comparison did not provide a trustworthy "
+                "action-declaration snapshot; declaration changes could not be compared."
+            ),
         )
     _attach_declaration_patches(report, config_path=config_path)
     apply_capability_diff(report, sanitized.tools)

@@ -5,7 +5,6 @@ from pydantic import ValidationError
 
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.schemas.agent_control import HumanControlAction
-from agents_shipgate.schemas.manifest_provenance import ManifestProvenance
 from agents_shipgate.schemas.verification_identity import (
     VerificationBlob,
     VerificationEngineRequirement,
@@ -51,7 +50,6 @@ def _plan(*, no_heuristics: bool = False) -> tuple[VerificationPlan, Verificatio
     )
     input_payload = {
         "evaluation_date": "2026-07-13",
-        "manifest_provenance": ManifestProvenance.repository(),
         "config": blob,
         "diff": diff,
         "baseline": None,
@@ -122,7 +120,6 @@ def _passed_outcome() -> VerifyRunOutcome:
         merge_verdict="mergeable",
         can_merge_without_human=True,
         control=derive_agent_control(reason="Static verification passed."),
-        manifest_provenance=ManifestProvenance.repository(),
     )
 
 
@@ -150,7 +147,6 @@ def test_run_id_is_exact_request_alias_and_decision_has_separate_identity() -> N
             ),
             human_review_required=True,
         ),
-        manifest_provenance=ManifestProvenance.repository(),
     )
     blocked = build_verify_run_artifact(
         plan=plan,
@@ -223,5 +219,4 @@ def test_verify_run_rejects_noncomplete_control_for_merge_authority() -> None:
             merge_verdict="mergeable",
             can_merge_without_human=True,
             control=human,
-            manifest_provenance=ManifestProvenance.repository(),
         )

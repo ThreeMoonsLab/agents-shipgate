@@ -21,7 +21,6 @@ from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.schemas.capability_change import VerifierSummary, VerifierVerdict
 from agents_shipgate.schemas.common import ReleaseDecisionStatus
 from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
-from agents_shipgate.schemas.manifest_provenance import ManifestProvenance
 from agents_shipgate.schemas.report import (
     AgentSummary,
     ReleaseConsequence,
@@ -152,7 +151,6 @@ def _artifact(**overrides) -> VerifierArtifact:
     base: dict = {
         "workspace": "/tmp/w",
         "config": "shipgate.yaml",
-        "manifest_provenance": ManifestProvenance.repository(),
         "head_status": "succeeded",
         "authorization": AuthorizationEvaluationV1.not_requested(),
         "diff_status": VerifierDiffStatus(),
@@ -261,7 +259,6 @@ def test_artifact_rejects_applicability_inconsistent_with_substrate() -> None:
             workspace="/tmp/w",
             diff_status=VerifierDiffStatus(),
             config="shipgate.yaml",
-            manifest_provenance=ManifestProvenance.repository(),
             head_status="succeeded",
             execution="succeeded",
             release_decision=_release_decision("passed"),

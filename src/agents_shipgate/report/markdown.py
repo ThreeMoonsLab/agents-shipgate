@@ -35,6 +35,7 @@ from agents_shipgate.report.human_order import (
     should_render_surface_first,
     surface_lead,
 )
+from agents_shipgate.report.declaration_review import declaration_review_lines
 from agents_shipgate.report.summary_text import evidence_coverage_text
 from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment
 from agents_shipgate.schemas.report import (
@@ -143,6 +144,7 @@ def render_markdown_report(
         _append_cold_reader_delta(lines, report)
         _append_top_findings(lines, report)
     _append_release_decision(lines, report)
+    _append_declaration_review(lines, report)
     _append_policy_audit(lines, report)
     lines.extend(
         [
@@ -248,6 +250,22 @@ def _append_release_decision(lines: list[str], report: ReadinessReport) -> None:
         f"would_fail_ci={str(fp.would_fail_ci).lower()} "
         f"(exit {fp.exit_code})"
     )
+    lines.append("")
+
+
+def _append_declaration_review(
+    lines: list[str], report: ReadinessReport
+) -> None:
+    decision = report.release_decision
+    if decision is None:
+        return
+    review_lines = declaration_review_lines(
+        decision.evidence_coverage.semantic_coverage.declaration_review
+    )
+    if not review_lines:
+        return
+    lines.extend(["## Declaration Review", ""])
+    lines.extend(f"- {_safe_markdown_text(line)}" for line in review_lines)
     lines.append("")
 
 

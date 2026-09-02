@@ -8,12 +8,11 @@ from agents_shipgate import __version__
 from agents_shipgate.schemas.agent_control import AgentControl
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
-from agents_shipgate.schemas.manifest_provenance import ManifestProvenance
 from agents_shipgate.schemas.verification_identity import CONTENT_ID_PATTERN
 from agents_shipgate.schemas.verifier import Applicability, MergeVerdict, map_merge_verdict
 
-AGENT_HANDOFF_SCHEMA_VERSION = "shipgate.agent_handoff/v9"
-AGENT_HANDOFF_SCHEMA_PATH = "docs/agent-handoff-schema.v9.json"
+AGENT_HANDOFF_SCHEMA_VERSION = "shipgate.agent_handoff/v8"
+AGENT_HANDOFF_SCHEMA_PATH = "docs/agent-handoff-schema.v8.json"
 
 AgentHandoffOperation = Literal["verify_pr", "verify_local", "verify_preview"]
 RemediationPlanSafety = Literal["allowed", "forbidden", "patch"]
@@ -183,7 +182,9 @@ class AgentHandoffArtifact(BaseModel):
                     "if": {
                         "properties": {
                             "gate": {
-                                "properties": {"can_merge_without_human": {"const": True}},
+                                "properties": {
+                                    "can_merge_without_human": {"const": True}
+                                },
                                 "required": ["can_merge_without_human"],
                             }
                         },
@@ -266,7 +267,9 @@ class AgentHandoffArtifact(BaseModel):
                             "gate": {
                                 "properties": {
                                     "decision": {"const": "review_required"},
-                                    "merge_verdict": {"const": "human_review_required"},
+                                    "merge_verdict": {
+                                        "const": "human_review_required"
+                                    },
                                     "can_merge_without_human": {"const": False},
                                 },
                                 "required": [
@@ -299,61 +302,11 @@ class AgentHandoffArtifact(BaseModel):
                         }
                     },
                 },
-                {
-                    "if": {
-                        "properties": {
-                            "manifest_provenance": {
-                                "properties": {"release_authoritative": {"const": False}},
-                                "required": ["release_authoritative"],
-                            }
-                        },
-                        "required": ["manifest_provenance"],
-                    },
-                    "then": {
-                        "properties": {
-                            "gate": {
-                                "properties": {
-                                    "decision": {"not": {"const": "passed"}},
-                                    "merge_verdict": {"not": {"const": "mergeable"}},
-                                    "can_merge_without_human": {"const": False},
-                                },
-                                "required": [
-                                    "decision",
-                                    "merge_verdict",
-                                    "can_merge_without_human",
-                                ],
-                            },
-                            "control": {
-                                "properties": {
-                                    "state": {"not": {"const": "complete"}},
-                                    "completion_allowed": {"const": False},
-                                    "permissions": {
-                                        "properties": {
-                                            "merge": {"const": False},
-                                            "report_complete": {"const": False},
-                                        },
-                                        "required": ["merge", "report_complete"],
-                                    },
-                                },
-                                "required": [
-                                    "state",
-                                    "completion_allowed",
-                                    "permissions",
-                                ],
-                            },
-                            "authorization": {
-                                "properties": {"status": {"not": {"const": "accepted"}}},
-                                "required": ["status"],
-                            },
-                        },
-                        "required": ["gate", "control", "authorization"],
-                    },
-                },
             ]
         },
     )
 
-    schema_version: Literal["shipgate.agent_handoff/v9"] = AGENT_HANDOFF_SCHEMA_VERSION
+    schema_version: Literal["shipgate.agent_handoff/v8"] = AGENT_HANDOFF_SCHEMA_VERSION
     contract_version: str
     tool: AgentHandoffTool = Field(default_factory=AgentHandoffTool)
     operation: AgentHandoffOperation
@@ -361,7 +314,6 @@ class AgentHandoffArtifact(BaseModel):
     gate: AgentHandoffGateV3
     control: AgentControl
     authorization: AuthorizationEvaluationV1
-    manifest_provenance: ManifestProvenance
     fix_task: dict[str, Any] | None = None
     blocked_by: list[AgentHandoffBlockedBy] = Field(default_factory=list)
     remediation_plan: list[AgentHandoffRemediationStep] = Field(default_factory=list)
@@ -415,29 +367,24 @@ class AgentHandoffArtifact(BaseModel):
                     "accepted authorization requires a review_required release decision"
                 )
             if self.control.state != "agent_action_required":
-                raise ValueError("accepted authorization requires agent_action_required control")
+                raise ValueError(
+                    "accepted authorization requires agent_action_required control"
+                )
             action = self.control.next_action
             if action.kind != "repair" or getattr(action, "command", None) != (
                 self.authorization.command
             ):
-                raise ValueError("accepted authorization must exactly bind the repair command")
+                raise ValueError(
+                    "accepted authorization must exactly bind the repair command"
+                )
             if self.control.allowed_next_commands != [self.authorization.command]:
                 raise ValueError(
                     "accepted authorization must expose only its exact allowed command"
                 )
             if self.fix_task is not None:
-                raise ValueError("accepted authorization is an operational overlay, not a fix task")
-        if not self.manifest_provenance.release_authoritative and (
-            self.gate.decision == "passed"
-            or self.gate.merge_verdict == "mergeable"
-            or self.gate.can_merge_without_human
-            or self.control.state == "complete"
-            or self.control.completion_allowed
-            or self.control.permissions.merge
-            or self.control.permissions.report_complete
-            or self.authorization.status == "accepted"
-        ):
-            raise ValueError("non-authoritative manifest handoff cannot carry release authority")
+                raise ValueError(
+                    "accepted authorization is an operational overlay, not a fix task"
+                )
         return self
 
 

@@ -236,17 +236,10 @@ def test_mcp_handoff_handler_is_read_only(tmp_path: Path) -> None:
     output_dir.mkdir()
     _write_json(
         output_dir / "verifier.json",
-            {
-                "verifier_schema_version": "0.16",
-                "workspace": str(tmp_path),
-                "config": "shipgate.yaml",
-                "manifest_provenance": {
-                    "kind": "repository",
-                    "ephemeral": False,
-                    "release_authoritative": True,
-                    "binding_id": None,
-                },
-                "execution": "succeeded",
+        {
+            "workspace": str(tmp_path),
+            "config": "shipgate.yaml",
+            "execution": "succeeded",
             "head_status": "succeeded",
             "diff_status": {"completeness": "complete"},
             "release_decision": {
@@ -312,11 +305,12 @@ def test_mcp_handoff_handler_is_read_only(tmp_path: Path) -> None:
             },
         },
     )
+    _write_json(output_dir / "verify-run.json", {"run_id": "sha256:" + "b" * 64})
     before = _snapshot(tmp_path)
 
     payload = shipgate_handoff(verifier_path=str(output_dir / "verifier.json"))
 
-    assert payload["schema_version"] == "shipgate.agent_handoff/v9"
+    assert payload["schema_version"] == "shipgate.agent_handoff/v8"
     assert payload["gate"]["merge_verdict"] == "mergeable"
     assert payload["control"]["state"] == "complete"
     assert _snapshot(tmp_path) == before

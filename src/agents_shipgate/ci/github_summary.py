@@ -12,6 +12,7 @@ from agents_shipgate.core.findings.subject_rollup import (
     top_findings_block,
 )
 from agents_shipgate.core.privacy import sanitize_report
+from agents_shipgate.report.declaration_review import declaration_review_lines
 from agents_shipgate.report.human_order import (
     HumanArtifactContext,
     capability_delta_by_subject,
@@ -52,6 +53,16 @@ def write_github_step_summary(
             f"`{_safe_markdown_text(surface.name)}` — "
             f"{_safe_markdown_text(surface.why)}"
         )
+    if report.release_decision is not None:
+        review_lines = declaration_review_lines(
+            report.release_decision.evidence_coverage.semantic_coverage.declaration_review,
+            detail_limit=5,
+        )
+        if review_lines:
+            lines.extend(["", "### Declaration review"])
+            lines.extend(
+                f"- {_safe_markdown_text(line)}" for line in review_lines
+            )
     lines.extend(
         [
             (

@@ -377,18 +377,6 @@
   explicitly and rendered as Markdown-safe code spans; exact hidden counts are
   emitted before bounded subject rows, so long repository-controlled names
   cannot erase the truncation disclosure.
-- **Local review can evaluate an unadopted repository without creating a
-  release-authoritative manifest.** (#326) `init --local-review` now provisions
-  a worktree-bound, Git-ignored manifest and reports directory, records every
-  side effect and its cleanup command, and preserves Git porcelain status.
-  `verify --local-review` carries typed ephemeral provenance through the plan,
-  receipt, verifier, verify-run, current-control, and agent-handoff artifacts;
-  every model and JSON Schema rejects attempts to turn that provenance into a
-  passed, mergeable, or complete result. Byte-exact exclude cleanup,
-  transactional rollback, linked-worktree metadata, path/link collisions,
-  owned-report replacement, corrupt metadata, and preview-to-init recovery are
-  covered by fail-closed regressions.
-
 - **Changed action declarations have a compact reviewer attestation.** (#428)
   Base-vs-head reports now classify only added or semantically modified
   `action_surface.actions[]` rows as evidence-consistent, unverified, or an
@@ -397,17 +385,6 @@
   missing observations fail closed. PR comments show bounded counts plus only
   the rows needing attention; packet Markdown and HTML retain the exhaustive
   detail from the same projection.
-
-- **Named MCP source idioms cover measured TypeScript, Go, and snapshot
-  surfaces without executing server code.** (#431) The immutable registry
-  recognizes MongoDB-style static `toolName` declarations, MCP TypeScript SDK
-  registration calls, Grafana's Go `MustTool` definitions linked to mounted
-  `Register(mcp)` sites, Go SDK `AddTool` calls, and GitHub MCP's checked-in
-  per-tool snapshots. Discovery remains bounded and omission-backed, published
-  JSON inventories stay higher-confidence and preferred for the same server,
-  and the installed and zero-install detectors share regressions for nested
-  templates, regular-expression literals, dynamic names, malformed structure,
-  file/byte caps, and cross-server precedence.
 
 - **Cold-reader artifacts now lead with what the agent can do.** (#463) On a
   repository with no committed Shipgate manifest, human output starts with the

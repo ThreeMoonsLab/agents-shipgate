@@ -18,7 +18,6 @@ from agents_shipgate.core.verification_identity import (
 from agents_shipgate.schemas.agent_control import CodingAgentCommandAction, HumanControlAction
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
-from agents_shipgate.schemas.manifest_provenance import ManifestProvenance
 from agents_shipgate.schemas.verifier import (
     VerifierArtifact,
     VerifierDiffStatus,
@@ -81,7 +80,6 @@ def _passed_verifier() -> VerifierArtifact:
         workspace="/tmp/repo",
         diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
-        manifest_provenance=ManifestProvenance.repository(),
         execution="succeeded",
         head_status="succeeded",
         release_decision=_release_decision("passed"),
@@ -109,7 +107,6 @@ def _authorized_verifier() -> VerifierArtifact:
         workspace="/tmp/repo",
         diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
-        manifest_provenance=ManifestProvenance.repository(),
         execution="succeeded",
         head_status="succeeded",
         release_decision=_release_decision("review_required"),
@@ -161,7 +158,6 @@ def _passed_run(verifier: VerifierArtifact):
             merge_verdict="mergeable",
             can_merge_without_human=True,
             control=verifier.control,
-            manifest_provenance=verifier.manifest_provenance,
         ),
         artifacts={},
     )
@@ -189,9 +185,9 @@ def test_handoff_rejects_tampered_current_verify_run_outcome() -> None:
 @pytest.mark.parametrize(
     ("schema_path", "control_path"),
     [
-        ("docs/verifier-schema.v0.16.json", ("control",)),
-        ("docs/agent-handoff-schema.v9.json", ("control",)),
-        ("docs/verify-run-schema.v6.json", ("outcome", "control")),
+        ("docs/verifier-schema.v0.8.json", ("control",)),
+        ("docs/agent-handoff-schema.v8.json", ("control",)),
+        ("docs/verify-run-schema.v5.json", ("outcome", "control")),
     ],
 )
 def test_generated_public_schemas_reject_contradictory_control(
@@ -202,9 +198,9 @@ def test_generated_public_schemas_reject_contradictory_control(
     run = _passed_run(verifier)
     handoff = build_agent_handoff(verifier=verifier, verify_run=run)
     payload_by_schema = {
-        "docs/verifier-schema.v0.16.json": verifier.model_dump(mode="json"),
-        "docs/agent-handoff-schema.v9.json": handoff.model_dump(mode="json"),
-        "docs/verify-run-schema.v6.json": run.model_dump(mode="json"),
+        "docs/verifier-schema.v0.8.json": verifier.model_dump(mode="json"),
+        "docs/agent-handoff-schema.v8.json": handoff.model_dump(mode="json"),
+        "docs/verify-run-schema.v5.json": run.model_dump(mode="json"),
     }
     payload = deepcopy(payload_by_schema[schema_path])
     control = payload
@@ -218,7 +214,7 @@ def test_generated_public_schemas_reject_contradictory_control(
 
 @pytest.mark.parametrize(
     "schema_path",
-    ["docs/verifier-schema.v0.16.json", "docs/agent-handoff-schema.v9.json"],
+    ["docs/verifier-schema.v0.8.json", "docs/agent-handoff-schema.v8.json"],
 )
 def test_generated_schemas_reject_accepted_authorization_on_passed_gate(
     schema_path: str,
@@ -227,8 +223,8 @@ def test_generated_schemas_reject_accepted_authorization_on_passed_gate(
     run = _passed_run(verifier)
     handoff = build_agent_handoff(verifier=verifier, verify_run=run)
     payload_by_schema = {
-        "docs/verifier-schema.v0.16.json": verifier.model_dump(mode="json"),
-        "docs/agent-handoff-schema.v9.json": handoff.model_dump(mode="json"),
+        "docs/verifier-schema.v0.8.json": verifier.model_dump(mode="json"),
+        "docs/agent-handoff-schema.v8.json": handoff.model_dump(mode="json"),
     }
     payload = deepcopy(payload_by_schema[schema_path])
     payload["authorization"] = _accepted_authorization().model_dump(mode="json")
@@ -408,7 +404,6 @@ def _review_publishable_verifier(commands: list[str]) -> VerifierArtifact:
         workspace="/tmp/repo",
         diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
-        manifest_provenance=ManifestProvenance.repository(),
         execution="succeeded",
         head_status="succeeded",
         release_decision=_release_decision("review_required"),
