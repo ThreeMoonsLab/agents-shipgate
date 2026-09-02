@@ -1,0 +1,32 @@
+version: "0.1"
+
+project:
+  name: order-status-agent
+
+agent:
+  name: order-status-support
+  declared_purpose:
+    - answer customer questions about the state of existing orders
+
+environment:
+  target: production
+
+tool_sources:
+  - id: support_agent
+    type: langchain
+    path: agent.py
+
+langchain:
+  tool_inventories:
+    - inventories/tools.json
+
+action_surface:
+  actions:
+    - tool: lookup_order
+      effect: read
+      authority:
+        mode: none
+    - tool: shipping_status
+      effect: read
+      authority:
+        mode: none

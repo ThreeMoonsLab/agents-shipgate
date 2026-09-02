@@ -1,0 +1,28 @@
+{
+  "tools": [
+    {
+      "name": "lookup_order",
+      "description": "Look up the line items, total, and current state of an order.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {"order_id": {"type": "string"}},
+        "required": ["order_id"]
+      },
+      "annotations": {"readOnlyHint": true},
+      "auth": {"mode": "none"}
+    },
+    {
+      "name": "shipping_status",
+      "description": "Return the carrier, tracking number, and last scan for an order.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {"order_id": {"type": "string"}},
+        "required": ["order_id"]
+      },
+      "annotations": {"readOnlyHint": true},
+      "auth": {"mode": "none"}
+    }
+  ]
+}
