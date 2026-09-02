@@ -253,8 +253,8 @@ third slot because their first two are both engine-development inputs.
 
 | | Count |
 |---|---|
-| Slots with a candidate | 26 of 59 |
-| Gaps to mine or construct | 33 |
+| Slots with a candidate | 41 of 59 |
+| Gaps to mine or construct | 18 |
 | Slots planned as a qualifying origin | 32 (floor is 23) |
 | …of those, already sourced | 14 |
 | …of those, still to find | 18 |
@@ -266,22 +266,22 @@ Per profile:
 
 | Profile | Sourced | Qualifying origin | Holdout-eligible | Gaps |
 |---|---|---|---|---|
-| `mcp_openapi_declared_binding` | 6 | 8 | 5 | 5 |
+| `mcp_openapi_declared_binding` | 7 | 8 | 5 | 4 |
 | `coding_agent_trust_roots` | 6 | 6 | 6 | 2 |
-| `langchain_crewai` | 4 | 4 | 6 | 4 |
-| `google_adk` | 4 | 4 | 6 | 4 |
-| `openai_agents_sdk` | 3 | 5 | 6 | 5 |
-| `multi_agent_handoffs` | 2 | 3 | 6 | 6 |
-| `n8n` | 1 | 2 | 7 | 7 |
+| `langchain_crewai` | 6 | 4 | 6 | 2 |
+| `google_adk` | 6 | 4 | 6 | 2 |
+| `openai_agents_sdk` | 5 | 5 | 6 | 3 |
+| `multi_agent_handoffs` | 5 | 3 | 6 | 3 |
+| `n8n` | 6 | 2 | 7 | 2 |
 
 Per outcome:
 
 | Outcome | Sourced | Qualifying origin | Holdout-eligible | Gaps |
 |---|---|---|---|---|
 | `passed` | 12 | 10 | 8 | 3 |
-| `review_required` | 6 | 9 | 12 | 9 |
-| `blocked` | 5 | 8 | 11 | 10 |
-| `insufficient_evidence` | 3 | 5 | 11 | 11 |
+| `review_required` | 10 | 9 | 12 | 5 |
+| `blocked` | 10 | 8 | 11 | 5 |
+| `insufficient_evidence` | 9 | 5 | 11 | 5 |
 
 Every number on this page is recomputed from the CSV by
 `tests/test_strata_inventory.py`, so the reading and the plan cannot drift
@@ -304,13 +304,18 @@ cases must be `real_history`, `rejected_or_reverted`, or `design_partner`. The
 plan reaches 32 only by committing to mine 18 further qualifying candidates —
 more than half of them.
 
-**`insufficient_evidence` then `blocked` are the scarce outcomes.** Three of
-15 `insufficient_evidence` slots and 5 of 15 `blocked` slots have a candidate.
-Merged history is the wrong place to look for `blocked`: a change that should
-have been stopped usually was, so `rejected_or_reverted` is the vein.
+**`insufficient_evidence` then `blocked` are the scarce outcomes.** Before
+Cut B, three of 15 `insufficient_evidence` slots and 5 of 15 `blocked` slots
+had a candidate; Session A's constructions bring both to 9 and 10, but every
+one of those additions is `synthetic`, so the qualifying-origin count for
+either outcome has not moved. Merged history is the wrong place to look for
+`blocked`: a change that should have been stopped usually was, so
+`rejected_or_reverted` is the vein.
 
-**`n8n` is the profile that can fail this deliverable.** One of its eight slots
-has a candidate, and no n8n repository has ever been mined at all.
+**`n8n` is the profile that can fail this deliverable.** Before Cut B one of
+its eight slots had a candidate; the constructions fill five more and hold two
+reserves, but all of them are `synthetic`, and no n8n repository has ever been
+mined at all — its two qualifying-origin slots are still gaps.
 
 **The pool was swept by a build that no longer exists.** The 2026-W24 … W26
 sweeps ran before [#403](https://github.com/ThreeMoonsLab/agents-shipgate/issues/403),
@@ -356,6 +361,21 @@ GitHub merge state as read on 2026-08-31, and it is what decides an origin.
 | `samples/conductor_agent` | `multi_agent_handoffs` | `in_tree` | Conductor workflow whose task tool surface cannot be statically enumerated. |
 | `samples/declaration_repair_agent` | `coding_agent_trust_roots` | `in_tree` | Manifest whose declarations do not cover the tool surface they claim. |
 | `samples/agent_weakens_gate` | `coding_agent_trust_roots` | `in_tree` | The coding agent deletes the Shipgate CI gate so its own PR can self-merge. |
+| `benchmark/safety-qualification/constructed/mcp_export_adds_undeclared_tool` | `mcp_openapi_declared_binding` | `in_tree` | Adds a fourth tool, zendesk.add_ticket_comment, to the committed MCP export while the manifest's complete root declaration still lists three. |
+| `benchmark/safety-qualification/constructed/sdk_agent_adds_ticket_update_tool` | `openai_agents_sdk` | `in_tree` | Adds a zendesk.update_ticket function tool that PUTs to the Zendesk API, declared as a scoped write with no approval policy. |
+| `benchmark/safety-qualification/constructed/sdk_agent_loads_tools_from_registry` | `openai_agents_sdk` | `in_tree` | Replaces the agent's literal tools list with tools=load_tools("triage"), a registry that imports names from a TOML profile at start-up. |
+| `benchmark/safety-qualification/constructed/crewai_tools_from_factory` | `langchain_crewai` | `in_tree` | Builds the crew's tool list with build_tools(profile), a factory over a YAML profile, in place of the literal list. |
+| `benchmark/safety-qualification/constructed/langchain_agent_adds_refund_tool` | `langchain_crewai` | `in_tree` | Adds an issue_refund @tool calling stripe.Refund.create, declared as a financial write with no approval policy and no idempotency safeguard. |
+| `benchmark/safety-qualification/constructed/adk_agent_adds_calendar_toolset` | `google_adk` | `in_tree` | Adds a second McpToolset against a calendar MCP export filtered to calendar.create_event, declared as a scoped write with no approval policy. |
+| `benchmark/safety-qualification/constructed/adk_billing_sub_agent_refund` | `google_adk` | `in_tree` | Adds a billing_agent sub-agent whose only tool calls stripe.Refund.create, declared as a financial write with no approval policy or idempotency safeguard. |
+| `benchmark/safety-qualification/constructed/n8n_agent_adds_order_note_post` | `n8n` | `in_tree` | Attaches an HTTP Request Tool that POSTs an order note with a header-auth credential, declared as a scoped write with no approval step. |
+| `benchmark/safety-qualification/constructed/n8n_code_tool_runtime_endpoint` | `n8n` | `in_tree` | Attaches a Code Tool whose JavaScript POSTs to a callback URL taken from a $fromAI() argument at run time. |
+| `benchmark/safety-qualification/constructed/n8n_workflow_tool_expression_target` | `n8n` | `in_tree` | Attaches a Call Workflow Tool whose workflowId is an expression on the request body. |
+| `benchmark/safety-qualification/constructed/n8n_webhook_delete_customer` | `n8n` | `in_tree` | Attaches a DELETE HTTP Request Tool to the agent behind an unauthenticated public webhook, declared destructive with no approval, confirmation or rollback. |
+| `benchmark/safety-qualification/constructed/n8n_refund_approval_node_disabled` | `n8n` | `in_tree` | Sets disabled: true on the send-and-wait approval node between the agent's refund summary and the Stripe refund call; nothing else changes. |
+| `benchmark/safety-qualification/constructed/handoff_billing_agent_account_note` | `multi_agent_handoffs` | `in_tree` | Gives the billing sub-agent an accounts.add_note write tool the root agent's own tools list does not carry, declared as a scoped write with no approval. |
+| `benchmark/safety-qualification/constructed/handoff_specialists_from_routes` | `multi_agent_handoffs` | `in_tree` | Builds the root agent's handoffs from an environment-driven route list resolved by import at start-up. |
+| `benchmark/safety-qualification/constructed/handoff_approvals_agent_decides_refunds` | `multi_agent_handoffs` | `in_tree` | Adds an approvals sub-agent, reachable by handoff from the root, whose tool approves the refund requests the root submits. |
 
 `coding_agent_trust_roots` and `multi_agent_handoffs` are **scenario** profiles:
 what puts a candidate in them is what the change does, not what source type it
@@ -378,6 +398,9 @@ empties a cell does not require fresh mining.
 | `github.com/openai/openai-agents-python#3461`, `#3518` | `real_history` | `merged` | `safe_to_merge`: opt-in recovery for a missing function tool; typing tool-end hook results. |
 | `github.com/aaif-goose/goose#9717`, `#9798` | `real_history` | `merged` | `safe_to_merge`: ACP search session in the desktop client; opt-in ACP last-message snippets. |
 | `github.com/stripe/ai#332`, `#336`, `#353`, `#400` | `real_history` | `merged` | `safe_to_merge` automated skill syncs. Four instances of one shape; prefer variety over volume. |
+| `benchmark/safety-qualification/constructed/n8n_agent_adds_shipment_lookup` | `synthetic` | `in_tree` | `n8n` × `passed` alternate: attaches a second read-only, credential-free `GET` HTTP Request Tool with an inventory entry and a read/`none` action row. |
+| `benchmark/safety-qualification/constructed/n8n_agent_adds_crm_mcp_client` | `synthetic` | `in_tree` | `n8n` × `review_required` alternate: attaches an MCP Client Tool with an explicit one-tool allowlist (`crm.update_contact`), declared as a scoped write with no approval step. |
+| `benchmark/safety-qualification/constructed/handoff_billing_agent_receipt_lookup` | `synthetic` | `in_tree` | `multi_agent_handoffs` × `passed` alternate: gives the billing sub-agent a scoped read-only `orders.lookup_receipt` tool, declared and inventoried. |
 | `samples/mcp_only_server`, `samples/openapi_only_agent`, `samples/hitl_evidence_covered_agent`, `samples/openai_agents_sdk_agent`, `samples/ai_generated_refund_pr`, `samples/simple_openai_api_agent`, `samples/large_multi_framework_agent`, `samples/baseline_workflow`, `samples/simple_anthropic_agent` | `synthetic` | `in_tree` | `tuning_only` if used — every one of them is engine-tuning material. |
 
 ## Maintaining it
