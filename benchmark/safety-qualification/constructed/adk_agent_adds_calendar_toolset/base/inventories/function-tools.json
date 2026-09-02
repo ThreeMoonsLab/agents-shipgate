@@ -1,0 +1,26 @@
+{
+  "tools": [
+    {
+      "name": "lookup_case",
+      "description": "Look up support case metadata for a known case id.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "case_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "case_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "auth": {
+        "mode": "none"
+      }
+    }
+  ]
+}

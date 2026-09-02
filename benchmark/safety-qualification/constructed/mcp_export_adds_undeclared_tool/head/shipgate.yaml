@@ -1,0 +1,76 @@
+version: "0.1"
+
+project:
+  name: support-tools-server
+  owner: support-platform
+
+agent:
+  name: support-assistant
+  declared_purpose:
+    - search the support knowledge base
+    - fetch Zendesk tickets
+    - send customers a confirmed status email
+
+environment:
+  target: local
+
+tool_sources:
+  - id: support_tools
+    type: mcp
+    path: mcp/tools.json
+
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - {tool: support.search_kb, source_id: support_tools}
+        - {tool: support.lookup_ticket, source_id: support_tools}
+        - {tool: gmail.send_customer_email, source_id: support_tools}
+      handoffs: []
+      reason: checked against the tools the deployed server publishes
+
+permissions:
+  scopes:
+    - support:kb:read
+    - zendesk:tickets:read
+    - gmail:send
+
+policies:
+  require_confirmation_for_tools:
+    - gmail.send_customer_email
+
+action_surface:
+  actions:
+    - tool: support.search_kb
+      effect: read
+      scopes: [support:kb:read]
+      authority:
+        mode: scoped
+        auth_type: oauth2
+        credential_mode: service_account
+    - tool: support.lookup_ticket
+      effect: read
+      scopes: [zendesk:tickets:read]
+      authority:
+        mode: scoped
+        auth_type: oauth2
+        credential_mode: service_account
+    - tool: gmail.send_customer_email
+      effect: external_communication
+      scopes: [gmail:send]
+      authority:
+        mode: scoped
+        auth_type: oauth2
+        credential_mode: service_account
+      safeguards:
+        audit_log: true
+
+ci:
+  mode: advisory
+
+output:
+  directory: agents-shipgate-reports
+  formats:
+    - markdown
+    - json

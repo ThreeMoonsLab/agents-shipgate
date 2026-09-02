@@ -1,0 +1,66 @@
+{
+  "tools": [
+    {
+      "name": "support.lookup_ticket",
+      "description": "Fetch a support ticket's subject, status, order id and customer id.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ticket_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true
+      },
+      "auth": {
+        "type": "oauth2",
+        "scopes": [
+          "zendesk:tickets:read"
+        ]
+      }
+    },
+    {
+      "name": "orders.request_refund",
+      "description": "Submit a refund request for the order; money moves only after a person in billing approves it.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "order_id": {
+            "type": "string"
+          },
+          "amount_cents": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_id",
+          "amount_cents",
+          "reason"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true
+      },
+      "auth": {
+        "type": "api_key",
+        "scopes": [
+          "orders:refund-requests:write"
+        ]
+      }
+    }
+  ]
+}

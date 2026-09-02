@@ -1,0 +1,57 @@
+{
+  "tools": [
+    {
+      "name": "lookup_case",
+      "description": "Look up support case metadata for a known case id.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "case_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "case_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "auth": {
+        "mode": "none"
+      }
+    },
+    {
+      "name": "issue_refund",
+      "description": "Refund the charge attached to a support case through Stripe.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "case_id": {
+            "type": "string"
+          },
+          "amount_cents": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "case_id",
+          "amount_cents"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      },
+      "auth": {
+        "type": "api_key",
+        "scopes": [
+          "stripe:refunds:write"
+        ]
+      }
+    }
+  ]
+}

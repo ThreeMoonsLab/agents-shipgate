@@ -1,0 +1,252 @@
+{
+  "name": "Support Orders",
+  "nodes": [
+    {
+      "id": "order-request",
+      "name": "Order Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "path": "support-orders",
+        "httpMethod": "POST",
+        "responseMode": "responseNode"
+      }
+    },
+    {
+      "id": "chat-model",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [
+        220,
+        220
+      ],
+      "parameters": {
+        "model": "gpt-4.1-mini",
+        "options": {}
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "1",
+          "name": "OpenAI support"
+        }
+      }
+    },
+    {
+      "id": "support-agent",
+      "name": "Support Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.body.message }}",
+        "options": {
+          "systemMessage": "You answer questions about orders. Look the order up before answering. If the customer asks for a refund, summarize the request for the support engineer; do not promise one."
+        }
+      }
+    },
+    {
+      "id": "lookup-order",
+      "name": "lookup_order",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1,
+      "position": [
+        420,
+        220
+      ],
+      "parameters": {
+        "toolDescription": "Fetch an order's status, items and shipping details by order id.",
+        "method": "GET",
+        "url": "=https://orders.internal.example.com/orders/{{ $fromAI('order_id', 'Order identifier', 'string') }}"
+      }
+    },
+    {
+      "id": "lookup-shipment",
+      "name": "lookup_shipment",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1,
+      "position": [
+        600,
+        220
+      ],
+      "parameters": {
+        "toolDescription": "Fetch the carrier tracking events for a shipment by tracking number.",
+        "method": "GET",
+        "url": "=https://shipping.internal.example.com/shipments/{{ $fromAI('tracking_number', 'Carrier tracking number', 'string') }}"
+      }
+    },
+    {
+      "id": "refund-approval",
+      "name": "Refund Approval",
+      "type": "n8n-nodes-base.sendAndWait",
+      "typeVersion": 1,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "operation": "sendAndWait",
+        "channel": "#support-refunds",
+        "message": "=Refund requested for order {{ $json.output.order_id }}: {{ $json.output.summary }}",
+        "approvalOptions": {
+          "approvalType": "double"
+        }
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "2",
+          "name": "Slack support bot"
+        }
+      }
+    },
+    {
+      "id": "issue-refund",
+      "name": "Issue Refund",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        780,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.stripe.com/v1/refunds",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "stripeApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "charge",
+              "value": "={{ $json.output.charge_id }}"
+            },
+            {
+              "name": "amount",
+              "value": "={{ $json.output.amount_cents }}"
+            }
+          ]
+        }
+      },
+      "credentials": {
+        "stripeApi": {
+          "id": "3",
+          "name": "Stripe support"
+        }
+      }
+    },
+    {
+      "id": "reply",
+      "name": "Reply",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1020,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"reply\": $json.output } }}"
+      }
+    }
+  ],
+  "connections": {
+    "Order Request": {
+      "main": [
+        [
+          {
+            "node": "Support Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Support Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "lookup_order": {
+      "ai_tool": [
+        [
+          {
+            "node": "Support Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Support Agent": {
+      "main": [
+        [
+          {
+            "node": "Refund Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Refund Approval": {
+      "main": [
+        [
+          {
+            "node": "Issue Refund",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Issue Refund": {
+      "main": [
+        [
+          {
+            "node": "Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "lookup_shipment": {
+      "ai_tool": [
+        [
+          {
+            "node": "Support Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "6f1c2b7e-3f7a-4d0e-9d6b-1d2a4c8f9b10",
+  "meta": {
+    "instanceId": "support-n8n"
+  },
+  "tags": [
+    {
+      "name": "support"
+    }
+  ]
+}

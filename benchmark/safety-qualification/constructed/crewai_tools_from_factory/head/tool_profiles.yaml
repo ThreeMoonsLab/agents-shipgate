@@ -1,0 +1,3 @@
+support_reader:
+  - summarize_case
+  - lookup_case

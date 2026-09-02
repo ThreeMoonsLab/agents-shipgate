@@ -1,0 +1,2 @@
+[profiles]
+triage = ["ticket_tools.lookup_ticket", "reply_tools.draft_reply"]

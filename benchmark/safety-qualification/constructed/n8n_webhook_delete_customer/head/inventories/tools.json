@@ -1,0 +1,56 @@
+{
+  "tools": [
+    {
+      "name": "lookup_order",
+      "description": "Fetch an order's status, items and shipping details by order id.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Order identifier"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true
+      },
+      "auth": {
+        "mode": "none"
+      }
+    },
+    {
+      "name": "delete_customer_account",
+      "description": "Delete the customer's account and its stored payment methods when they ask to close it.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Customer identifier"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true
+      },
+      "auth": {
+        "type": "api_key",
+        "scopes": [
+          "accounts:customers:delete"
+        ]
+      }
+    }
+  ]
+}

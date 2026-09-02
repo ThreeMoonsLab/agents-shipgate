@@ -1,0 +1,39 @@
+version: "0.1"
+
+project:
+  name: support-orders-workflow
+  owner: support-ops
+
+agent:
+  name: support-orders-agent
+  declared_purpose:
+    - answer customer questions about their orders
+    - summarize refund requests for the support engineer
+
+environment:
+  target: local
+
+n8n:
+  workflows:
+    - path: workflows/support-orders.json
+  tool_inventories:
+    - path: inventories/tools.json
+      source_id: "n8n:workflows/support-orders.json"
+
+permissions:
+  scopes:
+    - crm:contacts:write
+
+action_surface:
+  actions:
+    - tool: lookup_order
+      effect: read
+      authority:
+        mode: none
+    - tool: crm.update_contact
+      effect: write
+      scopes: [crm:contacts:write]
+      authority:
+        mode: scoped
+        auth_type: oauth2
+        credential_mode: service_account

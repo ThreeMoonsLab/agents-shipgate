@@ -1,0 +1,135 @@
+{
+  "tools": [
+    {
+      "name": "support.search_kb",
+      "description": "Search support knowledge-base articles by free-text query.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query."
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true
+      },
+      "auth": {
+        "type": "oauth2",
+        "scopes": [
+          "support:kb:read"
+        ]
+      },
+      "owner": "support-platform"
+    },
+    {
+      "name": "support.lookup_ticket",
+      "description": "Fetch a Zendesk ticket by id.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "ticket_id"
+        ],
+        "properties": {
+          "ticket_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true
+      },
+      "auth": {
+        "type": "oauth2",
+        "scopes": [
+          "zendesk:tickets:read"
+        ]
+      },
+      "owner": "support-platform"
+    },
+    {
+      "name": "gmail.send_customer_email",
+      "description": "Send a customer one of the approved status email templates.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "recipient",
+          "template",
+          "ticket_id"
+        ],
+        "properties": {
+          "recipient": {
+            "type": "string",
+            "format": "email"
+          },
+          "template": {
+            "type": "string",
+            "enum": [
+              "ticket_received",
+              "ticket_resolved",
+              "shipping_delay"
+            ]
+          },
+          "ticket_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      },
+      "auth": {
+        "type": "oauth2",
+        "scopes": [
+          "gmail:send"
+        ]
+      },
+      "owner": "comms-platform"
+    },
+    {
+      "name": "zendesk.add_ticket_comment",
+      "description": "Add a public or internal comment to an existing Zendesk ticket.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "ticket_id",
+          "body"
+        ],
+        "properties": {
+          "ticket_id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "public": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      },
+      "auth": {
+        "type": "oauth2",
+        "scopes": [
+          "zendesk:tickets:write"
+        ]
+      },
+      "owner": "support-platform"
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "tools": [
+    {
+      "name": "lookup_order",
+      "description": "Fetch an order's status, items and shipping details by order id.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Order identifier"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true
+      },
+      "auth": {
+        "mode": "none"
+      }
+    },
+    {
+      "name": "escalate_to_regional_desk",
+      "description": "Open a ticket with the regional support desk responsible for the order's shipping region.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Order identifier"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why the order needs the regional desk"
+          }
+        },
+        "required": [
+          "order_id",
+          "reason"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    }
+  ]
+}

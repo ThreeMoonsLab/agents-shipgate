@@ -1,0 +1,33 @@
+version: "0.1"
+
+project:
+  name: support-case-agent
+
+agent:
+  name: support-case-agent
+  declared_purpose:
+    - look up and summarize support case metadata
+
+environment:
+  target: local
+
+tool_sources:
+  - id: langchain_agent
+    type: langchain
+    path: agent.py
+
+langchain:
+  tool_inventories:
+    - path: inventories/tools.json
+      source_id: langchain_agent
+
+action_surface:
+  actions:
+    - tool: lookup_case
+      effect: read
+      authority:
+        mode: none
+    - tool: summarize_case
+      effect: read
+      authority:
+        mode: none

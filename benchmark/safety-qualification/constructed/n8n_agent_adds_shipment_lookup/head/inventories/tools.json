@@ -1,0 +1,52 @@
+{
+  "tools": [
+    {
+      "name": "lookup_order",
+      "description": "Fetch an order's status, items and shipping details by order id.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Order identifier"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true
+      },
+      "auth": {
+        "mode": "none"
+      }
+    },
+    {
+      "name": "lookup_shipment",
+      "description": "Fetch the carrier tracking events for a shipment by tracking number.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tracking_number": {
+            "type": "string",
+            "description": "Carrier tracking number"
+          }
+        },
+        "required": [
+          "tracking_number"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true
+      },
+      "auth": {
+        "mode": "none"
+      }
+    }
+  ]
+}

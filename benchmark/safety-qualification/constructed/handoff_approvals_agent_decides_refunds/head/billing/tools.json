@@ -1,0 +1,73 @@
+{
+  "tools": [
+    {
+      "name": "orders.return_quote",
+      "description": "Quote what returning these items would credit back to the customer, without submitting anything.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "order_id": {
+            "type": "string"
+          },
+          "amount_cents": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "order_id",
+          "amount_cents"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true
+      },
+      "auth": {
+        "type": "api_key",
+        "scopes": [
+          "orders:read"
+        ]
+      }
+    },
+    {
+      "name": "orders.decide_refund_request",
+      "description": "Approve or decline a pending refund request; an approved request is paid out by billing.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "request_id": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "decline"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "default": ""
+          }
+        },
+        "required": [
+          "request_id",
+          "decision"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      },
+      "auth": {
+        "type": "api_key",
+        "scopes": [
+          "orders:refund-requests:decide"
+        ]
+      }
+    }
+  ]
+}
