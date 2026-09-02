@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **A preview wheel now reports one version, not two.** (#491) The first
+  published preview stamped `pyproject.toml` and not
+  `src/agents_shipgate/__init__.py`, so its METADATA said
+  `0.16.0+preview.20260902.gcc59410` while `--version` said plain `0.16.0` —
+  the exact confusion the local version segment exists to prevent. `doctor` was
+  collateral: comparing `installed_version` against `imported_version`, it
+  reported `installed_version_differs` and told the user two copies were
+  shadowing each other, on an environment holding one.
+
+  The build now stamps both sites and proves each with its own round trip over
+  a closed file set, but the durable guard is on the artifact: it opens the
+  wheel it just built and requires `METADATA: Version` to equal the packaged
+  `__version__`. That fails on any future divergence however the stamping is
+  written. A companion test pins the committed tree to exactly two version
+  sites that already agree, so a third one cannot be added and silently left
+  unstamped.
+
+
 - **Releases run on a cadence, and work that cannot be tagged can still be
   installed.** (#491) 81% of this changelog had never reached a user: 5,039 of
   6,242 lines sat under `## Unreleased`, two milestones were complete and

@@ -3023,11 +3023,69 @@ def test_the_preview_version_carries_a_local_segment() -> None:
     # nested, because `a+b+c` is not a PEP 440 version at all.
     assert "already carries a local version" in derive
 
-    confirm = _test_step_command(build, "Confirm the preview is unpublishable to a public index")
+    confirm = _test_step_command(
+        build, "Confirm the wheel describes itself as an unpublishable preview"
+    )
     # Asserted on the built wheel's own METADATA, not on the string the
     # workflow computed: the check has to survive a build that rewrote it.
     assert "METADATA" in confirm
-    assert 'if "+" not in version' in confirm
+    assert 'if "+" not in declared' in confirm
+
+
+def test_the_preview_wheel_reports_one_version_from_both_of_its_sites() -> None:
+    """The defect the first published preview actually shipped.
+
+    The version lives twice — `pyproject.toml` decides METADATA, and
+    `src/agents_shipgate/__init__.py` carries the `__version__` literal that
+    `--version` and `doctor` report. Stamping only the first produced a wheel
+    whose METADATA said `0.16.0+preview…` while the CLI said plain `0.16.0`:
+    indistinguishable from the qualified release, and enough to make `doctor`
+    emit a false `installed_version_differs` claiming two copies were shadowing
+    each other when the environment held exactly one.
+
+    Both halves are pinned: that the build stamps both files, and that the
+    *artifact* is checked for agreement afterwards. The second is what makes
+    this durable — it fails on any future divergence regardless of how the
+    stamping is spelled.
+    """
+
+    build = _preview()["jobs"]["build"]
+    stamp = _test_step_command(build, "Build the preview wheel")
+    confirm = _test_step_command(
+        build, "Confirm the wheel describes itself as an unpublishable preview"
+    )
+
+    assert '"pyproject.toml": r\'^version = "(?P<value>[^"]*)"$\'' in stamp
+    assert (
+        '"src/agents_shipgate/__init__.py": r\'^__version__ = "(?P<value>[^"]*)"$\'' in stamp
+    )
+    # The stamped file set is closed, so a third version site cannot be added
+    # to the tree and silently left behind here.
+    assert 'expected="pyproject.toml src/agents_shipgate/__init__.py "' in stamp
+    # And the artifact itself is required to agree.
+    assert 'archive.read("agents_shipgate/__init__.py")' in confirm
+    assert 'if match.group(1) != declared' in confirm
+
+
+def test_the_repository_has_exactly_the_two_version_sites_the_preview_stamps() -> None:
+    """The closed set above is only closed if the tree agrees with it.
+
+    A third literal version site added later would be stamped by nothing, and
+    the preview would ship a wheel that disagrees with itself again — the
+    workflow's own file-set guard would catch it, but only after someone cut a
+    preview. This fails in CI instead.
+    """
+
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    init = (REPO_ROOT / "src/agents_shipgate/__init__.py").read_text(encoding="utf-8")
+
+    assert len(re.findall(r'^version = "[^"]*"$', pyproject, re.MULTILINE)) == 1
+    assert len(re.findall(r'^__version__ = "[^"]*"$', init, re.MULTILINE)) == 1
+    # They must already agree in the committed tree, or a release build ships
+    # the same split the preview did.
+    assert re.search(r'^version = "([^"]*)"$', pyproject, re.MULTILINE).group(1) == re.search(
+        r'^__version__ = "([^"]*)"$', init, re.MULTILINE
+    ).group(1)
 
 
 def test_a_preview_ref_cannot_trigger_the_release_pipeline() -> None:
@@ -3133,10 +3191,10 @@ def test_the_preview_wheel_comes_from_the_release_build_toolchain() -> None:
     assert "--require-hashes" in install
     assert "constraints/release-seal.txt" in install
     assert "python -m build --wheel --no-isolation" in compile_step
-    # The only difference from the committed tree is the version line, proved
-    # by a round trip rather than asserted.
-    assert "Stamping changed more than the version line" in compile_step
-    assert "touched more than pyproject.toml" in compile_step
+    # The only difference from the committed tree is the version, proved by a
+    # per-file round trip rather than asserted, over a closed file set.
+    assert "changed more than the version" in compile_step
+    assert "Stamping touched an unexpected file set" in compile_step
 
 
 def test_the_release_handoff_invariants_were_not_relaxed_to_fit_a_preview(

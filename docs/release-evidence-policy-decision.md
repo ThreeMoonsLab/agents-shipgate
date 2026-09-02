@@ -400,6 +400,40 @@ the build is not. No tier name appears in it.
 who lands on the repository's releases page sees the newest *qualified* release
 labelled as such, and previews below it labelled as not one.
 
+### Field note: the first preview violated C1, and what now enforces it
+
+Recorded because this amendment asserted a property the first implementation did
+not have. C1 claims a preview is "self-describing in `pip freeze`, in
+`--version`, and in any bug report a preview user files." The first published
+preview — `0.16.0+preview.20260902.gcc59410`, cut from `cc594109` — was not.
+
+The version lives in **two** places: `pyproject.toml` decides the wheel's
+METADATA, and `src/agents_shipgate/__init__.py` carries `__version__` as a
+literal, which is what `--version` and `doctor` report. The workflow stamped
+only the first. The published wheel therefore said `0.16.0+preview…` in its
+METADATA — so C1's index refusal held — while the installed CLI reported plain
+`0.16.0`, **indistinguishable from the qualified release it was supposed to be
+distinguishable from**.
+
+The second-order effect was worse than the first. `doctor` compares
+`installed_version` against `imported_version` and emitted a
+`installed_version_differs` mismatch reading *"Two installed copies are
+shadowing each other; which one runs depends on path order"* — on an
+environment holding exactly one copy. A diagnostic built (#334) to be
+trustworthy was made to lie by a normal install.
+
+What enforces it now is not "stamp both files". It is a check on the
+**artifact**: the build opens the wheel it just produced and requires
+`METADATA: Version` to equal the `__version__` literal packaged inside it. That
+holds regardless of how many version sites exist or how the stamping is spelled,
+and a companion test pins the committed tree to exactly two sites that already
+agree. Both are in `tests/test_release_pipeline.py` § #491, and a perturbation
+sweep replays the shipped defect to confirm the guard fails on it.
+
+The general lesson, which is not specific to previews: **a claim in this
+document is not a control.** C1's index refusal was structural and held. C1's
+self-description was prose, and did not.
+
 ### What the channel does and does not attest
 
 The issue proposed attaching "the wheel built by the existing verify path".
