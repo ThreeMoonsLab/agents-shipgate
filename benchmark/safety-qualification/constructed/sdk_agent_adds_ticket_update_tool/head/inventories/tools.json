@@ -1,0 +1,95 @@
+{
+  "tools": [
+    {
+      "name": "support.lookup_ticket",
+      "description": "Fetch a support ticket's subject, status and customer id.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ticket_id": {
+            "type": "string"
+          },
+          "include_comments": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "ticket_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "auth": {
+        "mode": "none"
+      }
+    },
+    {
+      "name": "support.draft_reply",
+      "description": "Draft a reply to the customer for a person to edit and send.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ticket_id": {
+            "type": "string"
+          },
+          "tone": {
+            "type": "string",
+            "default": "concise"
+          }
+        },
+        "required": [
+          "ticket_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "auth": {
+        "mode": "none"
+      }
+    },
+    {
+      "name": "zendesk.update_ticket",
+      "description": "Set a ticket's status and append an internal comment.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ticket_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "pending",
+              "solved"
+            ]
+          },
+          "comment": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "status",
+          "comment"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      },
+      "auth": {
+        "type": "oauth2",
+        "scopes": [
+          "zendesk:tickets:write"
+        ]
+      }
+    }
+  ]
+}
