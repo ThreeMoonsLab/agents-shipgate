@@ -788,6 +788,8 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Capability standard | [`docs/capability-standard.md`](docs/capability-standard.md) | `0.5` |
 | Capability lock schema | [`docs/capability-lock-schema.v0.8.json`](docs/capability-lock-schema.v0.8.json) | `0.8` |
 | Capability lock diff schema | [`docs/capability-lock-diff-schema.v0.9.json`](docs/capability-lock-diff-schema.v0.9.json) | `0.9` |
+| Capability payload schema (frozen) | [`docs/capability-payload-schema.v1.json`](docs/capability-payload-schema.v1.json) | `shipgate.capability_payload/v1` |
+| Capability delta attestation (frozen) | [`docs/capability-delta-attestation-schema.v1.json`](docs/capability-delta-attestation-schema.v1.json) | `shipgate.capability_delta_attestation/v1` |
 | Governance benchmark catalog schema | [`docs/governance-benchmark-catalog-schema.v0.2.json`](docs/governance-benchmark-catalog-schema.v0.2.json) | `0.2` |
 | Governance benchmark result schema | [`docs/governance-benchmark-result-schema.v0.2.json`](docs/governance-benchmark-result-schema.v0.2.json) | `0.2` |
 | Check catalog | [`docs/checks.json`](docs/checks.json) | regenerated each release |
@@ -1479,6 +1481,32 @@ well. In verifier, verify-run, and preview output, follow
 only `control.next_action` and `control.allowed_next_commands`. See the
 [embedded-trigger migration note](../STABILITY.md#migration-note-unreleased-embedded-trigger-routing).
 
+Runtime contract v28 publishes the capability delta as a **standalone
+attestation**. `verify` writes
+`agents-shipgate-reports/capability-delta-attestation.json`: an
+[in-toto](https://github.com/in-toto/attestation) Statement whose
+`predicateType` is
+`https://threemoonslab.com/agents-shipgate/capability-delta/v1` and whose
+predicate carries the frozen `shipgate.capability_payload/v1` **delta view**
+unchanged. The contract now names the predicate type, both schema versions,
+both schema paths, and the artifact, so a consumer can discover the format
+without reading our source. Full specification:
+[`docs/capability-delta-attestation.md`](capability-delta-attestation.md).
+
+Read it when you want *what the agent can do after this change* as a portable
+fact — a runtime gateway, a policy engine, a dashboard, another CI system.
+Nothing about the gate moves: the attestation carries no verdict, no severity
+and no release impact, and `release_decision.decision` remains the only release
+decision signal.
+
+Two things a consumer must branch on. The attestation is written **only for a
+committed-tree subject** — a worktree run publishes a note on
+`verifier.base_notes[]` and no file, because the bytes it evaluated are not in
+any tree object. And `predicate.verification.status` is `bound` or `unbound`:
+only `bound` chains to `verification-receipt.json` through `input_set_id`, and
+a consumer that needs that chain checks the status rather than probing for
+absent fields. Everything else is unchanged from v27.
+
 Runtime contract v27 finishes the v24 rollout on the stream v24 left out.
 **Every** agent-mode error line from `detect`, `init`, and `doctor` now carries
 the same `shipgate.agent_control/v1` object those commands publish on
@@ -1887,7 +1915,7 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b7` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `27` (minimum control contract: `21`)
+- Runtime contract: `28` (minimum control contract: `21`)
 - Current report schema: `0.42` — [`docs/report-schema.v0.42.json`](report-schema.v0.42.json)
 - Current packet schema: `0.17` — [`docs/packet-schema.v0.17.json`](packet-schema.v0.17.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
@@ -1905,6 +1933,8 @@ Downstream repos generated with
 - Current capability standard: `0.5` — [`docs/capability-standard.md`](capability-standard.md)
 - Current capability lock schema: `0.8` — [`docs/capability-lock-schema.v0.8.json`](capability-lock-schema.v0.8.json)
 - Current capability lock diff schema: `0.9` — [`docs/capability-lock-diff-schema.v0.9.json`](capability-lock-diff-schema.v0.9.json)
+- Current capability payload schema: `shipgate.capability_payload/v1` — [`docs/capability-payload-schema.v1.json`](capability-payload-schema.v1.json), specified in [`docs/capability-payload.md`](capability-payload.md)
+- Current capability delta attestation: `shipgate.capability_delta_attestation/v1`, predicate type `https://threemoonslab.com/agents-shipgate/capability-delta/v1` — [`docs/capability-delta-attestation-schema.v1.json`](capability-delta-attestation-schema.v1.json), specified in [`docs/capability-delta-attestation.md`](capability-delta-attestation.md)
 - Current attestation schema: `0.5` — [`docs/attestation-schema.v0.5.json`](attestation-schema.v0.5.json)
 - Current registry schema: `0.4` — [`docs/registry-schema.v0.4.json`](registry-schema.v0.4.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v2` — [`docs/org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json)
@@ -2601,6 +2631,10 @@ The runtime contract also exposes stable non-gating integration fields:
 `agent_handoff_artifact`, `agent_interface_operations[]`, `exit_code_policy`,
 `mcp_tools[]`,
 `capability_lock_schema_version`, `capability_lock_diff_schema_version`,
+`capability_payload_schema_version`, `capability_payload_schema_path`,
+`capability_delta_attestation_schema_version`,
+`capability_delta_attestation_schema_path`,
+`capability_delta_predicate_type`, `capability_delta_attestation_artifact`,
 `capability_standard_version`,
 `governance_benchmark_catalog_schema_version`,
 `governance_benchmark_result_schema_version`, and

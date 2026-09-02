@@ -1,0 +1,340 @@
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "predicate": {
+    "capability_payload_schema_version": "shipgate.capability_payload/v1",
+    "delta": {
+      "analysis_coverage": {
+        "base": {
+          "status": "not_requested",
+          "subjects_outside_analysis": []
+        },
+        "head": {
+          "status": "not_requested",
+          "subjects_outside_analysis": []
+        },
+        "newly_outside_analysis": [],
+        "no_longer_outside_analysis": [],
+        "status": "not_requested"
+      },
+      "base": {
+        "analysis_coverage_digest": "15d415737532ce863b694ed2a18c35762ec54dc5d5b063dac77b90e8da63cb2d",
+        "capability_count": 1,
+        "capability_set_digest": "43aa853a6ed91788e322b665d47fc65d53880c5b3d97a61193f5b3ca5f09e9f9",
+        "capability_standard_version": "0.5",
+        "evidence_set_digest": "6bddeb86d13de74fc9856bbaba1880c9f85818456d847b9952035ded00ddb2d5",
+        "ref": "43d5c9a0ff90a5830479b9bee82a42fe7ee26e30",
+        "subject_count": 1
+      },
+      "capability_payload_schema_version": "shipgate.capability_payload/v1",
+      "capability_standard_version": "0.5",
+      "head": {
+        "analysis_coverage_digest": "15d415737532ce863b694ed2a18c35762ec54dc5d5b063dac77b90e8da63cb2d",
+        "capability_count": 2,
+        "capability_set_digest": "811c22832fa74d6878bb86cdb775be50336949e598a415d8553149b9eaf06938",
+        "capability_standard_version": "0.5",
+        "evidence_set_digest": "b2d4b4f257bf89ea81fd4ab6e09a388a48581374ddd075a7cc0c04e983f1269d",
+        "ref": "4bd1a69f0454848b5bae2bb2120b04e7f4cf16dd",
+        "subject_count": 2
+      },
+      "subjects": [
+        {
+          "changes": [
+            {
+              "after": {
+                "authority": {
+                  "auth_type": "oauth2",
+                  "broad_scopes": [
+                    "stripe:*"
+                  ],
+                  "credential_mode": "service_account",
+                  "scopes": [
+                    "stripe:*"
+                  ],
+                  "source": "mcp"
+                },
+                "capability_id": "cap_29c753b4c9a7297b",
+                "controls": {
+                  "approval_required": false,
+                  "approval_threshold": null,
+                  "confirmation_required": false,
+                  "evidence_approval_ticket": null,
+                  "evidence_owner": "support-platform",
+                  "evidence_runbook": null,
+                  "safeguard_audit_log": null,
+                  "safeguard_dry_run": null,
+                  "safeguard_idempotency": false,
+                  "safeguard_rollback": null
+                },
+                "digests": {
+                  "authority_hash": "c75a3b70b552f566",
+                  "binding_hash": "e2e216189c0e2d55",
+                  "control_hash": "1230dbbe2d78c7d5",
+                  "effect_hash": "72f523c5727eb202",
+                  "evidence_hash": "52c58a4e2ae9cde0",
+                  "identity_hash": "29c753b4c9a7297b",
+                  "risk_hash": "6de543b4519d23fe",
+                  "schema_hash": "673e0bed636c2e49"
+                },
+                "effect": {
+                  "code_execution": false,
+                  "effect": "destructive",
+                  "externally_visible": true,
+                  "financial": true,
+                  "handles_sensitive_data": false,
+                  "high_risk": true,
+                  "idempotency_known": null,
+                  "reversibility": "irreversible"
+                },
+                "evidence": {
+                  "confidence": "high",
+                  "provenance_kind": "static_declaration",
+                  "source_end_line": null,
+                  "source_id": "support_tools",
+                  "source_path": "tools.json",
+                  "source_pointer": "/tools/1",
+                  "source_ref": "tools.json",
+                  "source_start_column": null,
+                  "source_start_line": null,
+                  "source_type": "mcp"
+                },
+                "operation": "stripe.create_refund",
+                "permission": {
+                  "classes": [
+                    "write",
+                    "financial",
+                    "destructive"
+                  ],
+                  "side_effect_unknown": false,
+                  "status": "measured"
+                },
+                "resource": [
+                  "*"
+                ],
+                "risk_tags": [
+                  "destructive",
+                  "financial_write",
+                  "writes_data"
+                ],
+                "scope": [
+                  "stripe:*"
+                ],
+                "subject_kind": "action"
+              },
+              "before": null,
+              "changed_dimensions": [],
+              "semantic_changes": [],
+              "semantic_direction": "added",
+              "transition": "added"
+            }
+          ],
+          "present_in_base": false,
+          "present_in_head": true,
+          "subject": {
+            "agent": "agent:ai-generated-refund-pr-demo/support-agent",
+            "key": "capsubj_dab8b5afd4c60e82",
+            "name": "stripe.create_refund",
+            "provider": "support_tools",
+            "tool_id": "tool_v2_3f697fee9484fccd2eedd0cf680dcc5ae51316d7d8460b03561fed6dac3825a2"
+          },
+          "transition": "added"
+        },
+        {
+          "changes": [
+            {
+              "after": {
+                "authority": {
+                  "auth_type": "oauth2",
+                  "broad_scopes": [],
+                  "credential_mode": "service_account",
+                  "scopes": [
+                    "support:kb:read"
+                  ],
+                  "source": "mcp"
+                },
+                "capability_id": "cap_62f686271fe07f21",
+                "controls": {
+                  "approval_required": false,
+                  "approval_threshold": null,
+                  "confirmation_required": false,
+                  "evidence_approval_ticket": null,
+                  "evidence_owner": "support-platform",
+                  "evidence_runbook": null,
+                  "safeguard_audit_log": null,
+                  "safeguard_dry_run": null,
+                  "safeguard_idempotency": true,
+                  "safeguard_rollback": null
+                },
+                "digests": {
+                  "authority_hash": "c153b800f5bd9cb0",
+                  "binding_hash": "0aba7b797c5ec26a",
+                  "control_hash": "d6ab8f8cb7fa551c",
+                  "effect_hash": "ba0f6a20d51bc3e6",
+                  "evidence_hash": "379c80e95569197d",
+                  "identity_hash": "62f686271fe07f21",
+                  "risk_hash": "12a10acba3ac35ac",
+                  "schema_hash": "d18dae577323051e"
+                },
+                "effect": {
+                  "code_execution": false,
+                  "effect": "financial_write",
+                  "externally_visible": true,
+                  "financial": true,
+                  "handles_sensitive_data": false,
+                  "high_risk": true,
+                  "idempotency_known": true,
+                  "reversibility": "reversible"
+                },
+                "evidence": {
+                  "confidence": "high",
+                  "provenance_kind": "static_declaration",
+                  "source_end_line": null,
+                  "source_id": "support_tools",
+                  "source_path": "tools.json",
+                  "source_pointer": "/tools/0",
+                  "source_ref": "tools.json",
+                  "source_start_column": null,
+                  "source_start_line": null,
+                  "source_type": "mcp"
+                },
+                "operation": "support.search_kb",
+                "permission": {
+                  "classes": [
+                    "financial"
+                  ],
+                  "side_effect_unknown": false,
+                  "status": "measured"
+                },
+                "resource": [
+                  "kb"
+                ],
+                "risk_tags": [
+                  "financial_write",
+                  "read_only"
+                ],
+                "scope": [
+                  "support:kb:read"
+                ],
+                "subject_kind": "action"
+              },
+              "before": {
+                "authority": {
+                  "auth_type": "oauth2",
+                  "broad_scopes": [],
+                  "credential_mode": "service_account",
+                  "scopes": [
+                    "support:kb:read"
+                  ],
+                  "source": "mcp"
+                },
+                "capability_id": "cap_62f686271fe07f21",
+                "controls": {
+                  "approval_required": false,
+                  "approval_threshold": null,
+                  "confirmation_required": false,
+                  "evidence_approval_ticket": null,
+                  "evidence_owner": "support-platform",
+                  "evidence_runbook": null,
+                  "safeguard_audit_log": null,
+                  "safeguard_dry_run": null,
+                  "safeguard_idempotency": true,
+                  "safeguard_rollback": null
+                },
+                "digests": {
+                  "authority_hash": "c153b800f5bd9cb0",
+                  "binding_hash": "fcdc5ba6f03ea360",
+                  "control_hash": "d6ab8f8cb7fa551c",
+                  "effect_hash": "ba0f6a20d51bc3e6",
+                  "evidence_hash": "3964c7d897bfac2b",
+                  "identity_hash": "62f686271fe07f21",
+                  "risk_hash": "12a10acba3ac35ac",
+                  "schema_hash": "d18dae577323051e"
+                },
+                "effect": {
+                  "code_execution": false,
+                  "effect": "financial_write",
+                  "externally_visible": true,
+                  "financial": true,
+                  "handles_sensitive_data": false,
+                  "high_risk": true,
+                  "idempotency_known": true,
+                  "reversibility": "reversible"
+                },
+                "evidence": {
+                  "confidence": "high",
+                  "provenance_kind": "static_declaration",
+                  "source_end_line": null,
+                  "source_id": "support_tools",
+                  "source_path": "tools.json",
+                  "source_pointer": "/tools/0",
+                  "source_ref": "tools.json",
+                  "source_start_column": null,
+                  "source_start_line": null,
+                  "source_type": "mcp"
+                },
+                "operation": "support.search_kb",
+                "permission": {
+                  "classes": [
+                    "financial"
+                  ],
+                  "side_effect_unknown": false,
+                  "status": "measured"
+                },
+                "resource": [
+                  "kb"
+                ],
+                "risk_tags": [
+                  "financial_write",
+                  "read_only"
+                ],
+                "scope": [
+                  "support:kb:read"
+                ],
+                "subject_kind": "action"
+              },
+              "changed_dimensions": [
+                "binding_hash",
+                "evidence_hash"
+              ],
+              "semantic_changes": [],
+              "semantic_direction": "unknown",
+              "transition": "changed"
+            }
+          ],
+          "present_in_base": true,
+          "present_in_head": true,
+          "subject": {
+            "agent": "agent:ai-generated-refund-pr-demo/support-agent",
+            "key": "capsubj_2c49d03810273be6",
+            "name": "support.search_kb",
+            "provider": "support_tools",
+            "tool_id": "tool_v2_5976cee55b100d1f618c776b303e00e26f22ee32d2b911d46369c1b683996ba8"
+          },
+          "transition": "modified"
+        }
+      ],
+      "summary": {
+        "added_subjects": 1,
+        "capability_changes": 2,
+        "modified_subjects": 1,
+        "removed_subjects": 0,
+        "subjects": 2
+      },
+      "view": "delta"
+    },
+    "predicate_schema_version": "shipgate.capability_delta_attestation/v1",
+    "verification": {
+      "input_set_id": null,
+      "status": "unbound",
+      "subject_id": null
+    }
+  },
+  "predicateType": "https://threemoonslab.com/agents-shipgate/capability-delta/v1",
+  "subject": [
+    {
+      "digest": {
+        "gitTree": "4bd1a69f0454848b5bae2bb2120b04e7f4cf16dd"
+      },
+      "name": "samples/ai_generated_refund_pr"
+    }
+  ]
+}

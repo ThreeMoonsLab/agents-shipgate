@@ -25,6 +25,15 @@ from agents_shipgate.schemas.capabilities import (
     CAPABILITY_LOCK_SCHEMA_VERSION,
     CAPABILITY_STANDARD_VERSION,
 )
+from agents_shipgate.schemas.capability_attestation import (
+    CAPABILITY_DELTA_ATTESTATION_SCHEMA_PATH,
+    CAPABILITY_DELTA_ATTESTATION_SCHEMA_VERSION,
+    CAPABILITY_DELTA_PREDICATE_TYPE,
+)
+from agents_shipgate.schemas.capability_payload import (
+    CAPABILITY_PAYLOAD_SCHEMA_PATH,
+    CAPABILITY_PAYLOAD_SCHEMA_VERSION,
+)
 from agents_shipgate.schemas.codex_boundary_result import (
     CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
 )
@@ -117,7 +126,24 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # ``AgentControl`` and ``shipgate.agent_control/v1`` are both byte-identical to
 # v26 — the same envelope reaches one more place — so
 # ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21 for the fourth time.
-CONTRACT_VERSION: Literal["27"] = "27"
+#
+# v28 publishes the capability delta as a standalone, versioned attestation
+# (#470). ``verify`` writes
+# ``agents-shipgate-reports/capability-delta-attestation.json`` — an in-toto
+# Statement whose predicate carries the frozen
+# ``shipgate.capability_payload/v1`` delta — and the contract now names the
+# predicate type, the two schema versions and the artifact, so a consumer can
+# discover the format without reading our source. The payload schema was frozen
+# in v27's cycle but deliberately left unregistered while nothing emitted it;
+# this is the increment that ships both halves together.
+#
+# Additive on the agent side: ``AgentControl`` and
+# ``shipgate.agent_control/v1`` are byte-identical to v27, so
+# ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21 for the fifth time. The
+# attestation gates nothing — ``release_decision.decision`` remains the only
+# release gate — and is absent, with a note on the run, whenever the evaluated
+# subject is a worktree snapshot rather than a committed tree.
+CONTRACT_VERSION: Literal["28"] = "28"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"
@@ -201,6 +227,8 @@ EXTERNAL_INTEGRATION_SURFACES: tuple[str, ...] = (
     "preflight",
     "capability_lock",
     "capability_lock_diff",
+    "capability_payload",
+    "capability_delta_attestation",
     "capability_standard",
     "attestation",
     "registry",
@@ -400,6 +428,9 @@ ARTIFACTS: dict[str, str] = {
     "pr_comment": "agents-shipgate-reports/pr-comment.md",
     "packet": "agents-shipgate-reports/packet.json",
     "attestation": "agents-shipgate-reports/attestation.json",
+    "capability_delta_attestation": (
+        "agents-shipgate-reports/capability-delta-attestation.json"
+    ),
     "org_evidence_bundle": "agents-shipgate-reports/org-evidence-bundle.json",
     "host_grants": "agents-shipgate-reports/host-grants.json",
     "org_status": "agents-shipgate-reports/org-status.json",
@@ -511,6 +542,12 @@ class ContractPayload(BaseModel):
     agent_boundary_result_schema_path: str
     capability_lock_schema_version: str
     capability_lock_diff_schema_version: str
+    capability_payload_schema_version: str
+    capability_payload_schema_path: str
+    capability_delta_attestation_schema_version: str
+    capability_delta_attestation_schema_path: str
+    capability_delta_predicate_type: str
+    capability_delta_attestation_artifact: str
     preflight_schema_version: str
     capability_standard_version: str
     governance_benchmark_catalog_schema_version: str
@@ -596,6 +633,18 @@ def build_contract_payload() -> ContractPayload:
         agent_boundary_result_schema_path=AGENT_BOUNDARY_RESULT_SCHEMA_PATH,
         capability_lock_schema_version=CAPABILITY_LOCK_SCHEMA_VERSION,
         capability_lock_diff_schema_version=CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
+        capability_payload_schema_version=CAPABILITY_PAYLOAD_SCHEMA_VERSION,
+        capability_payload_schema_path=CAPABILITY_PAYLOAD_SCHEMA_PATH,
+        capability_delta_attestation_schema_version=(
+            CAPABILITY_DELTA_ATTESTATION_SCHEMA_VERSION
+        ),
+        capability_delta_attestation_schema_path=(
+            CAPABILITY_DELTA_ATTESTATION_SCHEMA_PATH
+        ),
+        capability_delta_predicate_type=CAPABILITY_DELTA_PREDICATE_TYPE,
+        capability_delta_attestation_artifact=ARTIFACTS[
+            "capability_delta_attestation"
+        ],
         preflight_schema_version=PREFLIGHT_SCHEMA_VERSION,
         capability_standard_version=CAPABILITY_STANDARD_VERSION,
         governance_benchmark_catalog_schema_version=(GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION),

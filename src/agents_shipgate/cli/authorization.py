@@ -35,6 +35,9 @@ from agents_shipgate.core.verification_identity import (
     load_validated_receipt_artifacts,
     validate_engine_requirement,
 )
+from agents_shipgate.schemas.capability_attestation import (
+    CAPABILITY_DELTA_ATTESTATION_ARTIFACT_KEY,
+)
 from agents_shipgate.schemas.diagnostics import NextAction
 from agents_shipgate.schemas.human_authorization import (
     AuthorizationEvaluationV1,
@@ -48,10 +51,17 @@ from agents_shipgate.schemas.verifier import VerifierArtifact
 
 authorization_app = typer.Typer(no_args_is_help=True)
 
+#: The artifact names a terminal receipt may bind and still be executable under
+#: a signed authorization. Deny-by-default on purpose: a receipt naming
+#: something this closure does not know about is refused rather than executed
+#: over. It is therefore a second copy of what ``verify`` writes, and
+#: ``tests/test_capability_delta_attestation.py`` pins the two together — a new
+#: verify artifact that nobody adds here makes every authorized push fail.
 _AUTHORIZATION_RECEIPT_ARTIFACTS = frozenset(
     {
         "agent_handoff_json",
         "base_capability_lock_json",
+        CAPABILITY_DELTA_ATTESTATION_ARTIFACT_KEY,
         "capability_lock_diff_json",
         "capability_lock_diff_markdown",
         "capability_lock_json",

@@ -193,6 +193,86 @@ def test_installed_wheel_replays_incident_fixtures(
         assert not (set(absent_checks) & check_ids)
 
 
+def test_wheel_emits_a_capability_delta_attestation(
+    built_wheel: Path, tmp_path: Path
+) -> None:
+    """#470: the attestation must reach a packaged release, not only a checkout.
+
+    Run against the wheel's own bytes alone, with the working directory outside
+    the repository, so a hidden read of ``docs/`` or ``samples/`` — neither of
+    which a release has at those paths — fails rather than silently succeeding
+    from the developer's tree. The wheel carries the shipped samples at
+    ``agents_shipgate/_fixtures``, so the projection has real capability facts
+    to work from without the repository.
+
+    Extracted rather than pip-installed on purpose. ``built_wheel`` is already
+    required by every other test in this module, while ``installed_wheel_site``
+    is required by one — and session fixtures are per *worker* under xdist, so
+    a second consumer of the install fixture can add a whole wheel build and
+    install to another worker's run. This test needs the packaged file tree,
+    not a resolved distribution, and the ``test`` job has no time to spare.
+    """
+
+    site = tmp_path / "site"
+    with zipfile.ZipFile(built_wheel) as archive:
+        archive.extractall(site)
+    workdir = tmp_path / "elsewhere"
+    workdir.mkdir()
+    script = workdir / "emit.py"
+    script.write_text(
+        """
+import shutil, sys
+from pathlib import Path
+
+import agents_shipgate
+from agents_shipgate.cli.capability import build_capability_lock_from_config
+from agents_shipgate.core.capability_attestation import (
+    project_capability_delta_attestation,
+)
+from agents_shipgate.schemas.capability_attestation import render_attestation_json
+
+assert Path(agents_shipgate.__file__).parent.parent == Path(sys.argv[1]), (
+    "the script must run against the packaged wheel, not the source tree"
+)
+sample = Path(agents_shipgate.__file__).parent / "_fixtures" / "ai_generated_refund_pr"
+base = build_capability_lock_from_config(
+    config=sample / "shipgate.yaml", no_plugins=True, verbose=False
+)
+head_root = Path("head")
+shutil.copytree(sample, head_root)
+shutil.copyfile(head_root / "_head" / "tools.json", head_root / "tools.json")
+head = build_capability_lock_from_config(
+    config=head_root / "shipgate.yaml", no_plugins=True, verbose=False
+)
+attestation = project_capability_delta_attestation(
+    base.capabilities,
+    head.capabilities,
+    subject_name="wheel-check",
+    base_tree_sha="a" * 40,
+    head_tree_sha="b" * 40,
+    head_commit_sha=None,
+)
+sys.stdout.write(render_attestation_json(attestation))
+""",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(site)
+    env["PYTHONNOUSERSITE"] = "1"
+    result = subprocess.run(
+        [sys.executable, str(script), str(site)],
+        cwd=workdir,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    document = json.loads(result.stdout)
+    assert document["predicateType"].endswith("/capability-delta/v1")
+    assert document["predicate"]["delta"]["summary"]["subjects"] >= 1
+
+
 def test_wheel_excludes_generated_shipgate_reports(built_wheel: Path) -> None:
     with zipfile.ZipFile(built_wheel) as archive:
         generated_reports = [

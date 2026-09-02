@@ -40,6 +40,12 @@ from agents_shipgate.core.authorization_execution import (
     authorization_execute_command,
     ensure_authorization_runtime_is_external,
 )
+from agents_shipgate.core.capability_attestation import (
+    CapabilityDeltaAttestationInputs,
+    ObservedSubject,
+    coverage_from_scan,
+    project_capability_delta_attestation,
+)
 from agents_shipgate.core.capability_lock import (
     DEFAULT_CAPABILITY_LOCK_PATH,
     diff_capability_locks,
@@ -107,7 +113,18 @@ from agents_shipgate.schemas.agent_control import (
     HumanControlAction,
 )
 from agents_shipgate.schemas.agent_control_envelope import MAX_ENVELOPE_PROSE_BYTES
-from agents_shipgate.schemas.capabilities import CapabilityLockDiffV1, CapabilityLockFileV1
+from agents_shipgate.schemas.capabilities import (
+    CapabilityFactV1,
+    CapabilityLockDiffV1,
+    CapabilityLockFileV1,
+)
+from agents_shipgate.schemas.capability_attestation import (
+    CAPABILITY_DELTA_ATTESTATION_ARTIFACT_KEY,
+    CAPABILITY_DELTA_ATTESTATION_FILENAME,
+    CapabilityDeltaVerificationRef,
+    render_attestation_json,
+)
+from agents_shipgate.schemas.capability_payload import CapabilityAnalysisCoverage
 from agents_shipgate.schemas.current_control import (
     CurrentControlOperation,
     CurrentControlWorkspaceIdentity,
@@ -869,6 +886,7 @@ def run_verify(
     head_manifest_text: str | None = None
     head_capability_lock: CapabilityLockFileV1 | None = None
     capability_lock_diff: CapabilityLockDiffV1 | None = None
+    capability_attestation_inputs: CapabilityDeltaAttestationInputs | None = None
     head_human_context: HumanArtifactContext | None = None
 
     def capture_capability_lock(lock: CapabilityLockFileV1) -> None:
@@ -1179,14 +1197,18 @@ def run_verify(
         head_status = "succeeded"
         if head_capability_lock is not None:
             try:
-                capability_lock_diff = _write_capability_review_artifacts(
+                review_artifacts = _write_capability_review_artifacts(
                     git_root=git_root,
                     out_dir=out_dir,
                     base=base,
                     base_lock=base_capability_lock,
                     head_lock=head_capability_lock,
+                    head_report=report,
+                    base_report_path=base_report,
                     base_notes=base_notes,
                 )
+                capability_lock_diff = review_artifacts.diff
+                capability_attestation_inputs = review_artifacts.attestation
             except Exception as exc:  # noqa: BLE001 - review artifacts never gate.
                 base_notes.append(f"Capability review artifacts unavailable: {exc}")
     except ConfigError as exc:
@@ -1270,6 +1292,7 @@ def run_verify(
                     fail_on=fail_on,
                     pr_comment_style=pr_comment_style,
                     capability_lock_diff=capability_lock_diff,
+                    capability_attestation_inputs=capability_attestation_inputs,
                     human_context=head_human_context,
                     input_root=head_input_root,
                     input_snapshot=head_snapshot,
@@ -3872,6 +3895,7 @@ def _remove_scan_artifacts(out_dir: Path) -> None:
         "base.capabilities.lock.json",
         "capability-lock-diff.json",
         "capability-lock-diff.md",
+        CAPABILITY_DELTA_ATTESTATION_FILENAME,
         # Remediation instructions must not outlive the report they describe:
         # an early verifier reset would otherwise clear report.json and leave a
         # scaffold behind asking for declarations nothing is measuring.
@@ -4091,6 +4115,7 @@ def _write_artifacts(
     fail_on: list[str] | None,
     pr_comment_style: str,
     capability_lock_diff: CapabilityLockDiffV1 | None = None,
+    capability_attestation_inputs: CapabilityDeltaAttestationInputs | None = None,
     human_context: HumanArtifactContext | None = None,
     input_root: Path | None = None,
     input_snapshot: StaticInputSnapshot | None = None,
@@ -4370,6 +4395,13 @@ def _write_artifacts(
     verifier.engine_requirement_id = plan.engine.engine_requirement_id
     verifier.executor_id = executor.executor_id
     verifier.decision_id = decision_id
+    _write_capability_delta_attestation(
+        verifier=verifier,
+        plan=plan,
+        inputs=capability_attestation_inputs,
+        out_dir=verifier_path.parent,
+        git_root=git_root,
+    )
     evaluation, accepted_grant = _evaluate_authorization_overlay(
         authorization_path=authorization_path,
         verifier=verifier,
@@ -4735,6 +4767,23 @@ def _static_input_sha256(path: Path | None) -> str | None:
     ).hexdigest()
 
 
+@dataclasses.dataclass(frozen=True)
+class _CapabilityReviewArtifacts:
+    """What the capability review produced, for the surfaces that consume it.
+
+    ``attestation`` is ``None`` whenever the delta cannot be projected — no
+    base, an unreadable base lock — which is the same condition that leaves
+    ``diff`` ``None``. It is a separate field rather than something derived
+    from ``diff`` because the two carry different things: the diff is the
+    reviewer-facing lock comparison, and the attestation inputs are the
+    capability facts plus the analysed-surface coverage the exported payload
+    needs.
+    """
+
+    diff: CapabilityLockDiffV1 | None = None
+    attestation: CapabilityDeltaAttestationInputs | None = None
+
+
 def _write_capability_review_artifacts(
     *,
     git_root: Path,
@@ -4742,14 +4791,16 @@ def _write_capability_review_artifacts(
     base: str | None,
     base_lock: CapabilityLockFileV1 | None,
     head_lock: CapabilityLockFileV1,
+    head_report: ReadinessReport | None,
+    base_report_path: Path | None,
     base_notes: list[str],
-) -> CapabilityLockDiffV1 | None:
+) -> _CapabilityReviewArtifacts:
     lock_path = out_dir / "capabilities.lock.json"
     base_lock_path = out_dir / "base.capabilities.lock.json"
     lock_path.write_text(render_capability_lock_json(head_lock), encoding="utf-8")
     if not base:
         base_notes.append("Capability lock diff unavailable: no --base ref was provided.")
-        return None
+        return _CapabilityReviewArtifacts()
     used_scan_derived_base = base_lock is not None
     if base_lock is None:
         base_lock = _load_base_capability_lock(
@@ -4758,7 +4809,7 @@ def _write_capability_review_artifacts(
             base_notes=base_notes,
         )
     if base_lock is None:
-        return None
+        return _CapabilityReviewArtifacts()
     base_lock_path.write_text(render_capability_lock_json(base_lock), encoding="utf-8")
     diff = diff_capability_locks(
         base_lock,
@@ -4781,7 +4832,187 @@ def _write_capability_review_artifacts(
             "Capability lock diff compared the base reviewed envelope at "
             f"{DEFAULT_CAPABILITY_LOCK_PATH.as_posix()}."
         )
-    return diff
+    return _CapabilityReviewArtifacts(
+        diff=diff,
+        attestation=CapabilityDeltaAttestationInputs(
+            base_facts=tuple(base_lock.capabilities),
+            head_facts=tuple(head_lock.capabilities),
+            base_coverage=_capability_analysis_coverage(
+                agent_id=base_lock.source.agent_id,
+                facts=base_lock.capabilities,
+                # Only a scan-derived base has a report describing the very
+                # scan that produced these facts. A base lock read from the
+                # committed envelope, or a ``--diff-from`` report, describes a
+                # different run, and comparing one run's catalog against
+                # another run's capability set would name subjects as
+                # unanalysed that were never in that catalog at all.
+                observed=(
+                    _observed_subjects_from_report_json(base_report_path)
+                    if used_scan_derived_base
+                    else None
+                ),
+            ),
+            head_coverage=_capability_analysis_coverage(
+                agent_id=head_lock.source.agent_id,
+                facts=head_lock.capabilities,
+                observed=(
+                    _observed_subjects(head_report) if head_report is not None else None
+                ),
+            ),
+        ),
+    )
+
+
+def _capability_analysis_coverage(
+    *,
+    agent_id: str,
+    facts: Sequence[CapabilityFactV1],
+    observed: list[ObservedSubject] | None,
+) -> CapabilityAnalysisCoverage:
+    """Name the observed-but-unanalysed subjects, or say the side is unknown.
+
+    ``observed is None`` is the fail-open shape made visible: the comparison
+    was needed and could not be made, so the side publishes ``unavailable``
+    rather than an empty ``complete`` a consumer would read as "nothing was
+    left out" (#437).
+    """
+
+    if observed is None:
+        return CapabilityAnalysisCoverage(
+            status="unavailable",
+            subjects_outside_analysis=(),
+        )
+    return coverage_from_scan(agent_id=agent_id, observed=observed, analysed=facts)
+
+
+def _observed_subjects(report: ReadinessReport) -> list[ObservedSubject] | None:
+    """The catalog the scan read — every tool, bound or not.
+
+    ``None``, never a shortened list, when a row carries no canonical id. A
+    dropped row is a subject that silently stops being *observed*, so it can
+    never be reported as outside analysis either — which is the #437 defect
+    reached by a different route. Losing the whole side is honest; losing one
+    row is not.
+    """
+
+    observed: list[ObservedSubject] = []
+    for tool in report.tool_surface_facts.tools:
+        if not tool.tool_id:
+            return None
+        observed.append(
+            ObservedSubject(
+                tool_id=tool.tool_id,
+                name=tool.name,
+                provider=tool.provider,
+            )
+        )
+    return observed
+
+
+def _observed_subjects_from_report_json(path: Path | None) -> list[ObservedSubject] | None:
+    """Read the base scan's catalog back off disk.
+
+    Returns ``None`` — not an empty list — for anything it cannot establish: a
+    missing file, unreadable bytes, or a report that predates
+    ``tool_surface_facts``. An empty catalog and an unread one are different
+    claims, and only the first may be published as ``complete``.
+    """
+
+    if path is None or not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    facts = payload.get("tool_surface_facts")
+    if not isinstance(facts, dict):
+        return None
+    rows = facts.get("tools")
+    if not isinstance(rows, list):
+        return None
+    observed: list[ObservedSubject] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            return None
+        tool_id = row.get("tool_id")
+        name = row.get("name")
+        provider = row.get("provider")
+        if not isinstance(tool_id, str) or not tool_id:
+            # Not `continue`: a row with no canonical id is a subject that
+            # silently stops being observed, and an unobserved subject can
+            # never be reported as outside analysis.
+            return None
+        if not isinstance(name, str) or not isinstance(provider, str):
+            return None
+        observed.append(ObservedSubject(tool_id=tool_id, name=name, provider=provider))
+    return observed
+
+
+def _write_capability_delta_attestation(
+    *,
+    verifier: VerifierArtifact,
+    plan: VerificationPlan,
+    inputs: CapabilityDeltaAttestationInputs | None,
+    out_dir: Path,
+    git_root: Path,
+) -> None:
+    """Publish the capability delta as a standalone in-toto attestation (#470).
+
+    Written here rather than beside the lock diff because this is the first
+    point at which the run has both halves the statement binds together: the
+    resolved Git subject, and the ``input_set_id`` that chains it back to
+    ``verification-receipt.json``.
+
+    **Only a committed tree is attestable.** A worktree-overlay run scanned
+    bytes that are not in any tree object, so publishing the head tree id as
+    "what was reviewed" would attest content nobody can fetch. The condition is
+    the one the human-authorization path already requires, for the same reason.
+
+    Never gates and never raises: a review artifact that could not be produced
+    is a note on the run, not a failure of it.
+    """
+
+    if inputs is None:
+        return
+    git = plan.subject.git
+    if (
+        git.snapshot_kind != "committed_tree"
+        or git.worktree_overlay_sha256 is not None
+        or not git.base_tree_sha
+        or not git.head_tree_sha
+    ):
+        verifier.base_notes.append(
+            "Capability delta attestation not written: it attests a committed "
+            "tree, and this run evaluated a worktree snapshot. Re-run with "
+            "--head <ref> to attest the committed state."
+        )
+        return
+    try:
+        attestation = project_capability_delta_attestation(
+            inputs.base_facts,
+            inputs.head_facts,
+            subject_name=git.repository_id,
+            base_tree_sha=git.base_tree_sha,
+            head_tree_sha=git.head_tree_sha,
+            head_commit_sha=git.head_commit_sha,
+            base_analysis_coverage=inputs.base_coverage,
+            head_analysis_coverage=inputs.head_coverage,
+            verification=CapabilityDeltaVerificationRef(
+                status="bound",
+                input_set_id=plan.inputs.input_set_id,
+                subject_id=plan.subject.subject_id,
+            ),
+        )
+        path = out_dir / CAPABILITY_DELTA_ATTESTATION_FILENAME
+        path.write_text(render_attestation_json(attestation), encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001 - review artifacts never gate.
+        verifier.base_notes.append(f"Capability delta attestation unavailable: {exc}")
+        return
+    verifier.artifacts[CAPABILITY_DELTA_ATTESTATION_ARTIFACT_KEY] = _display_path(
+        path.resolve(), git_root
+    )
 
 
 def _load_base_capability_lock(

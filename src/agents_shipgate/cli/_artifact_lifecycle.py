@@ -20,6 +20,10 @@ VERIFIER_ROUTE_ARTIFACT_NAMES = (
     "verification-artifacts.json",
     "verification-receipt.json",
     "human-authorization.json",
+    # Identity-bearing: it names the ``input_set_id`` of the run that
+    # produced it, so one left beside a later run's receipt would offer a
+    # chain into a verification that is no longer current.
+    "capability-delta-attestation.json",
 )
 
 

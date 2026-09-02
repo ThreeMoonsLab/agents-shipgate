@@ -2,6 +2,71 @@
 
 ## Unreleased
 
+- **The capability delta is now a standalone attestation any consumer can
+  verify.** (#470) `verify` writes
+  `agents-shipgate-reports/capability-delta-attestation.json`: an in-toto
+  Statement whose `predicateType` is
+  `https://threemoonslab.com/agents-shipgate/capability-delta/v1` and whose
+  predicate carries the frozen `shipgate.capability_payload/v1` **delta view**
+  unchanged. Runtime contract moves **27 → 28** to advertise the predicate
+  type, both schema versions, both schema paths and the artifact —
+  `capability_payload` was frozen in #469 and deliberately left unregistered
+  while nothing emitted it, so the emitter and the registration land together.
+
+  There is no second payload shape and no second computation. The predicate
+  embeds `project_capability_delta`'s output verbatim, and
+  `diff_capability_locks` — what the PR comment renders — is the same engine, so
+  the capability-change count on both surfaces is one value by construction.
+
+  **The subject is the reviewed tree, and the payload has to agree.** The
+  statement names exactly one subject whose `digest.gitTree` must equal
+  `predicate.delta.head.ref`; `base.ref` is the base tree. Without that join,
+  four edited characters would move a valid delta onto a commit it never
+  reviewed. An attestation is written **only for a committed-tree subject**: a
+  worktree run scanned bytes that are in no tree object, so it withholds the
+  file and says so on `verifier.base_notes[]`.
+
+  `predicate.verification` chains to the receipt through `input_set_id` and
+  `subject_id`, and its `status` is `bound` or `unbound` — only `bound` may
+  name identities, the same fail-closed shape `analysis_coverage` uses.
+  `request_id`, `engine_requirement_id` and `decision_id` are deliberately not
+  published: they mix in the engine build and the platform, so an interchange
+  format carrying them would emit different bytes for an identical review.
+
+  `analysis_coverage` is populated per side from the run's own conservation law
+  — observed catalog minus analysed subjects — so a tool that arrives and is
+  never bound reaches the attestation as a **named** `newly_outside_analysis`
+  row instead of being silently absent (#437). A side the run could not
+  establish publishes `unavailable`, which is not a claim that nothing was left
+  out.
+
+  [`tools/verify-capability-delta.py`](tools/verify-capability-delta.py) is the
+  reference consumer: stdlib-only, one file, importing nothing of ours. It
+  applies 31 published rules — stage one implemented natively (`S1`-`S7`), the
+  envelope's nine, the payload's own stage-two twelve, and two that check a
+  supplied receipt — and rejects a relabelled subject, an inflated summary, a
+  forged subject key, a downgraded coverage status, a silently escalated
+  effect, and any value outside the closed v1 vocabularies. It re-implements
+  the payload's semantics independently, and tests pin every restated
+  vocabulary and rank table against the package's so the two cannot drift.
+
+  Structure is validated **before** anything derived, and the derived rules are
+  skipped when it fails: they read the document as though it conforms, so on
+  one that does not they either raise or agree with it. A 2,770-case mutation
+  sweep over the shipped example produces rule rows and never a stack trace.
+
+  `--receipt <path>` is where the attestation's `verification.status: "bound"`
+  stops being the file's word for itself: it checks that the receipt carries
+  the same `input_set_id` and `subject_id`, and that the receipt's artifact
+  manifest binds these exact bytes. `--require-receipt-binding` remains, named
+  and documented as the shape-only check it is.
+
+  Nothing gates: the attestation carries no verdict, no severity and no release
+  impact, and `release_decision.decision` remains the only release gate. New
+  published documents: `docs/capability-delta-attestation.md`,
+  `docs/capability-delta-attestation-schema.v1.json`, and a generated worked
+  example under `docs/examples/`.
+
 - **An MCP server whose tool surface exists only as code now has a route.**
   (#431) `detect` reported the official MongoDB and Grafana MCP servers as *not
   an agent project*: both publish dozens of tools — `drop-database`,

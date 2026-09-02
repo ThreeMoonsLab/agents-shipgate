@@ -49,6 +49,10 @@ def test_scan_removes_stale_verifier_route_artifacts(tmp_path: Path) -> None:
         "verification-artifacts.json",
         "verification-receipt.json",
         "human-authorization.json",
+        # Identity-bearing too: it names the ``input_set_id`` of the run that
+        # produced it, so a stale one beside a later run's receipt would offer
+        # a chain into a verification that is no longer current (#470).
+        "capability-delta-attestation.json",
     }
     for name in VERIFIER_ROUTE_ARTIFACT_NAMES:
         (tmp_path / name).write_text('{"stale": true}\n', encoding="utf-8")

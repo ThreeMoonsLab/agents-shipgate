@@ -26,9 +26,10 @@ state file's location, name, and regeneration discipline, belong to those
 surfaces. Nothing here gates: `release_decision.decision` remains the only
 release gate, and neither view creates a second verdict.
 
-Nothing emits this payload yet. It is published as a schema, a spec, and the
-projection that fills it, so the two surfaces that will emit it have one shape
-to agree on.
+`verify` emits the delta view, wrapped as
+[a standalone attestation](capability-delta-attestation.md). The state view is
+still unemitted; it is published here as a schema, a spec, and the projection
+that fills it, so the surface that will emit it has the same shape to agree on.
 
 ---
 
@@ -369,9 +370,11 @@ name subjects when its status is `complete`.
 
 `agents_shipgate.schemas.capability_payload` is the reference implementation of
 both stages: parsing a payload with `CapabilityPayloadV1` runs every rule in
-this section. A standalone verifier that does the same without depending on
-this package is [#470](https://github.com/ThreeMoonsLab/agents-shipgate/issues/470)'s
-deliverable.
+this section. [`tools/verify-capability-delta.py`](../tools/verify-capability-delta.py)
+is the standalone one — stdlib-only, importing nothing of ours — and it applies
+every rule above that a delta can carry. See
+[`capability-delta-attestation.md`](capability-delta-attestation.md) for the
+rule ids it reports and what a passing run establishes.
 
 ## Required and optional
 
@@ -490,9 +493,11 @@ The rules, then:
 Both surfaces reference this schema **by version** and define no second payload
 shape:
 
-- **#470, the delta attestation** wraps `view: "delta"` as its predicate
-  payload. The predicate URI, the attested subject, and signing are that issue's
-  surface; the bytes inside are this one.
+- **The delta attestation** (#470, shipped) wraps `view: "delta"` as its
+  predicate payload — predicate type
+  `https://threemoonslab.com/agents-shipgate/capability-delta/v1`, specified in
+  [`capability-delta-attestation.md`](capability-delta-attestation.md). The
+  attested subject and signing are that surface; the bytes inside are this one.
 - **#474, the committed state** writes `view: "state"`. The file's location,
   regeneration discipline, and staleness semantics are that issue's surface; the
   bytes inside are this one.

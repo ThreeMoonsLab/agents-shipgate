@@ -13,6 +13,83 @@ for reproducible CI.
 
 ---
 
+<a id="migration-note-unreleased-capability-delta-attestation"></a>
+
+## Migration Note: unreleased — the capability delta becomes a published attestation
+
+`contract_version` moves **27 → 28**. `minimum_control_contract_version` stays
+at `21`, `report_schema_version` is unchanged, and no already-published schema
+document changes: both the `AgentControl` union and `shipgate.agent_control/v1`
+are byte-identical to v27. What moves is that a new artifact exists and the
+contract advertises it.
+
+**`verify` writes `agents-shipgate-reports/capability-delta-attestation.json`.**
+It is an [in-toto](https://github.com/in-toto/attestation) Statement whose
+`predicateType` is
+`https://threemoonslab.com/agents-shipgate/capability-delta/v1` and whose
+`predicate.delta` is the frozen `shipgate.capability_payload/v1` **delta view**,
+unchanged. Full specification:
+[`docs/capability-delta-attestation.md`](docs/capability-delta-attestation.md);
+frozen schema:
+[`docs/capability-delta-attestation-schema.v1.json`](docs/capability-delta-attestation-schema.v1.json).
+
+**Nothing gates on it.** The attestation carries no verdict, no severity and no
+per-subject release impact, by design: publishing an impact in an interchange
+format invites a consumer to gate on it, which is a second verdict by another
+name. `release_decision.decision` remains the only release gate, and no exit
+code, verdict, finding, or check id changes.
+
+**Six additive fields on the runtime contract**, published on both
+`agents-shipgate contract --json` and `.well-known/agents-shipgate.json`:
+`capability_payload_schema_version`, `capability_payload_schema_path`,
+`capability_delta_attestation_schema_version`,
+`capability_delta_attestation_schema_path`,
+`capability_delta_predicate_type`, and
+`capability_delta_attestation_artifact`. `external_integration_surfaces[]` gains
+`capability_payload` and `capability_delta_attestation`, and `artifacts{}` gains
+`capability_delta_attestation`. `shipgate.capability_payload/v1` itself was
+frozen in the previous cycle and deliberately left unregistered while nothing
+emitted it; registering a schema no artifact carries would have been a contract
+bump with nothing behind it, so both halves land here.
+
+**Two things a consumer must branch on, not probe for.**
+
+- **The artifact is absent for a worktree run.** It attests a committed tree,
+  and a `verify` invoked without `--head` evaluates a worktree snapshot whose
+  bytes are in no tree object. Such a run writes no attestation and appends a
+  note to `verifier.base_notes[]` saying why. The GitHub Action always passes an
+  explicit `--head`, so CI runs are unaffected. Absence is not "the delta was
+  empty".
+- **`predicate.verification.status` is `bound` or `unbound`.** Only `bound`
+  carries `input_set_id` and `subject_id`, and the schema refuses every other
+  combination. A consumer that requires the chain into
+  `verification-receipt.json` checks the status. `verify` always emits `bound`.
+
+**`shipgate.capability_delta_attestation/v1` is closed, like its payload.**
+Every object forbids extra properties and every vocabulary is a closed enum, so
+there is no compatible in-place widening: any addition, removal, or change of
+meaning is `…/capability-delta/v2`, published beside `v1`, with `v1` remaining
+readable for at least one minor cycle. This is deliberately the opposite promise
+from `report.json`, which is open by construction and additive within a version.
+
+**Verifying one requires nothing of ours.**
+[`tools/verify-capability-delta.py`](tools/verify-capability-delta.py) is
+stdlib-only and applies every published rule; the rule ids it reports are listed
+on the spec page. It enforces the closed v1 vocabularies itself rather than
+deferring to a JSON Schema library, so the default command rejects
+out-of-contract content without one.
+
+The statement is emitted **unsigned** in `v1`: a passing run establishes
+self-consistency and that the subject is the state the delta describes, not
+authorship. Wrap the bytes in a DSSE envelope, or trust the transport.
+
+Two things a consumer must not confuse. `verification.status: "bound"` is the
+producer's claim; `--receipt <path>` is the check, joining the identities and
+the artifact-manifest digest against a receipt you supply.
+`--require-receipt-binding` refuses an `unbound` statement and nothing more.
+
+---
+
 <a id="migration-note-unreleased-verifier-explanations"></a>
 
 ## Migration Note: unreleased — verifier explanations name the cause that acted
