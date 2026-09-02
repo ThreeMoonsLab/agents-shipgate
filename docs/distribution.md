@@ -9,6 +9,14 @@ These items require release infrastructure, registry credentials, domains, or Gi
 - GitHub Releases attach the independently qualified wheel, SBOM,
   `safety-qualification.json`, and their Sigstore bundles. The tag workflow
   does not rebuild or publish an unqualified sdist.
+- **Unqualified previews** are published as GitHub *pre-releases* at
+  `preview-<version>`, carrying one wheel and no qualification artifact. They
+  exist so merged work is installable while a tag is blocked, and they reach no
+  index: the version carries a PEP 440 local segment, which a public index must
+  refuse. See [`release-runbook.md`](release-runbook.md) § The unqualified
+  preview channel, and the admissibility finding in
+  [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md)
+  § Amendment 2.
 - Evaluate a container image later only if it has an exercised build-and-test path.
 - Evaluate Homebrew once CLI usage warrants it.
 

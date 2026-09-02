@@ -7,7 +7,7 @@
     "literal_registration": "Each action is written out where the parser can read it: a decorated function, a tool class, a literal list of tool objects, a config entry naming the tool."
   },
   "description": "What each built-in input can establish, per declaration shape: the extraction-confidence ceiling and what that ceiling means for a release verdict. Generated from agents_shipgate.inputs.coverage.build_boundary_matrix(). Do not edit by hand.",
-  "generated_for_version": "0.16.0b7",
+  "generated_for_version": "0.16.0",
   "outcomes": {
     "low_confidence": "Every action from this route raises `low_confidence_tool` and either `unattested_surface` (when its set was enumerated) or `incomplete_surface` (when it was not), so none can be pass-eligible. Only the latter adds an exclusion-ledger row for an unread remainder. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out.",
     "not_applicable": "No such declaration exists for this input.",

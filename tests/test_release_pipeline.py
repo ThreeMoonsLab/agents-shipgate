@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import itertools
 import json
+import re
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,13 @@ import pytest
 import yaml
 
 from scripts._release_support import ReleaseError
+from scripts.release_cadence import (
+    INTERVAL_DAYS,
+    OVERDUE_DAYS,
+    assess,
+    is_release_tag,
+)
+from scripts.release_cadence import main as cadence_main
 from scripts.release_notes import (
     MAX_BODY_CHARACTERS,
     assert_body_matches,
@@ -34,7 +42,7 @@ from scripts.release_notes import (
     extract_release_notes,
     notes_digest,
 )
-from scripts.release_publication import pypi_state, verify_manifest
+from scripts.release_publication import build_manifest, pypi_state, verify_manifest
 from scripts.release_sbom import dev_only_distributions, verify_release_sbom
 from scripts.update_locks import compile_command, prose_header
 from scripts.verify_dependency_lock import (
@@ -2959,3 +2967,320 @@ def test_a_non_ascii_space_does_not_close_a_fence(tmp_path: Path) -> None:
 
     with pytest.raises(ReleaseError, match="unterminated code fence"):
         extract_release_notes(changelog_path=changelog, tag="v2.0.0")
+
+
+# --------------------------------------------------------------------------
+# #491 — release cadence, and the unqualified preview channel
+#
+# The channel is admissible under five conditions recorded in
+# `docs/release-evidence-policy-decision.md` § Amendment 2. Each condition is
+# a *reader* that must not be able to confuse a preview for a release, so each
+# gets a negative control here rather than a paragraph of prose there. The
+# reader with the most authority — `verify_safety_qualification_release.py` —
+# is exercised in `tests/test_safety_qualification_release.py` § #491, where
+# its fixtures live.
+# --------------------------------------------------------------------------
+
+PREVIEW_TAG_PREFIX = "preview-"
+
+
+def _preview() -> dict[str, Any]:
+    return _load_workflow("release-preview.yml")
+
+
+def test_no_job_in_the_preview_channel_can_reach_pypi() -> None:
+    """C1's backstop. The local version segment makes the artifact
+    unpublishable at the index, but a control that depends on the *artifact*
+    is not enough: the workflow must also hold no token that could upload
+    anything at all, so a wheel that somehow lost its local segment still has
+    no path to PyPI from here."""
+
+    preview = _preview()
+
+    assert preview["permissions"] == {}
+    for name, job in preview["jobs"].items():
+        # No OIDC token can be minted, and no environment can be approved into
+        # one. Together these are what make Trusted Publishing unreachable
+        # from this file regardless of what any step tries to run.
+        assert "id-token" not in job["permissions"], name
+        assert "environment" not in job, name
+        commands = _job_commands(job)
+        for verb in ("uv publish", "twine upload", "gh release upload"):
+            assert verb not in commands, (name, verb)
+
+
+def test_the_preview_version_carries_a_local_segment() -> None:
+    """C1 itself: `+preview.<date>.g<sha>`. PEP 440 forbids publishing a local
+    version to a public index, so this is what keeps `0.16.0` free — and PyPI's
+    immutability is why "free" matters: an unqualified upload would consume the
+    version permanently."""
+
+    build = _preview()["jobs"]["build"]
+    derive = _test_step_command(build, "Derive the preview version")
+
+    assert '+preview.$(date -u +%Y%m%d).g${SOURCE_SHA:0:7}' in derive
+    # A version that already carries a local segment is refused rather than
+    # nested, because `a+b+c` is not a PEP 440 version at all.
+    assert "already carries a local version" in derive
+
+    confirm = _test_step_command(build, "Confirm the preview is unpublishable to a public index")
+    # Asserted on the built wheel's own METADATA, not on the string the
+    # workflow computed: the check has to survive a build that rewrote it.
+    assert "METADATA" in confirm
+    assert 'if "+" not in version' in confirm
+
+
+def test_a_preview_ref_cannot_trigger_the_release_pipeline() -> None:
+    """C2. `release.yml` fires on `v*`; the preview publishes at
+    `preview-<version>`. Asserted against the workflow's actual trigger rather
+    than a remembered one, so narrowing the glob later cannot silently make
+    this stale."""
+
+    triggers = _load_workflow("release.yml")["on"]["push"]["tags"]
+
+    assert triggers == ["v*"]
+    assert not any(PREVIEW_TAG_PREFIX.startswith(pattern.rstrip("*")) for pattern in triggers)
+
+    create = _job_commands(_preview()["jobs"]["publish"])
+    assert 'gh release create "preview-${VERSION}"' in create
+    assert 'gh release create "v' not in create
+
+
+def test_a_preview_run_cannot_satisfy_the_mandatory_rehearsal() -> None:
+    """C3, and the reason the preview is a separate file rather than a third
+    `mode` of `release-verify.yml`.
+
+    `stage` locates the mandatory rehearsal *by workflow file*. A preview run
+    lives in a different file, so it is invisible to that query by
+    construction — not because an `if:` condition happens to be right."""
+
+    stage = _job_commands(_load_workflow("release.yml")["jobs"]["stage"])
+
+    assert "workflows/release-rehearsal.yml/runs" in stage
+    assert "release-preview" not in (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+    # And the reverse, read from the graph rather than the text: the preview
+    # calls no reusable workflow at all, so it cannot inherit a release job.
+    assert [job.get("uses") for job in _preview()["jobs"].values()] == [None, None]
+
+
+def test_the_preview_publishes_only_a_wheel_and_says_what_it_is_not() -> None:
+    """C4. Attaching an SBOM, a signature, or anything named `qualification`
+    would create exactly the "quietly implies qualification" outcome #491
+    forbade — most dangerously for a machine reader that checks whether a file
+    is *present* rather than what it says."""
+
+    publish = _job_commands(_preview()["jobs"]["publish"])
+
+    # Every artifact path the writing job handles, from the text rather than
+    # from a remembered list: exactly one, and it is the wheel. Checking the
+    # prose for "sbom" would fail on the release body, which names the SBOM
+    # precisely in order to say the preview has none.
+    assert set(re.findall(r"dist/\$\{[A-Z_]+\}|dist/[\w.*-]+", publish)) == {
+        "dist/${WHEEL_FILENAME}"
+    }
+    assert "this is not a release" in publish.lower()
+    assert "carries **no safety qualification**" in publish
+    # The non-claims are stated, not implied by the absence of an asset.
+    for absent in ("Not on PyPI", "Not a tag", "Not signed", "Not rehearsed"):
+        assert f"**{absent}" in publish, absent
+    # The body is written by this file, at the dispatched revision. A body
+    # assembled from build output would be candidate-controlled text on a
+    # `contents: write` job.
+    assert "notes-file" in publish
+    assert "--prerelease" in publish
+
+
+def test_the_writing_job_runs_no_candidate_code() -> None:
+    """The release splits authority this way and so does this: the job holding
+    `contents: write` never checks the repository out, so the only text it can
+    publish is the text in this workflow file."""
+
+    preview = _preview()
+    publish = preview["jobs"]["publish"]
+
+    assert publish["permissions"] == {"contents": "write"}
+    assert not any("actions/checkout" in str(step.get("uses", "")) for step in publish["steps"])
+    assert preview["jobs"]["build"]["permissions"] == {"contents": "read", "actions": "read"}
+
+
+def test_the_preview_builds_only_a_commit_ci_already_accepted() -> None:
+    """What "the verified build path" can honestly mean here. The
+    qualification-bound path cannot run while the trust root is `CHANGE_ME`, so
+    the preview's evidence is the gate that is available — and it is a
+    precondition, not a hope."""
+
+    build = _preview()["jobs"]["build"]
+    gate = _test_step_command(build, "Require a successful CI run for this exact commit")
+
+    assert "workflows/ci.yml/runs?head_sha=" in gate
+    assert "status=success" in gate
+    assert "exit 1" in gate
+    # The immutable SHA, for the reason `release.yml` uses it: a symbolic ref
+    # is re-resolved per checkout.
+    checkout = next(step for step in build["steps"] if "actions/checkout" in str(step.get("uses")))
+    assert checkout["with"]["ref"] == "${{ github.sha }}"
+
+
+def test_the_preview_wheel_comes_from_the_release_build_toolchain() -> None:
+    """The one property that makes a preview wheel comparable to a release
+    wheel: the same hash-locked closure and the same `--no-isolation`, so the
+    `Generator:` stamp and the backend are the release's, not the index's."""
+
+    build = _preview()["jobs"]["build"]
+    install = _test_step_command(build, "Install the hash-locked sealing toolchain")
+    compile_step = _test_step_command(build, "Build the preview wheel")
+
+    assert "--require-hashes" in install
+    assert "constraints/release-seal.txt" in install
+    assert "python -m build --wheel --no-isolation" in compile_step
+    # The only difference from the committed tree is the version line, proved
+    # by a round trip rather than asserted.
+    assert "Stamping changed more than the version line" in compile_step
+    assert "touched more than pyproject.toml" in compile_step
+
+
+def test_the_release_handoff_invariants_were_not_relaxed_to_fit_a_preview(
+    tmp_path: Path,
+) -> None:
+    """The temptation this records having refused. `build_manifest` requires
+    `tag == v<version>`, which a preview ref cannot satisfy; the correct
+    response was for the preview to produce no candidate manifest at all,
+    never to widen the check."""
+
+    wheel = tmp_path / WHEEL_FILENAME
+    _write_wheel(wheel)
+
+    with pytest.raises(ReleaseError, match="does not match wheel version"):
+        build_manifest(
+            tag="preview-9.9.9+preview.20260902.g1a2b3c4",
+            source_commit="a" * 40,
+            wheel_path=wheel,
+            asset_paths=[],
+            output_path=tmp_path / "candidate-manifest.json",
+        )
+
+    assert "candidate-manifest" not in (WORKFLOWS / "release-preview.yml").read_text(
+        encoding="utf-8"
+    )
+
+
+# --------------------------------------------------------------------------
+# #491 — the cadence metric
+# --------------------------------------------------------------------------
+
+_DAY = 86_400
+_NOW = 1_800_000_000
+
+
+@pytest.mark.parametrize(
+    ("age_days", "status"),
+    [
+        (0, "current"),
+        (29, "current"),
+        (30, "due"),
+        (45, "due"),
+        (46, "overdue"),
+        (56, "overdue"),
+    ],
+)
+def test_the_cadence_states_follow_the_approved_interval(age_days: int, status: str) -> None:
+    """30 days is the interval and 45 the defect threshold, per
+    `docs/release-runbook.md` § Cadence. The boundaries are pinned in both
+    directions because "over ~45" is the sentence a reader has to be able to
+    trust."""
+
+    cadence = assess([("v0.15.0", _NOW - age_days * _DAY)], now=_NOW)
+
+    assert (cadence.days_since_release, cadence.status) == (age_days, status)
+    assert cadence.interval_days == INTERVAL_DAYS
+    assert cadence.overdue_days == OVERDUE_DAYS
+
+
+def test_only_release_tags_count_as_shipping() -> None:
+    """A preview must not report the cadence as kept. The channel exists
+    *because* the cadence slipped, so counting one would suppress the signal
+    that justified it — and the repository's own non-release refs must not
+    count either."""
+
+    assert is_release_tag("v0.15.0")
+    assert is_release_tag("v0.16.0b7")
+    for ref in (
+        "preview-0.16.0+preview.20260902.g1a2b3c4",
+        "wip-sectiond",
+        "m3-pre-rebase",
+        "v0garbage",
+        "0.15.0",
+        "release-v0.15.0",
+    ):
+        assert not is_release_tag(ref), ref
+
+
+def test_a_preview_tag_beside_a_release_tag_does_not_move_the_number() -> None:
+    """The join, not the predicate: a newer preview ref sitting beside an older
+    release tag must leave the answer at the release."""
+
+    tags = [("v0.15.0", _NOW - 56 * _DAY)]
+    with_preview = tags + [("preview-0.16.0+preview.20260902.g1a2b3c4", _NOW - _DAY)]
+
+    assert assess(read_release_tags_filter(with_preview), now=_NOW) == assess(tags, now=_NOW)
+
+
+def read_release_tags_filter(tags: list[tuple[str, int]]) -> list[tuple[str, int]]:
+    """The filter `read_release_tags` applies, isolated from the git call."""
+
+    return [(ref, when) for ref, when in tags if is_release_tag(ref)]
+
+
+def test_an_unfetched_checkout_reports_unknown_rather_than_current() -> None:
+    """Fail-safe. A shallow checkout brings no tags, and a metric that answered
+    `0 days` there would report a cadence nobody kept — the same defect as not
+    having the metric at all."""
+
+    cadence = assess([], now=_NOW)
+
+    assert cadence.status == "unknown"
+    assert cadence.days_since_release is None
+    assert "tags may not be fetched" in cadence.note
+
+
+def test_ci_records_the_number_without_failing_the_wrong_author() -> None:
+    """A red check here would fail whichever unrelated change happened to
+    arrive after the interval lapsed, and that author cannot cut a release.
+    The step warns; `--fail-when-overdue` is for an operator and is not passed
+    here. Tags have to be fetched or the step reports `unknown` forever."""
+
+    test_job = _load_workflow("ci.yml")["jobs"]["test"]
+    command = _test_step_command(test_job, "Release cadence")
+    checkout = next(
+        step for step in test_job["steps"] if "actions/checkout" in str(step.get("uses"))
+    )
+
+    assert "scripts/release_cadence.py --github" in command
+    assert "--fail-when-overdue" not in command
+    assert checkout["with"]["fetch-tags"] is True
+
+
+def test_the_overdue_exit_code_exists_for_an_operator(tmp_path: Path) -> None:
+    """The flag CI does not pass still has to work, or the runbook's escalation
+    path is prose. Exercised through the CLI, because that is the surface an
+    operator or a scheduled job would use."""
+
+    assert cadence_main(["--repo", str(REPO_ROOT), "--json"]) == 0
+
+    empty = tmp_path / "not-a-repo"
+    empty.mkdir()
+    assert cadence_main(["--repo", str(empty), "--fail-when-overdue"]) == 0
+
+
+def test_every_cadence_surface_renders_from_one_value() -> None:
+    """The human line, the JSON and the step-summary table are three renderings
+    of one `Cadence`, so a status the table calls `overdue` can never read
+    `current` in the annotation beside it."""
+
+    cadence = assess([("v0.15.0", _NOW - 56 * _DAY)], now=_NOW)
+
+    assert cadence.as_dict()["status"] == "overdue"
+    assert cadence.note in cadence.as_line()
+    assert cadence.note in cadence.as_markdown()
+    assert "**overdue**" in cadence.as_markdown()
+    assert "56" in cadence.as_line() and "**56**" in cadence.as_markdown()

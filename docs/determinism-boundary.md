@@ -424,7 +424,7 @@ boundary rather than an accident of it.
 
 ### Which release this describes
 
-This page describes **agents-shipgate 0.16.0b7**, and its rows move as the adapters do — `schema_version` (`shipgate.determinism_boundary/v1`) versions the shape of the machine-readable companion, not the routes.
+This page describes **agents-shipgate 0.16.0**, and its rows move as the adapters do — `schema_version` (`shipgate.determinism_boundary/v1`) versions the shape of the machine-readable companion, not the routes.
 
 If you arrived from a link in a stored report, check that version against the scanner that produced the report before trusting a row: a boundary is only a specification of the release it was generated from. Every released version is tagged, so the matrix your scanner implemented is at `https://github.com/ThreeMoonsLab/agents-shipgate/blob/v<your-version>/docs/determinism-boundary.md`.
 

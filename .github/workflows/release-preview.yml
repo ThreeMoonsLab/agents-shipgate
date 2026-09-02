@@ -1,0 +1,329 @@
+name: Release Preview (unqualified)
+
+# The unqualified preview channel approved in
+# `docs/release-evidence-policy-decision.md` § Amendment 2, for issue #491.
+#
+# It exists because tagging is gated on a signed qualification artifact (#456)
+# that does not exist yet, so 81% of `CHANGELOG.md` was installable by nobody.
+# A preview makes **no** qualification claim, so the approved evidence bar has
+# nothing to say about it — but only as long as no reader can mistake one for a
+# release. Five independent properties keep that true, and each is asserted by
+# a negative control in `tests/test_release_pipeline.py` § #491:
+#
+#   1. **The version carries a PEP 440 local segment** (`+preview.<date>.g<sha>`).
+#      Public indexes MUST NOT accept local version identifiers, so this wheel
+#      is unpublishable to PyPI by protocol rather than by policy — and, more
+#      importantly, it can never *consume* the `0.16.0` version that the
+#      qualified build needs, which PyPI's immutability would make permanent.
+#   2. **The ref is outside the `v*` namespace** (`preview-<version>`), so
+#      pushing it cannot trigger `release.yml`. It is a flat name rather than
+#      `preview/<version>` so nothing has to encode a slash inside a ref.
+#   3. **This is not `release-rehearsal.yml`.** `release.yml`'s `stage` job
+#      requires a successful run *of that workflow file* for the candidate
+#      commit, so a preview run is invisible to the evidence a release needs.
+#      Keeping the two in separate files makes that structural instead of a
+#      matter of getting an `if:` condition right.
+#   4. **No qualification artifact is produced or attached**, so
+#      `scripts/verify_safety_qualification_release.py` — which requires one,
+#      and separately requires `tag == v<version>` — rejects a preview twice
+#      over.
+#   5. **The release is marked `--prerelease`**, which GitHub excludes from
+#      `Latest` and from the `/releases/latest` API the README badge follows.
+#
+# Authority is split the way the release splits it: the job that runs candidate
+# code holds no write, and the job that writes runs no candidate code. Neither
+# holds `id-token: write`, so there is no PyPI token to mint anywhere in this
+# file and no `environment: pypi` to approve.
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: Why this preview is being cut (recorded in the release body).
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: release-preview
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the preview wheel
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      wheel_filename: ${{ steps.build.outputs.wheel_filename }}
+      wheel_sha256: ${{ steps.build.outputs.wheel_sha256 }}
+      ci_run_id: ${{ steps.ci.outputs.run_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # The immutable SHA the dispatch resolved to, for the same reason
+          # `release.yml` passes it: a symbolic ref is re-resolved per checkout,
+          # so a moving branch could be gated as commit A and built as B.
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Require a successful CI run for this exact commit
+        # This is what "the verified build path" means for a preview. The
+        # qualification-bound path in `release-verify.yml` cannot run at all
+        # while `.github/release-trust-roots.json` holds `CHANGE_ME`, so the
+        # preview's evidence is the gate that *is* available: the same
+        # hash-locked closure, the same lint, compile, schema and canary
+        # checks, and the same suite that gates every merge. Matching on
+        # `head_sha` binds the workflow revision too, since both are one tree.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+        id: ci
+        run: |
+          set -euo pipefail
+          run_id="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${SOURCE_SHA}&status=success&per_page=100" \
+            --jq '.workflow_runs[0].id // empty')"
+          if [ -z "${run_id}" ]; then
+            echo "::error::No successful CI run for ${SOURCE_SHA}. A preview publishes only a commit CI has already accepted."
+            exit 1
+          fi
+          echo "run_id=${run_id}" >> "${GITHUB_OUTPUT}"
+          echo "OK: CI run ${run_id} accepted ${SOURCE_SHA}."
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install the hash-locked sealing toolchain
+        # Byte-for-byte the command `release-verify.yml`'s `artifact` job runs,
+        # and for the same reason: an unlocked resolve before the build would
+        # put the code that produces the artifact outside the lock. This is the
+        # single largest reason a preview wheel is comparable to a release
+        # wheel at all — same pinned `hatchling`, same `Generator:` stamp.
+        run: |
+          python -m pip install --require-hashes \
+            --requirement constraints/release-seal.txt
+
+      - name: Derive the preview version
+        # A local version segment is the control that makes this artifact
+        # unpublishable to a public index (PEP 440: local identifiers MUST NOT
+        # be used when publishing, and an index MUST NOT allow them). It also
+        # keeps the release version free: PyPI is immutable, so an unqualified
+        # `0.16.0` reaching the index would permanently burn the version the
+        # qualified build needs.
+        id: version
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          base="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -n 1)"
+          if [ -z "${base}" ]; then
+            echo "::error::Could not read the version from pyproject.toml."
+            exit 1
+          fi
+          case "${base}" in
+            *+*) echo "::error::pyproject already carries a local version: ${base}."; exit 1 ;;
+          esac
+          version="${base}+preview.$(date -u +%Y%m%d).g${SOURCE_SHA:0:7}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "Preview version: ${version}"
+
+      - name: Build the preview wheel
+        # The source difference between this wheel and the committed tree is
+        # exactly one line. The round-trip below is what makes that a fact
+        # rather than an intention: restoring the original version string must
+        # reproduce the committed bytes, so a stamping step that also rewrote a
+        # dependency, a classifier or an entry point is refused before the
+        # build runs.
+        id: build
+        env:
+          PREVIEW_VERSION: ${{ steps.version.outputs.version }}
+          PIP_CONSTRAINT: constraints/release-build.txt
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          path = pathlib.Path("pyproject.toml")
+          original = path.read_text(encoding="utf-8")
+          pattern = re.compile(r'^version = "(?P<value>[^"]*)"$', re.MULTILINE)
+          matches = pattern.findall(original)
+          if len(matches) != 1:
+              raise SystemExit(
+                  "::error::Expected exactly one version line in pyproject.toml, found %d."
+                  % len(matches)
+              )
+          stamped = pattern.sub(
+              'version = "%s"' % os.environ["PREVIEW_VERSION"], original, count=1
+          )
+          # The round trip: undo the stamp and the file must be byte-identical.
+          if pattern.sub('version = "%s"' % matches[0], stamped, count=1) != original:
+              raise SystemExit("::error::Stamping changed more than the version line.")
+          path.write_text(stamped, encoding="utf-8")
+          print("Stamped %s -> %s" % (matches[0], os.environ["PREVIEW_VERSION"]))
+          PY
+          changed="$(git diff --name-only)"
+          if [ "${changed}" != "pyproject.toml" ]; then
+            echo "::error::Stamping the preview version touched more than pyproject.toml: ${changed}"
+            exit 1
+          fi
+          # `--no-isolation` so the hash-locked hatchling installed above is
+          # the backend that actually runs; with isolation, `build` re-resolves
+          # the backend from the index. There is no `twine check` here because
+          # this job installs no `dev` closure — and it would be redundant: the
+          # CI run this preview is gated on already built this commit and ran
+          # `twine check` over the result.
+          python -m build --wheel --no-isolation --outdir dist .
+          wheel="$(ls dist/*.whl | head -n 1)"
+          {
+            echo "wheel_filename=$(basename "${wheel}")"
+            echo "wheel_sha256=$(sha256sum "${wheel}" | cut -d' ' -f1)"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Confirm the preview is unpublishable to a public index
+        # Asserted here, on the artifact itself, and not only in the tests: a
+        # wheel whose version lost its local segment would still install, and
+        # would then be uploadable to PyPI under a version the qualified build
+        # needs. Fail before the artifact leaves the job.
+        env:
+          WHEEL_FILENAME: ${{ steps.build.outputs.wheel_filename }}
+          PREVIEW_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          case "${PREVIEW_VERSION}" in
+            *+preview.*) ;;
+            *) echo "::error::Preview version lost its local segment: ${PREVIEW_VERSION}"; exit 1 ;;
+          esac
+          python - <<'PY'
+          import os, pathlib, zipfile
+          from email.parser import BytesParser
+          from email.policy import default
+          wheel = pathlib.Path("dist") / os.environ["WHEEL_FILENAME"]
+          with zipfile.ZipFile(wheel) as archive:
+              name = next(n for n in archive.namelist() if n.endswith(".dist-info/METADATA"))
+              metadata = BytesParser(policy=default).parsebytes(archive.read(name))
+          version = metadata["Version"]
+          if "+" not in version:
+              raise SystemExit(
+                  "::error::Wheel METADATA version %r carries no local segment; "
+                  "a public index would accept it." % version
+              )
+          print("OK: wheel version %s is refused by any public index." % version)
+          PY
+
+      - name: Upload the preview wheel
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: preview-${{ steps.version.outputs.version }}
+          path: dist/*.whl
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish the preview
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download the preview wheel
+        # No checkout. This job holds `contents: write`, so it runs no
+        # candidate code and reads no candidate text: the release body below
+        # is written by this file, at the dispatched revision, and cannot be
+        # influenced by anything the build produced.
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: preview-${{ needs.build.outputs.version }}
+          path: dist
+
+      - name: Re-derive the wheel digest
+        env:
+          WHEEL_FILENAME: ${{ needs.build.outputs.wheel_filename }}
+          WHEEL_SHA256: ${{ needs.build.outputs.wheel_sha256 }}
+        run: |
+          set -euo pipefail
+          actual="$(sha256sum "dist/${WHEEL_FILENAME}" | cut -d' ' -f1)"
+          if [ "${actual}" != "${WHEEL_SHA256}" ]; then
+            echo "::error::Preview wheel digest changed in the artifact store."
+            exit 1
+          fi
+          echo "OK: ${WHEEL_FILENAME} is ${actual}."
+
+      - name: Publish an unqualified pre-release
+        # `--prerelease` is load-bearing, not cosmetic: it is what keeps this
+        # out of `Latest`, out of `/releases/latest`, and out of the README's
+        # PyPI-shaped badges. The tag is created here, in the `preview-`
+        # namespace, so it cannot match `release.yml`'s `v*` trigger.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+          VERSION: ${{ needs.build.outputs.version }}
+          WHEEL_FILENAME: ${{ needs.build.outputs.wheel_filename }}
+          WHEEL_SHA256: ${{ needs.build.outputs.wheel_sha256 }}
+          CI_RUN_ID: ${{ needs.build.outputs.ci_run_id }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          set -euo pipefail
+          if gh release view "preview-${VERSION}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "::error::preview-${VERSION} already exists. Delete it first, or cut the preview from a newer commit; this job never overwrites a published preview."
+            exit 1
+          fi
+          notes="${RUNNER_TEMP}/preview-notes.md"
+          {
+            echo "## Unqualified preview — this is not a release"
+            echo
+            echo "This build carries **no safety qualification**. It has not met the"
+            echo "evidence bar in \`docs/release-evidence-policy-decision.md\`, no"
+            echo "adjudicated corpus was verified against it, no qualification artifact"
+            echo "exists for it, and nothing here was signed."
+            echo
+            echo "It is published so that work already merged can be installed and"
+            echo "evaluated while the qualification corpus (#456) is being built. Use it"
+            echo "for evaluation. Do not use it where a release is what you need."
+            echo
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Version | \`${VERSION}\` |"
+            echo "| Source commit | \`${SOURCE_SHA}\` |"
+            echo "| Accepted by CI run | [\`${CI_RUN_ID}\`](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${CI_RUN_ID}) |"
+            echo "| Wheel SHA-256 | \`${WHEEL_SHA256}\` |"
+            echo
+            echo "### What this build is not"
+            echo
+            echo "- **Not on PyPI, and cannot be.** The version carries a PEP 440 local"
+            echo "  segment, which public indexes refuse. \`pip install agents-shipgate\`"
+            echo "  continues to serve the newest *qualified* release."
+            echo "- **Not a tag.** \`preview-*\` is outside the \`v*\` namespace the release"
+            echo "  pipeline is triggered by, and outside the namespace"
+            echo "  \`scripts/release_cadence.py\` counts, so publishing this does not"
+            echo "  reset the release cadence."
+            echo "- **Not signed, and carries no SBOM.** The signed, wheel-scoped SBOM and"
+            echo "  the Sigstore bundles are produced by the release path only."
+            echo "- **Not rehearsed.** A run of this workflow is not a Release Rehearsal"
+            echo "  and cannot satisfy the precondition a real tag has to meet."
+            echo
+            echo "### Install"
+            echo
+            echo "\`\`\`"
+            echo "gh release download preview-${VERSION} --repo ${GITHUB_REPOSITORY} --pattern '*.whl'"
+            echo "pip install ./${WHEEL_FILENAME}"
+            echo "\`\`\`"
+          } > "${notes}"
+          gh release create "preview-${VERSION}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${SOURCE_SHA}" \
+            --title "Unqualified preview ${VERSION}" \
+            --notes-file "${notes}" \
+            --prerelease \
+            "dist/${WHEEL_FILENAME}"
+          echo "Published preview-${VERSION}." >> "${GITHUB_STEP_SUMMARY}"

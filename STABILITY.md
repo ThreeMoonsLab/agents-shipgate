@@ -1,4 +1,4 @@
-# Stability Contract · 0.16.0b7
+# Stability Contract · 0.16.0
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
@@ -15,7 +15,7 @@ for reproducible CI.
 
 <a id="migration-note-unreleased-declaration-review"></a>
 
-## Migration Note: unreleased — changed declarations become reviewer evidence
+## Migration Note: 0.16.0 — changed declarations become reviewer evidence
 
 `contract_version` moves **28 → 29**, `report_schema_version` moves
 **0.42 → 0.43**, packet schema moves **0.17 → 0.18**, verifier schema moves
@@ -49,7 +49,7 @@ only release decision signal.
 
 <a id="migration-note-unreleased-capability-delta-attestation"></a>
 
-## Migration Note: unreleased — the capability delta becomes a published attestation
+## Migration Note: 0.16.0 — the capability delta becomes a published attestation
 
 `contract_version` moves **27 → 28**. `minimum_control_contract_version` stays
 at `21`, `report_schema_version` is unchanged, and no already-published schema
@@ -126,7 +126,7 @@ the artifact-manifest digest against a receipt you supply.
 
 <a id="migration-note-unreleased-verifier-explanations"></a>
 
-## Migration Note: unreleased — verifier explanations name the cause that acted
+## Migration Note: 0.16.0 — verifier explanations name the cause that acted
 
 That projection-only change moved no schema or runtime-contract version. It
 landed against the v0.42 report schema with the typed `unattested_surface` gap
@@ -161,7 +161,7 @@ typed fields rather than matching prose.
 
 <a id="migration-note-unreleased-embedded-trigger-routing"></a>
 
-## Migration Note: unreleased — embedded trigger advice is consumed by verifier control
+## Migration Note: 0.16.0 — embedded trigger advice is consumed by verifier control
 
 No schema or runtime-contract version moves, and standalone
 `agents-shipgate trigger --json` output is unchanged. When the same trigger
@@ -185,7 +185,7 @@ not change.
 
 <a id="migration-note-unreleased-pre-1-0-evidence-bar"></a>
 
-## Migration Note: unreleased — the pre-1.0 release evidence bar
+## Migration Note: 0.16.0 — the pre-1.0 release evidence bar
 
 `shipgate.safety_qualification` advances **v4 → v5**. The corpus
 (`shipgate.safety_corpus/v4`) and receipt-index
@@ -221,7 +221,7 @@ every exact-match floor is the production rate rounded up. `1.0` and later still
 require the 100-case `beta` artifact, and there is no promotion shortcut.
 <a id="migration-note-unreleased-setup-error-envelope"></a>
 
-## Migration Note: unreleased — the setup control envelope reaches both streams
+## Migration Note: 0.16.0 — the setup control envelope reaches both streams
 
 `contract_version` moves **26 → 27**. `minimum_control_contract_version` stays
 at `21`, `report_schema_version` is unchanged, and no published schema document
@@ -326,7 +326,7 @@ for it rather than in the process directory. This is a `next_action` /
 
 <a id="migration-note-unreleased-adopter-vocabulary"></a>
 
-## Migration Note: unreleased — adopter-facing output stops naming internal fields
+## Migration Note: 0.16.0 — adopter-facing output stops naming internal fields
 
 No version moves: `contract_version`, `report_schema_version`,
 `minimum_control_contract_version`, and every published schema document are
@@ -455,7 +455,7 @@ exit code (3) are unchanged.
 
 <a id="migration-note-unreleased-effect-coverage"></a>
 
-## Migration Note: unreleased — effect coverage, and the schemas that stayed frozen
+## Migration Note: 0.16.0 — effect coverage, and the schemas that stayed frozen
 
 Two capability schemas move: `capability_lock_schema_version` `0.6` → `0.7` and
 `capability_lock_diff_schema_version` `0.7` → `0.8`. `report_schema_version`
@@ -512,7 +512,7 @@ action may now see more than one, keyed by `subject_id` with distinct
 
 <a id="migration-note-unreleased-gap-subject-labels"></a>
 
-## Migration Note: unreleased — every gap subject is a label, never a raw id
+## Migration Note: 0.16.0 — every gap subject is a label, never a raw id
 
 No version moves: `contract_version`, `report_schema_version`,
 `minimum_control_contract_version`, and every published schema document are
@@ -563,7 +563,7 @@ text — are unchanged, and keep `subject_id: null`.
 
 <a id="migration-note-unreleased-absent-input"></a>
 
-## Migration Note: unreleased — an absent input is refused, not misreported
+## Migration Note: 0.16.0 — an absent input is refused, not misreported
 
 No version moves: `contract_version`, `report_schema_version`,
 `minimum_control_contract_version`, and every published schema document are
@@ -629,7 +629,7 @@ is the stable part.
 
 <a id="migration-note-unreleased-doctor-environment"></a>
 
-## Migration Note: unreleased — `doctor --json` reports the environment that answered
+## Migration Note: 0.16.0 — `doctor --json` reports the environment that answered
 
 No version moves: `contract_version`, `report_schema_version`,
 `minimum_control_contract_version`, and every published schema document are
@@ -671,7 +671,7 @@ changes nothing for an installed Agents Shipgate.
 
 <a id="migration-note-unreleased-setup-control-envelope"></a>
 
-## Migration Note: unreleased — one control vocabulary across the setup commands
+## Migration Note: 0.16.0 — one control vocabulary across the setup commands
 
 Runtime contract `23 → 24`. `minimum_control_contract_version` **stays at 21**,
 and the `AgentControl` union is byte-identical to v21.
@@ -838,7 +838,7 @@ boundary verdict, or beside an arbitrary string.
 
 <a id="migration-note-unreleased-invocation-spelled-commands"></a>
 
-## Migration Note: unreleased — commands spelled for the invocation that emitted them
+## Migration Note: 0.16.0 — commands spelled for the invocation that emitted them
 
 Runtime contract `22 → 23`. `minimum_control_contract_version` **stays at 21**:
 the `AgentControl` union is unchanged, and v23 changes only how the commands
@@ -907,7 +907,7 @@ canonical for the same reason.
 
 <a id="migration-note-unreleased-compact-control-envelope"></a>
 
-## Migration Note: unreleased — the compact control envelope
+## Migration Note: 0.16.0 — the compact control envelope
 
 Runtime contract `21 → 22`. `minimum_control_contract_version` **stays at 21**:
 v22 adds a projection of the `AgentControl` union and does not change the union
@@ -996,7 +996,7 @@ merge".
 
 <a id="migration-note-unreleased-publish-vs-merge"></a>
 
-## Migration Note: unreleased — publish authority is not merge authority
+## Migration Note: 0.16.0 — publish authority is not merge authority
 
 Runtime contract `20 → 21`, and `minimum_control_contract_version` moves
 `14 → 21` because the discriminated `AgentControl` union itself changes. No CLI
@@ -1105,7 +1105,7 @@ schema bump.
 
 <a id="migration-note-unreleased-diff-status"></a>
 
-## Migration Note: unreleased — diff input health
+## Migration Note: 0.16.0 — diff input health
 
 Verifier schema `0.6 → 0.7` and trigger catalog `0.2 → 0.3`. That change did
 not move `contract_version` (see the note above, which does); no CLI surface

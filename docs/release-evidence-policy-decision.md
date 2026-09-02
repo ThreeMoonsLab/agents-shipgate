@@ -295,3 +295,192 @@ Its pre-registered rules, fixed here so they cannot drift under incentive:
       artifact's disclosure block.
 - [ ] Gate 2 outreach uses the committed card and template, and its responses
       are recorded in the committed log format.
+
+---
+
+## Amendment 2 — the unqualified preview channel
+
+**Status: decided. Finding: admissible, under the five conditions below.**
+**Owner: Pengfei Hu (`pengfei-threemoonslab`), product/security. Recorded
+2026-09-02.** Tracked by
+[#491](https://github.com/ThreeMoonsLab/agents-shipgate/issues/491).
+
+Issue #491 asked a question this document is the right place to answer, and
+required that it be answered before anything was built: **is a distribution
+channel that is explicitly not a tag, not on PyPI, and carries no qualification
+claim consistent with the policy approved above?**
+
+This is the finding. It is written as one, and it includes what would have made
+the answer *no*.
+
+### The measurement that prompted it
+
+On `main` at `87adfc7a`, 5,039 of `CHANGELOG.md`'s 6,242 lines sat under
+`## Unreleased` — 81% of the project's shipped work, installable by nobody.
+Two milestones of engine work were complete and untagged, the newest published
+build was `v0.15.0`, and 56 days had passed since it. The base decision above
+was taken to unblock exactly this, and it did not: it moved the bar from 100
+adjudicated cases to 56, and 56 is still 56 more than exist.
+
+### The question, put precisely
+
+The approved policy binds a **qualification tier** to a **version**, and the
+pipeline applies that rule at `push: tags: v*`. Its subject throughout is the
+artifact that carries a safety claim — `safety-qualification.json` — and the
+release that publishes it. Read literally, it says nothing about an artifact
+that makes no such claim.
+
+"The policy does not mention it" is the weak form of the question and is not
+what was asked. The strong form is: **does a preview channel reduce any
+protection this policy exists to provide?** Those protections are three:
+
+1. a published build's safety claim is backed by adjudicated evidence;
+2. the bytes an installer receives came from the commit they claim;
+3. nothing in the artifact chooses which bar applies to it.
+
+A preview cannot touch (3): it names no tier, and the version→tier rule is
+never consulted because no gate ever runs. It touches (1) **only through
+confusion** — a reader taking an unqualified artifact for a qualified one. It
+touches (2) if the channel ships bytes with weaker provenance than the path it
+routes around.
+
+So the finding is not "yes" or "no" in the abstract. It is: **admissible if and
+only if every reader that could confuse the two is closed, and the provenance
+the channel does offer is stated exactly.** Five conditions follow, each
+attached to the reader it closes.
+
+### The conditions
+
+**C1 — the preview version must carry a PEP 440 local segment.**
+This is the condition the finding turns on, and the one that would have made
+the answer *no* if it could not be met.
+
+PyPI is immutable: a version can never be replaced. An unqualified build
+reaching the index as `0.16.0` would therefore not merely be a bad artifact —
+it would **permanently consume the version the qualified build needs**, and the
+only remedy would be to renumber a release that had already been announced.
+"We will remember not to upload it" is not a control.
+
+A local version identifier is. PEP 440 states that local identifiers must not
+be used when publishing and that a public index must not allow them, and
+Warehouse rejects such an upload at the API. `0.16.0+preview.20260902.g1a2b3c4`
+is therefore unpublishable to PyPI *by protocol*, not by anyone's discipline —
+and it leaves `0.16.0` untouched. It is also self-describing in `pip freeze`,
+in `--version`, and in any bug report a preview user files.
+
+**C2 — the ref must be outside the `v*` namespace.**
+`release.yml` triggers on `push: tags: v*`. A preview publishes at
+`preview-<version>`, so it cannot start a release run. This also keeps the
+cadence metric honest: `scripts/release_cadence.py` counts only `v` + a
+complete PEP 440 version, so the channel that exists *because* the cadence
+slipped cannot report the cadence as kept.
+
+**C3 — a preview run must not be able to serve as release evidence.**
+`release.yml`'s `stage` job requires a successful run of
+`release-rehearsal.yml` for the candidate commit, located *by workflow file*.
+The preview therefore lives in its own file, `release-preview.yml`, and is
+invisible to that query. This is why the preview was **not** implemented as a
+third `mode` of `release-verify.yml`, which would have been the tidier change:
+a mode that skips the qualification gates, inside the workflow `release.yml`
+calls, makes the separation a matter of getting `if:` conditions right. Two
+files make it a matter of construction. The same reasoning already produced
+`release-rehearsal.yml` as a separate file with no publication job in it.
+
+**C4 — no qualification artifact may be produced, attached, or implied.**
+A preview ships one wheel and nothing else. `verify_safety_qualification_release.py`
+consequently rejects it twice over: it requires a `--qualification` artifact
+that does not exist, and it separately requires `tag == v<version>`, which
+`preview-<version>` cannot satisfy. The release body is generated by the
+workflow file — not by anything the build produced — and states the four things
+the build is not. No tier name appears in it.
+
+**C5 — the release must be a GitHub pre-release.**
+`--prerelease` is what keeps a preview out of `Latest`, out of
+`/releases/latest`, and out of the PyPI-shaped badges in `README.md`. A reader
+who lands on the repository's releases page sees the newest *qualified* release
+labelled as such, and previews below it labelled as not one.
+
+### What the channel does and does not attest
+
+The issue proposed attaching "the wheel built by the existing verify path".
+That is not available, and saying so is part of this finding: **the
+qualification-bound verify path cannot run at all** while
+`.github/release-trust-roots.json` holds `CHANGE_ME` and the four
+`SAFETY_QUALIFICATION_*` repository variables are unset. Neither can the
+rehearsal, which calls the same reusable workflow. A preview that claimed to
+come from that path would be claiming something no run could produce.
+
+What the preview *can* honestly attest, and does:
+
+| Property | Preview | Qualified release |
+|---|---|---|
+| Built from a named commit | yes, `github.sha`, pinned before checkout | yes |
+| That commit passed CI | **required** — the build refuses without a successful `ci.yml` run for the exact SHA | yes, and the release suite besides |
+| Hash-locked build toolchain | yes — the same `constraints/release-seal.txt`, the same `--no-isolation` | yes |
+| Source-to-wheel byte binding | **no** | yes (`verify_wheel_provenance.py`) |
+| Signed, wheel-scoped SBOM | **no** | yes |
+| Sigstore signatures | **no** | yes |
+| Adjudicated safety corpus | **no** | yes, at the tier the version requires |
+| Reachable from PyPI | **no, by protocol** | yes |
+
+The one deviation from the committed tree is the version line in
+`pyproject.toml`, and the build proves it: it restores the original version
+string and requires the result to be byte-identical to the commit's bytes
+before it builds.
+
+### What would have made this inadmissible
+
+Recorded so that a future reader can tell a considered *yes* from a convenient
+one. Any of these would have made the finding **no**:
+
+- **A preview version PyPI could accept.** A `.devN` or plain pre-release
+  segment is uploadable, so the only thing standing between an unqualified
+  build and a permanently burnt release version would have been operator
+  discipline. C1 exists because that is not good enough.
+- **Reusing `release-verify.yml` with the gates behind a flag.** The
+  qualification steps would then be skipped by configuration rather than absent
+  by construction, and one wrong `if:` would put an unqualified artifact on the
+  release path.
+- **A body, a title or an asset set that reads like a release.** Attaching an
+  SBOM, a signature, or anything named `qualification` would have created
+  precisely the "quietly implies qualification" outcome #491 forbade — most
+  dangerously to a machine reader that checks for the *presence* of the file
+  rather than its contents.
+- **Relaxing an existing invariant to fit.** `release_publication.py`'s
+  `build_manifest` requires `tag == v<version>`; a preview cannot satisfy it,
+  and the correct response was for the preview to produce no candidate manifest
+  at all, not to widen the check. Nothing in the release path was changed by
+  this amendment.
+- **Counting a preview as a release.** If the cadence metric had treated a
+  preview as shipping, the channel would have suppressed the very signal that
+  justified it.
+
+### What this does not change
+
+Nothing about the bar. `pre_1_0` and `beta` keep their thresholds, their
+constructors and their gates. `v0.16.0` still cannot publish until #456
+delivers the signed artifact, the four artifact-location variables are set, and
+`signer_identity` stops being `CHANGE_ME`. A preview does not shorten that
+list, does not partially satisfy it, and is not evidence toward it.
+
+The direction of the trade is the same one the base decision made and should be
+read the same way: withholding a better build behind a bar it does not claim to
+meet makes users less safe, not more — provided nobody can mistake it for a
+build that does claim to meet one.
+
+### Acceptance
+
+- [x] The question is answered by the named owner, with the conditions that
+      make the answer hold and the cases that would have reversed it — above,
+      2026-09-02.
+- [x] The channel exists (`.github/workflows/release-preview.yml`), publishes
+      from a CI-accepted commit using the release build's hash-locked
+      toolchain, and carries no qualification language.
+- [x] Negative controls prove a preview artifact cannot be mistaken for a
+      qualified release by any existing reader —
+      `tests/test_release_pipeline.py` § #491, including
+      `scripts/verify_safety_qualification_release.py` rejecting one on both
+      the missing artifact and the tag mismatch.
+- [x] The cadence policy the channel is measured against is recorded in
+      [`release-runbook.md`](release-runbook.md) § Cadence, and the number is
+      printed by `scripts/release_cadence.py` on every CI run.
