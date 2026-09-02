@@ -130,6 +130,8 @@ def _build_final_report(
             unavailable_note=(
                 "The requested base comparison did not provide a trustworthy "
                 "action-declaration snapshot; declaration changes could not be compared."
+                if sanitized.base_comparison_requested
+                else None
             ),
         )
     _attach_declaration_patches(report, config_path=config_path)

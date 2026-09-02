@@ -113,6 +113,7 @@ def test_cli_fixture_run(tmp_path: Path):
         "acknowledged_overrides": [],
         "declaration_review": {
             "enabled": False,
+            "base_comparison_requested": False,
             "base_kind": "none",
             "changed_count": 0,
             "summary": {

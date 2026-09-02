@@ -194,6 +194,7 @@ def test_reviewed_read_and_no_authority_can_pass(tmp_path: Path) -> None:
         "acknowledged_overrides": [],
         "declaration_review": {
             "enabled": False,
+            "base_comparison_requested": False,
             "base_kind": "none",
             "changed_count": 0,
             "summary": {

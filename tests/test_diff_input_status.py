@@ -684,7 +684,7 @@ def test_a_current_artifact_cannot_omit_its_input_health(tmp_path: Path) -> None
     legacy = dict(without)
     legacy["verifier_schema_version"] = "0.6"
     normalized = VerifierArtifact.model_validate(legacy)
-    assert normalized.verifier_schema_version == "0.15"
+    assert normalized.verifier_schema_version == "0.16"
     assert normalized.diff_status == VerifierDiffStatus.unknown()
     assert normalized.diff_status.completeness == "unknown"
     assert normalized.diff_status.reason is None

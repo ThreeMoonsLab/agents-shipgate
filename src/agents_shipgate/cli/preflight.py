@@ -33,6 +33,7 @@ from agents_shipgate.schemas.preflight import (
     PreflightResultV1,
     PreflightResultV2,
     PreflightResultV3,
+    PreflightResultV4,
 )
 
 logger = logging.getLogger(__name__)
@@ -536,7 +537,7 @@ def _read_plan(path: Path) -> PreflightPlanV1:
 
 def _read_base_preflight(
     path: Path | None,
-) -> PreflightResultV1 | PreflightResultV2 | PreflightResultV3 | None:
+) -> PreflightResultV1 | PreflightResultV2 | PreflightResultV3 | PreflightResultV4 | None:
     if path is None:
         return None
     source_label = _json_source_label(path, label="Base preflight")
@@ -545,6 +546,8 @@ def _read_base_preflight(
         raise InputParseError(f"{source_label} JSON must be an object.")
     try:
         version = payload.get("preflight_schema_version")
+        if version == "0.4":
+            return PreflightResultV4.model_validate(payload)
         if version == "0.3":
             return PreflightResultV3.model_validate(payload)
         if version == "0.2":

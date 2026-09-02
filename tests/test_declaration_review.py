@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.ci.github_summary import write_github_step_summary
+from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.cli.verify.git import _MAX_MANIFEST_BYTES
 from agents_shipgate.cli.verify.orchestrator import (
     _configured_gate_introduced,

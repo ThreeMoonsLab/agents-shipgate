@@ -62,6 +62,7 @@ from agents_shipgate.schemas.preflight import (
     PreflightResultV1,
     PreflightResultV2,
     PreflightResultV3,
+    PreflightResultV4,
     PreflightSignalV1,
     ProtectedSurfaceScopeType,
     TrustRootGraphV1,
@@ -266,10 +267,10 @@ def build_preflight_result(
     plan: PreflightPlanV1 | dict[str, Any] | None = None,
     diff_text: str | None = None,
     base_preflight: (
-        PreflightResultV1 | PreflightResultV2 | PreflightResultV3 | dict[str, Any] | None
+        PreflightResultV1 | PreflightResultV2 | PreflightResultV3 | PreflightResultV4 | dict[str, Any] | None
     ) = None,
     host_baseline: Path | None = None,
-) -> PreflightResultV3:
+) -> PreflightResultV4:
     root = workspace.resolve()
     config_path = _lexical_config_path(
         root,
@@ -407,7 +408,7 @@ def build_preflight_result(
         allowed_next_commands=allowed_next_commands,
     )
 
-    return PreflightResultV3(
+    return PreflightResultV4(
         workspace=str(root),
         config=_display_path(config_path, root),
         protected_surfaces=surfaces,
@@ -1497,14 +1498,16 @@ def _coerce_host_permission_requests(
 
 
 def _coerce_base_preflight(
-    value: (PreflightResultV1 | PreflightResultV2 | PreflightResultV3 | dict[str, Any] | None),
-) -> PreflightResultV1 | PreflightResultV2 | PreflightResultV3 | None:
+    value: (PreflightResultV1 | PreflightResultV2 | PreflightResultV3 | PreflightResultV4 | dict[str, Any] | None),
+) -> PreflightResultV1 | PreflightResultV2 | PreflightResultV3 | PreflightResultV4 | None:
     if value is None or isinstance(
-        value, (PreflightResultV1, PreflightResultV2, PreflightResultV3)
+        value, (PreflightResultV1, PreflightResultV2, PreflightResultV3, PreflightResultV4)
     ):
         return value
     try:
         version = value.get("preflight_schema_version")
+        if version == "0.4":
+            return PreflightResultV4.model_validate(value)
         if version == "0.3":
             return PreflightResultV3.model_validate(value)
         if version == "0.2":

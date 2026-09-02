@@ -41,7 +41,7 @@ Writes / verifies:
                                  AgentBoundaryResultV1)
 - docs/preflight-schema.v0.3.json
                                 (from agents_shipgate.schemas.preflight.
-                                 PreflightResultV3)
+                                 PreflightResultV4)
 - docs/org-governance-schema.v0.1.json
                                 (from agents_shipgate.schemas.org_governance.
                                  OrgGovernanceStatusV1)
@@ -1709,10 +1709,10 @@ def build_preflight_schema() -> tuple[Path, str]:
 
     from agents_shipgate.schemas.preflight import (
         PREFLIGHT_SCHEMA_VERSION,
-        PreflightResultV3,
+        PreflightResultV4,
     )
 
-    schema = PreflightResultV3.model_json_schema()
+    schema = PreflightResultV4.model_json_schema()
     minor = PREFLIGHT_SCHEMA_VERSION
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
@@ -1722,7 +1722,7 @@ def build_preflight_schema() -> tuple[Path, str]:
     schema["title"] = f"Agents Shipgate Preflight Result v{minor}"
     schema["description"] = (
         "JSON Schema for shipgate preflight --json. Generated from "
-        "agents_shipgate.schemas.preflight.PreflightResultV3. It is a "
+        "agents_shipgate.schemas.preflight.PreflightResultV4. It is a "
         "proactive routing/projection surface, not a release gate; "
         "release_decision.decision remains the only gate."
     )

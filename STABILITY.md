@@ -2522,8 +2522,8 @@ release decision. That action may be `detect`/`initialize` for
 relevant unconfigured repos, or `verify` for configured repos. Use it as the
 first touch on a repo or PR before committing to a full scan.
 
-`verifier.json` is governed by [`docs/verifier-schema.v0.15.json`](docs/verifier-schema.v0.15.json).
-Verifier v0.1 through v0.14 remain frozen references — a published schema
+`verifier.json` is governed by [`docs/verifier-schema.v0.16.json`](docs/verifier-schema.v0.16.json).
+Verifier v0.1 through v0.15 remain frozen references — a published schema
 identifier never gains an emitted field, so `0.9` carries
 `capability_review.policy_weakening_proven` and `0.8` keeps the bytes every
 consumer pinned to it already validates against. Artifacts declaring `0.8`

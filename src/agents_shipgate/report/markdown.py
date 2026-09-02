@@ -29,13 +29,13 @@ from agents_shipgate.core.findings.subject_rollup import (
 from agents_shipgate.core.privacy import sanitize_report
 from agents_shipgate.core.source_warnings import group_source_warnings
 from agents_shipgate.core.surface_exclusions import agent_label_index
+from agents_shipgate.report.declaration_review import declaration_review_lines
 from agents_shipgate.report.human_order import (
     HumanArtifactContext,
     capability_delta_by_subject,
     should_render_surface_first,
     surface_lead,
 )
-from agents_shipgate.report.declaration_review import declaration_review_lines
 from agents_shipgate.report.summary_text import evidence_coverage_text
 from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment
 from agents_shipgate.schemas.report import (

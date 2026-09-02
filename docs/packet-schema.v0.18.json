@@ -602,7 +602,7 @@
     },
     "DeclarationReviewDecision": {
       "additionalProperties": false,
-      "description": "Base-vs-head review surface for changed action declaration rows.\n\nThis projection never gates.  ``enabled=false`` means no trustworthy\ndeclaration-row base was available; ``changed_count=0`` means the base was\ncomparable but no declaration answer changed.  Renderers stay silent for\nboth shapes.",
+      "description": "Base-vs-head review surface for changed action declaration rows.\n\nThis projection never gates. ``base_comparison_requested=true`` with\n``enabled=false`` means a comparison was requested but no trustworthy\ndeclaration-row base was available; renderers must say so.\n``changed_count=0`` with ``enabled=true`` means the base was comparable but\nno declaration answer changed.",
       "else": {
         "properties": {
           "base_kind": {
@@ -632,6 +632,11 @@
         ]
       },
       "properties": {
+        "base_comparison_requested": {
+          "default": false,
+          "title": "Base Comparison Requested",
+          "type": "boolean"
+        },
         "base_kind": {
           "default": "none",
           "enum": [
@@ -671,6 +676,7 @@
         }
       },
       "required": [
+        "base_comparison_requested",
         "base_kind",
         "changed_count",
         "enabled",
@@ -697,6 +703,28 @@
     "DeclarationReviewRow": {
       "additionalProperties": false,
       "allOf": [
+        {
+          "if": {
+            "properties": {
+              "change_type": {
+                "const": "removed"
+              }
+            },
+            "required": [
+              "change_type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "bucket": {
+                "const": "unverified"
+              }
+            },
+            "required": [
+              "bucket"
+            ]
+          }
+        },
         {
           "if": {
             "properties": {
@@ -875,7 +903,8 @@
         "change_type": {
           "enum": [
             "added",
-            "modified"
+            "modified",
+            "removed"
           ],
           "title": "Change Type",
           "type": "string"

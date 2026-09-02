@@ -7,10 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from agents_shipgate.schemas.agent_control import AgentControl
 from agents_shipgate.schemas.surfaces import ActionEffect
 
-# The current emitted model is still ``PreflightResultV3`` / schema 0.3.
-# Keep discovery and contract metadata on the model that the CLI can validate;
-# publishing 0.4 here made those surfaces point at a schema no run emitted.
-PREFLIGHT_SCHEMA_VERSION = "0.3"
+PREFLIGHT_SCHEMA_VERSION = "0.4"
 MAX_PREFLIGHT_DIFF_BYTES = 32 * 1024 * 1024
 
 PreflightActor = Literal["coding_agent", "human"]
@@ -479,6 +476,12 @@ class PreflightResultV3(PreflightResultV2):
         return self
 
 
+class PreflightResultV4(PreflightResultV3):
+    """Current planning result; v0.4 freezes the permission-bearing control union."""
+
+    preflight_schema_version: Literal["0.4"] = "0.4"
+
+
 __all__ = [
     "PREFLIGHT_SCHEMA_VERSION",
     "CapabilityRequestControls",
@@ -495,6 +498,7 @@ __all__ = [
     "PreflightResultV1",
     "PreflightResultV2",
     "PreflightResultV3",
+    "PreflightResultV4",
     "PreflightSignalKind",
     "PreflightSignalV1",
     "TrustRootGraphV1",

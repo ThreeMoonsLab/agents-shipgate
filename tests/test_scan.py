@@ -164,6 +164,7 @@ def test_openai_agents_sdk_directory_fixture_scans_static_tools(tmp_path):
         "acknowledged_overrides": [],
         "declaration_review": {
             "enabled": False,
+            "base_comparison_requested": False,
             "base_kind": "none",
             "changed_count": 0,
             "summary": {

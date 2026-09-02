@@ -1244,7 +1244,7 @@
       }
     }
   ],
-  "description": "JSON Schema for shipgate preflight --json. Generated from agents_shipgate.schemas.preflight.PreflightResultV3. It is a proactive routing/projection surface, not a release gate; release_decision.decision remains the only gate.",
+  "description": "JSON Schema for shipgate preflight --json. Generated from agents_shipgate.schemas.preflight.PreflightResultV4. It is a proactive routing/projection surface, not a release gate; release_decision.decision remains the only gate.",
   "properties": {
     "allowed_next_commands": {
       "items": {
@@ -1333,8 +1333,8 @@
       "title": "Policy Snapshot Hash"
     },
     "preflight_schema_version": {
-      "const": "0.3",
-      "default": "0.3",
+      "const": "0.4",
+      "default": "0.4",
       "title": "Preflight Schema Version",
       "type": "string"
     },

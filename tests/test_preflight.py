@@ -33,7 +33,7 @@ from agents_shipgate.schemas.preflight import (
     CapabilityRequestV1,
     PreflightResultV1,
     PreflightResultV2,
-    PreflightResultV3,
+    PreflightResultV4,
 )
 
 runner = CliRunner()
@@ -1083,7 +1083,7 @@ def test_base_preflight_accepts_legacy_v1_payload(tmp_path: Path) -> None:
     (root / "AGENTS.md").write_text("Run Shipgate before completion.\n", encoding="utf-8")
     head = build_preflight_result(workspace=root, base_preflight=legacy_base)
 
-    assert head.preflight_schema_version == "0.3"
+    assert head.preflight_schema_version == "0.4"
     assert head.trust_root_graph_diff is not None
     assert head.trust_root_graph_diff.changed is True
 
@@ -1123,7 +1123,7 @@ def test_preflight_plan_routes_multiple_capability_and_host_requests(
         },
     )
 
-    assert result.preflight_schema_version == "0.3"
+    assert result.preflight_schema_version == "0.4"
     assert result.requires_human_review is True
     assert result.requires_verify is True
     assert result.plan_summary["capability_request_count"] == 2
@@ -1168,7 +1168,7 @@ def test_cli_preflight_json_changed_files_and_diff(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["preflight_schema_version"] == "0.3"
+    assert payload["preflight_schema_version"] == "0.4"
     assert payload["requires_human_review"] is True
     assert payload["requires_verify"] is True
     assert payload["control"]["state"] == "human_review_required"
@@ -1282,7 +1282,7 @@ def test_cli_preflight_plan_stdin_routes_clean_docs_to_verify(tmp_path: Path) ->
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["preflight_schema_version"] == "0.3"
+    assert payload["preflight_schema_version"] == "0.4"
     assert payload["requires_human_review"] is False
     assert payload["first_next_action"]["kind"] == "verify"
     _assert_verify_command(payload["allowed_next_commands"][0], root, "shipgate.yaml")
@@ -1310,7 +1310,7 @@ def test_cli_preflight_plan_empty_stdin_is_empty_plan(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["preflight_schema_version"] == "0.3"
+    assert payload["preflight_schema_version"] == "0.4"
     assert payload["changed_files"] == []
     assert payload["requires_human_review"] is False
     assert payload["requires_verify"] is False
@@ -1337,8 +1337,8 @@ def test_base_preflight_accepts_frozen_v2_payload(tmp_path: Path) -> None:
         base_preflight=legacy,
     )
 
-    assert isinstance(head, PreflightResultV3)
-    assert head.preflight_schema_version == "0.3"
+    assert isinstance(head, PreflightResultV4)
+    assert head.preflight_schema_version == "0.4"
     assert head.control.state == "agent_action_required"
 
 
@@ -1353,7 +1353,7 @@ def test_preflight_legacy_projection_cannot_contradict_control_in_model_or_schem
         "why": "Contradict complete control.",
     }
     with pytest.raises(ValidationError):
-        PreflightResultV3.model_validate(payload)
+        PreflightResultV4.model_validate(payload)
     schema = json.loads(
         (Path(__file__).resolve().parent.parent / "docs/preflight-schema.v0.4.json").read_text(
             encoding="utf-8"

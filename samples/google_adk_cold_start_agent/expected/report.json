@@ -561,6 +561,7 @@
         "acknowledged_overrides": [],
         "declaration_review": {
           "enabled": false,
+          "base_comparison_requested": false,
           "base_kind": "none",
           "changed_count": 0,
           "summary": {

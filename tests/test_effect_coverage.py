@@ -851,7 +851,7 @@ _FROZEN_AND_CURRENT_SCHEMAS = [
     ),
     ("report-schema.v0.42.json", "report-schema.v0.43.json", "declaration_review"),
     ("packet-schema.v0.17.json", "packet-schema.v0.18.json", "declaration_review"),
-    ("verifier-schema.v0.15.json", "verifier-schema.v0.16.json", "manifest_provenance"),
+    ("verifier-schema.v0.15.json", "verifier-schema.v0.16.json", "declaration_review"),
 ]
 
 

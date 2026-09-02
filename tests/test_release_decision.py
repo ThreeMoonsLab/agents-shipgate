@@ -206,9 +206,10 @@ def test_missing_semantic_assessment_is_zero_tolerance_ie_and_strict_failure():
         "review_concern_count": 0,
         "reason_counts": {"incomplete_surface": 1},
         "acknowledged_overrides": [],
-        "declaration_review": {
-            "enabled": False,
-            "base_kind": "none",
+            "declaration_review": {
+                "enabled": False,
+                "base_comparison_requested": False,
+                "base_kind": "none",
             "changed_count": 0,
             "summary": {
                 "evidence_consistent": 0,
