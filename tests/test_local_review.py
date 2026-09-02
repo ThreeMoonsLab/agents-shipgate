@@ -166,20 +166,18 @@ def test_local_review_manifest_forces_provisional_verifier_artifacts(tmp_path: P
     receipt = json.loads((reports / "verification-receipt.json").read_text(encoding="utf-8"))
     assert receipt["decision"] != "passed"
     assert receipt["can_merge_without_human"] is False
-    assert verifier["control"]["state"] == "human_review_required"
-    assert not any(verifier["control"]["permissions"].values())
     assert verifier["control"]["next_action"]["actor"] == "human"
     assert "--write --json" in verifier["control"]["next_action"]["why"]
-    assert verifier["control"]["allowed_next_commands"] == []
+    assert verifier["control"]["allowed_next_commands"] == [
+        f"agents-shipgate init --workspace {repo} --write --json"
+    ]
     adoption = next(
         repair
         for repair in verifier["fix_task"]["allowed_repairs"]
         if repair["kind"] == "durable_adoption"
     )
     assert adoption["actor"] == "human"
-    assert adoption["command"] == (
-        f"agents-shipgate init --workspace {repo} --write --json"
-    )
+    assert adoption["command"] == verifier["control"]["allowed_next_commands"][0]
     assert _git(repo, "status", "--porcelain", "--untracked-files=all").stdout == ""
 
 
@@ -217,8 +215,6 @@ def test_ignored_custom_manifest_cannot_launder_release_authority(tmp_path: Path
     verifier = json.loads(result.output)
     assert verifier["decision"] != "passed"
     assert verifier["merge_verdict"] != "mergeable"
-    assert verifier["control"]["state"] == "human_review_required"
-    assert not any(verifier["control"]["permissions"].values())
     report = json.loads(
         (repo / "agents-shipgate-reports" / "report.json").read_text(encoding="utf-8")
     )

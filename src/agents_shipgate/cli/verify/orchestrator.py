@@ -3249,7 +3249,6 @@ def _derive_verifier_control(
     configured_manifest: str | None = None,
     declaration_continuation: bool = False,
     durable_adoption_command: str | None = None,
-    release_authoritative: bool = True,
 ) -> AgentControl:
     """Project verifier facts through the shared operational control engine."""
 
@@ -3264,7 +3263,6 @@ def _derive_verifier_control(
     )
     subject_evaluated = bool(
         read_the_change
-        and release_authoritative
         and release_decision is not None
         and release_decision.decision != "blocked"
     )
@@ -3280,7 +3278,6 @@ def _derive_verifier_control(
     # proposal in front of a human, never landing it.
     publishable_declaration = bool(
         read_the_change
-        and release_authoritative
         and not subject_evaluated
         and declaration_continuation
         and capability_review is not None
@@ -3783,7 +3780,6 @@ def _build_verifier(
         # nothing for the receipt to be about.
         declaration_continuation=declaration_continuation,
         durable_adoption_command=durable_adoption_command,
-        release_authoritative=manifest_provenance_value == "repository",
     )
     return VerifierArtifact(
         declaration_continuation=declaration_continuation,

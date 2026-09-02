@@ -965,36 +965,19 @@ def _brace_pairs(masked: str) -> list[tuple[int, int]]:
     return pairs
 
 
-def _enclosing_blocks(
-    pairs: list[tuple[int, int]], indexes: list[int]
-) -> list[tuple[int, int] | None]:
-    """Resolve ordered source positions to their innermost brace spans.
+def _enclosing_block(pairs: list[tuple[int, int]], index: int) -> tuple[int, int] | None:
+    """The innermost ``{…}`` containing ``index``, as ``(open, close_exclusive)``.
 
-    Both inputs come from left-to-right scans.  Keeping the still-open spans
-    on a stack visits each brace pair and registration site once; looking
-    through every pair for every site made a flat generated file quadratic.
+    Takes the file's brace spans rather than re-deriving them, because the
+    caller has one site per tool class and re-scanning the whole module for
+    each of them is quadratic in a file that declares many.
     """
 
-    ordered_pairs = sorted(pairs)
-    active: list[tuple[int, int]] = []
-    resolved: list[tuple[int, int] | None] = []
-    pair_index = 0
-    for index in indexes:
-        while active and active[-1][1] <= index:
-            active.pop()
-        while (
-            pair_index < len(ordered_pairs)
-            and ordered_pairs[pair_index][0] <= index
-        ):
-            pair = ordered_pairs[pair_index]
-            while active and active[-1][1] <= pair[0]:
-                active.pop()
-            active.append(pair)
-            pair_index += 1
-        while active and active[-1][1] <= index:
-            active.pop()
-        resolved.append(active[-1] if active else None)
-    return resolved
+    best: tuple[int, int] | None = None
+    for start, end in pairs:
+        if start <= index < end and (best is None or start > best[0]):
+            best = (start, end)
+    return best
 
 
 def _resolve_name(value: str | None, found: bool) -> tuple[str | None, str | None]:
@@ -1096,14 +1079,13 @@ def _has_second_argument(masked: str, open_paren: int, close: int) -> bool:
 def _ts_static_tool_name_sites(source: MaskedSource) -> list[RegistrationSite]:
     sites: list[RegistrationSite] = []
     pairs = _brace_pairs(source.masked)
-    matches = list(_TS_STATIC_TOOL_NAME_RE.finditer(source.masked))
-    blocks = _enclosing_blocks(pairs, [match.start() for match in matches])
-    for match, block in zip(matches, blocks, strict=True):
+    for match in _TS_STATIC_TOOL_NAME_RE.finditer(source.masked):
         found, value, end = source.literal_at(match.end())
         name, unresolved = _resolve_name(value, found)
         if name is not None and not _literal_is_whole_value(source, end, ";}"):
             name, unresolved = None, "name_not_literal"
         line, column = source.line_column(match.start())
+        block = _enclosing_block(pairs, match.start())
         operation_type: str | None = None
         description: str | None = None
         if block is not None and name is not None:

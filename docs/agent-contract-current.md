@@ -10,10 +10,29 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
-### Unreleased projection-only migration
+### Unreleased declaration-review migration
 
-No schema or runtime-contract version moves for the current fixes; the current
-v0.42 report schema gains the typed `unattested_surface` gap and optional
+Runtime contract v29 coordinates the public artifacts that carry changed
+action declarations: report v0.43, packet v0.18, and verifier v0.16.
+`minimum_control_contract_version` remains 21 because the operational control
+envelope is unchanged.
+
+Read
+`release_decision.evidence_coverage.semantic_coverage.declaration_review` for
+the base-vs-head reviewer projection. It includes added, removed, and
+semantically modified declaration rows. A requested comparison that could not
+run is distinct from an available comparison with no changes; missing or
+conflicting identity and semantic evidence gaps cannot earn an
+`evidence_consistent` status. Report Markdown, packets, PR comments,
+annotations, and the GitHub summary consume the same bounded projection.
+
+See the
+[declaration-review migration note](../STABILITY.md#migration-note-unreleased-declaration-review).
+
+### Earlier projection-only migration
+
+That change moved no schema or runtime-contract version; the v0.42 report
+schema gained the typed `unattested_surface` gap and optional
 `EvidenceGap.policy_id`.
 Completed blocked verifier runs now append the deterministically selected worst
 blocker to the plain headline as well as the adoption/self-approval branches;
@@ -474,7 +493,7 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b7` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `28` (minimum control contract: `21`)
+- Runtime contract: `29` (minimum control contract: `21`)
 - Current report schema: `0.43` — [`docs/report-schema.v0.43.json`](report-schema.v0.43.json)
 - Current packet schema: `0.18` — [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)

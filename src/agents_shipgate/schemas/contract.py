@@ -143,7 +143,16 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # attestation gates nothing — ``release_decision.decision`` remains the only
 # release gate — and is absent, with a note on the run, whenever the evaluated
 # subject is a worktree snapshot rather than a committed tree.
-CONTRACT_VERSION: Literal["28"] = "28"
+#
+# v29 publishes action-declaration review as a first-class reviewer surface
+# (#428). The contract advertises report 0.43, packet 0.18, and verifier 0.16
+# so consumers can discover the declaration comparison without guessing from
+# prose. Runtime v28 is already the capability-delta contract;
+# reusing that number here would give one version two incompatible meanings.
+#
+# The operational control shapes remain byte-identical to v28, so
+# ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21 for the sixth time.
+CONTRACT_VERSION: Literal["29"] = "29"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"

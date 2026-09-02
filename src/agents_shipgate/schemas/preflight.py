@@ -476,12 +476,6 @@ class PreflightResultV3(PreflightResultV2):
         return self
 
 
-class PreflightResultV4(PreflightResultV3):
-    """Current planning result; v0.4 freezes the permission-bearing control union."""
-
-    preflight_schema_version: Literal["0.4"] = "0.4"
-
-
 __all__ = [
     "PREFLIGHT_SCHEMA_VERSION",
     "CapabilityRequestControls",
@@ -498,7 +492,6 @@ __all__ = [
     "PreflightResultV1",
     "PreflightResultV2",
     "PreflightResultV3",
-    "PreflightResultV4",
     "PreflightSignalKind",
     "PreflightSignalV1",
     "TrustRootGraphV1",

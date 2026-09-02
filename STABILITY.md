@@ -13,6 +13,40 @@ for reproducible CI.
 
 ---
 
+<a id="migration-note-unreleased-declaration-review"></a>
+
+## Migration Note: unreleased — changed declarations become reviewer evidence
+
+`contract_version` moves **28 → 29**, `report_schema_version` moves
+**0.42 → 0.43**, packet schema moves **0.17 → 0.18**, verifier schema moves
+**0.15 → 0.16**. Those artifact bumps carry the declaration-review projection.
+Runtime v28
+already identifies the capability-delta contract, so this release does not
+reuse it for a second public surface. `minimum_control_contract_version` stays
+at `21`: `AgentControl` and `shipgate.agent_control/v1` are byte-identical.
+
+**Base-vs-head action declaration changes are explicit reviewer evidence.**
+`release_decision.evidence_coverage.semantic_coverage.declaration_review`
+classifies added, removed, and semantically modified declaration rows as
+`evidence_consistent`, `unverified`, or `acknowledged_override`. A removed row
+is always unverified. Missing or conflicting action identity, unresolved or
+ambiguous selectors, semantic evidence gaps, and comparison failure cannot
+earn `evidence_consistent`.
+
+The same bounded projection feeds report Markdown, packet JSON/Markdown/HTML,
+the PR comment, annotations, and the GitHub step summary. Machine consumers
+must branch on `enabled`, `base_comparison_requested`,
+`base_comparison_available`, `changed_count`, `summary`, and the typed row
+fields; they must not infer “no declaration change” from an unavailable
+comparison. A requested comparison that cannot run is rendered explicitly.
+
+The schemas are additive. Older report, packet, and verifier documents remain
+frozen and readable under their original identifiers. Declaration review is a
+reviewer projection, not a second gate: `release_decision.decision` remains the
+only release decision signal.
+
+---
+
 <a id="migration-note-unreleased-capability-delta-attestation"></a>
 
 ## Migration Note: unreleased — the capability delta becomes a published attestation
@@ -94,9 +128,10 @@ the artifact-manifest digest against a receipt you supply.
 
 ## Migration Note: unreleased — verifier explanations name the cause that acted
 
-No schema or runtime-contract version moves. The current v0.42 report schema
-adds the typed `unattested_surface` gap and optional `EvidenceGap.policy_id`;
-consumers must continue to branch on typed fields rather than matching prose.
+That projection-only change moved no schema or runtime-contract version. It
+landed against the v0.42 report schema with the typed `unattested_surface` gap
+and optional `EvidenceGap.policy_id`; consumers must continue to branch on
+typed fields rather than matching prose.
 
 - Every completed blocked verifier run now routes its plain headline through
   the same deterministic blocker picker already used by the adoption and

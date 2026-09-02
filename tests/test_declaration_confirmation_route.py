@@ -1437,13 +1437,14 @@ def test_a_blocked_run_without_a_continuation_still_fails_the_schema(
     assert list(validator.iter_errors(payload))
 
 
-def test_a_first_adoption_proposal_remains_human_owned(tmp_path: Path) -> None:
-    """There is no authoritative manifest this diff can publish from.
+def test_a_first_adoption_can_still_publish_its_proposal(tmp_path: Path) -> None:
+    """There is no earlier version of a manifest this diff introduces.
 
-    The introduction proof makes the declaration-drafting route safe to run,
-    but the resulting manifest is still provisional and uncommitted. It may be
-    handed to a human for durable adoption; it cannot grant commit or
-    publication authority to the coding agent (#326 review).
+    Reading a before-digest out of the comparison ref therefore found nothing
+    and refused, which left the advertised apply/rerun path immediately blocked
+    on the very run the route was built for. What carries "nothing could have
+    been loosened" here is the introduction proof — there was no gate
+    (#429 review).
     """
 
     repo = _adopting_repo(tmp_path / "repo")
@@ -1457,10 +1458,8 @@ def test_a_first_adoption_proposal_remains_human_owned(tmp_path: Path) -> None:
 
     after = _verify(repo, "--no-base")
     assert after["decision"] == "blocked"
-    assert after["control_state"] == "human_review_required"
-    assert after["permissions"]["commit"] is False
-    assert after["permissions"]["push"] is False
-    assert after["permissions"]["update_pr"] is False
+    assert after["control_state"] == "review_publishable"
+    assert after["permissions"]["commit"] is True
 
 
 def test_an_absent_before_state_needs_the_introduction_proof(tmp_path: Path) -> None:
