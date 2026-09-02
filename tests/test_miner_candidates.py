@@ -40,6 +40,8 @@ def _fake_gh(answers: dict[str, object]):
             else f"{cmd[1]} {cmd[2]} {cmd[3]}"
         )
         payload = answers[key]
+        if payload is None:  # gh exits non-zero: no such PR
+            raise subprocess.CalledProcessError(1, cmd)
         return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
 
     run.calls = calls  # type: ignore[attr-defined]
@@ -139,6 +141,12 @@ def test_reverted_enumeration_returns_the_reverted_pr_at_its_own_merge_pins(monk
                     "body": "",
                     "mergeCommit": {"oid": "9" * 40},
                 },
+                {
+                    "number": 60,
+                    "title": 'Revert "thing (#65"',
+                    "body": "",
+                    "mergeCommit": {"oid": "6" * 40},
+                },
             ],
             "pr view 41": {
                 "number": 41,
@@ -156,6 +164,8 @@ def test_reverted_enumeration_returns_the_reverted_pr_at_its_own_merge_pins(monk
                 "mergeCommit": None,
                 "state": "CLOSED",
             },
+            # Not a PR: gh fails, and the enumeration must carry on.
+            "pr view 65": None,
         }
     )
     monkeypatch.setattr(candidates.subprocess, "run", fake)

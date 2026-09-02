@@ -200,17 +200,23 @@ def enumerate_reverted_prs(repo: str, *, limit: int = 50) -> list[Candidate]:
         if reverted is None or reverted in seen:
             continue
         revert_sha = str((item.get("mergeCommit") or {}).get("oid") or "")
-        original = _gh_json(
-            [
-                "pr",
-                "view",
-                str(reverted),
-                "--repo",
-                repo,
-                "--json",
-                "number,title,url,mergedAt,mergeCommit,state",
-            ]
-        )
+        try:
+            original = _gh_json(
+                [
+                    "pr",
+                    "view",
+                    str(reverted),
+                    "--repo",
+                    repo,
+                    "--json",
+                    "number,title,url,mergedAt,mergeCommit,state",
+                ]
+            )
+        except subprocess.CalledProcessError:
+            # A title like `Revert "... (#65..." names a number that is not a
+            # PR here (an issue, a truncated reference); one bad reference
+            # must not abort the enumeration.
+            continue
         if str(original.get("state") or "") != "MERGED":
             continue
         sha = str((original.get("mergeCommit") or {}).get("oid") or "")
