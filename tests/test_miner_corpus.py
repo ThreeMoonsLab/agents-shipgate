@@ -44,14 +44,38 @@ VALID_VERDICTS = {
 
 
 def _mined_jsonl_files() -> list[Path]:
+    """The unselected latest-N sweeps, which are what the KPI numbers aggregate."""
+
     return sorted(RESULTS_DIR.glob("*-mined.jsonl"))
+
+
+def _all_run_jsonl_files() -> list[Path]:
+    """Every committed run, whatever it was for.
+
+    Integrity is not a property of the KPI runs alone. ``*-reeval``,
+    ``*-cutb``, ``*-closeout`` and ``constructed`` sit outside the ``*-mined``
+    glob on purpose -- they are selected samples and would move a noise bound
+    that is only meaningful over unselected ones -- but their rows are load
+    bearing all the same: ``tests/test_strata_inventory.py`` re-reads every
+    committed CSV as the authority for a corpus candidate's pins. A
+    half-regenerated pair outside this enumeration would leave stale pins
+    certifying the inventory with nothing in CI to notice.
+    """
+
+    return sorted(RESULTS_DIR.glob("*.jsonl"))
 
 
 def test_at_least_one_committed_run_exists() -> None:
     assert _mined_jsonl_files(), "no committed mined corpus under benchmark/miner/results/"
+    # The two enumerations must not silently converge: if every run became a
+    # `*-mined` one, the split above would be doing nothing and the next
+    # selected sweep would land outside a guard that looks like it covers it.
+    assert set(_mined_jsonl_files()) < set(_all_run_jsonl_files()), (
+        "every committed run matches *-mined; the integrity/KPI split is vacuous"
+    )
 
 
-@pytest.mark.parametrize("jsonl_path", _mined_jsonl_files(), ids=lambda p: p.name)
+@pytest.mark.parametrize("jsonl_path", _all_run_jsonl_files(), ids=lambda p: p.name)
 def test_committed_corpus_is_well_formed(jsonl_path: Path) -> None:
     rows = read_jsonl(jsonl_path)
     assert rows, f"{jsonl_path.name} is empty"
@@ -76,7 +100,7 @@ def _csv_shape(row) -> dict[str, str]:
     return {key: ("" if value is None else str(value)) for key, value in row.to_json().items()}
 
 
-@pytest.mark.parametrize("jsonl_path", _mined_jsonl_files(), ids=lambda p: p.name)
+@pytest.mark.parametrize("jsonl_path", _all_run_jsonl_files(), ids=lambda p: p.name)
 def test_csv_and_jsonl_agree(jsonl_path: Path) -> None:
     csv_path = jsonl_path.with_suffix(".csv")
     assert csv_path.is_file(), f"missing CSV sibling for {jsonl_path.name}"
@@ -107,11 +131,26 @@ def test_csv_and_jsonl_agree(jsonl_path: Path) -> None:
         )
 
 
-@pytest.mark.parametrize("jsonl_path", _mined_jsonl_files(), ids=lambda p: p.name)
+@pytest.mark.parametrize("jsonl_path", _all_run_jsonl_files(), ids=lambda p: p.name)
 def test_committed_corpus_files_are_lf_only(jsonl_path: Path) -> None:
     assert b"\r" not in jsonl_path.read_bytes(), f"{jsonl_path.name} has CRLF (git diff --check)"
     csv_path = jsonl_path.with_suffix(".csv")
     assert b"\r" not in csv_path.read_bytes(), f"{csv_path.name} has CRLF (git diff --check)"
+
+
+def test_every_committed_results_csv_has_a_jsonl_to_be_checked_against() -> None:
+    """The enumeration above is driven by the JSONL side, so a run CSV without
+    one would be read by ``tests/test_strata_inventory.py`` as pin authority
+    and validated by nothing at all. Label files are not runs and are checked
+    by their own guards.
+    """
+
+    orphans = [
+        path.name
+        for path in sorted(RESULTS_DIR.glob("*.csv"))
+        if ".labels" not in path.name and not path.with_suffix(".jsonl").is_file()
+    ]
+    assert orphans == [], f"results CSVs with no JSONL sibling: {orphans}"
 
 
 _TEMPLATE_SUFFIX = ".labels.template.csv"

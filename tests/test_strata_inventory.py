@@ -20,6 +20,7 @@ import csv
 import math
 import re
 from collections import Counter, defaultdict
+from collections.abc import Iterable
 from functools import lru_cache
 from pathlib import Path
 from typing import get_args
@@ -98,6 +99,10 @@ SPLIT_ELIGIBILITIES = frozenset({"tuning_only", "either"})
 QUALIFYING_ORIGINS = frozenset({"real_history", "rejected_or_reverted", "design_partner"})
 
 EXTERNAL_CANDIDATE = re.compile(r"^github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+#[1-9][0-9]*$")
+
+# One subject's recorded pins, and the sweeps that recorded each pair. More
+# than one key is a contradiction, wherever the two recordings came from.
+SweptPins = dict[tuple[str, str], set[str]]
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 
 # Two of the seven profiles are *scenario* profiles: what puts a candidate in
@@ -196,6 +201,73 @@ def _swept_candidates() -> set[str]:
                 if url:
                     swept.add(_candidate_ref_for(url))
     return swept
+
+
+def _swept_pins(sources: Iterable[Path] | None = None) -> dict[str, SweptPins]:
+    """Every base/head a committed sweep resolved: candidate -> pins -> sweeps.
+
+    A sweep records an unresolved candidate with both columns blank; those are
+    not pins and are dropped here, so a row is never checked against a
+    recording that resolved nothing.
+
+    Keying by the *pins* rather than by the sweep is what makes a contradiction
+    visible. Keyed by sweep, a file holding one subject twice with different
+    SHAs would keep whichever row came last, and a corrupt duplicate ordered
+    before the good one would read as agreement --
+    ``test_a_contradictory_duplicate_in_one_sweep_is_not_read_as_agreement``
+    is why ``sources`` is a parameter rather than the glob inlined.
+    """
+
+    pins: dict[str, SweptPins] = {}
+    for source in sorted(MINER_RESULTS.glob("*.csv") if sources is None else sources):
+        label = (
+            source.relative_to(REPO_ROOT).as_posix()
+            if source.is_relative_to(REPO_ROOT)
+            else source.name
+        )
+        with source.open(encoding="utf-8", newline="") as handle:
+            for entry in csv.DictReader(handle):
+                url, base, head = (
+                    entry.get("pr_url"),
+                    entry.get("base_sha"),
+                    entry.get("head_sha"),
+                )
+                if url and base and head:
+                    recorded = pins.setdefault(_candidate_ref_for(url), {})
+                    recorded.setdefault((base, head), set()).add(label)
+    return pins
+
+
+def _pin_complaints(rows: list[dict[str, str]], swept: dict[str, SweptPins]) -> list[str]:
+    """Every way ``rows`` disagrees with what the sweeps recorded.
+
+    The rule lives here rather than inside the guard so a fixture can be run
+    through the same code the committed inventory is.
+    """
+
+    complaints: list[str] = []
+    for row in rows:
+        ref = row["candidate_ref"]
+        if row["status"] == "gap" or _is_in_tree(ref):
+            continue
+        recorded = swept.get(ref)
+        if not recorded:
+            complaints.append(
+                f"{row['slot_id']}: no committed sweep resolved {ref}, so its pins "
+                "cannot be checked against anything. Mine it (`--pr <n>`) first."
+            )
+            continue
+        # Two recordings that resolved the same subject differently -- in two
+        # sweeps or twice in one -- would make "matches the sweep" mean
+        # "matches whichever recording agrees".
+        sources = sorted({sweep for sweeps in recorded.values() for sweep in sweeps})
+        if len(recorded) > 1:
+            complaints.append(f"{ref} is pinned differently within {sources}")
+        elif row["status"] != "pinned":
+            complaints.append(f"{row['slot_id']} has recorded pins available")
+        elif (row["pinned_base"], row["pinned_head"]) not in recorded:
+            complaints.append(f"{row['slot_id']} pins disagree with {sources}")
+    return complaints
 
 
 @lru_cache(maxsize=1)
@@ -323,6 +395,51 @@ def _register_entries() -> dict[str, tuple[str | None, str]]:
             )
             entries[candidate] = (cells[1].strip("`") if has_profile else None, state)
     return entries
+
+
+def _reserve_claims(lines: list[str] | None = None) -> list[tuple[str, str, str]]:
+    """``(candidate, origin, state)`` for every reserve row that states an origin.
+
+    The Reserve's second column is an origin where the register above it holds
+    a profile, and one row may list several candidates that share the claim.
+    A row whose origin is left ``—`` states nothing and is skipped. Everything
+    else in that column is read as an origin, and its state is required to be
+    one that can supply an origin at all -- otherwise the one shape this rule
+    exists to catch, a still-`open` PR reserved as ``real_history``, would drop
+    out of the check rather than fail it.
+
+    ``lines`` takes the rows to read, so a fixture row can be put through this
+    parser rather than through a second copy of it.
+    """
+
+    claims: list[tuple[str, str, str]] = []
+    for line in _register_section("### Reserve") if lines is None else lines:
+        if not line.startswith("| `"):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) < 3:
+            continue
+        origin, state = cells[1].strip("`"), cells[2].strip("`")
+        if origin == "—":
+            continue
+        assert origin in set(get_args(SafetyCaseOrigin)), f"the reserve states origin {origin!r}"
+        assert state in STATE_ORIGINS, (
+            f"the reserve gives {cells[0]} an origin, but {state!r} can supply none"
+        )
+        claims.extend(
+            (candidate, origin, state) for candidate in re.findall(r"`([^`]+)`", cells[0])
+        )
+    return claims
+
+
+def _unsuppliable_origins(claims: list[tuple[str, str, str]]) -> list[str]:
+    """Reserve claims whose origin the candidate's own state cannot supply."""
+
+    return [
+        f"the reserve lists {candidate} as {origin}, which a {state} candidate cannot supply"
+        for candidate, origin, state in claims
+        if origin not in STATE_ORIGINS[state]
+    ]
 
 
 def test_the_inventory_columns_are_exactly_the_documented_ones() -> None:
@@ -453,6 +570,97 @@ def test_a_pin_is_a_full_sha_or_the_slot_is_not_pinned(rows: list[dict[str, str]
             assert FULL_SHA.match(base), f"{row['slot_id']} base is not a full SHA"
             assert FULL_SHA.match(head), f"{row['slot_id']} head is not a full SHA"
             assert base != head, row["slot_id"]
+
+
+def test_a_pinned_external_candidate_matches_the_sweep_that_recorded_it(
+    rows: list[dict[str, str]],
+) -> None:
+    """Pins are re-read from the sweep rather than trusted in this file.
+
+    A hand-written pin is a second copy of a fact this project already
+    resolved once, and a wrong one sends a rater to a diff nobody adjudicated.
+    ``github-mcp-server#3076`` is the live example: its walk note abbreviated
+    the head as ``5ea9a0e8…``, which is ``refs/pull/3076/head`` and is not
+    reachable from the default branch at all -- the merge commit the
+    convention asks for is ``8ec62491…``.
+
+    So an external candidate is pinned from a committed sweep, and the two
+    escapes are closed with it: pinning a subject no sweep resolved, which
+    nothing can check, and leaving one a sweep *did* resolve ``unpinned``,
+    which is lost work rather than an unknown.
+    """
+
+    assert _pin_complaints(rows, _swept_pins()) == []
+
+
+_PIN_COLUMNS = ("pr_url", "base_sha", "head_sha")
+_FIXTURE_URL = "https://github.com/example/repo/pull/1"
+_FIXTURE_REF = "github.com/example/repo#1"
+_GOOD_PINS = ("1" * 40, "2" * 40)
+_WRONG_BASE = ("3" * 40, "2" * 40)
+
+
+def _sweep_file(path: Path, *pins: tuple[str, str]) -> Path:
+    """A minimal sweep recording one subject at each of ``pins``, in order."""
+
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=_PIN_COLUMNS, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(
+            {"pr_url": _FIXTURE_URL, "base_sha": base, "head_sha": head} for base, head in pins
+        )
+    return path
+
+
+def _pinned_row(base: str, head: str, status: str = "pinned") -> dict[str, str]:
+    return {
+        "slot_id": "fixture.passed.1",
+        "candidate_ref": _FIXTURE_REF,
+        "status": status,
+        "pinned_base": base,
+        "pinned_head": head,
+    }
+
+
+@pytest.mark.parametrize("bad_first", [True, False], ids=["bad-first", "good-first"])
+def test_a_contradictory_duplicate_in_one_sweep_is_not_read_as_agreement(
+    tmp_path: Path, bad_first: bool
+) -> None:
+    """Regression: this passed while the pins were keyed by sweep file.
+
+    One file holding a subject twice with different SHAs kept whichever row
+    came last, so a corrupt duplicate ordered *before* the good row vanished
+    and the inventory's pins certified against a file that contradicts itself.
+    Both orders are asserted because only one of them ever failed.
+    """
+
+    order = (_WRONG_BASE, _GOOD_PINS) if bad_first else (_GOOD_PINS, _WRONG_BASE)
+    swept = _swept_pins([_sweep_file(tmp_path / "duplicated.csv", *order)])
+
+    assert len(swept[_FIXTURE_REF]) == 2, "the two recordings collapsed into one"
+    assert _pin_complaints([_pinned_row(*_GOOD_PINS)], swept) == [
+        f"{_FIXTURE_REF} is pinned differently within ['duplicated.csv']"
+    ]
+
+
+def test_the_pin_rule_refuses_an_uncorroborated_pin_and_a_resolved_subject_left_unpinned(
+    tmp_path: Path,
+) -> None:
+    """The other two escapes, kept live rather than only perturbation-tested."""
+
+    swept = _swept_pins([_sweep_file(tmp_path / "one.csv", _GOOD_PINS)])
+
+    assert _pin_complaints([_pinned_row(*_GOOD_PINS)], swept) == []
+    assert _pin_complaints([_pinned_row(*_WRONG_BASE)], swept) == [
+        "fixture.passed.1 pins disagree with ['one.csv']"
+    ]
+    assert _pin_complaints([_pinned_row("", "", status="unpinned")], swept) == [
+        "fixture.passed.1 has recorded pins available"
+    ]
+    assert _pin_complaints([_pinned_row(*_GOOD_PINS)], {}) == [
+        "fixture.passed.1: no committed sweep resolved github.com/example/repo#1, "
+        "so its pins cannot be checked against anything. Mine it (`--pr <n>`) first."
+    ]
 
 
 def test_every_candidate_resolves_and_no_subject_fills_two_slots(
@@ -687,7 +895,8 @@ def test_a_gap_that_names_a_pull_request_plans_the_origin_that_pr_can_supply(
     ``google/adk-python#6605`` was closed without merge, so a gap naming it
     cannot be planned as ``real_history``: the lead and the origin would
     describe two different candidates, and the shortfall surfaces only when
-    someone tries to fill the slot.
+    someone tries to fill the slot. The reserve states the same pair for the
+    same reason, and is checked here too -- see the second loop.
     """
 
     entries = _register_entries()
@@ -706,7 +915,51 @@ def test_a_gap_that_names_a_pull_request_plans_the_origin_that_pr_can_supply(
                 f"{row['slot_id']} plans {row['origin_class']} but names {ref}, which is {state}"
             )
             checked += 1
-    assert checked, "no gap names a pull request any more; drop this guard or restore one"
+
+    # Every gap is filled, so the rule now lives where the next candidate comes
+    # from. A reserve row states an origin beside a state exactly the way a gap
+    # did, and it is the pool a relabel draws on -- picking one up and finding
+    # its origin was never available is the same shortfall, discovered later.
+    reserved = _reserve_claims()
+    assert _unsuppliable_origins(reserved) == []
+    checked += len(reserved)
+    assert checked, "nothing states an origin beside a state any more; drop this guard"
+
+
+def test_a_reserve_row_may_not_state_an_origin_its_state_cannot_supply() -> None:
+    """Regression: an ``open`` row stating an origin used to be skipped.
+
+    The parser dropped every row whose state was outside ``STATE_ORIGINS``,
+    and ``open`` is outside it -- so ``adk-samples#1745``, the candidate that
+    taught this project that an open PR is not history, could have been
+    reserved as ``real_history`` and passed. Skipping is not checking.
+    """
+
+    reserved = "| `github.com/example/repo#1` | `rejected_or_reverted` | `closed` | note |"
+    assert _unsuppliable_origins(_reserve_claims([reserved])) == []
+
+    mislabeled = reserved.replace("rejected_or_reverted", "real_history")
+    assert _unsuppliable_origins(_reserve_claims([mislabeled])) == [
+        "the reserve lists github.com/example/repo#1 as real_history, "
+        "which a closed candidate cannot supply"
+    ]
+
+    still_open = reserved.replace("rejected_or_reverted", "real_history").replace(
+        "`closed`", "`open`"
+    )
+    with pytest.raises(AssertionError, match="can supply none"):
+        _reserve_claims([still_open])
+
+    # An origin left `—` is the one way a reserve row says nothing.
+    assert _reserve_claims([reserved.replace("`rejected_or_reverted`", "—")]) == []
+
+
+def test_a_misspelled_reserve_origin_fails_rather_than_being_skipped() -> None:
+    """The same shape one typo away: a vocabulary miss must not read as silence."""
+
+    row = "| `github.com/example/repo#1` | `real-history` | `merged` | note |"
+    with pytest.raises(AssertionError, match="the reserve states origin"):
+        _reserve_claims([row])
 
 
 def test_a_sample_profile_matches_the_source_type_it_declares(
