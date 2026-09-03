@@ -162,6 +162,11 @@ sweep can corroborate, a subject left `unpinned` after one did, and two
 recordings of one subject that disagree — in two sweeps or twice in one, since
 a contradictory duplicate would otherwise be read as agreement.
 
+A candidate that cannot be mined — a private design-partner repository, say —
+therefore fails that guard rather than passing on a hand-written pin. That is
+the intended failure: the pin would be unverifiable, and whether to accept one
+anyway is an owner's decision, not a silent exception.
+
 The last three walk candidates were pinned this way in the
 [close-out](#cut-b--the-close-out-2026-09-02), and `github-mcp-server#3076`
 shows why the distinction is not academic: its walk note abbreviated the head
