@@ -33,7 +33,7 @@ The runner consumes four independently content-addressed inputs:
 Receipt entries must point to real `verify` artifacts. Each receipt needs
 successful base and head tree-bound runs plus content-addressed
 `verifier_json` and `report_json` artifacts. The report must use the schema
-`required_report_schema_version` pins (`0.42` today, identical in both
+`required_report_schema_version` pins (`0.43` today, identical in both
 policies and asserted equal to what the engine emits by
 `test_the_qualification_gate_demands_the_schema_the_engine_emits`),
 contain binding and semantic coverage, and agree with the verifier receipt. Missing,
@@ -165,7 +165,7 @@ sigstore sign --bundle safety-qualification.sigstore.json safety-qualification.j
 Release promotion consumes the signed result and the same wheel through
 protected `pypi` environment variables. See
 [`docs/distribution.md`](../../docs/distribution.md#protected-qualification-inputs)
-for the exact six-variable contract. The tag workflow verifies the signer, a
+for the exact variable contract. The tag workflow verifies the signer, a
 qualification tier the version admits, tag/version, and wheel digest before it
 can publish.
 

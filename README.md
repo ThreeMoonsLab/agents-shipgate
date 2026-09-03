@@ -856,7 +856,7 @@ Agents Shipgate is a static, manifest-first scanner. It is intentionally narrow:
 - It does not verify runtime behavior, latency, prompt quality, or routing decisions.
 - It does not replace dynamic security testing or human security review of the underlying systems.
 - It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, MCP server source registrations, Anthropic/OpenAI API artifacts, optional SDK AST metadata, static Google ADK/LangChain/CrewAI/n8n/Conductor OSS inputs, Codex repo config, and static Codex plugin package metadata; tools that are not declared or statically discoverable are not scanned.
-- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.42"`; every narrowing decision is recorded in `surface_exclusions` and reachable by the release decision, while v0.41 remains frozen for archived reports.
+- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.43"`; every narrowing decision is recorded in `surface_exclusions` and reachable by the release decision, while v0.42 remains frozen for archived reports.
 
 See [ROADMAP.md](ROADMAP.md) for what is planned next.
 
