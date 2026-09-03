@@ -155,9 +155,44 @@ citing each.
 | 4 | **Identical copies: make it mechanical.** | `build_packet` groups byte-identical files in `MANIFEST.json` under `identical_files`; `run_rater` rewrites any copy's citation to the canonical path and records what was cited. Adjudicators never see the phantom disagreement. |
 | 5 | **The codex read boundary: solve it as context management, not sandboxing.** Do not have the answer key where the rater can reach it. | `run_rater` refuses a shell-bearing rater on a host that carries `strata-inventory.csv`; `--working-material` proceeds for calibration and records that on the label. Corpus labels for the codex family are produced on a host without the checkout. The transcript audit stays as the second line. |
 
-Rulings 1–3 change what 56 labels will mean, so the corrected guide is run
-again on the five calibration cases before any corpus label — see the
-re-run record below.
+Rulings 1–3 change what 56 labels will mean, so the corrected guide was run
+again on the five calibration cases before any corpus label — see the re-run
+record below.
+
+## Re-run against the corrected guide (same day)
+
+Same five cases, same two families and models, same assignment; the packets
+rebuilt so `LABELING.md` inside them is the corrected text; `--working-material`
+on every session, as a calibration run on the machine that carries the checkout
+must be. Round 1's labels are kept beside round 2's; neither is committed.
+
+| case | round 1 (claude / codex) | round 2 (claude / codex) |
+|---|---|---|
+| `cal-1` | `passed` / `review_required` | `passed` / `passed` |
+| `cal-2` | `review_required` / `review_required` | `review_required` / `review_required` |
+| `cal-3` | `passed` / `review_required` | `passed` / `passed` |
+| `cal-4` | `passed` / `passed` | `passed` / `passed` |
+| `cal-5` | `blocked` / `blocked` | `blocked` / `blocked` |
+
+**κ = 0.4444 → 1.0000.** Both splits resolved, and to the side the rulings
+predict. The rater that moved cited the rule it moved on: `cal-1` — *"narrows
+existing authority and neither registers a new tool nor widens an endpoint or
+scope"* (ruling 1); `cal-3` — *"registers no tool, executable hook, credential,
+permission, or API authority, so the agent's callable surface is unchanged"*
+(ruling 2). That is the text doing the work, not the sample.
+
+**What this does and does not establish.** Five cases is a consistency check —
+the guide now says one thing, and two families read it the same way — not a
+forecast of 56. The corrections were derived from these five, so agreement on
+them is the floor, not the ceiling. And `insufficient_evidence` was chosen
+**0 of 10 times again**: ruling 3 gives the rule, but no calibration case forces
+a rater to reach for the label, so the rule that a quarter of the corpus rests
+on is still one no rater has applied. A constructed case that moves a tool list
+into a factory would settle it in two sessions.
+
+`identical_files` did its job without being asked: `stripe/ai` alone grouped 91
+sets of byte-identical files, and every citation of a non-canonical copy is
+recorded against the canonical one.
 
 ## What is not in scope of these corrections
 
