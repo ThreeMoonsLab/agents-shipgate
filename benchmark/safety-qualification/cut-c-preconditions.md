@@ -5,15 +5,16 @@ four things that must be cleared and recorded before the calibration round
 runs. This file is the record. It is maintainer material and never a rater
 input.
 
-Two of the four are cleared here. The other two need the owner: one is a
-sign-off that only the owner can give, and one needs a credential and a
-working binary that this repository cannot supply.
+Three of the four are cleared here. The fourth is a sign-off only the owner
+can give. One thing beyond the four still blocks the round: the Claude OAuth
+token is expired, and until `claude login` completes there is no second family
+to pair with codex.
 
 | # | Precondition | State |
 |---|---|---|
 | 1 | Confirm [`LABELING.md`](../miner/LABELING.md) | **Open — owner sign-off** |
-| 2 | The Claude harness is unverified | **Verified except for one live session** |
-| 3 | The OpenAI-family harness is unverified | **Open — the local `codex` cannot execute** |
+| 2 | The Claude harness is unverified | **Verified except for one live session — needs `claude login`** |
+| 3 | The OpenAI-family harness is unverified | **Cleared — verified against `codex-cli 0.153.0`, live** |
 | 4 | Decide the packet contents | **Decided — the base tree does not ship** |
 
 ---
@@ -66,49 +67,63 @@ checked, against `claude 2.1.126` on `darwin/arm64`:
   well, so it refuses. This is the one thing the #489 failure did establish,
   and it is now covered rather than incidental.
 
-**Still needed:** one live session on a real packet, once the token is
-refreshed. That is the only step between here and a Claude-family label.
+**Still needed:** `claude login`. The OAuth token is expired, confirmed again
+after the CLI was updated to 2.1.259 — a session returns `subtype: "success"`
+with `is_error: true` and "OAuth access token has expired". The restriction
+checks above were re-run on 2.1.259 and still hold, so the only step between
+here and a Claude-family label is the credential.
 
-## 3. The OpenAI-family harness — open, and not for the reason recorded
+**Both families run `--home-mode shared`.** Isolated mode authenticates only
+through `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`, and both logins here are OAuth,
+which is bound to the real home. Shared mode is what the blindness checks are
+written for.
+
+## 3. The OpenAI-family harness — cleared
 
 #489 recorded the cause as "the local codex npm install has an empty vendor
-binary directory". That is a symptom. The installed `@openai/codex@0.85.0`
-tarball is intact in the npm cache and its `darwin/arm64` binary extracts
-cleanly and passes `codesign -v` — but it will not run:
+binary directory". That was a symptom. The installed `@openai/codex@0.85.0`
+tarball was intact in the npm cache and its `darwin/arm64` binary extracted
+cleanly and passed `codesign -v` — but it could never have run:
 
 ```
 $ spctl -a -vv -t execute .../vendor/aarch64-apple-darwin/codex/codex
 .../codex: CSSMERR_TP_CERT_REVOKED
 ```
 
-**The signing certificate for this build has been revoked**, so macOS kills the
-process at exec with `SIGKILL` and no output. That is why the flags in
-`run_rater.py` could only be written from memory, and it is why an empty vendor
-directory was a plausible-looking diagnosis.
+**The signing certificate for that build was revoked**, so macOS killed the
+process at exec with `SIGKILL` and no output. `npm install -g
+@openai/codex@latest` (0.153.0) plus `codex login` fixes it, and both are done.
 
-**Remedy — the owner's, because it changes their environment:** install a
-current release (`0.85.0` is installed, `0.153.0` is current) and authenticate:
+Verified against the CLI rather than against memory:
 
-```bash
-npm install -g @openai/codex@latest && codex login
-```
+- **Every flag the harness passes exists on 0.153.0**, from `codex exec
+  --help`: `--sandbox read-only`, `-C`, `--json`, `--skip-git-repo-check`,
+  `--model`, and `-` for a prompt on stdin.
+- **`_ISOLATED_CODEX_CONFIG` is accepted in full.** It is now written with
+  `--strict-config`, which errors on a field codex does not recognise, and the
+  config passes. That matters more than it sounds: **without the flag, an
+  unrecognised key is ignored in silence**, so `sandbox_mode`,
+  `tools.web_search = false` and `history.persistence` could each have been
+  absent from a session that reported nothing wrong. The control run — one
+  deliberately bogus key — is refused, so the pass is not vacuous.
+- **A live session completed**, and its event stream is the shape
+  `openai_final` parses: `item.completed` carrying an `agent_message`, then
+  `turn.completed`.
 
-**Then re-verify the flags before trusting them.** They were written against
-`0.85.0` from memory, and the gap to a current release is wide enough that
-`codex exec --sandbox read-only -C <dir> --json --skip-git-repo-check --model
-<m> -` and `_ISOLATED_CODEX_CONFIG` must both be checked against the installed
-CLI's own `--help`, not assumed.
+Two flags found by reading the CLI are now used, and neither was in the
+remembered version:
 
-`run_rater.py` now probes the CLI before it hands over a packet
-(`--check-cli`), so each way this can fail says which remedy it needs — a
-missing binary, a launcher whose vendor directory is empty, and a binary macOS
-refuses to load are three different problems that used to surface as one
-confusing failure late in a run:
-
-```bash
-python benchmark/safety-qualification/rater/run_rater.py \
-  --family openai --role security_governance --check-cli
-```
+- **`--ephemeral`** — codex's `--no-session-persistence`. Nothing about the
+  session reaches disk, rather than that being left to a temporary directory's
+  lifetime.
+- **`--ignore-user-config`** — "Do not load `$CODEX_HOME/config.toml`; auth
+  still uses `CODEX_HOME`". Exactly the split shared mode needs, and it
+  removes a guard that would have stopped the round on this machine: the
+  runner used to refuse a profile whose `config.toml` mounted MCP servers,
+  and the real profile mounts two. A guard that rejects every ordinary
+  developer profile does not get obeyed; it gets worked around. What is left
+  to refuse is a non-empty `AGENTS.md` / `AGENTS.override.md` at the Codex
+  home, which `--ignore-user-config` is documented not to cover.
 
 ## 4. The packet contents — decided: the base tree does not ship
 

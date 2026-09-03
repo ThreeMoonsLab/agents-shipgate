@@ -116,13 +116,20 @@ import shlex
 import subprocess
 import sys
 import tempfile
-import tomllib
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from agents_shipgate.schemas.safety_qualification import IndependentHumanLabelV1
+# `benchmark/.../rater/run_rater.py` is documented as something you run
+# straight from a checkout, so it puts this checkout's `src/` first on the
+# path itself. "First" is the point: an interpreter that has some other
+# `agents_shipgate` -- an older install, or the empty husk an uninstall leaves
+# behind, which imports as a namespace package and then fails on the first
+# submodule -- would otherwise decide what this harness runs against.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
+
+from agents_shipgate.schemas.safety_qualification import IndependentHumanLabelV1  # noqa: E402
 
 # `benchmark/safety-qualification/` is not an importable package name, so the
 # sibling module is loaded by path -- under the same name the tests use, and
@@ -261,40 +268,37 @@ def check_packet_carries_no_instructions(packet: Path) -> None:
 
 
 def check_shared_codex_home_is_instruction_free(codex_home: Path) -> None:
-    """Refuse a shared Codex home that could speak to the session.
+    """Refuse a shared Codex home that could still speak to the session.
 
     ``AGENTS.md`` and ``AGENTS.override.md`` at the Codex home are global
-    instructions prepended to every session; ``config.toml`` there can mount
-    MCP servers, turn on web search, or point at an instructions file. Any of
-    those makes the session something other than "the packet and nothing
-    else", so each is a refusal rather than a warning.
+    instructions prepended to every session, and ``--ignore-user-config`` does
+    not cover them -- it is documented as ``config.toml`` only. So they are
+    what is left to refuse, and a file with no content in it cannot instruct
+    anyone, so an empty one is not a reason to stop.
+
+    **What this deliberately no longer refuses.** It used to reject a profile
+    whose ``config.toml`` mounted MCP servers, enabled web search, or named an
+    instructions file. ``--ignore-user-config`` now loads none of that file
+    while still authenticating from the profile, so those refusals stopped
+    describing a risk and started describing an ordinary codex install --
+    two MCP servers in a developer's profile is the normal case, and shared
+    mode is the *only* mode an OAuth login can use. A guard that rejects every
+    real machine does not get run; it gets worked around.
     """
 
     for name in ("AGENTS.md", "AGENTS.override.md"):
-        if (codex_home / name).exists():
+        instructions = codex_home / name
+        if not instructions.is_file():
+            continue
+        try:
+            speaks = bool(instructions.read_text(encoding="utf-8").strip())
+        except (OSError, UnicodeDecodeError):
+            speaks = True  # unreadable is not the same as empty
+        if speaks:
             raise RaterError(
-                f"{codex_home / name} exists: codex prepends it to every session. "
-                "Use --home-mode isolated, or move it aside."
+                f"{instructions} has content: codex prepends it to every session. "
+                "Move it aside, or use --home-mode isolated."
             )
-    config = codex_home / "config.toml"
-    if not config.is_file():
-        return
-    try:
-        parsed = tomllib.loads(config.read_text(encoding="utf-8"))
-    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as error:
-        raise RaterError(f"{config} cannot be read, so it cannot be cleared: {error}") from error
-    offending = []
-    if parsed.get("mcp_servers"):
-        offending.append(f"mcp_servers ({', '.join(sorted(parsed['mcp_servers']))})")
-    if (parsed.get("tools") or {}).get("web_search"):
-        offending.append("tools.web_search")
-    if parsed.get("experimental_instructions_file"):
-        offending.append("experimental_instructions_file")
-    if offending:
-        raise RaterError(
-            f"{config} configures {', '.join(offending)}, which a blind session may not have; "
-            "use --home-mode isolated"
-        )
 
 
 def check_shared_home_is_memory_free(packet: Path, home: Path) -> None:
@@ -533,6 +537,13 @@ def openai_invocation(
         str(packet),
         "--json",
         "--skip-git-repo-check",
+        # A config key codex does not recognise is otherwise ignored in
+        # silence, which for this config would mean the sandbox, the web
+        # search switch or the history setting simply not applying.
+        "--strict-config",
+        # codex's `--no-session-persistence`: nothing about the session is
+        # written to disk, rather than left to a directory's lifetime.
+        "--ephemeral",
         "--model",
         model or _DEFAULT_OPENAI_MODEL,
         "-",
@@ -541,7 +552,8 @@ def openai_invocation(
     # codex reads global AGENTS.md and config.toml from CODEX_HOME, so the
     # real profile is not a credential store this run can borrow: it is a
     # second instruction surface. Isolated mode builds its own; shared mode
-    # keeps the real one only after it is proven to say nothing.
+    # keeps the real one, and shuts the config half of it with
+    # `--ignore-user-config`.
     if home_mode == "isolated":
         if not os.environ.get("OPENAI_API_KEY"):
             raise RaterError(
@@ -556,6 +568,12 @@ def openai_invocation(
     else:
         codex_home = Path(os.environ.get("CODEX_HOME") or _real_home() / ".codex")
         check_shared_codex_home_is_instruction_free(codex_home)
+        # "Do not load $CODEX_HOME/config.toml; auth still uses CODEX_HOME" --
+        # exactly the split shared mode needs, since OAuth lives in that
+        # profile and everything else in it may not reach a blind session. An
+        # older codex without the flag exits on it, which is the right way to
+        # find out.
+        argv.insert(2, "--ignore-user-config")
     env["CODEX_HOME"] = str(codex_home)
     task = (packet / "TASK.md").read_text(encoding="utf-8")
     return Invocation(tuple(argv), packet, env, task, session_id)
