@@ -462,6 +462,17 @@ _DIFF_CONFIG = (
     # Whether a blank context line keeps its leading space.
     "-c",
     "diff.suppressBlankEmpty=false",
+    # git >= 2.45: an explicit prefix outranks `diff.noprefix` above.
+    "-c",
+    "diff.srcPrefix=a/",
+    "-c",
+    "diff.dstPrefix=b/",
+    # The one key here that hides content rather than moving bytes. Set to
+    # `all`, a change that moves a submodule vanishes from `--raw` *and* from
+    # the patch, so `changed_submodules` finds nothing to refuse and the rater
+    # is handed a packet one of whose edits simply is not in it.
+    "-c",
+    "diff.ignoreSubmodules=none",
 )
 
 
@@ -562,9 +573,13 @@ def changed_submodules(repo: Path, base: str, head: str) -> list[str]:
 
     A submodule's content is in neither tree, so no packet can show what
     changed inside one.
+
+    Takes ``_DIFF_CONFIG`` for one key in it: ``diff.ignoreSubmodules=all``
+    empties this listing, and an empty listing here reads as "no submodules
+    changed" rather than as "you were not told".
     """
 
-    raw = _git_bytes(repo, "diff", "--raw", "-z", "--no-renames", base, head)
+    raw = _git_bytes(repo, *_DIFF_CONFIG, "diff", "--raw", "-z", "--no-renames", base, head)
     fields = [field for field in raw.split(b"\0") if field]
     found: list[str] = []
     for index in range(0, len(fields) - 1, 2):

@@ -133,7 +133,7 @@ mechanism subtracts from a base tree too. Both readers obey `.gitattributes`
 | `diff=<driver>` textconv | the diff showed the driver's rendering | `--no-textconv` |
 | a genuinely binary change | shipped as "differ", silently | refuses the build, naming the paths |
 | a submodule the change moves | shipped as a gitlink hash; content in neither tree | refuses the build, naming the paths |
-| `diff.context`, `diff.noprefix`, `diff.algorithm`, `core.abbrev`, `diff.orderFile`, `diff.renames` | the operator's `~/.gitconfig` decided the diff's bytes | every one pinned with `-c`, plus `--full-index` |
+| eleven `diff.*` / `core.*` config keys | the operator's `~/.gitconfig` decided the diff's bytes, and one of them decided its *contents* | every one pinned with `-c`, plus `--full-index`, and a test that builds one packet under a hostile `~/.gitconfig` and one without |
 | `diff=<driver>` on a path | the tree's own choice of funcname pattern decided the text after every `@@` | the diff is read through a bare git dir whose `info/attributes` says `* !diff` |
 
 The `-diff` case is the one that matters most for this corpus. Most of what the
@@ -150,6 +150,13 @@ all: `diff.context=7` turns a 13-line patch into a 21-line one, `diff.noprefix`
 rewrites every header, `core.abbrev` widens every `index` line. Either would
 put `MANIFEST.json` — and every `diff.patch:<line>` a rater cites for an
 adjudicator to re-read — at the mercy of whose machine built the packet.
+
+One of those keys hides content rather than moving bytes. With
+`diff.ignoreSubmodules=all` set, `git diff --raw` reports *nothing* for a
+changed submodule — so the refusal above finds nothing to refuse, the patch
+carries no `Subproject commit` line either, and the rater is handed a packet in
+which one of the change's edits simply is not present. It is a key people set
+to quiet noisy submodule diffs.
 
 Flags alone do not finish that job. `--text` and `--no-textconv` answer the
 attributes that *hide* content; they do not answer `diff=<driver>`, whose

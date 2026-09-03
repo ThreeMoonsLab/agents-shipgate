@@ -1473,6 +1473,9 @@ def _gitconfig(path: Path, *, quotepath: bool = True) -> Path:
         "\trenames = true\n"
         "\tinterHunkContext = 20\n"
         "\tsuppressBlankEmpty = true\n"
+        "\tsrcPrefix = OLD/\n"
+        "\tdstPrefix = NEW/\n"
+        "\tignoreSubmodules = all\n"
         "[core]\n"
         "\tabbrev = 12\n"
         f"\tquotepath = {'true' if quotepath else 'false'}\n",
@@ -1757,3 +1760,41 @@ def test_a_non_ascii_path_is_spelled_the_same_whatever_the_operator_configured(
     )
     assert (plain / "diff.patch").read_bytes() == (configured / "diff.patch").read_bytes()
     assert (plain / "repo" / "café.py").read_text() == "x = 2\n"
+
+
+def test_a_config_that_hides_submodules_does_not_hide_them_from_the_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`diff.ignoreSubmodules=all` empties the listing the refusal reads.
+
+    It is the one diff-shaping key that hides content rather than moving
+    bytes: set to `all`, a change that moves a submodule vanishes from `--raw`
+    *and* from the patch, so nothing refuses and nothing shows it — the rater
+    gets a packet one of whose edits simply is not in it. People set this key
+    to quiet noisy submodule diffs, so it reaches a real machine.
+    """
+
+    inner = tmp_path / "inner"
+    _two_commit_clone(inner, {"lib.py": "v = 1\n"}, {"lib.py": "v = 2\n"})
+    outer = tmp_path / "outer"
+    _two_commit_clone(outer, {"main.py": "x = 1\n"}, {"main.py": "x = 2\n"})
+    _git(outer, "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(inner), "vendor")
+    _git(outer, "commit", "-q", "-m", "add submodule")
+    base = _git(outer, "rev-parse", "HEAD")
+    _git(inner, "commit", "-q", "--allow-empty", "-m", "move")
+    _git(outer / "vendor", "fetch", "-q", "origin")
+    _git(outer / "vendor", "checkout", "-q", _git(inner, "rev-parse", "HEAD"))
+    _git(outer, "add", "vendor")
+    _git(outer, "commit", "-q", "-m", "bump submodule")
+    head = _git(outer, "rev-parse", "HEAD")
+
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(_gitconfig(tmp_path / "home.gitconfig")))
+    with pytest.raises(build_packet.PacketError, match="submodules"):
+        build_packet.build_packet(
+            case_id="ext-hidden-submodule",
+            role="security_governance",
+            out=tmp_path / "packet",
+            clone=outer,
+            base=base,
+            head=head,
+        )
