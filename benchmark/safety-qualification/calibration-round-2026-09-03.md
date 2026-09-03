@@ -145,6 +145,20 @@ here, but `evidence_references` are what an adjudicator re-opens, so the guide
 should say: cite the canonical copy, and note the duplication rather than
 citing each.
 
+## The owner's rulings (2026-09-03) and where each landed
+
+| # | Ruling | Landed in |
+|---|---|---|
+| 1 | **Judge the diff.** A weakness the change did not open or widen is not its finding. Wider than the guide: a `review_required` must name a capability the agent gained; *whether it is risky* is the human's call and is not what the gate establishes deterministically. | `LABELING.md` — "What you are deciding" rewritten; `review_required` redefined as "a capability you can name"; the incomplete-guard bullet removed, its case moved to `passed`. Engine: [#515](https://github.com/ThreeMoonsLab/agents-shipgate/issues/515) (`--scope diff` by default). |
+| 2 | **Agent instruction files are out of scope.** Their effect is semantic; a static gate cannot judge it and would only produce false positives. Skip rather than escalate. | `LABELING.md` — instruction files labeled by what *else* the diff does, else `passed`; the bullet and the illustration removed. Engine: deprecation issue for `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED`. |
+| 3 | **`insufficient_evidence` only when it names what would resolve it.** Otherwise it is not a finding. | `LABELING.md` — the requirement added to the definition and the line test; a second illustration contrasts a named gap with an unfinished label. Engine: scoring issue — an IE the gate cannot attach a missing input to is scored wrong. |
+| 4 | **Identical copies: make it mechanical.** | `build_packet` groups byte-identical files in `MANIFEST.json` under `identical_files`; `run_rater` rewrites any copy's citation to the canonical path and records what was cited. Adjudicators never see the phantom disagreement. |
+| 5 | **The codex read boundary: solve it as context management, not sandboxing.** Do not have the answer key where the rater can reach it. | `run_rater` refuses a shell-bearing rater on a host that carries `strata-inventory.csv`; `--working-material` proceeds for calibration and records that on the label. Corpus labels for the codex family are produced on a host without the checkout. The transcript audit stays as the second line. |
+
+Rulings 1–3 change what 56 labels will mean, so the corrected guide is run
+again on the five calibration cases before any corpus label — see the
+re-run record below.
+
 ## What is not in scope of these corrections
 
 No threshold moves. The κ floor, the four decisions and their meanings are

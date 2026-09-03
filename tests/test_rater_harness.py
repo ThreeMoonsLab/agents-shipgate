@@ -49,6 +49,19 @@ run_rater = _load("run_rater")
 # --------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _host_without_the_answer_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test runs on a host that does not carry the strata inventory.
+
+    The suite itself runs from the checkout, which does. Without this every
+    codex-family run would be refused for the right reason, and the tests
+    would be testing that refusal instead of what they are named for. The
+    tests for the refusal put the key back on purpose.
+    """
+
+    monkeypatch.setattr(run_rater, "ANSWER_KEY", tmp_path / "no-such-inventory.csv")
+
+
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
@@ -2188,3 +2201,172 @@ def test_the_claude_family_is_not_subject_to_the_command_audit(
     argv = list(invocation.argv)
     assert argv[argv.index("--tools") + 1] == "Read,Grep,Glob"
     assert "Bash" in argv[argv.index("--disallowedTools") + 1]
+
+
+# --------------------------------------------------------------------------
+# The owner's rulings after the calibration round
+# --------------------------------------------------------------------------
+
+
+def test_a_shell_bearing_rater_is_refused_on_a_host_that_carries_the_answer_key(
+    packet: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The fix for a session that can read anything is to not have the thing
+    it must not read where it can reach — not to sandbox its reads.
+
+    The packets are self-contained; a rater needs nothing from the checkout.
+    So corpus labels for a family with a shell are produced where the
+    inventory is not, and this is what says so.
+    """
+
+    key = tmp_path / "strata-inventory.csv"
+    key.write_text("slot_id,target_decision\n", encoding="utf-8")
+    monkeypatch.setattr(run_rater, "ANSWER_KEY", key)
+    recorder = _Recorder(_openai_transcript(VALID_LABEL))
+    with pytest.raises(run_rater.RaterError, match="readable from this host"):
+        run_rater.run_rater(
+            family="openai",
+            role="security_governance",
+            packet=packet,
+            out=tmp_path / "out",
+            model="model-x",
+            runner=recorder,
+            prober=_stub_prober,
+        )
+    assert recorder.invocations == []
+
+
+def test_a_calibration_run_may_proceed_on_that_host_and_says_so_on_the_label(
+    packet: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Calibration labels are working material, never evidence."""
+
+    key = tmp_path / "strata-inventory.csv"
+    key.write_text("slot_id,target_decision\n", encoding="utf-8")
+    monkeypatch.setattr(run_rater, "ANSWER_KEY", key)
+    result = run_rater.run_rater(
+        family="openai",
+        role="security_governance",
+        packet=packet,
+        out=tmp_path / "out",
+        model="model-x",
+        runner=_Recorder(_openai_transcript(VALID_LABEL)),
+        prober=_stub_prober,
+        working_material=True,
+    )
+    record = json.loads(result.label_path.read_text())
+    assert record["host_isolation"] == "answer key on host (working material, not evidence)"
+
+
+def test_a_rater_with_no_shell_is_not_subject_to_the_host_check(
+    packet: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    key = tmp_path / "strata-inventory.csv"
+    key.write_text("slot_id,target_decision\n", encoding="utf-8")
+    monkeypatch.setattr(run_rater, "ANSWER_KEY", key)
+    result = run_rater.run_rater(
+        family="claude",
+        role="security_governance",
+        packet=packet,
+        out=tmp_path / "out",
+        runner=_Recorder(_claude_transcript(VALID_LABEL)),
+        prober=_stub_prober,
+    )
+    assert json.loads(result.label_path.read_text())["host_isolation"] == "no shell"
+
+
+def test_identical_copies_are_grouped_in_the_manifest_canonical_first(tmp_path: Path) -> None:
+    """Same sha256, same bytes: exact, and free, since the manifest hashes anyway."""
+
+    case = tmp_path / "case"
+    body = "# Guidance\n\nprefer restricted keys\n"
+    for tree in ("base", "head"):
+        _write(case / tree / "skills" / "x" / "SKILL.md", "# x\n")
+    _write(case / "head" / "skills" / "x" / "references" / "security.md", body)
+    _write(
+        case
+        / "head"
+        / "providers"
+        / "claude"
+        / "plugin"
+        / "skills"
+        / "x"
+        / "references"
+        / "security.md",
+        body,
+    )
+    _write(
+        case
+        / "head"
+        / "providers"
+        / "cursor"
+        / "plugin"
+        / "skills"
+        / "x"
+        / "references"
+        / "security.md",
+        body,
+    )
+    _write(case / "head" / "unrelated.md", "different\n")
+
+    packet = build_packet.build_packet(
+        case_id="dup-1", role="security_governance", out=tmp_path / "packet", case_dir=case
+    )
+    manifest = json.loads((packet / "MANIFEST.json").read_text())
+    assert manifest["identical_files"] == [
+        [
+            "repo/skills/x/references/security.md",
+            "repo/providers/claude/plugin/skills/x/references/security.md",
+            "repo/providers/cursor/plugin/skills/x/references/security.md",
+        ]
+    ]
+
+
+def test_a_citation_of_any_copy_is_recorded_against_the_canonical_one() -> None:
+    """Two raters citing different copies of identical bytes are not a
+    disagreement, and after this an adjudicator never sees one."""
+
+    groups = [["repo/skills/x/a.md", "repo/providers/claude/plugin/skills/x/a.md"]]
+    cited = [
+        "repo/providers/claude/plugin/skills/x/a.md:18-34",
+        "repo/skills/x/a.md:40-42",
+        "diff.patch:5-6",
+    ]
+    canonical, changed = run_rater.canonicalise_evidence(cited, groups)
+    assert canonical == ["repo/skills/x/a.md:18-34", "repo/skills/x/a.md:40-42", "diff.patch:5-6"]
+    assert changed == {
+        "repo/providers/claude/plugin/skills/x/a.md:18-34": "repo/skills/x/a.md:18-34"
+    }
+
+
+def test_the_label_carries_both_the_citation_and_what_it_resolves_to(
+    tmp_path: Path,
+) -> None:
+    case = tmp_path / "case"
+    body = "TOOLS = ['lookup', 'refund']\n"
+    _write(case / "base" / "agent.py", "TOOLS = ['lookup']\n")
+    _write(case / "head" / "agent.py", body)
+    _write(case / "head" / "mirror" / "agent.py", body)
+    packet = build_packet.build_packet(
+        case_id="dup-2", role="security_governance", out=tmp_path / "packet", case_dir=case
+    )
+    label = json.dumps(
+        {
+            "decision": "review_required",
+            "rationale": "A refund tool is added and registered.",
+            "evidence_references": ["repo/mirror/agent.py:1-1"],
+        }
+    )
+    result = run_rater.run_rater(
+        family="claude",
+        role="security_governance",
+        packet=packet,
+        out=tmp_path / "out",
+        runner=_Recorder(_claude_transcript(label)),
+        prober=_stub_prober,
+    )
+    record = json.loads(result.label_path.read_text())
+    assert record["label"]["evidence_references"] == ["repo/agent.py:1-1"]
+    assert record["evidence_references_as_cited"] == {
+        "repo/mirror/agent.py:1-1": "repo/agent.py:1-1"
+    }

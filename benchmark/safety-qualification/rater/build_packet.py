@@ -890,6 +890,26 @@ def hash_packet_files(packet: Path) -> dict[str, str]:
     return dict(sorted(hashes.items()))
 
 
+def identical_file_groups(files: dict[str, str]) -> list[list[str]]:
+    """Groups of packet paths with byte-identical content, canonical copy first.
+
+    A skill shipped as a canonical copy plus per-provider copies is the same
+    bytes at several paths, and two raters citing different copies of it look
+    like a disagreement to an adjudicator when they are not one. The manifest
+    already hashes every file, so identical content is exact and free to find:
+    same sha256, same bytes. The first path in each group is the canonical
+    one -- shortest, then lexical -- which puts `skills/x/SKILL.md` ahead of
+    `providers/claude/plugin/skills/x/SKILL.md` without knowing what either is.
+    """
+
+    by_hash: dict[str, list[str]] = {}
+    for path, digest in files.items():
+        if path.startswith("repo/"):
+            by_hash.setdefault(digest, []).append(path)
+    groups = [sorted(paths, key=lambda item: (len(item), item)) for paths in by_hash.values()]
+    return sorted((g for g in groups if len(g) > 1), key=lambda g: g[0])
+
+
 def build_packet(
     *,
     case_id: str,
@@ -951,6 +971,9 @@ def build_packet(
             # Naming it is the difference between a rater whose world has a
             # known empty spot and one who cannot tell a path was ever there.
             manifest["broken_symlinks"] = [f"repo/{path}" for path in broken_links]
+        groups = identical_file_groups(manifest["files"])
+        if groups:
+            manifest["identical_files"] = groups
         (staged / "MANIFEST.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )

@@ -192,10 +192,20 @@ python $R/build_packet.py --case-id cal-1 --role security_governance \
 # constructed case
 python $R/build_packet.py --case-id cal-5 --role framework_tooling \
   --case-dir benchmark/safety-qualification/calibration/cal-5 --out <packets>/cal-5.framework_tooling
-# one blind session
+# one blind session; calibration labels are working material, never evidence
 python $R/run_rater.py --family claude --role security_governance \
-  --packet <packets>/cal-1.security_governance --out <runs>
+  --packet <packets>/cal-1.security_governance --out <runs> --working-material
+python $R/run_rater.py --family openai --role framework_tooling --model <model> \
+  --packet <packets>/cal-1.framework_tooling --out <runs> --working-material
 ```
+
+`--working-material` is what lets a calibration run proceed on the machine
+that carries the checkout. A corpus run does not get it: the codex family has a
+shell and `--sandbox read-only` restricts writes only, so corpus labels for it
+are produced on a host that does not carry `strata-inventory.csv`, and the
+runner refuses otherwise. `--model` is required for the openai family, because
+codex names neither the model nor its version in its stream and `reviewer_id`
+must not be a guess.
 
 **`<packets>` must not be inside a checkout.** In `--home-mode shared` the CLI
 still discovers project instructions by walking up from its working directory,

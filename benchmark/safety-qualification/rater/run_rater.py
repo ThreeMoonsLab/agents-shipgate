@@ -864,6 +864,64 @@ def parse_label_object(text: str) -> dict[str, Any]:
     return parsed
 
 
+def canonicalise_evidence(
+    references: list[str], identical_files: list[list[str]]
+) -> tuple[list[str], dict[str, str]]:
+    """Rewrite a citation of any identical copy to the group's canonical path.
+
+    Returns the rewritten list and a map of what was rewritten, so the label
+    record can carry both: what the rater cited, and what it resolves to. The
+    content is byte-identical, so the line numbers carry over unchanged. This
+    is what makes "cite one copy" a property of the artifact rather than a
+    request in the guide.
+    """
+
+    canonical_for = {member: group[0] for group in identical_files for member in group[1:]}
+    rewritten: list[str] = []
+    changed: dict[str, str] = {}
+    for reference in references:
+        path, sep, lines = reference.partition(":")
+        target = canonical_for.get(path)
+        if target is None:
+            rewritten.append(reference)
+            continue
+        replacement = f"{target}{sep}{lines}"
+        rewritten.append(replacement)
+        changed[reference] = replacement
+    return rewritten, changed
+
+
+# The one file this harness knows names a target decision for every corpus
+# slot. Its presence on the host is the answer key being in the exam room.
+ANSWER_KEY = build_packet.REPO_ROOT / "benchmark" / "safety-qualification" / "strata-inventory.csv"
+
+
+def check_answer_key_not_on_host(family: str, *, working_material: bool) -> str:
+    """Refuse a shell-bearing rater on a host that carries the answer key.
+
+    The fix for a session that can read anything is not to sandbox its reads
+    -- it is to not have the thing it must not read where it can reach. The
+    packets are self-contained; a rater needs nothing from this checkout. So
+    corpus labels for a family that has a shell are produced on a host that
+    does not carry the inventory, and this is the check that says so. It
+    knows one location, the checkout it lives in; a second clone elsewhere is
+    what the transcript audit is for.
+
+    Calibration labels are working material, never evidence, so a
+    calibration run may say so and proceed; the label records which it was.
+    """
+
+    if family != "openai" or not ANSWER_KEY.exists():
+        return "answer key not on host" if family == "openai" else "no shell"
+    if working_material:
+        return "answer key on host (working material, not evidence)"
+    raise RaterError(
+        f"{ANSWER_KEY} is readable from this host and the {family} family has a shell; "
+        "corpus labels are produced where the inventory is not, or pass "
+        "--working-material for a calibration run"
+    )
+
+
 def build_label(parsed: dict[str, Any], *, role: str, reviewer_id: str) -> IndependentHumanLabelV1:
     try:
         return IndependentHumanLabelV1(
@@ -986,9 +1044,11 @@ def run_rater(
     home_mode: str = "isolated",
     runner=run_subprocess,
     prober=probe_cli,
+    working_material: bool = False,
 ) -> RaterResult:
     packet = packet.resolve()
     out.mkdir(parents=True, exist_ok=True)
+    host_isolation = check_answer_key_not_on_host(family, working_material=working_material)
     cli_version = prober(family)
     with tempfile.TemporaryDirectory(prefix="rater-home-") as home:
         invocation, manifest = prepare(
@@ -1036,6 +1096,10 @@ def run_rater(
     cli_version = reported_client or cli_version
     reviewer_id = f"{family}:{resolved_model}:{invocation.session_id}"
     parsed = parse_label_object(final_text)
+    canonical, rewritten = canonicalise_evidence(
+        parsed["evidence_references"], manifest.get("identical_files", [])
+    )
+    parsed = {**parsed, "evidence_references": canonical}
     label = build_label(parsed, role=role, reviewer_id=reviewer_id)
 
     labels = out / "labels"
@@ -1050,6 +1114,8 @@ def run_rater(
         "session_id": invocation.session_id,
         "cli_version": cli_version,
         "family_independence": family_independence,
+        "host_isolation": host_isolation,
+        "evidence_references_as_cited": rewritten,
         "packet_manifest_sha256": _sha256_text(
             (packet / "MANIFEST.json").read_text(encoding="utf-8")
         ),
@@ -1092,6 +1158,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="print the command and environment; do not launch"
+    )
+    parser.add_argument(
+        "--working-material",
+        action="store_true",
+        help="this run's labels are calibration material, never corpus evidence: "
+        "relaxes the answer-key host check and records that on the label",
     )
     parser.add_argument(
         "--check-cli",
@@ -1137,6 +1209,7 @@ def main(argv: list[str] | None = None) -> int:
             model=args.model,
             timeout=args.timeout,
             home_mode=args.home_mode,
+            working_material=args.working_material,
         )
     except RaterError as error:
         print(f"run_rater: no admissible label: {error}", file=sys.stderr)
