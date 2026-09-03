@@ -323,8 +323,10 @@ def probe_cli(family: str, *, timeout: int = _PROBE_TIMEOUT) -> str:
     a signal with no output at all. Each of those is a different remedy, so
     each gets its own sentence here, before a packet is handed to anything.
 
-    The version it prints is recorded with the label: ``reviewer_id`` names
-    the model, and this names the client that asked for it.
+    What it prints is the **fallback** client attribution. Where a family's
+    stream names its own build -- ``claude_code_version`` on the Claude
+    ``init`` event -- :func:`claude_final` supplies that instead, because a
+    version read before launch is what was on ``PATH``, not what ran.
     """
 
     binary = CLI_BINARIES.get(family)
@@ -418,6 +420,10 @@ def check_family_independence(out: Path, case_id: str, role: str, family: str) -
     found. The first role of a case is legitimately ``"unchecked"``; a case
     whose *both* records say so is one where nobody ever compared, which is a
     thing a freeze step can see and an operator's memory cannot.
+
+    A sibling that exists but names no family it recognises is a refusal, not
+    a pass: "different from mine, therefore fine" would let this function
+    record that it checked something it could not read.
     """
 
     other = next(role_name for role_name in ROLES if role_name != role)
@@ -430,6 +436,15 @@ def check_family_independence(out: Path, case_id: str, role: str, family: str) -
         raise RaterError(
             f"{sibling} cannot be read, so family independence is unknown: {error}"
         ) from error
+    if recorded not in FAMILIES:
+        # Not "different, therefore fine". A sibling that does not name a
+        # family cannot be compared with, and a run that passed by default
+        # would go on to record that it was checked -- a positive claim where
+        # `unchecked` is the truth, and the one thing worse than silence.
+        raise RaterError(
+            f"{sibling} names family {recorded!r}, which is not one of {FAMILIES}, so "
+            "Amendment 1 condition 1 cannot be checked against it"
+        )
     if recorded == family:
         raise RaterError(
             f"{sibling} records the {other} label for {case_id} as family {recorded!r}; "

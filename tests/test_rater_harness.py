@@ -1610,3 +1610,33 @@ def test_a_client_whose_stream_names_no_version_keeps_the_probe_s_answer(
         prober=lambda _family: "codex 0.153.0",
     )
     assert result.cli_version == "codex 0.153.0"
+
+
+def test_a_sibling_that_names_no_family_refuses_rather_than_claiming_a_check(
+    packet: Path, tmp_path: Path
+) -> None:
+    """ "Different from mine, therefore fine" would record a check that never ran.
+
+    An older harness build, a hand-assembled record, or a half-written file
+    all produce a sibling with no usable `family`. Passing would put
+    `family_independence: "checked against ..."` on the label — a positive
+    claim where `unchecked` is the truth, which is worse than the silence the
+    field was added to replace.
+    """
+
+    out = tmp_path / "out"
+    (out / "labels").mkdir(parents=True)
+    (out / "labels" / "fixture-1.framework_tooling.json").write_text(
+        json.dumps({"case_id": "fixture-1"}), encoding="utf-8"
+    )
+    recorder = _Recorder(_claude_transcript(VALID_LABEL))
+    with pytest.raises(run_rater.RaterError, match="cannot be checked against it"):
+        run_rater.run_rater(
+            family="claude",
+            role="security_governance",
+            packet=packet,
+            out=out,
+            runner=recorder,
+            prober=_stub_prober,
+        )
+    assert recorder.invocations == []
