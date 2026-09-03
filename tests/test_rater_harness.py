@@ -1456,8 +1456,26 @@ def test_the_family_check_runs_before_the_session_does(
 # --------------------------------------------------------------------------
 
 
+def _gitconfig(path: Path, *, quotepath: bool = True) -> Path:
+    """A `~/.gitconfig` that changes every diff-shaping knob it can."""
+
+    path.write_text(
+        "[diff]\n"
+        "\tcontext = 7\n"
+        "\tnoprefix = true\n"
+        "\tmnemonicPrefix = true\n"
+        "\talgorithm = patience\n"
+        "\trenames = true\n"
+        "[core]\n"
+        "\tabbrev = 12\n"
+        f"\tquotepath = {'true' if quotepath else 'false'}\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def test_the_diff_does_not_depend_on_the_operator_s_git_configuration(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`.gitattributes` was half the problem; `~/.gitconfig` was the other half.
 
@@ -1482,15 +1500,10 @@ def test_the_diff_does_not_depend_on_the_operator_s_git_configuration(
         base=base,
         head=head,
     )
-    for key, value in (
-        ("diff.context", "7"),
-        ("diff.noprefix", "true"),
-        ("diff.mnemonicPrefix", "true"),
-        ("diff.algorithm", "patience"),
-        ("core.abbrev", "12"),
-        ("diff.renames", "false"),
-    ):
-        _git(clone, "config", key, value)
+    # `~/.gitconfig`, which is what an operator actually has. A *local* setting
+    # would not prove anything any more: the diff is read through a bare git
+    # dir that never sees the clone's own config.
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(_gitconfig(tmp_path / "home.gitconfig")))
     configured = build_packet.build_packet(
         case_id="ext-config",
         role="security_governance",
@@ -1695,3 +1708,38 @@ def test_the_neutral_git_dir_reads_the_same_commits_it_was_built_from(tmp_path: 
         )
         assert [path for _mode, _oid, path in listed] == ["a.py"]
         assert build_packet.changed_submodules(gitdir, base, head) == []
+
+
+def test_a_non_ascii_path_is_spelled_the_same_whatever_the_operator_configured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`core.quotePath` decides how a path reaches every header of the patch.
+
+    `core.quotepath=false` is a common global setting, so without pinning it a
+    case touching an i18n fixture or a non-ASCII doc path hashes differently on
+    two machines.
+    """
+
+    clone = tmp_path / "clone"
+    base, head = _two_commit_clone(clone, {"café.py": "x = 1\n"}, {"café.py": "x = 2\n"})
+    plain = build_packet.build_packet(
+        case_id="ext-quote",
+        role="security_governance",
+        out=tmp_path / "packet-plain",
+        clone=clone,
+        base=base,
+        head=head,
+    )
+    monkeypatch.setenv(
+        "GIT_CONFIG_GLOBAL", str(_gitconfig(tmp_path / "home.gitconfig", quotepath=False))
+    )
+    configured = build_packet.build_packet(
+        case_id="ext-quote",
+        role="security_governance",
+        out=tmp_path / "packet-configured",
+        clone=clone,
+        base=base,
+        head=head,
+    )
+    assert (plain / "diff.patch").read_bytes() == (configured / "diff.patch").read_bytes()
+    assert (plain / "repo" / "café.py").read_text() == "x = 2\n"

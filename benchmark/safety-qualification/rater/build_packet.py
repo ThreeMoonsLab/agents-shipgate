@@ -422,6 +422,9 @@ def materialize_tree(repo: Path, rev: str, dest: Path) -> list[str]:
 # `diff.patch:<line>` a rater cites for an adjudicator to re-read -- at the
 # mercy of whose machine built the packet.
 #
+# `core.quotePath` belongs with them: it decides whether `café.py` reaches a
+# header as itself or as `"caf\303\251.py"`.
+#
 # `diff.renames` is pinned *off* rather than to its default. Rename detection
 # summarises a move instead of showing both sides, and what a rater must be
 # able to see is content that left; `--full-index` for the same reason, since
@@ -443,6 +446,10 @@ _DIFF_CONFIG = (
     "diff.orderFile=/dev/null",
     "-c",
     "diff.renames=false",
+    # Whether a non-ASCII path is C-escaped in the headers or written raw.
+    # `--raw -z` never quotes, so `changed_submodules` does not need this.
+    "-c",
+    "core.quotePath=true",
 )
 
 
