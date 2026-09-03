@@ -35,6 +35,15 @@ Amendment 1 condition 2 — blindness, enforced mechanically:
   anywhere, ``--no-session-persistence`` writes nothing back, the working
   directory is the packet (which the runner checks carries no ``CLAUDE.md``
   and no ``.claude/``), and the label record names the mode used.
+- **The two families do not get this the same way, and the docstring should
+  not pretend they do.** Claude has no shell: ``--tools Read,Grep,Glob``
+  removes it. codex is a shell agent and ``--sandbox read-only`` restricts
+  writes only -- probed on 0.153.0, a session read a file outside its working
+  root and printed it, and that version offers no setting that narrows reads.
+  What makes up the difference is :func:`commands_that_reached_outside`, which
+  refuses the label when a recorded command names the checkout, the round's
+  output directory or a sibling packet. That is detection rather than
+  confinement; the archived transcript is what an auditor reads.
 - **No network, no other files.** The tool set is restricted to ``Read``,
   ``Grep`` and ``Glob`` (``--tools`` removes every other built-in tool
   including ``Bash``, ``WebFetch`` and ``WebSearch``; ``--allowedTools`` and
@@ -119,7 +128,7 @@ import sys
 import tempfile
 import uuid
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 # `benchmark/.../rater/run_rater.py` is documented as something you run
@@ -182,7 +191,15 @@ NETWORK_TOOLS = frozenset({"Bash", "WebFetch", "WebSearch"})
 _ENV_PASSTHROUGH = ("PATH", "TMPDIR", "LANG", "LC_ALL", "TERM", "SHELL", "USER")
 _CLAUDE_CREDENTIAL_ENV = ("ANTHROPIC_API_KEY",)
 _OPENAI_CREDENTIAL_ENV = ("OPENAI_API_KEY",)
-_DEFAULT_OPENAI_MODEL = "gpt-5-codex"
+# No default model for the openai family, deliberately. codex names neither
+# the model nor its own version in its event stream, so whatever is recorded
+# in `reviewer_id` is what the caller asked for -- and a default would make
+# that a guess that is *usually* right, which is the worst kind. Amendment 1
+# condition 3 wants `reviewer_id` to name the model that ran; the only way to
+# mean it here is to require the caller to say. (The name this used to
+# default to, `gpt-5-codex`, was written from memory and is rejected outright
+# by a ChatGPT-account login: "not supported when using Codex with a ChatGPT
+# account".)
 
 # Written into the isolated Codex home. Every line closes a door the real
 # profile could open: no MCP servers, no web search, no approvals, and a
@@ -552,6 +569,12 @@ def claude_invocation(
 def openai_invocation(
     packet: Path, *, model: str | None, home: Path, session_id: str, home_mode: str
 ) -> Invocation:
+    if not model:
+        raise RaterError(
+            "the openai family needs --model: codex does not name the model in its "
+            "event stream, so an unnamed one would be recorded in reviewer_id as "
+            "whatever this harness guessed"
+        )
     effective_home = _resolve_home(home_mode, packet, home)
     argv = [
         "codex",
@@ -579,7 +602,7 @@ def openai_invocation(
         "-c",
         'web_search="disabled"',
         "--model",
-        model or _DEFAULT_OPENAI_MODEL,
+        model,
         "-",
     ]
     env = _base_env(_OPENAI_CREDENTIAL_ENV, effective_home)
@@ -706,6 +729,14 @@ def openai_final(transcript: str) -> tuple[str, str | None, str | None]:
         and e["item"].get("type") == "agent_message"
     ]
     messages = [m for m in messages if isinstance(m, str)]
+    # A failed turn says why; "no completed agent message" says only that the
+    # session produced nothing, which is the symptom of every possible cause.
+    # An unusable model, a revoked credential and a refused sandbox all arrive
+    # here, and all three have different remedies.
+    for event in events:
+        if event.get("type") in {"turn.failed", "error"}:
+            detail = event.get("message") or (event.get("error") or {}).get("message") or ""
+            raise RaterError(f"codex reported {event['type']}: {str(detail)[:400]}")
     if not messages:
         raise RaterError("no completed agent message in the codex transcript")
     if not any(e.get("type") == "turn.completed" for e in events):
@@ -714,6 +745,84 @@ def openai_final(transcript: str) -> tuple[str, str | None, str | None]:
 
 
 _FINALS = {"claude": claude_final, "openai": openai_final}
+
+
+# Shells codex wraps a command in. The wrapper's own argv is not the session
+# reaching outside; the script it carries is what gets read.
+_SHELL_WRAPPERS = frozenset({"/bin/zsh", "/bin/bash", "/bin/sh", "zsh", "bash", "sh"})
+
+
+def _codex_scripts(transcript: str) -> list[str]:
+    """The shell scripts a codex session ran, unwrapped from ``<shell> -lc``."""
+
+    scripts: list[str] = []
+    for event in _events(transcript):
+        item = event.get("item") or {}
+        if event.get("type") != "item.completed" or item.get("type") != "command_execution":
+            continue
+        command = item.get("command")
+        if not isinstance(command, str):
+            continue
+        try:
+            argv = shlex.split(command)
+        except ValueError:
+            scripts.append(command)  # unparseable is not a reason to look away
+            continue
+        if argv and argv[0] in _SHELL_WRAPPERS:
+            flags = {"-lc", "-c", "-ic"}
+            scripts.append(argv[-1] if any(a in flags for a in argv[1:-1]) else command)
+        else:
+            scripts.append(command)
+    return scripts
+
+
+def commands_that_reached_outside(transcript: str, packet: Path, out: Path) -> list[str]:
+    """Codex commands that named something condition 2 forbids a rater to see.
+
+    **Why this exists at all.** The Claude family's blindness is enforced by
+    not having the tool: ``--tools Read,Grep,Glob`` leaves no shell. The codex
+    family has one, and ``--sandbox read-only`` restricts *writes* only --
+    probed on 0.153.0, a session read a file outside its working root and
+    printed the contents, and 0.153.0 offers no configuration that narrows
+    reads. So the two families do not get their blindness the same way, and
+    this is what makes up the difference on the side that needs it.
+
+    **It is detection, not confinement**, and it is deliberately narrow. It
+    names the three things that actually carry what condition 2 forbids -- the
+    checkout (the strata inventory names a target decision for every slot, and
+    the engine and its reports are there too), the round's own output
+    directory (other raters' labels and transcripts), and the sibling packets
+    -- plus a ``..`` walk out of the packet. Flagging every absolute path
+    would refuse a session for saying ``/usr/bin/grep``, and a guard that
+    refuses real work is one an operator turns off.
+
+    A script that builds a path at run time still evades it. The compensating
+    control is the one condition 3 already requires: every command is in the
+    archived transcript, so an auditor reads what ran rather than trusting
+    this function.
+    """
+
+    packet = packet.resolve()
+    forbidden = {build_packet.REPO_ROOT.resolve(), out.resolve(), packet.parent}
+    forbidden = {path for path in forbidden if path != packet}
+    found: list[str] = []
+    for script in _codex_scripts(transcript):
+        reasons = []
+        for root in sorted(forbidden, key=lambda item: str(item)):
+            if str(root) in script:
+                reasons.append(f"names {root}")
+        # Tokenise rather than search the raw string: `cat ../sibling/x` has
+        # no `/..` in it, and `Path()` of a whole command line splits on the
+        # spaces' wrong side, so both string tests miss the ordinary way out.
+        try:
+            tokens = shlex.split(script)
+        except ValueError:
+            tokens = script.split()
+        if any(".." in PurePosixPath(token).parts for token in tokens):
+            reasons.append("walks out with ..")
+        if reasons:
+            found.append(f"{script[:160]} ({'; '.join(reasons)})")
+    return found
 
 
 # --------------------------------------------------------------------------
@@ -753,6 +862,64 @@ def parse_label_object(text: str) -> dict[str, Any]:
     if not isinstance(parsed["rationale"], str):
         raise RaterError("rationale must be a string")
     return parsed
+
+
+def canonicalise_evidence(
+    references: list[str], identical_files: list[list[str]]
+) -> tuple[list[str], dict[str, str]]:
+    """Rewrite a citation of any identical copy to the group's canonical path.
+
+    Returns the rewritten list and a map of what was rewritten, so the label
+    record can carry both: what the rater cited, and what it resolves to. The
+    content is byte-identical, so the line numbers carry over unchanged. This
+    is what makes "cite one copy" a property of the artifact rather than a
+    request in the guide.
+    """
+
+    canonical_for = {member: group[0] for group in identical_files for member in group[1:]}
+    rewritten: list[str] = []
+    changed: dict[str, str] = {}
+    for reference in references:
+        path, sep, lines = reference.partition(":")
+        target = canonical_for.get(path)
+        if target is None:
+            rewritten.append(reference)
+            continue
+        replacement = f"{target}{sep}{lines}"
+        rewritten.append(replacement)
+        changed[reference] = replacement
+    return rewritten, changed
+
+
+# The one file this harness knows names a target decision for every corpus
+# slot. Its presence on the host is the answer key being in the exam room.
+ANSWER_KEY = build_packet.REPO_ROOT / "benchmark" / "safety-qualification" / "strata-inventory.csv"
+
+
+def check_answer_key_not_on_host(family: str, *, working_material: bool) -> str:
+    """Refuse a shell-bearing rater on a host that carries the answer key.
+
+    The fix for a session that can read anything is not to sandbox its reads
+    -- it is to not have the thing it must not read where it can reach. The
+    packets are self-contained; a rater needs nothing from this checkout. So
+    corpus labels for a family that has a shell are produced on a host that
+    does not carry the inventory, and this is the check that says so. It
+    knows one location, the checkout it lives in; a second clone elsewhere is
+    what the transcript audit is for.
+
+    Calibration labels are working material, never evidence, so a
+    calibration run may say so and proceed; the label records which it was.
+    """
+
+    if family != "openai" or not ANSWER_KEY.exists():
+        return "answer key not on host" if family == "openai" else "no shell"
+    if working_material:
+        return "answer key on host (working material, not evidence)"
+    raise RaterError(
+        f"{ANSWER_KEY} is readable from this host and the {family} family has a shell; "
+        "corpus labels are produced where the inventory is not, or pass "
+        "--working-material for a calibration run"
+    )
 
 
 def build_label(parsed: dict[str, Any], *, role: str, reviewer_id: str) -> IndependentHumanLabelV1:
@@ -877,9 +1044,11 @@ def run_rater(
     home_mode: str = "isolated",
     runner=run_subprocess,
     prober=probe_cli,
+    working_material: bool = False,
 ) -> RaterResult:
     packet = packet.resolve()
     out.mkdir(parents=True, exist_ok=True)
+    host_isolation = check_answer_key_not_on_host(family, working_material=working_material)
     cli_version = prober(family)
     with tempfile.TemporaryDirectory(prefix="rater-home-") as home:
         invocation, manifest = prepare(
@@ -907,10 +1076,17 @@ def run_rater(
     if completed.returncode != 0:
         diagnostics.append(f"cli exited {completed.returncode}")
 
+    if family == "openai":
+        escaped = commands_that_reached_outside(transcript, packet, out)
+        if escaped:
+            raise RaterError(
+                "the session ran commands that reached outside the packet, so condition 2 "
+                "makes its label inadmissible: " + "; ".join(escaped)
+            )
     final_text, reported_model, reported_client = _FINALS[family](transcript)
     resolved_model = reported_model or model
     if family == "openai":
-        resolved_model = model or _DEFAULT_OPENAI_MODEL
+        resolved_model = model
     if not resolved_model:
         raise RaterError("the transcript does not name the model; pass --model")
 
@@ -920,6 +1096,10 @@ def run_rater(
     cli_version = reported_client or cli_version
     reviewer_id = f"{family}:{resolved_model}:{invocation.session_id}"
     parsed = parse_label_object(final_text)
+    canonical, rewritten = canonicalise_evidence(
+        parsed["evidence_references"], manifest.get("identical_files", [])
+    )
+    parsed = {**parsed, "evidence_references": canonical}
     label = build_label(parsed, role=role, reviewer_id=reviewer_id)
 
     labels = out / "labels"
@@ -934,6 +1114,8 @@ def run_rater(
         "session_id": invocation.session_id,
         "cli_version": cli_version,
         "family_independence": family_independence,
+        "host_isolation": host_isolation,
+        "evidence_references_as_cited": rewritten,
         "packet_manifest_sha256": _sha256_text(
             (packet / "MANIFEST.json").read_text(encoding="utf-8")
         ),
@@ -976,6 +1158,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="print the command and environment; do not launch"
+    )
+    parser.add_argument(
+        "--working-material",
+        action="store_true",
+        help="this run's labels are calibration material, never corpus evidence: "
+        "relaxes the answer-key host check and records that on the label",
     )
     parser.add_argument(
         "--check-cli",
@@ -1021,6 +1209,7 @@ def main(argv: list[str] | None = None) -> int:
             model=args.model,
             timeout=args.timeout,
             home_mode=args.home_mode,
+            working_material=args.working_material,
         )
     except RaterError as error:
         print(f"run_rater: no admissible label: {error}", file=sys.stderr)

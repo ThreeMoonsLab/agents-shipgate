@@ -1,0 +1,32 @@
+version: "0.1"
+
+project:
+  name: fleet-ops-assistant
+
+agent:
+  name: fleet-ops
+  declared_purpose:
+    - answer questions about the state and service history of fleet vehicles
+
+environment:
+  target: production
+
+tool_sources:
+  - id: fleet_agent
+    type: langchain
+    path: agent.py
+
+langchain:
+  tool_inventories:
+    - inventories/tools.json
+
+action_surface:
+  actions:
+    - tool: vehicle_status
+      effect: read
+      authority:
+        mode: none
+    - tool: maintenance_history
+      effect: read
+      authority:
+        mode: none

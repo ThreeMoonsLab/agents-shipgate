@@ -1,0 +1,28 @@
+{
+  "tools": [
+    {
+      "name": "vehicle_status",
+      "description": "Return the current location, fuel level, and driver of one vehicle.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {"vehicle_id": {"type": "string"}},
+        "required": ["vehicle_id"]
+      },
+      "annotations": {"readOnlyHint": true},
+      "auth": {"mode": "none"}
+    },
+    {
+      "name": "maintenance_history",
+      "description": "Return the completed and scheduled service records for one vehicle.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {"vehicle_id": {"type": "string"}},
+        "required": ["vehicle_id"]
+      },
+      "annotations": {"readOnlyHint": true},
+      "auth": {"mode": "none"}
+    }
+  ]
+}

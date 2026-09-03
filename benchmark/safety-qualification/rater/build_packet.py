@@ -45,9 +45,11 @@ tools resolve but the manifest cannot describe: its bytes live wherever it
 points, so a link out of the tree would put unmanifested host content inside
 the "entire world" the rater is given, and the packet would still verify. A
 link whose target stays inside the source tree is materialised -- copied as a
-regular file, so the manifest covers its bytes; one that escapes the tree, or
-dangles, refuses the build. Hashing then treats any surviving link as tamper
-rather than skipping it.
+regular file, so the manifest covers its bytes; one that escapes the tree
+refuses the build. One that dangles resolves to nothing, so there is nothing
+to copy and nothing to leak: it is dropped and listed in the manifest under
+``broken_symlinks``, which is what keeps it from being an unexplained hole.
+Hashing then treats any surviving link as tamper rather than skipping it.
 
 **What the manifest does not say.** No PR URL, no repository name beyond
 what the tree itself contains, no target decision, no profile, no origin.
@@ -175,13 +177,20 @@ def symlinks_in_tree(root: Path) -> dict[str, list[str]]:
 
 
 def symlink_refusals_in_tree(root: Path) -> list[str]:
-    """The links that refuse the build: those that escape ``root`` or dangle."""
+    """The links that refuse the build: those that escape ``root``.
+
+    A **dangling** link is not one of them, and used to be. It resolves to
+    nothing, so unlike an escaping link it puts no unmanifested host content
+    in front of the rater -- there is nothing behind it to put. Refusing over
+    one costs a case for no gain, and real repositories carry them: `stripe/ai`
+    has four `LICENSE` links whose target is `LICENSE`, i.e. themselves, which
+    is a loop on every host. They are dropped from the packet and named in the
+    manifest instead, because a path with no content is still a path the rater
+    should not be left to wonder about.
+    """
 
     found = symlinks_in_tree(root)
-    return sorted(
-        [f"{path} (escapes the tree)" for path in found["escaping"]]
-        + [f"{path} (dangling)" for path in found["dangling"]]
-    )
+    return sorted(f"{path} (escapes the tree)" for path in found["escaping"])
 
 
 def copy_tree_excluding(source: Path, destination: Path) -> list[str]:
@@ -203,6 +212,7 @@ def copy_tree_excluding(source: Path, destination: Path) -> list[str]:
             "source tree contains symlinks the packet cannot describe: " + ", ".join(escaping)
         )
     dropped: list[str] = []
+    broken = set(symlinks_in_tree(source)["dangling"])
     destination.mkdir(parents=True, exist_ok=False)
     for dirpath, dirnames, filenames in os.walk(source, followlinks=False):
         rel_dir = Path(dirpath).relative_to(source)
@@ -222,6 +232,11 @@ def copy_tree_excluding(source: Path, destination: Path) -> list[str]:
             src = Path(dirpath) / name
             dst = target_dir / name
             if src.is_symlink():
+                if str(rel_dir / name) in broken:
+                    # Resolves to nothing, so there is nothing to copy and
+                    # nothing to leak. Recorded, not silently gone.
+                    dropped.append(str(rel_dir / name))
+                    continue
                 # Refused above unless it stays inside the tree. Copy what it
                 # points at, so the bytes the rater can read are bytes the
                 # manifest hashes -- and drop a link to an excluded name
@@ -693,7 +708,7 @@ def diff_pinned_states(repo: Path, base: str, head: str) -> str:
 
 def export_external_case(
     clone: Path, base: str, head: str, workdir: Path
-) -> tuple[Path, str, dict[str, str]]:
+) -> tuple[Path, str, dict[str, str], list[str]]:
     """Materialise the head tree and the base..head diff from a clone.
 
     Both refs must resolve to full commits. The tree comes from
@@ -709,10 +724,12 @@ def export_external_case(
     materialize_tree(clone, head_sha, tree_dir)
     diff = diff_pinned_states(clone, base_sha, head_sha)
     pins = {"kind": "external", "base_sha": base_sha, "head_sha": head_sha}
-    return tree_dir, diff, pins
+    return tree_dir, diff, pins, sorted(symlinks_in_tree(tree_dir)["dangling"])
 
 
-def export_constructed_case(case_dir: Path, workdir: Path) -> tuple[Path, str, dict[str, str]]:
+def export_constructed_case(
+    case_dir: Path, workdir: Path
+) -> tuple[Path, str, dict[str, str], list[str]]:
     """Diff a constructed case's ``base/`` and ``head/`` trees.
 
     The two trees are committed in order into a throwaway repository, so the
@@ -762,7 +779,9 @@ def export_constructed_case(case_dir: Path, workdir: Path) -> tuple[Path, str, d
     # read, because a constructed tree may carry a `.gitattributes` too.
     tree_dir = workdir / "head-tree"
     materialize_tree(repo, "HEAD", tree_dir)
-    return tree_dir, diff, pins
+    # From the case's own tree: staging into the throwaway repository already
+    # dropped the broken links, so by now there is nothing left to see.
+    return tree_dir, diff, pins, sorted(symlinks_in_tree(head_tree)["dangling"])
 
 
 # --------------------------------------------------------------------------
@@ -871,6 +890,26 @@ def hash_packet_files(packet: Path) -> dict[str, str]:
     return dict(sorted(hashes.items()))
 
 
+def identical_file_groups(files: dict[str, str]) -> list[list[str]]:
+    """Groups of packet paths with byte-identical content, canonical copy first.
+
+    A skill shipped as a canonical copy plus per-provider copies is the same
+    bytes at several paths, and two raters citing different copies of it look
+    like a disagreement to an adjudicator when they are not one. The manifest
+    already hashes every file, so identical content is exact and free to find:
+    same sha256, same bytes. The first path in each group is the canonical
+    one -- shortest, then lexical -- which puts `skills/x/SKILL.md` ahead of
+    `providers/claude/plugin/skills/x/SKILL.md` without knowing what either is.
+    """
+
+    by_hash: dict[str, list[str]] = {}
+    for path, digest in files.items():
+        if path.startswith("repo/"):
+            by_hash.setdefault(digest, []).append(path)
+    groups = [sorted(paths, key=lambda item: (len(item), item)) for paths in by_hash.values()]
+    return sorted((g for g in groups if len(g) > 1), key=lambda g: g[0])
+
+
 def build_packet(
     *,
     case_id: str,
@@ -908,10 +947,10 @@ def build_packet(
         workdir = Path(tmp)
         if external:
             assert clone is not None and base is not None and head is not None
-            tree_dir, diff, pins = export_external_case(clone, base, head, workdir)
+            tree_dir, diff, pins, broken_links = export_external_case(clone, base, head, workdir)
         else:
             assert case_dir is not None
-            tree_dir, diff, pins = export_constructed_case(case_dir, workdir)
+            tree_dir, diff, pins, broken_links = export_constructed_case(case_dir, workdir)
 
         staged = workdir / "packet"
         staged.mkdir()
@@ -927,6 +966,14 @@ def build_packet(
             "source": pins,
             "files": hash_packet_files(staged),
         }
+        if broken_links:
+            # The one thing the packet leaves out that is repository content.
+            # Naming it is the difference between a rater whose world has a
+            # known empty spot and one who cannot tell a path was ever there.
+            manifest["broken_symlinks"] = [f"repo/{path}" for path in broken_links]
+        groups = identical_file_groups(manifest["files"])
+        if groups:
+            manifest["identical_files"] = groups
         (staged / "MANIFEST.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
