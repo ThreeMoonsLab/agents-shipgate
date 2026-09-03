@@ -79,18 +79,24 @@ against CLIs this project could not run, and an unrunnable CLI does not fail
 like "no admissible label": a missing binary raises from inside the run, a
 launcher whose vendored binary is absent exits with a Node stack trace, and a
 binary macOS refuses to load is killed by a signal with no output at all. The
-version it reports is recorded beside the label.
+version it reports is the fallback attribution for a client whose transcript
+does not name itself.
 
 Condition 1 — two model families: :func:`check_family_independence` refuses a
 run whose sibling role already holds a label for the same case from the same
 family, before that run starts. Nothing downstream can see this — two sessions
 of one family already differ in the session uuid, which is all
-``SafetyCorpusCaseV1`` asks of a ``reviewer_id`` pair.
+``SafetyCorpusCaseV1`` asks of a ``reviewer_id`` pair. It can only compare
+against a sibling it can find, so **both roles of a case must be run into one
+``--out``**; the label records ``family_independence``, which reads
+``"unchecked"`` when there was nothing to compare with.
 
 Condition 3 — attribution and archived transcripts: the transcript file is
 named by the sha256 of its bytes; ``reviewer_id`` is
 ``<family>:<model>:<session id>``, where the model is what the CLI reports it
-ran and the session id is the one this runner generated for the session.
+ran and the session id is the one this runner generated for the session. The
+record also names the client build, taken from the session's own transcript
+where the stream carries it and from :func:`probe_cli` otherwise.
 
 The OpenAI family runs ``codex exec`` with ``--sandbox read-only``; the
 subprocess boundary is :func:`run_subprocess` and is the only thing tests
@@ -389,7 +395,7 @@ def check_no_ancestor_instructions(packet: Path) -> None:
             break
 
 
-def check_family_independence(out: Path, case_id: str, role: str, family: str) -> None:
+def check_family_independence(out: Path, case_id: str, role: str, family: str) -> str:
     """Refuse a second label for a case from the family that gave the first.
 
     Amendment 1 condition 1 -- the two roles on different model families -- is
@@ -403,12 +409,21 @@ def check_family_independence(out: Path, case_id: str, role: str, family: str) -
     Here is the earliest point it can be caught -- the run that would break it
     has not started -- and the only one where the answer is a fact rather than
     a convention, because the sibling record names the family that produced it.
+
+    **The sibling has to be somewhere this can look.** It looks under ``out``,
+    so two roles written to two ``--out`` directories are never compared. That
+    is a reasonable thing for an operator to do, so silence is the wrong
+    answer: the return value is recorded on the label as
+    ``family_independence``, and reads ``"unchecked"`` when no sibling was
+    found. The first role of a case is legitimately ``"unchecked"``; a case
+    whose *both* records say so is one where nobody ever compared, which is a
+    thing a freeze step can see and an operator's memory cannot.
     """
 
     other = next(role_name for role_name in ROLES if role_name != role)
     sibling = out / "labels" / f"{case_id}.{other}.json"
     if not sibling.is_file():
-        return
+        return "unchecked"
     try:
         recorded = json.loads(sibling.read_text(encoding="utf-8")).get("family")
     except (OSError, json.JSONDecodeError) as error:
@@ -420,6 +435,7 @@ def check_family_independence(out: Path, case_id: str, role: str, family: str) -
             f"{sibling} records the {other} label for {case_id} as family {recorded!r}; "
             "Amendment 1 condition 1 requires the two roles on different model families"
         )
+    return f"checked against {other} ({recorded})"
 
 
 def _base_env(credential_names: tuple[str, ...], home: Path) -> dict[str, str]:
@@ -571,19 +587,24 @@ def _events(transcript: str) -> list[dict[str, Any]]:
     return events
 
 
-def claude_final(transcript: str) -> tuple[str, str | None]:
-    """Return (final text, model) from a ``stream-json`` transcript.
+def claude_final(transcript: str) -> tuple[str, str | None, str | None]:
+    """Return (final text, model, client version) from a ``stream-json`` transcript.
 
-    The final text is the ``result`` event's ``result``; the model is the
-    ``init`` system event's ``model``. A transcript without a successful
-    ``result`` event is not a completed session.
+    The final text is the ``result`` event's ``result``; the model and the
+    client build both come from the ``init`` system event. Taking the client
+    build from here rather than from :func:`probe_cli` is the difference
+    between recording what ran and recording what was on ``PATH`` a moment
+    earlier. A transcript without a successful ``result`` event is not a
+    completed session.
     """
 
     events = _events(transcript)
     model = None
+    client = None
     for event in events:
         if event.get("type") == "system" and event.get("subtype") == "init":
             model = event.get("model") or model
+            client = event.get("claude_code_version") or client
     results = [e for e in events if e.get("type") == "result"]
     if len(results) != 1:
         raise RaterError(f"expected exactly one result event, found {len(results)}")
@@ -597,15 +618,16 @@ def claude_final(transcript: str) -> tuple[str, str | None]:
     text = result.get("result")
     if not isinstance(text, str):
         raise RaterError("result event carries no final text")
-    return text, model
+    return text, model, client
 
 
-def openai_final(transcript: str) -> tuple[str, str | None]:
-    """Return (final text, model) from a ``codex exec --json`` transcript.
+def openai_final(transcript: str) -> tuple[str, str | None, str | None]:
+    """Return (final text, model, client version) from a ``codex exec --json`` transcript.
 
-    The final text is the last completed ``agent_message`` item. codex does
-    not report the model in its event stream, so the model is whatever the
-    command line asked for (recorded by the caller).
+    The final text is the last completed ``agent_message`` item. codex reports
+    neither the model nor its own version in its event stream, so both are
+    whatever the caller establishes: the model from the command line, the
+    client from :func:`probe_cli`.
     """
 
     events = _events(transcript)
@@ -621,7 +643,7 @@ def openai_final(transcript: str) -> tuple[str, str | None]:
         raise RaterError("no completed agent message in the codex transcript")
     if not any(e.get("type") == "turn.completed" for e in events):
         raise RaterError("codex turn did not complete")
-    return messages[-1], None
+    return messages[-1], None, None
 
 
 _FINALS = {"claude": claude_final, "openai": openai_final}
@@ -801,7 +823,7 @@ def run_rater(
             home=Path(home),
             home_mode=home_mode,
         )
-        check_family_independence(out, manifest["case_id"], role, family)
+        family_independence = check_family_independence(out, manifest["case_id"], role, family)
         try:
             completed = runner(invocation, timeout=timeout)
         except subprocess.TimeoutExpired as expired:
@@ -818,13 +840,17 @@ def run_rater(
     if completed.returncode != 0:
         diagnostics.append(f"cli exited {completed.returncode}")
 
-    final_text, reported_model = _FINALS[family](transcript)
+    final_text, reported_model, reported_client = _FINALS[family](transcript)
     resolved_model = reported_model or model
     if family == "openai":
         resolved_model = model or _DEFAULT_OPENAI_MODEL
     if not resolved_model:
         raise RaterError("the transcript does not name the model; pass --model")
 
+    # The probe says what was on PATH; the transcript says what ran. Prefer
+    # the transcript, and keep the probe's answer for the family whose stream
+    # does not carry one.
+    cli_version = reported_client or cli_version
     reviewer_id = f"{family}:{resolved_model}:{invocation.session_id}"
     parsed = parse_label_object(final_text)
     label = build_label(parsed, role=role, reviewer_id=reviewer_id)
@@ -840,6 +866,7 @@ def run_rater(
         "model": resolved_model,
         "session_id": invocation.session_id,
         "cli_version": cli_version,
+        "family_independence": family_independence,
         "packet_manifest_sha256": _sha256_text(
             (packet / "MANIFEST.json").read_text(encoding="utf-8")
         ),

@@ -412,8 +412,49 @@ def materialize_tree(repo: Path, rev: str, dest: Path) -> list[str]:
     return sorted(written)
 
 
+# Every key git reads from configuration that changes the bytes of a diff,
+# pinned. Without these the packet depends on the operator's `~/.gitconfig`:
+# `diff.context=7` turns a 13-line patch into a 21-line one, `diff.noprefix`
+# rewrites every `diff --git a/x b/x` header, `core.abbrev` widens every
+# `index` line. That would put `MANIFEST.json` -- and every
+# `diff.patch:<line>` a rater cites for an adjudicator to re-read -- at the
+# mercy of whose machine built the packet.
+#
+# `diff.renames` is pinned *off* rather than to its default. Rename detection
+# summarises a move instead of showing both sides, and what a rater must be
+# able to see is content that left; `--full-index` for the same reason, since
+# an auditor can resolve a full blob id and cannot resolve an abbreviated one.
+_DIFF_CONFIG = (
+    "-c",
+    "diff.context=3",
+    "-c",
+    "diff.algorithm=myers",
+    "-c",
+    "diff.indentHeuristic=true",
+    "-c",
+    "diff.noprefix=false",
+    "-c",
+    "diff.mnemonicPrefix=false",
+    # An empty value makes git try to open a file called "", so the neutral
+    # value is an empty file: with no patterns, nothing is reordered.
+    "-c",
+    "diff.orderFile=/dev/null",
+    "-c",
+    "diff.renames=false",
+)
+
+
 def suppressed_diff_markers(diff: str) -> list[str]:
     """Lines where git declined to describe a change textually.
+
+    **A backstop, not a live check.** With ``--text`` on the invocation no
+    input is known to reach it: git renders NUL-laden content textually even
+    under a low ``core.bigFileThreshold``, and ``GIT binary patch`` needs
+    ``--binary``, which is never passed. It stands because ``--text`` is one
+    flag, one edit away from being dropped, and because the failure it guards
+    -- a change reduced to the fact that *something* differs -- is silent
+    everywhere else. Its own behaviour is pinned by a unit test rather than by
+    an end-to-end one, because there is no end to run it from.
 
     Both forms start at column zero; every line of diff *content* carries a
     leading ``+``, ``-`` or space, so a file whose own text reads
@@ -473,11 +514,13 @@ def diff_pinned_states(repo: Path, base: str, head: str) -> str:
     """The two-dot diff, refused unless it fully describes the change.
 
     ``--text`` overrides a ``-diff`` or ``binary`` attribute and
-    ``--no-textconv`` a ``diff=<driver>`` one, so the result depends on the
-    two pins and not on which commit the clone happens to have checked out.
-    What survives that -- content that is not text at all, and submodules --
-    is a case the packet cannot carry, and is refused by name rather than
-    handed to a rater as a gap they cannot see.
+    ``--no-textconv`` a ``diff=<driver>`` one, so the result no longer depends
+    on which commit the clone happens to have checked out; ``_DIFF_CONFIG``
+    pins the rest, so it does not depend on the operator's ``~/.gitconfig``
+    either. Between them the diff is a function of the two pins alone. What
+    survives that -- content that is not text at all, and submodules -- is a
+    case the packet cannot carry, and is refused by name rather than handed to
+    a rater as a gap they cannot see.
     """
 
     submodules = changed_submodules(repo, base, head)
@@ -487,7 +530,16 @@ def diff_pinned_states(repo: Path, base: str, head: str) -> str:
             + ", ".join(submodules)
         )
     raw = _git_bytes(
-        repo, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--text", base, head
+        repo,
+        *_DIFF_CONFIG,
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--text",
+        "--full-index",
+        base,
+        head,
     )
     try:
         diff = raw.decode("utf-8")

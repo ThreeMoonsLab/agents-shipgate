@@ -133,6 +133,7 @@ mechanism subtracts from a base tree too. Both readers obey `.gitattributes`
 | `diff=<driver>` textconv | the diff showed the driver's rendering | `--no-textconv` |
 | a genuinely binary change | shipped as "differ", silently | refuses the build, naming the paths |
 | a submodule the change moves | shipped as a gitlink hash; content in neither tree | refuses the build, naming the paths |
+| `diff.context`, `diff.noprefix`, `diff.algorithm`, `core.abbrev`, `diff.orderFile`, `diff.renames` | the operator's `~/.gitconfig` decided the diff's bytes | every one pinned with `-c`, plus `--full-index` |
 
 The `-diff` case is the one that matters most for this corpus. Most of what the
 rubric calls `blocked` is a **removal** — an allowlist that no longer bounds, an
@@ -140,10 +141,15 @@ approval step deleted — and a removal is visible only in the diff. A repositor
 could hide exactly that, in an ordinary text file, and the packet would still
 build and still verify against its own manifest.
 
-A fourth consequence, from the same cause: `git diff` read attributes from the
-clone's **worktree**, so the same two pins produced different `diff.patch`
-bytes depending on which commit the clone happened to have checked out. A
-content-addressed evidence artifact cannot depend on that. It no longer does.
+Two more consequences, from the same cause and its neighbour. `git diff` read
+attributes from the clone's **worktree**, so the same two pins produced
+different `diff.patch` bytes depending on which commit the clone happened to
+have checked out. And the operator's own git configuration was never pinned at
+all: `diff.context=7` turns a 13-line patch into a 21-line one, `diff.noprefix`
+rewrites every header, `core.abbrev` widens every `index` line. Either would
+put `MANIFEST.json` — and every `diff.patch:<line>` a rater cites for an
+adjudicator to re-read — at the mercy of whose machine built the packet. The
+diff is now a function of the two pins alone.
 
 **The one cost of this decision.** A case whose change touches genuinely binary
 content, or a submodule, is now refused rather than silently shipped with a
@@ -168,6 +174,13 @@ published artifact except the operator remembering.
 the same case from the same family, and it refuses **before** launching, so the
 mistake costs no session. The label record is what makes this answerable: it
 names the family, which `reviewer_id` alone does not oblige it to.
+
+It can only compare against a sibling it can find, so **both roles of a case
+must be run into one `--out`**. Rather than be silent when they are not, each
+label records `family_independence`: `"unchecked"` when there was nothing to
+compare with. The first role of a case is legitimately `unchecked`; a case
+whose *both* records say so is one where nobody ever compared — which a freeze
+step can see and an operator's memory cannot.
 
 ---
 

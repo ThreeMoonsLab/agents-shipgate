@@ -11,6 +11,7 @@ import hashlib
 import importlib.util
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -330,9 +331,17 @@ def packet(constructed_case: Path, tmp_path: Path) -> Path:
     )
 
 
-def _claude_transcript(final_text: str, *, model: str = "claude-test-1") -> str:
+def _claude_transcript(
+    final_text: str, *, model: str = "claude-test-1", client: str = "9.9.9 (test)"
+) -> str:
     events = [
-        {"type": "system", "subtype": "init", "model": model, "session_id": "abc"},
+        {
+            "type": "system",
+            "subtype": "init",
+            "model": model,
+            "session_id": "abc",
+            "claude_code_version": client,
+        },
         {
             "type": "assistant",
             "message": {"content": [{"type": "tool_use", "name": "Read", "input": {}}]},
@@ -1070,8 +1079,12 @@ def test_the_diff_depends_on_the_two_pins_and_not_on_the_clone_s_checkout(
     _git(clone, "checkout", "-q", "--orphan", "empty")
     _git(clone, "rm", "-rq", "--cached", ".")
     for entry in clone.iterdir():
-        if entry.name != ".git":
-            entry.unlink() if entry.is_file() else None
+        if entry.name == ".git":
+            continue
+        if entry.is_dir():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
     second = build_packet.build_packet(
         case_id="ext-pins",
         role="security_governance",
@@ -1094,11 +1107,10 @@ def test_a_change_whose_content_is_not_text_refuses_and_names_the_path(
     """
 
     clone = tmp_path / "clone"
-    base, _ = _two_commit_clone(clone, {"a.txt": "x\n"}, {"a.txt": "y\n"})
+    _two_commit_clone(clone, {"a.txt": "x\n"}, {"a.txt": "y\n"})
     (clone / "logo.png").write_bytes(bytes([0x89, 0x50, 0x4E, 0x47]) + bytes(range(256)))
     _git(clone, "add", "--all")
     _git(clone, "commit", "-q", "-m", "add binary")
-    _ = base
     mid = _git(clone, "rev-parse", "HEAD~1")
     (clone / "logo.png").write_bytes(bytes([0x89, 0x50, 0x4E, 0x47]) + bytes(range(255, -1, -1)))
     _git(clone, "add", "--all")
@@ -1149,13 +1161,10 @@ def test_materialising_a_tree_keeps_the_executable_bit(tmp_path: Path) -> None:
     """A hook or entrypoint that is executable reads differently from one that is not."""
 
     clone = tmp_path / "clone"
-    base, head = _two_commit_clone(
-        clone, {"run.sh": "#!/bin/sh\necho a\n"}, {"run.sh": "#!/bin/sh\necho b\n"}
-    )
+    _two_commit_clone(clone, {"run.sh": "#!/bin/sh\necho a\n"}, {"run.sh": "#!/bin/sh\necho b\n"})
     _git(clone, "update-index", "--chmod=+x", "run.sh")
     _git(clone, "commit", "-q", "-m", "make executable")
     head = _git(clone, "rev-parse", "HEAD")
-    _ = base
     packet = build_packet.build_packet(
         case_id="ext-mode",
         role="framework_tooling",
@@ -1218,24 +1227,6 @@ def test_the_probe_returns_the_version_a_working_cli_reports(
 ) -> None:
     monkeypatch.setattr(run_rater.subprocess, "run", _fake_run(stdout="2.1.126 (Claude Code)\n"))
     assert run_rater.probe_cli("claude") == "2.1.126 (Claude Code)"
-
-
-def test_the_label_record_names_the_client_build_that_produced_it(
-    packet: Path, tmp_path: Path
-) -> None:
-    """``reviewer_id`` names the model; condition 3's attribution also needs
-    the client, because the client is what constrained the session."""
-
-    result = run_rater.run_rater(
-        family="claude",
-        role="security_governance",
-        packet=packet,
-        out=tmp_path / "out",
-        runner=_Recorder(_claude_transcript(VALID_LABEL)),
-        prober=lambda _family: "2.1.126 (Claude Code)",
-    )
-    assert result.cli_version == "2.1.126 (Claude Code)"
-    assert json.loads(result.label_path.read_text())["cli_version"] == "2.1.126 (Claude Code)"
 
 
 def test_a_broken_cli_stops_the_run_before_a_packet_is_handed_over(
@@ -1458,3 +1449,164 @@ def test_the_family_check_runs_before_the_session_does(
             prober=_stub_prober,
         )
     assert recorder.invocations == []
+
+
+# --------------------------------------------------------------------------
+# Review follow-ups
+# --------------------------------------------------------------------------
+
+
+def test_the_diff_does_not_depend_on_the_operator_s_git_configuration(
+    tmp_path: Path,
+) -> None:
+    """`.gitattributes` was half the problem; `~/.gitconfig` was the other half.
+
+    `diff.context` changes how many lines a hunk carries, `diff.noprefix`
+    rewrites every header, `core.abbrev` widens every `index` line. Each moves
+    the bytes `MANIFEST.json` hashes and the line numbers a rater cites for an
+    adjudicator to re-read, so each would make a packet a fact about whose
+    machine built it.
+    """
+
+    clone = tmp_path / "clone"
+    base, head = _two_commit_clone(
+        clone,
+        {"f.py": "\n".join(f"line{i}" for i in range(40)) + "\n"},
+        {"f.py": "\n".join("CHANGED" if i == 20 else f"line{i}" for i in range(40)) + "\n"},
+    )
+    plain = build_packet.build_packet(
+        case_id="ext-config",
+        role="security_governance",
+        out=tmp_path / "packet-plain",
+        clone=clone,
+        base=base,
+        head=head,
+    )
+    for key, value in (
+        ("diff.context", "7"),
+        ("diff.noprefix", "true"),
+        ("diff.mnemonicPrefix", "true"),
+        ("diff.algorithm", "patience"),
+        ("core.abbrev", "12"),
+        ("diff.renames", "false"),
+    ):
+        _git(clone, "config", key, value)
+    configured = build_packet.build_packet(
+        case_id="ext-config",
+        role="security_governance",
+        out=tmp_path / "packet-configured",
+        clone=clone,
+        base=base,
+        head=head,
+    )
+    assert (plain / "diff.patch").read_bytes() == (configured / "diff.patch").read_bytes()
+    assert (
+        json.loads((plain / "MANIFEST.json").read_text())["files"]
+        == json.loads((configured / "MANIFEST.json").read_text())["files"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        ("Binary files a/logo.png and b/logo.png differ", True),
+        ("GIT binary patch", True),
+        (" Binary files a/x and b/x differ", False),
+        ("+Binary files a/x and b/x differ", False),
+        ("-GIT binary patch", False),
+        ("+++ b/Binary files a and b differ", False),
+    ],
+)
+def test_the_binary_marker_backstop_reads_column_zero_only(line: str, expected: bool) -> None:
+    """No input is known to reach this through `--text`, so it is pinned here.
+
+    It stands because `--text` is one flag, one edit away from being dropped,
+    and the failure it guards — a change reduced to the fact that *something*
+    differs — is silent everywhere else. A guard that cannot be exercised at
+    all is worse than one exercised at its own boundary.
+    """
+
+    patch = f"diff --git a/x b/x\nindex 1..2 100644\n{line}\n"
+    assert bool(build_packet.suppressed_diff_markers(patch)) is expected
+
+
+def test_a_first_label_records_that_nothing_could_be_compared_with(
+    packet: Path, tmp_path: Path
+) -> None:
+    """The family check can only compare against a sibling it can find.
+
+    Two roles run into two `--out` directories are never compared, which is a
+    thing an operator may reasonably do. Recording "unchecked" makes a case
+    whose *both* records say so visible to a freeze step; silence would not.
+    """
+
+    result = run_rater.run_rater(
+        family="claude",
+        role="security_governance",
+        packet=packet,
+        out=tmp_path / "out",
+        runner=_Recorder(_claude_transcript(VALID_LABEL)),
+        prober=_stub_prober,
+    )
+    assert json.loads(result.label_path.read_text())["family_independence"] == "unchecked"
+
+
+def test_the_admissible_pair_records_what_it_was_compared_against(
+    constructed_case: Path, tmp_path: Path
+) -> None:
+    out = tmp_path / "out"
+    packets = {
+        role: build_packet.build_packet(
+            case_id="fixture-1",
+            role=role,
+            out=tmp_path / f"packet-{role}",
+            case_dir=constructed_case,
+        )
+        for role in ROLES
+    }
+    _label_one_role(
+        packets["security_governance"], out, family="claude", role="security_governance"
+    )
+    second = _label_one_role(
+        packets["framework_tooling"],
+        out,
+        family="openai",
+        role="framework_tooling",
+        model="model-x",
+    )
+    recorded = json.loads(second.label_path.read_text())["family_independence"]
+    assert recorded == "checked against security_governance (claude)"
+
+
+def test_the_client_build_comes_from_the_session_not_from_the_probe(
+    packet: Path, tmp_path: Path
+) -> None:
+    """The probe says what was on PATH; the transcript says what ran."""
+
+    result = run_rater.run_rater(
+        family="claude",
+        role="security_governance",
+        packet=packet,
+        out=tmp_path / "out",
+        runner=_Recorder(_claude_transcript(VALID_LABEL, client="2.1.126 (Claude Code)")),
+        prober=lambda _family: "0.0.1 (stale, replaced mid-run)",
+    )
+    assert result.cli_version == "2.1.126 (Claude Code)"
+    assert json.loads(result.label_path.read_text())["cli_version"] == "2.1.126 (Claude Code)"
+
+
+def test_a_client_whose_stream_names_no_version_keeps_the_probe_s_answer(
+    packet: Path, tmp_path: Path
+) -> None:
+    """codex reports neither its model nor its version, so the probe is all there is."""
+
+    result = run_rater.run_rater(
+        family="openai",
+        role="security_governance",
+        packet=packet,
+        out=tmp_path / "out",
+        model="model-x",
+        runner=_Recorder(_openai_transcript(VALID_LABEL)),
+        prober=lambda _family: "codex 0.153.0",
+    )
+    assert result.cli_version == "codex 0.153.0"

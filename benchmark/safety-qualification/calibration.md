@@ -205,6 +205,12 @@ rater's context. The runner refuses that rather than warning about it; put
 `.claude/` above it, or use `--home-mode isolated`, which turns the discovery
 off.
 
+**Both roles of a case go into one `<runs>`.** Amendment 1 condition 1 is
+checked by comparing a run against the sibling role's label record, which the
+runner can only find under the same `--out`. Split them and the check has
+nothing to compare with; it says so on the label (`family_independence:
+unchecked`) rather than passing quietly, but the point is not to need that.
+
 The four preconditions this round waits on, and what is left of each, are
 recorded in [`cut-c-preconditions.md`](cut-c-preconditions.md).
 
