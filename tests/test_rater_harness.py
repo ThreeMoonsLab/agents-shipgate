@@ -363,6 +363,18 @@ VALID_LABEL = json.dumps(
 )
 
 
+def _stub_prober(_family: str) -> str:
+    """Stands in for the CLI version probe, which is a real subprocess.
+
+    Every ``run_rater`` test injects it. Without it the suite would pass or
+    fail on whether the machine happens to have a working ``claude`` and
+    ``codex`` on PATH, which is the environment dependence the probe exists
+    to report rather than to acquire.
+    """
+
+    return "stub 0.0.0"
+
+
 class _Recorder:
     """Stands in for the subprocess boundary; records what would have run."""
 
@@ -395,6 +407,7 @@ def test_a_valid_final_message_becomes_a_validated_label_and_an_archived_transcr
         out=tmp_path / "out",
         model="model-x" if family == "openai" else None,
         runner=recorder,
+        prober=_stub_prober,
     )
 
     expected_sha = hashlib.sha256(transcript.encode("utf-8")).hexdigest()
@@ -456,6 +469,7 @@ def test_anything_but_one_valid_object_fails_closed(
             packet=packet,
             out=tmp_path / "out",
             runner=recorder,
+            prober=_stub_prober,
         )
     assert not (tmp_path / "out" / "labels").exists()
     # The transcript is still archived: an inadmissible run is auditable too.
@@ -472,6 +486,7 @@ def test_a_session_that_did_not_complete_fails_closed(packet: Path, tmp_path: Pa
             packet=packet,
             out=tmp_path / "out",
             runner=recorder,
+            prober=_stub_prober,
         )
 
 
@@ -484,6 +499,7 @@ def test_a_packet_built_for_the_other_role_is_refused(packet: Path, tmp_path: Pa
             packet=packet,
             out=tmp_path / "out",
             runner=recorder,
+            prober=_stub_prober,
         )
     assert not recorder.invocations
 
@@ -687,6 +703,7 @@ def test_a_packet_edited_after_it_was_built_launches_nothing(
             packet=packet,
             out=tmp_path / "out",
             runner=recorder,
+            prober=_stub_prober,
         )
 
     assert recorder.invocations == [], "a contaminated packet must never reach a session"
@@ -706,6 +723,7 @@ def test_a_file_added_to_a_built_packet_is_caught(packet: Path, tmp_path: Path) 
             packet=packet,
             out=tmp_path / "out",
             runner=recorder,
+            prober=_stub_prober,
         )
     assert recorder.invocations == []
 
@@ -720,6 +738,7 @@ def test_an_untouched_packet_still_verifies(packet: Path, tmp_path: Path) -> Non
         packet=packet,
         out=tmp_path / "out",
         runner=recorder,
+        prober=_stub_prober,
     )
     assert len(recorder.invocations) == 1
     assert result.label.decision == "review_required"
@@ -928,3 +947,514 @@ def test_shared_mode_accepts_a_codex_home_that_configures_nothing(
         home_mode="shared",
     )
     assert invocation.env["CODEX_HOME"] == str(codex_home)
+
+
+# --------------------------------------------------------------------------
+# The repository under judgement must not be able to subtract from the packet
+# --------------------------------------------------------------------------
+
+
+def _two_commit_clone(
+    clone: Path, base_files: dict[str, str], head_files: dict[str, str]
+) -> tuple[str, str]:
+    """A clone with exactly two commits; returns ``(base_sha, head_sha)``."""
+
+    clone.mkdir(parents=True, exist_ok=True)
+    _git(clone, "init", "-q")
+    _git(clone, "config", "user.email", "t@example.test")
+    _git(clone, "config", "user.name", "t")
+    _git(clone, "config", "core.autocrlf", "false")
+    for name, text in base_files.items():
+        _write(clone / name, text)
+    _git(clone, "add", "--all")
+    _git(clone, "commit", "-q", "-m", "base")
+    base = _git(clone, "rev-parse", "HEAD")
+    for name, text in head_files.items():
+        _write(clone / name, text)
+    _git(clone, "add", "--all")
+    _git(clone, "commit", "-q", "-m", "head")
+    return base, _git(clone, "rev-parse", "HEAD")
+
+
+def test_a_path_the_repository_marks_export_ignore_still_reaches_the_rater(
+    tmp_path: Path,
+) -> None:
+    """``git archive`` obeys ``export-ignore``; the rater's world may not.
+
+    The attribute lives in the tree under judgement, so honouring it lets the
+    change being labeled decide which of its own files the labeler sees --
+    and the manifest, which hashes only what arrived, cannot tell.
+    """
+
+    base, head = _two_commit_clone(
+        tmp_path / "clone",
+        {
+            ".gitattributes": "secrets/ export-ignore\n",
+            "secrets/scopes.py": 'SCOPES = ["read"]\n',
+            "main.py": "x = 1\n",
+        },
+        {"secrets/scopes.py": 'SCOPES = ["read", "admin:*"]\n'},
+    )
+    packet = build_packet.build_packet(
+        case_id="ext-export-ignore",
+        role="security_governance",
+        out=tmp_path / "packet",
+        clone=tmp_path / "clone",
+        base=base,
+        head=head,
+    )
+    assert (
+        packet / "repo" / "secrets" / "scopes.py"
+    ).read_text() == 'SCOPES = ["read", "admin:*"]\n'
+    manifest = json.loads((packet / "MANIFEST.json").read_text())
+    assert "repo/secrets/scopes.py" in manifest["files"]
+
+
+def test_a_diff_the_repository_suppresses_with_an_attribute_is_still_readable(
+    tmp_path: Path,
+) -> None:
+    """``-diff`` on an ordinary text file reduced its change to "differ".
+
+    That is the shape the rubric is least able to survive: what the rater must
+    see to reach ``blocked`` is usually a *removal*, and a removal lives only
+    in the diff.
+    """
+
+    base, head = _two_commit_clone(
+        tmp_path / "clone",
+        {
+            ".gitattributes": "policy.txt -diff\n",
+            "policy.txt": "approval: required\n",
+        },
+        {"policy.txt": "approval: none\n"},
+    )
+    packet = build_packet.build_packet(
+        case_id="ext-minus-diff",
+        role="security_governance",
+        out=tmp_path / "packet",
+        clone=tmp_path / "clone",
+        base=base,
+        head=head,
+    )
+    diff = (packet / "diff.patch").read_text()
+    assert "-approval: required" in diff and "+approval: none" in diff
+    assert "Binary files" not in diff
+
+
+def test_the_diff_depends_on_the_two_pins_and_not_on_the_clone_s_checkout(
+    tmp_path: Path,
+) -> None:
+    """Attributes were read from the worktree, so the checkout changed the diff.
+
+    A packet is a content-addressed evidence artifact; two builds from the
+    same two pins must produce the same bytes whatever state the clone is
+    parked in.
+    """
+
+    clone = tmp_path / "clone"
+    base, head = _two_commit_clone(
+        clone,
+        {".gitattributes": "policy.txt -diff\n", "policy.txt": "approval: required\n"},
+        {"policy.txt": "approval: none\n"},
+    )
+    first = build_packet.build_packet(
+        case_id="ext-pins",
+        role="security_governance",
+        out=tmp_path / "packet-head",
+        clone=clone,
+        base=base,
+        head=head,
+    )
+    # The attribute file is only in the tree, so checking out an empty branch
+    # is enough to change what a worktree-reading git would have produced.
+    _git(clone, "checkout", "-q", "--orphan", "empty")
+    _git(clone, "rm", "-rq", "--cached", ".")
+    for entry in clone.iterdir():
+        if entry.name != ".git":
+            entry.unlink() if entry.is_file() else None
+    second = build_packet.build_packet(
+        case_id="ext-pins",
+        role="security_governance",
+        out=tmp_path / "packet-empty",
+        clone=clone,
+        base=base,
+        head=head,
+    )
+    assert (first / "diff.patch").read_bytes() == (second / "diff.patch").read_bytes()
+
+
+def test_a_change_whose_content_is_not_text_refuses_and_names_the_path(
+    tmp_path: Path,
+) -> None:
+    """Forcing text is not the same as the change being readable.
+
+    A genuinely binary change has no textual description, so the packet cannot
+    be the rater's entire world. It refuses -- and names the file, because
+    "not text" without a path is not something a case owner can act on.
+    """
+
+    clone = tmp_path / "clone"
+    base, _ = _two_commit_clone(clone, {"a.txt": "x\n"}, {"a.txt": "y\n"})
+    (clone / "logo.png").write_bytes(bytes([0x89, 0x50, 0x4E, 0x47]) + bytes(range(256)))
+    _git(clone, "add", "--all")
+    _git(clone, "commit", "-q", "-m", "add binary")
+    _ = base
+    mid = _git(clone, "rev-parse", "HEAD~1")
+    (clone / "logo.png").write_bytes(bytes([0x89, 0x50, 0x4E, 0x47]) + bytes(range(255, -1, -1)))
+    _git(clone, "add", "--all")
+    _git(clone, "commit", "-q", "-m", "change binary")
+    head = _git(clone, "rev-parse", "HEAD")
+
+    with pytest.raises(build_packet.PacketError, match=r"not text.*logo\.png"):
+        build_packet.build_packet(
+            case_id="ext-binary",
+            role="security_governance",
+            out=tmp_path / "packet",
+            clone=clone,
+            base=mid,
+            head=head,
+        )
+    assert not (tmp_path / "packet").exists()
+
+
+def test_a_change_that_moves_a_submodule_refuses(tmp_path: Path) -> None:
+    """A gitlink's content is in neither tree, so no packet can show it."""
+
+    inner = tmp_path / "inner"
+    _two_commit_clone(inner, {"lib.py": "v = 1\n"}, {"lib.py": "v = 2\n"})
+    outer = tmp_path / "outer"
+    _two_commit_clone(outer, {"main.py": "x = 1\n"}, {"main.py": "x = 2\n"})
+    _git(outer, "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(inner), "vendor")
+    _git(outer, "commit", "-q", "-m", "add submodule")
+    base = _git(outer, "rev-parse", "HEAD")
+    _git(inner, "commit", "-q", "--allow-empty", "-m", "move")
+    _git(outer / "vendor", "fetch", "-q", "origin")
+    _git(outer / "vendor", "checkout", "-q", _git(inner, "rev-parse", "HEAD"))
+    _git(outer, "add", "vendor")
+    _git(outer, "commit", "-q", "-m", "bump submodule")
+    head = _git(outer, "rev-parse", "HEAD")
+
+    with pytest.raises(build_packet.PacketError, match="submodules"):
+        build_packet.build_packet(
+            case_id="ext-submodule",
+            role="security_governance",
+            out=tmp_path / "packet",
+            clone=outer,
+            base=base,
+            head=head,
+        )
+
+
+def test_materialising_a_tree_keeps_the_executable_bit(tmp_path: Path) -> None:
+    """A hook or entrypoint that is executable reads differently from one that is not."""
+
+    clone = tmp_path / "clone"
+    base, head = _two_commit_clone(
+        clone, {"run.sh": "#!/bin/sh\necho a\n"}, {"run.sh": "#!/bin/sh\necho b\n"}
+    )
+    _git(clone, "update-index", "--chmod=+x", "run.sh")
+    _git(clone, "commit", "-q", "-m", "make executable")
+    head = _git(clone, "rev-parse", "HEAD")
+    _ = base
+    packet = build_packet.build_packet(
+        case_id="ext-mode",
+        role="framework_tooling",
+        out=tmp_path / "packet",
+        clone=clone,
+        base=_git(clone, "rev-parse", "HEAD~1"),
+        head=head,
+    )
+    assert (packet / "repo" / "run.sh").stat().st_mode & 0o111
+
+
+# --------------------------------------------------------------------------
+# The runner answers "can this CLI run at all" before it hands over a packet
+# --------------------------------------------------------------------------
+
+
+def _fake_run(**result):
+    """A ``subprocess.run`` stand-in that returns one fixed result, or raises."""
+
+    def _run(argv, **_kwargs):
+        if isinstance(result.get("raises"), BaseException):
+            raise result["raises"]
+        return subprocess.CompletedProcess(
+            argv,
+            result.get("returncode", 0),
+            stdout=result.get("stdout", ""),
+            stderr=result.get("stderr", ""),
+        )
+
+    return _run
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected"),
+    [
+        ({"raises": FileNotFoundError("codex")}, "not on PATH"),
+        ({"returncode": -9}, "killed by signal 9"),
+        ({"returncode": 1, "stderr": "Error: spawn .../codex ENOENT"}, "exited 1"),
+        ({"returncode": 0, "stdout": "   \n"}, "printed nothing"),
+    ],
+    ids=["missing", "signalled", "non-zero", "silent"],
+)
+def test_the_probe_names_each_way_a_cli_can_fail_to_run(
+    monkeypatch: pytest.MonkeyPatch, outcome: dict, expected: str
+) -> None:
+    """Each of these has a different remedy, so each gets its own sentence.
+
+    The one that matters most is ``signalled``: a macOS binary whose signing
+    certificate has been revoked is killed with no output at all, which
+    otherwise surfaces as an empty transcript rather than as "reinstall".
+    """
+
+    monkeypatch.setattr(run_rater.subprocess, "run", _fake_run(**outcome))
+    with pytest.raises(run_rater.RaterError, match=expected):
+        run_rater.probe_cli("openai")
+
+
+def test_the_probe_returns_the_version_a_working_cli_reports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(run_rater.subprocess, "run", _fake_run(stdout="2.1.126 (Claude Code)\n"))
+    assert run_rater.probe_cli("claude") == "2.1.126 (Claude Code)"
+
+
+def test_the_label_record_names_the_client_build_that_produced_it(
+    packet: Path, tmp_path: Path
+) -> None:
+    """``reviewer_id`` names the model; condition 3's attribution also needs
+    the client, because the client is what constrained the session."""
+
+    result = run_rater.run_rater(
+        family="claude",
+        role="security_governance",
+        packet=packet,
+        out=tmp_path / "out",
+        runner=_Recorder(_claude_transcript(VALID_LABEL)),
+        prober=lambda _family: "2.1.126 (Claude Code)",
+    )
+    assert result.cli_version == "2.1.126 (Claude Code)"
+    assert json.loads(result.label_path.read_text())["cli_version"] == "2.1.126 (Claude Code)"
+
+
+def test_a_broken_cli_stops_the_run_before_a_packet_is_handed_over(
+    packet: Path, tmp_path: Path
+) -> None:
+    def _refuse(_family: str) -> str:
+        raise run_rater.RaterError("codex was killed by signal 9 before printing a version")
+
+    recorder = _Recorder(_claude_transcript(VALID_LABEL))
+    with pytest.raises(run_rater.RaterError, match="killed by signal 9"):
+        run_rater.run_rater(
+            family="openai",
+            role="security_governance",
+            packet=packet,
+            out=tmp_path / "out",
+            model="model-x",
+            runner=recorder,
+            prober=_refuse,
+        )
+    assert recorder.invocations == []
+
+
+def test_a_session_that_times_out_still_archives_what_it_had_said(
+    packet: Path, tmp_path: Path
+) -> None:
+    """The transcript of a session that hung is the one most worth keeping.
+
+    No label comes out of it -- the timeout still propagates -- but condition
+    3's audit trail should not have a hole exactly where a session misbehaved.
+    """
+
+    partial = '{"type":"system","subtype":"init","model":"claude-test-1"}\n'
+
+    def _hang(invocation, *, timeout: int):
+        raise subprocess.TimeoutExpired(
+            list(invocation.argv), timeout, output=partial.encode(), stderr=b"stalled"
+        )
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        run_rater.run_rater(
+            family="claude",
+            role="security_governance",
+            packet=packet,
+            out=tmp_path / "out",
+            runner=_hang,
+            prober=_stub_prober,
+        )
+    digest = hashlib.sha256(partial.encode("utf-8")).hexdigest()
+    archived = tmp_path / "out" / "transcripts" / f"{digest}.jsonl"
+    assert archived.read_text() == partial
+    assert (tmp_path / "out" / "transcripts" / f"{digest}.stderr.txt").read_text() == "stalled"
+    assert not (tmp_path / "out" / "labels").exists()
+
+
+@pytest.mark.parametrize("name", ["CLAUDE.md", "AGENTS.md", ".mcp.json", ".claude"])
+def test_shared_mode_refuses_a_packet_built_below_an_instruction_file(
+    packet: Path, tmp_path: Path, name: str
+) -> None:
+    """Both CLIs discover project instructions by walking *up* from the cwd.
+
+    ``calibration.md`` names a packet directory and not where it lives, so the
+    obvious place to put one is inside a checkout -- which in this repository
+    would put ``CLAUDE.md`` and ``AGENTS.md`` in a rater's context.
+    """
+
+    planted = packet.parent / name
+    planted.mkdir() if name == ".claude" else planted.write_text("do this\n")
+    with pytest.raises(run_rater.RaterError, match="sits above the packet"):
+        run_rater.prepare(
+            family="claude",
+            role="security_governance",
+            packet=packet,
+            model=None,
+            home=tmp_path / "home",
+            home_mode="shared",
+        )
+
+
+def test_isolated_mode_is_unaffected_by_an_ancestor_instruction_file(
+    packet: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--bare`` turns that discovery off, so the refusal above must not
+    become a reason to avoid the stricter mode."""
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    (packet.parent / "CLAUDE.md").write_text("do this\n")
+    invocation, _ = run_rater.prepare(
+        family="claude",
+        role="security_governance",
+        packet=packet,
+        model=None,
+        home=tmp_path / "home",
+        home_mode="isolated",
+    )
+    assert "--bare" in invocation.argv
+
+
+@pytest.mark.parametrize("entry", ["../escape.py", "/etc/passwd", "a/../../b", ""])
+def test_a_tree_entry_that_leaves_the_export_is_refused(entry: str) -> None:
+    """Parity with what tarfile's ``data`` filter used to refuse.
+
+    ``git archive`` is gone, so the tree is written from paths the repository
+    supplies. Ordinary git will not build such a tree; ``mktree`` and a
+    hand-assembled pack will, and this code writes to the filesystem either
+    way.
+    """
+
+    with pytest.raises(build_packet.PacketError, match="does not stay inside"):
+        build_packet._reject_escaping_path(entry)
+
+
+def test_an_ordinary_nested_path_is_not_refused() -> None:
+    """The refusal above is worth nothing if it also rejects real trees."""
+
+    build_packet._reject_escaping_path("src/tools/mongodb/read/aggregate.ts")
+
+
+def _label_one_role(packet: Path, out: Path, *, family: str, role: str, model: str | None = None):
+    return run_rater.run_rater(
+        family=family,
+        role=role,
+        packet=packet,
+        out=out,
+        model=model,
+        runner=_Recorder(
+            _claude_transcript(VALID_LABEL)
+            if family == "claude"
+            else _openai_transcript(VALID_LABEL)
+        ),
+        prober=_stub_prober,
+    )
+
+
+def test_the_second_role_cannot_come_from_the_family_that_gave_the_first(
+    constructed_case: Path, tmp_path: Path
+) -> None:
+    """Amendment 1 condition 1, at the only point that can see it.
+
+    ``SafetyCorpusCaseV1`` asks only that the two ``reviewer_id`` values
+    differ, and two sessions of one family differ anyway — in the session
+    uuid. The sibling label record is what names the family.
+    """
+
+    out = tmp_path / "out"
+    packets = {
+        role: build_packet.build_packet(
+            case_id="fixture-1",
+            role=role,
+            out=tmp_path / f"packet-{role}",
+            case_dir=constructed_case,
+        )
+        for role in ROLES
+    }
+    _label_one_role(
+        packets["security_governance"], out, family="claude", role="security_governance"
+    )
+
+    with pytest.raises(run_rater.RaterError, match="different model families"):
+        _label_one_role(
+            packets["framework_tooling"], out, family="claude", role="framework_tooling"
+        )
+    assert not (out / "labels" / "fixture-1.framework_tooling.json").exists()
+
+
+def test_the_second_role_from_the_other_family_is_accepted(
+    constructed_case: Path, tmp_path: Path
+) -> None:
+    """The refusal above is worth nothing if the admissible pairing also fails."""
+
+    out = tmp_path / "out"
+    packets = {
+        role: build_packet.build_packet(
+            case_id="fixture-1",
+            role=role,
+            out=tmp_path / f"packet-{role}",
+            case_dir=constructed_case,
+        )
+        for role in ROLES
+    }
+    _label_one_role(
+        packets["security_governance"], out, family="claude", role="security_governance"
+    )
+    result = _label_one_role(
+        packets["framework_tooling"],
+        out,
+        family="openai",
+        role="framework_tooling",
+        model="model-x",
+    )
+    assert json.loads(result.label_path.read_text())["family"] == "openai"
+
+
+def test_the_family_check_runs_before_the_session_does(
+    constructed_case: Path, tmp_path: Path
+) -> None:
+    """A refusal after the session has run has already spent the session."""
+
+    out = tmp_path / "out"
+    packets = {
+        role: build_packet.build_packet(
+            case_id="fixture-1",
+            role=role,
+            out=tmp_path / f"packet-{role}",
+            case_dir=constructed_case,
+        )
+        for role in ROLES
+    }
+    _label_one_role(
+        packets["security_governance"], out, family="claude", role="security_governance"
+    )
+
+    recorder = _Recorder(_claude_transcript(VALID_LABEL))
+    with pytest.raises(run_rater.RaterError, match="different model families"):
+        run_rater.run_rater(
+            family="claude",
+            role="framework_tooling",
+            packet=packets["framework_tooling"],
+            out=out,
+            runner=recorder,
+            prober=_stub_prober,
+        )
+    assert recorder.invocations == []

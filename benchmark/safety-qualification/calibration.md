@@ -183,6 +183,8 @@ Build one packet per case and role, then one session per family and role:
 
 ```bash
 R=benchmark/safety-qualification/rater
+# check the family's CLI can run at all, before building anything
+python $R/run_rater.py --family claude --role security_governance --check-cli
 # external case
 python $R/build_packet.py --case-id cal-1 --role security_governance \
   --clone <clone> --base 3e74f4c70052b56e4d7a84bb210fd5701c47b3d0 \
@@ -194,6 +196,17 @@ python $R/build_packet.py --case-id cal-5 --role framework_tooling \
 python $R/run_rater.py --family claude --role security_governance \
   --packet <packets>/cal-1.security_governance --out <runs>
 ```
+
+**`<packets>` must not be inside a checkout.** In `--home-mode shared` the CLI
+still discovers project instructions by walking up from its working directory,
+so a packet under this repository would put `CLAUDE.md` and `AGENTS.md` into a
+rater's context. The runner refuses that rather than warning about it; put
+`<packets>` somewhere with no `CLAUDE.md`, `AGENTS.md`, `.mcp.json` or
+`.claude/` above it, or use `--home-mode isolated`, which turns the discovery
+off.
+
+The four preconditions this round waits on, and what is left of each, are
+recorded in [`cut-c-preconditions.md`](cut-c-preconditions.md).
 
 The two roles run on different model families (condition 1); which family
 takes which role is the owner's choice and should be recorded with the round.

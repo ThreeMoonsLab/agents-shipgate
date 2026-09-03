@@ -61,8 +61,31 @@ Amendment 1 condition 2 — blindness, enforced mechanically:
   ``OPENAI_API_KEY``; ``shared`` keeps the real one only after checking it
   carries no global instruction file and configures no MCP server, web
   search, or instructions override.
+- **No instruction file above the packet either.** Both CLIs discover project
+  instructions by walking *up* from the working directory. ``--bare`` turns
+  that off, so it is a shared-mode concern only, and
+  :func:`check_no_ancestor_instructions` refuses the same names
+  :func:`check_packet_carries_no_instructions` refuses at the packet root when
+  they appear on the path leading to it. A packet built inside a checkout --
+  which the calibration round's own commands invite, since they name a packet
+  directory and not where it lives -- would otherwise put that project's
+  ``CLAUDE.md`` and ``AGENTS.md`` into a rater's context.
 - **No verifier output, no other label.** The packet contains none, by
   construction (:mod:`build_packet`); this runner adds none.
+
+Before any of that is put to use, :func:`probe_cli` runs the family's CLI once
+and refuses if it cannot report a version. The two harnesses were written
+against CLIs this project could not run, and an unrunnable CLI does not fail
+like "no admissible label": a missing binary raises from inside the run, a
+launcher whose vendored binary is absent exits with a Node stack trace, and a
+binary macOS refuses to load is killed by a signal with no output at all. The
+version it reports is recorded beside the label.
+
+Condition 1 — two model families: :func:`check_family_independence` refuses a
+run whose sibling role already holds a label for the same case from the same
+family, before that run starts. Nothing downstream can see this — two sessions
+of one family already differ in the session uuid, which is all
+``SafetyCorpusCaseV1`` asks of a ``reviewer_id`` pair.
 
 Condition 3 — attribution and archived transcripts: the transcript file is
 named by the sha256 of its bytes; ``reviewer_id`` is
@@ -154,9 +177,11 @@ _DEFAULT_OPENAI_MODEL = "gpt-5-codex"
 # ends, so history and session files cannot outlive the run either; turning
 # persistence off says so rather than leaving it to the directory's lifetime.
 #
-# Unverified against a real ``codex`` (see the module docstring): the local
-# install is broken, so this config is written from the published reference
-# and must be checked with ``--dry-run`` plus one live run before the
+# Unverified against a real ``codex``: the installed 0.85.0 build is signed
+# with a revoked certificate, so macOS kills it at exec and no local run can
+# check this (`cut-c-preconditions.md`, precondition 3). Written from the
+# published reference, and to be checked against the installed CLI's own
+# ``--help`` -- with ``--check-cli`` and then one live run -- before the
 # calibration round counts an OpenAI-family label.
 _ISOLATED_CODEX_CONFIG = """\
 # Written per run by run_rater.py. A rater session sees the packet, and
@@ -172,6 +197,13 @@ persistence = "none"
 
 [mcp_servers]
 """
+
+
+# The command each family's invocation builder spells. Kept beside the probe
+# rather than inside the builders, so "can this CLI run at all" is answerable
+# without constructing an invocation.
+CLI_BINARIES = {"claude": "claude", "openai": "codex"}
+_PROBE_TIMEOUT = 120
 
 
 class RaterError(RuntimeError):
@@ -195,6 +227,7 @@ class RaterResult:
     label: IndependentHumanLabelV1
     model: str
     session_id: str
+    cli_version: str = ""
     diagnostics: list[str] = field(default_factory=list)
 
 
@@ -272,6 +305,123 @@ def check_shared_home_is_memory_free(packet: Path, home: Path) -> None:
         )
 
 
+def probe_cli(family: str, *, timeout: int = _PROBE_TIMEOUT) -> str:
+    """Return the version the family's CLI reports, or refuse.
+
+    Neither harness was written against a CLI this project could run: the
+    Claude one was smoke-tested against an expired credential and the codex
+    one against remembered flags. An unrunnable CLI does not fail like "no
+    admissible label" -- a missing binary raises ``FileNotFoundError`` from
+    inside the run, a launcher whose vendored binary is absent exits non-zero
+    with a Node stack trace, and a binary macOS refuses to load is killed by
+    a signal with no output at all. Each of those is a different remedy, so
+    each gets its own sentence here, before a packet is handed to anything.
+
+    The version it prints is recorded with the label: ``reviewer_id`` names
+    the model, and this names the client that asked for it.
+    """
+
+    binary = CLI_BINARIES.get(family)
+    if binary is None:
+        raise RaterError(f"unknown family {family!r}; expected one of {FAMILIES}")
+    try:
+        completed = subprocess.run(
+            [binary, "--version"], capture_output=True, text=True, timeout=timeout, check=False
+        )
+    except FileNotFoundError as error:
+        raise RaterError(f"{binary} is not on PATH, so no {family} session can run") from error
+    except subprocess.TimeoutExpired as error:
+        raise RaterError(f"{binary} --version did not answer within {timeout}s") from error
+    if completed.returncode < 0:
+        raise RaterError(
+            f"{binary} was killed by signal {-completed.returncode} before printing a "
+            "version. On macOS that is what a revoked or invalid code signature looks "
+            f"like; check it with `spctl -a -vv -t execute $(command -v {binary})` and "
+            "reinstall the CLI."
+        )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "").strip().splitlines()
+        raise RaterError(
+            f"{binary} --version exited {completed.returncode}: "
+            + (detail[0] if detail else "no output")
+        )
+    version = (completed.stdout or "").strip()
+    if not version:
+        raise RaterError(f"{binary} --version printed nothing, so no client build can be recorded")
+    return version
+
+
+# Names a session started in a directory below them would read as instructions.
+# `.claude` is here for a project directory; the CLI's own home is checked by
+# `check_shared_home_is_memory_free` instead.
+ANCESTOR_INSTRUCTION_NAMES = (
+    "CLAUDE.md",
+    "AGENTS.md",
+    "AGENTS.override.md",
+    ".mcp.json",
+    ".claude",
+)
+
+
+def check_no_ancestor_instructions(packet: Path) -> None:
+    """Refuse a shared-HOME run whose packet sits below an instruction file.
+
+    Both CLIs discover project instructions by walking **up** from the working
+    directory, and shared mode is the mode that leaves that discovery on.
+    ``check_packet_carries_no_instructions`` refuses those names at the packet
+    root; a packet built one directory below a checkout -- which is what the
+    calibration round's own commands invite, since they name a packet
+    directory and not where it lives -- is the same exposure by a longer path.
+    """
+
+    home = _real_home().resolve()
+    for parent in packet.resolve().parents:
+        for name in ANCESTOR_INSTRUCTION_NAMES:
+            if name == ".claude" and parent == home:
+                continue
+            if (parent / name).exists():
+                raise RaterError(
+                    f"{parent / name} sits above the packet and a shared-HOME session "
+                    "discovers instructions by walking up from its working directory; "
+                    "build the packet outside any checkout, or use --home-mode isolated"
+                )
+        if parent == home:
+            break
+
+
+def check_family_independence(out: Path, case_id: str, role: str, family: str) -> None:
+    """Refuse a second label for a case from the family that gave the first.
+
+    Amendment 1 condition 1 -- the two roles on different model families -- is
+    the condition the artifact can least afford to get wrong, because
+    ``kappa >= 0.80`` between two sessions of one model partly measures a model
+    agreeing with itself, and the floor is then easier than the base decision
+    intended. Nothing downstream can catch it: ``SafetyCorpusCaseV1`` requires
+    the two ``reviewer_id`` values to differ, and two sessions of one family
+    differ anyway, in the session uuid.
+
+    Here is the earliest point it can be caught -- the run that would break it
+    has not started -- and the only one where the answer is a fact rather than
+    a convention, because the sibling record names the family that produced it.
+    """
+
+    other = next(role_name for role_name in ROLES if role_name != role)
+    sibling = out / "labels" / f"{case_id}.{other}.json"
+    if not sibling.is_file():
+        return
+    try:
+        recorded = json.loads(sibling.read_text(encoding="utf-8")).get("family")
+    except (OSError, json.JSONDecodeError) as error:
+        raise RaterError(
+            f"{sibling} cannot be read, so family independence is unknown: {error}"
+        ) from error
+    if recorded == family:
+        raise RaterError(
+            f"{sibling} records the {other} label for {case_id} as family {recorded!r}; "
+            "Amendment 1 condition 1 requires the two roles on different model families"
+        )
+
+
 def _base_env(credential_names: tuple[str, ...], home: Path) -> dict[str, str]:
     env = {name: os.environ[name] for name in _ENV_PASSTHROUGH if name in os.environ}
     for name in credential_names:
@@ -288,6 +438,7 @@ def _resolve_home(home_mode: str, packet: Path, isolated_home: Path) -> Path:
         return isolated_home
     real = _real_home()
     check_shared_home_is_memory_free(packet, real)
+    check_no_ancestor_instructions(packet)
     return real
 
 
@@ -538,6 +689,26 @@ def _sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _as_text(stream: str | bytes | None) -> str:
+    """``TimeoutExpired`` carries bytes even when the run asked for text."""
+
+    if stream is None:
+        return ""
+    return stream if isinstance(stream, str) else stream.decode("utf-8", "replace")
+
+
+def _archive_transcript(out: Path, stdout: str, stderr: str) -> tuple[Path, str]:
+    """Write the session's streams content-addressed; returns (path, sha256)."""
+
+    digest = _sha256_text(stdout)
+    transcripts = out / "transcripts"
+    transcripts.mkdir(parents=True, exist_ok=True)
+    path = transcripts / f"{digest}.jsonl"
+    path.write_text(stdout, encoding="utf-8")
+    (transcripts / f"{digest}.stderr.txt").write_text(stderr, encoding="utf-8")
+    return path, digest
+
+
 def _check_packet(packet: Path) -> dict[str, Any]:
     """The packet as it stands now is the packet the manifest describes.
 
@@ -616,9 +787,11 @@ def run_rater(
     timeout: int = 3600,
     home_mode: str = "isolated",
     runner=run_subprocess,
+    prober=probe_cli,
 ) -> RaterResult:
     packet = packet.resolve()
     out.mkdir(parents=True, exist_ok=True)
+    cli_version = prober(family)
     with tempfile.TemporaryDirectory(prefix="rater-home-") as home:
         invocation, manifest = prepare(
             family=family,
@@ -628,17 +801,18 @@ def run_rater(
             home=Path(home),
             home_mode=home_mode,
         )
-        completed = runner(invocation, timeout=timeout)
+        check_family_independence(out, manifest["case_id"], role, family)
+        try:
+            completed = runner(invocation, timeout=timeout)
+        except subprocess.TimeoutExpired as expired:
+            # A session that ran for an hour and was killed is the one whose
+            # transcript is most worth having: it says where it got stuck.
+            # Nothing here produces a label -- the exception still propagates.
+            _archive_transcript(out, _as_text(expired.stdout), _as_text(expired.stderr))
+            raise
 
     transcript = completed.stdout or ""
-    transcript_sha = _sha256_text(transcript)
-    transcripts = out / "transcripts"
-    transcripts.mkdir(exist_ok=True)
-    transcript_path = transcripts / f"{transcript_sha}.jsonl"
-    transcript_path.write_text(transcript, encoding="utf-8")
-    (transcripts / f"{transcript_sha}.stderr.txt").write_text(
-        completed.stderr or "", encoding="utf-8"
-    )
+    transcript_path, transcript_sha = _archive_transcript(out, transcript, completed.stderr or "")
 
     diagnostics: list[str] = []
     if completed.returncode != 0:
@@ -665,6 +839,7 @@ def run_rater(
         "home_mode": home_mode,
         "model": resolved_model,
         "session_id": invocation.session_id,
+        "cli_version": cli_version,
         "packet_manifest_sha256": _sha256_text(
             (packet / "MANIFEST.json").read_text(encoding="utf-8")
         ),
@@ -679,6 +854,7 @@ def run_rater(
         label=label,
         model=resolved_model,
         session_id=invocation.session_id,
+        cli_version=cli_version,
         diagnostics=diagnostics,
     )
 
@@ -692,8 +868,8 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--family", required=True, choices=FAMILIES)
     parser.add_argument("--role", required=True, choices=ROLES)
-    parser.add_argument("--packet", required=True, type=Path)
-    parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--packet", type=Path, help="required unless --check-cli")
+    parser.add_argument("--out", type=Path, help="required unless --check-cli or --dry-run")
     parser.add_argument("--model")
     parser.add_argument("--timeout", type=int, default=3600, help="seconds")
     parser.add_argument(
@@ -707,12 +883,28 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run", action="store_true", help="print the command and environment; do not launch"
     )
+    parser.add_argument(
+        "--check-cli",
+        action="store_true",
+        help="run only the family's CLI version probe and print what it reports",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.check_cli:
+        # Its own handler: this mode was never asking for a label, so the
+        # "no admissible label" prefix would name the wrong failure.
+        try:
+            print(f"{CLI_BINARIES[args.family]}: {probe_cli(args.family)}")
+        except RaterError as error:
+            print(f"run_rater: {args.family} cannot run: {error}", file=sys.stderr)
+            return 2
+        return 0
     try:
+        if args.packet is None:
+            raise RaterError("--packet is required unless --check-cli is given")
         if args.dry_run:
             with tempfile.TemporaryDirectory(prefix="rater-home-") as home:
                 invocation, _manifest = prepare(
@@ -725,6 +917,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 print(format_dry_run(invocation))
             return 0
+        if args.out is None:
+            raise RaterError("--out is required to record a label and its transcript")
         result = run_rater(
             family=args.family,
             role=args.role,
@@ -743,6 +937,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"label: {result.label_path}")
     print(f"transcript: {result.transcript_path}")
     print(f"reviewer_id: {result.label.reviewer_id}")
+    print(f"cli: {CLI_BINARIES[args.family]} {result.cli_version}")
     for line in result.diagnostics:
         print(f"note: {line}")
     return 0

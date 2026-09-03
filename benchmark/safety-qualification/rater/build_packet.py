@@ -12,14 +12,22 @@ those three things and the role's task sheet, and nothing else::
       TASK.md        the role's instructions and output contract
       MANIFEST.json  case id, pins, and a sha256 for every file above
 
-**Why ``repo/`` is the head tree.** "The pinned repository state" is the state
-the decision is about: the repository as it would stand if the change shipped.
-A rater given the head tree plus the diff that produced it sees the result and
-can reconstruct the base for any line the diff touches; a rater given the base
-tree would have to apply the diff in their head to see what the agent can do
-after the change. The diff is what makes the pair complete — a removed
-least-privilege bound is visible only there — so the packet carries both, and
-``evidence_references`` may cite either.
+**Why ``repo/`` is the head tree, and why the base tree does not ship.** "The
+pinned repository state" is the state the decision is about: the repository as
+it would stand if the change shipped. A rater given the head tree plus the diff
+that produced it sees the result and can reconstruct the base for any line the
+diff touches; a rater given the base tree would have to apply the diff in their
+head to see what the agent can do after the change. The diff is what makes the
+pair complete — a removed least-privilege bound is visible only there — so the
+packet carries both, and ``evidence_references`` may cite either.
+
+That completeness is a property of *how* the two are read, not something git
+gives for free: both of git's readers obey ``.gitattributes`` from the tree
+under judgement, so a repository can subtract from its own packet. Shipping the
+base tree as well would not fix that — ``export-ignore`` would subtract from
+the base tree too — so the fix is in the readers, and it is what makes "head
+plus diff" a complete answer rather than a hopeful one. See
+:func:`materialize_tree` and :func:`diff_pinned_states`.
 
 **What is excluded, and why.** ``agents-shipgate-reports/`` and
 ``.agents-shipgate/`` are verifier output and baselines; ``CASE.md`` is the
@@ -63,13 +71,13 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 from collections.abc import Iterator
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 GUIDE_PATH = REPO_ROOT / "benchmark" / "miner" / "LABELING.md"
@@ -279,26 +287,246 @@ def _full_sha(repo: Path, ref: str) -> str:
     return sha
 
 
+# --------------------------------------------------------------------------
+# Reading a pinned state without letting the repository subtract from it
+# --------------------------------------------------------------------------
+#
+# Both halves of a packet are read through git, and both of git's readers obey
+# ``.gitattributes`` **from the tree being read** -- which is repository
+# content, i.e. content of the very change under judgement:
+#
+# - ``git archive`` drops every path marked ``export-ignore``, so the exported
+#   tree is not the commit's tree and the manifest hashes only what survived;
+# - ``git diff`` renders a path marked ``-diff`` or ``binary`` as
+#   "Binary files ... differ", so a change to an ordinary text file arrives as
+#   the fact that *something* changed.
+#
+# Either one hides a removal, and a removal -- an allowlist that no longer
+# bounds, an approval step deleted -- is most of what the rubric calls
+# ``blocked``. So the tree is materialised from ``git ls-tree`` and
+# ``git cat-file``, which read the commit itself and consult no attribute, and
+# the diff is taken with ``--text --no-textconv`` and then checked to be a
+# complete textual description of the change.
+
+_MODE_EXEC = "100755"
+_MODE_LINK = "120000"
+_MODE_GITLINK = "160000"
+
+
+def _parse_ls_tree(raw: bytes) -> list[tuple[str, str, str]]:
+    """``(mode, oid, path)`` for every entry of a ``ls-tree -r -z`` listing."""
+
+    entries: list[tuple[str, str, str]] = []
+    for record in raw.split(b"\0"):
+        if not record:
+            continue
+        meta, _, path = record.partition(b"\t")
+        fields = meta.decode("utf-8", "surrogateescape").split()
+        if len(fields) != 3:
+            raise PacketError(f"unreadable ls-tree entry: {meta!r}")
+        mode, _kind, oid = fields
+        entries.append((mode, oid, path.decode("utf-8", "surrogateescape")))
+    return entries
+
+
+def _cat_blobs(repo: Path, oids: list[str]) -> dict[str, bytes]:
+    """The bytes of every named blob, read in one ``git cat-file --batch``."""
+
+    unique = sorted(set(oids))
+    if not unique:
+        return {}
+    result = subprocess.run(
+        ["git", "-C", str(repo), "cat-file", "--batch"],
+        input=("\n".join(unique) + "\n").encode("utf-8"),
+        capture_output=True,
+        timeout=_GIT_TIMEOUT,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise PacketError(f"git cat-file --batch failed: {result.stderr.decode().strip()}")
+    out = result.stdout
+    blobs: dict[str, bytes] = {}
+    position = 0
+    for oid in unique:
+        newline = out.find(b"\n", position)
+        if newline == -1:
+            raise PacketError(f"git cat-file returned no header for {oid}")
+        fields = out[position:newline].decode("utf-8", "replace").split()
+        if len(fields) != 3 or fields[1] != "blob":
+            raise PacketError(f"git cat-file did not return a blob for {oid}: {fields}")
+        size = int(fields[2])
+        start = newline + 1
+        blobs[fields[0]] = out[start : start + size]
+        position = start + size + 1  # git writes one newline after the payload
+    return blobs
+
+
+def _reject_escaping_path(relative: str) -> None:
+    """Refuse a tree entry whose path does not stay under the destination.
+
+    Ordinary git will not build such a tree, but ``mktree`` and a
+    hand-assembled pack will, and this function writes to the filesystem from
+    whatever the repository says.
+    """
+
+    parts = PurePosixPath(relative).parts
+    if not parts or PurePosixPath(relative).is_absolute() or ".." in parts:
+        raise PacketError(f"tree entry {relative!r} does not stay inside the exported tree")
+
+
+def materialize_tree(repo: Path, rev: str, dest: Path) -> list[str]:
+    """Write the tree of ``rev`` into ``dest``; returns the paths written.
+
+    Reads the commit through ``ls-tree``/``cat-file`` rather than
+    ``git archive``, so no ``export-ignore`` in the tree can subtract a path
+    from what the rater is given. Symlinks are written as symlinks, which
+    leaves :func:`classify_symlink` -- not this function -- deciding whether
+    they may reach a packet. Submodules carry no content in this repository
+    and are skipped, exactly as ``git archive`` skipped them; a change that
+    *touches* one is refused by :func:`diff_pinned_states`.
+    """
+
+    entries = _parse_ls_tree(_git_bytes(repo, "ls-tree", "-r", "-z", rev))
+    blobs = [entry for entry in entries if entry[0] != _MODE_GITLINK]
+    for _mode, _oid, relative in blobs:
+        _reject_escaping_path(relative)
+    contents = _cat_blobs(repo, [oid for _mode, oid, _path in blobs])
+    dest.mkdir(parents=True, exist_ok=True)
+    written: list[str] = []
+    # Regular files first, links after. A git tree cannot hold one name as
+    # both a symlink and a directory, so this orders a shape git will not
+    # produce; it is here because the check that used to cover it was
+    # tarfile's `data` filter, and `git archive` is gone. The `../` refusal
+    # above is the half of that filter this code can actually reach.
+    for mode, oid, relative in sorted(blobs, key=lambda entry: (entry[0] == _MODE_LINK, entry[2])):
+        target = dest / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        payload = contents[oid]
+        if mode == _MODE_LINK:
+            os.symlink(payload.decode("utf-8", "surrogateescape"), target)
+        else:
+            target.write_bytes(payload)
+            if mode == _MODE_EXEC:
+                target.chmod(0o755)
+        written.append(relative)
+    return sorted(written)
+
+
+def suppressed_diff_markers(diff: str) -> list[str]:
+    """Lines where git declined to describe a change textually.
+
+    Both forms start at column zero; every line of diff *content* carries a
+    leading ``+``, ``-`` or space, so a file whose own text reads
+    ``Binary files a and b differ`` cannot be mistaken for one of these.
+    """
+
+    return [
+        line
+        for line in diff.splitlines()
+        if line.startswith("GIT binary patch")
+        or (line.startswith("Binary files ") and line.endswith(" differ"))
+    ]
+
+
+def undecodable_paths(raw: bytes) -> list[str]:
+    """The paths of a patch whose own section is not UTF-8.
+
+    ``--text`` makes git write a textual diff for content it would otherwise
+    call binary, which for genuinely binary content means raw bytes. Decoding
+    the whole patch tells you only that *something* is unreadable; each file
+    section starts with a ``diff --git`` line at column zero, so decoding them
+    one at a time says which case the packet cannot carry.
+    """
+
+    starts = [match.start() for match in re.finditer(rb"(?m)^diff --git ", raw)]
+    found: list[str] = []
+    for index, start in enumerate(starts):
+        end = starts[index + 1] if index + 1 < len(starts) else len(raw)
+        section = raw[start:end]
+        try:
+            section.decode("utf-8")
+        except UnicodeDecodeError:
+            header = section.split(b"\n", 1)[0].decode("utf-8", "surrogateescape")
+            found.append(header[len("diff --git ") :].strip() or header)
+    return found
+
+
+def changed_submodules(repo: Path, base: str, head: str) -> list[str]:
+    """Paths the change adds, removes or moves as gitlinks.
+
+    A submodule's content is in neither tree, so no packet can show what
+    changed inside one.
+    """
+
+    raw = _git_bytes(repo, "diff", "--raw", "-z", "--no-renames", base, head)
+    fields = [field for field in raw.split(b"\0") if field]
+    found: list[str] = []
+    for index in range(0, len(fields) - 1, 2):
+        meta = fields[index].decode("utf-8", "surrogateescape").lstrip(":").split()
+        path = fields[index + 1].decode("utf-8", "surrogateescape")
+        if len(meta) >= 2 and _MODE_GITLINK in meta[:2]:
+            found.append(path)
+    return sorted(found)
+
+
+def diff_pinned_states(repo: Path, base: str, head: str) -> str:
+    """The two-dot diff, refused unless it fully describes the change.
+
+    ``--text`` overrides a ``-diff`` or ``binary`` attribute and
+    ``--no-textconv`` a ``diff=<driver>`` one, so the result depends on the
+    two pins and not on which commit the clone happens to have checked out.
+    What survives that -- content that is not text at all, and submodules --
+    is a case the packet cannot carry, and is refused by name rather than
+    handed to a rater as a gap they cannot see.
+    """
+
+    submodules = changed_submodules(repo, base, head)
+    if submodules:
+        raise PacketError(
+            "the change touches submodules, whose content is in neither pinned tree: "
+            + ", ".join(submodules)
+        )
+    raw = _git_bytes(
+        repo, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--text", base, head
+    )
+    try:
+        diff = raw.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise PacketError(
+            "these paths change in ways that are not text, so no rater can read what "
+            "changed in them: " + ", ".join(undecodable_paths(raw) or [f"<{error}>"])
+        ) from error
+    hidden = suppressed_diff_markers(diff)
+    if hidden:
+        raise PacketError(
+            "git described these changes only as differing, so the packet would hide "
+            "what changed: " + "; ".join(hidden)
+        )
+    return diff
+
+
+# --------------------------------------------------------------------------
+# Sources
+# --------------------------------------------------------------------------
+
+
 def export_external_case(
     clone: Path, base: str, head: str, workdir: Path
 ) -> tuple[Path, str, dict[str, str]]:
     """Materialise the head tree and the base..head diff from a clone.
 
-    Both refs must resolve to full commits. The tree is exported with
-    ``git archive`` so no ``.git`` metadata is ever present; the diff is the
-    two-dot ``git diff <base> <head>``, i.e. exactly the change between the two
-    pinned states.
+    Both refs must resolve to full commits. The tree comes from
+    :func:`materialize_tree`, so it carries no ``.git`` metadata and nothing
+    the repository marked ``export-ignore`` is missing from it; the diff comes
+    from :func:`diff_pinned_states`, so it is a complete textual description
+    of the change or the build is refused.
     """
 
     base_sha = _full_sha(clone, base)
     head_sha = _full_sha(clone, head)
     tree_dir = workdir / "head-tree"
-    tree_dir.mkdir()
-    archive = workdir / "head.tar"
-    archive.write_bytes(_git_bytes(clone, "archive", "--format=tar", head_sha))
-    with tarfile.open(archive) as tar:
-        tar.extractall(tree_dir, filter="data")
-    diff = _git(clone, "diff", "--no-color", "--no-ext-diff", base_sha, head_sha).stdout
+    materialize_tree(clone, head_sha, tree_dir)
+    diff = diff_pinned_states(clone, base_sha, head_sha)
     pins = {"kind": "external", "base_sha": base_sha, "head_sha": head_sha}
     return tree_dir, diff, pins
 
@@ -346,15 +574,13 @@ def export_constructed_case(case_dir: Path, workdir: Path) -> tuple[Path, str, d
         _git(repo, "commit", "--quiet", "--allow-empty", "-m", label)
         pins[f"{label}_tree"] = _git(repo, "rev-parse", "HEAD^{tree}").stdout.strip()
 
-    diff = _git(repo, "diff", "--no-color", "--no-ext-diff", "HEAD~1", "HEAD").stdout
-    # Export the committed head tree (already exclusion-filtered) rather than
-    # the case directory, so the packet's repo/ is byte-for-byte what was diffed.
+    diff = diff_pinned_states(repo, "HEAD~1", "HEAD")
+    # Read back the committed head tree (already exclusion-filtered) rather
+    # than the case directory, so the packet's repo/ is byte-for-byte what was
+    # diffed -- and read it the same attribute-blind way an external case is
+    # read, because a constructed tree may carry a `.gitattributes` too.
     tree_dir = workdir / "head-tree"
-    tree_dir.mkdir()
-    archive = workdir / "head.tar"
-    archive.write_bytes(_git_bytes(repo, "archive", "--format=tar", "HEAD"))
-    with tarfile.open(archive) as tar:
-        tar.extractall(tree_dir, filter="data")
+    materialize_tree(repo, "HEAD", tree_dir)
     return tree_dir, diff, pins
 
 
