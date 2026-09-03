@@ -198,15 +198,20 @@ def _swept_candidates() -> set[str]:
     return swept
 
 
-def _swept_pins() -> dict[str, dict[str, tuple[str, str]]]:
-    """Every base/head a committed sweep resolved, keyed by candidate then sweep.
+def _swept_pins() -> dict[str, dict[tuple[str, str], set[str]]]:
+    """Every base/head a committed sweep resolved: candidate -> pins -> sweeps.
 
     A sweep records an unresolved candidate with both columns blank; those are
     not pins and are dropped here, so a row is never checked against a
     recording that resolved nothing.
+
+    Keying by the *pins* rather than by the sweep is what makes a contradiction
+    visible. Keyed by sweep, a file holding one subject twice with different
+    SHAs would keep whichever row came last, and a corrupt duplicate ordered
+    before the good one would read as agreement.
     """
 
-    pins: dict[str, dict[str, tuple[str, str]]] = {}
+    pins: dict[str, dict[tuple[str, str], set[str]]] = {}
     for source in sorted(MINER_RESULTS.glob("*.csv")):
         relative = source.relative_to(REPO_ROOT).as_posix()
         with source.open(encoding="utf-8", newline="") as handle:
@@ -217,7 +222,8 @@ def _swept_pins() -> dict[str, dict[str, tuple[str, str]]]:
                     entry.get("head_sha"),
                 )
                 if url and base and head:
-                    pins.setdefault(_candidate_ref_for(url), {})[relative] = (base, head)
+                    recorded = pins.setdefault(_candidate_ref_for(url), {})
+                    recorded.setdefault((base, head), set()).add(relative)
     return pins
 
 
@@ -353,9 +359,11 @@ def _reserve_claims() -> list[tuple[str, str, str]]:
 
     The Reserve's second column is an origin where the register above it holds
     a profile, and one row may list several candidates that share the claim.
-    A row whose origin is left ``—`` states nothing and is skipped; anything
-    else in that column is read as an origin, so a misspelling fails here
-    rather than dropping out of the check it was supposed to face.
+    A row whose origin is left ``—`` states nothing and is skipped. Everything
+    else in that column is read as an origin, and its state is required to be
+    one that can supply an origin at all -- otherwise the one shape this rule
+    exists to catch, a still-`open` PR reserved as ``real_history``, would drop
+    out of the check rather than fail it.
     """
 
     claims: list[tuple[str, str, str]] = []
@@ -366,9 +374,12 @@ def _reserve_claims() -> list[tuple[str, str, str]]:
         if len(cells) < 3:
             continue
         origin, state = cells[1].strip("`"), cells[2].strip("`")
-        if origin == "—" or state not in STATE_ORIGINS:
+        if origin == "—":
             continue
         assert origin in set(get_args(SafetyCaseOrigin)), f"the reserve states origin {origin!r}"
+        assert state in STATE_ORIGINS, (
+            f"the reserve gives {cells[0]} an origin, but {state!r} can supply none"
+        )
         claims.extend(
             (candidate, origin, state) for candidate in re.findall(r"`([^`]+)`", cells[0])
         )
@@ -534,13 +545,14 @@ def test_a_pinned_external_candidate_matches_the_sweep_that_recorded_it(
             f"{row['slot_id']}: no committed sweep resolved {ref}, so its pins "
             "cannot be checked against anything. Mine it (`--pr <n>`) first."
         )
-        # Two sweeps that resolved the same subject differently would make
-        # "matches the sweep" mean "matches whichever sweep agrees".
-        distinct = set(recorded.values())
-        assert len(distinct) == 1, f"{ref} is pinned differently by {sorted(recorded)}"
+        # Two recordings that resolved the same subject differently -- in two
+        # sweeps or twice in one -- would make "matches the sweep" mean
+        # "matches whichever recording agrees".
+        sources = sorted({sweep for sweeps in recorded.values() for sweep in sweeps})
+        assert len(recorded) == 1, f"{ref} is pinned differently within {sources}"
         assert row["status"] == "pinned", f"{row['slot_id']} has recorded pins available"
-        assert (row["pinned_base"], row["pinned_head"]) == distinct.pop(), (
-            f"{row['slot_id']} pins disagree with {sorted(recorded)}"
+        assert (row["pinned_base"], row["pinned_head"]) in recorded, (
+            f"{row['slot_id']} pins disagree with {sources}"
         )
 
 

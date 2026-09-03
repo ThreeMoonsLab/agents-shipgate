@@ -157,8 +157,10 @@ The sweep convention is the correct one for this corpus — it reproduces "the
 repository immediately before and immediately after this change landed" — and
 **the recorded pins must not be "corrected" from the API**, which is why
 `test_a_pinned_external_candidate_matches_the_sweep_that_recorded_it` reads
-every external pin back from the sweep that resolved it, and refuses both a
-pin no sweep can corroborate and a subject left `unpinned` after one did.
+every external pin back from the sweep that resolved it. It refuses a pin no
+sweep can corroborate, a subject left `unpinned` after one did, and two
+recordings of one subject that disagree — in two sweeps or twice in one, since
+a contradictory duplicate would otherwise be read as agreement.
 
 The last three walk candidates were pinned this way in the
 [close-out](#cut-b--the-close-out-2026-09-02), and `github-mcp-server#3076`
@@ -387,8 +389,9 @@ read: mine an *application* that calls `MultiServerMCPClient` or
 `load_mcp_tools` at agent construction, not the adapter library. That is
 `bytedance/deer-flow`, a LangGraph research application whose agent tools are
 assembled at run time by `langchain-mcp-adapters` from an out-of-tree
-extensions config. Its latest 40 merged PRs supplied nothing usable — 24 of
-them do not even reach a decision, for the reason below — so the claim is the
+extensions config. Its latest 40 merged PRs supplied nothing usable — one of
+the forty reaches a decision at all, for the reason below, and on a repository
+this busy those forty span six days — so the claim is the
 named PR `#4868`, mined with `--pr`: per-user credential injection for shared
 MCP servers, where which credential a tool call carries is chosen at run time
 from the caller's identity and a `$ENV_VAR` map. Neither the servers, the
@@ -396,8 +399,9 @@ tools, nor the credentials are in the tree.
 
 **`init` refusing a monorepo is not a mining failure, and the miner cannot
 tell.** 24 of the 40 rows are `init_skip` because a cold start at the
-repository root returns `refused_unresolved_scope`: deer-flow holds two
-self-contained Python projects, and one manifest describes one agent surface.
+repository root returns `refused_unresolved_scope`: the workspace holds more
+than one self-contained project that defines agents, and one manifest
+describes one agent surface.
 The miner's fallback retries at the deepest common directory of the changed
 files, which for any PR touching both `backend/` and `frontend/` is the root
 again. Pointed at `backend/packages/harness`, `init --write` writes a manifest

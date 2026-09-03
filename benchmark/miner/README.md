@@ -178,8 +178,8 @@ sweep — one session's cell-targeting labels, nothing scored.
 - **`init_skip` on a monorepo is a refusal, not a failure, and the miner
   cannot tell them apart.** 24 of the 40 deer-flow rows are `init_skip`
   because a cold start at the repository root returns
-  `refused_unresolved_scope`: two self-contained Python projects, and one
-  manifest describes one agent surface. Pointed at
+  `refused_unresolved_scope`: more than one self-contained project defines
+  agents there, and one manifest describes one agent surface. Pointed at
   `backend/packages/harness`, `init --write` writes a manifest and the scan
   reaches `insufficient_evidence`. The miner records `init_status: failed`
   for both cases, because `_run_init` reads only "did a manifest appear",
@@ -208,8 +208,13 @@ sweep — one session's cell-targeting labels, nothing scored.
   time from an out-of-tree extensions config, and the claimed candidate
   (#4868) makes which credential a call carries depend on the run-time
   user. Its own latest-40 window yielded one decided row and no candidate,
-  so the claim came from `--pr` on a PR six weeks older — the window, not
-  the repository, was the wrong unit.
+  and the claim came from `--pr` on a PR five days older than the window's
+  oldest. **`--limit 40` is not a time window.** On this repository the
+  latest 40 merged PRs span six days (2026-08-28 → 2026-09-03); on
+  crewAI-examples the same 40 reach back eighteen months
+  (2024-10 → 2026-04). A repository's merge rate
+  decides how much history a sweep sees, so a busy application needs
+  `--pr` or a much larger limit before its silence means anything.
 
 ## Constructed-adversarial accuracy — the blocked-recall proof
 
