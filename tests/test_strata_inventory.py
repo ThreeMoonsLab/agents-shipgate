@@ -198,6 +198,29 @@ def _swept_candidates() -> set[str]:
     return swept
 
 
+def _swept_pins() -> dict[str, dict[str, tuple[str, str]]]:
+    """Every base/head a committed sweep resolved, keyed by candidate then sweep.
+
+    A sweep records an unresolved candidate with both columns blank; those are
+    not pins and are dropped here, so a row is never checked against a
+    recording that resolved nothing.
+    """
+
+    pins: dict[str, dict[str, tuple[str, str]]] = {}
+    for source in sorted(MINER_RESULTS.glob("*.csv")):
+        relative = source.relative_to(REPO_ROOT).as_posix()
+        with source.open(encoding="utf-8", newline="") as handle:
+            for entry in csv.DictReader(handle):
+                url, base, head = (
+                    entry.get("pr_url"),
+                    entry.get("base_sha"),
+                    entry.get("head_sha"),
+                )
+                if url and base and head:
+                    pins.setdefault(_candidate_ref_for(url), {})[relative] = (base, head)
+    return pins
+
+
 @lru_cache(maxsize=1)
 def _engine_source_lines() -> tuple[tuple[str, str], ...]:
     """Every ``tests/``/``src/`` line, read once for every detector below.
@@ -323,6 +346,33 @@ def _register_entries() -> dict[str, tuple[str | None, str]]:
             )
             entries[candidate] = (cells[1].strip("`") if has_profile else None, state)
     return entries
+
+
+def _reserve_claims() -> list[tuple[str, str, str]]:
+    """``(candidate, origin, state)`` for every reserve row that states an origin.
+
+    The Reserve's second column is an origin where the register above it holds
+    a profile, and one row may list several candidates that share the claim.
+    A row whose origin is left ``—`` states nothing and is skipped; anything
+    else in that column is read as an origin, so a misspelling fails here
+    rather than dropping out of the check it was supposed to face.
+    """
+
+    claims: list[tuple[str, str, str]] = []
+    for line in _register_section("### Reserve"):
+        if not line.startswith("| `"):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) < 3:
+            continue
+        origin, state = cells[1].strip("`"), cells[2].strip("`")
+        if origin == "—" or state not in STATE_ORIGINS:
+            continue
+        assert origin in set(get_args(SafetyCaseOrigin)), f"the reserve states origin {origin!r}"
+        claims.extend(
+            (candidate, origin, state) for candidate in re.findall(r"`([^`]+)`", cells[0])
+        )
+    return claims
 
 
 def test_the_inventory_columns_are_exactly_the_documented_ones() -> None:
@@ -453,6 +503,45 @@ def test_a_pin_is_a_full_sha_or_the_slot_is_not_pinned(rows: list[dict[str, str]
             assert FULL_SHA.match(base), f"{row['slot_id']} base is not a full SHA"
             assert FULL_SHA.match(head), f"{row['slot_id']} head is not a full SHA"
             assert base != head, row["slot_id"]
+
+
+def test_a_pinned_external_candidate_matches_the_sweep_that_recorded_it(
+    rows: list[dict[str, str]],
+) -> None:
+    """Pins are re-read from the sweep rather than trusted in this file.
+
+    A hand-written pin is a second copy of a fact this project already
+    resolved once, and a wrong one sends a rater to a diff nobody adjudicated.
+    ``github-mcp-server#3076`` is the live example: its walk note abbreviated
+    the head as ``5ea9a0e8…``, which is ``refs/pull/3076/head`` and is not
+    reachable from the default branch at all -- the merge commit the
+    convention asks for is ``8ec62491…``.
+
+    So an external candidate is pinned from a committed sweep, and the two
+    escapes are closed with it: pinning a subject no sweep resolved, which
+    nothing can check, and leaving one a sweep *did* resolve ``unpinned``,
+    which is lost work rather than an unknown.
+    """
+
+    swept = _swept_pins()
+
+    for row in rows:
+        ref = row["candidate_ref"]
+        if row["status"] == "gap" or _is_in_tree(ref):
+            continue
+        recorded = swept.get(ref)
+        assert recorded, (
+            f"{row['slot_id']}: no committed sweep resolved {ref}, so its pins "
+            "cannot be checked against anything. Mine it (`--pr <n>`) first."
+        )
+        # Two sweeps that resolved the same subject differently would make
+        # "matches the sweep" mean "matches whichever sweep agrees".
+        distinct = set(recorded.values())
+        assert len(distinct) == 1, f"{ref} is pinned differently by {sorted(recorded)}"
+        assert row["status"] == "pinned", f"{row['slot_id']} has recorded pins available"
+        assert (row["pinned_base"], row["pinned_head"]) == distinct.pop(), (
+            f"{row['slot_id']} pins disagree with {sorted(recorded)}"
+        )
 
 
 def test_every_candidate_resolves_and_no_subject_fills_two_slots(
@@ -687,7 +776,8 @@ def test_a_gap_that_names_a_pull_request_plans_the_origin_that_pr_can_supply(
     ``google/adk-python#6605`` was closed without merge, so a gap naming it
     cannot be planned as ``real_history``: the lead and the origin would
     describe two different candidates, and the shortfall surfaces only when
-    someone tries to fill the slot.
+    someone tries to fill the slot. The reserve states the same pair for the
+    same reason, and is checked here too -- see the second loop.
     """
 
     entries = _register_entries()
@@ -706,7 +796,17 @@ def test_a_gap_that_names_a_pull_request_plans_the_origin_that_pr_can_supply(
                 f"{row['slot_id']} plans {row['origin_class']} but names {ref}, which is {state}"
             )
             checked += 1
-    assert checked, "no gap names a pull request any more; drop this guard or restore one"
+
+    # Every gap is filled, so the rule now lives where the next candidate comes
+    # from. A reserve row states an origin beside a state exactly the way a gap
+    # did, and it is the pool a relabel draws on -- picking one up and finding
+    # its origin was never available is the same shortfall, discovered later.
+    for candidate, origin, state in _reserve_claims():
+        assert origin in STATE_ORIGINS[state], (
+            f"the reserve lists {candidate} as {origin}, which a {state} candidate cannot supply"
+        )
+        checked += 1
+    assert checked, "nothing states an origin beside a state any more; drop this guard"
 
 
 def test_a_sample_profile_matches_the_source_type_it_declares(

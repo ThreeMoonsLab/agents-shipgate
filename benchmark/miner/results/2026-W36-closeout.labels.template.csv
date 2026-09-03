@@ -1,0 +1,6 @@
+pr_url,repo,pr_number,title,status,head_decision,verify_verdict,verify_can_merge,verify_trust_root_touched,cap_added,cap_broadened,label,rationale
+https://github.com/github/github-mcp-server/pull/3020,github/github-mcp-server,3020,Add non-default find_duplicate tool gated by duplicate_detection flag,evaluated,insufficient_evidence,insufficient_evidence,False,False,0,0,,
+https://github.com/github/github-mcp-server/pull/3076,github/github-mcp-server,3076,Add confirmed repository deletion tool,evaluated,insufficient_evidence,insufficient_evidence,False,False,0,0,,
+https://github.com/grafana/mcp-grafana/pull/1080,grafana/mcp-grafana,1080,feat(incident): add update_incident tool,evaluated,insufficient_evidence,insufficient_evidence,False,False,0,0,,
+https://github.com/bytedance/deer-flow/pull/5146,bytedance/deer-flow,5146,fix(ci):reduce the size of AGENTS.md in sandbox,evaluated,insufficient_evidence,insufficient_evidence,False,True,0,0,,
+https://github.com/bytedance/deer-flow/pull/5130,bytedance/deer-flow,5130,fix(ci): fix the ci check of gateway AGENTS.md,scan_failed,,,,,,,,

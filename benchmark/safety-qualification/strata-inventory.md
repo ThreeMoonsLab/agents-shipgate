@@ -115,7 +115,9 @@ project's own history, and only the owner can settle it.
 has no landed history for the counterfactual to be about, and Gate 2's
 "reviewers outrank authors" rule presupposes a decision that resolved it. Every
 external candidate's state is recorded in the register and checked against its
-row's origin, including for a gap whose `mining_lead` names a specific PR.
+row's origin — and so is every candidate the [reserve](#reserve) holds, which
+is where the next one comes from, and every gap whose `mining_lead` named a
+specific PR while gaps existed.
 
 ## Columns
 
@@ -154,9 +156,18 @@ that PR landed against. The walk notes used the API form.
 The sweep convention is the correct one for this corpus — it reproduces "the
 repository immediately before and immediately after this change landed" — and
 **the recorded pins must not be "corrected" from the API**, which is why
-`test_a_pinned_external_candidate_matches_the_sweep_that_recorded_it` reads them
-back from the sweep. The unpinned walk candidates need pinning under the same
-convention before Cut C.
+`test_a_pinned_external_candidate_matches_the_sweep_that_recorded_it` reads
+every external pin back from the sweep that resolved it, and refuses both a
+pin no sweep can corroborate and a subject left `unpinned` after one did.
+
+The last three walk candidates were pinned this way in the
+[close-out](#cut-b--the-close-out-2026-09-02), and `github-mcp-server#3076`
+shows why the distinction is not academic: its walk note abbreviated the head
+as `5ea9a0e8…`, which is `refs/pull/3076/head` and, after a squash merge, is
+not an ancestor of the default branch at all. Resolving that abbreviation
+would have pinned a commit no clone of the repository reaches. The merge
+commit the convention asks for is `8ec62491…`, whose first parent is the
+`bfb59bb7…` the same note recorded.
 
 Settled for Cut B (2026-09-01), one form per origin, so a rater is always
 handed "the repository the change was proposed against, and the repository the
@@ -260,11 +271,11 @@ are both engine-development inputs.
 
 | | Count |
 |---|---|
-| Slots with a candidate | 59 of 60 |
-| Gaps to mine or construct | 1 |
+| Slots with a candidate | 60 of 60 |
+| Gaps to mine or construct | 0 |
 | Slots planned as a qualifying origin | 33 (floor is 23) |
-| …of those, already sourced | 32 |
-| …of those, still to find | 1 |
+| …of those, already sourced | 33 |
+| …of those, still to find | 0 |
 | Slots planned as `synthetic` | 27 (ceiling is 33) |
 | Slots that can be a cell's holdout case | 42 |
 | Slots that are engine-development inputs | 18 |
@@ -275,7 +286,7 @@ Per profile:
 |---|---|---|---|---|
 | `mcp_openapi_declared_binding` | 11 | 8 | 5 | 0 |
 | `coding_agent_trust_roots` | 8 | 6 | 6 | 0 |
-| `langchain_crewai` | 7 | 4 | 6 | 1 |
+| `langchain_crewai` | 8 | 4 | 6 | 0 |
 | `google_adk` | 9 | 5 | 6 | 0 |
 | `openai_agents_sdk` | 8 | 5 | 6 | 0 |
 | `multi_agent_handoffs` | 8 | 3 | 6 | 0 |
@@ -288,7 +299,7 @@ Per outcome:
 | `passed` | 15 | 10 | 8 | 0 |
 | `review_required` | 15 | 9 | 12 | 0 |
 | `blocked` | 15 | 8 | 11 | 0 |
-| `insufficient_evidence` | 14 | 6 | 11 | 1 |
+| `insufficient_evidence` | 15 | 6 | 11 | 0 |
 
 Every number on this page is recomputed from the CSV by
 `tests/test_strata_inventory.py`, so the reading and the plan cannot drift
@@ -364,16 +375,60 @@ turned out to be `engine_tests` exposure (it was reduced into a trigger fixture
 before this cut read it), so `google_adk × insufficient_evidence` gained a third
 slot, `github.com/google/adk-samples#1731`, to keep a holdout-eligible case.
 
+### Cut B — the close-out (2026-09-02)
+
+Two things stood between Cut B and Cut C: the last gap, and three candidates
+that had a name but no pins. The
+[`2026-W36-closeout`](../miner/results/2026-W36-closeout.csv) sweep — 45 rows,
+three repositories — closes both, and **every slot is now `pinned`**.
+
+**The last gap, `langchain_crewai × insufficient_evidence`.** Session B's lead
+read: mine an *application* that calls `MultiServerMCPClient` or
+`load_mcp_tools` at agent construction, not the adapter library. That is
+`bytedance/deer-flow`, a LangGraph research application whose agent tools are
+assembled at run time by `langchain-mcp-adapters` from an out-of-tree
+extensions config. Its latest 40 merged PRs supplied nothing usable — 24 of
+them do not even reach a decision, for the reason below — so the claim is the
+named PR `#4868`, mined with `--pr`: per-user credential injection for shared
+MCP servers, where which credential a tool call carries is chosen at run time
+from the caller's identity and a `$ENV_VAR` map. Neither the servers, the
+tools, nor the credentials are in the tree.
+
+**`init` refusing a monorepo is not a mining failure, and the miner cannot
+tell.** 24 of the 40 rows are `init_skip` because a cold start at the
+repository root returns `refused_unresolved_scope`: deer-flow holds two
+self-contained Python projects, and one manifest describes one agent surface.
+The miner's fallback retries at the deepest common directory of the changed
+files, which for any PR touching both `backend/` and `frontend/` is the root
+again. Pointed at `backend/packages/harness`, `init --write` writes a manifest
+and the scan reaches a decision. **A case rooted at a repository the miner
+recorded as `init_skip` is not thereby unevaluable** — nine slots claimed
+before this cut are in the same position — but Cut D has to root each of them
+at the project the change is in, not at the clone.
+
+**Three walk candidates, pinned.** `github-mcp-server#3020` and `#3076` and
+`grafana/mcp-grafana#1080` were carried from adoption walks with abbreviated
+or absent SHAs. Mining each by number resolves both ends under the sweep
+convention and puts the pins somewhere a guard can re-read them; `#3076` is
+the case that shows why re-reading matters (see
+[the pinning convention](#the-pinning-convention-is-unsettled-and-the-api-will-not-settle-it)).
+All three keep `diff_substance`: the walks are what targeted their cells, and
+being swept afterwards adds `benchmark_scored` to their exposure without
+changing what aimed them. All three were already `tuning_only` through
+`maintainer_walk`, so nothing about the split moved.
+
 ## Candidate register
 
 Every sourced candidate, and every gap whose lead names a specific PR. The
 `Profile` and `State` columns are checked against the CSV; `State` is the
-GitHub merge state as read on 2026-08-31, and it is what decides an origin.
+GitHub merge state as read on 2026-08-31 — 2026-09-02 for the candidates the
+[close-out](#cut-b--the-close-out-2026-09-02) added — and it is what decides an
+origin.
 
 | Candidate | Profile | State | The change |
 |---|---|---|---|
 | `github.com/github/github-mcp-server#3020` | `mcp_openapi_declared_binding` | `merged` | Adds `find_duplicate`, a read-only tool gated behind a `duplicate_detection` feature flag. The repository checks in per-tool MCP schemas under `pkg/github/__toolsnaps__/`; the count goes 115 → 116. The flag is invisible in the schema — the filename encodes it, the JSON does not. |
-| `github.com/github/github-mcp-server#3076` | `mcp_openapi_declared_binding` | `merged` | Adds a confirmed repository-deletion tool to the same 117-schema surface. Walk notes record base `bfb59bb7…` and head `5ea9a0e8…` as abbreviations only; both must be resolved to full SHAs. |
+| `github.com/github/github-mcp-server#3076` | `mcp_openapi_declared_binding` | `merged` | Adds a confirmed repository-deletion tool to the same 117-schema surface. Walk notes recorded base `bfb59bb7…` and head `5ea9a0e8…` as abbreviations; the base resolves, but `5ea9a0e8…` is the PR branch head and is unreachable from the default branch, so the pin is the merge commit `8ec62491…` the close-out sweep recorded. |
 | `github.com/grafana/mcp-grafana#1080` | `mcp_openapi_declared_binding` | `merged` | Adds `update_incident` to a Go MCP server registering tools as `mcpgrafana.MustTool("…", …)`. The published surface goes 99 → 100. |
 | `github.com/stripe/ai#232` | `mcp_openapi_declared_binding` | `merged` | Removes the client-side toolkit's action and permission least-privilege bounds entirely, delegating all tool authority to a server-side key through an async factory. |
 | `github.com/openai/openai-agents-python#3392` | `openai_agents_sdk` | `merged` | Japanese documentation translation wording only; no code, tools, scopes or CI touched. |
@@ -392,7 +447,7 @@ GitHub merge state as read on 2026-08-31, and it is what decides an origin.
 | `github.com/openai/openai-agents-python#3833` | `openai_agents_sdk` | `merged` | Adds `ProgrammaticToolCallingTool`: a hosted tool under which the model writes code that calls the agent's function tools, with per-tool caller permissions and a new run-loop execution path. |
 | `github.com/openai/openai-agents-python#3788` | `openai_agents_sdk` | `merged` | Experimental hosted multi-agent support: server-hosted subagents run over WebSocket while the local `Runner` executes developer function tools on their behalf, with hosted-agent attribution on tool calls. |
 | `github.com/langchain-ai/deepagents#5999` | `langchain_crewai` | `merged` | Reworks the Talon WhatsApp channel of LangChain's `deepagents`: the Node bridge gains local-ID compatibility, outbound delivery reporting changes, and the CI/release workflows add a Node setup step. |
-| `github.com/langchain-ai/langchain-mcp-adapters#540` | `langchain_crewai` | `merged` | Surfaces MCP tool execution errors as failed tool output in the adapter that builds LangChain tools from a server's tool list at run time. Named as the nearest shape for `langchain_crewai.insufficient_evidence.1`; it changes no authority and labels `safe_to_merge`, which is why the slot stays a gap. |
+| `github.com/bytedance/deer-flow#4868` | `langchain_crewai` | `merged` | Adds per-user credential injection for shared HTTP/SSE MCP servers to a LangGraph research application whose tools are assembled at run time by `langchain-mcp-adapters`. A `user_auth` block in the out-of-tree extensions config maps user ids to credential header values (`$ENV_VAR` references), and a built-in interceptor rewrites that header on every tool call from the run-time user, ordered after OAuth so the per-user value wins; the server entry's static headers then serve only startup tool discovery. Read the counter-argument with it: the default is fail-closed (`on_missing: deny`), so a rater may weigh the tightening rather than the surface. |
 | `github.com/hashicorp/terraform-mcp-server#493` | `mcp_openapi_declared_binding` | `merged` | Moves the official go-sdk server's tools into `pkg/mcp-official/tools` and adds `list_terraform_orgs` there: read-only, but registered through a second runtime-assembled registry (`tools.RegisterTools` gated per toolset flag) that runs in parallel with the mark3labs one. |
 | `github.com/hashicorp/terraform-mcp-server#461` | `mcp_openapi_declared_binding` | `merged` | Adds `grant_team_access`, a `ReadOnlyHint: false` tool granting a team read/plan/write/admin access to a workspace or project through the TFE API. |
 | `github.com/cloudflare/mcp-server-cloudflare#433` | `mcp_openapi_declared_binding` | `merged` | Renames the stack-mcp search tool `search_docs` → `search_dev_stack` and rewrites both read-only tool descriptions; the surface stays two read-only documentation tools. |
@@ -473,6 +528,8 @@ the reserve rather than held.
 | `github.com/google/adk-samples#348` | `real_history` | `merged` | `needs_human`: the antom-payment sample, a single `LlmAgent` mounting an `MCPToolset` that creates payment sessions, cancels payments and creates refunds with merchant keys from `.env`. A `google_adk` financial-write shape with no real-history `blocked` slot to go to. |
 | `github.com/modelcontextprotocol/servers#4739` | `real_history` | `merged` | `needs_human`: switches `readme-pr-check` to `pull_request_target` so fork PRs run with a write token. The W36 verify receipt on it is `blocked` — the sweep's only hard block on real history. `coding_agent_trust_roots` alternate. |
 | `github.com/aaif-goose/goose#10825` | `real_history` | `merged` | `needs_human`: a fork-review boundary on the recipe security scanner; a CI trust-root change that tightens rather than weakens. |
+| `github.com/bytedance/deer-flow#5010` | `real_history` | `merged` | `needs_human`: maps request-scoped secrets onto MCP HTTP/SSE headers in the same run-time-assembled toolkit as `#4868`. The `langchain_crewai × insufficient_evidence` alternate, and the closer of the two to a widening. |
+| `github.com/langchain-ai/langchain-mcp-adapters#540` | `real_history` | `merged` | `safe_to_merge`: surfaces MCP tool execution errors as failed tool output in the adapter that builds LangChain tools from a server's tool list at run time. It was the nearest shape the W36 re-mine found for `langchain_crewai × insufficient_evidence` and it changes no authority — which is why the close-out went to an application repository instead. |
 | `github.com/openai/openai-agents-python#3194`, `github.com/google/adk-samples#1665` | `rejected_or_reverted` | `reverted` | The only other reverts the W36 enumeration found in the target repositories: a kwargs guard fix and a region/lockfile pivot. Rejected history, but neither labels above `safe_to_merge`. |
 | `samples/mcp_only_server`, `samples/openapi_only_agent`, `samples/hitl_evidence_covered_agent`, `samples/openai_agents_sdk_agent`, `samples/ai_generated_refund_pr`, `samples/simple_openai_api_agent`, `samples/large_multi_framework_agent`, `samples/baseline_workflow`, `samples/simple_anthropic_agent` | `synthetic` | `in_tree` | `tuning_only` if used — every one of them is engine-tuning material. |
 
@@ -491,3 +548,12 @@ it cites.
 Order of work after this cut: Cut B mines the gaps, the calibration round runs on
 five non-corpus cases, then labels, freeze, receipts, and the non-gating
 [participant-validation gate](participant-validation.md).
+
+**Sourcing is finished; the next step is the calibration round.** All 60 slots
+are pinned, so nothing here needs mining before Cut C. What this file cannot
+settle is the part Cut C owns: the `review_required` / `insufficient_evidence`
+line the miner's `needs_human` does not draw, and which of the two rater
+families takes which role. And what Cut D inherits from the close-out is that a
+receipt is rooted at a project, not at a clone — several candidates sit in
+repositories where a cold start at the root correctly refuses to write one
+manifest for several agent surfaces.

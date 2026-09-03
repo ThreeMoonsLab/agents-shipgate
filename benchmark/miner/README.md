@@ -81,8 +81,9 @@ python -m benchmark.miner evaluate \
   metrics are in [`LABELING.md`](LABELING.md). Generate the turnkey worksheet
   with `python -m benchmark.miner labels`; a ready blank copy is committed
   alongside each run's results as `<run>.labels.template.csv` (one per run in
-  the table below — currently `2026-W24-…`, `2026-W25-…`, `2026-W26-…`, and `2026-W36-cutb`). Label the run
-  you mean to score, then `python -m benchmark.miner score --results <jsonl>
+  the table below — currently `2026-W24-…`, `2026-W25-…`, `2026-W26-…`,
+  `2026-W36-cutb` and `2026-W36-closeout`). Label the run you mean to score,
+  then `python -m benchmark.miner score --results <jsonl>
   --labels <csv>` prints the confusion matrix + headline accuracy metrics.
 
 | Run | Date | Repos | Rows | Notes |
@@ -92,6 +93,7 @@ python -m benchmark.miner evaluate \
 | [`2026-W26-mined.csv`](results/2026-W26-mined.csv) | 2026-06-16 | stripe/agent-toolkit → **stripe/ai** (see note), block/goose, pydantic/pydantic-ai | 120 (latest 40 merged PRs each) | Deepen run over agent **apps/toolkits**. First run with `tools_scanned` captured (#223); decided rows are cold-start `head_decision=review_required` but `verify`-effective `insufficient_evidence`. Schema v0.2. Findings below. |
 | [`2026-W27-reeval.csv`](results/2026-W27-reeval.csv) | 2026-07-08 | the 19 labeled PRs (stripe/ai, openai/openai-agents-python, crewAIInc/crewAI-examples, google/adk-samples, aaif-goose/goose — formerly block/goose) | 19 (re-eval at fixed SHAs, not a fresh mine) | **v0.15.0 delta on the labeled corpus.** Same PRs / same base→head SHAs as W24–W26, re-run on the released engine. Clears the 4 scan crashes; both `must_block` move abstain→review but `blocked_recall` stays 0.0. Off the `*-mined` glob by design. Findings below. |
 | [`2026-W36-cutb.csv`](results/2026-W36-cutb.csv) | 2026-09-02 | n8n-io/n8n, n8n-io/self-hosted-ai-starter-kit, Zie619/n8n-workflows, enescingoz/awesome-n8n-templates, modelcontextprotocol/servers, microsoft/playwright-mcp, cloudflare/mcp-server-cloudflare, supabase-community/supabase-mcp, Azure/azure-mcp, hashicorp/terraform-mcp-server, elastic/mcp-server-elasticsearch, redis/mcp-redis, openai/openai-agents-python, google/adk-samples, google/adk-python, langchain-ai/langgraph, langchain-ai/langchain-mcp-adapters, langchain-ai/deepagents, crewAIInc/crewAI-examples, aaif-goose/goose, pydantic/pydantic-ai | 912 (latest 40 merged per repo, plus `--state closed` on openai-agents-python and adk-samples, `--state reverted` on the same plus goose and pydantic-ai, and `--pr` named candidates) | **The Cut B sourcing sweep for [#456](https://github.com/ThreeMoonsLab/agents-shipgate/issues/456), and the first post-#403 run.** Every n8n repository this project had never mined, eight unwalked MCP servers, and the rejected vein (closed-unmerged + reverted PRs, new in this run). Schema v0.2. **Labeled** in `2026-W36-cutb.labels.csv` — one session's Cut B cell-targeting labels from the PR diffs, *not adjudicated*; corpus labels come only from the Amendment 1 raters. Off the `*-mined` glob by design (see note). Findings below. |
+| [`2026-W36-closeout.csv`](results/2026-W36-closeout.csv) | 2026-09-02 | github/github-mcp-server, grafana/mcp-grafana, bytedance/deer-flow | 45 (three `--pr` named walk candidates, the latest 40 merged on deer-flow, and two `--pr` named deer-flow candidates) | **The Cut B close-out for [#456](https://github.com/ThreeMoonsLab/agents-shipgate/issues/456).** Resolves the pins for the three walked MCP servers the inventory carried unpinned, and mines the LangChain application repository that closes its last cell. Schema v0.2. **Labeled** in `2026-W36-closeout.labels.csv` — one row, the claimed candidate, cell-targeting and *not adjudicated* like every other sourcing label here. Off the `*-mined` glob by design: every row is either a named PR or a repository chosen for one cell. Findings below. |
 
 > **W26 repo note (data-integrity):** `gh pr list --repo stripe/agent-toolkit`
 > follows GitHub's transfer redirect — `stripe/agent-toolkit` was folded into the
@@ -154,12 +156,60 @@ cells, and nothing here is scored.
     expression), `head_scan_failed_exit_3`.
   - openai/openai-agents-python now `init_skip`s every triggered PR (11 of
     40; W24 evaluated 4 of 40 on the same repository), and so do pydantic-ai,
-    langgraph and deepagents: the SDK repositories' example trees are no longer
-    picked up by cold-start `init`.
+    langgraph and deepagents. **Cause corrected by the close-out run below:**
+    this is not the example trees going unseen. `init --write` at the root of
+    openai-agents-python returns `refused_unresolved_scope` — the repository
+    holds three self-contained projects that define agents, and one manifest
+    describes one agent surface. The refusal is the monorepo behavior working;
+    what the miner cannot do is act on it, because its only fallback is the
+    deepest common directory of the changed files.
 - **Trigger misses worth knowing.** goose#9736 (a new global `AGENTS.md`
   hints path), goose#11233 (two built-in skills) and pydantic-ai#3248 (an
   agent-delegation example) are `trigger_skip`; each was placed or reserved
   from the diff, and each is a shape the catalog does not see.
+
+### 2026-W36 close-out findings — the pins and the last cell
+
+A three-repository run with two jobs: resolve the pins the strata inventory
+carried as abbreviations, and close
+`langchain_crewai × insufficient_evidence`. Same reading rules as the Cut B
+sweep — one session's cell-targeting labels, nothing scored.
+
+- **`init_skip` on a monorepo is a refusal, not a failure, and the miner
+  cannot tell them apart.** 24 of the 40 deer-flow rows are `init_skip`
+  because a cold start at the repository root returns
+  `refused_unresolved_scope`: two self-contained Python projects, and one
+  manifest describes one agent surface. Pointed at
+  `backend/packages/harness`, `init --write` writes a manifest and the scan
+  reaches `insufficient_evidence`. The miner records `init_status: failed`
+  for both cases, because `_run_init` reads only "did a manifest appear",
+  so a refusal that names the right next step is indistinguishable in the
+  CSV from a crash. Re-checking openai-agents-python at its own recorded
+  pin gives the same refusal, which is the correction to the Cut B bullet
+  above. **A repository that `init_skip`s is not thereby unevaluable** — it
+  needs a scope, and the sweep does not carry one.
+- **The walked-candidate pins had drifted, in the direction the inventory
+  warned about.** `github-mcp-server#3076`'s walk note recorded the head as
+  `5ea9a0e8…`, which is `refs/pull/3076/head`; after a squash merge that
+  commit is not reachable from the default branch, so resolving the
+  abbreviation would have pinned an object no clone reaches. The merge
+  commit is `8ec62491…` and its first parent is the `bfb59bb7…` the same
+  note recorded — half of the pin was right.
+- **The three walked MCP servers all read `tools_scanned=0`.** Both
+  github-mcp-server rows and the mcp-grafana row evaluate to
+  `insufficient_evidence` with zero tools read, on two Go servers whose
+  published surfaces are around a hundred tools each. That is the Go-server
+  finding from the Cut B sweep reproducing on the two servers the adoption
+  walks knew best, including the one whose walk drove
+  `tool_sources[].binding`.
+- **The dynamic-toolkit shape is in applications, not in the adapter.** The
+  Cut B lead was to stop mining `langchain-mcp-adapters` and find a
+  repository that *calls* it. deer-flow does: tools are assembled at run
+  time from an out-of-tree extensions config, and the claimed candidate
+  (#4868) makes which credential a call carries depend on the run-time
+  user. Its own latest-40 window yielded one decided row and no candidate,
+  so the claim came from `--pr` on a PR six weeks older — the window, not
+  the repository, was the wrong unit.
 
 ## Constructed-adversarial accuracy — the blocked-recall proof
 
