@@ -5,15 +5,17 @@ four things that must be cleared and recorded before the calibration round
 runs. This file is the record. It is maintainer material and never a rater
 input.
 
-Three of the four are cleared here. The fourth is a sign-off only the owner
-can give. One thing beyond the four still blocks the round: the Claude OAuth
-token is expired, and until `claude login` completes there is no second family
-to pair with codex.
+Three of the four are cleared here, and the fourth is a sign-off only the
+owner can give.
+
+**The round's role assignment, the owner's choice, recorded 2026-09-03:**
+`security_governance` → `claude`, `framework_tooling` → `openai`. It lives in
+[`calibration.md`](calibration.md), which is where the round is described.
 
 | # | Precondition | State |
 |---|---|---|
 | 1 | Confirm [`LABELING.md`](../miner/LABELING.md) | **Open — owner sign-off** |
-| 2 | The Claude harness is unverified | **Verified except for one live session — needs `claude login`** |
+| 2 | The Claude harness is unverified | **Cleared — `claude auth login` done, live session returns a result** |
 | 3 | The OpenAI-family harness is unverified | **Cleared — verified against `codex-cli 0.153.0`, live** |
 | 4 | Decide the packet contents | **Decided — the base tree does not ship** |
 
@@ -67,11 +69,14 @@ checked, against `claude 2.1.126` on `darwin/arm64`:
   well, so it refuses. This is the one thing the #489 failure did establish,
   and it is now covered rather than incidental.
 
-**Still needed:** `claude login`. The OAuth token is expired, confirmed again
-after the CLI was updated to 2.1.259 — a session returns `subtype: "success"`
-with `is_error: true` and "OAuth access token has expired". The restriction
-checks above were re-run on 2.1.259 and still hold, so the only step between
-here and a Claude-family label is the credential.
+**The credential, and one trap on the way to it.** The token was expired
+through two rounds of this. `claude login` is **not** a subcommand — it starts
+a session and sends "login" as a prompt, which is why it looked like it ran and
+did nothing. `claude auth login` is the one. And **`claude auth status` reports
+`loggedIn: true` while the token is expired**, so it is not the thing to
+believe: a real call returning `subtype: "success"` with `is_error: true` is.
+Both checks were re-run on 2.1.259 after re-authenticating, and a session now
+returns a result.
 
 **Both families run `--home-mode shared`.** Isolated mode authenticates only
 through `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`, and both logins here are OAuth,
@@ -124,6 +129,13 @@ remembered version:
   developer profile does not get obeyed; it gets worked around. What is left
   to refuse is a non-empty `AGENTS.md` / `AGENTS.override.md` at the Codex
   home, which `--ignore-user-config` is documented not to cover.
+- **`web_search` is disabled on the command line, in both modes.** Shared mode
+  passes `--ignore-user-config` and therefore supplies no config file at all,
+  and codex's documented default for an unset `web_search` is `"cached"` — a
+  rater holding a search tool backed by everything outside the packet. Telling
+  the model not to use it is not the contract; not having it is. The spelling
+  is pinned by `--strict-config`, which accepts `web_search="disabled"` and
+  rejects `web_search=false`.
 
 ## 4. The packet contents — decided: the base tree does not ship
 

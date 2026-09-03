@@ -82,12 +82,13 @@ binary macOS refuses to load is killed by a signal with no output at all. The
 version it reports is the fallback attribution for a client whose transcript
 does not name itself.
 
-Condition 1 — two model families: :func:`check_family_independence` refuses a
-run whose sibling role already holds a label for the same case from the same
-family, before that run starts. Nothing downstream can see this — two sessions
+Condition 1 — two model families: :func:`claim_family` reserves the case for
+this family with ``O_EXCL`` and *then* reads the sibling role's claim, so two
+roles started concurrently cannot both conclude there is nothing to compare
+with. It refuses before the session starts. Nothing downstream can see this — two sessions
 of one family already differ in the session uuid, which is all
 ``SafetyCorpusCaseV1`` asks of a ``reviewer_id`` pair. It can only compare
-against a sibling it can find, so **both roles of a case must be run into one
+against a claim it can find, so **both roles of a case must be run into one
 ``--out``**; the label records ``family_independence``, which reads
 ``"unchecked"`` when there was nothing to compare with.
 
@@ -401,8 +402,27 @@ def check_no_ancestor_instructions(packet: Path) -> None:
             break
 
 
-def check_family_independence(out: Path, case_id: str, role: str, family: str) -> str:
-    """Refuse a second label for a case from the family that gave the first.
+def _claimed_family(claim: Path) -> str:
+    try:
+        recorded = json.loads(claim.read_text(encoding="utf-8")).get("family")
+    except (OSError, json.JSONDecodeError) as error:
+        raise RaterError(
+            f"{claim} cannot be read, so family independence is unknown: {error}"
+        ) from error
+    if recorded not in FAMILIES:
+        # Not "different, therefore fine". A claim that does not name a family
+        # cannot be compared with, and passing by default would go on to record
+        # that it *was* compared -- a positive claim where `unchecked` is the
+        # truth, and the one thing worse than silence.
+        raise RaterError(
+            f"{claim} names family {recorded!r}, which is not one of {FAMILIES}, so "
+            "Amendment 1 condition 1 cannot be checked against it"
+        )
+    return recorded
+
+
+def claim_family(out: Path, case_id: str, role: str, family: str) -> str:
+    """Reserve ``<case_id, role>`` for ``family``, then check the sibling role.
 
     Amendment 1 condition 1 -- the two roles on different model families -- is
     the condition the artifact can least afford to get wrong, because
@@ -412,46 +432,51 @@ def check_family_independence(out: Path, case_id: str, role: str, family: str) -
     the two ``reviewer_id`` values to differ, and two sessions of one family
     differ anyway, in the session uuid.
 
-    Here is the earliest point it can be caught -- the run that would break it
-    has not started -- and the only one where the answer is a fact rather than
-    a convention, because the sibling record names the family that produced it.
+    **Write first, then read.** Reading the sibling's *label* was a
+    time-of-check gate around a session that runs for minutes: two roles
+    started together each saw no sibling label, each recorded ``unchecked``,
+    and both wrote same-family labels. An operator parallelising 112 sessions
+    would hit that as a matter of course. The claim is created with ``O_EXCL``
+    before the session starts and *then* the sibling is read, so whichever way
+    two concurrent runs interleave, at least one of them sees the other's
+    claim -- and if they share a family, that one refuses.
 
-    **The sibling has to be somewhere this can look.** It looks under ``out``,
-    so two roles written to two ``--out`` directories are never compared. That
-    is a reasonable thing for an operator to do, so silence is the wrong
-    answer: the return value is recorded on the label as
-    ``family_independence``, and reads ``"unchecked"`` when no sibling was
-    found. The first role of a case is legitimately ``"unchecked"``; a case
-    whose *both* records say so is one where nobody ever compared, which is a
-    thing a freeze step can see and an operator's memory cannot.
+    Re-running a role is allowed as long as the family has not changed;
+    swapping families under an existing claim is exactly what this exists to
+    stop. Returns what is recorded on the label as ``family_independence``.
 
-    A sibling that exists but names no family it recognises is a refusal, not
-    a pass: "different from mine, therefore fine" would let this function
-    record that it checked something it could not read.
+    **The sibling still has to be somewhere this can look**: claims live under
+    ``out``, so two roles written to two ``--out`` directories are never
+    compared, and both then read ``"unchecked"``. The first role of a case is
+    legitimately ``"unchecked"``; a case whose *both* records say so is one
+    where nobody ever compared, which a freeze step can see and an operator's
+    memory cannot.
     """
 
+    claims = out / "claims"
+    claims.mkdir(parents=True, exist_ok=True)
+    mine = claims / f"{case_id}.{role}.json"
+    payload = json.dumps({"case_id": case_id, "role": role, "family": family}, sort_keys=True)
+    try:
+        with open(mine, "x", encoding="utf-8") as handle:
+            handle.write(payload + "\n")
+    except FileExistsError:
+        already = _claimed_family(mine)
+        if already != family:
+            raise RaterError(
+                f"{mine} already claims {case_id}/{role} for family {already!r}; "
+                f"re-running it as {family!r} would swap the families this case was "
+                "labeled under"
+            ) from None
+
     other = next(role_name for role_name in ROLES if role_name != role)
-    sibling = out / "labels" / f"{case_id}.{other}.json"
+    sibling = claims / f"{case_id}.{other}.json"
     if not sibling.is_file():
         return "unchecked"
-    try:
-        recorded = json.loads(sibling.read_text(encoding="utf-8")).get("family")
-    except (OSError, json.JSONDecodeError) as error:
-        raise RaterError(
-            f"{sibling} cannot be read, so family independence is unknown: {error}"
-        ) from error
-    if recorded not in FAMILIES:
-        # Not "different, therefore fine". A sibling that does not name a
-        # family cannot be compared with, and a run that passed by default
-        # would go on to record that it was checked -- a positive claim where
-        # `unchecked` is the truth, and the one thing worse than silence.
-        raise RaterError(
-            f"{sibling} names family {recorded!r}, which is not one of {FAMILIES}, so "
-            "Amendment 1 condition 1 cannot be checked against it"
-        )
+    recorded = _claimed_family(sibling)
     if recorded == family:
         raise RaterError(
-            f"{sibling} records the {other} label for {case_id} as family {recorded!r}; "
+            f"{sibling} claims the {other} label for {case_id} for family {recorded!r}; "
             "Amendment 1 condition 1 requires the two roles on different model families"
         )
     return f"checked against {other} ({recorded})"
@@ -544,6 +569,15 @@ def openai_invocation(
         # codex's `--no-session-persistence`: nothing about the session is
         # written to disk, rather than left to a directory's lifetime.
         "--ephemeral",
+        # On the command line, not only in `_ISOLATED_CODEX_CONFIG`: shared
+        # mode passes `--ignore-user-config` and so supplies no config file at
+        # all, and codex's documented default when `web_search` is unset is
+        # `"cached"` -- a rater with a search tool backed by everything outside
+        # the packet. Telling the model not to use it is not the contract;
+        # not having it is. (`--strict-config` validates this override too,
+        # and `web_search=false` is rejected by it, so the spelling is pinned.)
+        "-c",
+        'web_search="disabled"',
         "--model",
         model or _DEFAULT_OPENAI_MODEL,
         "-",
@@ -856,7 +890,7 @@ def run_rater(
             home=Path(home),
             home_mode=home_mode,
         )
-        family_independence = check_family_independence(out, manifest["case_id"], role, family)
+        family_independence = claim_family(out, manifest["case_id"], role, family)
         try:
             completed = runner(invocation, timeout=timeout)
         except subprocess.TimeoutExpired as expired:

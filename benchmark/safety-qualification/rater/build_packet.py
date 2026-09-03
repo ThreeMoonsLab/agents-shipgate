@@ -256,6 +256,32 @@ def verify_packet_is_clean(packet: Path) -> None:
 # --------------------------------------------------------------------------
 
 
+# Environment variables that reshape a diff or point git at another
+# repository. `-c` outranks every config *file*, but `GIT_DIFF_OPTS` is not
+# config: with `GIT_DIFF_OPTS=-u20` the same two pins produced a 48-line patch
+# where the default gives 22. `GIT_CONFIG_*` is deliberately **not** dropped --
+# it is config, `-c` does beat it (measured), and the determinism test sets
+# `GIT_CONFIG_GLOBAL` precisely to prove that.
+_GIT_ENV_DROPPED = frozenset(
+    {
+        "GIT_DIFF_OPTS",
+        "GIT_EXTERNAL_DIFF",
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_COMMON_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_NAMESPACE",
+        "GIT_CEILING_DIRECTORIES",
+    }
+)
+
+
+def _git_env() -> dict[str, str]:
+    return {name: value for name, value in os.environ.items() if name not in _GIT_ENV_DROPPED}
+
+
 def _git(repo: Path, *args: str, timeout: int = _GIT_TIMEOUT) -> subprocess.CompletedProcess:
     result = subprocess.run(
         ["git", "-C", str(repo), *args],
@@ -263,6 +289,7 @@ def _git(repo: Path, *args: str, timeout: int = _GIT_TIMEOUT) -> subprocess.Comp
         text=True,
         timeout=timeout,
         check=False,
+        env=_git_env(),
     )
     if result.returncode != 0:
         raise PacketError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
@@ -275,6 +302,7 @@ def _git_bytes(repo: Path, *args: str) -> bytes:
         capture_output=True,
         timeout=_GIT_TIMEOUT,
         check=False,
+        env=_git_env(),
     )
     if result.returncode != 0:
         raise PacketError(f"git {' '.join(args)} failed: {result.stderr.decode().strip()}")
@@ -343,6 +371,7 @@ def _cat_blobs(repo: Path, oids: list[str]) -> dict[str, bytes]:
         capture_output=True,
         timeout=_GIT_TIMEOUT,
         check=False,
+        env=_git_env(),
     )
     if result.returncode != 0:
         raise PacketError(f"git cat-file --batch failed: {result.stderr.decode().strip()}")
@@ -545,14 +574,21 @@ def suppressed_diff_markers(diff: str) -> list[str]:
     ]
 
 
-def undecodable_paths(raw: bytes) -> list[str]:
-    """The paths of a patch whose own section is not UTF-8.
+def non_text_paths(raw: bytes) -> list[str]:
+    """The paths of a patch whose own section is not text.
 
     ``--text`` makes git write a textual diff for content it would otherwise
-    call binary, which for genuinely binary content means raw bytes. Decoding
-    the whole patch tells you only that *something* is unreadable; each file
-    section starts with a ``diff --git`` line at column zero, so decoding them
-    one at a time says which case the packet cannot carry.
+    call binary, which for genuinely binary content means raw bytes in the
+    patch. Two things disqualify a section, and **decodability alone is not
+    the test**: git calls a blob binary when it contains a NUL, and
+    ``b"before\x00tail"`` -> ``b"after\x00tail"`` decodes as UTF-8 perfectly
+    well while carrying NULs that a rater's Read and Grep may truncate or
+    refuse. So a section is non-text when it fails to decode *or* contains a
+    NUL byte.
+
+    Decoding the whole patch would say only that *something* is unreadable.
+    Each file section starts with a ``diff --git`` line at column zero, so
+    checking them one at a time says which case the packet cannot carry.
     """
 
     starts = [match.start() for match in re.finditer(rb"(?m)^diff --git ", raw)]
@@ -560,11 +596,17 @@ def undecodable_paths(raw: bytes) -> list[str]:
     for index, start in enumerate(starts):
         end = starts[index + 1] if index + 1 < len(starts) else len(raw)
         section = raw[start:end]
-        try:
-            section.decode("utf-8")
-        except UnicodeDecodeError:
+        reason = ""
+        if b"\x00" in section:
+            reason = "contains NUL"
+        else:
+            try:
+                section.decode("utf-8")
+            except UnicodeDecodeError:
+                reason = "is not UTF-8"
+        if reason:
             header = section.split(b"\n", 1)[0].decode("utf-8", "surrogateescape")
-            found.append(header[len("diff --git ") :].strip() or header)
+            found.append(f"{header[len('diff --git ') :].strip() or header} ({reason})")
     return found
 
 
@@ -625,13 +667,16 @@ def diff_pinned_states(repo: Path, base: str, head: str) -> str:
             base,
             head,
         )
-    try:
-        diff = raw.decode("utf-8")
-    except UnicodeDecodeError as error:
+    offending = non_text_paths(raw)
+    if offending:
         raise PacketError(
             "these paths change in ways that are not text, so no rater can read what "
-            "changed in them: " + ", ".join(undecodable_paths(raw) or [f"<{error}>"])
-        ) from error
+            "changed in them: " + ", ".join(offending)
+        )
+    try:
+        diff = raw.decode("utf-8")
+    except UnicodeDecodeError as error:  # pragma: no cover - non_text_paths covers the sections
+        raise PacketError(f"the patch is not text outside any file section: {error}") from error
     hidden = suppressed_diff_markers(diff)
     if hidden:
         raise PacketError(

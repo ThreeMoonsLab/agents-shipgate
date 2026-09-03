@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import tomllib
 from pathlib import Path
 from types import ModuleType
@@ -1699,8 +1700,8 @@ def test_a_sibling_that_names_no_family_refuses_rather_than_claiming_a_check(
     """
 
     out = tmp_path / "out"
-    (out / "labels").mkdir(parents=True)
-    (out / "labels" / "fixture-1.framework_tooling.json").write_text(
+    (out / "claims").mkdir(parents=True)
+    (out / "claims" / "fixture-1.framework_tooling.json").write_text(
         json.dumps({"case_id": "fixture-1"}), encoding="utf-8"
     )
     recorder = _Recorder(_claude_transcript(VALID_LABEL))
@@ -1842,3 +1843,169 @@ def test_a_config_that_hides_submodules_does_not_hide_them_from_the_refusal(
             base=base,
             head=head,
         )
+
+
+# --------------------------------------------------------------------------
+# Review follow-ups: PR #514
+# --------------------------------------------------------------------------
+
+
+def test_a_change_that_is_valid_utf8_and_still_binary_refuses(tmp_path: Path) -> None:
+    """Decodability is not a text test, and git does not think it is either.
+
+    `b"before\\x00tail"` → `b"after\\x00tail"` is binary by git's NUL heuristic
+    (`--numstat` reports `-`), yet `--text` emits those NULs and
+    `raw.decode("utf-8")` succeeds — so the "genuinely binary refuses"
+    boundary was open, and a rater's Read and Grep may truncate or refuse the
+    patch without saying so.
+    """
+
+    clone = tmp_path / "clone"
+    clone.mkdir()
+    _git(clone, "init", "-q")
+    _git(clone, "config", "user.email", "t@example.test")
+    _git(clone, "config", "user.name", "t")
+    (clone / "f.bin").write_bytes(b"before\x00tail\n")
+    _git(clone, "add", "--all")
+    _git(clone, "commit", "-q", "-m", "base")
+    base = _git(clone, "rev-parse", "HEAD")
+    (clone / "f.bin").write_bytes(b"after\x00tail\n")
+    _git(clone, "add", "--all")
+    _git(clone, "commit", "-q", "-m", "head")
+    head = _git(clone, "rev-parse", "HEAD")
+
+    with pytest.raises(build_packet.PacketError, match=r"not text.*f\.bin.*contains NUL"):
+        build_packet.build_packet(
+            case_id="ext-nul",
+            role="security_governance",
+            out=tmp_path / "packet",
+            clone=clone,
+            base=base,
+            head=head,
+        )
+    assert not (tmp_path / "packet").exists()
+
+
+def test_the_diff_does_not_depend_on_the_environment_git_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`-c` outranks every config *file*; `GIT_DIFF_OPTS` is not a config file.
+
+    Measured: the same two pins under `GIT_DIFF_OPTS=-u20` produced a 48-line
+    patch where the default gives 22 — the machine-dependent manifest and
+    citation lines, back through a channel the `-c` pins cannot reach.
+    """
+
+    clone = tmp_path / "clone"
+    lines = [f"line{i}" if i % 7 else "" for i in range(40)]
+    base, head = _two_commit_clone(
+        clone,
+        {"f.py": "\n".join(lines) + "\n"},
+        {"f.py": "\n".join("CHANGED" if i in (5, 30) else v for i, v in enumerate(lines)) + "\n"},
+    )
+    plain = build_packet.build_packet(
+        case_id="ext-env",
+        role="security_governance",
+        out=tmp_path / "packet-plain",
+        clone=clone,
+        base=base,
+        head=head,
+    )
+    monkeypatch.setenv("GIT_DIFF_OPTS", "-u20")
+    monkeypatch.setenv("GIT_EXTERNAL_DIFF", "/bin/echo")
+    hostile = build_packet.build_packet(
+        case_id="ext-env",
+        role="security_governance",
+        out=tmp_path / "packet-hostile",
+        clone=clone,
+        base=base,
+        head=head,
+    )
+    assert (plain / "diff.patch").read_bytes() == (hostile / "diff.patch").read_bytes()
+
+
+def test_the_codex_command_line_disables_web_search_in_both_modes(
+    packet: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Shared mode passes `--ignore-user-config`, so it supplies no config file.
+
+    Codex's documented default for an unset `web_search` is `"cached"` — a
+    rater with a search tool backed by everything outside the packet. Telling
+    the model not to use it is not the contract; not having it is. The
+    spelling is pinned because `--strict-config` rejects `web_search=false`.
+    """
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "caller-home" / ".codex"))
+    for home_mode in run_rater.HOME_MODES:
+        invocation, _ = run_rater.prepare(
+            family="openai",
+            role="security_governance",
+            packet=packet,
+            model="model-x",
+            home=tmp_path / f"home-{home_mode}",
+            home_mode=home_mode,
+        )
+        argv = list(invocation.argv)
+        assert 'web_search="disabled"' in argv, home_mode
+        assert argv[argv.index('web_search="disabled"') - 1] == "-c", home_mode
+
+
+def test_two_roles_starting_together_cannot_both_be_the_same_family(
+    constructed_case: Path, tmp_path: Path
+) -> None:
+    """The family gate used to be time-of-check around a minutes-long session.
+
+    Reading the sibling's *label* let two roles started together each see no
+    sibling, each record `unchecked`, and both write same-family labels — and
+    an operator parallelising 112 sessions hits that as a matter of course.
+    The claim is created with `O_EXCL` *before* the session and the sibling is
+    read after, so whichever way two runs interleave, at least one sees the
+    other.
+    """
+
+    out = tmp_path / "out"
+    packets = {
+        role: build_packet.build_packet(
+            case_id="fixture-1",
+            role=role,
+            out=tmp_path / f"packet-{role}",
+            case_dir=constructed_case,
+        )
+        for role in ROLES
+    }
+    barrier = threading.Barrier(len(ROLES))
+    results: dict[str, object] = {}
+
+    def _run(role: str) -> None:
+        def _blocking_runner(invocation, *, timeout: int):
+            barrier.wait(timeout=30)  # both sessions are "in flight" together
+            return subprocess.CompletedProcess(
+                list(invocation.argv), 0, stdout=_claude_transcript(VALID_LABEL), stderr=""
+            )
+
+        try:
+            run_rater.run_rater(
+                family="claude",
+                role=role,
+                packet=packets[role],
+                out=out,
+                runner=_blocking_runner,
+                prober=_stub_prober,
+            )
+            results[role] = "wrote a label"
+        except BaseException as error:  # noqa: BLE001 - the refusal is the result
+            results[role] = error
+            barrier.abort()
+
+    threads = [threading.Thread(target=_run, args=(role,)) for role in ROLES]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+
+    written = (
+        sorted(p.name for p in (out / "labels").glob("*.json")) if (out / "labels").is_dir() else []
+    )
+    assert len(written) <= 1, f"both roles wrote a same-family label: {written}"
+    assert any(isinstance(value, run_rater.RaterError) for value in results.values()), results

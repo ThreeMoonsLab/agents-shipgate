@@ -214,8 +214,16 @@ unchecked`) rather than passing quietly, but the point is not to need that.
 The four preconditions this round waits on, and what is left of each, are
 recorded in [`cut-c-preconditions.md`](cut-c-preconditions.md).
 
-The two roles run on different model families (condition 1); which family
-takes which role is the owner's choice and should be recorded with the round.
+**The owner's assignment, recorded 2026-09-03:**
+
+| Role | Family | CLI |
+|---|---|---|
+| `security_governance` | `claude` | `claude` 2.1.259 |
+| `framework_tooling` | `openai` | `codex-cli` 0.153.0 |
+
+Condition 1 is that these differ, and `claim_family` enforces it per case
+before a session starts. Both roles of a case go into one `<runs>`, or there
+is no claim to compare against.
 Nothing the round produces is committed here: its labels, transcripts, and
 adjudication notes stay with the owner, and what comes back into the tree is
 the sharpened guide.
