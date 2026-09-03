@@ -1,9 +1,11 @@
 # Cut A — the pre-1.0 strata inventory
 
 [`strata-inventory.csv`](strata-inventory.csv) maps the known candidate pool onto
-the 28 profile × decision cells the `pre_1_0` policy requires, so Cut B mines the
-empty cells instead of re-finding the full ones. It is the first of the four cuts
-in [#456](https://github.com/ThreeMoonsLab/agents-shipgate/issues/456).
+the 28 profile × decision cells the `pre_1_0` policy requires, so Cut B could mine
+the empty cells instead of re-finding the full ones. It is the first of the four
+cuts in [#456](https://github.com/ThreeMoonsLab/agents-shipgate/issues/456).
+**Sourcing is complete as of the [close-out](#cut-b--the-close-out-2026-09-02):
+every slot is `pinned`, and the next step is the Cut C calibration round.**
 
 **It is a sourcing plan, not evidence.** It contains no label, no verifier
 verdict, and no receipt. Nothing in it can qualify a release, and nothing in it
@@ -324,10 +326,12 @@ only job is to be holdout-eligible. **The best material and the admissible
 material are close to disjoint**, and that is the single most expensive fact in
 this plan.
 
-**The origin floor is the binding constraint, not the case count.** 23 of 56
-cases must be `real_history`, `rejected_or_reverted`, or `design_partner`. The
-plan reaches 32 only by committing to mine 18 further qualifying candidates —
-more than half of them.
+**The origin floor was the binding constraint, not the case count.** 23 of 56
+cases must be `real_history`, `rejected_or_reverted`, or `design_partner`, and
+the pool Cut A inventoried did not hold them: clearing that floor took 18
+further qualifying candidates, more than half of it, which Cut B and the
+close-out mined. The counts the plan holds now are in the tables above, which
+are recomputed from the CSV; this paragraph is about where the cost fell.
 
 **`insufficient_evidence` then `blocked` are the scarce outcomes.** Before
 Cut B, three of 15 `insufficient_evidence` slots and 5 of 15 `blocked` slots
@@ -553,15 +557,15 @@ pinned SHA, every declared exposure, and every candidate's profile and merge
 state from the source that records it, so the inventory cannot drift from what
 it cites.
 
-Order of work after this cut: Cut B mines the gaps, the calibration round runs on
-five non-corpus cases, then labels, freeze, receipts, and the non-gating
+Order of work: Cut B mined the gaps and the close-out pinned the last of them,
+**both done**; next the calibration round runs on five non-corpus cases, then
+labels, freeze, receipts, and the non-gating
 [participant-validation gate](participant-validation.md).
 
-**Sourcing is finished; the next step is the calibration round.** All 60 slots
-are pinned, so nothing here needs mining before Cut C. What this file cannot
-settle is the part Cut C owns: the `review_required` / `insufficient_evidence`
-line the miner's `needs_human` does not draw, and which of the two rater
-families takes which role. And what Cut D inherits from the close-out is that a
-receipt is rooted at a project, not at a clone — several candidates sit in
-repositories where a cold start at the root correctly refuses to write one
-manifest for several agent surfaces.
+**Nothing here needs mining before Cut C.** What this file cannot settle is
+the part Cut C owns: the `review_required` / `insufficient_evidence` line the
+miner's `needs_human` does not draw, and which of the two rater families takes
+which role. And what Cut D inherits from the close-out is that a receipt is
+rooted at a project, not at a clone — several candidates sit in repositories
+where a cold start at the root correctly refuses to write one manifest for
+several agent surfaces.
