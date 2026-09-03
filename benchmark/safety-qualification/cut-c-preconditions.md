@@ -134,6 +134,7 @@ mechanism subtracts from a base tree too. Both readers obey `.gitattributes`
 | a genuinely binary change | shipped as "differ", silently | refuses the build, naming the paths |
 | a submodule the change moves | shipped as a gitlink hash; content in neither tree | refuses the build, naming the paths |
 | `diff.context`, `diff.noprefix`, `diff.algorithm`, `core.abbrev`, `diff.orderFile`, `diff.renames` | the operator's `~/.gitconfig` decided the diff's bytes | every one pinned with `-c`, plus `--full-index` |
+| `diff=<driver>` on a path | the tree's own choice of funcname pattern decided the text after every `@@` | the diff is read through a bare git dir whose `info/attributes` says `* !diff` |
 
 The `-diff` case is the one that matters most for this corpus. Most of what the
 rubric calls `blocked` is a **removal** — an allowlist that no longer bounds, an
@@ -148,8 +149,18 @@ have checked out. And the operator's own git configuration was never pinned at
 all: `diff.context=7` turns a 13-line patch into a 21-line one, `diff.noprefix`
 rewrites every header, `core.abbrev` widens every `index` line. Either would
 put `MANIFEST.json` — and every `diff.patch:<line>` a rater cites for an
-adjudicator to re-read — at the mercy of whose machine built the packet. The
-diff is now a function of the two pins alone.
+adjudicator to re-read — at the mercy of whose machine built the packet.
+
+Flags alone do not finish that job. `--text` and `--no-textconv` answer the
+attributes that *hide* content; they do not answer `diff=<driver>`, whose
+funcname pattern chooses the text printed after every `@@`, and git's built-in
+drivers need no configuration for a tree to select one. So the diff is read
+through a throwaway **bare** git directory that alternates to the clone's
+object store and carries one line, `* !diff`, in `info/attributes` — which
+outranks every `.gitattributes` in every tree, and which has no worktree to
+read one from in the first place. Nothing is written into the operator's clone.
+Between that and the pinned configuration, the diff is a function of the two
+pins alone.
 
 **The one cost of this decision.** A case whose change touches genuinely binary
 content, or a submodule, is now refused rather than silently shipped with a

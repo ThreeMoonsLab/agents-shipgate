@@ -1640,3 +1640,58 @@ def test_a_sibling_that_names_no_family_refuses_rather_than_claiming_a_check(
             prober=_stub_prober,
         )
     assert recorder.invocations == []
+
+
+def test_a_diff_driver_in_the_tree_cannot_move_the_packet_s_bytes(tmp_path: Path) -> None:
+    """The last attribute that could still reach the diff.
+
+    `--text` and `--no-textconv` answer the attributes that hide content. They
+    do not answer `diff=<driver>`, whose funcname pattern chooses the text
+    after every `@@` — and git's built-in drivers need no configuration, so a
+    tree selects one on its own. Nothing is hidden by that, but the packet's
+    bytes, and so its manifest, would still be a fact about which commit the
+    clone was parked on.
+    """
+
+    clone = tmp_path / "clone"
+    body = ["# Title", "", "intro", "", *[f"line {c}" for c in "abcdef"]]
+    base, head = _two_commit_clone(
+        clone,
+        {"d.md": "\n".join(body) + "\n"},
+        {"d.md": "\n".join(body[:-1] + ["line CHANGED"]) + "\n"},
+    )
+    plain = build_packet.build_packet(
+        case_id="ext-driver",
+        role="security_governance",
+        out=tmp_path / "packet-plain",
+        clone=clone,
+        base=base,
+        head=head,
+    )
+    _write(clone / ".gitattributes", "*.md diff=markdown\n")
+    driven = build_packet.build_packet(
+        case_id="ext-driver",
+        role="security_governance",
+        out=tmp_path / "packet-driven",
+        clone=clone,
+        base=base,
+        head=head,
+    )
+    assert "@@" in (plain / "diff.patch").read_text()
+    assert (plain / "diff.patch").read_bytes() == (driven / "diff.patch").read_bytes()
+
+
+def test_the_neutral_git_dir_reads_the_same_commits_it_was_built_from(tmp_path: Path) -> None:
+    """The refusal above is worth nothing if it works by reading nothing.
+
+    A git directory with no objects would also produce identical output twice.
+    """
+
+    clone = tmp_path / "clone"
+    base, head = _two_commit_clone(clone, {"a.py": "x = 1\n"}, {"a.py": "x = 2\n"})
+    with build_packet.attribute_free_gitdir(clone) as gitdir:
+        listed = build_packet._parse_ls_tree(
+            build_packet._git_bytes(gitdir, "ls-tree", "-r", "-z", head)
+        )
+        assert [path for _mode, _oid, path in listed] == ["a.py"]
+        assert build_packet.changed_submodules(gitdir, base, head) == []

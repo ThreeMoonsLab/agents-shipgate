@@ -77,6 +77,7 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -305,8 +306,9 @@ def _full_sha(repo: Path, ref: str) -> str:
 # bounds, an approval step deleted -- is most of what the rubric calls
 # ``blocked``. So the tree is materialised from ``git ls-tree`` and
 # ``git cat-file``, which read the commit itself and consult no attribute, and
-# the diff is taken with ``--text --no-textconv`` and then checked to be a
-# complete textual description of the change.
+# the diff is read through a git directory that carries no attributes at all
+# (see ``attribute_free_gitdir``), then checked to be a complete textual
+# description of the change.
 
 _MODE_EXEC = "100755"
 _MODE_LINK = "120000"
@@ -444,6 +446,50 @@ _DIFF_CONFIG = (
 )
 
 
+# One line, and it outranks every `.gitattributes` in every tree: `info/`
+# attributes sit at the top of git's attribute stack, and `!diff` unsets the
+# attribute rather than setting it to anything.
+_NEUTRAL_ATTRIBUTES = "* !diff\n"
+
+
+def _object_store(repo: Path) -> Path:
+    """``repo``'s object directory, resolved through a worktree or a bare clone."""
+
+    common = Path(_git(repo, "rev-parse", "--git-common-dir").stdout.strip())
+    if not common.is_absolute():
+        common = (repo / common).resolve()
+    return common / "objects"
+
+
+@contextmanager
+def attribute_free_gitdir(repo: Path) -> Iterator[Path]:
+    """Yield a git directory that reads ``repo``'s commits and none of its attributes.
+
+    ``--text`` and ``--no-textconv`` answer the attributes that *hide* content.
+    They do not answer ``diff=<driver>``, whose funcname pattern chooses the
+    text printed after every ``@@`` -- and git's built-in drivers need no
+    configuration, so a tree selects one on its own. Nothing is hidden by that,
+    but the packet's bytes, and so its manifest, would still depend on which
+    commit the clone was parked on.
+
+    A throwaway *bare* git directory answers both halves: it has no worktree
+    for git to read a ``.gitattributes`` from, and its ``info/attributes``
+    outranks any that a tree carries. ``objects/info/alternates`` points it at
+    the real object store, so it reads the same commits without copying them
+    and without writing anything into the operator's clone.
+    """
+
+    store = _object_store(repo)
+    with tempfile.TemporaryDirectory(prefix="packet-gitdir-") as tmp:
+        gitdir = Path(tmp) / "neutral.git"
+        _git(Path(tmp), "init", "--quiet", "--bare", str(gitdir))
+        (gitdir / "objects" / "info").mkdir(parents=True, exist_ok=True)
+        (gitdir / "objects" / "info" / "alternates").write_text(f"{store}\n", encoding="utf-8")
+        (gitdir / "info").mkdir(parents=True, exist_ok=True)
+        (gitdir / "info" / "attributes").write_text(_NEUTRAL_ATTRIBUTES, encoding="utf-8")
+        yield gitdir
+
+
 def suppressed_diff_markers(diff: str) -> list[str]:
     """Lines where git declined to describe a change textually.
 
@@ -513,34 +559,38 @@ def changed_submodules(repo: Path, base: str, head: str) -> list[str]:
 def diff_pinned_states(repo: Path, base: str, head: str) -> str:
     """The two-dot diff, refused unless it fully describes the change.
 
-    ``--text`` overrides a ``-diff`` or ``binary`` attribute and
-    ``--no-textconv`` a ``diff=<driver>`` one, so the result no longer depends
-    on which commit the clone happens to have checked out; ``_DIFF_CONFIG``
-    pins the rest, so it does not depend on the operator's ``~/.gitconfig``
-    either. Between them the diff is a function of the two pins alone. What
-    survives that -- content that is not text at all, and submodules -- is a
-    case the packet cannot carry, and is refused by name rather than handed to
-    a rater as a gap they cannot see.
+    Three things could otherwise decide these bytes besides the two pins.
+    :func:`attribute_free_gitdir` takes away every attribute the tree carries,
+    ``--text`` and ``--no-textconv`` restate that for the two that hide
+    content outright, and ``_DIFF_CONFIG`` pins what the operator's
+    ``~/.gitconfig`` would have chosen. What survives all of it -- content that
+    is not text at all, and submodules -- is a case the packet cannot carry,
+    and is refused by name rather than handed to a rater as a gap they cannot
+    see.
     """
 
-    submodules = changed_submodules(repo, base, head)
-    if submodules:
-        raise PacketError(
-            "the change touches submodules, whose content is in neither pinned tree: "
-            + ", ".join(submodules)
+    # The neutral git dir holds objects, not refs, so a caller's `HEAD~1` has
+    # to become a commit id before it crosses over.
+    base, head = _full_sha(repo, base), _full_sha(repo, head)
+    with attribute_free_gitdir(repo) as gitdir:
+        submodules = changed_submodules(gitdir, base, head)
+        if submodules:
+            raise PacketError(
+                "the change touches submodules, whose content is in neither pinned tree: "
+                + ", ".join(submodules)
+            )
+        raw = _git_bytes(
+            gitdir,
+            *_DIFF_CONFIG,
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--text",
+            "--full-index",
+            base,
+            head,
         )
-    raw = _git_bytes(
-        repo,
-        *_DIFF_CONFIG,
-        "diff",
-        "--no-color",
-        "--no-ext-diff",
-        "--no-textconv",
-        "--text",
-        "--full-index",
-        base,
-        head,
-    )
     try:
         diff = raw.decode("utf-8")
     except UnicodeDecodeError as error:
