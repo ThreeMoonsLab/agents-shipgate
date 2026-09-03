@@ -2060,3 +2060,131 @@ def test_two_roles_starting_together_cannot_both_be_the_same_family(
     )
     assert len(written) <= 1, f"both roles wrote a same-family label: {written}"
     assert any(isinstance(value, run_rater.RaterError) for value in results.values()), results
+
+
+# --------------------------------------------------------------------------
+# The codex family has a shell; the Claude family does not
+# --------------------------------------------------------------------------
+
+
+def _codex_transcript_running(commands: list[str], final_text: str = VALID_LABEL) -> str:
+    events: list[dict] = [{"type": "thread.started", "thread_id": "t1"}, {"type": "turn.started"}]
+    for command in commands:
+        events.append(
+            {
+                "type": "item.completed",
+                "item": {"type": "command_execution", "command": command, "exit_code": 0},
+            }
+        )
+    events += [
+        {"type": "item.completed", "item": {"type": "agent_message", "text": final_text}},
+        {"type": "turn.completed", "usage": {}},
+    ]
+    return "".join(json.dumps(e) + "\n" for e in events)
+
+
+def test_a_codex_session_that_read_the_checkout_produces_no_label(
+    packet: Path, tmp_path: Path
+) -> None:
+    """`--sandbox read-only` restricts writes; reads are unrestricted.
+
+    Probed on codex 0.153.0: a session read a file outside its working root
+    and printed the contents, and that version offers no setting that narrows
+    reads. The checkout is where the strata inventory lives, and it names a
+    target decision for every slot — condition 2's own words are that such a
+    session "produces no admissible label".
+    """
+
+    checkout = build_packet.REPO_ROOT.resolve()
+    transcript = _codex_transcript_running(
+        [f'/bin/zsh -lc "cat {checkout}/benchmark/safety-qualification/strata-inventory.csv"']
+    )
+    with pytest.raises(run_rater.RaterError, match="reached outside the packet"):
+        run_rater.run_rater(
+            family="openai",
+            role="security_governance",
+            packet=packet,
+            out=tmp_path / "out",
+            model="model-x",
+            runner=_Recorder(transcript),
+            prober=_stub_prober,
+        )
+    assert not (tmp_path / "out" / "labels").exists()
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        '/bin/zsh -lc "cat ../cal-2.framework_tooling/repo/agent.py"',
+        '/bin/zsh -lc "cat OUT/labels/cal-1.security_governance.json"',
+    ],
+    ids=["sibling-packet", "another-raters-label"],
+)
+def test_a_codex_session_that_read_a_sibling_or_another_label_produces_no_label(
+    packet: Path, tmp_path: Path, command: str
+) -> None:
+    """The other two things condition 2 forbids and this can actually see."""
+
+    out = tmp_path / "out"
+    transcript = _codex_transcript_running([command.replace("OUT", str(out.resolve()))])
+    with pytest.raises(run_rater.RaterError, match="reached outside the packet"):
+        run_rater.run_rater(
+            family="openai",
+            role="security_governance",
+            packet=packet,
+            out=out,
+            model="model-x",
+            runner=_Recorder(transcript),
+            prober=_stub_prober,
+        )
+
+
+def test_ordinary_codex_commands_are_not_refused(packet: Path, tmp_path: Path) -> None:
+    """A guard that refuses real work is one an operator turns off.
+
+    These are the shapes the calibration round actually produced, plus an
+    absolute path to a system binary — flagging every absolute path would
+    refuse a session for saying `/usr/bin/grep`.
+    """
+
+    transcript = _codex_transcript_running(
+        [
+            "/bin/zsh -lc \"sed -n '1,240p' LABELING.md\"",
+            "/bin/zsh -lc \"wc -l diff.patch && sed -n '1,260p' diff.patch\"",
+            '/bin/zsh -lc "rg --files repo | sort"',
+            '/bin/zsh -lc "/usr/bin/grep -rn allowlist repo/src"',
+            '/bin/zsh -lc "nl -ba repo/src/tools/mongodb/mongodbTool.ts"',
+        ]
+    )
+    result = run_rater.run_rater(
+        family="openai",
+        role="security_governance",
+        packet=packet,
+        out=tmp_path / "out",
+        model="model-x",
+        runner=_Recorder(transcript),
+        prober=_stub_prober,
+    )
+    assert result.label.decision == "review_required"
+
+
+def test_the_claude_family_is_not_subject_to_the_command_audit(
+    packet: Path, tmp_path: Path
+) -> None:
+    """It has no shell to audit — the restriction is that it cannot run one.
+
+    If this ever starts mattering, the tool list grew a shell and that is the
+    thing to fix, not this test.
+    """
+
+    invocation, _ = run_rater.prepare(
+        family="claude",
+        role="security_governance",
+        packet=packet,
+        model=None,
+        home=tmp_path / "home",
+        home_mode="shared",
+    )
+    argv = list(invocation.argv)
+    assert argv[argv.index("--tools") + 1] == "Read,Grep,Glob"
+    assert "Bash" in argv[argv.index("--disallowedTools") + 1]

@@ -35,6 +35,15 @@ Amendment 1 condition 2 — blindness, enforced mechanically:
   anywhere, ``--no-session-persistence`` writes nothing back, the working
   directory is the packet (which the runner checks carries no ``CLAUDE.md``
   and no ``.claude/``), and the label record names the mode used.
+- **The two families do not get this the same way, and the docstring should
+  not pretend they do.** Claude has no shell: ``--tools Read,Grep,Glob``
+  removes it. codex is a shell agent and ``--sandbox read-only`` restricts
+  writes only -- probed on 0.153.0, a session read a file outside its working
+  root and printed it, and that version offers no setting that narrows reads.
+  What makes up the difference is :func:`commands_that_reached_outside`, which
+  refuses the label when a recorded command names the checkout, the round's
+  output directory or a sibling packet. That is detection rather than
+  confinement; the archived transcript is what an auditor reads.
 - **No network, no other files.** The tool set is restricted to ``Read``,
   ``Grep`` and ``Glob`` (``--tools`` removes every other built-in tool
   including ``Bash``, ``WebFetch`` and ``WebSearch``; ``--allowedTools`` and
@@ -119,7 +128,7 @@ import sys
 import tempfile
 import uuid
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 # `benchmark/.../rater/run_rater.py` is documented as something you run
@@ -738,6 +747,84 @@ def openai_final(transcript: str) -> tuple[str, str | None, str | None]:
 _FINALS = {"claude": claude_final, "openai": openai_final}
 
 
+# Shells codex wraps a command in. The wrapper's own argv is not the session
+# reaching outside; the script it carries is what gets read.
+_SHELL_WRAPPERS = frozenset({"/bin/zsh", "/bin/bash", "/bin/sh", "zsh", "bash", "sh"})
+
+
+def _codex_scripts(transcript: str) -> list[str]:
+    """The shell scripts a codex session ran, unwrapped from ``<shell> -lc``."""
+
+    scripts: list[str] = []
+    for event in _events(transcript):
+        item = event.get("item") or {}
+        if event.get("type") != "item.completed" or item.get("type") != "command_execution":
+            continue
+        command = item.get("command")
+        if not isinstance(command, str):
+            continue
+        try:
+            argv = shlex.split(command)
+        except ValueError:
+            scripts.append(command)  # unparseable is not a reason to look away
+            continue
+        if argv and argv[0] in _SHELL_WRAPPERS:
+            flags = {"-lc", "-c", "-ic"}
+            scripts.append(argv[-1] if any(a in flags for a in argv[1:-1]) else command)
+        else:
+            scripts.append(command)
+    return scripts
+
+
+def commands_that_reached_outside(transcript: str, packet: Path, out: Path) -> list[str]:
+    """Codex commands that named something condition 2 forbids a rater to see.
+
+    **Why this exists at all.** The Claude family's blindness is enforced by
+    not having the tool: ``--tools Read,Grep,Glob`` leaves no shell. The codex
+    family has one, and ``--sandbox read-only`` restricts *writes* only --
+    probed on 0.153.0, a session read a file outside its working root and
+    printed the contents, and 0.153.0 offers no configuration that narrows
+    reads. So the two families do not get their blindness the same way, and
+    this is what makes up the difference on the side that needs it.
+
+    **It is detection, not confinement**, and it is deliberately narrow. It
+    names the three things that actually carry what condition 2 forbids -- the
+    checkout (the strata inventory names a target decision for every slot, and
+    the engine and its reports are there too), the round's own output
+    directory (other raters' labels and transcripts), and the sibling packets
+    -- plus a ``..`` walk out of the packet. Flagging every absolute path
+    would refuse a session for saying ``/usr/bin/grep``, and a guard that
+    refuses real work is one an operator turns off.
+
+    A script that builds a path at run time still evades it. The compensating
+    control is the one condition 3 already requires: every command is in the
+    archived transcript, so an auditor reads what ran rather than trusting
+    this function.
+    """
+
+    packet = packet.resolve()
+    forbidden = {build_packet.REPO_ROOT.resolve(), out.resolve(), packet.parent}
+    forbidden = {path for path in forbidden if path != packet}
+    found: list[str] = []
+    for script in _codex_scripts(transcript):
+        reasons = []
+        for root in sorted(forbidden, key=lambda item: str(item)):
+            if str(root) in script:
+                reasons.append(f"names {root}")
+        # Tokenise rather than search the raw string: `cat ../sibling/x` has
+        # no `/..` in it, and `Path()` of a whole command line splits on the
+        # spaces' wrong side, so both string tests miss the ordinary way out.
+        try:
+            tokens = shlex.split(script)
+        except ValueError:
+            tokens = script.split()
+        if any(".." in PurePosixPath(token).parts for token in tokens):
+            reasons.append("walks out with ..")
+        if reasons:
+            found.append(f"{script[:160]} ({'; '.join(reasons)})")
+    return found
+
+
 # --------------------------------------------------------------------------
 # Final text → label
 # --------------------------------------------------------------------------
@@ -929,6 +1016,13 @@ def run_rater(
     if completed.returncode != 0:
         diagnostics.append(f"cli exited {completed.returncode}")
 
+    if family == "openai":
+        escaped = commands_that_reached_outside(transcript, packet, out)
+        if escaped:
+            raise RaterError(
+                "the session ran commands that reached outside the packet, so condition 2 "
+                "makes its label inadmissible: " + "; ".join(escaped)
+            )
     final_text, reported_model, reported_client = _FINALS[family](transcript)
     resolved_model = reported_model or model
     if family == "openai":

@@ -110,6 +110,33 @@ change that introduces a runtime-assembled tool list forces the line to be
 drawn rather than stepped around; two more sessions is a cheap price against
 the alternative, which is 56 labels produced against an untested rule.
 
+## Finding 5 — the two families were not blind in the same way
+
+Running the round is what exposed this, and it is a harness defect rather than
+a guide one. The Claude side has no shell: `--tools Read,Grep,Glob` removes it.
+The codex side *is* a shell agent, and `--sandbox read-only` restricts **writes
+only** — probed on 0.153.0, a session read a file outside its working root and
+printed the contents, and that version offers no setting that narrows reads.
+Nothing stopped a codex rater from reading the checkout, where the strata
+inventory names a target decision for every slot.
+
+**These five sessions did not.** Every command each one ran is in its archived
+transcript, all of them are relative paths inside the packet, and all five pass
+the new check. So the round's labels stand — but "did not" is not what
+Amendment 1 asks for, which is blindness *mechanically enforced*.
+
+`commands_that_reached_outside` now refuses a label when a recorded command
+names the checkout, the round's output directory or a sibling packet, or walks
+out with `..`. It is detection rather than confinement, and it is narrow on
+purpose: flagging every absolute path would refuse a session for saying
+`/usr/bin/grep`, and a guard that refuses real work is one an operator turns
+off. A script that builds a path at run time still evades it; the compensating
+control is the one condition 3 already requires, the archived transcript.
+
+**This is worth the owner's attention before the corpus**, because the honest
+options are to accept detection-plus-audit for the codex family, or to run it
+under an OS-level sandbox or container so the read boundary is real.
+
 ## Finding 4 — which copy to cite when a change lands in N identical trees
 
 `cal-3` ships the same file three times (the canonical skill and two provider
