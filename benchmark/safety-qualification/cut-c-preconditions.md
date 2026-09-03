@@ -5,8 +5,13 @@ four things that must be cleared and recorded before the calibration round
 runs. This file is the record. It is maintainer material and never a rater
 input.
 
-Three of the four are cleared here, and the fourth is a sign-off only the
-owner can give.
+All four are cleared, and the calibration round has run — see
+[`calibration-round-2026-09-03.md`](calibration-round-2026-09-03.md). It came
+back at **κ = 0.44** with two disagreements, both traced to places where the
+guide is silent or contradicts itself, so the corrections it asks for are the
+owner's next decision. What stays owner-gated after that is the adjudication of
+every disagreement, which Amendment 1 condition 4 requires to be a third
+identity.
 
 **The round's role assignment, the owner's choice, recorded 2026-09-03:**
 `security_governance` → `claude`, `framework_tooling` → `openai`. It lives in
@@ -14,16 +19,17 @@ owner can give.
 
 | # | Precondition | State |
 |---|---|---|
-| 1 | Confirm [`LABELING.md`](../miner/LABELING.md) | **Open — owner sign-off** |
+| 1 | Confirm [`LABELING.md`](../miner/LABELING.md) | **Cleared — owner sign-off 2026-09-03** |
 | 2 | The Claude harness is unverified | **Cleared — `claude auth login` done, live session returns a result** |
 | 3 | The OpenAI-family harness is unverified | **Cleared — verified against `codex-cli 0.153.0`, live** |
 | 4 | Decide the packet contents | **Decided — the base tree does not ship** |
 
 ---
 
-## 1. Confirm `LABELING.md` — open
+## 1. Confirm `LABELING.md` — cleared
 
-Nothing here can clear this one. Amendment 1 names
+**Signed off by the owner (Pengfei Hu) on 2026-09-03**, against the text at
+`75bcf9da`. Nothing in this repository could clear it. Amendment 1 names
 [`benchmark/miner/LABELING.md`](../miner/LABELING.md) as *the* rater input, so
 the owner's sign-off on its current text is what makes a label produced against
 it admissible.

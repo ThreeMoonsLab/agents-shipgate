@@ -808,16 +808,67 @@ def test_a_symlink_out_of_the_tree_refuses_the_build(
     assert not (tmp_path / "packet-escape").exists()
 
 
-def test_a_dangling_symlink_refuses_the_build(constructed_case: Path, tmp_path: Path) -> None:
-    """A link to nothing means something different on every host it is read on."""
+def test_a_dangling_symlink_is_dropped_and_named_rather_than_refused(
+    constructed_case: Path, tmp_path: Path
+) -> None:
+    """A link to nothing has nothing behind it to leak.
+
+    Refusing over one used to cost the whole case, and real repositories carry
+    them: `stripe/ai` has four `LICENSE` links whose target is `LICENSE` — that
+    is, themselves — which loop on every host, and that alone made `cal-3`
+    unbuildable. Dropping it is safe; dropping it *silently* would leave the
+    rater a path they cannot tell was ever there, so the manifest names it.
+    """
 
     (constructed_case / "head" / "gone.txt").symlink_to(tmp_path / "never-existed.txt")
+    (constructed_case / "head" / "loop.txt").symlink_to("loop.txt")
 
-    with pytest.raises(build_packet.PacketError, match="dangling"):
+    packet = build_packet.build_packet(
+        case_id="cal-x",
+        role="security_governance",
+        out=tmp_path / "packet-dangling",
+        case_dir=constructed_case,
+    )
+    assert not (packet / "repo" / "gone.txt").exists()
+    assert not (packet / "repo" / "loop.txt").exists()
+    manifest = json.loads((packet / "MANIFEST.json").read_text())
+    assert manifest["broken_symlinks"] == ["repo/gone.txt", "repo/loop.txt"]
+    assert "repo/gone.txt" not in manifest["files"]
+    build_packet.verify_manifest(packet)
+
+
+def test_a_packet_with_no_broken_links_does_not_mention_them(
+    constructed_case: Path, tmp_path: Path
+) -> None:
+    """The field appears only when there is something to say."""
+
+    packet = build_packet.build_packet(
+        case_id="cal-y",
+        role="security_governance",
+        out=tmp_path / "packet-clean",
+        case_dir=constructed_case,
+    )
+    assert "broken_symlinks" not in json.loads((packet / "MANIFEST.json").read_text())
+
+
+def test_an_escaping_symlink_still_refuses_even_though_dangling_ones_do_not(
+    constructed_case: Path, tmp_path: Path
+) -> None:
+    """The relaxation must not reach the link that exposes the host.
+
+    A dangling link resolves to nothing; an escaping one resolves to content
+    the manifest cannot describe. Only the first became survivable.
+    """
+
+    outside = tmp_path / "outside.txt"
+    outside.write_text("host content the manifest could not cover\n")
+    (constructed_case / "head" / "escape.txt").symlink_to(outside)
+
+    with pytest.raises(build_packet.PacketError, match="escapes the tree"):
         build_packet.build_packet(
-            case_id="cal-x",
+            case_id="cal-z",
             role="security_governance",
-            out=tmp_path / "packet-dangling",
+            out=tmp_path / "packet-escaping",
             case_dir=constructed_case,
         )
 

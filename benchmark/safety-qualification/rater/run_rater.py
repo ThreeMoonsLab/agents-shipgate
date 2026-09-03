@@ -182,7 +182,15 @@ NETWORK_TOOLS = frozenset({"Bash", "WebFetch", "WebSearch"})
 _ENV_PASSTHROUGH = ("PATH", "TMPDIR", "LANG", "LC_ALL", "TERM", "SHELL", "USER")
 _CLAUDE_CREDENTIAL_ENV = ("ANTHROPIC_API_KEY",)
 _OPENAI_CREDENTIAL_ENV = ("OPENAI_API_KEY",)
-_DEFAULT_OPENAI_MODEL = "gpt-5-codex"
+# No default model for the openai family, deliberately. codex names neither
+# the model nor its own version in its event stream, so whatever is recorded
+# in `reviewer_id` is what the caller asked for -- and a default would make
+# that a guess that is *usually* right, which is the worst kind. Amendment 1
+# condition 3 wants `reviewer_id` to name the model that ran; the only way to
+# mean it here is to require the caller to say. (The name this used to
+# default to, `gpt-5-codex`, was written from memory and is rejected outright
+# by a ChatGPT-account login: "not supported when using Codex with a ChatGPT
+# account".)
 
 # Written into the isolated Codex home. Every line closes a door the real
 # profile could open: no MCP servers, no web search, no approvals, and a
@@ -552,6 +560,12 @@ def claude_invocation(
 def openai_invocation(
     packet: Path, *, model: str | None, home: Path, session_id: str, home_mode: str
 ) -> Invocation:
+    if not model:
+        raise RaterError(
+            "the openai family needs --model: codex does not name the model in its "
+            "event stream, so an unnamed one would be recorded in reviewer_id as "
+            "whatever this harness guessed"
+        )
     effective_home = _resolve_home(home_mode, packet, home)
     argv = [
         "codex",
@@ -579,7 +593,7 @@ def openai_invocation(
         "-c",
         'web_search="disabled"',
         "--model",
-        model or _DEFAULT_OPENAI_MODEL,
+        model,
         "-",
     ]
     env = _base_env(_OPENAI_CREDENTIAL_ENV, effective_home)
@@ -706,6 +720,14 @@ def openai_final(transcript: str) -> tuple[str, str | None, str | None]:
         and e["item"].get("type") == "agent_message"
     ]
     messages = [m for m in messages if isinstance(m, str)]
+    # A failed turn says why; "no completed agent message" says only that the
+    # session produced nothing, which is the symptom of every possible cause.
+    # An unusable model, a revoked credential and a refused sandbox all arrive
+    # here, and all three have different remedies.
+    for event in events:
+        if event.get("type") in {"turn.failed", "error"}:
+            detail = event.get("message") or (event.get("error") or {}).get("message") or ""
+            raise RaterError(f"codex reported {event['type']}: {str(detail)[:400]}")
     if not messages:
         raise RaterError("no completed agent message in the codex transcript")
     if not any(e.get("type") == "turn.completed" for e in events):
@@ -910,7 +932,7 @@ def run_rater(
     final_text, reported_model, reported_client = _FINALS[family](transcript)
     resolved_model = reported_model or model
     if family == "openai":
-        resolved_model = model or _DEFAULT_OPENAI_MODEL
+        resolved_model = model
     if not resolved_model:
         raise RaterError("the transcript does not name the model; pass --model")
 

@@ -214,6 +214,9 @@ unchecked`) rather than passing quietly, but the point is not to need that.
 The four preconditions this round waits on, and what is left of each, are
 recorded in [`cut-c-preconditions.md`](cut-c-preconditions.md).
 
+The round ran on 2026-09-03; its record is
+[`calibration-round-2026-09-03.md`](calibration-round-2026-09-03.md).
+
 **The owner's assignment, recorded 2026-09-03:**
 
 | Role | Family | CLI |

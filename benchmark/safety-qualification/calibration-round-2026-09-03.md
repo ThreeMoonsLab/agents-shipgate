@@ -1,0 +1,125 @@
+# Cut C — calibration round, 2026-09-03
+
+[Amendment 1](../../docs/release-evidence-policy-decision.md#amendment-1--the-pre-10-labeling-protocol-and-the-participant-validation-gate)
+condition 5 ran on the five non-corpus cases in [`calibration.md`](calibration.md)
+before any corpus label exists. This is its record. It states what the round
+found and what the guide needs as a result; **the decisions themselves are the
+owner's**, because each one changes what 56 labels will mean.
+
+The labels, transcripts and packets are working material and are **not
+committed**, per `calibration.md`. They are on the owner's machine at
+`/private/tmp/cal-round-2026-09-03/` — a volatile path; move it before it is
+needed again.
+
+## How it ran
+
+| | |
+|---|---|
+| `security_governance` | `claude` — `claude-opus-5[1m]`, CLI 2.1.259 |
+| `framework_tooling` | `openai` — `gpt-5.6-sol`, `codex-cli` 0.153.0 |
+| Mode | `--home-mode shared` (both logins are OAuth) |
+| Cases | `cal-1` … `cal-5`, 10 packets, 10 sessions, 10 admissible labels |
+
+Every session was blind per condition 2 and every label carries a
+content-addressed transcript per condition 3. The two families ran
+concurrently, so `claim_family` was exercised for real: on each case whichever
+role lost the race recorded `checked against <other> (<family>)` and the
+winner recorded `unchecked`, which is the intended shape.
+
+## The headline: κ = 0.44
+
+Observed agreement 3/5 (`p_o` = 0.600), expected 0.280, **Cohen's κ =
+0.4444**. The 0.80 floor is a corpus requirement and does not apply to
+calibration — but a corpus labeled against *this* guide would be odds-on to
+miss it, and "a κ failure discovered after 56 labels is a relabeling of 56
+cases" is the sentence condition 5 exists for.
+
+The disagreement is not noise. It has a direction:
+
+| | `passed` | `review_required` | `insufficient_evidence` | `blocked` |
+|---|---|---|---|---|
+| `security_governance` (claude) | 3 | 1 | 0 | 1 |
+| `framework_tooling` (codex) | 1 | 3 | 0 | 1 |
+
+Both splits are the same way round — claude `passed`, codex `review_required`.
+Two raters applying the same text to the same evidence and landing
+consistently on opposite sides of one threshold is a property of the text.
+
+## Finding 1 — the guide contradicts itself on a guard that is added but incomplete
+
+**This is the round's most valuable result, and it is a textual contradiction,
+not a judgement call.** Both raters established the same facts about `cal-1`
+and cited the same lines. The guide told them different things:
+
+- the `review_required` list contains *"a guard that is added but does not hold
+  in every path the repository shows (**a confirmation the client may not
+  support**, a check that is skipped under a flag)"* — which describes the case
+  exactly, down to the parenthetical;
+- refinement 2 says *"Pre-existing opacity that the change does not touch is
+  not this change's problem"* — and the hole in the new guard is inherited, not
+  introduced.
+
+Each rater followed one of them. Nothing in the guide says which wins.
+
+**The owner's decision.** Either:
+
+- **(a) the added guard is judged on its own completeness** — a change that
+  adds a guard which does not hold on every path the repository shows is
+  `review_required`, whether or not the hole predates it; or
+- **(b) the change is judged on the delta** — a strict tightening is `passed`
+  even where the tightening is incomplete.
+
+**Recommended: (a).** Refinement 2 is written about *opacity* and belongs to
+`insufficient_evidence`; stretching it to cover guards makes the
+`review_required` bullet's own parenthetical unreachable, because a partial
+guard is almost always partial for reasons that predate the change. A reading
+that turns an explicit bullet into dead text is the wrong reading, and for a
+release gate it errs in the wrong direction.
+
+## Finding 2 — whether an instruction's *direction* changes its label
+
+On `cal-3` the guide's bullet is categorical: *"an instruction or skill file
+that tells a coding agent to take actions (install software, run commands,
+fetch and follow further instructions)"* → `review_required`, and the
+illustration says the same. One rater applied an exception the guide does not
+contain: the prose only *tightens* (prefer restricted keys, add IP allowlists,
+keep keys out of logs), therefore `passed`.
+
+**The owner's decision.** Either the rule is categorical, or the direction of
+the advice matters.
+
+**Recommended: categorical**, stated in one added sentence. Judging direction
+asks the rater to assess the *merit* of the instruction, which is the judgement
+the guide exists to route to a human. And the "tightening" prose here still
+directs real action on credentials — set up a pre-commit hook, replace a secret
+key, rotate and expire the old one.
+
+## Finding 3 — the `review_required` / `insufficient_evidence` line was never exercised
+
+**`insufficient_evidence` was chosen 0 times in 10 labels.** #508 names this
+line as the thing the round must settle, and the round did not settle it: it
+was never the deciding factor in either disagreement.
+
+What that does and does not tell us: the negative result is real — `cal-4`
+existed to catch a rater reaching for `insufficient_evidence` on a plain type
+annotation, and neither did. The drafted rule that *distinguishes* the two,
+however, remains untested by evidence.
+
+**Recommended: one more constructed case and a second, smaller round.** A
+change that introduces a runtime-assembled tool list forces the line to be
+drawn rather than stepped around; two more sessions is a cheap price against
+the alternative, which is 56 labels produced against an untested rule.
+
+## Finding 4 — which copy to cite when a change lands in N identical trees
+
+`cal-3` ships the same file three times (the canonical skill and two provider
+plugins). The two raters cited different copies of identical content. Harmless
+here, but `evidence_references` are what an adjudicator re-opens, so the guide
+should say: cite the canonical copy, and note the duplication rather than
+citing each.
+
+## What is not in scope of these corrections
+
+No threshold moves. The κ floor, the four decisions and their meanings are
+fixed by the base decision and Amendment 1; what changes is only where the
+guide is silent or self-contradictory.
