@@ -58,6 +58,7 @@ from agents_shipgate.schemas.org_evidence_bundle import ORG_EVIDENCE_BUNDLE_SCHE
 from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.registry import REGISTRY_SCHEMA_VERSION
 from agents_shipgate.schemas.report import ReadinessReport
+from agents_shipgate.schemas.safety_qualification import pre_release_safety_requirements
 from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.triggers import (
     VALID_SURFACE_CLASSES,
@@ -719,6 +720,46 @@ def test_constants_match_contract_doc():
     assert runtime_match.group(1) == _load_pyproject_version(), (
         f"contract doc says in-tree runtime is {runtime_match.group(1)}; "
         f"pyproject.toml says {_load_pyproject_version()}."
+    )
+
+
+def test_the_prose_that_states_the_current_report_schema_states_the_current_one():
+    """Two more places name the schema version in a sentence, and both drifted.
+
+    The contract doc and `docs/architecture.md` were already bound above; these
+    two were not, so a bump left them behind. ``README.md`` ended up
+    contradicting itself -- one section said `0.43` while Limitations still said
+    `0.42` -- and the qualification runbook stated a pin the policy no longer
+    used. Both are current-state claims, not frozen-reference mentions, so each
+    is matched by the sentence that makes the claim rather than by searching the
+    file for a number.
+    """
+
+    readme = re.search(
+        r'Current reports carry `report_schema_version: "(\d+\.\d+)"`', _read("README.md")
+    )
+    assert readme, "README.md must state 'Current reports carry `report_schema_version: \"X.Y\"`'."
+    assert readme.group(1) == CURRENT_REPORT_SCHEMA_VERSION, (
+        f"README.md Limitations says reports carry {readme.group(1)!r}; "
+        f"the engine emits {CURRENT_REPORT_SCHEMA_VERSION!r}."
+    )
+
+    # The runbook's claim is about the *policy's* pin, which a separate test
+    # already holds equal to what the engine emits. Checking it against the
+    # policy keeps this guard about the sentence rather than duplicating that
+    # equality.
+    pinned = pre_release_safety_requirements().required_report_schema_version
+    runbook = re.search(
+        r"`required_report_schema_version` pins \(`(\d+\.\d+)` today",
+        _read("benchmark/safety-qualification/README.md"),
+    )
+    assert runbook, (
+        "benchmark/safety-qualification/README.md must state which version "
+        "`required_report_schema_version` pins."
+    )
+    assert runbook.group(1) == pinned, (
+        f"the qualification runbook says the policy pins {runbook.group(1)!r}; "
+        f"pre_release_safety_requirements() pins {pinned!r}."
     )
 
 
