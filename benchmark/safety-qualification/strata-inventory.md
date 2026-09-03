@@ -394,10 +394,10 @@ read: mine an *application* that calls `MultiServerMCPClient` or
 `load_mcp_tools` at agent construction, not the adapter library. That is
 `bytedance/deer-flow`, a LangGraph research application whose agent tools are
 assembled at run time by `langchain-mcp-adapters` from an out-of-tree
-extensions config. Its latest 40 merged PRs supplied nothing usable — one of
-the forty reaches a decision at all, for the reason below, and on a repository
-this busy those forty span six days — so the claim is the
-named PR `#4868`, mined with `--pr`: per-user credential injection for shared
+extensions config. Its latest 40 merged PRs supplied nothing usable: only one
+of the forty reaches a decision at all, for the reason below, and on a
+repository this busy the forty span six days. So the claim is the named PR
+`#4868`, mined with `--pr`: per-user credential injection for shared
 MCP servers, where which credential a tool call carries is chosen at run time
 from the caller's identity and a `$ENV_VAR` map. Neither the servers, the
 tools, nor the credentials are in the tree.
@@ -406,8 +406,7 @@ tools, nor the credentials are in the tree.
 tell.** 24 of the 40 rows are `init_skip` because a cold start at the
 repository root returns `refused_unresolved_scope`: the workspace holds more
 than one self-contained project that defines agents, and one manifest
-describes one agent surface.
-The miner's fallback retries at the deepest common directory of the changed
+describes one agent surface. The miner's fallback retries at the deepest common directory of the changed
 files, which for any PR touching both `backend/` and `frontend/` is the root
 again. Pointed at `backend/packages/harness`, `init --write` writes a manifest
 and the scan reaches a decision. **A case rooted at a repository the miner
