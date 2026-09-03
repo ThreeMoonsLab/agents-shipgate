@@ -1457,7 +1457,12 @@ def test_the_family_check_runs_before_the_session_does(
 
 
 def _gitconfig(path: Path, *, quotepath: bool = True) -> Path:
-    """A `~/.gitconfig` that changes every diff-shaping knob it can."""
+    """A `~/.gitconfig` that changes every diff-shaping knob it can.
+
+    This is the exhaustiveness claim `_DIFF_CONFIG` cannot make in a comment:
+    a key that reaches the diff and is not pinned shows up here as two packets
+    that disagree. Add to it whenever git grows another knob.
+    """
 
     path.write_text(
         "[diff]\n"
@@ -1466,6 +1471,8 @@ def _gitconfig(path: Path, *, quotepath: bool = True) -> Path:
         "\tmnemonicPrefix = true\n"
         "\talgorithm = patience\n"
         "\trenames = true\n"
+        "\tinterHunkContext = 20\n"
+        "\tsuppressBlankEmpty = true\n"
         "[core]\n"
         "\tabbrev = 12\n"
         f"\tquotepath = {'true' if quotepath else 'false'}\n",
@@ -1486,11 +1493,18 @@ def test_the_diff_does_not_depend_on_the_operator_s_git_configuration(
     machine built it.
     """
 
+    # Two edits far enough apart to be two hunks, and blank lines between
+    # them: `diff.interHunkContext` merges the hunks and moves every line
+    # number after them, `diff.suppressBlankEmpty` rewrites the blank ones.
+    lines = [f"line{i}" if i % 7 else "" for i in range(40)]
     clone = tmp_path / "clone"
     base, head = _two_commit_clone(
         clone,
-        {"f.py": "\n".join(f"line{i}" for i in range(40)) + "\n"},
-        {"f.py": "\n".join("CHANGED" if i == 20 else f"line{i}" for i in range(40)) + "\n"},
+        {"f.py": "\n".join(lines) + "\n"},
+        {
+            "f.py": "\n".join("CHANGED" if i in (5, 30) else value for i, value in enumerate(lines))
+            + "\n"
+        },
     )
     plain = build_packet.build_packet(
         case_id="ext-config",

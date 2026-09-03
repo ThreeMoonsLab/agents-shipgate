@@ -414,8 +414,12 @@ def materialize_tree(repo: Path, rev: str, dest: Path) -> list[str]:
     return sorted(written)
 
 
-# Every key git reads from configuration that changes the bytes of a diff,
-# pinned. Without these the packet depends on the operator's `~/.gitconfig`:
+# The keys git reads from configuration that change the bytes of a diff,
+# pinned to their defaults. Treat the list as incomplete until a test says
+# otherwise: `test_the_diff_does_not_depend_on_the_operator_s_git_configuration`
+# builds one packet under a hostile `~/.gitconfig` and one without, and is the
+# thing that fails when git grows another knob or one is found to have been
+# missed. Without these the packet depends on the operator's `~/.gitconfig`:
 # `diff.context=7` turns a 13-line patch into a 21-line one, `diff.noprefix`
 # rewrites every `diff --git a/x b/x` header, `core.abbrev` widens every
 # `index` line. That would put `MANIFEST.json` -- and every
@@ -450,6 +454,14 @@ _DIFF_CONFIG = (
     # `--raw -z` never quotes, so `changed_submodules` does not need this.
     "-c",
     "core.quotePath=true",
+    # How close two changes must be before their hunks are merged into one.
+    # This one moves line numbers, which is what a rater cites and what an
+    # adjudicator re-reads.
+    "-c",
+    "diff.interHunkContext=0",
+    # Whether a blank context line keeps its leading space.
+    "-c",
+    "diff.suppressBlankEmpty=false",
 )
 
 
