@@ -211,15 +211,49 @@ cannot parse. Both release gates enforce the pairing — the standard-library
 sealer on raw JSON, since it never parses the envelope otherwise. Nothing emits
 v4 any more, and v3 is still not read, as before.
 
-**What this is for.** `0.x` tags are now governed by a named 56-case `pre_1_0`
+**What this is for.** `0.x` tags are now governed by a named 38-case `pre_1_0`
 policy, decided under
 [#341](https://github.com/ThreeMoonsLab/agents-shipgate/issues/341) and recorded
 in [`docs/release-evidence-policy-decision.md`](docs/release-evidence-policy-decision.md).
 It reduces evidence *coverage* only: the zero-unsafe-auto-pass rule, per-case
 receipts, the holdout fraction, the κ floor and `static_only` are unchanged, and
 every exact-match floor is the production rate rounded up. `1.0` and later still
-require the 100-case `beta` artifact, and there is no promotion shortcut.
+require the 80-case `beta` artifact, and there is no promotion shortcut.
 <a id="migration-note-unreleased-setup-error-envelope"></a>
+
+## Migration Note: 0.16.0 — no corpus case targets `insufficient_evidence`
+
+**No schema version moves.** `shipgate.safety_qualification` stays at v5, the
+corpus and receipt-index envelopes are unchanged, and no field is added,
+renamed, or removed. `insufficient_evidence` remains in
+`ReleaseDecisionStatus`, the verifier still emits it, and
+`minimum_insufficient_evidence_exact` remains a required field of the
+`requirements` block.
+
+**What changes is the contents of the two named policies.** No stratum targets
+`insufficient_evidence` any more, so both tiers lose seven cells: `beta` goes
+28 cells / 100 cases → 21 / 80, and `pre_1_0` 28 / 56 → 21 / 38. Four
+`pre_1_0` `blocked` cells hold one case rather than two, because no second real
+case exists for them. The floors that count those cases follow:
+`minimum_insufficient_evidence_exact` becomes `0` in both tiers,
+`minimum_blocked_exact` becomes `10` for `pre_1_0`, and
+`minimum_qualified_origins` becomes `32` / `16` — the same 40% share of a
+smaller corpus, not a smaller share.
+
+**No rate moved**, which is the property to check if you are reading this to
+find out whether the bar got easier. Every exact-match floor is still
+production's rate applied to the population it governs, rounded up, and
+`test_the_pre_1_0_policy_is_never_laxer_than_production_per_rate` fails if a
+floor is one case laxer than that.
+
+**Who is affected.** Nobody consuming a published artifact: none exists yet at
+either tier. A qualification artifact built against the previous shape is
+rejected by both release gates — with `case profile/outcome strata do not match
+the <tier> policy` and a case-count error — and must be rebuilt. The reasoning
+is recorded in
+[`docs/release-evidence-policy-decision.md`](docs/release-evidence-policy-decision.md)
+§ Amendment 3, under
+[#520](https://github.com/ThreeMoonsLab/agents-shipgate/issues/520).
 
 ## Migration Note: 0.16.0 — the setup control envelope reaches both streams
 

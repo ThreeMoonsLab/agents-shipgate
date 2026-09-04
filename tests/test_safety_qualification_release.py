@@ -180,6 +180,18 @@ def _result(
     )
 
 
+def _case_total(requirements: SafetyQualificationRequirementsV1) -> int:
+    """How many cases a policy demands.
+
+    Derived rather than spelled, because these tests are about *which* policy
+    a tag selects, not about the counts themselves --
+    ``test_production_defaults_pin_the_exact_beta_contract`` and its pre-1.0
+    twin are where a count change has to be an explicit edit.
+    """
+
+    return sum(item.count for item in requirements.required_strata)
+
+
 def _fixture(
     tmp_path: Path,
     *,
@@ -318,7 +330,7 @@ def test_a_pre_1_0_artifact_publishes_a_0_x_tag_and_nothing_later(
 ) -> None:
     """The whole point of the #341 decision, and its limit.
 
-    A 56-case ``pre_1_0`` artifact is a complete answer for a ``0.x`` tag, and
+    A conforming ``pre_1_0`` artifact is a complete answer for a ``0.x`` tag, and
     is *not* an answer for ``1.0``: the same bytes that pass on ``v0.16.0b7``
     must fail on ``v1.0.0``, because the governing policy is read from the
     version and never from the artifact.
@@ -334,7 +346,7 @@ def test_a_pre_1_0_artifact_publishes_a_0_x_tag_and_nothing_later(
     assert result.qualification_tier == "pre_1_0"
     assert result.qualified is True
     assert result.production_qualified is False
-    assert len(result.cases) == 56
+    assert len(result.cases) == _case_total(pre_release_safety_requirements())
 
     later_wheel, later_qualification = _fixture(
         tmp_path / "later",
@@ -405,8 +417,11 @@ def test_the_tier_a_0_x_artifact_names_selects_the_counts_it_must_meet(
     tmp_path: Path,
 ) -> None:
     """Both tiers are admissible for ``0.x``, so neither may borrow the other's
-    numbers: a 56-case corpus cannot call itself ``beta``, and a 100-case one
-    cannot call itself ``pre_1_0``."""
+    numbers: a pre-1.0-sized corpus cannot call itself ``beta``, and a
+    production-sized one cannot call itself ``pre_1_0``."""
+
+    production_total = _case_total(production_safety_requirements())
+    pre_1_0_total = _case_total(pre_release_safety_requirements())
 
     def _relabel(tier: str, production: bool):
         # Both fields together: relabelling only the tier trips the artifact's
@@ -422,7 +437,7 @@ def test_the_tier_a_0_x_artifact_names_selects_the_counts_it_must_meet(
         tmp_path / "understated", requirements=pre_release_safety_requirements()
     )
     _mutate(qualification, _relabel("beta", True))
-    with pytest.raises(ConfigError, match="exactly 100 cases"):
+    with pytest.raises(ConfigError, match=f"exactly {production_total} cases"):
         verify_release_qualification(
             wheel_path=wheel, qualification_path=qualification, tag=f"v{VERSION}"
         )
@@ -431,14 +446,14 @@ def test_the_tier_a_0_x_artifact_names_selects_the_counts_it_must_meet(
         tmp_path / "overstated", requirements=production_safety_requirements()
     )
     _mutate(qualification, _relabel("pre_1_0", False))
-    with pytest.raises(ConfigError, match="exactly 56 cases"):
+    with pytest.raises(ConfigError, match=f"exactly {pre_1_0_total} cases"):
         verify_release_qualification(
             wheel_path=wheel, qualification_path=qualification, tag=f"v{VERSION}"
         )
 
 
 def test_a_pre_1_0_artifact_may_not_claim_the_production_flag(tmp_path: Path) -> None:
-    """``production_qualified`` keeps meaning "met the 100-case bar".
+    """``production_qualified`` keeps meaning "met the production bar".
 
     The artifact schema refuses to construct the inconsistency at all, so the
     runner cannot emit one and the verifier rejects it while parsing -- before
@@ -494,7 +509,7 @@ def test_an_unnamed_tier_is_rejected_and_still_scored_against_production(
 
     message = str(excinfo.value)
     assert "qualification tier is not one of beta, pre_1_0" in message
-    assert "exactly 100 cases" in message
+    assert f"exactly {_case_total(production_safety_requirements())} cases" in message
 
 
 def test_release_workflow_reuses_signed_qualified_wheel_before_publish() -> None:

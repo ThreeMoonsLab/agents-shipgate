@@ -23,19 +23,26 @@ must carry. It reduces nothing about how that evidence is judged.
 | | `beta` (production) | `pre_1_0` (approved here) |
 |---|---|---|
 | Governs | `1.0` and later — and any tag, if offered | `0.x` tags only |
-| Adjudicated cases | 100 | **56** |
-| Strata (profile × decision) | 28, weighted | **28, two cases each** |
-| Qualifying origins | ≥ 40 (40%) | **≥ 23** (40%, rounded up) |
+| Adjudicated cases³ | 80 | **38** |
+| Strata (profile × decision)³ | 21, weighted | **21, two cases each but four** |
+| Qualifying origins³ | ≥ 32 (40%) | **≥ 16** (40%, rounded up) |
 | Cohen's κ floor | 0.80 | **0.80** — unchanged |
 | Holdout per stratum | ≥ 20% | **≥ 20%** — unchanged |
 | Unsafe auto-passes | 0, per profile and overall | **0** — unchanged |
 | Per-case verifier receipt | required, unique digest | **required** — unchanged |
 | `static_only` / `runtime_behavior_proven` | `true` / `false` | **unchanged** |
 | Safe passes | ≥ 27 of 30 (90%) | **≥ 13 of 14** (92.9%) |
-| Blocked exact | ≥ 30 of 30 (100%) | **≥ 14 of 14** (100%) |
+| Blocked exact³ | ≥ 30 of 30 (100%) | **≥ 10 of 10** (100%) |
 | Review exact | ≥ 19 of 20 (95%) | **≥ 14 of 14** (100%) |
-| Insufficient-evidence exact | ≥ 19 of 20 (95%) | **≥ 14 of 14** (100%) |
-| Report schema | `0.42` | **`0.42`** — unchanged |
+| Insufficient-evidence exact³ | no cases target it | **no cases target it** |
+| Report schema² | `0.43` | **`0.43`** — unchanged |
+
+² The approved table read `0.42`. The pin follows the schema the engine emits
+(`test_the_qualification_gate_demands_the_schema_the_engine_emits`), a later
+bump moved both tiers together, and this row was left behind — corrected here,
+not decided here.
+³ Changed by [Amendment 3](#amendment-3--insufficient_evidence-leaves-the-ground-truth-vocabulary-and-four-cells-hold-one-case).
+Every other row is what was approved on 2026-08-29.
 
 ### Why these numbers
 
@@ -45,10 +52,11 @@ to `google_adk`. Scaling that shape to 56 pushes the smallest cells to zero or
 one. A zero-count cell deletes every observation of a profile × outcome pair,
 which is a reduction in *strictness*, not in coverage: the gate stops being able
 to fail for that combination at all. Two per cell is the smallest allocation
-that keeps all 28 cells non-empty **and** leaves room for a tuning/holdout split
+that keeps all cells non-empty **and** leaves room for a tuning/holdout split
 in every cell at the unchanged 20% holdout fraction — at one case per cell,
 `ceil(1 × 0.20) = 1` forces the single case to be holdout and no cell can hold a
-tuning case at all.
+tuning case at all. Amendment 3 sets four cells to one case anyway, and accepts
+exactly that consequence for them, because the alternative is worse: see there.
 
 **What is enforced is a holdout floor, not a 1/1 split.** Each cell must carry
 at least `ceil(size × 0.20)` holdout cases — one, at this size. A corpus that
@@ -59,7 +67,7 @@ reject a corpus for being more conservative than required.
 
 **Exact-match floors are the production rates, rounded up.** 27 of 30 and 13 of
 14 are the same 90% demand at two sizes; 12 of 14 would not be. Rounding up
-means three of the four floors land on 100% at this size — the smaller corpus
+means two of the three floors land on 100% at this size — the smaller corpus
 buys less tolerance for error, not more. That is the correct direction: fewer
 cases already widen every Wilson interval, so the *claim* is weaker even though
 the *gate* is not.
@@ -93,7 +101,7 @@ Nothing in the artifact influences which policy applies to it.
 
 **Promotion to 1.0 is not automatic and has no shortcut.** There is no path by
 which `pre_1_0` evidence qualifies a `1.0` tag. Shipping 1.0 requires the full
-100-case artifact, which is what corpus-delivery issue
+`beta` artifact, which is what corpus-delivery issue
 [#456](https://github.com/ThreeMoonsLab/agents-shipgate/issues/456) exists to
 produce.
 When it lands, `pre_1_0` stops being reachable by construction — every tag from
@@ -110,12 +118,12 @@ installing `v0.15.0` — an older, less-verified build than the one being
 withheld. Withholding a better build behind a 1.0-grade evidence bar makes
 users less safe, not more. That is the trade the owner declined.
 
-**Renaming the 100-case policy.** Explicitly rejected by #341 and not done:
+**Renaming the production policy.** Explicitly rejected by #341 and not done:
 `beta` still means exactly what it meant, with the same thresholds and the same
 constructor. `pre_1_0` is additive.
 
 **Reusing `production_qualified` for both tiers.** The flag keeps meaning "met
-the 100-case bar". A `pre_1_0` artifact reports `production_qualified: false`,
+the production bar". A `pre_1_0` artifact reports `production_qualified: false`,
 and the artifact schema refuses to *construct* one that says otherwise — so the
 producer cannot emit the inconsistency, rather than every reader having to
 catch it after signing. A field that quietly changed meaning would be the
@@ -154,8 +162,9 @@ the wrong shape.
   declared `requirements` against the restatement for the rest;
   `test_the_stdlib_policy_table_matches_the_named_policies` binds every field
   of the two copies. Restating only a case count is not enough — it cannot
-  tell 56 correctly stratified cases from 56 identical ones, nor notice a
-  corpus two safe passes below its floor, which is exactly the class of
+  tell a correctly stratified corpus from the same number of identical rows,
+  nor notice a
+  corpus two safe passes below its floor — which is exactly the class of
   weakening this gate exists to stop. *This site is easy to miss: an earlier
   draft of this brief listed only five.*
 - `scripts/_release_support.py` — the version→tier rule, shared by both gates
@@ -179,8 +188,8 @@ the wrong shape.
 - [x] Documentation, schema vocabulary, qualification generator, release
       verifiers, and this runbook agree — enforced by the tests named above,
       not only asserted here.
-- [x] A separate corpus-delivery issue is opened for the 56-case artifact and
-      the 100-case 1.0 bar —
+- [x] A separate corpus-delivery issue is opened for the `pre_1_0` artifact and
+      the production 1.0 bar —
       [#456](https://github.com/ThreeMoonsLab/agents-shipgate/issues/456).
 - [ ] A rehearsal proves the chosen policy **fails closed** — dispatch
       **Release Rehearsal** against an artifact that misses the bar and confirm
@@ -219,7 +228,7 @@ commits to human primary labels, and since `pre_1_0` evidence cannot qualify a
 
 ### The protocol
 
-For the 56-case `pre_1_0` corpus, the two blind primary labels are produced by
+For the `pre_1_0` corpus, the two blind primary labels are produced by
 **two independent agent sessions**, one per discipline role, and **every
 disagreement is adjudicated by the owner**, who is never a primary rater.
 Three distinct identities per disputed case, exactly as the schema demands.
@@ -247,8 +256,8 @@ Three distinct identities per disputed case, exactly as the schema demands.
    discloses that, per case.
 5. **A calibration round first.** The protocol runs on five non-corpus cases
    before any corpus label exists; ambiguities it finds in the labeling guide
-   are fixed first. A κ failure discovered after 56 labels is a relabeling of
-   56 cases.
+   are fixed first. A κ failure discovered after the whole corpus is labelled
+   is a relabeling of the whole corpus.
 6. **A disclosure block in the artifact.** The published qualification
    artifact names this protocol, the model families, and the location of the
    archived transcripts. The schema's label type is named
@@ -518,3 +527,104 @@ build that does claim to meet one.
 - [x] The cadence policy the channel is measured against is recorded in
       [`release-runbook.md`](release-runbook.md) § Cadence, and the number is
       printed by `scripts/release_cadence.py` on every CI run.
+
+## Amendment 3 — `insufficient_evidence` leaves the ground-truth vocabulary, and four cells hold one case
+
+**Status: decided.**
+**Owner: Pengfei Hu (`pengfei-threemoonslab`), product/security. Recorded
+2026-09-04.** Tracked by
+[#520](https://github.com/ThreeMoonsLab/agents-shipgate/issues/520) and
+[#508](https://github.com/ThreeMoonsLab/agents-shipgate/issues/508).
+
+Two changes to the corpus *shape*. Neither changes how a case is judged, and
+neither moves a rate. The base decision's rule still governs: a smaller corpus
+may reduce coverage; it must not reduce strictness.
+
+### 1. No case is targeted at `insufficient_evidence`
+
+**The reasoning, from first principles.** A verdict exists to route a change to
+an outcome: `passed` merges, `review_required` goes to a human with a named
+capability to look at, `blocked` stops. `insufficient_evidence` routes nowhere
+— it is what the gate says when *its own reader* failed to establish the
+surface. That is a statement about shipgate, not about the change.
+
+The consequence for a corpus is exact. Ground truth answers "what should a
+correct gate do with this change?" A correct gate — one whose extraction
+succeeded — can always name the binding, because the authority is the binding
+itself and not the leaves it resolves to at runtime. So `insufficient_evidence`
+is never the right answer to that question, and a cell that demands it is
+demanding that the corpus contain changes shipgate is expected to fail to read.
+
+**What the evidence showed.** The first corpus round put the line under load.
+All four cases where both blind raters chose `insufficient_evidence` named a
+capability the diff had introduced — they could have decided. One slot sourced
+as `insufficient_evidence` was placed at `blocked` by both raters
+independently. And 12 of the 15 `insufficient_evidence` slots were sourced from
+a miner label, which is the engine's own verdict, so the cell was largely
+measuring the engine against itself.
+
+**What changes.** The 7 `insufficient_evidence` cells leave both tiers: 28
+cells → 21, and 100 → 80 / 56 → 38 cases. The exact-match floor for the outcome
+becomes 0 over a population of 0 —
+`test_the_pre_1_0_policy_is_never_laxer_than_production_per_rate` requires both
+tiers to agree on that rather than inventing a floor over nothing.
+
+**What does not change.** The value stays in the enum and the verifier still
+emits it: a real run whose extraction failed must still be able to say so. It
+is scored as a *miss* against whatever the case expected — a coverage failure,
+which is what it is. `SHIP-*` behaviour is untouched.
+
+### 2. Four `blocked` cells hold one case, because the second does not exist
+
+The `pre_1_0` corpus asks for two cases per cell. `openai_agents_sdk ×
+blocked`, `langchain_crewai × blocked`, `google_adk × blocked` and
+`coding_agent_trust_roots × blocked` ask for one.
+
+This is a claim about the world, and it was measured. Of the seven profiles,
+four produced a real-world `blocked` case at all, and each produced exactly
+one; in two of those cells the sourced real candidate was placed at
+`review_required` by both blind raters, leaving a construction. Cut B recorded
+the cause and the W36 sweep confirmed it: every `blocked` slot with a
+qualifying origin came from a closed-unmerged or reverted PR, never from merged
+history — because a change that should have been stopped usually was. The
+per-cell detail is in
+[`benchmark/safety-qualification/strata-inventory.md`](../benchmark/safety-qualification/strata-inventory.md)
+§ Why four cells hold one case and not two.
+
+**The alternative was refused.** Two cases in each of those cells is reachable
+today by building four more constructions. A cell filled entirely with
+constructions measures our imagination rather than the world. One real case is
+worth more than two invented ones.
+
+**The cost, stated plainly.** At one case per cell `ceil(1 × 0.20) = 1`, so
+each of those four cells is entirely holdout and carries no tuning case. The
+base decision named that as the reason not to go below two. It is the right
+trade here in the other direction: a cell with one real holdout case still
+measures the engine on evidence it was never tuned on, which is the stronger
+half of the split; a cell with two constructions measures neither.
+
+`minimum_blocked_exact` falls from 14 to 10 because there are 10 `blocked`
+cases. The **rate** is unchanged at 100% — the gate still tolerates zero wrong
+`blocked` answers. `minimum_qualified_origins` falls to 16 (production, 32) for
+the same reason: 40% of the corpus, which is what was approved. Holding a
+*count* fixed while the corpus shrank would have raised production's origin
+demand from 40% to 50% as a side effect of deleting a decision, which nobody
+decided.
+
+### Acceptance
+
+- [x] The named owner records the ruling and its reasoning — 2026-09-04, above,
+      and in [#520](https://github.com/ThreeMoonsLab/agents-shipgate/issues/520).
+- [x] Both tiers, the stdlib restatement in `scripts/_release_support.py`, and
+      the strata inventory carry the same shape — bound by
+      `test_the_stdlib_policy_table_matches_the_named_policies` and
+      `test_the_register_reports_the_plan_the_csv_actually_holds`.
+- [x] The exact counts are pinned as literals so a further change is a visible
+      edit — `test_production_defaults_pin_the_exact_beta_contract` and
+      `test_pre_release_defaults_pin_the_exact_pre_1_0_contract`, the latter
+      naming the four scarce cells so shrinking any *other* cell fails.
+- [x] No rate moved — `test_the_pre_1_0_policy_is_never_laxer_than_production_per_rate`
+      re-derives every floor from production's rate and fails on a one-case
+      relaxation.
+- [x] The reason each cell is short is written where a corpus owner reads it —
+      `strata-inventory.md` § Why four cells hold one case and not two.

@@ -62,7 +62,18 @@ SOURCING_STATUSES = frozenset({"pinned", "unpinned", "gap"})
 # not thereby verifier-*independent* -- see
 # `test_the_miner_label_basis_is_disclosed_as_verifier_exposed`.
 TARGET_BASES = frozenset(
-    {"miner_label", "diff_substance", "sample_design", "constructed_design", "unsourced"}
+    {
+        "miner_label",
+        "diff_substance",
+        "sample_design",
+        "constructed_design",
+        # The blind corpus labels themselves, once a round has produced them.
+        # This is the opposite of a verifier-derived basis: it is the ground
+        # truth the engine is measured against, produced without the engine's
+        # verdict in view. A row carries it only after its case was labeled.
+        "corpus_label",
+        "unsourced",
+    }
 )
 
 # Cut B constructions live here, never under `samples/`: the goldens under
@@ -470,7 +481,7 @@ def test_the_inventory_covers_the_policy_grid_and_takes_its_cells_from_the_polic
         (stratum.profile, stratum.expected_decision): stratum.count
         for stratum in pre_release_safety_requirements().required_strata
     }
-    assert len(required) == 28
+    assert len(required) == 21
 
     present = Counter((row["profile"], row["target_decision"]) for row in rows)
 
@@ -1105,9 +1116,29 @@ def test_a_miner_label_row_agrees_with_the_csv_it_cites(rows: list[dict[str, str
         # The escape this closes: hitting a mismatch and quietly restating the
         # basis as `diff_substance` so nothing cross-checks it any more. A
         # labeled subject is checked against its label wherever it is placed.
+        #
+        # `corpus_label` is the one basis that may supersede a miner label,
+        # because it is strictly better evidence: the miner label was written
+        # with the engine's verdict on the worksheet, the corpus label by two
+        # blind raters who saw neither. It is not a free-text escape — the row
+        # must cite a committed corpus round record, which is reviewable, and
+        # the exposure column still discloses the miner label underneath.
+        if row["target_basis"] == "corpus_label":
+            cited = Path(row["evidence_ref"])
+            assert cited.name.startswith("corpus-round-") and cited.suffix == ".md", (
+                f"{row['slot_id']} claims a corpus label but cites {row['evidence_ref']!r}, "
+                "which is not a corpus round record"
+            )
+            assert (REPO_ROOT / cited).exists(), (
+                f"{row['slot_id']} cites {row['evidence_ref']}, which does not exist"
+            )
+            assert "miner_label" in _declared_exposure(row), (
+                f"{row['slot_id']} was labeled by the miner and must keep disclosing it"
+            )
+            continue
         assert row["target_basis"] == "miner_label", (
             f"{row['slot_id']}: {row['candidate_ref']} is labeled in {sorted(sweeps)}, "
-            "so the row must cite that label"
+            "so the row must cite that label or a corpus round record"
         )
         cited = row["evidence_ref"]
         assert cited in sweeps, f"{row['slot_id']} cites {cited}, which does not label its subject"

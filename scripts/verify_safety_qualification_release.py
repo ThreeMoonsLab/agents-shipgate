@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fail-closed release validation for a signed safety qualification artifact.
 
-The wheel version selects the governing policy -- the 56-case ``pre_1_0``
+The wheel version selects the governing policy -- the 38-case ``pre_1_0``
 policy for ``0.x``, the 100-case production policy from ``1.0`` on -- and every
 count, interval and confusion matrix below is re-derived from that policy
 rather than read from the artifact. See

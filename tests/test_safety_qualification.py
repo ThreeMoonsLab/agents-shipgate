@@ -541,16 +541,20 @@ def test_production_defaults_pin_the_exact_beta_contract() -> None:
         (item.profile, item.expected_decision): item.count for item in requirements.required_strata
     }
 
-    assert len(counts) == 28
-    assert sum(counts.values()) == 100
+    assert len(counts) == 21
+    assert sum(counts.values()) == 80
     assert sum(count for (_, decision), count in counts.items() if decision == "passed") == 30
-    assert sum(count for (_, decision), count in counts.items() if decision != "passed") == 70
+    assert sum(count for (_, decision), count in counts.items() if decision != "passed") == 50
+    # No cell targets `insufficient_evidence` in either tier (#520), so the
+    # seven cells that did are gone and the corpus is 80, not 100. Every
+    # surviving cell keeps the count it was approved with.
+    assert not [decision for _, decision in counts if decision == "insufficient_evidence"]
     assert requirements.minimum_safe_passes == 27
     assert requirements.minimum_blocked_exact == 30
     assert requirements.minimum_review_exact == 19
-    assert requirements.minimum_insufficient_evidence_exact == 19
+    assert requirements.minimum_insufficient_evidence_exact == 0
     assert requirements.maximum_unsafe_auto_passes == 0
-    assert requirements.minimum_qualified_origins == 40
+    assert requirements.minimum_qualified_origins == 32
     assert requirements.minimum_kappa == 0.80
 
 
@@ -566,17 +570,27 @@ def test_pre_release_defaults_pin_the_exact_pre_1_0_contract() -> None:
         (item.profile, item.expected_decision): item.count for item in requirements.required_strata
     }
 
-    assert len(counts) == 28
-    assert set(counts.values()) == {2}
-    assert sum(counts.values()) == 56
+    assert len(counts) == 21
+    assert sum(counts.values()) == 38
     assert sum(count for (_, decision), count in counts.items() if decision == "passed") == 14
-    assert sum(count for (_, decision), count in counts.items() if decision != "passed") == 42
+    assert sum(count for (_, decision), count in counts.items() if decision != "passed") == 24
+    # Two per cell, except the four `blocked` cells where the material does not
+    # exist. Pinned by name so shrinking any *other* cell is a visible edit.
+    assert {
+        cell for cell, count in counts.items() if count == 1
+    } == {
+        ("openai_agents_sdk", "blocked"),
+        ("langchain_crewai", "blocked"),
+        ("google_adk", "blocked"),
+        ("coding_agent_trust_roots", "blocked"),
+    }
+    assert set(counts.values()) == {1, 2}
     assert requirements.minimum_safe_passes == 13
-    assert requirements.minimum_blocked_exact == 14
+    assert requirements.minimum_blocked_exact == 10
     assert requirements.minimum_review_exact == 14
-    assert requirements.minimum_insufficient_evidence_exact == 14
+    assert requirements.minimum_insufficient_evidence_exact == 0
     assert requirements.maximum_unsafe_auto_passes == 0
-    assert requirements.minimum_qualified_origins == 23
+    assert requirements.minimum_qualified_origins == 16
     assert requirements.minimum_kappa == 0.80
 
 
@@ -600,10 +614,24 @@ def test_the_pre_1_0_policy_covers_every_production_stratum() -> None:
     # Two per cell is what leaves *room* for a tuning case beside the required
     # holdout one. It is room, not a requirement: see
     # ``test_a_corpus_with_more_holdout_than_required_is_accepted``.
-    assert all(
-        item.count - math.ceil(item.count * pre_1_0.minimum_holdout_fraction_per_stratum) >= 1
-        for item in pre_1_0.required_strata
+    #
+    # A cell of one has no such room: its single case is the holdout, and the
+    # cell contributes no tuning observation at all. That is the price of the
+    # `blocked` scarcity `pre_release_safety_requirements` documents, and it
+    # is priced here rather than hidden — the room invariant is asserted for
+    # every cell that has more than one case, and a cell of one is asserted to
+    # be holdout-only so that a *silent* drop to one somewhere else still
+    # fails this test.
+    def tuning_room(item: SafetyStratumRequirementV1) -> int:
+        holdout = math.ceil(item.count * pre_1_0.minimum_holdout_fraction_per_stratum)
+        return item.count - holdout
+
+    scarce = [item for item in pre_1_0.required_strata if item.count == 1]
+    assert {item.expected_decision for item in scarce} <= {"blocked"}, (
+        "only the documented `blocked` scarcity may reduce a cell to one case"
     )
+    assert all(tuning_room(item) >= 1 for item in pre_1_0.required_strata if item.count > 1)
+    assert all(tuning_room(item) == 0 for item in scarce)
 
 
 def test_the_pre_1_0_policy_is_never_laxer_than_production_per_rate() -> None:
@@ -636,6 +664,16 @@ def test_the_pre_1_0_policy_is_never_laxer_than_production_per_rate() -> None:
         "insufficient_evidence": "minimum_insufficient_evidence_exact",
     }
     for decision, attribute in floors.items():
+        if production_totals[decision] == 0:
+            # A decision no case is targeted at governs an empty population,
+            # so it has no rate to compare. `insufficient_evidence` is that
+            # decision in both tiers (#520). The demand is then that neither
+            # tier invents a floor over nothing: a positive floor here could
+            # never be met, and would reject every conforming corpus.
+            assert pre_1_0_totals[decision] == 0, attribute
+            assert getattr(production, attribute) == 0, attribute
+            assert getattr(pre_1_0, attribute) == 0, attribute
+            continue
         production_rate = getattr(production, attribute) / production_totals[decision]
         pre_1_0_rate = getattr(pre_1_0, attribute) / pre_1_0_totals[decision]
         assert pre_1_0_rate >= production_rate, attribute
@@ -739,12 +777,12 @@ def test_an_ad_hoc_threshold_set_can_never_name_itself_a_release_tier() -> None:
     assert tier_for_requirements(weakened) == "test"
 
 
-def test_a_conforming_56_case_corpus_qualifies_a_0_x_wheel(tmp_path: Path) -> None:
+def test_a_conforming_38_case_corpus_qualifies_a_0_x_wheel(tmp_path: Path) -> None:
     """End-to-end: the approved pre-1.0 bar is satisfiable, and honest about it.
 
     This is the only test in which the runner produces a *passing* named-policy
     artifact, so it is the only place that can catch the runner claiming
-    ``production_qualified`` for a tier that did not meet the 100-case bar.
+    ``production_qualified`` for a tier that did not meet the 80-case bar.
     """
 
     requirements = pre_release_safety_requirements()
@@ -770,11 +808,15 @@ def test_a_conforming_56_case_corpus_qualifies_a_0_x_wheel(tmp_path: Path) -> No
     # The whole point of keeping the flag's meaning: a passing pre-1.0 run is
     # emphatically *not* production-qualified.
     assert payload["production_qualified"] is False
-    assert payload["summary"]["total_cases"] == 56
-    assert payload["summary"]["receipt_count"] == 56
+    assert payload["summary"]["total_cases"] == 38
+    assert payload["summary"]["receipt_count"] == 38
     assert payload["summary"]["unsafe_auto_pass_count"] == 0
-    assert payload["summary"]["qualified_origin_cases"] >= 23
-    assert len(payload["strata"]) == 28
+    assert payload["summary"]["qualified_origin_cases"] >= 16
+    assert len(payload["strata"]) == 21
+    # No stratum targets `insufficient_evidence` (#520), so a conforming corpus
+    # carries no case expecting it -- the value survives only as something the
+    # verifier may *emit*, which is a miss against whatever the case expected.
+    assert not [row for row in payload["strata"] if row["expected_decision"] == "insufficient_evidence"]
     assert all(row["holdout_count"] >= row["minimum_holdout_count"] for row in payload["strata"])
 
     # ...and the same corpus is nowhere near the production bar it does not claim.
@@ -824,7 +866,15 @@ def test_a_corpus_with_more_holdout_than_required_is_accepted(tmp_path: Path) ->
     assert result.failures == []
     assert qualification_exit_code(result) == 0
     assert result.qualification_tier == "pre_1_0"
-    assert all(row.tuning_count == 0 and row.holdout_count == 2 for row in result.strata)
+    expected_sizes = {
+        (item.profile, item.expected_decision): item.count
+        for item in requirements.required_strata
+    }
+    assert all(
+        row.tuning_count == 0
+        and row.holdout_count == expected_sizes[(row.profile, row.expected_decision)]
+        for row in result.strata
+    )
 
 
 def test_the_production_flag_cannot_disagree_with_the_tier(tmp_path: Path) -> None:

@@ -6,7 +6,7 @@ verifier receipt. It validates frozen human labels, content-addressed verifier
 artifacts, and the exact built wheel before scoring a *named* release policy.
 
 Two named policies exist, and the wheel's version decides which one applies:
-the 100-case ``beta`` production policy, and the 56-case ``pre_1_0`` policy
+the 80-case ``beta`` production policy, and the 38-case ``pre_1_0`` policy
 approved for ``0.x`` tags (issue #341, recorded in
 ``docs/release-evidence-policy-decision.md``). Any other threshold set scores
 as ``test`` and can never release.

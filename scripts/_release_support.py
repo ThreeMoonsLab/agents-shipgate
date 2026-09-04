@@ -34,11 +34,23 @@ SHA256_PATTERN = re.compile(r"\A[0-9a-f]{64}\Z")
 PRODUCTION_QUALIFICATION_TIER = "beta"
 PRE_1_0_QUALIFICATION_TIER = "pre_1_0"
 
-# Outcome order used by every ``profile_counts`` row below.
+# The four terminal decisions a case may carry. A case's *actual* decision can
+# be any of them -- the verifier still emits `insufficient_evidence` when its
+# own extraction failed.
 QUALIFICATION_DECISIONS = (
     "passed",
     "review_required",
     "insufficient_evidence",
+    "blocked",
+)
+
+# The three a case may be *targeted* at, and the row order of every
+# ``profile_counts`` entry below. `insufficient_evidence` is not among them
+# (#520): it describes the reader, not what a correct gate should do with a
+# change, so no stratum requires it.
+QUALIFICATION_TARGET_DECISIONS = (
+    "passed",
+    "review_required",
     "blocked",
 )
 
@@ -49,7 +61,7 @@ class QualificationPolicy:
 
     The sealing job runs on the standard library alone, so it cannot read
     ``production_safety_requirements()``. Restating a *total case count* was not
-    enough: a 56-case artifact with two safe passes missing, or 56 cases in no
+    enough: an artifact with two safe passes missing, or its whole case count in no
     stratum at all, satisfied a count check while failing the actual policy. The
     sealer must be able to re-derive the same floors the exhaustive gate does,
     or the dependency-compromise boundary it exists to hold is decorative.
@@ -59,7 +71,7 @@ class QualificationPolicy:
     """
 
     tier: str
-    profile_counts: Mapping[str, tuple[int, int, int, int]]
+    profile_counts: Mapping[str, tuple[int, int, int]]
     minimum_exact: Mapping[str, int]
     minimum_qualified_origins: int
     minimum_kappa: float
@@ -72,7 +84,7 @@ class QualificationPolicy:
         return {
             (profile, decision): count
             for profile, counts in self.profile_counts.items()
-            for decision, count in zip(QUALIFICATION_DECISIONS, counts, strict=True)
+            for decision, count in zip(QUALIFICATION_TARGET_DECISIONS, counts, strict=True)
         }
 
     @property
@@ -80,7 +92,16 @@ class QualificationPolicy:
         return sum(sum(counts) for counts in self.profile_counts.values())
 
     def outcome_total(self, decision: str) -> int:
-        index = QUALIFICATION_DECISIONS.index(decision)
+        """How many cases the policy targets at ``decision``.
+
+        Zero for a decision no stratum requires, which is what
+        `insufficient_evidence` is in every named policy -- not an error, and
+        not a floor of zero over a population that exists.
+        """
+
+        if decision not in QUALIFICATION_TARGET_DECISIONS:
+            return 0
+        index = QUALIFICATION_TARGET_DECISIONS.index(decision)
         return sum(counts[index] for counts in self.profile_counts.values())
 
     def minimum_holdout(self, stratum_size: int) -> int:
@@ -131,25 +152,31 @@ _RELEASE_SAFETY_PROFILES = (
     "coding_agent_trust_roots",
 )
 
+# The `blocked` cells that hold one case rather than two, because no second
+# real one exists. Restated from ``pre_release_safety_requirements``.
+_SCARCE_BLOCKED_PROFILES = frozenset(
+    {"openai_agents_sdk", "langchain_crewai", "google_adk", "coding_agent_trust_roots"}
+)
+
 QUALIFICATION_POLICIES: dict[str, QualificationPolicy] = {
     PRODUCTION_QUALIFICATION_TIER: QualificationPolicy(
         tier=PRODUCTION_QUALIFICATION_TIER,
         profile_counts={
-            "mcp_openapi_declared_binding": (6, 4, 4, 6),
-            "openai_agents_sdk": (5, 3, 3, 4),
-            "langchain_crewai": (5, 3, 3, 4),
-            "google_adk": (3, 2, 2, 3),
-            "n8n": (3, 2, 2, 3),
-            "multi_agent_handoffs": (4, 3, 3, 5),
-            "coding_agent_trust_roots": (4, 3, 3, 5),
+            "mcp_openapi_declared_binding": (6, 4, 6),
+            "openai_agents_sdk": (5, 3, 4),
+            "langchain_crewai": (5, 3, 4),
+            "google_adk": (3, 2, 3),
+            "n8n": (3, 2, 3),
+            "multi_agent_handoffs": (4, 3, 5),
+            "coding_agent_trust_roots": (4, 3, 5),
         },
         minimum_exact={
             "passed": 27,
             "review_required": 19,
-            "insufficient_evidence": 19,
+            "insufficient_evidence": 0,
             "blocked": 30,
         },
-        minimum_qualified_origins=40,
+        minimum_qualified_origins=32,
         minimum_kappa=0.80,
         minimum_holdout_fraction_per_stratum=0.20,
         maximum_unsafe_auto_passes=0,
@@ -157,14 +184,20 @@ QUALIFICATION_POLICIES: dict[str, QualificationPolicy] = {
     ),
     PRE_1_0_QUALIFICATION_TIER: QualificationPolicy(
         tier=PRE_1_0_QUALIFICATION_TIER,
-        profile_counts=dict.fromkeys(_RELEASE_SAFETY_PROFILES, (2, 2, 2, 2)),
+        # Two per cell, except the four `blocked` cells where the material does
+        # not exist -- see ``pre_release_safety_requirements`` for why those
+        # four are one and not two.
+        profile_counts={
+            profile: (2, 2, 1 if profile in _SCARCE_BLOCKED_PROFILES else 2)
+            for profile in _RELEASE_SAFETY_PROFILES
+        },
         minimum_exact={
             "passed": 13,
             "review_required": 14,
-            "insufficient_evidence": 14,
-            "blocked": 14,
+            "insufficient_evidence": 0,
+            "blocked": 10,
         },
-        minimum_qualified_origins=23,
+        minimum_qualified_origins=16,
         minimum_kappa=0.80,
         minimum_holdout_fraction_per_stratum=0.20,
         maximum_unsafe_auto_passes=0,

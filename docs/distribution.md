@@ -65,8 +65,8 @@ against the exact wheel and signs `safety-qualification.json`:
 | `SAFETY_QUALIFICATION_SIGSTORE_BUNDLE_URL` | HTTPS URL for that JSON artifact's Sigstore bundle |
 
 The verification job checks the signature identity first, then validates the
-artifact against the policy the tag's version requires — the 100-case `beta`
-policy, or, for a `0.x` tag, the 56-case `pre_1_0` policy approved in
+artifact against the policy the tag's version requires — the 80-case `beta`
+policy, or, for a `0.x` tag, the 38-case `pre_1_0` policy approved in
 [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) —
 together with the tag/version and wheel SHA-256. Which policy governs is
 derived from the version, never read from the artifact, and a `0.x` tag may

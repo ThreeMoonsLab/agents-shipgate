@@ -274,45 +274,92 @@ of the same convention. A reverted PR is pinned like any merged PR.
 
 ## Where the plan stands
 
-60 slots over the 28 cells; three `mcp_openapi_declared_binding` cells and
-`google_adk × insufficient_evidence` carry a third slot because their first two
-are both engine-development inputs.
+51 slots over the 21 cells. The policy asks for 38 cases, so most cells carry a
+reserve — `mcp_openapi_declared_binding × review_required` carries five slots
+because its best candidates are engine-development inputs and can only ever be
+tuning cases. The four `blocked` cells the policy sets to one case
+(`openai_agents_sdk`, `langchain_crewai`, `google_adk`,
+`coding_agent_trust_roots`) carry exactly one slot and no reserve: there is no
+second candidate to reserve, which is why the policy asks for one.
 
 | | Count |
 |---|---|
-| Slots with a candidate | 60 of 60 |
-| Gaps to mine or construct | 0 |
-| Slots planned as a qualifying origin | 33 (floor is 23) |
+| Slots with a candidate | 48 of 51 |
+| Gaps to mine or construct | 3 |
+| Slots planned as a qualifying origin | 36 (floor is 16) |
 | …of those, already sourced | 33 |
-| …of those, still to find | 0 |
-| Slots planned as `synthetic` | 27 (ceiling is 33) |
-| Slots that can be a cell's holdout case | 42 |
-| Slots that are engine-development inputs | 18 |
+| …of those, still to find | 3 |
+| Slots planned as `synthetic` | 15 (ceiling is 22) |
+| Slots that can be a cell's holdout case | 45 |
+| Slots that are engine-development inputs | 6 |
 
 Per profile:
 
 | Profile | Sourced | Qualifying origin | Holdout-eligible | Gaps |
 |---|---|---|---|---|
-| `mcp_openapi_declared_binding` | 11 | 8 | 5 | 0 |
-| `coding_agent_trust_roots` | 8 | 6 | 6 | 0 |
-| `langchain_crewai` | 8 | 4 | 6 | 0 |
-| `google_adk` | 9 | 5 | 6 | 0 |
-| `openai_agents_sdk` | 8 | 5 | 6 | 0 |
-| `multi_agent_handoffs` | 8 | 3 | 6 | 0 |
-| `n8n` | 8 | 2 | 7 | 0 |
+| `mcp_openapi_declared_binding` | 9 | 8 | 5 | 0 |
+| `openai_agents_sdk` | 7 | 5 | 6 | 0 |
+| `langchain_crewai` | 6 | 4 | 6 | 0 |
+| `google_adk` | 7 | 5 | 6 | 0 |
+| `n8n` | 7 | 3 | 8 | 1 |
+| `multi_agent_handoffs` | 6 | 4 | 7 | 1 |
+| `coding_agent_trust_roots` | 6 | 7 | 7 | 1 |
 
 Per outcome:
 
 | Outcome | Sourced | Qualifying origin | Holdout-eligible | Gaps |
 |---|---|---|---|---|
-| `passed` | 15 | 10 | 8 | 0 |
-| `review_required` | 15 | 9 | 12 | 0 |
-| `blocked` | 15 | 8 | 11 | 0 |
-| `insufficient_evidence` | 15 | 6 | 11 | 0 |
+| `passed` | 14 | 15 | 13 | 2 |
+| `review_required` | 22 | 16 | 21 | 1 |
+| `blocked` | 12 | 5 | 11 | 0 |
 
 Every number on this page is recomputed from the CSV by
 `tests/test_strata_inventory.py`, so the reading and the plan cannot drift
 apart.
+
+### Why four cells hold one case and not two
+
+The policy asks for two cases per cell. Four `blocked` cells ask for one. The
+shortfall is not a sourcing backlog to be worked off later — it is a claim
+about the world, and it was measured rather than assumed.
+
+The first corpus round labelled 48 cases blind, two raters each. Of the seven
+profiles, only four produced a real-world `blocked` case at all, and each of
+those four produced exactly one:
+
+| Cell | What exists | Why there is no second |
+|---|---|---|
+| `openai_agents_sdk × blocked` | one real case | the sweep found one merged change two blind raters placed at `blocked`; the rest were `review_required` |
+| `langchain_crewai × blocked` | one construction | its real candidate was sourced as `blocked` and both raters placed it at `review_required` |
+| `google_adk × blocked` | one construction | same shape: the real candidate moved to `review_required` under blind labelling |
+| `coding_agent_trust_roots × blocked` | one real case | the second slot was a shipped sample, and a sample is cold start, not a change |
+
+Cut B recorded the cause before any of this, and the W36 sweep confirmed it:
+**every** `blocked` slot with a qualifying origin came from a closed-unmerged or
+reverted PR, never from merged history — because a change that should have been
+stopped usually was. The material is thin because the world is thin here, and
+the sourcing convention (`## Where a target decision may come from`) is what
+makes that visible rather than hiding it behind a construction.
+
+Which is the alternative, and why it was refused. A second case in each of
+those cells is reachable today — by building four more constructions. A cell
+filled entirely with constructions measures our imagination rather than the
+world, and `mcp_openapi_declared_binding × blocked`, the one `blocked` cell
+with two real candidates, is what the other four would be pretending to be.
+One real case is worth more than two invented ones, so the count says one.
+
+Three cells are *not* on that list even though they are short today, because
+their shortfall has a fixable cause and they stay at two: `n8n × passed` and
+`multi_agent_handoffs × passed` lost a slot when the cold-start samples were
+retired, and `coding_agent_trust_roots × review_required` is short one blind
+label, not one case. They are carried as `gap` rows with mining leads.
+
+The floors move with the cells, and the *rates* do not:
+`minimum_blocked_exact` falls from 14 to 10 because there are 10 `blocked`
+cases, not because anything was allowed to be wrong more often.
+`test_the_pre_1_0_policy_is_never_laxer_than_production_per_rate` holds that
+line — it re-derives each floor as production's rate applied to this corpus,
+and fails if a floor is one case laxer than that.
 
 ### What the shape says
 
@@ -326,16 +373,17 @@ only job is to be holdout-eligible. **The best material and the admissible
 material are close to disjoint**, and that is the single most expensive fact in
 this plan.
 
-**The origin floor was the binding constraint, not the case count.** 23 of 56
-cases must be `real_history`, `rejected_or_reverted`, or `design_partner`, and
-the pool Cut A inventoried did not hold them: clearing that floor took 18
-further qualifying candidates, more than half of it, which Cut B and the
-close-out mined. The counts the plan holds now are in the tables above, which
+**The origin floor was the binding constraint, not the case count.** 16 of 38
+cases must be `real_history`, `rejected_or_reverted`, or `design_partner` —
+23 of 56 when Cut A and Cut B ran, and the pool Cut A inventoried did not hold
+them: clearing that floor took 18 further qualifying candidates, more than half
+of it, which Cut B and the close-out mined. The floor fell with the corpus, not
+with the share: it is 40% of the cases either way. The counts the plan holds now are in the tables above, which
 are recomputed from the CSV; this paragraph is about where the cost fell.
 
-**`insufficient_evidence` then `blocked` are the scarce outcomes.** Before
-Cut B, three of 15 `insufficient_evidence` slots and 5 of 15 `blocked` slots
-had a candidate. Session A's constructions are all `synthetic`, so they moved
+**`blocked` is the scarce outcome.** (`insufficient_evidence` was scarcer
+still, and it is why that outcome is no longer a target at all — see the
+scarcity note below.) Before Cut B, 5 of 15 `blocked` slots had a candidate. Session A's constructions are all `synthetic`, so they moved
 neither outcome's qualifying-origin count; the W36 sweep did, and it confirmed
 the vein: every `blocked` slot with a qualifying origin was filled from
 closed-unmerged or reverted PRs, not from merged history, because a change
@@ -547,7 +595,7 @@ the reserve rather than held.
 
 ## Maintaining it
 
-`tests/test_strata_inventory.py` derives the 28 cells and the holdout floor from
+`tests/test_strata_inventory.py` derives the 21 cells and the holdout floor from
 `pre_release_safety_requirements()` rather than restating them, so moving the
 policy fails the inventory instead of leaving it silently aimed at the wrong
 shape — the failure mode

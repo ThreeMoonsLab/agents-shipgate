@@ -12,7 +12,7 @@ This module exists so the sealing job can restate the claims that actually
 delegate publication authority, using nothing but the standard library:
 
 * the artifact is **qualified** under a policy the tag's version admits --
-  the 100-case ``beta`` policy, or, for a ``0.x`` tag only, the 56-case
+  the 80-case ``beta`` policy, or, for a ``0.x`` tag only, the 38-case
   ``pre_1_0`` policy approved in
   ``docs/release-evidence-policy-decision.md`` (issue #341);
 * it claims ``production_qualified`` exactly when it claims the ``beta`` tier;
