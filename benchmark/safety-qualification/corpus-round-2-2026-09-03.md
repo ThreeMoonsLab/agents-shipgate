@@ -69,3 +69,58 @@ is the honest state, and it is recorded rather than rounded.
   `tests/test_strata_inventory.py`, and it follows this record rather than
   preceding it.
 - Adjudication of the six, by the owner as third identity.
+
+## Adjudication, and where the corpus now stands
+
+The owner adjudicated all six as third identity on 2026-09-04, **disclosing a
+personal walk on every one** (condition 4). Each upheld one of the two
+primaries, so each frozen record carries that rater's citations — siding with a
+rater is adopting their evidence, and nothing was invented for the schema's
+`evidence_references` requirement.
+
+| case | claude | codex | final | upheld |
+|---|---|---|---|---|
+| `coding_agent_trust_roots.insufficient_evidence.2` | `review_required` | `passed` | **`passed`** | codex |
+| `langchain_crewai.review_required.2` | `passed` | `review_required` | **`passed`** | claude |
+| `mcp_openapi_declared_binding.insufficient_evidence.1` | `review_required` | `passed` | **`review_required`** | claude |
+| `mcp_openapi_declared_binding.insufficient_evidence.2` | `review_required` | `insufficient_evidence` | **`review_required`** | claude |
+| `multi_agent_handoffs.blocked.1` | `review_required` | `blocked` | **`blocked`** | codex |
+| `openai_agents_sdk.insufficient_evidence.2` | `review_required` | `passed` | **`review_required`** | claude |
+
+**Not one adjudication landed on `insufficient_evidence`**, including the four
+on slots the inventory had sourced as that. Forty-seven cases now carry a final
+decision — 41 by agreement, 6 adjudicated — and none of them is
+`insufficient_evidence`. The sixth ruling holds all the way through.
+
+### Blocker 3 — the strata no longer balance
+
+Removing the label redistributed the cases, and the distribution is not the one
+the corpus needs. Against 21 cells at two cases each:
+
+| profile | `passed` | `review_required` | `blocked` |
+|---|---|---|---|
+| `mcp_openapi_declared_binding` | 2 | 5 | 2 |
+| `openai_agents_sdk` | 2 | 4 | **1** |
+| `langchain_crewai` | 3 | 2 | **1** |
+| `google_adk` | 2 | 4 | **1** |
+| `n8n` | **1** | 2 | 4 |
+| `multi_agent_handoffs` | **1** | 3 | 2 |
+| `coding_agent_trust_roots` | 3 | **1** | **1** |
+
+**14 of 21 cells reach two cases; seven do not.** Totals are not the problem —
+47 finals against 42 needed — the shape is: `review_required` runs to 21 while
+`blocked` falls to 12, and three profiles hold a single `blocked` case each.
+
+This is a sourcing result, not a labeling one, and it could not have appeared
+before the labels existed: every slot was sourced against a target decision,
+and the blind raters put the cases somewhere else. The `insufficient_evidence`
+slots that dissolved were carrying weight in cells that are now short.
+
+It is the owner's to settle, and it is the last thing between here and a
+freeze. Three directions, none of them a threshold change: source new
+candidates into the seven short cells (Cut B work, in the profiles named
+above); lower the per-cell count where the material genuinely does not exist,
+and say so; or narrow the profile set. The requirements change this ruling
+implies (28 → 21 cells) is deliberately **not** committed yet, because writing
+two-per-cell into `pre_release_safety_requirements()` today would encode a
+target the corpus is known not to meet.
