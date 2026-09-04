@@ -667,7 +667,46 @@ def changed_submodules(repo: Path, base: str, head: str) -> list[str]:
     return sorted(found)
 
 
-def diff_pinned_states(repo: Path, base: str, head: str) -> str:
+def strip_non_text_sections(raw: bytes) -> tuple[bytes, list[str]]:
+    """Remove the file sections that are not text; return the patch and their paths.
+
+    A change to genuinely binary content has no textual description, and
+    `--text` renders it as raw bytes that a rater's Read and Grep may truncate
+    or refuse. Refusing the whole case over it was the first answer, and it is
+    the wrong one for the shape this actually takes: an architecture diagram
+    committed beside four thousand lines of code, where every authority-bearing
+    fact is in the text.
+
+    So the same treatment a dangling link gets -- dropped from what the rater
+    is handed, and **named** in the manifest, so the gap is one they know about
+    rather than one they cannot see. A rater who is told `arch.png` changed and
+    that its change is not readable can say so; a rater handed a case that
+    refused to build learns nothing, and the corpus loses a slot it needs.
+    """
+
+    starts = [match.start() for match in re.finditer(rb"(?m)^diff --git ", raw)]
+    kept: list[bytes] = []
+    dropped: list[str] = []
+    for index, start in enumerate(starts):
+        end = starts[index + 1] if index + 1 < len(starts) else len(raw)
+        section = raw[start:end]
+        reason = ""
+        if b"\x00" in section:
+            reason = "contains NUL"
+        else:
+            try:
+                section.decode("utf-8")
+            except UnicodeDecodeError:
+                reason = "is not UTF-8"
+        if reason:
+            header = section.split(b"\n", 1)[0].decode("utf-8", "surrogateescape")
+            dropped.append(f"{header[len('diff --git ') :].strip() or header} ({reason})")
+        else:
+            kept.append(section)
+    return b"".join(kept), dropped
+
+
+def diff_pinned_states(repo: Path, base: str, head: str) -> tuple[str, list[str]]:
     """The two-dot diff, refused unless it fully describes the change.
 
     Three things could otherwise decide these bytes besides the two pins.
@@ -702,15 +741,10 @@ def diff_pinned_states(repo: Path, base: str, head: str) -> str:
             base,
             head,
         )
-    offending = non_text_paths(raw)
-    if offending:
-        raise PacketError(
-            "these paths change in ways that are not text, so no rater can read what "
-            "changed in them: " + ", ".join(offending)
-        )
+        raw, undescribable = strip_non_text_sections(raw)
     try:
         diff = raw.decode("utf-8")
-    except UnicodeDecodeError as error:  # pragma: no cover - non_text_paths covers the sections
+    except UnicodeDecodeError as error:  # pragma: no cover - the strip covers the sections
         raise PacketError(f"the patch is not text outside any file section: {error}") from error
     hidden = suppressed_diff_markers(diff)
     if hidden:
@@ -718,7 +752,7 @@ def diff_pinned_states(repo: Path, base: str, head: str) -> str:
             "git described these changes only as differing, so the packet would hide "
             "what changed: " + "; ".join(hidden)
         )
-    return diff
+    return diff, undescribable
 
 
 # --------------------------------------------------------------------------
@@ -728,7 +762,7 @@ def diff_pinned_states(repo: Path, base: str, head: str) -> str:
 
 def export_external_case(
     clone: Path, base: str, head: str, workdir: Path
-) -> tuple[Path, str, dict[str, str]]:
+) -> tuple[Path, str, dict[str, str], list[str]]:
     """Materialise the head tree and the base..head diff from a clone.
 
     Both refs must resolve to full commits. The tree comes from
@@ -742,12 +776,14 @@ def export_external_case(
     head_sha = _full_sha(clone, head)
     tree_dir = workdir / "head-tree"
     materialize_tree(clone, head_sha, tree_dir)
-    diff = diff_pinned_states(clone, base_sha, head_sha)
+    diff, undescribable = diff_pinned_states(clone, base_sha, head_sha)
     pins = {"kind": "external", "base_sha": base_sha, "head_sha": head_sha}
-    return tree_dir, diff, pins
+    return tree_dir, diff, pins, undescribable
 
 
-def export_constructed_case(case_dir: Path, workdir: Path) -> tuple[Path, str, dict[str, str]]:
+def export_constructed_case(
+    case_dir: Path, workdir: Path
+) -> tuple[Path, str, dict[str, str], list[str]]:
     """Diff a constructed case's ``base/`` and ``head/`` trees.
 
     The two trees are committed in order into a throwaway repository, so the
@@ -790,14 +826,14 @@ def export_constructed_case(case_dir: Path, workdir: Path) -> tuple[Path, str, d
         _git(repo, "commit", "--quiet", "--allow-empty", "-m", label)
         pins[f"{label}_tree"] = _git(repo, "rev-parse", "HEAD^{tree}").stdout.strip()
 
-    diff = diff_pinned_states(repo, "HEAD~1", "HEAD")
+    diff, undescribable = diff_pinned_states(repo, "HEAD~1", "HEAD")
     # Read back the committed head tree (already exclusion-filtered) rather
     # than the case directory, so the packet's repo/ is byte-for-byte what was
     # diffed -- and read it the same attribute-blind way an external case is
     # read, because a constructed tree may carry a `.gitattributes` too.
     tree_dir = workdir / "head-tree"
     materialize_tree(repo, "HEAD", tree_dir)
-    return tree_dir, diff, pins
+    return tree_dir, diff, pins, undescribable
 
 
 # --------------------------------------------------------------------------
@@ -974,10 +1010,10 @@ def build_packet(
         workdir = Path(tmp)
         if external:
             assert clone is not None and base is not None and head is not None
-            tree_dir, diff, pins = export_external_case(clone, base, head, workdir)
+            tree_dir, diff, pins, undescribable = export_external_case(clone, base, head, workdir)
         else:
             assert case_dir is not None
-            tree_dir, diff, pins = export_constructed_case(case_dir, workdir)
+            tree_dir, diff, pins, undescribable = export_constructed_case(case_dir, workdir)
 
         staged = workdir / "packet"
         staged.mkdir()
@@ -996,6 +1032,10 @@ def build_packet(
             "source": pins,
             "files": hash_packet_files(staged),
         }
+        if undescribable:
+            # Same contract as `broken_symlinks`: what the packet leaves out is
+            # named, so the gap is one the rater knows about.
+            manifest["undescribable_changes"] = undescribable
         if broken_links:
             # The one thing the packet leaves out that is repository content.
             # Naming it is the difference between a rater whose world has a

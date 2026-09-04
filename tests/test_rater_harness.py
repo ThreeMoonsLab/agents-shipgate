@@ -1210,14 +1210,13 @@ def test_the_diff_depends_on_the_two_pins_and_not_on_the_clone_s_checkout(
     assert (first / "diff.patch").read_bytes() == (second / "diff.patch").read_bytes()
 
 
-def test_a_change_whose_content_is_not_text_refuses_and_names_the_path(
-    tmp_path: Path,
-) -> None:
+def test_a_change_whose_content_is_not_text_is_dropped_and_named(tmp_path: Path) -> None:
     """Forcing text is not the same as the change being readable.
 
-    A genuinely binary change has no textual description, so the packet cannot
-    be the rater's entire world. It refuses -- and names the file, because
-    "not text" without a path is not something a case owner can act on.
+    Refusing the whole case was the first answer and it is wrong for the shape
+    this takes in real history: an architecture diagram beside four thousand
+    lines of code. Same contract as a dangling link — dropped from what the
+    rater is handed, and named, so the gap is one they know about.
     """
 
     clone = tmp_path / "clone"
@@ -1231,16 +1230,20 @@ def test_a_change_whose_content_is_not_text_refuses_and_names_the_path(
     _git(clone, "commit", "-q", "-m", "change binary")
     head = _git(clone, "rev-parse", "HEAD")
 
-    with pytest.raises(build_packet.PacketError, match=r"not text.*logo\.png"):
-        build_packet.build_packet(
-            case_id="ext-binary",
-            role="security_governance",
-            out=tmp_path / "packet",
-            clone=clone,
-            base=mid,
-            head=head,
-        )
-    assert not (tmp_path / "packet").exists()
+    packet = build_packet.build_packet(
+        case_id="ext-binary",
+        role="security_governance",
+        out=tmp_path / "packet",
+        clone=clone,
+        base=mid,
+        head=head,
+    )
+    manifest = json.loads((packet / "MANIFEST.json").read_text())
+    assert manifest["undescribable_changes"] == ["a/logo.png b/logo.png (contains NUL)"]
+    # The rater still gets the file itself; what they are told is that its
+    # *change* cannot be read.
+    assert (packet / "repo" / "logo.png").is_file()
+    assert "logo.png" not in (packet / "diff.patch").read_text()
 
 
 def test_a_change_that_moves_a_submodule_refuses(tmp_path: Path) -> None:
@@ -1919,7 +1922,9 @@ def test_a_config_that_hides_submodules_does_not_hide_them_from_the_refusal(
 # --------------------------------------------------------------------------
 
 
-def test_a_change_that_is_valid_utf8_and_still_binary_refuses(tmp_path: Path) -> None:
+def test_a_change_that_is_valid_utf8_and_still_binary_is_named_not_refused(
+    tmp_path: Path,
+) -> None:
     """Decodability is not a text test, and git does not think it is either.
 
     `b"before\\x00tail"` → `b"after\\x00tail"` is binary by git's NUL heuristic
@@ -1943,16 +1948,17 @@ def test_a_change_that_is_valid_utf8_and_still_binary_refuses(tmp_path: Path) ->
     _git(clone, "commit", "-q", "-m", "head")
     head = _git(clone, "rev-parse", "HEAD")
 
-    with pytest.raises(build_packet.PacketError, match=r"not text.*f\.bin.*contains NUL"):
-        build_packet.build_packet(
-            case_id="ext-nul",
-            role="security_governance",
-            out=tmp_path / "packet",
-            clone=clone,
-            base=base,
-            head=head,
-        )
-    assert not (tmp_path / "packet").exists()
+    packet = build_packet.build_packet(
+        case_id="ext-nul",
+        role="security_governance",
+        out=tmp_path / "packet",
+        clone=clone,
+        base=base,
+        head=head,
+    )
+    manifest = json.loads((packet / "MANIFEST.json").read_text())
+    assert manifest["undescribable_changes"] == ["a/f.bin b/f.bin (contains NUL)"]
+    assert "f.bin" not in (packet / "diff.patch").read_text()
 
 
 def test_the_diff_does_not_depend_on_the_environment_git_reads(
@@ -2620,3 +2626,39 @@ def test_packets_are_copied_in_when_given(tmp_path: Path, constructed_case: Path
     host = tmp_path / "host"
     assert deploy.deploy(host, packets) == []
     assert (host / "packets" / "c1.security_governance" / "MANIFEST.json").is_file()
+
+
+def test_the_text_half_of_a_mixed_change_still_reaches_the_rater(tmp_path: Path) -> None:
+    """The shape that made refusing wrong: one image, thousands of lines of code.
+
+    Every authority-bearing fact was in the text, and refusing threw all of it
+    away to avoid disclosing one diagram.
+    """
+
+    clone = tmp_path / "clone"
+    base, head = _two_commit_clone(
+        clone,
+        {"agent.py": "TOOLS = ['lookup']\n"},
+        {"agent.py": "TOOLS = ['lookup', 'refund']\n"},
+    )
+    (clone / "arch.png").write_bytes(bytes([0x89, 0x50, 0x4E, 0x47]) + bytes(range(256)))
+    _git(clone, "add", "--all")
+    _git(clone, "commit", "-q", "-m", "add diagram")
+    (clone / "arch.png").write_bytes(bytes([0x89, 0x50, 0x4E, 0x47]) + bytes(range(255, -1, -1)))
+    (clone / "agent.py").write_text("TOOLS = ['lookup', 'refund', 'cancel']\n")
+    _git(clone, "add", "--all")
+    _git(clone, "commit", "-q", "-m", "code and diagram together")
+    _ = base, head
+
+    packet = build_packet.build_packet(
+        case_id="ext-mixed",
+        role="security_governance",
+        out=tmp_path / "packet",
+        clone=clone,
+        base=_git(clone, "rev-parse", "HEAD~1"),
+        head=_git(clone, "rev-parse", "HEAD"),
+    )
+    diff = (packet / "diff.patch").read_text()
+    assert "+TOOLS = ['lookup', 'refund', 'cancel']" in diff
+    manifest = json.loads((packet / "MANIFEST.json").read_text())
+    assert manifest["undescribable_changes"] == ["a/arch.png b/arch.png (contains NUL)"]
