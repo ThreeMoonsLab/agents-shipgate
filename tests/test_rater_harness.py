@@ -42,6 +42,7 @@ def _load(name: str) -> ModuleType:
 
 build_packet = _load("build_packet")
 run_rater = _load("run_rater")
+deploy = _load("deploy")
 
 
 # --------------------------------------------------------------------------
@@ -2551,3 +2552,71 @@ def test_a_deployment_carrying_only_the_harness_is_clean(tmp_path: Path) -> None
     (tmp_path / "benchmark" / "safety-qualification" / "rater").mkdir(parents=True)
     (tmp_path / "benchmark" / "safety-qualification" / "rater" / "run_rater.py").write_text("x\n")
     assert run_rater.answer_keys_on_host(tmp_path) == []
+
+
+# --------------------------------------------------------------------------
+# The deployment a corpus run happens on
+# --------------------------------------------------------------------------
+
+
+def test_a_deployment_carries_the_harness_and_no_answer(tmp_path: Path) -> None:
+    """The checkout this is built from carries answers; the deployment must not.
+
+    Both halves matter. If the source had none, the test would pass without
+    the script doing anything.
+    """
+
+    assert run_rater.answer_keys_on_host(deploy.REPO_ROOT), (
+        "the checkout should carry answer files, or this test proves nothing"
+    )
+    leaked = deploy.deploy(tmp_path / "host")
+    assert leaked == []
+    assert (tmp_path / "host" / "src" / "agents_shipgate").is_dir()
+    assert (
+        tmp_path / "host" / "benchmark" / "safety-qualification" / "rater" / "run_rater.py"
+    ).is_file()
+    assert not (tmp_path / "host" / "benchmark" / "miner").exists()
+    assert not (
+        tmp_path / "host" / "benchmark" / "safety-qualification" / "strata-inventory.csv"
+    ).exists()
+
+
+def test_the_deployment_layout_is_what_makes_the_check_look_here(tmp_path: Path) -> None:
+    """`run_rater` finds its root three directories above itself.
+
+    Lay the harness out anywhere else and `answer_keys_on_host()` searches
+    somewhere that was never going to hold an answer, so it passes without
+    checking the host the rater actually runs on. The layout is the check.
+    """
+
+    host = tmp_path / "host"
+    deploy.deploy(host)
+    deployed = host / "benchmark" / "safety-qualification" / "rater" / "run_rater.py"
+    assert deployed.resolve().parents[3] == host.resolve()
+
+    # An answer file placed where that root points is found from the deployment.
+    planted = host / "benchmark" / "safety-qualification" / "strata-inventory.csv"
+    planted.write_text("slot_id,target_decision\n", encoding="utf-8")
+    assert run_rater.answer_keys_on_host(host) == [planted]
+
+
+def test_a_deployment_refuses_to_overwrite_an_existing_one(tmp_path: Path) -> None:
+    """Deploying onto a used path could leave an answer file from last time."""
+
+    host = tmp_path / "host"
+    deploy.deploy(host)
+    with pytest.raises(deploy.DeployError, match="not empty"):
+        deploy.deploy(host)
+
+
+def test_packets_are_copied_in_when_given(tmp_path: Path, constructed_case: Path) -> None:
+    packets = tmp_path / "packets"
+    build_packet.build_packet(
+        case_id="c1",
+        role="security_governance",
+        out=packets / "c1.security_governance",
+        case_dir=constructed_case,
+    )
+    host = tmp_path / "host"
+    assert deploy.deploy(host, packets) == []
+    assert (host / "packets" / "c1.security_governance" / "MANIFEST.json").is_file()

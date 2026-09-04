@@ -256,11 +256,34 @@ carries ten such files:
 codex run while any is present. `--working-material` proceeds and says so on
 the label, which is what a calibration round uses.
 
-**The cheapest way to satisfy it is a trimmed deployment**, not a second
-machine: the packets are self-contained, and the harness needs
-`src/agents_shipgate/` plus the two scripts under `rater/`. Copy those and the
-packets somewhere with no `benchmark/`, and the check passes truthfully. A
-separate OS account works too; on this machine `/Users/pengfeihu` is
+**The owner's decision (2026-09-03): the corpus rounds run locally**, on OAuth,
+rather than on a one-time GitHub Action with API keys. The Action would have
+been the stronger isolation — a fresh runner, and `--home-mode isolated`, which
+OAuth cannot use — but it costs an `OPENAI_API_KEY` and metered spend for
+sessions that run for free under the existing subscriptions. Two things follow
+and are recorded here rather than left implicit:
+
+- **The rounds run in `--home-mode shared`.** Blindness is therefore *checked*
+  rather than *structurally impossible*: the packet root and every ancestor are
+  checked for instruction files, `~/.claude/projects/<packet>` must be absent,
+  settings are cut off with `--setting-sources ""`, and codex loads none of
+  `config.toml` via `--ignore-user-config`. What `isolated` would have added is
+  an empty `HOME` with `--bare` (no auto-memory or `CLAUDE.md` discovery at
+  all) and a Codex home built from nothing. **The Amendment 1 disclosure block
+  must say this**, in those terms.
+- **The host is made by `deploy.py`, not by remembering.**
+
+```bash
+python benchmark/safety-qualification/rater/deploy.py \
+    --out ~/cut-c-host --packets <built-packets>
+```
+
+It copies `src/agents_shipgate/` and the `rater/` scripts into a layout whose
+root is the deployment — which is what makes `answer_keys_on_host()` search the
+deployment rather than somewhere harmless — then runs that check against what
+it just built and refuses if anything was found. Packets are built **elsewhere**
+on purpose: choosing which to build needs the inventory, and that is the answer.
+A separate OS account works too; on this machine `/Users/pengfeihu` is
 `drwxr-x---`, so an account outside the `staff` group cannot read it, and one
 inside it can.
 
