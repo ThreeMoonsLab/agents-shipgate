@@ -51,15 +51,19 @@ run_rater = _load("run_rater")
 
 @pytest.fixture(autouse=True)
 def _host_without_the_answer_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every test runs on a host that does not carry the strata inventory.
+    """Every test runs on a host that carries no answer-stating file.
 
-    The suite itself runs from the checkout, which does. Without this every
-    codex-family run would be refused for the right reason, and the tests
-    would be testing that refusal instead of what they are named for. The
-    tests for the refusal put the key back on purpose.
+    The suite itself runs from the checkout, which carries several. Without
+    this every codex-family run would be refused for the right reason, and the
+    tests would be testing that refusal instead of what they are named for.
+    The root is moved rather than the lookup stubbed, so the tests still
+    exercise the real `answer_keys_on_host`; the tests for the refusal put
+    files back under it on purpose.
     """
 
-    monkeypatch.setattr(run_rater, "ANSWER_KEY", tmp_path / "no-such-inventory.csv")
+    clean = tmp_path / "clean-host"
+    (clean / "src").mkdir(parents=True)
+    monkeypatch.setattr(build_packet, "REPO_ROOT", clean)
 
 
 def _write(path: Path, text: str) -> None:
@@ -2219,9 +2223,9 @@ def test_a_shell_bearing_rater_is_refused_on_a_host_that_carries_the_answer_key(
     inventory is not, and this is what says so.
     """
 
-    key = tmp_path / "strata-inventory.csv"
+    key = build_packet.REPO_ROOT / "benchmark" / "safety-qualification" / "strata-inventory.csv"
+    key.parent.mkdir(parents=True, exist_ok=True)
     key.write_text("slot_id,target_decision\n", encoding="utf-8")
-    monkeypatch.setattr(run_rater, "ANSWER_KEY", key)
     recorder = _Recorder(_openai_transcript(VALID_LABEL))
     with pytest.raises(run_rater.RaterError, match="readable from this host"):
         run_rater.run_rater(
@@ -2241,9 +2245,9 @@ def test_a_calibration_run_may_proceed_on_that_host_and_says_so_on_the_label(
 ) -> None:
     """Calibration labels are working material, never evidence."""
 
-    key = tmp_path / "strata-inventory.csv"
+    key = build_packet.REPO_ROOT / "benchmark" / "safety-qualification" / "strata-inventory.csv"
+    key.parent.mkdir(parents=True, exist_ok=True)
     key.write_text("slot_id,target_decision\n", encoding="utf-8")
-    monkeypatch.setattr(run_rater, "ANSWER_KEY", key)
     result = run_rater.run_rater(
         family="openai",
         role="security_governance",
@@ -2255,15 +2259,15 @@ def test_a_calibration_run_may_proceed_on_that_host_and_says_so_on_the_label(
         working_material=True,
     )
     record = json.loads(result.label_path.read_text())
-    assert record["host_isolation"] == "answer key on host (working material, not evidence)"
+    assert record["host_isolation"] == "1 answer-key files on host (working material, not evidence)"
 
 
 def test_a_rater_with_no_shell_is_not_subject_to_the_host_check(
     packet: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    key = tmp_path / "strata-inventory.csv"
+    key = build_packet.REPO_ROOT / "benchmark" / "safety-qualification" / "strata-inventory.csv"
+    key.parent.mkdir(parents=True, exist_ok=True)
     key.write_text("slot_id,target_decision\n", encoding="utf-8")
-    monkeypatch.setattr(run_rater, "ANSWER_KEY", key)
     result = run_rater.run_rater(
         family="claude",
         role="security_governance",
@@ -2500,3 +2504,50 @@ def test_a_transcript_naming_two_serving_models_produces_no_label(
             runner=_Recorder(transcript),
             prober=_stub_prober,
         )
+
+
+def test_every_answer_stating_file_in_the_checkout_is_looked_for(tmp_path: Path) -> None:
+    """The inventory is not the only file in here that states an answer.
+
+    The miner's adjudicated labels carry `pr_url,label` for real PRs, several
+    of which the inventory then pinned as corpus candidates, and the
+    calibration records now state every `cal-*` decision. A guard that knew
+    only about `strata-inventory.csv` left those readable.
+    """
+
+    for relative in (
+        "benchmark/safety-qualification/strata-inventory.csv",
+        "benchmark/safety-qualification/strata-inventory.md",
+        "benchmark/safety-qualification/calibration.md",
+        "benchmark/safety-qualification/calibration-round-2026-09-03.md",
+        "benchmark/miner/results/2026-W24-mined.labels.csv",
+        "benchmark/miner/results/2026-W36-cutb.labels.csv",
+    ):
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("x\n", encoding="utf-8")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "unrelated.py").write_text("x = 1\n", encoding="utf-8")
+
+    found = {p.relative_to(tmp_path).as_posix() for p in run_rater.answer_keys_on_host(tmp_path)}
+    assert found == {
+        "benchmark/safety-qualification/strata-inventory.csv",
+        "benchmark/safety-qualification/strata-inventory.md",
+        "benchmark/safety-qualification/calibration.md",
+        "benchmark/safety-qualification/calibration-round-2026-09-03.md",
+        "benchmark/miner/results/2026-W24-mined.labels.csv",
+        "benchmark/miner/results/2026-W36-cutb.labels.csv",
+    }
+
+
+def test_a_deployment_carrying_only_the_harness_is_clean(tmp_path: Path) -> None:
+    """ "No checkout" was the wrong shorthand: the harness needs `src/` to run.
+
+    What has to be absent is the answer-stating files, and a deployment of the
+    harness plus the packets is already that.
+    """
+
+    (tmp_path / "src" / "agents_shipgate").mkdir(parents=True)
+    (tmp_path / "benchmark" / "safety-qualification" / "rater").mkdir(parents=True)
+    (tmp_path / "benchmark" / "safety-qualification" / "rater" / "run_rater.py").write_text("x\n")
+    assert run_rater.answer_keys_on_host(tmp_path) == []

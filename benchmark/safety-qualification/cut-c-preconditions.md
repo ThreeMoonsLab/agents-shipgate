@@ -235,6 +235,40 @@ step can see and an operator's memory cannot.
 
 ---
 
+## Where the corpus labels are produced
+
+Only the codex family needs this, and only because it has a shell: `--sandbox
+read-only` restricts writes, not reads, and 0.153.0 offers no setting that
+narrows them. The Claude family has no shell to worry about.
+
+**What must be absent is not "the checkout" — it is the files that state an
+answer.** The harness imports from `src/`, so a host without the checkout
+cannot run at all; "run it elsewhere" was the wrong shorthand. This machine
+carries ten such files:
+
+- `strata-inventory.{csv,md}` — a `target_decision` and a `candidate_ref` for
+  all sixty slots. The literal key.
+- `benchmark/miner/results/*.labels.csv` — six files of `pr_url,label` for real
+  PRs, several of which the inventory then pinned as corpus candidates.
+- `calibration.md` and the round records — every `cal-*` decision.
+
+`answer_keys_on_host()` looks for all of them and the runner refuses a corpus
+codex run while any is present. `--working-material` proceeds and says so on
+the label, which is what a calibration round uses.
+
+**The cheapest way to satisfy it is a trimmed deployment**, not a second
+machine: the packets are self-contained, and the harness needs
+`src/agents_shipgate/` plus the two scripts under `rater/`. Copy those and the
+packets somewhere with no `benchmark/`, and the check passes truthfully. A
+separate OS account works too; on this machine `/Users/pengfeihu` is
+`drwxr-x---`, so an account outside the `staff` group cannot read it, and one
+inside it can.
+
+`src/` and `docs/checks.md` are deliberately **not** on the list. The harness
+needs the first to run, and condition 2 forbids a rater seeing verifier
+*output*, which source is not. That is a judgement, and it is recorded here
+rather than left implicit.
+
 ## What is still owner-gated after this
 
 Beyond preconditions 1 and 3, the round itself cannot be run by one assistant:

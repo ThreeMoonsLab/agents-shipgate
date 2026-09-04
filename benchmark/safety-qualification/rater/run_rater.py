@@ -921,33 +921,69 @@ def comparison_key_for_evidence(
     return folded
 
 
-# The one file this harness knows names a target decision for every corpus
-# slot. Its presence on the host is the answer key being in the exam room.
-ANSWER_KEY = build_packet.REPO_ROOT / "benchmark" / "safety-qualification" / "strata-inventory.csv"
+# Everything in this checkout that states an answer. Their presence on the host
+# is the answer key being in the exam room -- and there is more than one:
+#
+# - the strata inventory is the literal key, a `target_decision` and a
+#   `candidate_ref` for all sixty slots;
+# - the miner's adjudicated `*.labels.csv` carry `pr_url,label` for real PRs,
+#   several of which the inventory then pinned as corpus candidates;
+# - the calibration records now state the decisions of every `cal-*` case.
+#
+# Not listed, deliberately: `src/` and `docs/checks.md`. The harness imports
+# from `src/` to run at all, so a host without it cannot produce a label; and
+# condition 2 forbids a rater seeing verifier *output*, which source is not.
+# That is a judgement, and it is written here rather than left implicit.
+ANSWER_KEY_PATTERNS = (
+    "benchmark/safety-qualification/strata-inventory.csv",
+    "benchmark/safety-qualification/strata-inventory.md",
+    "benchmark/safety-qualification/calibration.md",
+    "benchmark/safety-qualification/calibration-round-*.md",
+    "benchmark/miner/results/*.labels.csv",
+)
+
+
+def answer_keys_on_host(root: Path | None = None) -> list[Path]:
+    """Every answer-stating file this harness can find beside itself."""
+
+    root = build_packet.REPO_ROOT if root is None else root
+    found: list[Path] = []
+    for pattern in ANSWER_KEY_PATTERNS:
+        found.extend(sorted(root.glob(pattern)))
+    return found
 
 
 def check_answer_key_not_on_host(family: str, *, working_material: bool) -> str:
-    """Refuse a shell-bearing rater on a host that carries the answer key.
+    """Refuse a shell-bearing rater on a host that carries an answer key.
 
     The fix for a session that can read anything is not to sandbox its reads
     -- it is to not have the thing it must not read where it can reach. The
-    packets are self-contained; a rater needs nothing from this checkout. So
-    corpus labels for a family that has a shell are produced on a host that
-    does not carry the inventory, and this is the check that says so. It
-    knows one location, the checkout it lives in; a second clone elsewhere is
-    what the transcript audit is for.
+    packets are self-contained, and the harness needs only `src/`, so a
+    deployment that carries those and not `benchmark/` satisfies this without
+    a second machine.
+
+    It knows one location, the checkout it lives in. A second clone elsewhere
+    on the same host is what the transcript audit is for, and neither is a
+    sandbox: together they are a smaller exam room and an invigilator, not a
+    locked one.
 
     Calibration labels are working material, never evidence, so a
     calibration run may say so and proceed; the label records which it was.
     """
 
-    if family != "openai" or not ANSWER_KEY.exists():
-        return "answer key not on host" if family == "openai" else "no shell"
+    if family != "openai":
+        return "no shell"
+    found = answer_keys_on_host()
+    if not found:
+        return "no answer key on host"
     if working_material:
-        return "answer key on host (working material, not evidence)"
+        return f"{len(found)} answer-key files on host (working material, not evidence)"
+    listed = ", ".join(os.path.relpath(path, build_packet.REPO_ROOT) for path in found[:4])
+    more = f" (+{len(found) - 4} more)" if len(found) > 4 else ""
     raise RaterError(
-        f"{ANSWER_KEY} is readable from this host and the {family} family has a shell; "
-        "corpus labels are produced where the inventory is not, or pass "
+        f"{len(found)} answer-stating files are readable from this host and the {family} "
+        f"family has a shell: {listed}{more}. Corpus labels are produced from a "
+        "deployment that carries the harness and the packets but not these, or pass "
         "--working-material for a calibration run"
     )
 
