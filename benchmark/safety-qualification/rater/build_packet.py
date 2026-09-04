@@ -193,12 +193,26 @@ def symlink_refusals_in_tree(root: Path) -> list[str]:
     return sorted(f"{path} (escapes the tree)" for path in found["escaping"])
 
 
-def copy_tree_excluding(source: Path, destination: Path) -> list[str]:
+def copy_tree_excluding(
+    source: Path, destination: Path, *, preserve_symlinks: bool = False
+) -> list[str]:
     """Copy ``source`` to ``destination`` dropping excluded names.
 
     Returns the relative paths that were dropped, sorted, so the caller can
     report them. Refuses before copying anything if the tree carries a
     refused name.
+
+    ``preserve_symlinks`` is for **staging into git**, and it is not a
+    convenience. A constructed case is turned into a two-commit repository by
+    staging ``base/`` and then ``head/``, and whatever this function does to a
+    link is what git records as the state. Resolving links there -- or dropping
+    the ones that resolve to nothing -- makes the two commits describe
+    something neither tree said: a link that only ``base/`` carried, removed by
+    the change, disappears from *both* sides, and the deletion vanishes from
+    the diff along with it. git stores a link as its target bytes without
+    following it, so staging recreates links as links and lets the packet
+    boundary, which is where a rater's world actually begins, decide what may
+    survive.
     """
 
     refused = refusals_in_tree(source)
@@ -206,13 +220,14 @@ def copy_tree_excluding(source: Path, destination: Path) -> list[str]:
         raise PacketError(
             "source tree contains the sourcing plan, which no rater may see: " + ", ".join(refused)
         )
-    escaping = symlink_refusals_in_tree(source)
-    if escaping:
-        raise PacketError(
-            "source tree contains symlinks the packet cannot describe: " + ", ".join(escaping)
-        )
+    if not preserve_symlinks:
+        escaping = symlink_refusals_in_tree(source)
+        if escaping:
+            raise PacketError(
+                "source tree contains symlinks the packet cannot describe: " + ", ".join(escaping)
+            )
     dropped: list[str] = []
-    broken = set(symlinks_in_tree(source)["dangling"])
+    broken = set() if preserve_symlinks else set(symlinks_in_tree(source)["dangling"])
     destination.mkdir(parents=True, exist_ok=False)
     for dirpath, dirnames, filenames in os.walk(source, followlinks=False):
         rel_dir = Path(dirpath).relative_to(source)
@@ -232,6 +247,11 @@ def copy_tree_excluding(source: Path, destination: Path) -> list[str]:
             src = Path(dirpath) / name
             dst = target_dir / name
             if src.is_symlink():
+                if preserve_symlinks:
+                    # The target bytes, not what they point at: this is what
+                    # git will store, and it is true of both trees.
+                    os.symlink(os.readlink(src), dst)
+                    continue
                 if str(rel_dir / name) in broken:
                     # Resolves to nothing, so there is nothing to copy and
                     # nothing to leak. Recorded, not silently gone.
@@ -708,7 +728,7 @@ def diff_pinned_states(repo: Path, base: str, head: str) -> str:
 
 def export_external_case(
     clone: Path, base: str, head: str, workdir: Path
-) -> tuple[Path, str, dict[str, str], list[str]]:
+) -> tuple[Path, str, dict[str, str]]:
     """Materialise the head tree and the base..head diff from a clone.
 
     Both refs must resolve to full commits. The tree comes from
@@ -724,12 +744,10 @@ def export_external_case(
     materialize_tree(clone, head_sha, tree_dir)
     diff = diff_pinned_states(clone, base_sha, head_sha)
     pins = {"kind": "external", "base_sha": base_sha, "head_sha": head_sha}
-    return tree_dir, diff, pins, sorted(symlinks_in_tree(tree_dir)["dangling"])
+    return tree_dir, diff, pins
 
 
-def export_constructed_case(
-    case_dir: Path, workdir: Path
-) -> tuple[Path, str, dict[str, str], list[str]]:
+def export_constructed_case(case_dir: Path, workdir: Path) -> tuple[Path, str, dict[str, str]]:
     """Diff a constructed case's ``base/`` and ``head/`` trees.
 
     The two trees are committed in order into a throwaway repository, so the
@@ -763,7 +781,7 @@ def export_constructed_case(
             if entry.name == ".git":
                 continue
             shutil.rmtree(entry) if entry.is_dir() else entry.unlink()
-        copy_tree_excluding(tree, repo / "_stage")
+        copy_tree_excluding(tree, repo / "_stage", preserve_symlinks=True)
         stage = repo / "_stage"
         for entry in list(stage.iterdir()):
             shutil.move(str(entry), str(repo / entry.name))
@@ -779,9 +797,7 @@ def export_constructed_case(
     # read, because a constructed tree may carry a `.gitattributes` too.
     tree_dir = workdir / "head-tree"
     materialize_tree(repo, "HEAD", tree_dir)
-    # From the case's own tree: staging into the throwaway repository already
-    # dropped the broken links, so by now there is nothing left to see.
-    return tree_dir, diff, pins, sorted(symlinks_in_tree(head_tree)["dangling"])
+    return tree_dir, diff, pins
 
 
 # --------------------------------------------------------------------------
@@ -890,23 +906,34 @@ def hash_packet_files(packet: Path) -> dict[str, str]:
     return dict(sorted(hashes.items()))
 
 
-def identical_file_groups(files: dict[str, str]) -> list[list[str]]:
-    """Groups of packet paths with byte-identical content, canonical copy first.
+def identical_file_groups(files: dict[str, str], packet: Path) -> list[list[str]]:
+    """Groups of packet paths whose content *and* mode are identical.
 
     A skill shipped as a canonical copy plus per-provider copies is the same
     bytes at several paths, and two raters citing different copies of it look
-    like a disagreement to an adjudicator when they are not one. The manifest
-    already hashes every file, so identical content is exact and free to find:
-    same sha256, same bytes. The first path in each group is the canonical
-    one -- shortest, then lexical -- which puts `skills/x/SKILL.md` ahead of
+    like a disagreement to an adjudicator when they are not one. This records
+    which paths those are.
+
+    **It records; it does not decide.** Equal bytes are not identity: a path
+    says which hook, provider or package is loaded, and that is part of what a
+    citation establishes. So this is reported in the manifest and used as a
+    *comparison key* when two labels are set beside each other -- never to
+    rewrite what a rater cited. The executable bit is part of the key for the
+    same reason, so a `runtime/hooks/pre.sh` never joins a group with an
+    `a.txt` that happens to hold the same bytes.
+
+    The first path in each group is the canonical one -- shortest, then
+    lexical -- which puts `skills/x/SKILL.md` ahead of
     `providers/claude/plugin/skills/x/SKILL.md` without knowing what either is.
     """
 
-    by_hash: dict[str, list[str]] = {}
+    by_key: dict[tuple[str, bool], list[str]] = {}
     for path, digest in files.items():
-        if path.startswith("repo/"):
-            by_hash.setdefault(digest, []).append(path)
-    groups = [sorted(paths, key=lambda item: (len(item), item)) for paths in by_hash.values()]
+        if not path.startswith("repo/"):
+            continue
+        executable = bool((packet / path).stat().st_mode & 0o111)
+        by_key.setdefault((digest, executable), []).append(path)
+    groups = [sorted(paths, key=lambda item: (len(item), item)) for paths in by_key.values()]
     return sorted((g for g in groups if len(g) > 1), key=lambda g: g[0])
 
 
@@ -947,13 +974,16 @@ def build_packet(
         workdir = Path(tmp)
         if external:
             assert clone is not None and base is not None and head is not None
-            tree_dir, diff, pins, broken_links = export_external_case(clone, base, head, workdir)
+            tree_dir, diff, pins = export_external_case(clone, base, head, workdir)
         else:
             assert case_dir is not None
-            tree_dir, diff, pins, broken_links = export_constructed_case(case_dir, workdir)
+            tree_dir, diff, pins = export_constructed_case(case_dir, workdir)
 
         staged = workdir / "packet"
         staged.mkdir()
+        # One place, both kinds of case: the tree that is about to become
+        # `repo/` is what the rater sees, so it is what decides.
+        broken_links = sorted(symlinks_in_tree(tree_dir)["dangling"])
         copy_tree_excluding(tree_dir, staged / "repo")
         (staged / "diff.patch").write_text(diff, encoding="utf-8")
         shutil.copyfile(guide, staged / "LABELING.md")
@@ -971,7 +1001,7 @@ def build_packet(
             # Naming it is the difference between a rater whose world has a
             # known empty spot and one who cannot tell a path was ever there.
             manifest["broken_symlinks"] = [f"repo/{path}" for path in broken_links]
-        groups = identical_file_groups(manifest["files"])
+        groups = identical_file_groups(manifest["files"], staged)
         if groups:
             manifest["identical_files"] = groups
         (staged / "MANIFEST.json").write_text(

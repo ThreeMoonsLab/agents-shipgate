@@ -677,6 +677,17 @@ def _events(transcript: str) -> list[dict[str, Any]]:
     return events
 
 
+def announced_model(transcript: str) -> str | None:
+    """What the ``init`` event said the session was configured as, decoration and all."""
+
+    for event in _events(transcript):
+        if event.get("type") == "system" and event.get("subtype") == "init":
+            announced = event.get("model")
+            if isinstance(announced, str) and announced:
+                return announced
+    return None
+
+
 def claude_final(transcript: str) -> tuple[str, str | None, str | None]:
     """Return (final text, model, client version) from a ``stream-json`` transcript.
 
@@ -689,12 +700,32 @@ def claude_final(transcript: str) -> tuple[str, str | None, str | None]:
     """
 
     events = _events(transcript)
-    model = None
+    announced = None
     client = None
     for event in events:
         if event.get("type") == "system" and event.get("subtype") == "init":
-            model = event.get("model") or model
+            announced = event.get("model") or announced
             client = event.get("claude_code_version") or client
+    # The `init` event announces what the session was *configured* as, and it
+    # carries decoration the API never returns -- `claude-opus-5[1m]` for a
+    # 1M-context session. Every assistant message names the model that served
+    # it. Condition 3 asks `reviewer_id` to name the model that ran, so the
+    # messages win, and the announced value is kept as a diagnostic rather
+    # than silently preferred or silently dropped.
+    served = {
+        event["message"]["model"]
+        for event in events
+        if event.get("type") == "assistant"
+        and isinstance(event.get("message"), dict)
+        and isinstance(event["message"].get("model"), str)
+    }
+    served.discard("<synthetic>")
+    if len(served) > 1:
+        raise RaterError(
+            "the transcript names more than one model as having served it: "
+            + ", ".join(sorted(served))
+        )
+    model = served.pop() if served else announced
     results = [e for e in events if e.get("type") == "result"]
     if len(results) != 1:
         raise RaterError(f"expected exactly one result event, found {len(results)}")
@@ -864,31 +895,30 @@ def parse_label_object(text: str) -> dict[str, Any]:
     return parsed
 
 
-def canonicalise_evidence(
-    references: list[str], identical_files: list[list[str]]
-) -> tuple[list[str], dict[str, str]]:
-    """Rewrite a citation of any identical copy to the group's canonical path.
+def comparison_key_for_evidence(
+    references: tuple[str, ...] | list[str], identical_files: list[list[str]]
+) -> list[str]:
+    """The citations with identical copies folded onto one path, **for comparison only**.
 
-    Returns the rewritten list and a map of what was rewritten, so the label
-    record can carry both: what the rater cited, and what it resolves to. The
-    content is byte-identical, so the line numbers carry over unchanged. This
-    is what makes "cite one copy" a property of the artifact rather than a
-    request in the guide.
+    Two raters citing different copies of byte-identical content are not
+    disagreeing, and an adjudicator should not be shown one. This produces the
+    key that says so.
+
+    **It never replaces what the rater cited.** A path is part of the evidence
+    -- it says which hook, provider or package is loaded -- so collapsing one
+    citation onto another would destroy the thing the citation establishes,
+    and ``IndependentHumanLabelV1.evidence_references`` is what everything
+    downstream reads. So the label keeps the rater's words and this sits
+    beside it, derived, for the one job it is good for.
     """
 
     canonical_for = {member: group[0] for group in identical_files for member in group[1:]}
-    rewritten: list[str] = []
-    changed: dict[str, str] = {}
+    folded: list[str] = []
     for reference in references:
         path, sep, lines = reference.partition(":")
-        target = canonical_for.get(path)
-        if target is None:
-            rewritten.append(reference)
-            continue
-        replacement = f"{target}{sep}{lines}"
-        rewritten.append(replacement)
-        changed[reference] = replacement
-    return rewritten, changed
+        target = canonical_for.get(path, path)
+        folded.append(f"{target}{sep}{lines}")
+    return folded
 
 
 # The one file this harness knows names a target decision for every corpus
@@ -1075,6 +1105,7 @@ def run_rater(
     diagnostics: list[str] = []
     if completed.returncode != 0:
         diagnostics.append(f"cli exited {completed.returncode}")
+    announced = announced_model(transcript) if family == "claude" else None
 
     if family == "openai":
         escaped = commands_that_reached_outside(transcript, packet, out)
@@ -1094,13 +1125,16 @@ def run_rater(
     # the transcript, and keep the probe's answer for the family whose stream
     # does not carry one.
     cli_version = reported_client or cli_version
+    if announced and announced != resolved_model:
+        diagnostics.append(
+            f"init announced {announced!r}; messages were served by {resolved_model!r}"
+        )
     reviewer_id = f"{family}:{resolved_model}:{invocation.session_id}"
     parsed = parse_label_object(final_text)
-    canonical, rewritten = canonicalise_evidence(
-        parsed["evidence_references"], manifest.get("identical_files", [])
-    )
-    parsed = {**parsed, "evidence_references": canonical}
     label = build_label(parsed, role=role, reviewer_id=reviewer_id)
+    evidence_comparison_key = comparison_key_for_evidence(
+        label.evidence_references, manifest.get("identical_files", [])
+    )
 
     labels = out / "labels"
     labels.mkdir(exist_ok=True)
@@ -1113,9 +1147,10 @@ def run_rater(
         "model": resolved_model,
         "session_id": invocation.session_id,
         "cli_version": cli_version,
+        "announced_model": announced,
         "family_independence": family_independence,
         "host_isolation": host_isolation,
-        "evidence_references_as_cited": rewritten,
+        "evidence_comparison_key": evidence_comparison_key,
         "packet_manifest_sha256": _sha256_text(
             (packet / "MANIFEST.json").read_text(encoding="utf-8")
         ),

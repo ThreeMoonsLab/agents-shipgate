@@ -2322,9 +2322,13 @@ def test_identical_copies_are_grouped_in_the_manifest_canonical_first(tmp_path: 
     ]
 
 
-def test_a_citation_of_any_copy_is_recorded_against_the_canonical_one() -> None:
-    """Two raters citing different copies of identical bytes are not a
-    disagreement, and after this an adjudicator never sees one."""
+def test_the_comparison_key_folds_identical_copies_without_touching_the_citation() -> None:
+    """Two raters citing different copies of the same bytes are not disagreeing.
+
+    The key says so. It is *only* a key: a path says which hook, provider or
+    package is loaded, so rewriting the citation would destroy what the
+    citation establishes.
+    """
 
     groups = [["repo/skills/x/a.md", "repo/providers/claude/plugin/skills/x/a.md"]]
     cited = [
@@ -2332,16 +2336,20 @@ def test_a_citation_of_any_copy_is_recorded_against_the_canonical_one() -> None:
         "repo/skills/x/a.md:40-42",
         "diff.patch:5-6",
     ]
-    canonical, changed = run_rater.canonicalise_evidence(cited, groups)
-    assert canonical == ["repo/skills/x/a.md:18-34", "repo/skills/x/a.md:40-42", "diff.patch:5-6"]
-    assert changed == {
-        "repo/providers/claude/plugin/skills/x/a.md:18-34": "repo/skills/x/a.md:18-34"
-    }
+    assert run_rater.comparison_key_for_evidence(cited, groups) == [
+        "repo/skills/x/a.md:18-34",
+        "repo/skills/x/a.md:40-42",
+        "diff.patch:5-6",
+    ]
 
 
-def test_the_label_carries_both_the_citation_and_what_it_resolves_to(
-    tmp_path: Path,
-) -> None:
+def test_the_label_keeps_what_the_rater_cited(tmp_path: Path) -> None:
+    """`IndependentHumanLabelV1.evidence_references` is what downstream reads.
+
+    Equal bytes are not identity, so a citation is never collapsed onto
+    another path; the folded key sits beside it.
+    """
+
     case = tmp_path / "case"
     body = "TOOLS = ['lookup', 'refund']\n"
     _write(case / "base" / "agent.py", "TOOLS = ['lookup']\n")
@@ -2366,7 +2374,129 @@ def test_the_label_carries_both_the_citation_and_what_it_resolves_to(
         prober=_stub_prober,
     )
     record = json.loads(result.label_path.read_text())
-    assert record["label"]["evidence_references"] == ["repo/agent.py:1-1"]
-    assert record["evidence_references_as_cited"] == {
-        "repo/mirror/agent.py:1-1": "repo/agent.py:1-1"
-    }
+    assert record["label"]["evidence_references"] == ["repo/mirror/agent.py:1-1"]
+    assert record["evidence_comparison_key"] == ["repo/agent.py:1-1"]
+
+
+def test_equal_bytes_with_different_modes_are_not_one_group(tmp_path: Path) -> None:
+    """A `runtime/hooks/pre.sh` must never join a group with an `a.txt`.
+
+    Grouping is a claim that two paths carry the same thing; the executable
+    bit is part of what makes them different things.
+    """
+
+    case = tmp_path / "case"
+    body = "#!/bin/sh\necho hello\n"
+    _write(case / "base" / "seed.txt", "x\n")
+    _write(case / "head" / "seed.txt", "y\n")
+    _write(case / "head" / "a.txt", body)
+    _write(case / "head" / "runtime" / "hooks" / "pre.sh", body)
+    (case / "head" / "runtime" / "hooks" / "pre.sh").chmod(0o755)
+    packet = build_packet.build_packet(
+        case_id="mode-1", role="security_governance", out=tmp_path / "packet", case_dir=case
+    )
+    assert "identical_files" not in json.loads((packet / "MANIFEST.json").read_text())
+
+
+def test_a_link_only_the_base_carried_still_shows_as_removed(tmp_path: Path) -> None:
+    """Staging decided what git recorded, and it was dropping dangling links.
+
+    A link only `base/` carried, deleted by the change, vanished from *both*
+    commits: identical tree hashes, an empty `diff.patch`, no
+    `broken_symlinks` — a packet asserting nothing changed, for a change whose
+    whole content was that deletion.
+    """
+
+    case = tmp_path / "case"
+    _write(case / "base" / "agent.py", "TOOLS = ['lookup']\n")
+    _write(case / "head" / "agent.py", "TOOLS = ['lookup']\n")
+    (case / "base" / "removed-link").symlink_to("missing-target")
+
+    packet = build_packet.build_packet(
+        case_id="dangle-base", role="security_governance", out=tmp_path / "packet", case_dir=case
+    )
+    manifest = json.loads((packet / "MANIFEST.json").read_text())
+    assert manifest["source"]["base_tree"] != manifest["source"]["head_tree"]
+    diff = (packet / "diff.patch").read_text()
+    assert "removed-link" in diff and "deleted file mode 120000" in diff
+    assert "broken_symlinks" not in manifest
+
+
+def test_a_link_whose_target_changes_shows_the_change(tmp_path: Path) -> None:
+    """The other shape staging erased: both sides dangling, so both dropped."""
+
+    case = tmp_path / "case"
+    for tree in ("base", "head"):
+        _write(case / tree / "agent.py", "TOOLS = ['lookup']\n")
+    (case / "base" / "cfg").symlink_to("profiles/dev.yaml")
+    (case / "head" / "cfg").symlink_to("profiles/prod.yaml")
+
+    packet = build_packet.build_packet(
+        case_id="dangle-retarget",
+        role="security_governance",
+        out=tmp_path / "packet",
+        case_dir=case,
+    )
+    diff = (packet / "diff.patch").read_text()
+    assert "-profiles/dev.yaml" in diff and "+profiles/prod.yaml" in diff
+    manifest = json.loads((packet / "MANIFEST.json").read_text())
+    assert manifest["broken_symlinks"] == ["repo/cfg"]
+    assert not (packet / "repo" / "cfg").exists()
+
+
+def test_the_model_recorded_is_the_one_that_served_the_messages(
+    packet: Path, tmp_path: Path
+) -> None:
+    """`init` announces what the session was configured as, with decoration the
+    API never returns; every assistant message names what actually served it.
+
+    Condition 3 asks `reviewer_id` to name the model that ran.
+    """
+
+    transcript = _claude_transcript(VALID_LABEL, model="claude-opus-5[1m]")
+    transcript = transcript.replace('"model": "claude-opus-5[1m]"', '"model": "claude-opus-5"', 0)
+    events = [json.loads(line) for line in transcript.splitlines() if line.strip()]
+    for event in events:
+        if event.get("type") == "assistant":
+            event["message"]["model"] = "claude-opus-5"
+    transcript = "".join(json.dumps(e) + "\n" for e in events)
+
+    result = run_rater.run_rater(
+        family="claude",
+        role="security_governance",
+        packet=packet,
+        out=tmp_path / "out",
+        runner=_Recorder(transcript),
+        prober=_stub_prober,
+    )
+    assert result.model == "claude-opus-5"
+    assert result.label.reviewer_id.split(":")[1] == "claude-opus-5"
+    record = json.loads(result.label_path.read_text())
+    assert record["announced_model"] == "claude-opus-5[1m]"
+    assert any("init announced" in line for line in result.diagnostics)
+
+
+def test_a_transcript_naming_two_serving_models_produces_no_label(
+    packet: Path, tmp_path: Path
+) -> None:
+    """Then `reviewer_id` cannot name the model that ran, so there is no label."""
+
+    events = [
+        json.loads(line) for line in _claude_transcript(VALID_LABEL).splitlines() if line.strip()
+    ]
+    seen = 0
+    for event in events:
+        if event.get("type") == "assistant":
+            event["message"]["model"] = "claude-opus-5" if seen else "claude-sonnet-5"
+            seen += 1
+    transcript = "".join(json.dumps(e) + "\n" for e in events)
+
+    with pytest.raises(run_rater.RaterError, match="more than one model"):
+        run_rater.run_rater(
+            family="claude",
+            role="security_governance",
+            packet=packet,
+            out=tmp_path / "out",
+            runner=_Recorder(transcript),
+            prober=_stub_prober,
+        )

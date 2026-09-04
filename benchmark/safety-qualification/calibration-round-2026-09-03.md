@@ -15,7 +15,7 @@ needed again.
 
 | | |
 |---|---|
-| `security_governance` | `claude` — `claude-opus-5[1m]`, CLI 2.1.259 |
+| `security_governance` | `claude` — `claude-opus-5`, CLI 2.1.259 |
 | `framework_tooling` | `openai` — `gpt-5.6-sol`, `codex-cli` 0.153.0 |
 | Mode | `--home-mode shared` (both logins are OAuth) |
 | Cases | `cal-1` … `cal-5`, 10 packets, 10 sessions, 10 admissible labels |
@@ -109,6 +109,23 @@ however, remains untested by evidence.
 change that introduces a runtime-assembled tool list forces the line to be
 drawn rather than stepped around; two more sessions is a cheap price against
 the alternative, which is 56 labels produced against an untested rule.
+
+## Finding 6 — the recorded model was the announced one, not the serving one
+
+Found in review of the round, not by the round. Every Claude label across all
+three runs recorded `model` and `reviewer_id` as `claude-opus-5[1m]`, taken
+from the `init` event. That value is what the session was *configured* as, and
+it carries decoration the API never returns; the assistant message events in
+the same transcripts consistently name `claude-opus-5` as the model that served
+them. Condition 3 asks `reviewer_id` to name the model that ran, so the
+provenance did not support the attribution it claimed.
+
+`claude_final` now takes the model from the message events, refuses a
+transcript that names more than one serving model — because then `reviewer_id`
+cannot name the model that ran — and keeps the announced value beside it as
+`announced_model`, with a diagnostic when the two differ. The thirteen archived
+working label records were re-derived from their own transcripts and now read
+`claude-opus-5`, each carrying `model_corrected_from`.
 
 ## Finding 5 — the two families were not blind in the same way
 
