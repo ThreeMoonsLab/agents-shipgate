@@ -9,8 +9,8 @@
   adopter's very first Shipgate run was a red check carrying an error about
   *our* repository rather than theirs. The bundled onboarding prompt had the
   same defect one layer up (`uvx agents-shipgate@0.16.0`, a version the index
-  does not carry). Every render since 2026-07-09 pinned a nonexistent ref: 56
-  days.
+  does not carry). Every render since 2026-07-09 pinned a nonexistent ref — 56
+  days of them by the time #506 was filed.
 
   Two conventions coexisted and only one was correct. The docs, `llms.txt`,
   `.well-known` and the Action examples tracked the latest published tag; the
@@ -31,11 +31,14 @@
 
   `tests/test_init_ci.py` asserted the defect, which is why it shipped. It now
   requires a published tag, and `tests/test_adopter_pins_resolve.py` sweeps
-  every pin shape across everything `init` emits, fails on an empty tag list
-  rather than passing over one, and carries a negative control that
-  re-introduces the exact defect. Cutting `v0.16.0` is not what fixes this: the
-  rule is "names a tag that exists", so it holds on the first commit after the
-  tag too.
+  every pin shape across everything `init` emits — driven off `SPECS`, the
+  registry `--agent-instructions` itself selects from, so a target added there
+  is swept the day it is registered rather than the day someone remembers.
+  The sweep fails on an empty tag list rather than passing over one, asserts
+  each pin shape was actually found, and carries two negative controls that
+  re-introduce the defect. Cutting `v0.16.0` is not what fixes this: the rule
+  is "names a tag that exists", so it holds on the first commit after the tag
+  too.
 
 - **No corpus case is graded against `insufficient_evidence` any more, and four
   `blocked` cells hold one case instead of two.** (#520, #508) A verdict exists
