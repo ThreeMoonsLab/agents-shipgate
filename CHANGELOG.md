@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+- **The design-partner pilot now measures a reviewer's decision and the next
+  eligible change — and its first published number is a zero with a reason.**
+  (#521) The runbook counted three partners through one PR each and exited on a
+  first-run feedback note, which cannot answer whether a reviewer made a better
+  decision or whether anyone ran it again.
+  [`docs/design-partner-verifier-pilot.md`](docs/design-partner-verifier-pilot.md)
+  now names two routes under test, six denominators that failures stay inside,
+  first value as four things a reviewer who did not write the change can name
+  plus a recorded decision, a four-week window for the second eligible change,
+  three separately-granted consents, and a **pre-registered**
+  continue/narrow/stop rule. Ten minutes to first value is stated as an
+  experiment target; a test fails if any page later restates it as a result.
+
+  Dry-running the runbook's own commands is what produced the first result. The
+  newest published build carries **contract 10**, and the runbook required
+  "runtime contract 14" in the paragraph that installed it with `pipx install`
+  — a precondition no published build has ever satisfied. On a synthetic
+  host-boundary change (three permission rules widened to `Bash(*)` / `Read(**)`
+  / `WebFetch(*)`, one remote MCP server added), that installable build's
+  `check` returns `warn` / `none` and mentions none of the widened rules, while
+  this tree returns `block` / `critical` with all four named. The two entry
+  failures are mutually exclusive by build: the published one writes a CI pin
+  that resolves and an evaluator that cannot see the change; this tree has the
+  evaluator and writes a pin to a tag that does not exist (#506). And the
+  documented `init` → `verify` order dead-ends on precisely the repositories
+  the host-boundary route is for, because they have no tool surface to declare.
+
+  So [`docs/design-partner-pilot-results.md`](docs/design-partner-pilot-results.md)
+  publishes six external denominators at zero, a dated enrollment shortfall
+  naming that cause rather than a recruiting gap, the reproduced blockers routed
+  to #506, #497, #520 and #504 → #337 with no new issue opened, and a dated
+  standing decision of **narrow**: invite the host-boundary route's
+  baseline/drift pair, which does run on the installable build, and withhold
+  invitations onto `check` and `verify` until a published build's evaluator
+  matches this tree's. Every finding is build-dated, and a guard fails the day a
+  new tag ships so the comparison is re-run instead of carried forward.
+
 - **No corpus case is graded against `insufficient_evidence` any more, and four
   `blocked` cells hold one case instead of two.** (#520, #508) A verdict exists
   to route a change somewhere: `passed` merges, `review_required` hands a human

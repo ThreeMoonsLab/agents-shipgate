@@ -17,7 +17,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`glossary.md`](glossary.md) — category vocabulary
 - [`ai-search-summary.md`](ai-search-summary.md) — human-readable summary for AI search and coding agents
 - [`design-partners.md`](design-partners.md) — early design partner criteria and contact path
-- [`design-partner-verifier-pilot.md`](design-partner-verifier-pilot.md) — runbook for design partners bringing one AI-generated agent PR through the verifier loop
+- [`design-partner-verifier-pilot.md`](design-partner-verifier-pilot.md) — runbook for the design-partner cohort: the two routes under test, the denominators, what counts as reviewer-understood first value, and the pre-registered continue/narrow/stop rule
+- [`design-partner-pilot-results.md`](design-partner-pilot-results.md) — the public aggregate ledger for that experiment: denominators, dated enrollment shortfall, reproduced blockers, and the standing decision
 - [`architecture.md`](architecture.md) — codebase layout for new contributors
 - [`engineering/ai-coding-workflow-verifier.md`](engineering/ai-coding-workflow-verifier.md) — canonical engineering guide and roadmap for making Agents Shipgate the deterministic verifier inside AI coding workflows
 - [`engineering/insufficient-evidence-cold-start.md`](engineering/insufficient-evidence-cold-start.md) — proposed design for getting first-adoption repos out of a standing `insufficient_evidence` verdict on every turn

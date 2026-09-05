@@ -80,7 +80,13 @@ release qualification or to complete every open issue in that window.
    records public consenting adopters separately; dogfooding, stars and downloads
    do not prove external repeat use. Pilot preparation need not wait for the
    historical-corpus outreach in
-   [#511](https://github.com/ThreeMoonsLab/agents-shipgate/issues/511).
+   [#511](https://github.com/ThreeMoonsLab/agents-shipgate/issues/511). The
+   counts, the dated enrollment shortfall and the standing continue/narrow/stop
+   record are published in
+   [docs/design-partner-pilot-results.md](docs/design-partner-pilot-results.md);
+   every external denominator there is currently zero, and the reason is a
+   route that is not yet invitable on a published build rather than a
+   recruiting gap.
 
 ### Next — complete the review and make its claims trustworthy
 
