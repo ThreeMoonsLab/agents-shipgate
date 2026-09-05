@@ -529,6 +529,144 @@ ADVERSARIAL: list[tuple[str, str, str, list[str], list[str]]] = [
         [],
         ["name_not_literal"],
     ),
+    # --- Grammar sweep -----------------------------------------------------
+    #
+    # Constructs neither reader had ever been shown, enumerated from the
+    # lexical grammar rather than from a defect. Maintainer review of #485
+    # found four lexer defects that six rounds of *code* perturbation had
+    # missed, for the reason those rounds could not reach: mutating a branch
+    # only re-asks the questions the corpus already holds, so it measures the
+    # corpus rather than extending it. Asking "what construct has this reader
+    # never been shown?" is the exercise that finds the next one.
+    #
+    # All of these passed on the first run. They are recorded so the next
+    # change to the masker has to keep them passing.
+    (
+        'a regex holding a backtick does not open a template',
+        'typescript',
+        'const r = /`/;\nserver.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        'a regex holding a template opener does not open one',
+        'typescript',
+        'const r = /`${/;\nserver.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        'a string holding a backtick does not open a template',
+        'typescript',
+        'const s = "`";\nserver.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        'a template holding a line-comment opener is not a comment',
+        'typescript',
+        'const t = `//`;\nserver.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        'a template holding a block-comment opener is not a comment',
+        'typescript',
+        'const t = `/*`;\nserver.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        'a comment holding a backtick does not open a template',
+        'typescript',
+        '// `\nserver.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        'a comment holding an apostrophe does not open a string',
+        'typescript',
+        '// don\'t\nserver.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        'a block comment holding a quote does not open a string',
+        'typescript',
+        '/* " */\nserver.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        'a dollar not followed by a brace is template text',
+        'typescript',
+        'const t = `price: $5`;\nserver.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        'an escaped backtick does not close its template',
+        'typescript',
+        'const t = `a\\`b`;\nserver.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        'a regex beginning a statement after a block cannot register',
+        'typescript',
+        'if (a) {} /\\.registerTool("ghost", {}, h)/.test(b);\nserver.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        'division after an index is still division',
+        'typescript',
+        'const q = a[0] / 2 / b;\nserver.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        'a private static field is not the tool name field',
+        'typescript',
+        'class T { static #toolName = "ghost"; }\nserver.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        'a Go rune holding a backslash must not desync the lexer',
+        'go',
+        'if c == \'\\\\\' {\n}\nmcpgrafana.MustTool("real", desc, handler)\n',
+        ["real"],
+        [],
+    ),
+    (
+        'a Go rune holding an escaped quote must not desync the lexer',
+        'go',
+        'if c == \'\\\'\' {\n}\nmcpgrafana.MustTool("real", desc, handler)\n',
+        ["real"],
+        [],
+    ),
+    (
+        'a Go raw string holding a quote is not a string boundary',
+        'go',
+        'var d = `he said "x"`\nmcpgrafana.MustTool("real", desc, handler)\n',
+        ["real"],
+        [],
+    ),
+    (
+        'a Go raw string holding a comment opener is not a comment',
+        'go',
+        'var d = `/*`\nmcpgrafana.MustTool("real", desc, handler)\n',
+        ["real"],
+        [],
+    ),
+    (
+        'a Go interpreted string holding a backtick is not a raw string',
+        'go',
+        'var d = "`"\nmcpgrafana.MustTool("real", desc, handler)\n',
+        ["real"],
+        [],
+    ),
 ]
 
 # --- Paths the reader is and is not allowed to open -------------------------
