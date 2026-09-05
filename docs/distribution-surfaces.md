@@ -44,10 +44,10 @@ and this document are checked against each other by
 | Claim | Means | Engine source of truth |
 | --- | --- | --- |
 | `agent_project_verdict` | Answers "is this an agent project", and with which sources | `agents_shipgate.cli.discovery.detect_workspace` |
-| `merge_verdict_vocabulary` | Enumerates the merge verdicts a caller can gate on | `agents_shipgate.schemas.contract.MERGE_VERDICTS` |
+| `merge_verdict_vocabulary` | Enumerates the merge verdicts a caller can gate on, or compares against one | `agents_shipgate.schemas.contract.MERGE_VERDICTS` |
 | `release_decision_vocabulary` | Enumerates the release-gate decisions | `agents_shipgate.schemas.contract.RELEASE_DECISIONS` |
 | `placeholder_ownership` | Tells a reader who may fill a manifest placeholder | `agents_shipgate.cli.discovery.placeholders.placeholder_owner` |
-| `executable_pin` | Names a version, tag or ref a reader will install or run | `.well-known/agents-shipgate.json` → `release_status.latest_release` |
+| `executable_pin` | Names a version, tag or ref a reader will install or run — the Action ref, a `pip`/`uvx` pin, a `>=` install floor, and the Action's own `shipgate_version:` input, which `action.yml` turns into `pip install agents-shipgate==<value>` | `.well-known/agents-shipgate.json` → `release_status.latest_release` |
 | `contract_floor` | Names a runtime contract version a reader must reach | `agents_shipgate.schemas.contract.CONTRACT_VERSION`, per build |
 
 ## The registry
@@ -86,6 +86,11 @@ unnoticed.
 | `detector-mcp-server-source` | `zero_install_detector` | The CLI reads MCP tool registrations out of TypeScript and Go source (`mcp_server_source`, #431); the standalone script does not, so it answers `is_agent_project: false` for every vendor MCP server the CLI now accepts. | [#485](https://github.com/ThreeMoonsLab/agents-shipgate/issues/485) |
 | `emitted-workflow-unpublished-pin` | `emitted_ci_workflow` | `init --write --ci` writes `uses: ThreeMoonsLab/agents-shipgate@v<__version__>`. While the tree is ahead of the newest tag that ref does not resolve, and GitHub fails the adopter's job before any step runs. | [#506](https://github.com/ThreeMoonsLab/agents-shipgate/issues/506) |
 | `rendered-prompt-unpublished-pin` | `prompts`, `skills`, `plugins`, `adoption_kits` | The rendered prompts pin `uvx agents-shipgate@<emitting build>` so the runner and the contract floor beside it come from one build. While the tree is ahead of the newest release that pin names a version PyPI does not have. | [#506](https://github.com/ThreeMoonsLab/agents-shipgate/issues/506) |
+
+A set is judged by **all** of its members, not by the engine values found in
+it. Projecting a documented set onto the expected vocabulary before comparing
+made an invented verdict disappear, and skipping a literal that mixed the two
+vocabularies meant neither checked it. Both now fail.
 
 ## Release channels
 

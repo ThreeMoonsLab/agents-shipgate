@@ -94,6 +94,17 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
+          # This job runs the whole suite, which includes
+          # `tests/test_distribution_surface_parity.py`: it reads the released
+          # build's contract back out of its own tag to corroborate the
+          # committed `PUBLISHED_BUILDS` table, and refuses to skip when `CI` is
+          # set. The default shallow, tagless fetch has neither the tag nor its
+          # tree. `tests/test_action_metadata.py`'s
+          # `test_jobs_running_the_whole_suite_check_out_history_and_tags`
+          # asserts this for every job that runs the suite, so the next one
+          # cannot omit it.
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Record the commit under test
         id: tested

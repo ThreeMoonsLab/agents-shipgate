@@ -63,6 +63,21 @@
   whole set, and a `merge_verdict == '…'` comparison must name a value the
   engine emits.
 
+  Review of the harness itself found three more, each reproduced before it was
+  fixed. The pin scanner never read the Action's own `shipgate_version:` input,
+  which `action.yml` turns into `pip install agents-shipgate==<value>` — so a
+  workflow could name a valid Action ref beside a package version that was never
+  released. The vocabulary guard projected each documented set onto the expected
+  values before comparing, so adding `needs_a_wizard` to the setup prompt's
+  otherwise-complete release-decision set still compared equal; sets are now
+  judged by all of their members, and a literal mixing the two vocabularies
+  fails instead of being skipped by both. And requiring tags in CI was landed in
+  `ci.yml` only, while `release-verify.yml` — which `release.yml` and
+  `release-rehearsal.yml` both call — still checked out the candidate shallow
+  and tagless before running the whole suite, so the release path would have
+  gone red on a green PR. That checkout is fixed and the contract is now
+  asserted for every job that runs the suite, whichever workflow adds one next.
+
   Known divergences are rows, not omissions. `#485`'s exact case — a minimized
   TypeScript and Go MCP server whose tool surface exists only as registration
   sites — is now a fixture under `tests/fixtures/distribution_parity/` and a

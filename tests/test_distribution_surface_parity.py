@@ -39,7 +39,6 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -954,35 +953,33 @@ _ALL_VOCABULARY_TOKENS: frozenset[str] = frozenset(MERGE_VERDICTS) | frozenset(
 )
 
 
-def _names(text: str, tokens: Iterable[str]) -> set[str]:
-    """The tokens of ``tokens`` that appear in ``text`` as whole words."""
+def documented_vocabulary_sets(text: str) -> list[set[str]]:
+    """Every braced literal that reads as a statement of an engine vocabulary.
 
-    return {token for token in tokens if re.search(rf"\b{re.escape(token)}\b", text)}
+    **All** members come back, including ones the engine does not define. An
+    earlier version projected each literal onto the expected values before
+    comparing, which made an invented verdict vanish: adding ``needs_a_wizard``
+    to the setup prompt's otherwise-complete release-decision set still compared
+    equal, so a surface could advertise a value the engine never emits while the
+    registry claimed exact vocabulary parity.
 
-
-def vocabulary_set_literals(text: str, vocabulary: tuple[str, ...]) -> list[set[str]]:
-    """Every braced literal ``text`` presents as *this* vocabulary.
-
-    The two vocabularies overlap (``insufficient_evidence``, ``blocked``), so a
-    literal is attributed to one of them only when every engine token in it
-    belongs to that one. ``{"blocked", "review_required", "insufficient_evidence",
-    "passed"}`` is the release decisions; it is not an incomplete list of merge
-    verdicts, and reporting it as one would be a false positive on correct text.
-
-    Word boundaries keep the nesting apart too: ``review_required`` does not
-    match inside ``human_review_required``.
+    A literal is a candidate when two or more of its members are engine tokens.
+    Membership in *which* vocabulary is then the caller's comparison, so a
+    literal mixing the two fails rather than being skipped by both — the
+    skip was the other half of the same fail-open.
     """
 
-    literals: list[set[str]] = []
+    sets: list[set[str]] = []
     for match in _SET_LITERAL.finditer(text):
-        body = match.group(0)
-        named = _names(body, vocabulary)
-        if len(named) < 2:
+        members = {
+            member.strip().strip("`\"'").strip()
+            for member in match.group(0)[1:-1].split(",")
+        }
+        members.discard("")
+        if len(members & _ALL_VOCABULARY_TOKENS) < 2:
             continue
-        if _names(body, _ALL_VOCABULARY_TOKENS - set(vocabulary)):
-            continue  # some other vocabulary's literal
-        literals.append(named)
-    return literals
+        sets.append(members)
+    return sets
 
 
 _MERGE_VERDICT_COMPARISON = re.compile(
@@ -1023,16 +1020,16 @@ def test_surface_enumerations_match_the_engine_vocabulary(path: Path):
 
     text = _rendered(path)
     relpath = path.relative_to(REPO_ROOT)
-    for vocabulary, name in (
-        (MERGE_VERDICTS, "MERGE_VERDICTS"),
-        (RELEASE_DECISIONS, "RELEASE_DECISIONS"),
-    ):
-        for listed in vocabulary_set_literals(text, vocabulary):
-            assert listed == set(vocabulary), (
-                f"{relpath} spells a set of {name} as {sorted(listed)}; the "
-                f"engine's is {sorted(vocabulary)}. Missing "
-                f"{sorted(set(vocabulary) - listed)}."
-            )
+    accepted = (set(MERGE_VERDICTS), set(RELEASE_DECISIONS))
+    for listed in documented_vocabulary_sets(text):
+        assert listed in accepted, (
+            f"{relpath} spells a verdict set as {sorted(listed)}, which is "
+            f"neither MERGE_VERDICTS {sorted(MERGE_VERDICTS)} nor "
+            f"RELEASE_DECISIONS {sorted(RELEASE_DECISIONS)}. "
+            f"Not in either: {sorted(listed - set(MERGE_VERDICTS) - set(RELEASE_DECISIONS))}. "
+            f"Missing from the nearest match: "
+            f"{sorted(min(accepted, key=lambda v: len(v ^ listed)) - listed)}."
+        )
     for token in set(_MERGE_VERDICT_COMPARISON.findall(text)):
         assert token in set(MERGE_VERDICTS), (
             f"{relpath} compares merge_verdict against {token!r}, which the "
@@ -1056,8 +1053,7 @@ def test_vocabulary_guard_is_not_vacuous():
     ):
         for path in _surface_files(surface, (".md", ".yml", ".yaml")):
             text = _rendered(path)
-            literals += len(vocabulary_set_literals(text, RELEASE_DECISIONS))
-            literals += len(vocabulary_set_literals(text, MERGE_VERDICTS))
+            literals += len(documented_vocabulary_sets(text))
             comparisons += len(_MERGE_VERDICT_COMPARISON.findall(text))
     assert literals >= 4, (
         f"only {literals} vocabulary set literals found on the surfaces that "
@@ -1070,26 +1066,52 @@ def test_vocabulary_guard_is_not_vacuous():
     )
 
 
-def test_vocabulary_reader_catches_a_short_set_and_ignores_a_mention():
-    """Negative control, including the overlap that would make it false-positive."""
+def _vocabulary_set_verdicts(text: str) -> list[bool]:
+    """Whether each candidate set in ``text`` is one the guard accepts."""
+
+    accepted = (set(MERGE_VERDICTS), set(RELEASE_DECISIONS))
+    return [listed in accepted for listed in documented_vocabulary_sets(text)]
+
+
+def test_vocabulary_reader_judges_a_set_by_all_of_its_members():
+    """Negative controls, including the two fail-open shapes review found.
+
+    An extra unsupported value used to vanish, because each literal was
+    projected onto the expected vocabulary before being compared; and a literal
+    mixing the two vocabularies was skipped by both, so it was checked by
+    neither. Both now fail.
+    """
 
     complete = '`decision` ∈ `{"blocked", "review_required", "insufficient_evidence", "passed"}`'
-    assert vocabulary_set_literals(complete, RELEASE_DECISIONS) == [
-        set(RELEASE_DECISIONS)
+    assert documented_vocabulary_sets(complete) == [set(RELEASE_DECISIONS)]
+    assert _vocabulary_set_verdicts(complete) == [True]
+
+    # A complete, valid set plus one value the engine never emits.
+    invented = (
+        '{"blocked", "review_required", "insufficient_evidence", "passed", '
+        '"needs_a_wizard"}'
+    )
+    assert documented_vocabulary_sets(invented) == [
+        set(RELEASE_DECISIONS) | {"needs_a_wizard"}
     ]
-    short = '{"blocked", "review_required", "passed"}'
-    assert vocabulary_set_literals(short, RELEASE_DECISIONS) == [
-        {"blocked", "review_required", "passed"}
-    ]
+    assert _vocabulary_set_verdicts(invented) == [False]
+
+    # Short, and mixed. Neither may pass, and neither may be skipped.
+    assert _vocabulary_set_verdicts('{"blocked", "review_required", "passed"}') == [False]
+    assert _vocabulary_set_verdicts('{"mergeable", "passed"}') == [False]
+
     # A passing mention, and a correct partial statement in prose, are not
     # claims about the set.
-    assert vocabulary_set_literals("treat it as review_required.", RELEASE_DECISIONS) == []
-    assert vocabulary_set_literals(
-        "fails CI on `blocked`, `review_required`, `insufficient_evidence`",
-        RELEASE_DECISIONS,
-    ) == []
-    # The release-decision literal must not be read as a short merge-verdict one.
-    assert vocabulary_set_literals(complete, MERGE_VERDICTS) == []
+    assert documented_vocabulary_sets("treat it as review_required.") == []
+    assert (
+        documented_vocabulary_sets(
+            "fails CI on `blocked`, `review_required`, `insufficient_evidence`"
+        )
+        == []
+    )
+    # The complete merge-verdict set is accepted on its own terms, not read as
+    # an over-long release-decision set.
+    assert _vocabulary_set_verdicts("{" + ", ".join(MERGE_VERDICTS) + "}") == [True]
 
 
 # --------------------------------------------------------------------------
@@ -1282,6 +1304,13 @@ PIN_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("action", re.compile(rf"ThreeMoonsLab/agents-shipgate@v({_VERSION})")),
     ("pip", re.compile(rf"agents-shipgate==({_VERSION})")),
     ("uvx", re.compile(rf"agents-shipgate@({_VERSION})")),
+    # The Action's own package-version input. `action.yml`'s "Install Agents
+    # Shipgate" step turns it into `pip install agents-shipgate==<value>`, so it
+    # is an install pin wearing a YAML key — and a workflow can name a perfectly
+    # valid Action ref beside a package version that was never released. The
+    # older public-surface guard checks this key against an explicit file list,
+    # which by construction cannot cover a workflow example added later.
+    ("shipgate_version input", re.compile(rf"shipgate_version:\s*[\"']?({_VERSION})")),
 )
 
 #: Exactly the files that pin the emitting build rather than a published one.
@@ -1458,6 +1487,30 @@ def test_pin_scanner_catches_a_seeded_wrong_ref():
     assert not unpublished_pins(
         "uses: ThreeMoonsLab/agents-shipgate@v0.15.0", published="0.15.0"
     )
+
+
+def test_pin_scanner_catches_a_bad_package_version_beside_a_good_ref():
+    """Negative control: the ref is valid and only the install pin is wrong.
+
+    `action.yml` installs `agents-shipgate==${{ inputs.shipgate_version }}`, so
+    a workflow can pass Action-ref resolution and then fail at `pip install`.
+    Keeping the ref valid here is the point — a scanner that only read the ref
+    would report nothing.
+    """
+
+    workflow = (
+        "      - uses: ThreeMoonsLab/agents-shipgate@v0.15.0\n"
+        "        with:\n"
+        "          shipgate_version: '9.9.9'\n"
+    )
+    assert unpublished_pins(workflow, published="0.15.0") == [
+        ("shipgate_version input", "9.9.9")
+    ]
+    assert not unpublished_pins(
+        workflow.replace("9.9.9", "0.15.0"), published="0.15.0"
+    )
+    # The upgrade prompt's placeholder is not a version and must stay unread.
+    assert not unpublished_pins("shipgate_version: '<NEW>'", published="0.15.0")
 
 
 def test_pin_scanner_catches_an_unreachable_install_floor():
