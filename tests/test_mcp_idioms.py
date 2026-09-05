@@ -218,6 +218,12 @@ def test_an_attribute_assignment_is_not_the_description_field():
 
     assert site.name == "t"
     assert site.description == "Runs an aggregation"
+    # `operationType` never had the defect, because its pattern requires a
+    # leading `static` — and that is a property nothing checked. The class
+    # declares no static `operationType`, so a scratch assignment in the
+    # constructor must leave it unset rather than infer a `delete` risk tag
+    # from it.
+    assert site.operation_type is None
 
 
 @pytest.mark.parametrize(

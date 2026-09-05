@@ -316,6 +316,35 @@ ADVERSARIAL: list[tuple[str, str, str, list[str], list[str]]] = [
         [],
     ),
     (
+        # `mcpgrafana.MustTool(` matches because a `.` is not a word character;
+        # a helper of the repository's own whose name merely *ends* in
+        # `MustTool` is a different function, and reading it registers a tool
+        # nobody serves.
+        "an identifier ending in MustTool is not MustTool",
+        "go",
+        'registerMustTool("ghost", desc, handler)\n',
+        [],
+        [],
+    ),
+    (
+        "an identifier ending in NewTool is not NewTool",
+        "go",
+        'buildNewTool("ghost", desc, handler)\n',
+        [],
+        [],
+    ),
+    (
+        # Same boundary on the struct idiom, and the case the existing
+        # `ToolDependencies` sample does not reach: that name has text between
+        # `Tool` and the brace, so it never matched. A type whose name *ends*
+        # in `Tool` does.
+        "a type whose name ends in Tool is not mcp.Tool",
+        "go",
+        'handler := RegistryTool{Name: "ghost", Description: "x"}\n',
+        [],
+        [],
+    ),
+    (
         "a type whose name merely ends in Tool is not a tool struct",
         "go",
         'deps := ToolDependencies{Name: "not_a_tool"}\n',
@@ -514,7 +543,10 @@ REGRESSIONS: dict[str, SourceCase] = {
         "attribute_assignment_is_not_the_description",
         "typescript",
         "class T {\n"
-        '    constructor() { this.description = "scratch label"; }\n'
+        "    constructor() {\n"
+        '        this.description = "scratch label";\n'
+        '        this.operationType = "delete";\n'
+        "    }\n"
         '    static toolName = "t";\n'
         '    public description = "Runs an aggregation";\n'
         "}\n",
