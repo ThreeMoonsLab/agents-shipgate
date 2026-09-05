@@ -360,6 +360,18 @@ ADVERSARIAL: list[tuple[str, str, str, list[str], list[str]]] = [
         [],
     ),
     (
+        # Semicolon-less TypeScript, where the statement ends at the line
+        # break. It is the only shape in which `_literal_is_whole_value` ever
+        # reaches the character *after* the literal on a CRLF checkout, so
+        # without it the reader's `\r` handling is untested and a Windows
+        # checkout silently loses the tool.
+        "a static field with no semicolon is still the whole value",
+        "typescript",
+        'class T {\n    static toolName = "loose_no_semicolon"\n}\n',
+        ["loose_no_semicolon"],
+        [],
+    ),
+    (
         "a concatenated Go struct name is not the literal it starts with",
         "go",
         'mcp.Tool{Name: "issue_" + verb, Description: "x"}\n',

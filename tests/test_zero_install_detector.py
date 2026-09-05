@@ -1221,6 +1221,50 @@ def test_both_readers_resolve_the_corpus_identically(script_module, case):
 
 
 @pytest.mark.parametrize(
+    "case", SOURCE_CASES, ids=[case.case for case in SOURCE_CASES]
+)
+def test_neither_reader_answers_differently_on_a_crlf_checkout(script_module, case):
+    """A Windows checkout is a supported one, and it changes every offset.
+
+    Git for Windows translates line endings on checkout by default, so the
+    detector a maintainer curls onto their own repository is reading `\r\n`
+    source. The maskers work in offsets and the value tests skip `\r` before
+    looking for a terminator, so the answer should not move — but "should not"
+    is what a test is for, and this repository has lost a day to CRLF in a
+    corpus reader before.
+
+    Names, omissions and anomalies rather than whole sites: the two carriage
+    returns per line legitimately shift every line's spans. The readers are
+    still compared to each other in full, because they see identical bytes.
+    """
+
+    from agents_shipgate.inputs import mcp_idioms
+
+    crlf = case.text.replace("\n", "\r\n")
+
+    def answer(result):
+        return (
+            sorted(site.name for site in result.sites if site.name),
+            sorted(
+                site.unresolved_reason for site in result.sites if site.name is None
+            ),
+            result.anomalies,
+        )
+
+    lf = mcp_idioms.scan_source(case.text, case.language)
+    cli = mcp_idioms.scan_source(crlf, case.language)
+    script = script_module.scan_source(crlf, case.language)
+
+    assert answer(cli) == answer(lf), (
+        f"{case.case}: the CLI reader answers differently on a CRLF checkout"
+    )
+    assert [_site_fields(site) for site in script.sites] == [
+        _site_fields(site) for site in cli.sites
+    ], f"{case.case}: the two readers diverge on a CRLF checkout"
+    assert script.anomalies == cli.anomalies
+
+
+@pytest.mark.parametrize(
     ("path", "scannable"), SCANNABLE_PATHS, ids=[case[0] for case in SCANNABLE_PATHS]
 )
 def test_both_readers_open_the_same_files(script_module, path: str, scannable: bool):
