@@ -172,8 +172,10 @@ counts never require consent; anything identifying always does. A partner may
 withdraw a consent later, and withdrawal applies to already-published
 material.
 
-Keep the working tracker in a private location. Only the aggregate ledger in
-`design-partner-pilot-results.md` is public.
+Keep the working tracker in a private location — `.agents-private/` is
+gitignored in this repository for exactly this. Only the aggregate ledger in
+[`design-partner-pilot-results.md`](design-partner-pilot-results.md) is
+public.
 
 ## Evidence to preserve
 
@@ -541,6 +543,13 @@ it once the cohort closes, and record the outcome in
 | **Continue** | ≥ 2 repositories reach first value unaided **and** ≥ 1 reaches `second_change_observed`, on the same route |
 | **Narrow** | first value is reached, but only on one route, only with maintainer translation, or with no observed second change |
 | **Stop** | no repository reaches first value, or every failure traces to the product rather than to enrollment |
+
+These counts are read **against the reported denominators**, never against a
+selected subset. Two repositories reaching first value out of three attempts
+and two out of thirty are different results, and the decision has to name
+which — that is the whole reason failures stay in `attempted`. Nothing here is
+a retention target asked of a partner; it is a threshold this project holds
+itself to before claiming a workflow works.
 
 Whichever it is, name: which persona and workflow earned repeated use, which
 blockers recurred, and whether any partner asked for blocking CI. No response

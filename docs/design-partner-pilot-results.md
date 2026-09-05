@@ -172,6 +172,10 @@ terminal decision. The terminal decision needs observations that do not exist
 yet; recording "undecided" and moving on would leave the shortfall
 unexplained, so the checkpoint says what is being done about it.
 
+- **Persona and workflow that earned repeated use:** none. Nothing has been
+  observed once, let alone twice, so no route, persona or workflow has earned
+  anything yet. The rest of this decision is about where to spend the next
+  invitation, not about what has been proven.
 - **Persona and workflow to invite:** the developer or platform/DevEx reviewer
   who already meets permission and MCP changes in pull requests, on Route H,
   using the baseline/drift pair on the published build.
