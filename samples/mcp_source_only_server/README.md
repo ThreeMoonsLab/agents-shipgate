@@ -39,3 +39,32 @@ Two tools are named, one registration is not:
 The doc comment in `dropTicketArchive.ts` contains a registration too. It is
 invisible to both readers: comments and string bodies are masked before
 anything is matched, so a documented example can never enter the catalog.
+
+## The whole walk
+
+The route is only worth suggesting if the step after it can act on it, so the
+fixture is checked end to end rather than at `detect` alone:
+
+```bash
+cp -R samples/mcp_source_only_server /tmp/server
+./shipgate detect --workspace /tmp/server --json
+./shipgate init --workspace /tmp/server --write
+./shipgate scan --config /tmp/server/shipgate.yaml
+```
+
+`init` writes `tool_sources: [{id: mcp_src_src, type: mcp_server_source, path:
+src}]`, and `scan` reads both registrations into `report.json`'s `tool_catalog`
+at `medium` confidence, each carrying the file and line it was registered at.
+The registration that names itself at runtime is in `surface_exclusions` as
+`name_not_literal` — accounted for, not dropped, which is what keeps the count
+of two honest.
+
+The terminal then says `Surface: 0 tools` and stops at `insufficient_evidence`,
+and that is the right answer rather than a contradiction: an MCP server has no
+agent object, so nothing binds the catalog's tools to a reviewed surface yet —
+`0/2 catalog tools reachable`. The next step is named
+(`shipgate.yaml#tool_sources[].binding`) and a ready-to-review block is written
+to `suggested-declarations.yaml`. [`mcp_only_server`](../mcp_only_server/),
+whose surface is a committed export, stops in exactly the same place; the
+difference between the two fixtures is how the tools were *found*, not what
+happens after.
