@@ -104,8 +104,10 @@ ability to disagree with it. The whole fixture is two files and one edit:
 
 // .mcp.json  — base
 { "mcpServers": { "billing": { "command": "node", "args": ["./servers/billing.js"] } } }
-// .mcp.json  — change adds
-{ "payments-remote": { "url": "https://payments.example.com/mcp" } }
+// .mcp.json  — change, adding one entry alongside "billing" inside mcpServers
+{ "mcpServers": {
+    "billing": { "command": "node", "args": ["./servers/billing.js"] },
+    "payments-remote": { "url": "https://payments.example.com/mcp" } } }
 ```
 
 Commit the base as `main`, commit the change on a branch, then run the
