@@ -2013,8 +2013,16 @@ def _mcp_export_tool_names(workspace: Path, relative: str) -> set[str] | None:
     surface without enumerating it, so it can never be shown to contain
     anything, and the source route is the more informative of the two.
     """
+    export = workspace / relative
     try:
-        data = json.loads((workspace / relative).read_text(encoding="utf-8"))
+        # Bounded like the loader this mirrors: `load_mcp_tools` refuses a file
+        # over `MAX_INPUT_FILE_BYTES` before parsing it, so an export past the
+        # bound names nothing on either side — and this reader is reached with
+        # a path chosen by the workspace, in a script that is curled onto an
+        # unknown repository.
+        if export.stat().st_size > MAX_STRUCTURED_FILE_BYTES:
+            return None
+        data = json.loads(export.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, ValueError):
         return None
     if isinstance(data, list):

@@ -1420,6 +1420,14 @@ _MCP_ROUTE_WORKSPACES: dict[str, dict[str, str]] = {
         "src/tools/search.ts": _TS_REGISTRATION,
         "src/admin/drop.ts": 'class T { static toolName = "drop-database"; }\n',
     },
+    # A single-file server registers at the workspace root, so the route is
+    # `"."` — its own branch in the unresolved-count rollup, and the one route
+    # path that also reaches `agent_project_candidates` as a bare workspace.
+    "registrations_at_the_workspace_root": {
+        "package.json": _TS_PACKAGE_JSON,
+        "server.ts": _TS_REGISTRATION
+        + "server.registerTool(DYNAMIC, { inputSchema: shape }, handler);\n",
+    },
 }
 
 
@@ -1468,6 +1476,7 @@ def test_the_constructed_route_workspaces_actually_exercise_the_route(tmp_path):
         "export_covers_part_of_the_surface": "src/tools",
         "wildcard_export_contains_nothing": "src/tools",
         "registrations_in_two_directories": "src",
+        "registrations_at_the_workspace_root": ".",
     }
     assert excluded == {
         "typescript_source_only": [],
@@ -1479,6 +1488,7 @@ def test_the_constructed_route_workspaces_actually_exercise_the_route(tmp_path):
         "export_covers_part_of_the_surface": [],
         "wildcard_export_contains_nothing": [],
         "registrations_in_two_directories": [],
+        "registrations_at_the_workspace_root": [],
     }
 
 

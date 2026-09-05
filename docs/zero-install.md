@@ -51,9 +51,11 @@ The script and the canonical CLI are pinned to **structural verdict parity** by 
 
 `agent_name_candidates` is the one field pinned byte for byte, including its ranking and each entry's `rationale[]`. It is not a yes/no signal: it names the agent a generated manifest would declare as the reviewed identity, so a script that ranked differently would point you at a different agent than `init` does.
 
+The `mcp_server_source` detection is the one *framework* pinned past its presence — score, confidence, and evidence lines. The looseness the rest of this contract grants was granted to detections scored from many heuristic signals and described in the script's own words; this one has exactly two scoring inputs and its lines are rendered by a ported function. Both halves matter and neither is visible in a verdict: the declared dependency is what carries the label to `medium`, and `"61 tools"` without `"and 3 more this reader cannot name"` is the over-claim the input exists to avoid.
+
 **When to use this:** you're a coding agent (Claude Code, Codex, Cursor) deciding *whether* to propose Shipgate. The script tells you in one fetch + one Python invocation. The full flow (`init`, `scan`, `apply-patches`) requires the actual install.
 
-**Constraints:** Python 3.12+ on the runner. Evidence/reason strings and absolute framework scores are simplified — the verdict is what's pinned, not the prose.
+**Constraints:** Python 3.12+ on the runner. Evidence/reason strings and absolute framework scores are simplified — the verdict is what's pinned, not the prose. `mcp_server_source` is the exception noted above.
 
 The workspace inventory does match the canonical CLI's — `git ls-files` when Git can read the workspace, a contained filesystem walk otherwise. That is a correctness requirement, not a speed one: a `.gitignore`d module is invisible to `init`, so a script that walked it anyway could name an agent `init` will never write. Paths escaping the workspace through a symlink are dropped for the same reason.
 
