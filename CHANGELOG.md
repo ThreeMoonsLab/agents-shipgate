@@ -52,6 +52,17 @@
     source checkout) with the contract each implements, and says what the
     released build does *not* produce instead of implying it does.
 
+  The registry is checked against the code in **both** directions — roots,
+  claims and the proving test named for each claim — and a claim must be proved
+  by a test that both exists and matches at least one file on that surface.
+  Review found both halves of that mattering immediately: the first draft's
+  `harness` row named a proving test that had been renamed out of existence, and
+  `design_partner_runbook` registered `executable_pin` while carrying only a
+  `>=` install floor no pin pattern looked at. Surfaces now also state the
+  engine's verdict vocabulary or none of it: a braced set literal must name the
+  whole set, and a `merge_verdict == '…'` comparison must name a value the
+  engine emits.
+
   Known divergences are rows, not omissions. `#485`'s exact case — a minimized
   TypeScript and Go MCP server whose tool surface exists only as registration
   sites — is now a fixture under `tests/fixtures/distribution_parity/` and a

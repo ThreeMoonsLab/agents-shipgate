@@ -97,38 +97,111 @@ class Surface:
     #: Repo-relative paths. A surface with no claims still declares its roots —
     #: that is what keeps the top-level classifier honest.
     roots: tuple[str, ...]
-    claims: frozenset[str]
+    #: Claim → the tests that prove it *for this surface*. A claim with no test
+    #: is an advertisement, so the mapping is claim-keyed rather than a flat
+    #: set: it is impossible to register the claim and forget the proof.
+    claims: dict[str, tuple[str, ...]]
 
     def paths(self) -> list[Path]:
         return [REPO_ROOT / root for root in self.roots]
 
 
+_PIN = ("test_executable_pin_resolves_in_a_published_channel",)
+_OWNERSHIP = ("test_surface_routes_human_owned_placeholders_to_a_human",)
+_FLOOR = ("test_contract_floor_is_reachable_in_the_build_the_surface_names",)
+_VOCABULARY = ("test_surface_enumerations_match_the_engine_vocabulary",)
+
 SURFACES: tuple[Surface, ...] = (
-    Surface("github_action", ("action.yml", "scripts/github_action_outputs.py"),
-            frozenset({"merge_verdict_vocabulary"})),
-    Surface("zero_install_detector", ("tools/shipgate-detect.py",),
-            frozenset({"agent_project_verdict"})),
-    Surface("emitted_ci_workflow", ("src/agents_shipgate/cli/discovery/ci_workflow.py",),
-            frozenset({"executable_pin"})),
-    Surface("prompts", ("prompts",),
-            frozenset({"executable_pin", "contract_floor", "merge_verdict_vocabulary",
-                       "placeholder_ownership"})),
-    Surface("skills", ("skills",),
-            frozenset({"executable_pin", "contract_floor", "merge_verdict_vocabulary",
-                       "placeholder_ownership"})),
-    Surface("plugins", ("plugins",),
-            frozenset({"executable_pin", "contract_floor", "merge_verdict_vocabulary",
-                       "placeholder_ownership"})),
-    Surface("adoption_kits", ("adoption-kits",),
-            frozenset({"executable_pin", "contract_floor", "merge_verdict_vocabulary",
-                       "placeholder_ownership"})),
-    Surface("examples", ("examples",),
-            frozenset({"executable_pin", "merge_verdict_vocabulary"})),
-    Surface("policies", ("policies",), frozenset()),
-    Surface("harness", ("harness",), frozenset({"merge_verdict_vocabulary"})),
-    Surface("mcp_server", ("src/agents_shipgate/mcp_server",), frozenset()),
-    Surface("design_partner_runbook", ("docs/design-partner-verifier-pilot.md",),
-            frozenset({"executable_pin", "contract_floor", "placeholder_ownership"})),
+    Surface(
+        "github_action",
+        ("action.yml", "scripts/github_action_outputs.py"),
+        {
+            "merge_verdict_vocabulary": (
+                "test_action_input_enumerates_engine_merge_verdicts",
+                "test_action_output_script_shares_the_engine_merge_verdicts",
+            )
+        },
+    ),
+    Surface(
+        "zero_install_detector",
+        ("tools/shipgate-detect.py",),
+        {"agent_project_verdict": ("test_detector_verdict_matches_cli",)},
+    ),
+    Surface(
+        "emitted_ci_workflow",
+        ("src/agents_shipgate/cli/discovery/ci_workflow.py",),
+        {"executable_pin": ("test_emitted_ci_workflow_pins_a_published_ref",)},
+    ),
+    Surface(
+        "prompts",
+        ("prompts",),
+        {
+            "executable_pin": _PIN,
+            "contract_floor": _FLOOR,
+            "release_decision_vocabulary": _VOCABULARY,
+            "placeholder_ownership": _OWNERSHIP,
+        },
+    ),
+    Surface(
+        "skills",
+        ("skills",),
+        {
+            "executable_pin": _PIN,
+            "contract_floor": _FLOOR,
+            "release_decision_vocabulary": _VOCABULARY,
+            "placeholder_ownership": _OWNERSHIP,
+        },
+    ),
+    Surface(
+        "plugins",
+        ("plugins",),
+        {
+            "executable_pin": _PIN,
+            "contract_floor": _FLOOR,
+            "release_decision_vocabulary": _VOCABULARY,
+            "placeholder_ownership": _OWNERSHIP,
+        },
+    ),
+    Surface(
+        "adoption_kits",
+        ("adoption-kits",),
+        {
+            "executable_pin": _PIN,
+            "contract_floor": _FLOOR,
+            "release_decision_vocabulary": _VOCABULARY,
+            "placeholder_ownership": _OWNERSHIP,
+        },
+    ),
+    Surface(
+        "examples",
+        ("examples",),
+        {"executable_pin": _PIN, "merge_verdict_vocabulary": _VOCABULARY},
+    ),
+    Surface("policies", ("policies",), {}),
+    Surface(
+        "harness",
+        ("harness",),
+        {
+            "merge_verdict_vocabulary": (
+                "test_harness_holds_no_drifted_copy_of_the_engine_vocabularies",
+            ),
+            "release_decision_vocabulary": (
+                "test_harness_holds_no_drifted_copy_of_the_engine_vocabularies",
+            ),
+        },
+    ),
+    Surface("mcp_server", ("src/agents_shipgate/mcp_server",), {}),
+    Surface(
+        "design_partner_runbook",
+        ("docs/design-partner-verifier-pilot.md",),
+        {
+            "executable_pin": _PIN,
+            "contract_floor": (
+                "test_runbook_channel_table_states_the_released_contract_correctly",
+            ),
+            "placeholder_ownership": _OWNERSHIP,
+        },
+    ),
 )
 
 SURFACES_BY_ID = {surface.id: surface for surface in SURFACES}
@@ -139,14 +212,21 @@ class ParityGap:
     """A surface allowed to disagree with the engine, with an owner."""
 
     id: str
-    surface: str
+    #: Every surface the gap covers. The rendered-prompt pin spans four, and a
+    #: single id here would have named one of them in the xfail reason a reader
+    #: sees for files on the other three.
+    surfaces: tuple[str, ...]
     issue: int
 
 
 KNOWN_GAPS: tuple[ParityGap, ...] = (
-    ParityGap("detector-mcp-server-source", "zero_install_detector", 485),
-    ParityGap("emitted-workflow-unpublished-pin", "emitted_ci_workflow", 506),
-    ParityGap("rendered-prompt-unpublished-pin", "prompts", 506),
+    ParityGap("detector-mcp-server-source", ("zero_install_detector",), 485),
+    ParityGap("emitted-workflow-unpublished-pin", ("emitted_ci_workflow",), 506),
+    ParityGap(
+        "rendered-prompt-unpublished-pin",
+        ("prompts", "skills", "plugins", "adoption_kits"),
+        506,
+    ),
 )
 
 GAPS_BY_ID = {gap.id: gap for gap in KNOWN_GAPS}
@@ -160,7 +240,8 @@ def _gap_marks(gap_id: str) -> list[pytest.MarkDecorator]:
         pytest.mark.xfail(
             strict=True,
             reason=(
-                f"known parity gap {gap.id!r} on surface {gap.surface!r}, owned by "
+                f"known parity gap {gap.id!r} on "
+                f"{', '.join(gap.surfaces)}, owned by "
                 f"#{gap.issue}. When that lands this row passes, the strict marker "
                 "fails, and the gap is retired from KNOWN_GAPS and from "
                 "docs/distribution-surfaces.md."
@@ -279,8 +360,7 @@ def contract_of(version: str) -> str:
 # Registry integrity: the doc and the code are one another's guard.
 # --------------------------------------------------------------------------
 
-_REGISTRY_ROW = re.compile(r"^\|\s*`([a-z0-9_]+)`\s*\|", re.MULTILINE)
-_GAP_ROW = re.compile(r"^\|\s*`([a-z0-9-]+)`\s*\|\s*`?([a-z0-9_, `]+?)`?\s*\|", re.MULTILINE)
+_NOT_STATED = "—"
 
 
 def _registry_text() -> str:
@@ -289,10 +369,81 @@ def _registry_text() -> str:
 
 def _registry_section(heading: str) -> str:
     text = _registry_text()
-    start = text.index(f"\n## {heading}\n")
+    marker = f"\n## {heading}\n"
+    start = text.find(marker)
+    assert start != -1, (
+        f"docs/distribution-surfaces.md has no '## {heading}' section. Renaming "
+        "a heading breaks the code that reads it — rename it in both places."
+    )
     rest = text[start + 1 :]
     end = rest.find("\n## ", 1)
     return rest if end == -1 else rest[:end]
+
+
+def _table_rows(section: str) -> list[list[str]]:
+    """Body cells of the one Markdown table in ``section``, header excluded."""
+
+    rows: list[list[str]] = []
+    for line in section.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+        if all(set(cell) <= {"-", ":"} and cell for cell in cells):
+            continue  # the `| --- |` separator
+        rows.append(cells)
+    assert rows, f"no table found in section:\n{section[:200]}"
+    return rows[1:]  # drop the header
+
+
+def _backticked(cell: str) -> set[str]:
+    """The backticked identifiers in one table cell; empty for ``—``."""
+
+    if cell.strip() == _NOT_STATED:
+        return set()
+    return set(re.findall(r"`([^`]+)`", cell))
+
+
+def _documented_surfaces() -> dict[str, dict[str, set[str]]]:
+    """The registry table, as ``{id: {"roots": …, "claims": …, "tests": …}}``."""
+
+    documented: dict[str, dict[str, set[str]]] = {}
+    for cells in _table_rows(_registry_section("The registry")):
+        assert len(cells) == 5, f"unexpected registry row shape: {cells!r}"
+        surface_id, root, claims, proven_by, _narrower = cells
+        ids = _backticked(surface_id)
+        assert len(ids) == 1, f"registry row must open with one `id`: {cells!r}"
+        documented[ids.pop()] = {
+            # Roots are written with a trailing slash for directories, which is
+            # legible in a table and not how a path is spelled in code.
+            "roots": {value.rstrip("/") for value in _backticked(root)},
+            "claims": _backticked(claims),
+            "tests": _backticked(proven_by),
+        }
+    return documented
+
+
+def _documented_gaps() -> dict[str, set[str]]:
+    """The gap table, as ``{gap id: surface ids}``."""
+
+    documented: dict[str, set[str]] = {}
+    for cells in _table_rows(_registry_section("Known parity gaps")):
+        assert len(cells) == 4, f"unexpected gap row shape: {cells!r}"
+        ids = _backticked(cells[0])
+        assert len(ids) == 1, f"gap row must open with one `id`: {cells!r}"
+        documented[ids.pop()] = _backticked(cells[1])
+    return documented
+
+
+def _defined_test_names() -> set[str]:
+    """Every test function this module defines, read from its own source."""
+
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    return {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
+    }
 
 
 def test_registry_document_exists_and_is_referenced_from_contributing():
@@ -310,7 +461,7 @@ def test_registry_document_exists_and_is_referenced_from_contributing():
 def test_registry_document_lists_exactly_the_registered_surfaces():
     """The doc and :data:`SURFACES` are one list, kept in two places."""
 
-    documented = set(_REGISTRY_ROW.findall(_registry_section("The registry")))
+    documented = set(_documented_surfaces())
     registered = set(SURFACES_BY_ID)
     assert documented == registered, (
         "docs/distribution-surfaces.md and SURFACES disagree about which "
@@ -321,7 +472,7 @@ def test_registry_document_lists_exactly_the_registered_surfaces():
 
 def test_registry_rows_use_the_closed_claims_vocabulary():
     for surface in SURFACES:
-        unknown = surface.claims - CLAIMS
+        unknown = set(surface.claims) - CLAIMS
         assert not unknown, (
             f"{surface.id} claims {sorted(unknown)}, which is outside the closed "
             "vocabulary. Add it to CLAIMS and to the registry's claims table, or "
@@ -329,25 +480,58 @@ def test_registry_rows_use_the_closed_claims_vocabulary():
         )
 
 
-def test_registry_documents_every_claim_a_surface_makes():
-    """Each surface's row in the doc names the claims the code registers."""
+@pytest.mark.parametrize("surface", SURFACES, ids=lambda s: s.id)
+def test_registry_row_agrees_with_the_code_in_both_directions(surface: Surface):
+    """Roots, claims and proving tests are compared as *sets*, not one way.
 
-    section = _registry_section("The registry")
-    rows = {
-        match.group(1): section[match.start() : section.find("\n", match.start())]
-        for match in _REGISTRY_ROW.finditer(section)
-    }
+    A one-directional check lets the document advertise a claim the code does
+    not register, so a reader is told a surface is audited when nothing audits
+    it and the suite stays green. The registry is only worth reading if it
+    cannot say more than the code does.
+    """
+
+    row = _documented_surfaces()[surface.id]
+    assert row["roots"] == set(surface.roots), (
+        f"{surface.id}: the registry's Root column and Surface.roots disagree — "
+        f"only in the doc {sorted(row['roots'] - set(surface.roots))}, only in "
+        f"code {sorted(set(surface.roots) - row['roots'])}."
+    )
+    assert row["claims"] == set(surface.claims), (
+        f"{surface.id}: the registry's Claims column and Surface.claims disagree "
+        f"— only in the doc {sorted(row['claims'] - set(surface.claims))}, only "
+        f"in code {sorted(set(surface.claims) - row['claims'])}."
+    )
+    proving = {name for names in surface.claims.values() for name in names}
+    assert row["tests"] == proving, (
+        f"{surface.id}: the registry's 'Proven by' column and the tests "
+        f"registered per claim disagree — only in the doc "
+        f"{sorted(row['tests'] - proving)}, only in code "
+        f"{sorted(proving - row['tests'])}."
+    )
+
+
+def test_every_claim_names_a_test_that_exists():
+    """A row's proving test is the registry's whole product.
+
+    It shipped stale on the first draft of this change: the `harness` row named
+    ``test_surface_states_only_engine_merge_verdicts`` after that test had been
+    replaced, so the document's central promise was already false and nothing
+    noticed. Names are checked against this module's own definitions, so a
+    rename fails here instead of rotting in a table.
+    """
+
+    defined = _defined_test_names()
     for surface in SURFACES:
-        row = rows[surface.id]
-        for claim in sorted(surface.claims):
-            assert f"`{claim}`" in row, (
-                f"docs/distribution-surfaces.md's {surface.id} row does not name "
-                f"claim `{claim}`. The row is what a reader checks the surface "
-                "against, so a claim missing from it is a claim nobody audits."
+        for claim, names in surface.claims.items():
+            assert names, (
+                f"{surface.id} registers claim {claim!r} with no proving test. A "
+                "claim nothing proves is an advertisement: add the test, or drop "
+                "the claim and say so in the row's last column."
             )
-        if not surface.claims:
-            assert "—" in row or "no claim" in row.lower(), (
-                f"{surface.id} registers no claim; its row must say so, and say why."
+            missing = set(names) - defined
+            assert not missing, (
+                f"{surface.id}'s {claim!r} claim names {sorted(missing)}, which "
+                f"is not defined in {Path(__file__).name}."
             )
 
 
@@ -358,14 +542,7 @@ def test_registered_surface_roots_exist():
 
 
 def _tracked_top_level_entries() -> set[str]:
-    out = subprocess.run(
-        ["git", "ls-files"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    return {line.split("/", 1)[0] for line in out.splitlines() if line}
+    return {rel.split("/", 1)[0] for rel in _tracked_files()}
 
 
 def _unclassified(entries: set[str], surfaces: tuple[Surface, ...]) -> set[str]:
@@ -411,12 +588,20 @@ def test_stale_classifications_are_removed():
 
 def test_known_gaps_are_documented_with_an_owner():
     section = _registry_section("Known parity gaps")
+    documented = _documented_gaps()
     for gap in KNOWN_GAPS:
-        assert gap.surface in SURFACES_BY_ID, (
-            f"gap {gap.id!r} names surface {gap.surface!r}, which is not registered"
+        unregistered = set(gap.surfaces) - set(SURFACES_BY_ID)
+        assert not unregistered, (
+            f"gap {gap.id!r} names unregistered surfaces {sorted(unregistered)}"
         )
-        assert f"`{gap.id}`" in section, (
+        assert gap.id in documented, (
             f"gap {gap.id!r} has no row in the registry's Known parity gaps table"
+        )
+        assert documented[gap.id] == set(gap.surfaces), (
+            f"gap {gap.id!r} covers {sorted(gap.surfaces)} in code but "
+            f"{sorted(documented[gap.id])} in the registry. The xfail reason a "
+            "reader sees names these surfaces, so a disagreement points them at "
+            "the wrong place."
         )
         assert f"/issues/{gap.issue}" in section, (
             f"gap {gap.id!r} names #{gap.issue}, which the registry's gap table "
@@ -425,8 +610,7 @@ def test_known_gaps_are_documented_with_an_owner():
 
 
 def test_registry_documents_no_gap_the_code_has_retired():
-    documented = set(_GAP_ROW.findall(_registry_section("Known parity gaps")))
-    documented_ids = {gap_id for gap_id, _surface in documented}
+    documented_ids = set(_documented_gaps())
     assert documented_ids == set(GAPS_BY_ID), (
         "the registry's gap table and KNOWN_GAPS disagree: only in the doc "
         f"{sorted(documented_ids - set(GAPS_BY_ID))}, only in code "
@@ -675,19 +859,33 @@ def test_well_known_publishes_the_engine_vocabularies():
     assert payload["release_decisions"] == list(RELEASE_DECISIONS)
 
 
+def _tracked_files() -> list[str]:
+    out = subprocess.run(
+        ["git", "ls-files"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return [line for line in out.splitlines() if line]
+
+
 def _surface_files(surface: Surface, suffixes: tuple[str, ...]) -> list[Path]:
-    files: list[Path] = []
-    for root in surface.paths():
-        if root.is_file():
-            if root.suffix in suffixes:
-                files.append(root)
-            continue
-        files.extend(
-            path
-            for path in sorted(root.rglob("*"))
-            if path.is_file() and path.suffix in suffixes
-        )
-    return files
+    """Tracked files under a surface's roots, filtered by suffix.
+
+    Tracked, not walked: the classifier reads ``git ls-files`` and the file
+    scanners must read the same repository, or an untracked scratch file under
+    ``prompts/`` becomes a parametrised row and fails the suite for a reason
+    nobody else can reproduce.
+    """
+
+    prefixes = tuple(root.rstrip("/") for root in surface.roots)
+    return [
+        REPO_ROOT / rel
+        for rel in sorted(_tracked_files())
+        if Path(rel).suffix in suffixes
+        and any(rel == prefix or rel.startswith(f"{prefix}/") for prefix in prefixes)
+    ]
 
 
 def _alternation(pattern: re.Pattern[str]) -> set[str]:
@@ -736,6 +934,159 @@ def test_alternation_reader_sees_a_seeded_extra_value():
         "mergeable",
         "needs_a_wizard",
     }
+
+
+#: A braced set literal, the one shape that is unambiguously a surface saying
+#: "these are the values" — ``decision ∈ {"blocked", "review_required", …}``.
+#: A comma- or slash-joined run is *not* enough: "the `blocked`/`review_required`
+#: decisions" and "fails CI on `blocked`, `review_required`, `insufficient_evidence`"
+#: are correct partial statements, and a rule that flagged them would force
+#: prose to be reworded to satisfy a test rather than a reader.
+_SET_LITERAL = re.compile(r"\{[^{}\n]{0,300}\}")
+
+_ALL_VOCABULARY_TOKENS: frozenset[str] = frozenset(MERGE_VERDICTS) | frozenset(
+    RELEASE_DECISIONS
+)
+
+
+def _names(text: str, tokens: object) -> set[str]:
+    return {
+        token
+        for token in tokens  # type: ignore[union-attr]
+        if re.search(rf"\b{re.escape(token)}\b", text)
+    }
+
+
+def vocabulary_set_literals(text: str, vocabulary: tuple[str, ...]) -> list[set[str]]:
+    """Every braced literal ``text`` presents as *this* vocabulary.
+
+    The two vocabularies overlap (``insufficient_evidence``, ``blocked``), so a
+    literal is attributed to one of them only when every engine token in it
+    belongs to that one. ``{"blocked", "review_required", "insufficient_evidence",
+    "passed"}`` is the release decisions; it is not an incomplete list of merge
+    verdicts, and reporting it as one would be a false positive on correct text.
+
+    Word boundaries keep the nesting apart too: ``review_required`` does not
+    match inside ``human_review_required``.
+    """
+
+    literals: list[set[str]] = []
+    for match in _SET_LITERAL.finditer(text):
+        body = match.group(0)
+        named = _names(body, vocabulary)
+        if len(named) < 2:
+            continue
+        if _names(body, _ALL_VOCABULARY_TOKENS - set(vocabulary)):
+            continue  # some other vocabulary's literal
+        literals.append(named)
+    return literals
+
+
+_MERGE_VERDICT_COMPARISON = re.compile(
+    r"""merge_verdict\s*[=!]=\s*['"]([a-z_]+)['"]"""
+)
+
+
+def _surfaces_proven_by(test_name: str) -> list[Surface]:
+    return [
+        surface
+        for surface in SURFACES
+        if any(test_name in names for names in surface.claims.values())
+    ]
+
+
+def _vocabulary_surface_files() -> list[Any]:
+    return [
+        pytest.param(path, id=str(path.relative_to(REPO_ROOT)))
+        for surface in _surfaces_proven_by(
+            "test_surface_enumerations_match_the_engine_vocabulary"
+        )
+        for path in _surface_files(surface, (".md", ".yml", ".yaml"))
+    ]
+
+
+@pytest.mark.parametrize("path", _vocabulary_surface_files())
+def test_surface_enumerations_match_the_engine_vocabulary(path: Path):
+    """A surface that spells the engine's vocabulary as a set must spell all of it.
+
+    Listing four of five teaches a reader to handle four cases, and the dropped
+    one is what their workflow then falls through on. A passing mention is left
+    alone — that is a reference, not a claim about the set.
+
+    The same test catches a stale literal from the other side: a workflow that
+    compares ``merge_verdict`` against a token the engine never emits gates on a
+    condition that can never be true.
+    """
+
+    text = _rendered(path)
+    relpath = path.relative_to(REPO_ROOT)
+    for vocabulary, name in (
+        (MERGE_VERDICTS, "MERGE_VERDICTS"),
+        (RELEASE_DECISIONS, "RELEASE_DECISIONS"),
+    ):
+        for listed in vocabulary_set_literals(text, vocabulary):
+            assert listed == set(vocabulary), (
+                f"{relpath} spells a set of {name} as {sorted(listed)}; the "
+                f"engine's is {sorted(vocabulary)}. Missing "
+                f"{sorted(set(vocabulary) - listed)}."
+            )
+    for token in set(_MERGE_VERDICT_COMPARISON.findall(text)):
+        assert token in set(MERGE_VERDICTS), (
+            f"{relpath} compares merge_verdict against {token!r}, which the "
+            "engine never emits, so the condition can never be true."
+        )
+
+
+def test_vocabulary_guard_is_not_vacuous():
+    """Both halves of the guard must find something to check.
+
+    A regex that matches nothing reads exactly like a regex that found no
+    problem. The first draft of this module shipped such a scan — it looked for
+    ``merge_verdict == "…"`` in Python across seven surface roots and matched in
+    none of them.
+    """
+
+    literals = 0
+    comparisons = 0
+    for surface in _surfaces_proven_by(
+        "test_surface_enumerations_match_the_engine_vocabulary"
+    ):
+        for path in _surface_files(surface, (".md", ".yml", ".yaml")):
+            text = _rendered(path)
+            literals += len(vocabulary_set_literals(text, RELEASE_DECISIONS))
+            literals += len(vocabulary_set_literals(text, MERGE_VERDICTS))
+            comparisons += len(_MERGE_VERDICT_COMPARISON.findall(text))
+    assert literals >= 4, (
+        f"only {literals} vocabulary set literals found on the surfaces that "
+        "claim to state one; the setup prompt spells the release decisions in "
+        "four shipped copies."
+    )
+    assert comparisons >= 1, (
+        "no `merge_verdict == '…'` comparison found on any registered surface, "
+        "so that half of the guard is checking nothing."
+    )
+
+
+def test_vocabulary_reader_catches_a_short_set_and_ignores_a_mention():
+    """Negative control, including the overlap that would make it false-positive."""
+
+    complete = '`decision` ∈ `{"blocked", "review_required", "insufficient_evidence", "passed"}`'
+    assert vocabulary_set_literals(complete, RELEASE_DECISIONS) == [
+        set(RELEASE_DECISIONS)
+    ]
+    short = '{"blocked", "review_required", "passed"}'
+    assert vocabulary_set_literals(short, RELEASE_DECISIONS) == [
+        {"blocked", "review_required", "passed"}
+    ]
+    # A passing mention, and a correct partial statement in prose, are not
+    # claims about the set.
+    assert vocabulary_set_literals("treat it as review_required.", RELEASE_DECISIONS) == []
+    assert vocabulary_set_literals(
+        "fails CI on `blocked`, `review_required`, `insufficient_evidence`",
+        RELEASE_DECISIONS,
+    ) == []
+    # The release-decision literal must not be read as a short merge-verdict one.
+    assert vocabulary_set_literals(complete, MERGE_VERDICTS) == []
 
 
 # --------------------------------------------------------------------------
@@ -823,16 +1174,22 @@ def human_owned_mentions_without_routing(text: str) -> list[str]:
 
 
 def _placeholder_surfaces() -> list[Path]:
-    """Registered surface files that tell a reader to resolve placeholders."""
+    """Every Markdown file on a surface that claims ``placeholder_ownership``.
 
-    files: list[Path] = []
-    for surface in SURFACES:
-        if "placeholder_ownership" not in surface.claims:
-            continue
-        for path in _surface_files(surface, (".md",)):
-            if "CHANGE_ME" in path.read_text(encoding="utf-8"):
-                files.append(path)
-    return files
+    Deliberately *not* filtered to files containing the literal ``CHANGE_ME``.
+    That filter was the first draft's, and it made the guard vacuous for the
+    shape it most needed to catch: a prompt that says "set
+    `agent.declared_purpose` from the README" without ever writing the
+    placeholder literal drops out of the parametrisation entirely. A guard
+    scoped to one spelling is no guard for any other.
+    """
+
+    return [
+        path
+        for surface in SURFACES
+        if "placeholder_ownership" in surface.claims
+        for path in _surface_files(surface, (".md",))
+    ]
 
 
 @pytest.mark.parametrize(
@@ -915,14 +1272,36 @@ _UNPUBLISHED_PIN_FILES: frozenset[str] = frozenset(
 _PIN_GAP = "rendered-prompt-unpublished-pin"
 
 
+#: ``pip install -U "agents-shipgate>=X.Y"`` — a *floor*, not a pin, so the rule
+#: is different: it has to be reachable, not equal. A floor above the newest
+#: release is the same defect as a pin to a nonexistent one, and it is how a
+#: surface asks a reader to install a build that does not exist yet.
+INSTALL_FLOOR_PATTERN = re.compile(r"agents-shipgate>=(\d+(?:\.\d+){1,2})")
+
+
+def _release(version: str) -> tuple[int, ...]:
+    """A dotted version as a comparable 3-tuple; ``0.15`` is ``(0, 15, 0)``."""
+
+    parts = [int(part) for part in re.split(r"[.]", version)[:3]]
+    return tuple(parts + [0] * (3 - len(parts)))
+
+
 def unpublished_pins(text: str, *, published: str) -> list[tuple[str, str]]:
-    """Every pin in ``text`` naming a version other than the published release."""
+    """Every pin or floor in ``text`` a reader could not resolve today.
+
+    A pin must equal the published release; a floor must be at or below it.
+    Both fail the same way for the reader — the install command errors — so
+    both are reported here.
+    """
 
     found: list[tuple[str, str]] = []
     for kind, pattern in PIN_PATTERNS:
         for match in pattern.finditer(text):
             if match.group(1) != published:
                 found.append((kind, match.group(1)))
+    for match in INSTALL_FLOOR_PATTERN.finditer(text):
+        if _release(match.group(1)) > _release(published):
+            found.append(("pip floor", match.group(1)))
     return found
 
 
@@ -961,7 +1340,10 @@ def _pin_bearing_paths() -> list[Path]:
             continue
         for path in _surface_files(surface, (".md", ".yml", ".yaml", ".json", ".txt")):
             rendered = _rendered(path)
-            if any(pattern.search(rendered) for _kind, pattern in PIN_PATTERNS):
+            if any(
+                pattern.search(rendered)
+                for _kind, pattern in (*PIN_PATTERNS, ("floor", INSTALL_FLOOR_PATTERN))
+            ):
                 paths.append(path)
     return paths
 
@@ -1037,6 +1419,25 @@ def test_pin_scanner_catches_a_seeded_wrong_ref():
     )
 
 
+def test_pin_scanner_catches_an_unreachable_install_floor():
+    """A floor is judged reachable, not equal — a pin's rule would misread it.
+
+    `>=0.15` against a published `0.15.0` is satisfiable and must not be
+    reported; `>=0.16` is the same defect as pinning a tag that does not exist.
+    """
+
+    assert not unpublished_pins(
+        'pip install -U "agents-shipgate>=0.15"', published="0.15.0"
+    )
+    assert not unpublished_pins(
+        'pip install -U "agents-shipgate>=0.13"', published="0.15.0"
+    )
+    assert unpublished_pins(
+        'pip install -U "agents-shipgate>=0.16"', published="0.15.0"
+    ) == [("pip floor", "0.16")]
+    assert _release("0.15") == (0, 15, 0) == _release("0.15.0")
+
+
 def test_published_version_metadata_agrees_with_the_source_tree():
     """The two committed numbers must be the two they claim to be."""
 
@@ -1088,38 +1489,73 @@ def test_emitted_ci_workflow_check_catches_a_bad_override(tmp_path: Path, monkey
 # --------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class ContractFloorClaim:
-    """A surface demanding contract N of a reader it also told what to install."""
+#: The one spelling in which a surface demands a runtime contract of a reader it
+#: has also told what to install. Scanned for rather than listed: a hand-written
+#: table of files would have covered the two originals and missed the three
+#: rendered mirrors carrying the identical claim.
+#:
+#: Deliberately not tied to the bold-Markdown spelling the prompts happen to
+#: use: the two worst instances were a plugin manifest and a marketplace entry
+#: writing plain "runtime contract 15" into JSON, and a rule that only saw
+#: Markdown emphasis would have walked past both. A `v`-prefixed number
+#: (``runtime contract v13``) is excluded on purpose — those sentences say which
+#: contract *introduced* a field, which is a fact about the past, not a floor
+#: the reader has to reach.
+_CONTRACT_FLOOR_RE = re.compile(r"runtime contract \**(\d+)\**", re.IGNORECASE)
+_CONTRACT_FLOOR_BUILD_RE = re.compile(rf"`agents-shipgate` ({_VERSION}) or newer")
 
-    path: str
-    floor: re.Pattern[str]
-    build: re.Pattern[str]
-    #: True when the file is a kit template and must be rendered before reading.
-    templated: bool = False
+
+def _contract_floor_files() -> list[Path]:
+    return [
+        path
+        for surface in SURFACES
+        if "contract_floor" in surface.claims
+        for path in _surface_files(surface, (".md", ".json", ".yml", ".yaml"))
+        if _CONTRACT_FLOOR_RE.search(_rendered(path))
+    ]
 
 
-CONTRACT_FLOOR_CLAIMS: tuple[ContractFloorClaim, ...] = (
-    ContractFloorClaim(
-        "adoption-kits/claude-code-skill/prompts/add-shipgate-to-repo.md",
-        re.compile(r"requires \*\*runtime contract (\d+)\*\*"),
-        re.compile(rf"`agents-shipgate` ({_VERSION}) or newer"),
-        templated=True,
-    ),
-    ContractFloorClaim(
-        "prompts/add-shipgate-to-repo.md",
-        re.compile(r"requires \*\*runtime contract (\d+)\*\*"),
-        re.compile(rf"`agents-shipgate` ({_VERSION}) or newer"),
-    ),
-)
+def test_contract_floor_scan_finds_the_surfaces_that_state_one():
+    """The scan must not be quietly empty.
+
+    A rewording of the floor sentence would otherwise turn the parametrised
+    check below into zero rows, which reads as green.
+    """
+
+    found = {str(path.relative_to(REPO_ROOT)) for path in _contract_floor_files()}
+    assert "prompts/add-shipgate-to-repo.md" in found, sorted(found)
+    assert len(found) >= 4, (
+        "the setup prompt states a contract floor in four shipped copies "
+        f"(the kit template and its three rendered mirrors); found {sorted(found)}"
+    )
+
+
+def test_contract_floor_scan_sees_the_plain_json_spelling():
+    """Negative control, on the two surfaces that actually shipped the defect.
+
+    `plugins/claude-code/.claude-plugin/plugin.json` and the marketplace entry
+    both wrote "runtime contract 15" beside `pipx install agents-shipgate`,
+    which yields contract 10. A scan tied to the prompts' bold-Markdown spelling
+    would have walked past both, so the pattern is spelling-agnostic — and a
+    floor stated without naming a build fails the check below rather than
+    passing for want of anything to compare against.
+    """
+
+    shipped = (
+        '"description": "… the agents-shipgate CLI installed in the local '
+        'environment (pipx install agents-shipgate, runtime contract 15)."'
+    )
+    match = _CONTRACT_FLOOR_RE.search(shipped)
+    assert match is not None and match.group(1) == "15"
+    assert _CONTRACT_FLOOR_BUILD_RE.search(shipped) is None
+    # `runtime contract v13` says which contract introduced a field. Not a floor.
+    assert _CONTRACT_FLOOR_RE.search("requires runtime contract v13") is None
 
 
 @pytest.mark.parametrize(
-    "claim", CONTRACT_FLOOR_CLAIMS, ids=lambda claim: claim.path
+    "path", _contract_floor_files(), ids=lambda p: str(p.relative_to(REPO_ROOT))
 )
-def test_contract_floor_is_reachable_in_the_build_the_surface_names(
-    claim: ContractFloorClaim,
-):
+def test_contract_floor_is_reachable_in_the_build_the_surface_names(path: Path):
     """A floor and an install command in one file have to be satisfiable together.
 
     The kits once shipped a floor of 14/15 beside a pinned runner that reports
@@ -1128,18 +1564,17 @@ def test_contract_floor_is_reachable_in_the_build_the_surface_names(
     for exactly this reason; this asserts the property rather than the mechanism.
     """
 
-    path = REPO_ROOT / claim.path
-    text = _rendered(path) if claim.templated else path.read_text(encoding="utf-8")
-    floor_match = claim.floor.search(text)
-    build_match = claim.build.search(text)
+    relpath = path.relative_to(REPO_ROOT)
+    text = _rendered(path)
+    floor_match = _CONTRACT_FLOOR_RE.search(text)
+    build_match = _CONTRACT_FLOOR_BUILD_RE.search(text)
     assert floor_match and build_match, (
-        f"{claim.path} no longer states both a contract floor and the build it "
-        "expects. Either the surface was rewritten — update "
-        "CONTRACT_FLOOR_CLAIMS — or one of the two was dropped, which is the "
-        "defect this row exists to catch."
+        f"{relpath} states a contract floor but not the build it expects of the "
+        "reader (or the other way round). A floor with no named build cannot be "
+        "checked against anything, which is the defect this row exists to catch."
     )
     unreachable = floor_out_of_reach(floor_match.group(1), build_match.group(1))
-    assert unreachable is None, f"{claim.path}: {unreachable}"
+    assert unreachable is None, f"{relpath}: {unreachable}"
 
 
 def floor_out_of_reach(floor: str, build: str) -> str | None:
@@ -1195,6 +1630,48 @@ def test_runbook_channel_table_states_the_released_contract_correctly():
     )
 
 
+def test_every_scanned_claim_actually_has_rows():
+    """Naming a proving test is not the same as that test looking at anything.
+
+    Three of the claims are proved by a scan that parametrises over whichever
+    files match a pattern. A surface can therefore register the claim, name a
+    real test, and still be examined by nothing — which is what
+    ``design_partner_runbook``'s ``executable_pin`` was before the install-floor
+    pattern was added, since the runbook names a `>=` floor and no pin.
+    """
+
+    scans: dict[str, tuple[str, list[Path]]] = {
+        "executable_pin": (
+            "test_executable_pin_resolves_in_a_published_channel",
+            _pin_bearing_paths(),
+        ),
+        "placeholder_ownership": (
+            "test_surface_routes_human_owned_placeholders_to_a_human",
+            _placeholder_surfaces(),
+        ),
+        "contract_floor": (
+            "test_contract_floor_is_reachable_in_the_build_the_surface_names",
+            _contract_floor_files(),
+        ),
+    }
+    for claim, (test_name, scanned) in scans.items():
+        covered = {str(path.relative_to(REPO_ROOT)) for path in scanned}
+        for surface in SURFACES:
+            if surface.claims.get(claim) != (test_name,):
+                continue
+            prefixes = tuple(root.rstrip("/") for root in surface.roots)
+            hit = any(
+                rel == prefix or rel.startswith(f"{prefix}/")
+                for rel in covered
+                for prefix in prefixes
+            )
+            assert hit, (
+                f"{surface.id} registers claim {claim!r}, proved by "
+                f"{test_name}, but that scan matches no file under "
+                f"{list(surface.roots)}. The claim is named and unexamined."
+            )
+
+
 def test_published_build_table_matches_the_tag():
     """Corroborate the committed table against the tag it describes.
 
@@ -1227,12 +1704,38 @@ def test_published_build_table_matches_the_tag():
             text=True,
             check=True,
         ).stdout
-        match = re.search(r'CONTRACT_VERSION:\s*Literal\["(\d+)"\]', blob)
+        # Anchored: `CONTRACT_VERSION` is a *suffix* of
+        # `MINIMUM_CONTROL_CONTRACT_VERSION`, so an unanchored search reads
+        # whichever of the two is declared first. It happens to work on the
+        # current file only because line 155 precedes line 156.
+        match = re.search(
+            r'^CONTRACT_VERSION:\s*Literal\["(\d+)"\]', blob, re.MULTILINE
+        )
         assert match, f"could not read CONTRACT_VERSION out of {tag}"
         assert match.group(1) == build.contract_version, (
             f"PUBLISHED_BUILDS says {tag} implements contract "
             f"{build.contract_version}; the tag says {match.group(1)}."
         )
+
+
+def test_contract_version_reader_is_not_fooled_by_the_minimum():
+    """Negative control for the anchoring in the check above.
+
+    ``CONTRACT_VERSION`` is a suffix of ``MINIMUM_CONTROL_CONTRACT_VERSION``, so
+    an unanchored search reads whichever is declared first. v0.15.0 has no
+    minimum at all, so the first draft passed for a reason that expires the next
+    time a build is added to PUBLISHED_BUILDS.
+    """
+
+    blob = (
+        'MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"\n'
+        'CONTRACT_VERSION: Literal["29"] = "29"\n'
+    )
+    assert re.search(r'CONTRACT_VERSION:\s*Literal\["(\d+)"\]', blob).group(1) == "21"
+    anchored = re.search(
+        r'^CONTRACT_VERSION:\s*Literal\["(\d+)"\]', blob, re.MULTILINE
+    )
+    assert anchored is not None and anchored.group(1) == "29"
 
 
 def test_resolvability_is_judged_offline():
