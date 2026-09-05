@@ -311,6 +311,21 @@ def _assert_detect_parity(script_module, workspace: Path, label: str) -> None:
         f"(script={script_sources!r}, cli={cli_sources!r})."
     )
 
+    assert sorted(
+        (s["path"], s["reason"])
+        for s in script_result["excluded_sources"]
+        if s["type"] == mcp_server_source.SOURCE_TYPE
+    ) == sorted(
+        (s["path"], s["reason"])
+        for s in cli_result["excluded_sources"]
+        if s["type"] == mcp_server_source.SOURCE_TYPE
+    ), (
+        f"{label}: the withheld MCP registration route was explained "
+        "differently. The reason is the only thing a reader gets when a route "
+        "disappears, and a route that vanishes without one is "
+        "indistinguishable from one nobody implemented."
+    )
+
     script_excluded = sorted(
         (s["type"], s["path"]) for s in script_result["excluded_sources"]
     )
@@ -1466,6 +1481,36 @@ _MCP_ROUTE_WORKSPACES: dict[str, dict[str, str]] = {
         "src/tools/search.ts": _TS_REGISTRATION,
         "src/admin/drop.ts": 'class T { static toolName = "drop-database"; }\n',
     },
+    # Both languages register in one repository — `mcp-grafana` is shaped this
+    # way — so the route is the ancestor of both and the evidence names the
+    # pair. A port that resolved one language's gate but not the other would
+    # still offer a route, just a narrower one.
+    "both_languages_register_tools": {
+        "package.json": _TS_PACKAGE_JSON,
+        "go.mod": _GO_MOD,
+        "internal/ts/search.ts": _TS_REGISTRATION,
+        "internal/go/incident.go": _GO_REGISTRATION,
+    },
+    # Both gates open and only one language actually registers — the shape
+    # `grafana/mcp-grafana` has, where a `ui/` package declares an MCP
+    # dependency and every tool is in Go. The evidence names the language the
+    # tools were *read* in, not the languages the workspace declared; naming
+    # both would say a TypeScript surface exists that this reader never found.
+    "a_declared_language_that_registers_nothing": {
+        "package.json": _TS_PACKAGE_JSON,
+        "go.mod": _GO_MOD,
+        "pkg/incident.go": _GO_REGISTRATION,
+        "src/client.ts": "const client = new Client();\nawait client.callTool(x);\n",
+    },
+    # An unresolved registration outside the route directory. The count is
+    # taken over the directory the route points at, so this one is *not*
+    # reported: naming a registration `scan` will never reach is the mirror of
+    # the over-claim the count exists to prevent.
+    "an_unresolved_site_outside_the_route": {
+        "package.json": _TS_PACKAGE_JSON,
+        "src/tools/search.ts": _TS_REGISTRATION,
+        "other/registry.ts": "server.registerTool(NAME, { inputSchema: s }, h);\n",
+    },
     # A single-file server registers at the workspace root, so the route is
     # `"."` — its own branch in the unresolved-count rollup, and the one route
     # path that also reaches `agent_project_candidates` as a bare workspace.
@@ -1523,6 +1568,9 @@ def test_the_constructed_route_workspaces_actually_exercise_the_route(tmp_path):
         "wildcard_export_contains_nothing": "src/tools",
         "registrations_in_two_directories": "src",
         "registrations_at_the_workspace_root": ".",
+        "both_languages_register_tools": "internal",
+        "a_declared_language_that_registers_nothing": "pkg",
+        "an_unresolved_site_outside_the_route": "src/tools",
     }
     assert excluded == {
         "typescript_source_only": [],
@@ -1535,6 +1583,9 @@ def test_the_constructed_route_workspaces_actually_exercise_the_route(tmp_path):
         "wildcard_export_contains_nothing": [],
         "registrations_in_two_directories": [],
         "registrations_at_the_workspace_root": [],
+        "both_languages_register_tools": [],
+        "a_declared_language_that_registers_nothing": [],
+        "an_unresolved_site_outside_the_route": [],
     }
 
 
