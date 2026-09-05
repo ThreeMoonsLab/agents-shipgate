@@ -39,7 +39,9 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -859,7 +861,10 @@ def test_well_known_publishes_the_engine_vocabularies():
     assert payload["release_decisions"] == list(RELEASE_DECISIONS)
 
 
-def _tracked_files() -> list[str]:
+@lru_cache(maxsize=1)
+def _tracked_files() -> tuple[str, ...]:
+    """Every tracked path, once. Collection asks for this dozens of times."""
+
     out = subprocess.run(
         ["git", "ls-files"],
         cwd=REPO_ROOT,
@@ -867,7 +872,7 @@ def _tracked_files() -> list[str]:
         text=True,
         check=True,
     ).stdout
-    return [line for line in out.splitlines() if line]
+    return tuple(line for line in out.splitlines() if line)
 
 
 def _surface_files(surface: Surface, suffixes: tuple[str, ...]) -> list[Path]:
@@ -949,12 +954,10 @@ _ALL_VOCABULARY_TOKENS: frozenset[str] = frozenset(MERGE_VERDICTS) | frozenset(
 )
 
 
-def _names(text: str, tokens: object) -> set[str]:
-    return {
-        token
-        for token in tokens  # type: ignore[union-attr]
-        if re.search(rf"\b{re.escape(token)}\b", text)
-    }
+def _names(text: str, tokens: Iterable[str]) -> set[str]:
+    """The tokens of ``tokens`` that appear in ``text`` as whole words."""
+
+    return {token for token in tokens if re.search(rf"\b{re.escape(token)}\b", text)}
 
 
 def vocabulary_set_literals(text: str, vocabulary: tuple[str, ...]) -> list[set[str]]:
@@ -1280,10 +1283,19 @@ INSTALL_FLOOR_PATTERN = re.compile(r"agents-shipgate>=(\d+(?:\.\d+){1,2})")
 
 
 def _release(version: str) -> tuple[int, ...]:
-    """A dotted version as a comparable 3-tuple; ``0.15`` is ``(0, 15, 0)``."""
+    """A dotted version as a comparable 3-tuple; ``0.15`` is ``(0, 15, 0)``.
 
-    parts = [int(part) for part in re.split(r"[.]", version)[:3]]
-    return tuple(parts + [0] * (3 - len(parts)))
+    Numeric components only. A pre-release segment would make ``>=`` comparison
+    a different question than this function answers, so it is refused by name
+    rather than silently truncated to its release part.
+    """
+
+    components = re.split(r"[.]", version)[:3]
+    assert all(part.isdigit() for part in components), (
+        f"{version!r} is not a plain release version. Install floors are "
+        "compared against the published release, which is a stable tag."
+    )
+    return tuple([int(part) for part in components] + [0] * (3 - len(components)))
 
 
 def unpublished_pins(text: str, *, published: str) -> list[tuple[str, str]]:
@@ -1657,7 +1669,7 @@ def test_every_scanned_claim_actually_has_rows():
     for claim, (test_name, scanned) in scans.items():
         covered = {str(path.relative_to(REPO_ROOT)) for path in scanned}
         for surface in SURFACES:
-            if surface.claims.get(claim) != (test_name,):
+            if test_name not in surface.claims.get(claim, ()):
                 continue
             prefixes = tuple(root.rstrip("/") for root in surface.roots)
             hit = any(
