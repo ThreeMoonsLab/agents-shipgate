@@ -16,8 +16,9 @@ the ``shipgate_version`` input in the bundled CI recipe — comes from
 constant.
 
 Both constants are bumped together, after the tag is pushed and never before —
-``docs/release-runbook.md`` § After the tag. Bumping them is not what fixes an
-unresolvable pin; nothing here may be set to a version that is not published:
+``docs/release-runbook.md`` § Cutting the release, step 8. Bumping them is not
+what fixes an unresolvable pin; nothing here may be set to a version that is
+not published:
 
 ``LATEST_PUBLISHED_VERSION``
     The newest ``v*`` release tag. ``tests/test_adopter_pins_resolve.py`` binds

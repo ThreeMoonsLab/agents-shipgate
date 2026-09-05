@@ -34,12 +34,12 @@ from pathlib import Path
 import pytest
 
 from agents_shipgate import __version__
+from agents_shipgate.cli.discovery.agent_instructions import apply as apply_module
+from agents_shipgate.cli.discovery.agent_instructions.apply import render_targets
 from agents_shipgate.cli.discovery.agent_instructions.renderers.claude_code_skill import (
     render_files as render_claude_code_skill_files,
 )
-from agents_shipgate.cli.discovery.agent_instructions.renderers.codex_skill import (
-    render_files as render_codex_skill_files,
-)
+from agents_shipgate.cli.discovery.agent_instructions.targets import SPECS
 from agents_shipgate.cli.discovery.ci_workflow import (
     WORKFLOW_RELATIVE_PATH,
     write_ci_workflow,
@@ -70,9 +70,14 @@ PIN_SHAPES: tuple[tuple[str, re.Pattern[str], str], ...] = (
         "GitHub resolves this before any step runs; a missing ref is a red check.",
     ),
     (
-        "uvx runner pin",
-        re.compile(rf"uvx agents-shipgate@({_VERSION})"),
-        "uv fetches this from the index on every invocation.",
+        "zero-install runner pin",
+        # No runner prefix. `uvx` is what the prompts write today, but the
+        # property under test is "this names a version the index carries", and
+        # `uv tool run` or `pipx run` spell the same pin. The `@v` Action form
+        # cannot collide: a digit must follow `@`. Same reasoning, same shape,
+        # as `UVX_PIN_PATTERN` in `test_public_surface_contract.py`.
+        re.compile(rf"(?<![\w-])agents-shipgate@({_VERSION})"),
+        "The runner fetches this from the index on every invocation.",
     ),
     (
         "pip/pipx pin",
@@ -100,12 +105,20 @@ def _expected(shape: str) -> str:
 
 
 def _emitted_files(tmp_path: Path) -> dict[str, str]:
-    """Everything ``init`` writes into an adopter's repository, by path.
+    """Everything ``init`` writes into an adopter's repository, by label.
 
     Rendered rather than read off disk: a checked-in mirror can be hand-edited
     into agreement with this test while the renderer keeps emitting something
     else, which is precisely how the workflow and the bundled CI recipe came to
     name different releases.
+
+    The ``--agent-instructions`` half comes from ``SPECS`` — the registry the
+    CLI itself selects targets from — and goes through ``render_targets``, the
+    function ``init`` renders with. A hand-written list of renderers is the
+    version of this that goes stale: `AGENTS.md`, `CLAUDE.md`, the slash
+    command, the Cursor rule, the PR template and the local contract carry no
+    pin *today*, and a sweep that named only the two skill bundles would keep
+    passing on the day one of them grew an install snippet.
     """
 
     workspace = tmp_path / "adopter"
@@ -113,36 +126,72 @@ def _emitted_files(tmp_path: Path) -> dict[str, str]:
     result = write_ci_workflow(workspace)
     assert result.status == "written", result
 
-    files = {
+    emitted = {
         WORKFLOW_RELATIVE_PATH: (workspace / WORKFLOW_RELATIVE_PATH).read_text(encoding="utf-8")
     }
-    files.update(render_claude_code_skill_files())
-    files.update(render_codex_skill_files())
-    return files
+    for outcome in render_targets(workspace, sorted(SPECS)):
+        # The managed block or whole-file body, labelled by the target that
+        # writes it; file-tree targets additionally carry their own paths.
+        emitted[f"<{outcome.name}> {SPECS[outcome.name].relative_path}"] = outcome.rendered
+        for entry in outcome.files or ():
+            emitted[entry["path"]] = entry["content"]
+    return emitted
+
+
+def test_the_sweep_covers_every_agent_instruction_target(tmp_path):
+    """Every registered target reaches the sweep, and the skill bundles' files with it.
+
+    ``SPECS`` is the registry `--agent-instructions` selects from, so a target
+    added there is swept without anyone remembering to add it here. This states
+    the coupling rather than leaving it implicit, and fails if `render_targets`
+    ever stops returning a target's rendered body.
+    """
+
+    emitted = _emitted_files(tmp_path)
+    for name in SPECS:
+        label = f"<{name}> {SPECS[name].relative_path}"
+        assert label in emitted, f"{name} is registered but never reached the sweep"
+        assert emitted[label].strip(), f"{name} rendered empty; the sweep over it is vacuous"
+
+    # File-tree targets contribute their individual files too, not just the
+    # dry-run bundle text: the bundled CI recipe is one of them, and it is a
+    # file an adopter's CI executes.
+    assert any(
+        key.endswith("ci-recipes/advisory-pr-comment.yml") for key in emitted
+    ), "the claude-code-skill file tree did not reach the sweep"
 
 
 # --- the published release is real ------------------------------------------
 
 
-def _tag_names() -> list[str]:
-    """Every release tag in this checkout.
+def _git(*argv: str) -> subprocess.CompletedProcess[str]:
+    """Run git against this repository, or skip the test that needed it.
 
-    Fails rather than skips on an empty tag list. A checkout that fetched no
-    tags cannot answer the question this module exists to ask, and answering
-    "no violations found" from an empty set is the fail-open shape that let the
-    original defect ship.
+    One precondition, stated once. Both checks below ask the same question of
+    the same checkout, and a missing git binary must not surface as a skip from
+    one and an unhandled ``FileNotFoundError`` from the other — that reports an
+    environment limitation as a code failure. Note what is *not* skipped: a
+    working git that answers with no tags. That is a checkout which cannot
+    answer the question this module exists to ask, and returning "no violations
+    found" from an empty set is the fail-open shape that let #506 ship.
     """
 
     try:
-        result = subprocess.run(  # noqa: S603 - fixed argv, no shell
-            ["git", "for-each-ref", "--format=%(refname:strip=2)", "refs/tags"],
+        return subprocess.run(  # noqa: S603 - fixed argv, no shell
+            ["git", *argv],
             cwd=REPO_ROOT,
             capture_output=True,
             text=True,
             check=False,
         )
     except OSError as exc:  # pragma: no cover - no git binary at all
-        pytest.skip(f"git is not available to read this repository's tags: {exc}")
+        pytest.skip(f"git is not available to read this repository: {exc}")
+
+
+def _tag_names() -> list[str]:
+    """Every release tag in this checkout."""
+
+    result = _git("for-each-ref", "--format=%(refname:strip=2)", "refs/tags")
     if result.returncode != 0:  # pragma: no cover - not a git checkout
         pytest.skip(f"not a git checkout: {result.stderr.strip()}")
 
@@ -229,13 +278,7 @@ def test_latest_published_contract_version_is_what_that_tag_actually_emits():
 
     tag = latest_published_action_ref()
     relpath = "src/agents_shipgate/schemas/contract.py"
-    result = subprocess.run(  # noqa: S603 - fixed argv, no shell
-        ["git", "show", f"{tag}:{relpath}"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    result = _git("show", f"{tag}:{relpath}")
     assert result.returncode == 0, (
         f"Could not read {relpath} at {tag}: {result.stderr.strip()}\n"
         "If the file moved after that release, update the path here. If the "
@@ -325,6 +368,27 @@ def test_the_sweep_catches_an_unpublished_pin(tmp_path, monkeypatch):
     """
 
     monkeypatch.setenv("AGENTS_SHIPGATE_WORKFLOW_REF", f"v{__version__}.does-not-exist")
+    with pytest.raises(AssertionError, match="do not resolve"):
+        test_every_pin_init_writes_into_an_adopter_repo_names_the_published_release(tmp_path)
+
+
+def test_the_sweep_catches_an_unpublished_pin_in_a_managed_block(tmp_path, monkeypatch):
+    """The second negative control, for the half that carries no pin today.
+
+    `AGENTS.md`, `CLAUDE.md`, the slash command, the Cursor rule, the PR
+    template and the local contract are all written into an adopter's
+    repository and none of them names a version right now — which is exactly
+    why a sweep that skipped them would look correct indefinitely and fail on
+    the day one of them grew an install snippet. Injecting a pin into one
+    proves the coverage is real rather than nominal.
+    """
+
+    original = apply_module.render_agents_md
+    monkeypatch.setattr(
+        apply_module,
+        "render_agents_md",
+        lambda: original() + "\n    uses: ThreeMoonsLab/agents-shipgate@v9.9.9\n",
+    )
     with pytest.raises(AssertionError, match="do not resolve"):
         test_every_pin_init_writes_into_an_adopter_repo_names_the_published_release(tmp_path)
 

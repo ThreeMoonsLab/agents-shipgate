@@ -34,6 +34,7 @@ from agents_shipgate.core.dependency_manifests import (
 )
 from agents_shipgate.packet.disclaimer import PACKET_NON_PROOF_HEADLINE
 from agents_shipgate.published_release import (
+    LATEST_PUBLISHED_CONTRACT_VERSION,
     LATEST_PUBLISHED_VERSION,
     contract_floor_prose,
 )
@@ -4080,10 +4081,20 @@ def test_rendered_prompts_say_what_the_pinned_release_reports(relpath):
         "rather than hand-writing a claim about the pinned release."
     )
     if not prose.satisfied:
-        # The specific false sentence this replaced. A prompt may not promise
-        # that the version it pins is new enough when it demonstrably is not.
-        assert f"`agents-shipgate` {LATEST_PUBLISHED_VERSION} or newer" not in text
-        assert f"({LATEST_PUBLISHED_VERSION} or newer" not in text
+        # And it must not, anywhere else in the file, promise that the version
+        # it pins is new enough when it demonstrably is not — the sentence this
+        # replaced. Matched as a pattern rather than as the two spellings that
+        # happened to ship: the satisfied branch renders the version
+        # backticked, so a hand-edit to `(`0.15.0` or newer; …)` would restore
+        # the exact false claim past a literal check for `(0.15.0 or newer`.
+        promise = re.compile(rf"`?{re.escape(LATEST_PUBLISHED_VERSION)}`?\s+or newer")
+        assert not promise.search(text), (
+            f"{relpath} says `{LATEST_PUBLISHED_VERSION} or newer` satisfies "
+            f"contract floor {MINIMUM_CONTROL_CONTRACT_VERSION}, but that "
+            f"release reports contract {LATEST_PUBLISHED_CONTRACT_VERSION}. "
+            "An adopter following it can never satisfy the check it is told "
+            "to gate on."
+        )
 
 
 def test_discovery_and_runtime_publish_the_same_compatibility_floor():
