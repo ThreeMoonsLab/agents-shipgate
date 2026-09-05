@@ -12,120 +12,183 @@ actual release tag by the `release-tag-consistency` job in
 
 Agents Shipgate is the deterministic merge gate for AI-generated agent
 capability changes. When a coding agent (Codex, Claude Code, Cursor — or a
-human) opens a PR that changes what an AI agent can *do*, Shipgate compiles the
+human) opens a PR that changes what an AI agent can *do*, Agents Shipgate compiles the
 diff into a capability delta, evaluates it against a protected release policy,
 and returns a machine-readable verdict — `merge_verdict`,
 `can_merge_without_human`, `first_next_action`, `fix_task` — so the agent knows
 whether to **continue, repair, or stop for human authority**.
 
 The release gate is one decision engine: `report.json.release_decision.decision`.
-Every agent-facing field in `verifier.json` is a deterministic projection of it;
-nothing gates independently.
+The current-control envelope supplies operational permissions and the next
+action; verifier, handoff, PR and report surfaces project the same decision.
+Execution success is not merge authority.
 
 ## Lead wedge (focus)
 
-Two real surfaces share one engine: **(A)** tool-surface readiness for teams that
-declare an agent's capabilities in-repo, and **(B)** boundary governance over what
-a *coding agent* changes in any repo — host config, MCP permission grants, CI
-gates, and agent instructions. **B is the lead wedge.** Its inputs are the
-declarative host files Shipgate reads statically, it delivers a first verdict
-with no manifest, and its audience is every team running Claude Code, Codex, or
-Cursor — not only teams building tool-using agents. The original cut was
-incomplete: the three caller labels shared a Codex-only local evaluator and the
-audit omitted material Codex/Cursor authority. `0.16.0b4` closes that P0 with a
-single multi-host assessment, explicit coverage, and fail-closed input handling.
-A stays the
-depth story: the capability-delta engine that makes the verdict precise.
+Two surfaces share one engine: **(A)** tool-surface readiness for teams building
+tool-using agents, and **(B)** review of repository-declared changes to a coding
+agent's host configuration, MCP bindings, permissions, hooks and CI authority.
+**B remains the lead adoption hypothesis.** The first users to prove it with are
+developers and platform/DevEx reviewers who already encounter these changes in
+PRs. Running a coding agent alone does not establish a need for another gate.
+A supplies deeper capability evidence where a partner builds the tool surface.
 
-What this locks: lead positioning, the zero-config first-run experience, and the
-proof effort all target B. After the P0 contract is qualified, the next unit of
-work is **proof and activation on that wedge** — a labeled verdict-accuracy
-benchmark and default-on, hard-to-skip checks. New surface of any kind is governed by the
-[non-goals](#explicit-non-goals) below and the surface-discipline gate in
+The immediate job is concrete: **show what this PR changed, name the evidence
+and coverage limits, and let the reviewer finish the decision.** The supported
+host-boundary route needs no manifest; an agent-builder route can use the
+existing discovery and setup flow. Neither proves runtime-effective authority
+or replaces human judgment about the business consequence.
+
+Advisory use earns the next step. First-value and repeat-use evidence must
+precede asking a team to make checks mandatory. Qualified behavior, tolerable
+noise and a usable human decision path are prerequisites for blocking CI;
+organization-wide adoption is an outcome to demonstrate, not an installation
+default. New surface is governed by the [non-goals](#explicit-non-goals) and
 [`CONTRIBUTING.md`](CONTRIBUTING.md#surface-discipline).
 
 ## Direction
 
-The engine pivoted to the verifier in `v0.12.0`. The next leg is to make the
-**agent-native authority protocol explicit** and to turn real coding-agent runs
-into replayable evidence. Active themes, in priority order:
+The next work turns existing capability evidence into a workflow a team keeps.
+The sequence below is a roughly 90-day product focus, not a promise to bypass
+release qualification or to complete every open issue in that window.
 
-1. **Agent-Native Merge Contract, documented.** One page that maps the eight
-   contracts — trigger, capability change, merge verdict, repair, forbidden
-   action, human authority, trust root, attestation — to the artifacts that
-   already implement them (`docs/triggers.json`, `capability_change`,
-   `merge_verdict`, `fix_task`, the `SHIP-VERIFY-*` trust-root checks,
-   `human_ack`, `verifier.json`). Document the protocol substrate that already
-   exists; do not invent new architecture.
+### Now — remove first-contact failures and observe first value
 
-2. **Workflow-evidence flywheel.** *(First cut shipped — `agents-shipgate
-   feedback capture`.)* An opt-in, locally redacted *Agent Workflow Evidence*
-   capture from a verify before/after pair: the verdict transition, a
-   gate-integrity signal (`suspected_gate_bypass`), the capability delta, and
-   prompt / diff / transcript provenance. Every real pilot PR becomes a
-   replayable benchmark scenario, so the deterministic verdict is
-   regression-tested against real agent behavior — not just synthetic
-   archetypes. The local event and replay-bundle contracts are documented in
-   [`docs/agent-workflow-evidence.md`](docs/agent-workflow-evidence.md), and the
-   initial governance case catalog lives under
-   [`benchmark/agent-pr-governance/`](benchmark/agent-pr-governance/).
-   **The catalog-replay loop is closed and CI-enforced:** every `executable`
-   case is replayed through the live verifier on each run
-   (`scripts/run_governance_benchmark.py`), a deterministic baseline result is
-   committed at
-   [`benchmark/agent-pr-governance/results/baseline.v0.2.json`](benchmark/agent-pr-governance/results/baseline.v0.2.json),
-   and `tests/test_governance_benchmark_baseline.py` fails on any verdict /
-   metric / capability-diff drift. Remaining: raw-bundle replay for
-   `feedback capture` scenarios from real design-partner pilots (gated on
-   committed pilot bundles, not code — a redacted bundle carries no raw diff to
-   re-verify, so that path replays recorded invariants rather than re-running
-   the scan).
+1. **Make the documented entry paths work.** P0
+   [#506](https://github.com/ThreeMoonsLab/agents-shipgate/issues/506) fixes
+   generated CI/install pins that name unpublished builds; P0
+   [#485](https://github.com/ThreeMoonsLab/agents-shipgate/issues/485) fixes the
+   zero-install detector rejecting MCP source the installed CLI already reads.
+   [#497](https://github.com/ThreeMoonsLab/agents-shipgate/issues/497) makes
+   release/channel/contract and detector parity a continuing invariant.
+   [#498](https://github.com/ThreeMoonsLab/agents-shipgate/issues/498) provides a
+   short human path to one understandable review; neither a new documentation
+   host nor schema archival blocks it. The observed scoped-root defect
+   [#398](https://github.com/ThreeMoonsLab/agents-shipgate/issues/398) and measured
+   FastMCP gap [#484](https://github.com/ThreeMoonsLab/agents-shipgate/issues/484)
+   follow the already-supported entry repairs, without expanding into a general
+   adapter campaign.
 
-3. **Pre-emptive authority surface.** Today the trust root is enforced
-   *reactively* — a weakening shows up in the diff, and Shipgate escalates.
-   Surface the boundary *before* the agent acts: a standing forbidden-action /
-   protected-surface projection in `verifier.json`, and a `verify --preview`
-   pre-flight, so an agent learns what it must not touch without first tripping
-   the gate.
+2. **Measure a useful review and the next eligible change.** P1
+   [#521](https://github.com/ThreeMoonsLab/agents-shipgate/issues/521) extends the
+   [existing pilot](docs/design-partner-verifier-pilot.md), using consenting
+   external repositories and existing feedback artifacts. Record installation
+   attempts, maintainer assistance, reviewer-understood first value, an actual
+   decision, and use on a second eligible change. Ten minutes to first value is
+   an experiment target. Failed attempts and repositories with no second change
+   remain visible. [#475](https://github.com/ThreeMoonsLab/agents-shipgate/issues/475)
+   records public consenting adopters separately; dogfooding, stars and downloads
+   do not prove external repeat use. Pilot preparation need not wait for the
+   historical-corpus outreach in
+   [#511](https://github.com/ThreeMoonsLab/agents-shipgate/issues/511).
 
-4. **Local attestation.** *(First cut shipped — `agents-shipgate attest`.)* A
-   deterministic, JSON-first, local attestation per verdict — base/head SHA,
-   changed capability IDs, policy-snapshot hash, CLI version, verdict,
-   `human_ack` state, and artifact hashes — as the durable record of *which*
-   capability was released, under *which* verdict, acknowledged by *whom*.
-   Remaining: explicit waiver/baseline state and a cross-repo capability
-   registry that consumes these attestations.
+### Next — complete the review and make its claims trustworthy
 
-5. **Source-provenance enrichment (incremental).** Thread origin (file path,
-   line index for JSONL, list index for arrays) through finding evidence to
-   expand the mechanical-patch catalog — never approval, confirmation, or
-   idempotency evidence, which stay manual permanently.
+3. **Close one authenticated human decision loop.**
+   [#338](https://github.com/ThreeMoonsLab/agents-shipgate/issues/338) now has one
+   remaining workflow: [#504](https://github.com/ThreeMoonsLab/agents-shipgate/issues/504)
+   specifies a bounded, eligible review-required request; then
+   [#337](https://github.com/ThreeMoonsLab/agents-shipgate/issues/337) delivers it
+   through existing GitHub checks/comments. Name the change, evidence, actor,
+   decision and exact continuation; bind the decision to the request, head,
+   policy and review set, and retain it after merge. This does not wait for
+   organization-wide adoption. Recording acceptance does not clear blocked,
+   critical, gate-governing or incomplete-input results. The current push-only
+   authorization overlay does not grant merge authority. Host-session receipts
+   [#293](https://github.com/ThreeMoonsLab/agents-shipgate/issues/293) remain
+   independently blocked on a host willing to attest.
 
-6. **Host-capability governance (multi-host P0 in `0.16.0b4`).** Gating
-   repository-declared changes to what the coding agent may do ("ring 2"):
-   `shipgate check` supplies the zero-manifest control verdict and
-   `audit --host` supplies a scope-bound evidence inventory and drift record.
-   Neither claims runtime-effective authority. This is the **lead wedge** (see
-   [Lead wedge (focus)](#lead-wedge-focus)); after P0 qualification, near-term
-   work is proof and activation rather than unbounded host breadth. Org
-   policy-pack distribution with integrity pins and a cross-repo attestation
-   registry remain **design only** —
-   [docs/engineering/agent-native-governance-platform.md](docs/engineering/agent-native-governance-platform.md)
-   sketches them so nearer-term work does not foreclose it; nothing there is
-   shipped or promised.
+4. **Answer the changed-capability question without manufacturing certainty.**
+   [#518](https://github.com/ThreeMoonsLab/agents-shipgate/issues/518) coordinates
+   diff attribution [#515](https://github.com/ThreeMoonsLab/agents-shipgate/issues/515),
+   removal of unsupported prose-weakening judgments
+   [#516](https://github.com/ThreeMoonsLab/agents-shipgate/issues/516), and the
+   reader/coverage distinction
+   [#520](https://github.com/ThreeMoonsLab/agents-shipgate/issues/520).
+   Diff scope retains relevant dependency evidence; it is not a changed-files-only
+   shortcut. Prose exclusions retain structured permissions, MCP and executable
+   hooks in the same directories. A remote binding can be named without claiming
+   its downstream tools were enumerated. Shipped verdicts, deprecation rules and
+   missing-input protections remain in force until their owning changes land.
+   [#440](https://github.com/ThreeMoonsLab/agents-shipgate/issues/440) finishes the
+   reader-facing work through error attribution
+   [#328](https://github.com/ThreeMoonsLab/agents-shipgate/issues/328), provisional
+   versus proven claims [#357](https://github.com/ThreeMoonsLab/agents-shipgate/issues/357),
+   and #520's concrete recovery path. Reuse existing projections and safe
+   mechanical fixes; no extra summary or invented semantic declaration.
+   [#312](https://github.com/ThreeMoonsLab/agents-shipgate/issues/312) remeasures
+   fixed real-history cases, reporting usable outcomes and coverage failures
+   alongside the unchanged hard safety bars.
+
+### Later — expand only from observed repeat use
+
+5. **Test whether a committed inventory solves a real remaining problem.**
+   [#474](https://github.com/ThreeMoonsLab/agents-shipgate/issues/474) is narrowed
+   to one MCP-consuming repository and a demonstrated configuration/inventory
+   gap. Reuse supported host readers and the frozen capability payload before
+   adding a lock-style artifact. Generated facts cannot invent reviewed effect,
+   authority or deployment-binding claims. Organization-wide state and a hosted
+   control plane need evidence that this small workflow is repeatedly useful;
+   they are not prerequisites for it. Keep architecture/maintenance work bounded
+   to the affected paths; unrelated parser breadth, broad refactors and a new
+   benchmark database do not outrank a reproducible adoption failure.
+
+### Release evidence remains a separate obligation
+
+The existing v0.16.0 qualification chain remains
+[#508](https://github.com/ThreeMoonsLab/agents-shipgate/issues/508) (freeze labels)
+→ [#509](https://github.com/ThreeMoonsLab/agents-shipgate/issues/509) (tree/wheel-bound
+receipts and signed qualification), plus the negative release rehearsal
+[#510](https://github.com/ThreeMoonsLab/agents-shipgate/issues/510), under
+[#456](https://github.com/ThreeMoonsLab/agents-shipgate/issues/456). #520's labeling
+work must be reconciled through the approved policy process; this roadmap does
+not change a corpus threshold, waive a receipt or promote an unqualified preview.
+#511 remains non-gating participant validation; the larger corpus
+[#512](https://github.com/ThreeMoonsLab/agents-shipgate/issues/512) remains the
+separate 1.0 obligation. These dependencies do not prevent learning from an
+explicitly identified advisory preview.
+
+### Build on what already exists
+
+Current `main` contains the multi-host zero-manifest check, static preflight,
+current-control routing, local review, capability diffs, GitHub Action/PR output,
+SARIF, baselines, mechanical patches and opt-in feedback capture. The composing
+adoption walk [#327](https://github.com/ThreeMoonsLab/agents-shipgate/issues/327)
+and placeholder routing [#325](https://github.com/ThreeMoonsLab/agents-shipgate/issues/325)
+are complete; the remaining distribution and human-decision problems are tracked
+above rather than reopening those delivered scopes.
+
+[Local attestations, pinned organization policy packs, evidence bundles and the
+append-only local registry](docs/organization.md) are implemented, not merely
+design sketches. They do not provide a hosted control plane or authenticate a
+GitHub review. [Workflow evidence](docs/agent-workflow-evidence.md) and the
+[governance replay corpus](benchmark/agent-pr-governance/) already supply the
+feedback/replay machinery; further raw-bundle replay depends on consenting pilot
+inputs. A redacted bundle without the raw diff can replay recorded invariants,
+not rerun the omitted source scan.
+
+Implemented on `main`, available in a preview and qualified in a stable release
+are distinct claims. The latest stable release remains the tag stated above;
+use [the distribution channel contract](docs/distribution.md) for availability.
 
 ### Explicit non-goals
 
-- **More framework adapters is not the roadmap.** The moat is the deterministic
-  trust root and reward-hacking resistance, not breadth of input parsers. New
+- **More framework adapters is not the roadmap.** The differentiation to prove
+  is trustworthy capability review and resistance to gate weakening. New
   adapters (AutoGen, Semantic Kernel, LlamaIndex, additional language surfaces)
   are accepted only when a real workflow needs one — they do not advance the
-  core thesis and are not a priority.
-- **No second verdict.** Nothing gates independently of
-  `release_decision.decision`. Every new surface is a projection of it.
+  core thesis and are not a priority. The measured #484 gap is a bounded
+  adoption repair, not permission for an adapter expansion program.
+- **No second release verdict.** Release-decision surfaces project
+  `release_decision.decision`. Setup routing and opt-in organization audits
+  answer their own scoped questions and grant no independent release authority.
 - **No agent execution, LLM calls, MCP connections, network access, or scanner
   telemetry** in the default static path. Runtime inventory stays an explicit,
   trust-gated, opt-in command — never part of default CI.
+- **No speculative distribution or governance platform.** A single binary,
+  Docker image, IDE extension, hosted scan or runtime certification is not
+  scheduled without a measured workflow failure that existing entry points
+  cannot resolve. Publication of pilot or adopter evidence remains opt-in.
 
 ## Release history
 
@@ -158,6 +221,9 @@ Releases `v0.2` through `v0.13.0` are complete. Highlights:
 
 All adapters are read-only: local file parsing only; no agent run, model call,
 tool call, MCP connection, or network access. Callbacks, plugins, and guardrail
-declarations are static evidence, not proof of runtime enforcement. Dynamic
-toolsets must produce warnings or `insufficient_evidence` findings unless the
-user supplies explicit MCP, OpenAPI, or tool-inventory inputs.
+declarations are static evidence, not proof of runtime enforcement. A known
+dynamic or remote binding does not prove its downstream tool inventory or side
+effects. Missing coverage remains explicit and never becomes a safe result by
+omission. #520 owns the proposed coverage/ground-truth distinction; until its
+engine work lands, the existing warning and `insufficient_evidence` behavior
+remains the implementation contract.
