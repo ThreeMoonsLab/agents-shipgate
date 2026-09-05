@@ -47,12 +47,26 @@ def _flat(text: str) -> str:
 
 
 def _section(text: str, heading: str) -> str:
-    """The body under ``heading``, up to the next same-or-higher heading."""
+    """The body under ``heading``, up to the next same-or-higher heading.
+
+    A shell comment inside a fenced block starts with ``# `` in column one and
+    is not a heading — these pages contain several. Fences are tracked so a
+    section is not silently truncated at one, which would make every assertion
+    against the rest of it vacuous.
+    """
     level = len(heading) - len(heading.lstrip("#"))
     start = text.index(heading)
     body = text[start + len(heading) :]
-    nxt = re.search(rf"^#{{1,{level}}} ", body, flags=re.MULTILINE)
-    return body[: nxt.start()] if nxt else body
+    pattern = re.compile(rf"#{{1,{level}}} ")
+    fenced = False
+    offset = 0
+    for line in body.splitlines(keepends=True):
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced and pattern.match(line):
+            return body[:offset]
+        offset += len(line)
+    return body
 
 
 def _latest_published_tag() -> str:
@@ -279,7 +293,7 @@ def test_runbook_does_not_assert_an_unpublished_contract_floor():
     contract 14. The repair is to record the installed build, so the doc may
     no longer assert a floor at all."""
     text = _flat(_read(RUNBOOK))
-    assert not re.search(r"contract\s+1[0-9]\b", text), (
+    assert not re.search(r"contract\s+\d+\b", text), (
         "the runbook must not assert a numeric contract floor; published "
         "builds may not carry it. Tell the partner to record "
         "`contract --json` instead."
@@ -304,17 +318,28 @@ def test_runbook_routes_host_boundary_partners_away_from_a_manifest():
 
 def test_route_readiness_findings_name_the_build_they_were_measured_on():
     """These findings are true of one published build on one date. When a new
-    tag ships they are unverified until re-run — so the ledger names the tag
-    it measured, and this guard fails the moment that tag moves."""
-    section = _flat(_section(_read(RESULTS), "### Route readiness dry run (dogfooding)"))
-    tag = _latest_published_tag()
-    version = tag.lstrip("v")
-    assert version in section, (
-        f"docs/{RESULTS.name} § Route readiness dry run measured a build that "
-        f"is no longer the newest published one ({tag}). Re-run the documented "
-        "route against the new release, then re-date the section and the "
-        "standing decision. The published findings are build-dated claims and "
-        "cannot be carried forward untested."
+    tag ships they are unverified until re-run, so the ledger states the build
+    it measured on its own labelled line and this guard compares that line with
+    the newest tag that exists.
+
+    Matching a bare version literal anywhere in the section would not do it:
+    the section also names the *in-tree* build, so the release of that very
+    version would satisfy the check by coincidence — the guard would go quiet
+    at exactly the moment it is supposed to fire."""
+    section = _section(_read(RESULTS), "### Route readiness dry run (dogfooding)")
+    match = re.search(r"\*\*Published build measured: `([^`]+)`\.\*\*", section)
+    assert match, (
+        f"docs/{RESULTS.name} § Route readiness dry run must state the build "
+        "it measured as `**Published build measured: `X.Y.Z`.**`."
+    )
+    measured = match.group(1)
+    expected = _latest_published_tag().removeprefix("v")
+    assert measured == expected, (
+        f"docs/{RESULTS.name} § Route readiness dry run measured {measured}, "
+        f"but the newest published build is now {expected}. Re-run the "
+        "documented route against the new release, then re-date the section "
+        "and the standing decision. These are build-dated claims and cannot "
+        "be carried forward untested."
     )
 
 

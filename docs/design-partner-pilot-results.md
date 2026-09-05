@@ -44,6 +44,9 @@ allow list from `Bash(npm test)` / `Read(src/**)` to `Bash(*)` / `Read(**)` /
 `WebFetch(*)` and adds a remote MCP server `payments-remote`. That is the
 capability-change class this pilot exists to observe.
 
+**Published build measured: `0.15.0`.** In-tree build: `0.16.0`. Every
+finding below is a claim about those two builds on this date.
+
 Two builds, same fixture, same commands:
 
 | Step | `agents-shipgate` 0.15.0 — newest on PyPI, what `pipx install` gets | This tree, 0.16.0, unpublished |
@@ -61,11 +64,12 @@ judgement about a partner.
 
 1. **The runbook's own precondition was unsatisfiable.** It required "runtime
    contract 14" and installed it with `pipx install agents-shipgate`. The
-   newest published build carries contract **10**, and every earlier published
-   build is older still. No published build has ever carried contract 14. The
-   requirement and the commands printed beside it contradicted each other, and
-   the runbook has been corrected to record the installed build instead of
-   asserting a floor.
+   newest published build carries contract **10**, and this tree carries 29 —
+   so contract 14 was first reached somewhere on the unpublished 0.16 line, and
+   nothing on that line is installable. The next-newest published build, 0.8.0,
+   has no `contract` command at all. The requirement and the commands printed
+   beside it contradicted each other, and the runbook has been corrected to
+   record the installed build rather than assert a floor.
 2. **The two entry failures are mutually exclusive by build.** The published
    build writes a CI pin that resolves and runs an evaluator that returns
    `warn` / `none` on the exact change class under study. This tree runs the
