@@ -424,6 +424,105 @@ ADVERSARIAL: list[tuple[str, str, str, list[str], list[str]]] = [
         [],
     ),
     (
+        # A `${…}` holds code, so a brace inside a string is not a structural
+        # brace. Counting it left the substitution open and consumed the rest
+        # of the file as one unterminated template: every registration after
+        # this line silently gone, and a workspace declaring an MCP dependency
+        # reported as "not an agent project" over a brace in a string.
+        "a brace inside a template substitution is not a structural brace",
+        "typescript",
+        'const msg = `Literal brace: ${"{"}`;\n'
+        'server.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        # The brace has to be an *opening* one for these four to discriminate.
+        # A `}` inside a comment or a regex closes the substitution early and
+        # the reader then lands on the same closing backtick anyway, so the
+        # first drafts of these cases passed with the branch deleted.
+        "a template nested in a substitution closes with its own backtick",
+        "typescript",
+        'const m = `${`}`}`;\n' 'server.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        "a regex inside a substitution can hold an unbalanced brace",
+        "typescript",
+        'const m = `${s.replace(/[{]/g, "")}`;\n'
+        'server.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        "a block comment inside a substitution can hold an unbalanced brace",
+        "typescript",
+        'const m = `${x /* { */}`;\n' 'server.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        "a line comment inside a substitution can hold an unbalanced brace",
+        "typescript",
+        "const m = `${\n  x // {\n}`;\n" 'server.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        # A line break ends the statement only when what follows cannot
+        # continue the expression. Accepting the first literal published
+        # `safe` for a tool the server registers as `safe_delete` — a name
+        # nobody serves, at `medium` confidence.
+        "a concatenation continued on the next line is not the first literal",
+        "typescript",
+        "class T {\n"
+        '  static toolName = "safe"\n'
+        '    + "_delete";\n'
+        "}\n",
+        [],
+        ["name_not_literal"],
+    ),
+    (
+        "the same continuation in a Go struct field is refused too",
+        "go",
+        "mcp.Tool{\n" '\tName: "issue_"\n' "\t\t+ verb,\n" "}\n",
+        [],
+        ["name_not_literal"],
+    ),
+    (
+        # The regex heuristic resolves the keyword in front of the slash from
+        # the *masked* source. Read from the raw text, a comment between `if`
+        # and its condition hid the keyword, the slash was read as division,
+        # and the pattern was scanned as code — a tool invented out of a regex
+        # body, which is the one outcome masking exists to make impossible.
+        "a comment between if and its condition does not hide the keyword",
+        "typescript",
+        'if /*comment*/ (ok) /\\.registerTool("ghost", {}, h)/.test(x);\n'
+        'server.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        "a comment after typeof does not hide the keyword either",
+        "typescript",
+        'const t = typeof /*c*/ /\\.registerTool("ghost", {}, h)/;\n'
+        'server.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
+        # A backslash before a line terminator is a continuation, and the CRLF
+        # sweep only exercises it through this case: the same file resolved
+        # `my_tool` with LF endings and lost the whole registration with CRLF,
+        # which JavaScript reads identically.
+        "a line continuation inside a name is one escape",
+        "typescript",
+        'server.registerTool("my\\\n_tool", {}, h);\n',
+        ["my_tool"],
+        [],
+    ),
+    (
         "a concatenated Go struct name is not the literal it starts with",
         "go",
         'mcp.Tool{Name: "issue_" + verb, Description: "x"}\n',

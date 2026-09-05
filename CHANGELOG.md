@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- **Four lexer defects in the MCP registration reader, fixed in both
+  implementations.** (#485 review) Found reviewing the zero-install port; all
+  four were in the reader #431 shipped, so the port had copied them rather than
+  introduced them. Two invent a tool name, which is the one outcome a reader of
+  a *name* cannot afford, and two lose a whole file's surface:
+
+  - A `${…}` holds code, so a brace inside a string, comment, regex or nested
+    template is not a structural brace. ``const msg = `brace: ${"{"}`;`` left
+    the substitution open and consumed the rest of the file as one unterminated
+    template — every registration after that line gone, and a workspace
+    declaring an MCP dependency reported as "not an agent project" over a brace
+    in a string.
+  - A line break ends a JavaScript initializer only when what follows cannot
+    continue the expression. `static toolName = "safe"` with `+ "_delete"` on
+    the next line published `safe` at `medium` confidence for a tool the server
+    registers as `safe_delete`.
+  - The regex heuristic now resolves the keyword in front of a slash from the
+    *masked* source. Read from the raw text, a comment between `if` and its
+    condition hid the keyword, the slash was read as division, and the pattern
+    was scanned as code — reporting a tool invented out of a regex body, which
+    is precisely what masking exists to make impossible.
+  - A backslash before CRLF is one line continuation, not `\r` plus a line
+    break. The identical file resolved its registration on a Unix checkout and
+    lost it on a Git-for-Windows one.
+
+  Each is an expected-result case in `tests/mcp_idiom_corpus.py`, so both
+  readers are pinned to the corrected behaviour rather than to each other's
+  agreement, and the CRLF sweep now has a continuation case that actually
+  exercises it. The three vendor servers this input exists for are unaffected —
+  61, 114 and 114 tools before and after.
+
 - **The zero-install detector reads MCP registration sites, so it stops
   telling vendor MCP server maintainers to stop.** (#485) `tools/shipgate-detect.py`
   is the documented first command run against a repository that has *not*

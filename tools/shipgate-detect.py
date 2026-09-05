@@ -905,9 +905,19 @@ _SHARED_ESCAPES = {
     "\\": "\\", "'": "'", '"': '"',
 }
 #: JavaScript adds a backtick, ``\0`` for NUL, and a line continuation.
-_TYPESCRIPT_ESCAPES = {**_SHARED_ESCAPES, "`": "`", "\n": ""}
+_TYPESCRIPT_ESCAPES = {**_SHARED_ESCAPES, "`": "`"}
 #: Go adds the bell and has no line continuation and no bare ``\0``.
 _GO_ESCAPES = {**_SHARED_ESCAPES, "a": "\a"}
+
+#: The line terminators a backslash can continue a line across. ``\r`` is here
+#: because a CRLF checkout spells the same continuation with two characters,
+#: and JavaScript reads both files identically — so a reader that lost the
+#: registration on one of them would answer "not an agent project" for a
+#: line-ending translation (#485 review).
+_TYPESCRIPT_LINE_TERMINATORS = frozenset("\n\r")
+#: Go adds the bell and has no line continuation and no bare ``\0``.
+_GO_ESCAPES = {**_SHARED_ESCAPES, "a": "\a"}
+
 
 _HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
 _OCTAL_DIGITS = frozenset("01234567")
@@ -998,6 +1008,12 @@ def _decode_typescript(body: str) -> str | None:
         if index + 1 >= length:
             return None
         marker = body[index + 1]
+        if marker in _TYPESCRIPT_LINE_TERMINATORS:
+            # A LineContinuation contributes nothing to the value. CRLF is one
+            # terminator sequence: reading it as `\r` plus a stray line break
+            # both mangles the value and, in the scanner, ends the string.
+            index += 3 if marker == "\r" and body[index + 2 : index + 3] == "\n" else 2
+            continue
         if marker in _TYPESCRIPT_ESCAPES:
             out.append(_TYPESCRIPT_ESCAPES[marker])
             index += 2
@@ -1032,10 +1048,10 @@ def _decode_typescript(body: str) -> str | None:
             index += 6
             continue
         if marker.isdigit():
-            # Legacy octal (`\1`-`\7`) is a syntax error under `use strict` and
-            # in a template literal, and octal *elsewhere*; `\8`/`\9` are their
-            # own special case. Which one a file means depends on a mode this
-            # reader does not track, so it refuses rather than pick.
+            # Legacy octal (`\1`-`\7`) is a syntax error under `use strict`
+            # and in a template literal, and octal *elsewhere*; `\8`/`\9` are
+            # their own special case. Which one a file means depends on a mode
+            # this reader does not track, so it refuses rather than pick.
             return None
         out.append(marker)
         index += 2
@@ -1125,13 +1141,22 @@ def _previous_significant(masked: list[str], index: int) -> tuple[str, int]:
     return (masked[index], index) if index >= 0 else ("", -1)
 
 
-def _preceding_word(text: str, index: int) -> str:
-    while index >= 0 and text[index].isspace():
+def _preceding_word(masked: list[str], index: int) -> str:
+    """The identifier ending at or before ``index``, read from the mask.
+
+    The mask, not the raw text: comments have been overwritten with spaces
+    there, so `if /*why*/ (ok) /re/` still finds `if`. Reading the raw text
+    found `/` — the tail of the comment — decided the slash was division, and
+    scanned the regex body as code, which reported a tool invented out of a
+    pattern. That is the one outcome masking exists to make impossible.
+    """
+
+    while index >= 0 and masked[index].isspace():
         index -= 1
     end = index + 1
-    while index >= 0 and (text[index].isalnum() or text[index] in "_$"):
+    while index >= 0 and (masked[index].isalnum() or masked[index] in "_$"):
         index -= 1
-    return text[index + 1 : end]
+    return "".join(masked[index + 1 : end])
 
 
 def _mask_typescript(text: str) -> MaskedSource:
@@ -1165,30 +1190,33 @@ def _mask_typescript(text: str) -> MaskedSource:
         if char == "`":
             index = _consume_template(masker, index)
             continue
-        if char == "/" and _opens_regex(masker.out, text, index):
+        if char == "/" and _opens_regex(masker.out, index):
             index = _consume_regex(masker, index)
             continue
         index += 1
     return masker.result()
 
 
-def _opens_regex(out: list[str], text: str, index: int) -> bool:
+def _opens_regex(out: list[str], index: int) -> bool:
     previous, previous_index = _previous_significant(out, index - 1)
     if previous == "" or previous in _REGEX_PRECEDING_CHARS:
         return True
     if previous == ")":
-        # A `)` is usually the end of a call, and `foo(a) / 2` divides. But it
-        # is also the end of a control statement's condition, and there a regex
-        # validly begins the body: reading the `/` in
-        # `if (ok) /\.registerTool("fake", h)/.test(v)` as division scanned the
-        # pattern as code and reported a `fake` tool. Which of the two it is,
-        # is decided by the keyword in front of the matching `(`.
+        # A `)` is usually the end of a call or a parenthesised expression, and
+        # `foo(a) / 2` divides. But it is also the end of a control statement's
+        # condition, and there a regex validly *begins the body*:
+        # `if (ok) /\.registerTool("fake", handler)/.test(value);` is
+        # JavaScript, and reading its `/` as division scanned the pattern as
+        # code and reported a `fake` tool — a registration invented out of a
+        # regex body, which is the one thing this module's masking exists to
+        # make impossible. Which of the two it is, is decided by the keyword in
+        # front of the matching `(`.
         opener = _matching_open(out, previous_index)
         if opener is None:
             return False
-        return _preceding_word(text, opener - 1) in _REGEX_PRECEDING_STATEMENTS
+        return _preceding_word(out, opener - 1) in _REGEX_PRECEDING_STATEMENTS
     if previous.isalnum() or previous in "_$":
-        return _preceding_word(text, index - 1) in _REGEX_PRECEDING_WORDS
+        return _preceding_word(out, index - 1) in _REGEX_PRECEDING_WORDS
     return False
 
 
@@ -1205,14 +1233,34 @@ def _matching_open(out: list[str], close_index: int) -> int | None:
     return None
 
 
-def _consume_quoted(masker: _Masker, start: int, quote: str, *, allow_newline: bool) -> int:
+def _past_escape(text: str, index: int, language: str) -> int:
+    """The index just past the escape whose backslash sits at ``index``.
+
+    Two characters, except for a JavaScript line continuation spelled with
+    CRLF, which is three: the backslash and one *line terminator sequence*.
+    Stepping over two of them leaves the ``\n`` behind, and the scanner then
+    ends the string there — so the identical file lost its registration on a
+    Git-for-Windows checkout while resolving it on a Unix one.
+
+    Go has no line continuation, and its scanner must keep treating a newline
+    as the end of an interpreted string, so this is TypeScript's rule only.
+    """
+
+    if language == "typescript" and text[index + 1 : index + 3] == "\r\n":
+        return index + 3
+    return index + 2
+
+
+def _consume_quoted(
+    masker: _Masker, start: int, quote: str, *, allow_newline: bool
+) -> int:
     text = masker.text
     length = len(text)
     index = start + 1
     while index < length:
         char = text[index]
         if char == "\\":
-            index += 2
+            index = _past_escape(text, index, masker.language)
             continue
         if char == quote:
             masker.record(
@@ -1222,8 +1270,8 @@ def _consume_quoted(masker: _Masker, start: int, quote: str, *, allow_newline: b
         if char == "\n" and not allow_newline:
             break
         index += 1
-    # Unterminated. Blank to the resync point but record no literal, and say
-    # so: past here this reader cannot tell code from content.
+    # Unterminated. Blank to the resync point but record no literal, and say so:
+    # past here this reader cannot tell code from content.
     end = text.find("\n", start)
     end = length if end == -1 or allow_newline else end
     masker.blank(start, end, _STRING_FILL)
@@ -1233,40 +1281,142 @@ def _consume_quoted(masker: _Masker, start: int, quote: str, *, allow_newline: b
 
 def _consume_template(masker: _Masker, start: int) -> int:
     """Consume a backtick template literal, tracking ``${…}`` substitutions."""
+
     text = masker.text
     length = len(text)
+    end, substituted = _template_end(text, masker.out, start)
+    if end is None:
+        masker.blank(start, length, _STRING_FILL)
+        masker.anomalies.append("unterminated_string")
+        return length
+    body = text[start + 1 : end - 1]
+    masker.record(
+        start, end, None if substituted else decode_literal(body, masker.language)
+    )
+    return end
+
+
+def _template_end(
+    text: str, out: list[str], start: int
+) -> tuple[int | None, bool]:
+    """Where the template literal at ``start`` ends, and whether it substitutes.
+
+    ``None`` when it never closes. The second value says whether the *outer*
+    template carries a ``${…}``, which is what makes its value non-constant.
+
+    **A `${…}` holds code, so a brace inside a string, a comment, a regex or a
+    nested template is not a structural brace.** Counting them made
+    ``const msg = `Literal brace: ${"{"}`;`` leave the substitution open, and
+    from there the rest of the file was consumed as one unterminated template
+    — every registration after that line silently gone, and a workspace that
+    declares an MCP dependency reported as "not an agent project" over a brace
+    in a string (#485 review).
+
+    Iterative, with one stack entry per open template, because a nested
+    template is reached through a substitution and recursion on attacker-shaped
+    input is a crash rather than a wrong answer.
+    """
+
+    length = len(text)
     index = start + 1
+    # One entry per open template: its `${…}` brace depth, 0 in template text.
+    depths: list[int] = [0]
     substituted = False
-    depth = 0
+    while index < length and depths:
+        char = text[index]
+        if char == "\\":
+            index = _past_escape(text, index, "typescript")
+            continue
+        if depths[-1] == 0:
+            if char == "$" and text[index + 1 : index + 2] == "{":
+                substituted = substituted or len(depths) == 1
+                depths[-1] = 1
+                index += 2
+                continue
+            if char == "`":
+                depths.pop()
+                index += 1
+                continue
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            index = _skip_quoted(text, index)
+            continue
+        if char == "`":
+            depths.append(0)
+            index += 1
+            continue
+        if char == "/" and text[index + 1 : index + 2] == "/":
+            line_end = text.find("\n", index)
+            line_end = length if line_end == -1 else line_end
+            # Blanked as it is walked, not merely stepped over: the regex
+            # heuristic below reads the mask to find the keyword in front of a
+            # slash, and a comment still spelled out there hides it.
+            out[index:line_end] = _COMMENT_FILL * (line_end - index)
+            index = line_end
+            continue
+        if char == "/" and text[index + 1 : index + 2] == "*":
+            close = text.find("*/", index + 2)
+            block_end = length if close == -1 else close + 2
+            out[index:block_end] = [
+                "\n" if character == "\n" else _COMMENT_FILL
+                for character in text[index:block_end]
+            ]
+            index = block_end
+            continue
+        if char == "/" and _opens_regex(out, index):
+            index = _skip_regex(text, index)
+            continue
+        if char == "{":
+            depths[-1] += 1
+        elif char == "}":
+            depths[-1] -= 1
+        index += 1
+    return (index if not depths else None), substituted
+
+
+def _skip_quoted(text: str, start: int) -> int:
+    """Index just past a quoted string this reader only needs to walk over."""
+
+    quote = text[start]
+    length = len(text)
+    index = start + 1
+    while index < length:
+        char = text[index]
+        if char == "\\":
+            index = _past_escape(text, index, "typescript")
+            continue
+        if char == quote:
+            return index + 1
+        if char == "\n":
+            # Unterminated on its line. Resync there rather than swallowing the
+            # rest of the substitution.
+            return index
+        index += 1
+    return length
+
+
+def _skip_regex(text: str, start: int) -> int:
+    """Index just past a regex literal, or one past the slash if it is not one."""
+
+    length = len(text)
+    index = start + 1
+    in_class = False
     while index < length:
         char = text[index]
         if char == "\\":
             index += 2
             continue
-        if depth == 0 and char == "$" and index + 1 < length and text[index + 1] == "{":
-            substituted = True
-            depth = 1
-            index += 2
-            continue
-        if depth > 0:
-            if char == "{":
-                depth += 1
-            elif char == "}":
-                depth -= 1
-            index += 1
-            continue
-        if char == "`":
-            body = text[start + 1 : index]
-            masker.record(
-                start,
-                index + 1,
-                None if substituted else decode_literal(body, masker.language),
-            )
+        if char == "\n":
+            return start + 1
+        if char == "[":
+            in_class = True
+        elif char == "]":
+            in_class = False
+        elif char == "/" and not in_class:
             return index + 1
         index += 1
-    masker.blank(start, length, _STRING_FILL)
-    masker.anomalies.append("unterminated_string")
-    return length
+    return start + 1
 
 
 def _consume_regex(masker: _Masker, start: int) -> int:
@@ -1402,20 +1552,50 @@ def _resolve_name(value: str | None, found: bool) -> tuple[str | None, str | Non
     return value, None
 
 
-def _literal_is_whole_value(source: MaskedSource, end: int, terminators: str) -> bool:
+#: Characters that continue an expression rather than beginning a statement.
+#: Consulted only *after* a line break, and only for a character the caller's
+#: own terminators do not claim: Go ends a struct field with `,` on the next
+#: line, and that comma ends the value rather than continuing it.
+_EXPRESSION_CONTINUATION = frozenset("+-*/%&|^<>=!?.,([")
+
+
+def _literal_is_whole_value(
+    source: MaskedSource, end: int, terminators: str
+) -> bool:
     """Whether the literal ending at ``end`` is the entire value, not part of one.
 
     ``static toolName = "backup" + SUFFIX`` resolves to a literal this reader
-    can see, and reading it would publish ``backup`` for a tool the server
-    registers under some other name.
+    can see, and reading it as the tool name would publish ``backup`` for a
+    tool the server registers under some other name — a fail-open of exactly
+    the shape #393 catalogues, where the proof rests on a spelling. The literal
+    counts only when the expression ends there: at one of ``terminators``, at
+    the end of input, or at a line break (JavaScript inserts the semicolon).
     """
+
+    masked = source.masked
+    length = len(masked)
     index = end
-    length = len(source.masked)
-    while index < length and source.masked[index] in " \t\r":
+    while index < length and masked[index] in " \t\r":
         index += 1
     if index >= length:
         return True
-    return source.masked[index] in terminators or source.masked[index] == "\n"
+    if masked[index] in terminators:
+        return True
+    if masked[index] != "\n":
+        return False
+    # A line break ends the statement only when what follows cannot continue
+    # the expression. `static toolName = "safe"` followed by `+ "_delete"` on
+    # the next line is one value spelled across two lines, and accepting the
+    # first literal publishes `safe` for a tool the server registers as
+    # `safe_delete` — a name nobody serves, at `medium` confidence, which is
+    # worse than the omission refusing it produces. Comments are already
+    # spaces in the mask, so skipping whitespace skips them too.
+    while index < length and masked[index].isspace():
+        index += 1
+    if index >= length:
+        return True
+    following = masked[index]
+    return following in terminators or following not in _EXPRESSION_CONTINUATION
 
 
 def _call_sites(
