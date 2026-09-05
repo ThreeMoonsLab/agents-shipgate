@@ -135,7 +135,7 @@ can never shrink what is checked.
 is not a `0.x` version and gets the production bar.
 
 To produce the artifact, `scripts/run_safety_qualification.py` selects the same
-way. `--policy-tier production` opts up to the 100-case bar on a `0.x` wheel;
+way. `--policy-tier production` opts up to the 80-case `beta` bar on a `0.x` wheel;
 `--policy-tier pre-1.0` is refused for a `1.0`-or-later wheel, at the point of
 production rather than at the gate.
 

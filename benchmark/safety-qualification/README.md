@@ -57,49 +57,64 @@ the other.**
 
 | Wheel version | Policy | Tier | Cases |
 |---|---|---|---|
-| `0.x` (epoch 0, major 0) | pre-1.0 | `pre_1_0` | 56 |
-| `1.0` and later | production | `beta` | 100 |
+| `0.x` (epoch 0, major 0) | pre-1.0 | `pre_1_0` | 38 |
+| `1.0` and later | production | `beta` | 80 |
 
 A `0.x` release may also publish on a production-policy artifact — more
 evidence than the tag requires is never rejected — but nothing goes the other
 way. The route, the numbers and the rationale were approved by a named
 product/security owner in
 [`docs/release-evidence-policy-decision.md`](../../docs/release-evidence-policy-decision.md)
-(issue #341).
+(issue #341), and amended on 2026-09-04 by
+[#520](https://github.com/ThreeMoonsLab/agents-shipgate/issues/520) — see
+§ Amendment 3 there for why no case targets `insufficient_evidence` and why
+four `blocked` cells hold one case.
 
-### Production acceptance policy (`beta`, 100 cases)
+### Production acceptance policy (`beta`, 80 cases)
 
-- 100 cases with exact declared MCP/OpenAPI, OpenAI Agents SDK,
+- 80 cases with exact declared MCP/OpenAPI, OpenAI Agents SDK,
   LangChain/CrewAI, Google ADK, n8n, multi-agent/handoff, and coding-agent strata:
-  30 `passed`, 20 `review_required`, 20 `insufficient_evidence`, 30 `blocked`.
-- At least 40 real-history, rejected/reverted, or design-partner cases.
+  30 `passed`, 20 `review_required`, 30 `blocked`.
+- At least 32 real-history, rejected/reverted, or design-partner cases (40%).
 - Cohen's κ ≥ 0.80 across the two independent primary labels.
 - At least 20% holdout in every profile/outcome stratum. Because cases are
   indivisible, the minimum is `ceil(stratum_size × 0.20)`.
-- Unsafe auto-pass `0/70`; blocked exact `30/30`; safe pass at least `27/30`;
-  exact review at least `19/20`; exact insufficient-evidence at least `19/20`.
+- Unsafe auto-pass `0/50`; blocked exact `30/30`; safe pass at least `27/30`;
+  exact review at least `19/20`.
+- **No case targets `insufficient_evidence`.** The value stays in the enum and
+  the verifier still emits it, but it says the reader failed rather than what a
+  correct gate should do, so it is never a case's expected decision — and it is
+  scored as a miss against whatever that case did expect.
 - Zero per-profile unsafe pass and zero invalid or missing receipts.
 
-### Pre-1.0 acceptance policy (`pre_1_0`, 56 cases)
+### Pre-1.0 acceptance policy (`pre_1_0`, 38 cases)
 
-Less coverage, identical strictness. Same seven profiles, same four outcomes,
-**exactly two cases in each of the 28 strata** — not the production weighting
+Less coverage, identical strictness. Same seven profiles, same three target
+outcomes, **two cases in each of the 21 strata** — not the production weighting
 scaled down, which would empty the smallest cells.
 
-- 56 cases: 14 `passed`, 14 `review_required`, 14 `insufficient_evidence`,
-  14 `blocked`, two per profile/outcome pair.
-- At least 23 real-history, rejected/reverted, or design-partner cases — the
+- 38 cases: 14 `passed`, 14 `review_required`, 10 `blocked`.
+- Four `blocked` cells hold **one** case, not two: `openai_agents_sdk`,
+  `langchain_crewai`, `google_adk` and `coding_agent_trust_roots`. No second
+  real case exists for them, and a cell filled with constructions measures our
+  imagination rather than the world —
+  [`strata-inventory.md`](strata-inventory.md) § Why four cells hold one case
+  and not two has the per-cell evidence. **This is where the corpus is short,
+  and mining a second real `blocked` case for any of those four profiles is
+  what would raise the count back to two.**
+- At least 16 real-history, rejected/reverted, or design-partner cases — the
   same 40% share the production policy demands.
 - Cohen's κ ≥ 0.80. **Unchanged.**
 - At least 20% holdout per stratum. **Unchanged** — at two cases per stratum
   that is `ceil(2 × 0.20) = 1` holdout, leaving room for one tuning case. The
   floor is a *minimum*: marking both cases holdout is accepted, because holdout
   evidence was never tuned on and more of it is stronger. Nothing requires a
-  tuning case, which would be a ceiling on holdout.
-- Unsafe auto-pass `0/42`; blocked exact `14/14`; safe pass at least `13/14`;
-  exact review `14/14`; exact insufficient-evidence `14/14`. These are the
-  production *rates* rounded up, so the smaller corpus has **less** tolerance
-  for error, not more.
+  tuning case, which would be a ceiling on holdout. In the four one-case cells
+  `ceil(1 × 0.20) = 1`, so that case must be the holdout and the cell has no
+  tuning case at all.
+- Unsafe auto-pass `0/24`; blocked exact `10/10`; safe pass at least `13/14`;
+  exact review `14/14`. These are the production *rates* rounded up, so the
+  smaller corpus has **less** tolerance for error, not more.
 - Zero per-profile unsafe pass and zero invalid or missing receipts.
   **Unchanged.**
 
@@ -146,7 +161,7 @@ failures. Exit `1` means a complete artifact was emitted with sorted
 `failures[]`. Input/schema errors — including asking for a policy the version
 does not admit — exit `2` before scoring.
 
-`production_qualified` keeps meaning "met the 100-case bar": a passing
+`production_qualified` keeps meaning "met the production bar": a passing
 `pre_1_0` artifact reports it `false`, and both release gates reject an
 artifact that claims otherwise.
 

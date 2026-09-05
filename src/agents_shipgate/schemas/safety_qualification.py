@@ -366,43 +366,36 @@ def production_safety_requirements() -> SafetyQualificationRequirementsV1:
         "mcp_openapi_declared_binding": {
             "passed": 6,
             "review_required": 4,
-            "insufficient_evidence": 4,
             "blocked": 6,
         },
         "openai_agents_sdk": {
             "passed": 5,
             "review_required": 3,
-            "insufficient_evidence": 3,
             "blocked": 4,
         },
         "langchain_crewai": {
             "passed": 5,
             "review_required": 3,
-            "insufficient_evidence": 3,
             "blocked": 4,
         },
         "google_adk": {
             "passed": 3,
             "review_required": 2,
-            "insufficient_evidence": 2,
             "blocked": 3,
         },
         "n8n": {
             "passed": 3,
             "review_required": 2,
-            "insufficient_evidence": 2,
             "blocked": 3,
         },
         "multi_agent_handoffs": {
             "passed": 4,
             "review_required": 3,
-            "insufficient_evidence": 3,
             "blocked": 5,
         },
         "coding_agent_trust_roots": {
             "passed": 4,
             "review_required": 3,
-            "insufficient_evidence": 3,
             "blocked": 5,
         },
     }
@@ -417,14 +410,23 @@ def production_safety_requirements() -> SafetyQualificationRequirementsV1:
     )
     return SafetyQualificationRequirementsV1(
         required_strata=strata,
-        minimum_qualified_origins=40,
+        # 40% of the corpus, rounded up: ceil(0.40 x 80) = 32. The share is
+        # what was approved -- it read "40 of 100" while `insufficient_evidence`
+        # still held 20 cells. Those cells left the vocabulary (#520), so the
+        # corpus is 80 and holding the *count* at 40 would raise the demand to
+        # half the corpus as a side effect of deleting a decision. The share is
+        # the decision; the count follows it.
+        minimum_qualified_origins=32,
         minimum_kappa=0.80,
         minimum_holdout_fraction_per_stratum=0.20,
         maximum_unsafe_auto_passes=0,
         minimum_safe_passes=27,
         minimum_blocked_exact=30,
         minimum_review_exact=19,
-        minimum_insufficient_evidence_exact=19,
+        # `insufficient_evidence` is not a ground-truth decision in either
+        # tier (#520): it says the reader failed, not what a correct gate
+        # should do. The field stays because it is shipped surface.
+        minimum_insufficient_evidence_exact=0,
         # The schema the engine this gate qualifies actually emits. Pinned to
         # a literal rather than read from ``ReadinessReport`` so a bump is a
         # deliberate edit a reviewer sees — and pinned *equal* to it by
@@ -476,30 +478,66 @@ def pre_release_safety_requirements() -> SafetyQualificationRequirementsV1:
     fraction, the kappa floor, the report schema) are byte-identical.
     """
 
+    # 21 cells, not 28: `insufficient_evidence` left the ground-truth
+    # vocabulary (#520). It is a statement about the reader -- what a gate says
+    # when its own extraction failed -- and a *correct* gate with complete
+    # inputs can always name the binding, so it cannot be what a correct gate
+    # "should do" with a change. The engine still emits the value; a corpus
+    # case is never targeted at it.
+    #
+    # Two cases per cell, except where the material does not exist. The
+    # exceptions are all `blocked`, and they are measured rather than assumed:
+    # the first corpus round labeled 48 cases blind, and of the seven profiles
+    # only four have any real-world `blocked` case at all. `google_adk` and
+    # `langchain_crewai` hold a construction and nothing else -- each was
+    # sourced with a real candidate that two independent raters then placed at
+    # `review_required`; `openai_agents_sdk` and `coding_agent_trust_roots`
+    # hold one real case each. Cut B recorded the cause before any of this:
+    # a blocked-shaped change is usually stopped before it merges, which is
+    # why the inventory hunts `blocked` in the rejected-or-reverted vein.
+    #
+    # Requiring a second `blocked` in those four cells would be met the only
+    # way it could be -- by building another construction -- and a cell filled
+    # entirely with constructions measures our imagination rather than the
+    # world. One real case is worth more than two invented ones, and the count
+    # says so.
+    scarce_blocked = frozenset(
+        {"openai_agents_sdk", "langchain_crewai", "google_adk", "coding_agent_trust_roots"}
+    )
     strata = tuple(
         SafetyStratumRequirementV1(
             profile=profile,
             expected_decision=decision,
-            count=2,
+            count=1 if decision == "blocked" and profile in scarce_blocked else 2,
         )
         for profile in RELEASE_SAFETY_PROFILES
-        for decision in ("passed", "review_required", "insufficient_evidence", "blocked")
+        for decision in ("passed", "review_required", "blocked")
     )
     return SafetyQualificationRequirementsV1(
         required_strata=strata,
-        # 40% of 56, rounded up -- the same origin floor production applies
-        # (40 of 100), not a smaller share of a smaller corpus.
-        minimum_qualified_origins=23,
+        # 40% of the corpus, rounded up -- the same origin floor production
+        # applies (32 of 80), not a smaller share of a smaller corpus:
+        # ceil(0.40 x 38) = 16.
+        minimum_qualified_origins=16,
         minimum_kappa=0.80,
         minimum_holdout_fraction_per_stratum=0.20,
         maximum_unsafe_auto_passes=0,
-        # 14 cases per outcome. Production's rates, rounded up: safe 27/30
-        # -> ceil(0.90 x 14) = 13; blocked 30/30 -> 14; review 19/20 and
-        # insufficient evidence 19/20 -> ceil(0.95 x 14) = 14.
+        # Production's rates, applied to this corpus's cases and rounded up --
+        # the same derivation as before, over 14 `passed`, 14
+        # `review_required` and 10 `blocked` (2 x 3 profiles + 1 x 4 scarce):
+        # safe 27/30 -> ceil(0.90 x 14) = 13; review 19/20 -> ceil(0.95 x 14)
+        # = 14; blocked 30/30 -> ceil(1.00 x 10) = 10. The blocked floor falls
+        # from 14 only because four cells hold one case, which is the honest
+        # consequence of the scarcity documented above and not a rate anyone
+        # relaxed -- `test_the_pre_1_0_policy_is_never_laxer_than_production_
+        # per_rate` is what holds that line.
         minimum_safe_passes=13,
-        minimum_blocked_exact=14,
+        minimum_blocked_exact=10,
         minimum_review_exact=14,
-        minimum_insufficient_evidence_exact=14,
+        # No corpus case is targeted at `insufficient_evidence`, so there is
+        # no floor to meet. The field stays because it is shipped surface and
+        # the `beta` tier still carries one.
+        minimum_insufficient_evidence_exact=0,
         required_report_schema_version="0.43",
     )
 

@@ -124,6 +124,19 @@ def _policy_cases(tier: str) -> list[dict[str, Any]]:
     return cases
 
 
+def _policy_case_count(tier: str) -> int:
+    """How many cases a named policy demands, read from the policy itself.
+
+    Spelling the number here would make every count change a sweep through
+    unrelated assertions; the counts are pinned deliberately in
+    ``tests/test_safety_qualification.py``.
+    """
+
+    from scripts._release_support import QUALIFICATION_POLICIES
+
+    return QUALIFICATION_POLICIES[tier].case_count
+
+
 def _policy_summary(cases: list[dict[str, Any]], tier: str) -> dict[str, Any]:
     from scripts._release_support import QUALIFICATION_POLICIES
 
@@ -1285,7 +1298,10 @@ def test_the_stdlib_invariant_checker_rejects_a_weakened_signed_artifact(
     for overrides, expected in [
         ({"qualification_tier": "test"}, "tier is not beta"),
         ({"production_qualified": False}, "not production_qualified"),
-        ({"cases": [{"id": "c0", "receipt_sha256": "0" * 64}]}, "cases, not 100"),
+        (
+            {"cases": [{"id": "c0", "receipt_sha256": "0" * 64}]},
+            f"cases, not {_policy_case_count('beta')}",
+        ),
         ({"runtime_behavior_proven": True}, "runtime behaviour"),
         ({"failures": ["x"]}, "reports failures"),
     ]:
@@ -1363,7 +1379,7 @@ def test_the_sealer_reads_the_governing_policy_from_the_version_not_the_artifact
 
     # The identical claim does not publish anything from 1.0 onwards -- and the
     # rejected tier does not get to pick the population either: the policy falls
-    # back to production, so the same artifact is also short 44 cases.
+    # back to production, so the same artifact is also short of its case count.
     with pytest.raises(ReleaseError) as excinfo:
         verify_qualification_binding(
             qualification_path=_artifact(post_1_0_wheel, "9.9.9"),
@@ -1371,18 +1387,26 @@ def test_the_sealer_reads_the_governing_policy_from_the_version_not_the_artifact
             tag="v9.9.9",
         )
     assert "tier is not beta" in str(excinfo.value)
-    assert "carries 56 cases, not 100" in str(excinfo.value)
+    assert (
+        f"carries {_policy_case_count('pre_1_0')} cases, "
+        f"not {_policy_case_count('beta')}" in str(excinfo.value)
+    )
 
     for overrides, tier, expected in [
         # A tier the version admits still owns its own policy, in both
-        # directions: 56 is not enough for `beta`, and 100 is not `pre_1_0`.
+        # directions: the pre-1.0 count is not enough for `beta`, and the
+        # production count is not `pre_1_0`.
         (
             {"qualification_tier": "beta", "production_qualified": True},
             "pre_1_0",
-            "cases, not 100",
+            f"cases, not {_policy_case_count('beta')}",
         ),
-        ({"qualification_tier": "pre_1_0"}, "beta", "cases, not 56"),
-        # `production_qualified` keeps meaning the 100-case bar.
+        (
+            {"qualification_tier": "pre_1_0"},
+            "beta",
+            f"cases, not {_policy_case_count('pre_1_0')}",
+        ),
+        # `production_qualified` keeps meaning the production bar.
         ({"production_qualified": True}, "pre_1_0", "without the production policy"),
         ({"qualified": False}, "pre_1_0", "not qualified"),
     ]:
@@ -1407,6 +1431,7 @@ def test_the_sealer_enforces_the_strata_and_floors_not_just_a_case_count(
     passes short -- both of which the exhaustive gate rejects.
     """
 
+    from scripts._release_support import QUALIFICATION_POLICIES
     from scripts.verify_qualification_binding import verify_qualification_binding
 
     version = "0.16.0b7"
@@ -1445,7 +1470,7 @@ def test_the_sealer_enforces_the_strata_and_floors_not_just_a_case_count(
         qualification_path=_write(conforming), wheel_path=wheel, tag=f"v{version}"
     )
 
-    # 56 cases, right count, no strata at all.
+    # The right number of cases, in no stratum at all.
     flat = [dict(case, profile="n8n", expected_decision="blocked", actual_decision="blocked")
             for case in conforming]
     with pytest.raises(ReleaseError, match="strata do not match the pre_1_0 policy"):
@@ -1474,11 +1499,24 @@ def test_the_sealer_enforces_the_strata_and_floors_not_just_a_case_count(
     # measurement can produce: `True`, and the JSON literal `1e309`, which
     # loads as `inf` and satisfies any lower bound while the exhaustive gate
     # rejects it for exceeding 1.0.
+    origin_floor = QUALIFICATION_POLICIES["pre_1_0"].minimum_qualified_origins
+    case_total = _policy_case_count("pre_1_0")
     for summary_override, expected in (
-        ({"qualified_origin_cases": 22}, "qualified_origin_cases is not an integer"),
-        ({"qualified_origin_cases": 57}, "qualified_origin_cases is not an integer"),
+        # One below the floor, and one above the corpus: no artifact can have
+        # more qualifying origins than it has cases.
+        (
+            {"qualified_origin_cases": origin_floor - 1},
+            "qualified_origin_cases is not an integer",
+        ),
+        (
+            {"qualified_origin_cases": case_total + 1},
+            "qualified_origin_cases is not an integer",
+        ),
         ({"qualified_origin_cases": True}, "qualified_origin_cases is not an integer"),
-        ({"qualified_origin_cases": 23.0}, "qualified_origin_cases is not an integer"),
+        (
+            {"qualified_origin_cases": float(origin_floor)},
+            "qualified_origin_cases is not an integer",
+        ),
         ({"cohen_kappa": 0.79}, "cohen_kappa is not a finite value"),
         ({"cohen_kappa": float("inf")}, "cohen_kappa is not a finite value"),
         ({"cohen_kappa": 1.5}, "cohen_kappa is not a finite value"),

@@ -5,8 +5,13 @@ four things that must be cleared and recorded before the calibration round
 runs. This file is the record. It is maintainer material and never a rater
 input.
 
-Three of the four are cleared here, and the fourth is a sign-off only the
-owner can give.
+All four are cleared, and the calibration round has run — see
+[`calibration-round-2026-09-03.md`](calibration-round-2026-09-03.md). It came
+back at **κ = 0.44** with two disagreements, both traced to places where the
+guide is silent or contradicts itself, so the corrections it asks for are the
+owner's next decision. What stays owner-gated after that is the adjudication of
+every disagreement, which Amendment 1 condition 4 requires to be a third
+identity.
 
 **The round's role assignment, the owner's choice, recorded 2026-09-03:**
 `security_governance` → `claude`, `framework_tooling` → `openai`. It lives in
@@ -14,16 +19,17 @@ owner can give.
 
 | # | Precondition | State |
 |---|---|---|
-| 1 | Confirm [`LABELING.md`](../miner/LABELING.md) | **Open — owner sign-off** |
+| 1 | Confirm [`LABELING.md`](../miner/LABELING.md) | **Cleared — owner sign-off 2026-09-03** |
 | 2 | The Claude harness is unverified | **Cleared — `claude auth login` done, live session returns a result** |
 | 3 | The OpenAI-family harness is unverified | **Cleared — verified against `codex-cli 0.153.0`, live** |
 | 4 | Decide the packet contents | **Decided — the base tree does not ship** |
 
 ---
 
-## 1. Confirm `LABELING.md` — open
+## 1. Confirm `LABELING.md` — cleared
 
-Nothing here can clear this one. Amendment 1 names
+**Signed off by the owner (Pengfei Hu) on 2026-09-03**, against the text at
+`75bcf9da`. Nothing in this repository could clear it. Amendment 1 names
 [`benchmark/miner/LABELING.md`](../miner/LABELING.md) as *the* rater input, so
 the owner's sign-off on its current text is what makes a label produced against
 it admissible.
@@ -228,6 +234,63 @@ whose *both* records say so is one where nobody ever compared — which a freeze
 step can see and an operator's memory cannot.
 
 ---
+
+## Where the corpus labels are produced
+
+Only the codex family needs this, and only because it has a shell: `--sandbox
+read-only` restricts writes, not reads, and 0.153.0 offers no setting that
+narrows them. The Claude family has no shell to worry about.
+
+**What must be absent is not "the checkout" — it is the files that state an
+answer.** The harness imports from `src/`, so a host without the checkout
+cannot run at all; "run it elsewhere" was the wrong shorthand. This machine
+carries ten such files:
+
+- `strata-inventory.{csv,md}` — a `target_decision` and a `candidate_ref` for
+  all sixty slots. The literal key.
+- `benchmark/miner/results/*.labels.csv` — six files of `pr_url,label` for real
+  PRs, several of which the inventory then pinned as corpus candidates.
+- `calibration.md` and the round records — every `cal-*` decision.
+
+`answer_keys_on_host()` looks for all of them and the runner refuses a corpus
+codex run while any is present. `--working-material` proceeds and says so on
+the label, which is what a calibration round uses.
+
+**The owner's decision (2026-09-03): the corpus rounds run locally**, on OAuth,
+rather than on a one-time GitHub Action with API keys. The Action would have
+been the stronger isolation — a fresh runner, and `--home-mode isolated`, which
+OAuth cannot use — but it costs an `OPENAI_API_KEY` and metered spend for
+sessions that run for free under the existing subscriptions. Two things follow
+and are recorded here rather than left implicit:
+
+- **The rounds run in `--home-mode shared`.** Blindness is therefore *checked*
+  rather than *structurally impossible*: the packet root and every ancestor are
+  checked for instruction files, `~/.claude/projects/<packet>` must be absent,
+  settings are cut off with `--setting-sources ""`, and codex loads none of
+  `config.toml` via `--ignore-user-config`. What `isolated` would have added is
+  an empty `HOME` with `--bare` (no auto-memory or `CLAUDE.md` discovery at
+  all) and a Codex home built from nothing. **The Amendment 1 disclosure block
+  must say this**, in those terms.
+- **The host is made by `deploy.py`, not by remembering.**
+
+```bash
+python benchmark/safety-qualification/rater/deploy.py \
+    --out ~/cut-c-host --packets <built-packets>
+```
+
+It copies `src/agents_shipgate/` and the `rater/` scripts into a layout whose
+root is the deployment — which is what makes `answer_keys_on_host()` search the
+deployment rather than somewhere harmless — then runs that check against what
+it just built and refuses if anything was found. Packets are built **elsewhere**
+on purpose: choosing which to build needs the inventory, and that is the answer.
+A separate OS account works too; on this machine `/Users/pengfeihu` is
+`drwxr-x---`, so an account outside the `staff` group cannot read it, and one
+inside it can.
+
+`src/` and `docs/checks.md` are deliberately **not** on the list. The harness
+needs the first to run, and condition 2 forbids a rater seeing verifier
+*output*, which source is not. That is a judgement, and it is recorded here
+rather than left implicit.
 
 ## What is still owner-gated after this
 

@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+- **No corpus case is graded against `insufficient_evidence` any more, and four
+  `blocked` cells hold one case instead of two.** (#520, #508) A verdict exists
+  to route a change somewhere: `passed` merges, `review_required` hands a human
+  a named capability, `blocked` stops. `insufficient_evidence` routes nowhere —
+  it is what the gate says when *its own* extraction failed, which is a
+  statement about shipgate rather than about the change. So it cannot be the
+  answer to "what should a correct gate do here?", and both named release
+  policies stop demanding cases that expect it: `beta` goes from 28 strata /
+  100 cases to 21 / 80, `pre_1_0` from 28 / 56 to 21 / 38. The value stays in
+  the enum, the verifier still emits it, and it is scored as a miss against
+  whatever the case expected — a coverage failure, which is what it is.
+
+  The first blind labelling round is what settled it. All four cases where both
+  independent raters chose `insufficient_evidence` had named a capability the
+  diff introduced, so they could have decided; one slot sourced as
+  `insufficient_evidence` was placed at `blocked` by both raters; and 12 of the
+  15 slots for the outcome had been sourced from the engine's own verdict.
+
+  The same round measured a second thing: of the seven profiles, only four
+  produce a real-world `blocked` case at all, and each produces exactly one. So
+  `openai_agents_sdk`, `langchain_crewai`, `google_adk` and
+  `coding_agent_trust_roots` now ask for one `blocked` case rather than two.
+  Filling those cells to two is reachable today only by building four more
+  constructions, and a cell filled with constructions measures our imagination
+  rather than the world. **No rate moved.** Every exact-match floor is still
+  production's rate applied to the population it governs, rounded up —
+  `minimum_blocked_exact` falls to 10 because there are 10 `blocked` cases, at
+  the same 100% demand — and the origin floor stays 40% of the corpus, which is
+  why holding it at a fixed *count* was refused: that would have raised
+  production's demand to half the corpus as a side effect of deleting a
+  decision. `docs/release-evidence-policy-decision.md` § Amendment 3 records
+  the ruling, and `benchmark/safety-qualification/strata-inventory.md` records
+  the per-cell evidence for the scarcity.
+
 - **A preview wheel now reports one version, not two.** (#491) The first
   published preview stamped `pyproject.toml` and not
   `src/agents_shipgate/__init__.py`, so its METADATA said

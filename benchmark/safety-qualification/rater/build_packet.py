@@ -45,9 +45,11 @@ tools resolve but the manifest cannot describe: its bytes live wherever it
 points, so a link out of the tree would put unmanifested host content inside
 the "entire world" the rater is given, and the packet would still verify. A
 link whose target stays inside the source tree is materialised -- copied as a
-regular file, so the manifest covers its bytes; one that escapes the tree, or
-dangles, refuses the build. Hashing then treats any surviving link as tamper
-rather than skipping it.
+regular file, so the manifest covers its bytes; one that escapes the tree
+refuses the build. One that dangles resolves to nothing, so there is nothing
+to copy and nothing to leak: it is dropped and listed in the manifest under
+``broken_symlinks``, which is what keeps it from being an unexplained hole.
+Hashing then treats any surviving link as tamper rather than skipping it.
 
 **What the manifest does not say.** No PR URL, no repository name beyond
 what the tree itself contains, no target decision, no profile, no origin.
@@ -175,21 +177,42 @@ def symlinks_in_tree(root: Path) -> dict[str, list[str]]:
 
 
 def symlink_refusals_in_tree(root: Path) -> list[str]:
-    """The links that refuse the build: those that escape ``root`` or dangle."""
+    """The links that refuse the build: those that escape ``root``.
+
+    A **dangling** link is not one of them, and used to be. It resolves to
+    nothing, so unlike an escaping link it puts no unmanifested host content
+    in front of the rater -- there is nothing behind it to put. Refusing over
+    one costs a case for no gain, and real repositories carry them: `stripe/ai`
+    has four `LICENSE` links whose target is `LICENSE`, i.e. themselves, which
+    is a loop on every host. They are dropped from the packet and named in the
+    manifest instead, because a path with no content is still a path the rater
+    should not be left to wonder about.
+    """
 
     found = symlinks_in_tree(root)
-    return sorted(
-        [f"{path} (escapes the tree)" for path in found["escaping"]]
-        + [f"{path} (dangling)" for path in found["dangling"]]
-    )
+    return sorted(f"{path} (escapes the tree)" for path in found["escaping"])
 
 
-def copy_tree_excluding(source: Path, destination: Path) -> list[str]:
+def copy_tree_excluding(
+    source: Path, destination: Path, *, preserve_symlinks: bool = False
+) -> list[str]:
     """Copy ``source`` to ``destination`` dropping excluded names.
 
     Returns the relative paths that were dropped, sorted, so the caller can
     report them. Refuses before copying anything if the tree carries a
     refused name.
+
+    ``preserve_symlinks`` is for **staging into git**, and it is not a
+    convenience. A constructed case is turned into a two-commit repository by
+    staging ``base/`` and then ``head/``, and whatever this function does to a
+    link is what git records as the state. Resolving links there -- or dropping
+    the ones that resolve to nothing -- makes the two commits describe
+    something neither tree said: a link that only ``base/`` carried, removed by
+    the change, disappears from *both* sides, and the deletion vanishes from
+    the diff along with it. git stores a link as its target bytes without
+    following it, so staging recreates links as links and lets the packet
+    boundary, which is where a rater's world actually begins, decide what may
+    survive.
     """
 
     refused = refusals_in_tree(source)
@@ -197,12 +220,14 @@ def copy_tree_excluding(source: Path, destination: Path) -> list[str]:
         raise PacketError(
             "source tree contains the sourcing plan, which no rater may see: " + ", ".join(refused)
         )
-    escaping = symlink_refusals_in_tree(source)
-    if escaping:
-        raise PacketError(
-            "source tree contains symlinks the packet cannot describe: " + ", ".join(escaping)
-        )
+    if not preserve_symlinks:
+        escaping = symlink_refusals_in_tree(source)
+        if escaping:
+            raise PacketError(
+                "source tree contains symlinks the packet cannot describe: " + ", ".join(escaping)
+            )
     dropped: list[str] = []
+    broken = set() if preserve_symlinks else set(symlinks_in_tree(source)["dangling"])
     destination.mkdir(parents=True, exist_ok=False)
     for dirpath, dirnames, filenames in os.walk(source, followlinks=False):
         rel_dir = Path(dirpath).relative_to(source)
@@ -222,6 +247,16 @@ def copy_tree_excluding(source: Path, destination: Path) -> list[str]:
             src = Path(dirpath) / name
             dst = target_dir / name
             if src.is_symlink():
+                if preserve_symlinks:
+                    # The target bytes, not what they point at: this is what
+                    # git will store, and it is true of both trees.
+                    os.symlink(os.readlink(src), dst)
+                    continue
+                if str(rel_dir / name) in broken:
+                    # Resolves to nothing, so there is nothing to copy and
+                    # nothing to leak. Recorded, not silently gone.
+                    dropped.append(str(rel_dir / name))
+                    continue
                 # Refused above unless it stays inside the tree. Copy what it
                 # points at, so the bytes the rater can read are bytes the
                 # manifest hashes -- and drop a link to an excluded name
@@ -632,7 +667,46 @@ def changed_submodules(repo: Path, base: str, head: str) -> list[str]:
     return sorted(found)
 
 
-def diff_pinned_states(repo: Path, base: str, head: str) -> str:
+def strip_non_text_sections(raw: bytes) -> tuple[bytes, list[str]]:
+    """Remove the file sections that are not text; return the patch and their paths.
+
+    A change to genuinely binary content has no textual description, and
+    `--text` renders it as raw bytes that a rater's Read and Grep may truncate
+    or refuse. Refusing the whole case over it was the first answer, and it is
+    the wrong one for the shape this actually takes: an architecture diagram
+    committed beside four thousand lines of code, where every authority-bearing
+    fact is in the text.
+
+    So the same treatment a dangling link gets -- dropped from what the rater
+    is handed, and **named** in the manifest, so the gap is one they know about
+    rather than one they cannot see. A rater who is told `arch.png` changed and
+    that its change is not readable can say so; a rater handed a case that
+    refused to build learns nothing, and the corpus loses a slot it needs.
+    """
+
+    starts = [match.start() for match in re.finditer(rb"(?m)^diff --git ", raw)]
+    kept: list[bytes] = []
+    dropped: list[str] = []
+    for index, start in enumerate(starts):
+        end = starts[index + 1] if index + 1 < len(starts) else len(raw)
+        section = raw[start:end]
+        reason = ""
+        if b"\x00" in section:
+            reason = "contains NUL"
+        else:
+            try:
+                section.decode("utf-8")
+            except UnicodeDecodeError:
+                reason = "is not UTF-8"
+        if reason:
+            header = section.split(b"\n", 1)[0].decode("utf-8", "surrogateescape")
+            dropped.append(f"{header[len('diff --git ') :].strip() or header} ({reason})")
+        else:
+            kept.append(section)
+    return b"".join(kept), dropped
+
+
+def diff_pinned_states(repo: Path, base: str, head: str) -> tuple[str, list[str]]:
     """The two-dot diff, refused unless it fully describes the change.
 
     Three things could otherwise decide these bytes besides the two pins.
@@ -667,15 +741,10 @@ def diff_pinned_states(repo: Path, base: str, head: str) -> str:
             base,
             head,
         )
-    offending = non_text_paths(raw)
-    if offending:
-        raise PacketError(
-            "these paths change in ways that are not text, so no rater can read what "
-            "changed in them: " + ", ".join(offending)
-        )
+        raw, undescribable = strip_non_text_sections(raw)
     try:
         diff = raw.decode("utf-8")
-    except UnicodeDecodeError as error:  # pragma: no cover - non_text_paths covers the sections
+    except UnicodeDecodeError as error:  # pragma: no cover - the strip covers the sections
         raise PacketError(f"the patch is not text outside any file section: {error}") from error
     hidden = suppressed_diff_markers(diff)
     if hidden:
@@ -683,7 +752,7 @@ def diff_pinned_states(repo: Path, base: str, head: str) -> str:
             "git described these changes only as differing, so the packet would hide "
             "what changed: " + "; ".join(hidden)
         )
-    return diff
+    return diff, undescribable
 
 
 # --------------------------------------------------------------------------
@@ -693,7 +762,7 @@ def diff_pinned_states(repo: Path, base: str, head: str) -> str:
 
 def export_external_case(
     clone: Path, base: str, head: str, workdir: Path
-) -> tuple[Path, str, dict[str, str]]:
+) -> tuple[Path, str, dict[str, str], list[str]]:
     """Materialise the head tree and the base..head diff from a clone.
 
     Both refs must resolve to full commits. The tree comes from
@@ -707,12 +776,14 @@ def export_external_case(
     head_sha = _full_sha(clone, head)
     tree_dir = workdir / "head-tree"
     materialize_tree(clone, head_sha, tree_dir)
-    diff = diff_pinned_states(clone, base_sha, head_sha)
+    diff, undescribable = diff_pinned_states(clone, base_sha, head_sha)
     pins = {"kind": "external", "base_sha": base_sha, "head_sha": head_sha}
-    return tree_dir, diff, pins
+    return tree_dir, diff, pins, undescribable
 
 
-def export_constructed_case(case_dir: Path, workdir: Path) -> tuple[Path, str, dict[str, str]]:
+def export_constructed_case(
+    case_dir: Path, workdir: Path
+) -> tuple[Path, str, dict[str, str], list[str]]:
     """Diff a constructed case's ``base/`` and ``head/`` trees.
 
     The two trees are committed in order into a throwaway repository, so the
@@ -746,7 +817,7 @@ def export_constructed_case(case_dir: Path, workdir: Path) -> tuple[Path, str, d
             if entry.name == ".git":
                 continue
             shutil.rmtree(entry) if entry.is_dir() else entry.unlink()
-        copy_tree_excluding(tree, repo / "_stage")
+        copy_tree_excluding(tree, repo / "_stage", preserve_symlinks=True)
         stage = repo / "_stage"
         for entry in list(stage.iterdir()):
             shutil.move(str(entry), str(repo / entry.name))
@@ -755,14 +826,14 @@ def export_constructed_case(case_dir: Path, workdir: Path) -> tuple[Path, str, d
         _git(repo, "commit", "--quiet", "--allow-empty", "-m", label)
         pins[f"{label}_tree"] = _git(repo, "rev-parse", "HEAD^{tree}").stdout.strip()
 
-    diff = diff_pinned_states(repo, "HEAD~1", "HEAD")
+    diff, undescribable = diff_pinned_states(repo, "HEAD~1", "HEAD")
     # Read back the committed head tree (already exclusion-filtered) rather
     # than the case directory, so the packet's repo/ is byte-for-byte what was
     # diffed -- and read it the same attribute-blind way an external case is
     # read, because a constructed tree may carry a `.gitattributes` too.
     tree_dir = workdir / "head-tree"
     materialize_tree(repo, "HEAD", tree_dir)
-    return tree_dir, diff, pins
+    return tree_dir, diff, pins, undescribable
 
 
 # --------------------------------------------------------------------------
@@ -871,6 +942,37 @@ def hash_packet_files(packet: Path) -> dict[str, str]:
     return dict(sorted(hashes.items()))
 
 
+def identical_file_groups(files: dict[str, str], packet: Path) -> list[list[str]]:
+    """Groups of packet paths whose content *and* mode are identical.
+
+    A skill shipped as a canonical copy plus per-provider copies is the same
+    bytes at several paths, and two raters citing different copies of it look
+    like a disagreement to an adjudicator when they are not one. This records
+    which paths those are.
+
+    **It records; it does not decide.** Equal bytes are not identity: a path
+    says which hook, provider or package is loaded, and that is part of what a
+    citation establishes. So this is reported in the manifest and used as a
+    *comparison key* when two labels are set beside each other -- never to
+    rewrite what a rater cited. The executable bit is part of the key for the
+    same reason, so a `runtime/hooks/pre.sh` never joins a group with an
+    `a.txt` that happens to hold the same bytes.
+
+    The first path in each group is the canonical one -- shortest, then
+    lexical -- which puts `skills/x/SKILL.md` ahead of
+    `providers/claude/plugin/skills/x/SKILL.md` without knowing what either is.
+    """
+
+    by_key: dict[tuple[str, bool], list[str]] = {}
+    for path, digest in files.items():
+        if not path.startswith("repo/"):
+            continue
+        executable = bool((packet / path).stat().st_mode & 0o111)
+        by_key.setdefault((digest, executable), []).append(path)
+    groups = [sorted(paths, key=lambda item: (len(item), item)) for paths in by_key.values()]
+    return sorted((g for g in groups if len(g) > 1), key=lambda g: g[0])
+
+
 def build_packet(
     *,
     case_id: str,
@@ -908,13 +1010,16 @@ def build_packet(
         workdir = Path(tmp)
         if external:
             assert clone is not None and base is not None and head is not None
-            tree_dir, diff, pins = export_external_case(clone, base, head, workdir)
+            tree_dir, diff, pins, undescribable = export_external_case(clone, base, head, workdir)
         else:
             assert case_dir is not None
-            tree_dir, diff, pins = export_constructed_case(case_dir, workdir)
+            tree_dir, diff, pins, undescribable = export_constructed_case(case_dir, workdir)
 
         staged = workdir / "packet"
         staged.mkdir()
+        # One place, both kinds of case: the tree that is about to become
+        # `repo/` is what the rater sees, so it is what decides.
+        broken_links = sorted(symlinks_in_tree(tree_dir)["dangling"])
         copy_tree_excluding(tree_dir, staged / "repo")
         (staged / "diff.patch").write_text(diff, encoding="utf-8")
         shutil.copyfile(guide, staged / "LABELING.md")
@@ -927,6 +1032,18 @@ def build_packet(
             "source": pins,
             "files": hash_packet_files(staged),
         }
+        if undescribable:
+            # Same contract as `broken_symlinks`: what the packet leaves out is
+            # named, so the gap is one the rater knows about.
+            manifest["undescribable_changes"] = undescribable
+        if broken_links:
+            # The one thing the packet leaves out that is repository content.
+            # Naming it is the difference between a rater whose world has a
+            # known empty spot and one who cannot tell a path was ever there.
+            manifest["broken_symlinks"] = [f"repo/{path}" for path in broken_links]
+        groups = identical_file_groups(manifest["files"], staged)
+        if groups:
+            manifest["identical_files"] = groups
         (staged / "MANIFEST.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )

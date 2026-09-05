@@ -23,7 +23,6 @@ INVENTORY = REPO_ROOT / "benchmark" / "safety-qualification" / "strata-inventory
 
 DECISIONS = ("passed", "review_required", "insufficient_evidence", "blocked")
 PR_REF = re.compile(r"(?:github\.com/)?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#(\d+)")
-SAMPLE_REF = re.compile(r"samples/[A-Za-z0-9_.-]+")
 
 
 def _guide() -> str:
@@ -58,9 +57,23 @@ def _inventory_sample_refs() -> set[str]:
 
 
 def test_the_inventory_still_names_candidates() -> None:
-    # If both sets were empty the guard below would pass vacuously.
+    # If this set were empty the guard below would pass vacuously.
     assert _inventory_pr_refs(), "the inventory names no PR; re-derive this guard"
-    assert _inventory_sample_refs(), "the inventory names no sample; re-derive this guard"
+
+
+def test_no_slot_is_a_shipped_sample() -> None:
+    """A shipped sample is cold start, not a change, so it cannot be a case.
+
+    A rater judges a diff. A sample under ``samples/`` has no base and no head
+    -- there is no change to judge -- so twelve slots that named one were
+    retired from the inventory. Asserting it here rather than only in
+    ``test_strata_inventory.py`` also retires a leak this file used to guard:
+    a sample name in the guide cannot expose a corpus candidate once no
+    candidate is a sample.
+    """
+
+    named = sorted(_inventory_sample_refs())
+    assert not named, f"the inventory targets shipped samples as slots: {named}"
 
 
 def test_the_guide_names_no_corpus_candidate_in_either_spelling() -> None:
@@ -76,12 +89,6 @@ def test_the_guide_names_no_corpus_candidate_in_either_spelling() -> None:
     for repo, number in sorted(corpus):
         for spelling in (f"github.com/{repo}#{number}", f"{repo}#{number}"):
             assert spelling not in guide, f"LABELING.md names {spelling}"
-
-
-def test_the_guide_names_no_sample_used_as_a_slot() -> None:
-    guide = _guide()
-    leaked = sorted(set(SAMPLE_REF.findall(guide)) & _inventory_sample_refs())
-    assert not leaked, f"LABELING.md names slot samples: {leaked}"
 
 
 def test_the_guide_names_no_verifier_check_id() -> None:

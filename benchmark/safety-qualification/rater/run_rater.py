@@ -35,6 +35,15 @@ Amendment 1 condition 2 — blindness, enforced mechanically:
   anywhere, ``--no-session-persistence`` writes nothing back, the working
   directory is the packet (which the runner checks carries no ``CLAUDE.md``
   and no ``.claude/``), and the label record names the mode used.
+- **The two families do not get this the same way, and the docstring should
+  not pretend they do.** Claude has no shell: ``--tools Read,Grep,Glob``
+  removes it. codex is a shell agent and ``--sandbox read-only`` restricts
+  writes only -- probed on 0.153.0, a session read a file outside its working
+  root and printed it, and that version offers no setting that narrows reads.
+  What makes up the difference is :func:`commands_that_reached_outside`, which
+  refuses the label when a recorded command names the checkout, the round's
+  output directory or a sibling packet. That is detection rather than
+  confinement; the archived transcript is what an auditor reads.
 - **No network, no other files.** The tool set is restricted to ``Read``,
   ``Grep`` and ``Glob`` (``--tools`` removes every other built-in tool
   including ``Bash``, ``WebFetch`` and ``WebSearch``; ``--allowedTools`` and
@@ -119,7 +128,7 @@ import sys
 import tempfile
 import uuid
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 # `benchmark/.../rater/run_rater.py` is documented as something you run
@@ -182,7 +191,15 @@ NETWORK_TOOLS = frozenset({"Bash", "WebFetch", "WebSearch"})
 _ENV_PASSTHROUGH = ("PATH", "TMPDIR", "LANG", "LC_ALL", "TERM", "SHELL", "USER")
 _CLAUDE_CREDENTIAL_ENV = ("ANTHROPIC_API_KEY",)
 _OPENAI_CREDENTIAL_ENV = ("OPENAI_API_KEY",)
-_DEFAULT_OPENAI_MODEL = "gpt-5-codex"
+# No default model for the openai family, deliberately. codex names neither
+# the model nor its own version in its event stream, so whatever is recorded
+# in `reviewer_id` is what the caller asked for -- and a default would make
+# that a guess that is *usually* right, which is the worst kind. Amendment 1
+# condition 3 wants `reviewer_id` to name the model that ran; the only way to
+# mean it here is to require the caller to say. (The name this used to
+# default to, `gpt-5-codex`, was written from memory and is rejected outright
+# by a ChatGPT-account login: "not supported when using Codex with a ChatGPT
+# account".)
 
 # Written into the isolated Codex home. Every line closes a door the real
 # profile could open: no MCP servers, no web search, no approvals, and a
@@ -552,6 +569,12 @@ def claude_invocation(
 def openai_invocation(
     packet: Path, *, model: str | None, home: Path, session_id: str, home_mode: str
 ) -> Invocation:
+    if not model:
+        raise RaterError(
+            "the openai family needs --model: codex does not name the model in its "
+            "event stream, so an unnamed one would be recorded in reviewer_id as "
+            "whatever this harness guessed"
+        )
     effective_home = _resolve_home(home_mode, packet, home)
     argv = [
         "codex",
@@ -579,7 +602,7 @@ def openai_invocation(
         "-c",
         'web_search="disabled"',
         "--model",
-        model or _DEFAULT_OPENAI_MODEL,
+        model,
         "-",
     ]
     env = _base_env(_OPENAI_CREDENTIAL_ENV, effective_home)
@@ -654,6 +677,17 @@ def _events(transcript: str) -> list[dict[str, Any]]:
     return events
 
 
+def announced_model(transcript: str) -> str | None:
+    """What the ``init`` event said the session was configured as, decoration and all."""
+
+    for event in _events(transcript):
+        if event.get("type") == "system" and event.get("subtype") == "init":
+            announced = event.get("model")
+            if isinstance(announced, str) and announced:
+                return announced
+    return None
+
+
 def claude_final(transcript: str) -> tuple[str, str | None, str | None]:
     """Return (final text, model, client version) from a ``stream-json`` transcript.
 
@@ -666,12 +700,32 @@ def claude_final(transcript: str) -> tuple[str, str | None, str | None]:
     """
 
     events = _events(transcript)
-    model = None
+    announced = None
     client = None
     for event in events:
         if event.get("type") == "system" and event.get("subtype") == "init":
-            model = event.get("model") or model
+            announced = event.get("model") or announced
             client = event.get("claude_code_version") or client
+    # The `init` event announces what the session was *configured* as, and it
+    # carries decoration the API never returns -- `claude-opus-5[1m]` for a
+    # 1M-context session. Every assistant message names the model that served
+    # it. Condition 3 asks `reviewer_id` to name the model that ran, so the
+    # messages win, and the announced value is kept as a diagnostic rather
+    # than silently preferred or silently dropped.
+    served = {
+        event["message"]["model"]
+        for event in events
+        if event.get("type") == "assistant"
+        and isinstance(event.get("message"), dict)
+        and isinstance(event["message"].get("model"), str)
+    }
+    served.discard("<synthetic>")
+    if len(served) > 1:
+        raise RaterError(
+            "the transcript names more than one model as having served it: "
+            + ", ".join(sorted(served))
+        )
+    model = served.pop() if served else announced
     results = [e for e in events if e.get("type") == "result"]
     if len(results) != 1:
         raise RaterError(f"expected exactly one result event, found {len(results)}")
@@ -706,6 +760,14 @@ def openai_final(transcript: str) -> tuple[str, str | None, str | None]:
         and e["item"].get("type") == "agent_message"
     ]
     messages = [m for m in messages if isinstance(m, str)]
+    # A failed turn says why; "no completed agent message" says only that the
+    # session produced nothing, which is the symptom of every possible cause.
+    # An unusable model, a revoked credential and a refused sandbox all arrive
+    # here, and all three have different remedies.
+    for event in events:
+        if event.get("type") in {"turn.failed", "error"}:
+            detail = event.get("message") or (event.get("error") or {}).get("message") or ""
+            raise RaterError(f"codex reported {event['type']}: {str(detail)[:400]}")
     if not messages:
         raise RaterError("no completed agent message in the codex transcript")
     if not any(e.get("type") == "turn.completed" for e in events):
@@ -714,6 +776,137 @@ def openai_final(transcript: str) -> tuple[str, str | None, str | None]:
 
 
 _FINALS = {"claude": claude_final, "openai": openai_final}
+
+
+# Shells codex wraps a command in. The wrapper's own argv is not the session
+# reaching outside; the script it carries is what gets read.
+_SHELL_WRAPPERS = frozenset({"/bin/zsh", "/bin/bash", "/bin/sh", "zsh", "bash", "sh"})
+
+
+def _codex_scripts(transcript: str) -> list[str]:
+    """The shell scripts a codex session ran, unwrapped from ``<shell> -lc``."""
+
+    scripts: list[str] = []
+    for event in _events(transcript):
+        item = event.get("item") or {}
+        if event.get("type") != "item.completed" or item.get("type") != "command_execution":
+            continue
+        command = item.get("command")
+        if not isinstance(command, str):
+            continue
+        try:
+            argv = shlex.split(command)
+        except ValueError:
+            scripts.append(command)  # unparseable is not a reason to look away
+            continue
+        if argv and argv[0] in _SHELL_WRAPPERS:
+            flags = {"-lc", "-c", "-ic"}
+            scripts.append(argv[-1] if any(a in flags for a in argv[1:-1]) else command)
+        else:
+            scripts.append(command)
+    return scripts
+
+
+def _within(path: Path, root: Path) -> bool:
+    """Is ``path`` ``root`` itself or under it? Both must already be resolved."""
+
+    return path == root or root in path.parents
+
+
+def _resolve_against(token: str, cwd: Path) -> Path:
+    """Where ``token`` lands, read as a path from ``cwd``.
+
+    ``resolve()`` is what makes the comparison honest: it normalises the
+    ``..`` segments and follows the symlinks, so a directory named two ways
+    compares equal instead of twice.
+    """
+
+    candidate = Path(token)
+    return (candidate if candidate.is_absolute() else cwd / candidate).resolve()
+
+
+def _path_tokens(script: str) -> list[str]:
+    """The tokens of a command line that could name a path.
+
+    Every token qualifies -- a bare ``grep`` lands inside the packet and is
+    allowed on the same rule as ``repo/agent.py``, so nothing needs to guess
+    what looks like a path. The one thing that does need handling is
+    ``--file=/x``: read whole, it is a relative path that lands inside the
+    packet, so the value is yielded as well as the token.
+    """
+
+    try:
+        tokens = shlex.split(script)
+    except ValueError:
+        # Unparseable is not a reason to look away.
+        tokens = script.split()
+    found: list[str] = []
+    for token in tokens:
+        found.append(token)
+        _, separator, value = token.partition("=")
+        if separator and value:
+            found.append(value)
+    return found
+
+
+def commands_that_reached_outside(transcript: str, packet: Path, out: Path) -> list[str]:
+    """Codex commands that named something condition 2 forbids a rater to see.
+
+    **Why this exists at all.** The Claude family's blindness is enforced by
+    not having the tool: ``--tools Read,Grep,Glob`` leaves no shell. The codex
+    family has one, and ``--sandbox read-only`` restricts *writes* only --
+    probed on 0.153.0, a session read a file outside its working root and
+    printed the contents, and 0.153.0 offers no configuration that narrows
+    reads. So the two families do not get their blindness the same way, and
+    this is what makes up the difference on the side that needs it.
+
+    **It is detection, not confinement**, and it is deliberately narrow. It
+    names the three things that actually carry what condition 2 forbids -- the
+    checkout (the strata inventory names a target decision for every slot, and
+    the engine and its reports are there too), the round's own output
+    directory (other raters' labels and transcripts), and the sibling packets
+    -- plus a walk that leaves the packet. Flagging every absolute path would
+    refuse a session for saying ``/usr/bin/grep``, and a guard that refuses
+    real work is one an operator turns off.
+
+    **It asks where a path lands, not how it is spelled.** Searching the script
+    for an ancestor's spelling cannot work here: ``packet.parent`` is a prefix
+    of every absolute path *inside* the packet, and the deployment layout makes
+    ``REPO_ROOT`` an ancestor of the packets too, so the obvious substring test
+    refuses a session for reading its own assigned input by absolute path. Each
+    token is resolved against the session's working directory -- which *is* the
+    packet -- and judged by containment: inside the packet is always allowed,
+    inside a forbidden root is named, and a walk that lands anywhere else is
+    reported as leaving the packet. Resolving also settles the spelling
+    problems the substring test had: ``repo/../repo/x`` never left, and on a
+    host where ``/tmp`` is a symlink the two spellings of the same directory
+    compare equal.
+
+    A script that builds a path at run time still evades it. The compensating
+    control is the one condition 3 already requires: every command is in the
+    archived transcript, so an auditor reads what ran rather than trusting
+    this function.
+    """
+
+    packet = packet.resolve()
+    forbidden = {build_packet.REPO_ROOT.resolve(), out.resolve(), packet.parent}
+    forbidden = {path for path in forbidden if path != packet}
+    found: list[str] = []
+    for script in _codex_scripts(transcript):
+        reasons: list[str] = []
+        for token in _path_tokens(script):
+            landing = _resolve_against(token, packet)
+            if _within(landing, packet):
+                continue
+            named = [root for root in sorted(forbidden, key=str) if _within(landing, root)]
+            if named:
+                reasons.extend(f"names {root}" for root in named)
+            elif ".." in PurePosixPath(token).parts:
+                reasons.append(f"walks out of the packet to {landing}")
+        if reasons:
+            unique = list(dict.fromkeys(reasons))
+            found.append(f"{script[:160]} ({'; '.join(unique)})")
+    return found
 
 
 # --------------------------------------------------------------------------
@@ -753,6 +946,109 @@ def parse_label_object(text: str) -> dict[str, Any]:
     if not isinstance(parsed["rationale"], str):
         raise RaterError("rationale must be a string")
     return parsed
+
+
+def comparison_key_for_evidence(
+    references: tuple[str, ...] | list[str], identical_files: list[list[str]]
+) -> list[str]:
+    """The citations with identical copies folded onto one path, **for comparison only**.
+
+    Two raters citing different copies of byte-identical content are not
+    disagreeing, and an adjudicator should not be shown one. This produces the
+    key that says so.
+
+    **It never replaces what the rater cited.** A path is part of the evidence
+    -- it says which hook, provider or package is loaded -- so collapsing one
+    citation onto another would destroy the thing the citation establishes,
+    and ``IndependentHumanLabelV1.evidence_references`` is what everything
+    downstream reads. So the label keeps the rater's words and this sits
+    beside it, derived, for the one job it is good for.
+    """
+
+    canonical_for = {member: group[0] for group in identical_files for member in group[1:]}
+    folded: list[str] = []
+    for reference in references:
+        path, sep, lines = reference.partition(":")
+        target = canonical_for.get(path, path)
+        folded.append(f"{target}{sep}{lines}")
+    return folded
+
+
+# Everything in this checkout that states an answer. Their presence on the host
+# is the answer key being in the exam room -- and there is more than one:
+#
+# - the strata inventory is the literal key, a `target_decision` and a
+#   `candidate_ref` for every slot;
+# - **every prose record under `benchmark/safety-qualification/`** states
+#   decisions: the calibration records name each `cal-*` outcome, and the
+#   corpus round records publish tables mapping exact case ids to both primary
+#   labels and the owner's final decision. Matched as a directory rather than
+#   by naming each file, because the next round record is written by someone
+#   who will not think to come back here -- `rater/` is a subdirectory, so the
+#   harness itself is not swept up;
+# - **each construction's `CASE.md`** names its target cell *and its slot id*.
+#   The file says so itself: "it names a target decision, so it must never be
+#   included in a rater packet";
+# - **everything under `benchmark/miner/results/`**, not only `*.labels.csv`.
+#   The `*-mined.csv`/`.jsonl` sweeps carry `head_decision`, `verify_decision`
+#   and `verify_verdict` per `pr_url` -- verifier *output* for the exact PRs
+#   the inventory then pinned, which is what condition 2 forbids most directly.
+#
+# Not listed, deliberately: `src/` and `docs/checks.md`. The harness imports
+# from `src/` to run at all, so a host without it cannot produce a label; and
+# condition 2 forbids a rater seeing verifier *output*, which source is not.
+# That is a judgement, and it is written here rather than left implicit.
+ANSWER_KEY_PATTERNS = (
+    "benchmark/safety-qualification/strata-inventory.csv",
+    "benchmark/safety-qualification/*.md",
+    "benchmark/safety-qualification/constructed/*/CASE.md",
+    "benchmark/miner/results/*",
+)
+
+
+def answer_keys_on_host(root: Path | None = None) -> list[Path]:
+    """Every answer-stating file this harness can find beside itself."""
+
+    root = build_packet.REPO_ROOT if root is None else root
+    found: list[Path] = []
+    for pattern in ANSWER_KEY_PATTERNS:
+        found.extend(sorted(root.glob(pattern)))
+    return found
+
+
+def check_answer_key_not_on_host(family: str, *, working_material: bool) -> str:
+    """Refuse a shell-bearing rater on a host that carries an answer key.
+
+    The fix for a session that can read anything is not to sandbox its reads
+    -- it is to not have the thing it must not read where it can reach. The
+    packets are self-contained, and the harness needs only `src/`, so a
+    deployment that carries those and not `benchmark/` satisfies this without
+    a second machine.
+
+    It knows one location, the checkout it lives in. A second clone elsewhere
+    on the same host is what the transcript audit is for, and neither is a
+    sandbox: together they are a smaller exam room and an invigilator, not a
+    locked one.
+
+    Calibration labels are working material, never evidence, so a
+    calibration run may say so and proceed; the label records which it was.
+    """
+
+    if family != "openai":
+        return "no shell"
+    found = answer_keys_on_host()
+    if not found:
+        return "no answer key on host"
+    if working_material:
+        return f"{len(found)} answer-key files on host (working material, not evidence)"
+    listed = ", ".join(os.path.relpath(path, build_packet.REPO_ROOT) for path in found[:4])
+    more = f" (+{len(found) - 4} more)" if len(found) > 4 else ""
+    raise RaterError(
+        f"{len(found)} answer-stating files are readable from this host and the {family} "
+        f"family has a shell: {listed}{more}. Corpus labels are produced from a "
+        "deployment that carries the harness and the packets but not these, or pass "
+        "--working-material for a calibration run"
+    )
 
 
 def build_label(parsed: dict[str, Any], *, role: str, reviewer_id: str) -> IndependentHumanLabelV1:
@@ -877,9 +1173,11 @@ def run_rater(
     home_mode: str = "isolated",
     runner=run_subprocess,
     prober=probe_cli,
+    working_material: bool = False,
 ) -> RaterResult:
     packet = packet.resolve()
     out.mkdir(parents=True, exist_ok=True)
+    host_isolation = check_answer_key_not_on_host(family, working_material=working_material)
     cli_version = prober(family)
     with tempfile.TemporaryDirectory(prefix="rater-home-") as home:
         invocation, manifest = prepare(
@@ -906,11 +1204,19 @@ def run_rater(
     diagnostics: list[str] = []
     if completed.returncode != 0:
         diagnostics.append(f"cli exited {completed.returncode}")
+    announced = announced_model(transcript) if family == "claude" else None
 
+    if family == "openai":
+        escaped = commands_that_reached_outside(transcript, packet, out)
+        if escaped:
+            raise RaterError(
+                "the session ran commands that reached outside the packet, so condition 2 "
+                "makes its label inadmissible: " + "; ".join(escaped)
+            )
     final_text, reported_model, reported_client = _FINALS[family](transcript)
     resolved_model = reported_model or model
     if family == "openai":
-        resolved_model = model or _DEFAULT_OPENAI_MODEL
+        resolved_model = model
     if not resolved_model:
         raise RaterError("the transcript does not name the model; pass --model")
 
@@ -918,9 +1224,16 @@ def run_rater(
     # the transcript, and keep the probe's answer for the family whose stream
     # does not carry one.
     cli_version = reported_client or cli_version
+    if announced and announced != resolved_model:
+        diagnostics.append(
+            f"init announced {announced!r}; messages were served by {resolved_model!r}"
+        )
     reviewer_id = f"{family}:{resolved_model}:{invocation.session_id}"
     parsed = parse_label_object(final_text)
     label = build_label(parsed, role=role, reviewer_id=reviewer_id)
+    evidence_comparison_key = comparison_key_for_evidence(
+        label.evidence_references, manifest.get("identical_files", [])
+    )
 
     labels = out / "labels"
     labels.mkdir(exist_ok=True)
@@ -933,7 +1246,19 @@ def run_rater(
         "model": resolved_model,
         "session_id": invocation.session_id,
         "cli_version": cli_version,
+        "announced_model": announced,
         "family_independence": family_independence,
+        "host_isolation": host_isolation,
+        # The caller's declaration, recorded on **every** record and not only
+        # where it changed what the host check did. `host_isolation` cannot
+        # carry it: for claude it is always "no shell", and on a clean
+        # deployment it is "no answer key on host" whichever way the flag was
+        # passed -- so two runs that differ only in this produce identical
+        # records, and a freeze can no longer tell which the caller excluded
+        # from evidence. A calibration label that reached a corpus by looking
+        # like one is the failure this prevents.
+        "working_material": working_material,
+        "evidence_comparison_key": evidence_comparison_key,
         "packet_manifest_sha256": _sha256_text(
             (packet / "MANIFEST.json").read_text(encoding="utf-8")
         ),
@@ -976,6 +1301,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="print the command and environment; do not launch"
+    )
+    parser.add_argument(
+        "--working-material",
+        action="store_true",
+        help="this run's labels are calibration material, never corpus evidence: "
+        "relaxes the answer-key host check and records that on the label",
     )
     parser.add_argument(
         "--check-cli",
@@ -1021,6 +1352,7 @@ def main(argv: list[str] | None = None) -> int:
             model=args.model,
             timeout=args.timeout,
             home_mode=args.home_mode,
+            working_material=args.working_material,
         )
     except RaterError as error:
         print(f"run_rater: no admissible label: {error}", file=sys.stderr)

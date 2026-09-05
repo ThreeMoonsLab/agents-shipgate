@@ -11,6 +11,7 @@ import hashlib
 import importlib.util
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -42,11 +43,29 @@ def _load(name: str) -> ModuleType:
 
 build_packet = _load("build_packet")
 run_rater = _load("run_rater")
+deploy = _load("deploy")
 
 
 # --------------------------------------------------------------------------
 # Fixtures
 # --------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _host_without_the_answer_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test runs on a host that carries no answer-stating file.
+
+    The suite itself runs from the checkout, which carries several. Without
+    this every codex-family run would be refused for the right reason, and the
+    tests would be testing that refusal instead of what they are named for.
+    The root is moved rather than the lookup stubbed, so the tests still
+    exercise the real `answer_keys_on_host`; the tests for the refusal put
+    files back under it on purpose.
+    """
+
+    clean = tmp_path / "clean-host"
+    (clean / "src").mkdir(parents=True)
+    monkeypatch.setattr(build_packet, "REPO_ROOT", clean)
 
 
 def _write(path: Path, text: str) -> None:
@@ -808,16 +827,67 @@ def test_a_symlink_out_of_the_tree_refuses_the_build(
     assert not (tmp_path / "packet-escape").exists()
 
 
-def test_a_dangling_symlink_refuses_the_build(constructed_case: Path, tmp_path: Path) -> None:
-    """A link to nothing means something different on every host it is read on."""
+def test_a_dangling_symlink_is_dropped_and_named_rather_than_refused(
+    constructed_case: Path, tmp_path: Path
+) -> None:
+    """A link to nothing has nothing behind it to leak.
+
+    Refusing over one used to cost the whole case, and real repositories carry
+    them: `stripe/ai` has four `LICENSE` links whose target is `LICENSE` — that
+    is, themselves — which loop on every host, and that alone made `cal-3`
+    unbuildable. Dropping it is safe; dropping it *silently* would leave the
+    rater a path they cannot tell was ever there, so the manifest names it.
+    """
 
     (constructed_case / "head" / "gone.txt").symlink_to(tmp_path / "never-existed.txt")
+    (constructed_case / "head" / "loop.txt").symlink_to("loop.txt")
 
-    with pytest.raises(build_packet.PacketError, match="dangling"):
+    packet = build_packet.build_packet(
+        case_id="cal-x",
+        role="security_governance",
+        out=tmp_path / "packet-dangling",
+        case_dir=constructed_case,
+    )
+    assert not (packet / "repo" / "gone.txt").exists()
+    assert not (packet / "repo" / "loop.txt").exists()
+    manifest = json.loads((packet / "MANIFEST.json").read_text())
+    assert manifest["broken_symlinks"] == ["repo/gone.txt", "repo/loop.txt"]
+    assert "repo/gone.txt" not in manifest["files"]
+    build_packet.verify_manifest(packet)
+
+
+def test_a_packet_with_no_broken_links_does_not_mention_them(
+    constructed_case: Path, tmp_path: Path
+) -> None:
+    """The field appears only when there is something to say."""
+
+    packet = build_packet.build_packet(
+        case_id="cal-y",
+        role="security_governance",
+        out=tmp_path / "packet-clean",
+        case_dir=constructed_case,
+    )
+    assert "broken_symlinks" not in json.loads((packet / "MANIFEST.json").read_text())
+
+
+def test_an_escaping_symlink_still_refuses_even_though_dangling_ones_do_not(
+    constructed_case: Path, tmp_path: Path
+) -> None:
+    """The relaxation must not reach the link that exposes the host.
+
+    A dangling link resolves to nothing; an escaping one resolves to content
+    the manifest cannot describe. Only the first became survivable.
+    """
+
+    outside = tmp_path / "outside.txt"
+    outside.write_text("host content the manifest could not cover\n")
+    (constructed_case / "head" / "escape.txt").symlink_to(outside)
+
+    with pytest.raises(build_packet.PacketError, match="escapes the tree"):
         build_packet.build_packet(
-            case_id="cal-x",
+            case_id="cal-z",
             role="security_governance",
-            out=tmp_path / "packet-dangling",
+            out=tmp_path / "packet-escaping",
             case_dir=constructed_case,
         )
 
@@ -1141,14 +1211,13 @@ def test_the_diff_depends_on_the_two_pins_and_not_on_the_clone_s_checkout(
     assert (first / "diff.patch").read_bytes() == (second / "diff.patch").read_bytes()
 
 
-def test_a_change_whose_content_is_not_text_refuses_and_names_the_path(
-    tmp_path: Path,
-) -> None:
+def test_a_change_whose_content_is_not_text_is_dropped_and_named(tmp_path: Path) -> None:
     """Forcing text is not the same as the change being readable.
 
-    A genuinely binary change has no textual description, so the packet cannot
-    be the rater's entire world. It refuses -- and names the file, because
-    "not text" without a path is not something a case owner can act on.
+    Refusing the whole case was the first answer and it is wrong for the shape
+    this takes in real history: an architecture diagram beside four thousand
+    lines of code. Same contract as a dangling link — dropped from what the
+    rater is handed, and named, so the gap is one they know about.
     """
 
     clone = tmp_path / "clone"
@@ -1162,16 +1231,20 @@ def test_a_change_whose_content_is_not_text_refuses_and_names_the_path(
     _git(clone, "commit", "-q", "-m", "change binary")
     head = _git(clone, "rev-parse", "HEAD")
 
-    with pytest.raises(build_packet.PacketError, match=r"not text.*logo\.png"):
-        build_packet.build_packet(
-            case_id="ext-binary",
-            role="security_governance",
-            out=tmp_path / "packet",
-            clone=clone,
-            base=mid,
-            head=head,
-        )
-    assert not (tmp_path / "packet").exists()
+    packet = build_packet.build_packet(
+        case_id="ext-binary",
+        role="security_governance",
+        out=tmp_path / "packet",
+        clone=clone,
+        base=mid,
+        head=head,
+    )
+    manifest = json.loads((packet / "MANIFEST.json").read_text())
+    assert manifest["undescribable_changes"] == ["a/logo.png b/logo.png (contains NUL)"]
+    # The rater still gets the file itself; what they are told is that its
+    # *change* cannot be read.
+    assert (packet / "repo" / "logo.png").is_file()
+    assert "logo.png" not in (packet / "diff.patch").read_text()
 
 
 def test_a_change_that_moves_a_submodule_refuses(tmp_path: Path) -> None:
@@ -1850,7 +1923,9 @@ def test_a_config_that_hides_submodules_does_not_hide_them_from_the_refusal(
 # --------------------------------------------------------------------------
 
 
-def test_a_change_that_is_valid_utf8_and_still_binary_refuses(tmp_path: Path) -> None:
+def test_a_change_that_is_valid_utf8_and_still_binary_is_named_not_refused(
+    tmp_path: Path,
+) -> None:
     """Decodability is not a text test, and git does not think it is either.
 
     `b"before\\x00tail"` → `b"after\\x00tail"` is binary by git's NUL heuristic
@@ -1874,16 +1949,17 @@ def test_a_change_that_is_valid_utf8_and_still_binary_refuses(tmp_path: Path) ->
     _git(clone, "commit", "-q", "-m", "head")
     head = _git(clone, "rev-parse", "HEAD")
 
-    with pytest.raises(build_packet.PacketError, match=r"not text.*f\.bin.*contains NUL"):
-        build_packet.build_packet(
-            case_id="ext-nul",
-            role="security_governance",
-            out=tmp_path / "packet",
-            clone=clone,
-            base=base,
-            head=head,
-        )
-    assert not (tmp_path / "packet").exists()
+    packet = build_packet.build_packet(
+        case_id="ext-nul",
+        role="security_governance",
+        out=tmp_path / "packet",
+        clone=clone,
+        base=base,
+        head=head,
+    )
+    manifest = json.loads((packet / "MANIFEST.json").read_text())
+    assert manifest["undescribable_changes"] == ["a/f.bin b/f.bin (contains NUL)"]
+    assert "f.bin" not in (packet / "diff.patch").read_text()
 
 
 def test_the_diff_does_not_depend_on_the_environment_git_reads(
@@ -2009,3 +2085,747 @@ def test_two_roles_starting_together_cannot_both_be_the_same_family(
     )
     assert len(written) <= 1, f"both roles wrote a same-family label: {written}"
     assert any(isinstance(value, run_rater.RaterError) for value in results.values()), results
+
+
+# --------------------------------------------------------------------------
+# The codex family has a shell; the Claude family does not
+# --------------------------------------------------------------------------
+
+
+def _codex_transcript_running(commands: list[str], final_text: str = VALID_LABEL) -> str:
+    events: list[dict] = [{"type": "thread.started", "thread_id": "t1"}, {"type": "turn.started"}]
+    for command in commands:
+        events.append(
+            {
+                "type": "item.completed",
+                "item": {"type": "command_execution", "command": command, "exit_code": 0},
+            }
+        )
+    events += [
+        {"type": "item.completed", "item": {"type": "agent_message", "text": final_text}},
+        {"type": "turn.completed", "usage": {}},
+    ]
+    return "".join(json.dumps(e) + "\n" for e in events)
+
+
+def test_a_codex_session_that_read_the_checkout_produces_no_label(
+    packet: Path, tmp_path: Path
+) -> None:
+    """`--sandbox read-only` restricts writes; reads are unrestricted.
+
+    Probed on codex 0.153.0: a session read a file outside its working root
+    and printed the contents, and that version offers no setting that narrows
+    reads. The checkout is where the strata inventory lives, and it names a
+    target decision for every slot — condition 2's own words are that such a
+    session "produces no admissible label".
+    """
+
+    checkout = build_packet.REPO_ROOT.resolve()
+    transcript = _codex_transcript_running(
+        [f'/bin/zsh -lc "cat {checkout}/benchmark/safety-qualification/strata-inventory.csv"']
+    )
+    with pytest.raises(run_rater.RaterError, match="reached outside the packet"):
+        run_rater.run_rater(
+            family="openai",
+            role="security_governance",
+            packet=packet,
+            out=tmp_path / "out",
+            model="model-x",
+            runner=_Recorder(transcript),
+            prober=_stub_prober,
+        )
+    assert not (tmp_path / "out" / "labels").exists()
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        '/bin/zsh -lc "cat ../cal-2.framework_tooling/repo/agent.py"',
+        '/bin/zsh -lc "cat OUT/labels/cal-1.security_governance.json"',
+    ],
+    ids=["sibling-packet", "another-raters-label"],
+)
+def test_a_codex_session_that_read_a_sibling_or_another_label_produces_no_label(
+    packet: Path, tmp_path: Path, command: str
+) -> None:
+    """The other two things condition 2 forbids and this can actually see."""
+
+    out = tmp_path / "out"
+    transcript = _codex_transcript_running([command.replace("OUT", str(out.resolve()))])
+    with pytest.raises(run_rater.RaterError, match="reached outside the packet"):
+        run_rater.run_rater(
+            family="openai",
+            role="security_governance",
+            packet=packet,
+            out=out,
+            model="model-x",
+            runner=_Recorder(transcript),
+            prober=_stub_prober,
+        )
+
+
+def test_ordinary_codex_commands_are_not_refused(packet: Path, tmp_path: Path) -> None:
+    """A guard that refuses real work is one an operator turns off.
+
+    These are the shapes the calibration round actually produced, plus an
+    absolute path to a system binary — flagging every absolute path would
+    refuse a session for saying `/usr/bin/grep`.
+    """
+
+    transcript = _codex_transcript_running(
+        [
+            "/bin/zsh -lc \"sed -n '1,240p' LABELING.md\"",
+            "/bin/zsh -lc \"wc -l diff.patch && sed -n '1,260p' diff.patch\"",
+            '/bin/zsh -lc "rg --files repo | sort"',
+            '/bin/zsh -lc "/usr/bin/grep -rn allowlist repo/src"',
+            '/bin/zsh -lc "nl -ba repo/src/tools/mongodb/mongodbTool.ts"',
+        ]
+    )
+    result = run_rater.run_rater(
+        family="openai",
+        role="security_governance",
+        packet=packet,
+        out=tmp_path / "out",
+        model="model-x",
+        runner=_Recorder(transcript),
+        prober=_stub_prober,
+    )
+    assert result.label.decision == "review_required"
+
+
+def test_a_codex_session_may_read_its_own_packet_by_absolute_path(
+    packet: Path, tmp_path: Path
+) -> None:
+    """The assigned input is the one thing the session is *supposed* to read.
+
+    An earlier version searched each script for an ancestor's spelling, and
+    ``packet.parent`` is a prefix of every absolute path inside the packet --
+    so ``cat <packet>/repo/agent.py``, a session reading only what it was
+    given, produced no label at all. The deployment layout makes ``REPO_ROOT``
+    an ancestor of the packets too, which is the same bug from the other side.
+    """
+
+    absolute = packet.resolve()
+    transcript = _codex_transcript_running(
+        [
+            f'/bin/zsh -lc "cat {absolute}/repo/agent.py"',
+            f'/bin/zsh -lc "sed -n \'1,50p\' {absolute}/diff.patch"',
+            # A `..` that normalises back inside the packet never left it.
+            '/bin/zsh -lc "cat repo/../repo/agent.py"',
+            # ...and naming the packet directory itself is not naming a sibling.
+            f'/bin/zsh -lc "ls {absolute}"',
+        ]
+    )
+    result = run_rater.run_rater(
+        family="openai",
+        role="security_governance",
+        packet=packet,
+        out=tmp_path / "out",
+        model="model-x",
+        runner=_Recorder(transcript),
+        prober=_stub_prober,
+    )
+    assert result.label.decision == "review_required"
+
+
+def test_a_path_carried_in_a_flag_value_is_still_audited(
+    packet: Path, tmp_path: Path
+) -> None:
+    """`--file=<sibling>` is a path, even though the whole token is not one.
+
+    Read whole, ``--file=/x`` is a *relative* path that lands inside the
+    packet, so a containment test that only saw whole tokens would pass it.
+    """
+
+    sibling = packet.resolve().parent / "cal-9.framework_tooling" / "repo" / "agent.py"
+    transcript = _codex_transcript_running([f'/bin/zsh -lc "rg --file={sibling} pattern"'])
+    with pytest.raises(run_rater.RaterError, match="reached outside the packet"):
+        run_rater.run_rater(
+            family="openai",
+            role="security_governance",
+            packet=packet,
+            out=tmp_path / "out",
+            model="model-x",
+            runner=_Recorder(transcript),
+            prober=_stub_prober,
+        )
+
+
+def test_the_command_audit_asks_where_a_path_lands_not_how_it_is_spelled(
+    packet: Path, tmp_path: Path
+) -> None:
+    """Unit-level, so each side of the containment rule is named once."""
+
+    out = tmp_path / "out"
+    out.mkdir()
+    resolved = packet.resolve()
+    checkout = build_packet.REPO_ROOT.resolve()
+
+    def flagged(command: str) -> bool:
+        return bool(
+            run_rater.commands_that_reached_outside(
+                _codex_transcript_running([f"/bin/zsh -lc {shlex.quote(command)}"]), packet, out
+            )
+        )
+
+    # Allowed: anything that lands inside the assigned packet, plus a system
+    # binary, which lands outside every forbidden root and is named by nobody.
+    assert not flagged("cat repo/agent.py")
+    assert not flagged(f"cat {resolved}/repo/agent.py")
+    assert not flagged("grep -rn tools repo/")
+    assert not flagged("/usr/bin/grep -n x repo/agent.py")
+
+    # Refused: the three things condition 2 forbids, in either spelling...
+    assert flagged("cat ../other.framework_tooling/repo/x")
+    assert flagged(f"cat {resolved.parent}/other.framework_tooling/repo/x")
+    assert flagged(f"ls {out.resolve()}/labels")
+    assert flagged(f"cat {checkout}/benchmark/safety-qualification/strata-inventory.csv")
+    # ...and a walk that leaves the packet for somewhere else entirely.
+    assert flagged("cat ../../../../etc/passwd")
+
+
+def test_the_claude_family_is_not_subject_to_the_command_audit(
+    packet: Path, tmp_path: Path
+) -> None:
+    """It has no shell to audit — the restriction is that it cannot run one.
+
+    If this ever starts mattering, the tool list grew a shell and that is the
+    thing to fix, not this test.
+    """
+
+    invocation, _ = run_rater.prepare(
+        family="claude",
+        role="security_governance",
+        packet=packet,
+        model=None,
+        home=tmp_path / "home",
+        home_mode="shared",
+    )
+    argv = list(invocation.argv)
+    assert argv[argv.index("--tools") + 1] == "Read,Grep,Glob"
+    assert "Bash" in argv[argv.index("--disallowedTools") + 1]
+
+
+# --------------------------------------------------------------------------
+# The owner's rulings after the calibration round
+# --------------------------------------------------------------------------
+
+
+def test_a_shell_bearing_rater_is_refused_on_a_host_that_carries_the_answer_key(
+    packet: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The fix for a session that can read anything is to not have the thing
+    it must not read where it can reach — not to sandbox its reads.
+
+    The packets are self-contained; a rater needs nothing from the checkout.
+    So corpus labels for a family with a shell are produced where the
+    inventory is not, and this is what says so.
+    """
+
+    key = build_packet.REPO_ROOT / "benchmark" / "safety-qualification" / "strata-inventory.csv"
+    key.parent.mkdir(parents=True, exist_ok=True)
+    key.write_text("slot_id,target_decision\n", encoding="utf-8")
+    recorder = _Recorder(_openai_transcript(VALID_LABEL))
+    with pytest.raises(run_rater.RaterError, match="readable from this host"):
+        run_rater.run_rater(
+            family="openai",
+            role="security_governance",
+            packet=packet,
+            out=tmp_path / "out",
+            model="model-x",
+            runner=recorder,
+            prober=_stub_prober,
+        )
+    assert recorder.invocations == []
+
+
+def test_a_calibration_run_may_proceed_on_that_host_and_says_so_on_the_label(
+    packet: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Calibration labels are working material, never evidence."""
+
+    key = build_packet.REPO_ROOT / "benchmark" / "safety-qualification" / "strata-inventory.csv"
+    key.parent.mkdir(parents=True, exist_ok=True)
+    key.write_text("slot_id,target_decision\n", encoding="utf-8")
+    result = run_rater.run_rater(
+        family="openai",
+        role="security_governance",
+        packet=packet,
+        out=tmp_path / "out",
+        model="model-x",
+        runner=_Recorder(_openai_transcript(VALID_LABEL)),
+        prober=_stub_prober,
+        working_material=True,
+    )
+    record = json.loads(result.label_path.read_text())
+    assert record["host_isolation"] == "1 answer-key files on host (working material, not evidence)"
+    assert record["working_material"] is True
+
+
+def test_the_working_material_declaration_is_on_every_record(
+    packet: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`host_isolation` cannot carry it, so a freeze could not recover it.
+
+    For the claude family that field is always "no shell", and on a clean
+    deployment it is "no answer key on host" whichever way the flag was
+    passed. So two runs differing only in this produced byte-identical records
+    once the session identities were removed, and nothing downstream could
+    tell which labels the caller had excluded from evidence. A calibration
+    label reaching a corpus by looking like one is the failure this prevents.
+    """
+
+    seen = {}
+    for family, transcript in (
+        ("claude", _claude_transcript(VALID_LABEL)),
+        ("openai", _openai_transcript(VALID_LABEL)),
+    ):
+        for working_material in (False, True):
+            result = run_rater.run_rater(
+                family=family,
+                role="security_governance",
+                packet=packet,
+                out=tmp_path / f"out-{family}-{working_material}",
+                model="model-x",
+                runner=_Recorder(transcript),
+                prober=_stub_prober,
+                working_material=working_material,
+            )
+            record = json.loads(result.label_path.read_text())
+            assert record["working_material"] is working_material, (family, working_material)
+            seen[(family, working_material)] = record["host_isolation"]
+
+    # The point, stated: on a clean host the isolation string is identical for
+    # both settings, in both families -- so it was never the place to read this.
+    assert seen[("claude", False)] == seen[("claude", True)] == "no shell"
+    assert seen[("openai", False)] == seen[("openai", True)] == "no answer key on host"
+
+
+def test_a_rater_with_no_shell_is_not_subject_to_the_host_check(
+    packet: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    key = build_packet.REPO_ROOT / "benchmark" / "safety-qualification" / "strata-inventory.csv"
+    key.parent.mkdir(parents=True, exist_ok=True)
+    key.write_text("slot_id,target_decision\n", encoding="utf-8")
+    result = run_rater.run_rater(
+        family="claude",
+        role="security_governance",
+        packet=packet,
+        out=tmp_path / "out",
+        runner=_Recorder(_claude_transcript(VALID_LABEL)),
+        prober=_stub_prober,
+    )
+    assert json.loads(result.label_path.read_text())["host_isolation"] == "no shell"
+
+
+def test_identical_copies_are_grouped_in_the_manifest_canonical_first(tmp_path: Path) -> None:
+    """Same sha256, same bytes: exact, and free, since the manifest hashes anyway."""
+
+    case = tmp_path / "case"
+    body = "# Guidance\n\nprefer restricted keys\n"
+    for tree in ("base", "head"):
+        _write(case / tree / "skills" / "x" / "SKILL.md", "# x\n")
+    _write(case / "head" / "skills" / "x" / "references" / "security.md", body)
+    _write(
+        case
+        / "head"
+        / "providers"
+        / "claude"
+        / "plugin"
+        / "skills"
+        / "x"
+        / "references"
+        / "security.md",
+        body,
+    )
+    _write(
+        case
+        / "head"
+        / "providers"
+        / "cursor"
+        / "plugin"
+        / "skills"
+        / "x"
+        / "references"
+        / "security.md",
+        body,
+    )
+    _write(case / "head" / "unrelated.md", "different\n")
+
+    packet = build_packet.build_packet(
+        case_id="dup-1", role="security_governance", out=tmp_path / "packet", case_dir=case
+    )
+    manifest = json.loads((packet / "MANIFEST.json").read_text())
+    assert manifest["identical_files"] == [
+        [
+            "repo/skills/x/references/security.md",
+            "repo/providers/claude/plugin/skills/x/references/security.md",
+            "repo/providers/cursor/plugin/skills/x/references/security.md",
+        ]
+    ]
+
+
+def test_the_comparison_key_folds_identical_copies_without_touching_the_citation() -> None:
+    """Two raters citing different copies of the same bytes are not disagreeing.
+
+    The key says so. It is *only* a key: a path says which hook, provider or
+    package is loaded, so rewriting the citation would destroy what the
+    citation establishes.
+    """
+
+    groups = [["repo/skills/x/a.md", "repo/providers/claude/plugin/skills/x/a.md"]]
+    cited = [
+        "repo/providers/claude/plugin/skills/x/a.md:18-34",
+        "repo/skills/x/a.md:40-42",
+        "diff.patch:5-6",
+    ]
+    assert run_rater.comparison_key_for_evidence(cited, groups) == [
+        "repo/skills/x/a.md:18-34",
+        "repo/skills/x/a.md:40-42",
+        "diff.patch:5-6",
+    ]
+
+
+def test_the_label_keeps_what_the_rater_cited(tmp_path: Path) -> None:
+    """`IndependentHumanLabelV1.evidence_references` is what downstream reads.
+
+    Equal bytes are not identity, so a citation is never collapsed onto
+    another path; the folded key sits beside it.
+    """
+
+    case = tmp_path / "case"
+    body = "TOOLS = ['lookup', 'refund']\n"
+    _write(case / "base" / "agent.py", "TOOLS = ['lookup']\n")
+    _write(case / "head" / "agent.py", body)
+    _write(case / "head" / "mirror" / "agent.py", body)
+    packet = build_packet.build_packet(
+        case_id="dup-2", role="security_governance", out=tmp_path / "packet", case_dir=case
+    )
+    label = json.dumps(
+        {
+            "decision": "review_required",
+            "rationale": "A refund tool is added and registered.",
+            "evidence_references": ["repo/mirror/agent.py:1-1"],
+        }
+    )
+    result = run_rater.run_rater(
+        family="claude",
+        role="security_governance",
+        packet=packet,
+        out=tmp_path / "out",
+        runner=_Recorder(_claude_transcript(label)),
+        prober=_stub_prober,
+    )
+    record = json.loads(result.label_path.read_text())
+    assert record["label"]["evidence_references"] == ["repo/mirror/agent.py:1-1"]
+    assert record["evidence_comparison_key"] == ["repo/agent.py:1-1"]
+
+
+def test_equal_bytes_with_different_modes_are_not_one_group(tmp_path: Path) -> None:
+    """A `runtime/hooks/pre.sh` must never join a group with an `a.txt`.
+
+    Grouping is a claim that two paths carry the same thing; the executable
+    bit is part of what makes them different things.
+    """
+
+    case = tmp_path / "case"
+    body = "#!/bin/sh\necho hello\n"
+    _write(case / "base" / "seed.txt", "x\n")
+    _write(case / "head" / "seed.txt", "y\n")
+    _write(case / "head" / "a.txt", body)
+    _write(case / "head" / "runtime" / "hooks" / "pre.sh", body)
+    (case / "head" / "runtime" / "hooks" / "pre.sh").chmod(0o755)
+    packet = build_packet.build_packet(
+        case_id="mode-1", role="security_governance", out=tmp_path / "packet", case_dir=case
+    )
+    assert "identical_files" not in json.loads((packet / "MANIFEST.json").read_text())
+
+
+def test_a_link_only_the_base_carried_still_shows_as_removed(tmp_path: Path) -> None:
+    """Staging decided what git recorded, and it was dropping dangling links.
+
+    A link only `base/` carried, deleted by the change, vanished from *both*
+    commits: identical tree hashes, an empty `diff.patch`, no
+    `broken_symlinks` — a packet asserting nothing changed, for a change whose
+    whole content was that deletion.
+    """
+
+    case = tmp_path / "case"
+    _write(case / "base" / "agent.py", "TOOLS = ['lookup']\n")
+    _write(case / "head" / "agent.py", "TOOLS = ['lookup']\n")
+    (case / "base" / "removed-link").symlink_to("missing-target")
+
+    packet = build_packet.build_packet(
+        case_id="dangle-base", role="security_governance", out=tmp_path / "packet", case_dir=case
+    )
+    manifest = json.loads((packet / "MANIFEST.json").read_text())
+    assert manifest["source"]["base_tree"] != manifest["source"]["head_tree"]
+    diff = (packet / "diff.patch").read_text()
+    assert "removed-link" in diff and "deleted file mode 120000" in diff
+    assert "broken_symlinks" not in manifest
+
+
+def test_a_link_whose_target_changes_shows_the_change(tmp_path: Path) -> None:
+    """The other shape staging erased: both sides dangling, so both dropped."""
+
+    case = tmp_path / "case"
+    for tree in ("base", "head"):
+        _write(case / tree / "agent.py", "TOOLS = ['lookup']\n")
+    (case / "base" / "cfg").symlink_to("profiles/dev.yaml")
+    (case / "head" / "cfg").symlink_to("profiles/prod.yaml")
+
+    packet = build_packet.build_packet(
+        case_id="dangle-retarget",
+        role="security_governance",
+        out=tmp_path / "packet",
+        case_dir=case,
+    )
+    diff = (packet / "diff.patch").read_text()
+    assert "-profiles/dev.yaml" in diff and "+profiles/prod.yaml" in diff
+    manifest = json.loads((packet / "MANIFEST.json").read_text())
+    assert manifest["broken_symlinks"] == ["repo/cfg"]
+    assert not (packet / "repo" / "cfg").exists()
+
+
+def test_the_model_recorded_is_the_one_that_served_the_messages(
+    packet: Path, tmp_path: Path
+) -> None:
+    """`init` announces what the session was configured as, with decoration the
+    API never returns; every assistant message names what actually served it.
+
+    Condition 3 asks `reviewer_id` to name the model that ran.
+    """
+
+    transcript = _claude_transcript(VALID_LABEL, model="claude-opus-5[1m]")
+    transcript = transcript.replace('"model": "claude-opus-5[1m]"', '"model": "claude-opus-5"', 0)
+    events = [json.loads(line) for line in transcript.splitlines() if line.strip()]
+    for event in events:
+        if event.get("type") == "assistant":
+            event["message"]["model"] = "claude-opus-5"
+    transcript = "".join(json.dumps(e) + "\n" for e in events)
+
+    result = run_rater.run_rater(
+        family="claude",
+        role="security_governance",
+        packet=packet,
+        out=tmp_path / "out",
+        runner=_Recorder(transcript),
+        prober=_stub_prober,
+    )
+    assert result.model == "claude-opus-5"
+    assert result.label.reviewer_id.split(":")[1] == "claude-opus-5"
+    record = json.loads(result.label_path.read_text())
+    assert record["announced_model"] == "claude-opus-5[1m]"
+    assert any("init announced" in line for line in result.diagnostics)
+
+
+def test_a_transcript_naming_two_serving_models_produces_no_label(
+    packet: Path, tmp_path: Path
+) -> None:
+    """Then `reviewer_id` cannot name the model that ran, so there is no label."""
+
+    events = [
+        json.loads(line) for line in _claude_transcript(VALID_LABEL).splitlines() if line.strip()
+    ]
+    seen = 0
+    for event in events:
+        if event.get("type") == "assistant":
+            event["message"]["model"] = "claude-opus-5" if seen else "claude-sonnet-5"
+            seen += 1
+    transcript = "".join(json.dumps(e) + "\n" for e in events)
+
+    with pytest.raises(run_rater.RaterError, match="more than one model"):
+        run_rater.run_rater(
+            family="claude",
+            role="security_governance",
+            packet=packet,
+            out=tmp_path / "out",
+            runner=_Recorder(transcript),
+            prober=_stub_prober,
+        )
+
+
+ANSWER_STATING_FILES = (
+    # The literal key: a `target_decision` and a `candidate_ref` per slot.
+    "benchmark/safety-qualification/strata-inventory.csv",
+    "benchmark/safety-qualification/strata-inventory.md",
+    # Every prose record in that directory states decisions -- the calibration
+    # records name each `cal-*` outcome, and a corpus round record publishes a
+    # table of case id -> both primary labels -> the owner's final decision.
+    "benchmark/safety-qualification/calibration.md",
+    "benchmark/safety-qualification/calibration-round-2026-09-03.md",
+    "benchmark/safety-qualification/corpus-round-2026-09-03.md",
+    "benchmark/safety-qualification/corpus-round-2-2026-09-03.md",
+    # A construction's design record names its target cell and its slot id.
+    # The name here is deliberately not a real construction: naming one in a
+    # test declares it engine-exposed, which
+    # `test_declared_exposure_is_at_least_what_the_tree_shows` enforces --
+    # so this guard would otherwise cost the corpus a holdout-eligible slot.
+    "benchmark/safety-qualification/constructed/fixture_case_not_a_real_one/CASE.md",
+    # The miner's adjudicated labels, and -- the wider class -- its sweeps,
+    # which carry `head_decision`/`verify_decision` per `pr_url`: verifier
+    # output for the very PRs the inventory pinned.
+    "benchmark/miner/results/2026-W24-mined.labels.csv",
+    "benchmark/miner/results/2026-W36-cutb.labels.csv",
+    "benchmark/miner/results/2026-W24-mined.csv",
+    "benchmark/miner/results/2026-W24-mined.jsonl",
+)
+
+
+def test_every_answer_stating_file_in_the_checkout_is_looked_for(tmp_path: Path) -> None:
+    """The inventory is not the only file in here that states an answer.
+
+    Each entry above is a *class* that was found readable at some point, and
+    the two that a per-file pattern list missed are the reason this is matched
+    by directory now: a corpus round record (written after the patterns were,
+    by someone who would not think to come back here) and the miner's sweeps
+    (which are verifier output, the thing condition 2 forbids most directly).
+    """
+
+    for relative in ANSWER_STATING_FILES:
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("x\n", encoding="utf-8")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "unrelated.py").write_text("x = 1\n", encoding="utf-8")
+
+    found = {p.relative_to(tmp_path).as_posix() for p in run_rater.answer_keys_on_host(tmp_path)}
+    assert found == set(ANSWER_STATING_FILES)
+
+
+@pytest.mark.parametrize("relative", ANSWER_STATING_FILES)
+def test_a_host_carrying_one_answer_file_and_nothing_else_is_refused(
+    tmp_path: Path, relative: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each class must refuse *on its own*.
+
+    The bug this closes was masked by exactly this: a deployment that acquired
+    a corpus round record between rounds still failed the check, but only
+    because the inventory happened to be beside it. Alone, it passed.
+    """
+
+    target = tmp_path / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("x\n", encoding="utf-8")
+    monkeypatch.setattr(build_packet, "REPO_ROOT", tmp_path)
+
+    assert run_rater.answer_keys_on_host(tmp_path) == [target]
+    with pytest.raises(run_rater.RaterError, match="answer-stating files are readable"):
+        run_rater.check_answer_key_not_on_host("openai", working_material=False)
+
+
+def test_a_deployment_carrying_only_the_harness_is_clean(tmp_path: Path) -> None:
+    """ "No checkout" was the wrong shorthand: the harness needs `src/` to run.
+
+    What has to be absent is the answer-stating files, and a deployment of the
+    harness plus the packets is already that.
+    """
+
+    (tmp_path / "src" / "agents_shipgate").mkdir(parents=True)
+    (tmp_path / "benchmark" / "safety-qualification" / "rater").mkdir(parents=True)
+    (tmp_path / "benchmark" / "safety-qualification" / "rater" / "run_rater.py").write_text("x\n")
+    assert run_rater.answer_keys_on_host(tmp_path) == []
+
+
+# --------------------------------------------------------------------------
+# The deployment a corpus run happens on
+# --------------------------------------------------------------------------
+
+
+def test_a_deployment_carries_the_harness_and_no_answer(tmp_path: Path) -> None:
+    """The checkout this is built from carries answers; the deployment must not.
+
+    Both halves matter. If the source had none, the test would pass without
+    the script doing anything.
+    """
+
+    assert run_rater.answer_keys_on_host(deploy.REPO_ROOT), (
+        "the checkout should carry answer files, or this test proves nothing"
+    )
+    leaked = deploy.deploy(tmp_path / "host")
+    assert leaked == []
+    assert (tmp_path / "host" / "src" / "agents_shipgate").is_dir()
+    assert (
+        tmp_path / "host" / "benchmark" / "safety-qualification" / "rater" / "run_rater.py"
+    ).is_file()
+    assert not (tmp_path / "host" / "benchmark" / "miner").exists()
+    assert not (
+        tmp_path / "host" / "benchmark" / "safety-qualification" / "strata-inventory.csv"
+    ).exists()
+
+
+def test_the_deployment_layout_is_what_makes_the_check_look_here(tmp_path: Path) -> None:
+    """`run_rater` finds its root three directories above itself.
+
+    Lay the harness out anywhere else and `answer_keys_on_host()` searches
+    somewhere that was never going to hold an answer, so it passes without
+    checking the host the rater actually runs on. The layout is the check.
+    """
+
+    host = tmp_path / "host"
+    deploy.deploy(host)
+    deployed = host / "benchmark" / "safety-qualification" / "rater" / "run_rater.py"
+    assert deployed.resolve().parents[3] == host.resolve()
+
+    # An answer file placed where that root points is found from the deployment.
+    planted = host / "benchmark" / "safety-qualification" / "strata-inventory.csv"
+    planted.write_text("slot_id,target_decision\n", encoding="utf-8")
+    assert run_rater.answer_keys_on_host(host) == [planted]
+
+
+def test_a_deployment_refuses_to_overwrite_an_existing_one(tmp_path: Path) -> None:
+    """Deploying onto a used path could leave an answer file from last time."""
+
+    host = tmp_path / "host"
+    deploy.deploy(host)
+    with pytest.raises(deploy.DeployError, match="not empty"):
+        deploy.deploy(host)
+
+
+def test_packets_are_copied_in_when_given(tmp_path: Path, constructed_case: Path) -> None:
+    packets = tmp_path / "packets"
+    build_packet.build_packet(
+        case_id="c1",
+        role="security_governance",
+        out=packets / "c1.security_governance",
+        case_dir=constructed_case,
+    )
+    host = tmp_path / "host"
+    assert deploy.deploy(host, packets) == []
+    assert (host / "packets" / "c1.security_governance" / "MANIFEST.json").is_file()
+
+
+def test_the_text_half_of_a_mixed_change_still_reaches_the_rater(tmp_path: Path) -> None:
+    """The shape that made refusing wrong: one image, thousands of lines of code.
+
+    Every authority-bearing fact was in the text, and refusing threw all of it
+    away to avoid disclosing one diagram.
+    """
+
+    clone = tmp_path / "clone"
+    base, head = _two_commit_clone(
+        clone,
+        {"agent.py": "TOOLS = ['lookup']\n"},
+        {"agent.py": "TOOLS = ['lookup', 'refund']\n"},
+    )
+    (clone / "arch.png").write_bytes(bytes([0x89, 0x50, 0x4E, 0x47]) + bytes(range(256)))
+    _git(clone, "add", "--all")
+    _git(clone, "commit", "-q", "-m", "add diagram")
+    (clone / "arch.png").write_bytes(bytes([0x89, 0x50, 0x4E, 0x47]) + bytes(range(255, -1, -1)))
+    (clone / "agent.py").write_text("TOOLS = ['lookup', 'refund', 'cancel']\n")
+    _git(clone, "add", "--all")
+    _git(clone, "commit", "-q", "-m", "code and diagram together")
+    _ = base, head
+
+    packet = build_packet.build_packet(
+        case_id="ext-mixed",
+        role="security_governance",
+        out=tmp_path / "packet",
+        clone=clone,
+        base=_git(clone, "rev-parse", "HEAD~1"),
+        head=_git(clone, "rev-parse", "HEAD"),
+    )
+    diff = (packet / "diff.patch").read_text()
+    assert "+TOOLS = ['lookup', 'refund', 'cancel']" in diff
+    manifest = json.loads((packet / "MANIFEST.json").read_text())
+    assert manifest["undescribable_changes"] == ["a/arch.png b/arch.png (contains NUL)"]
