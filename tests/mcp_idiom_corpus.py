@@ -12,8 +12,9 @@ this repository. This module is the reason the duplication is affordable: every
 case either reader has ever been asked about lives here once, and both are
 driven through all of it —
 
-* :mod:`tests.test_mcp_idioms` checks the package reader against the expected
-  names, omissions and anomalies recorded below;
+* :mod:`tests.test_mcp_idioms` checks the package reader against what each
+  case must yield — the adversarial sweep records its expected names and
+  omissions inline, and the named tests own the rest;
 * :mod:`tests.test_zero_install_detector` checks the two readers against *each
   other* on the same inputs, comparing every field of every site, span
   included, plus the path predicate and both escape grammars.
@@ -40,6 +41,7 @@ class SourceCase:
 
 
 # --- Positive samples, one per idiom ----------------------------------------
+
 
 class Sample:
     """One idiom's canonical registration, and the name it must yield."""
@@ -414,6 +416,12 @@ ESCAPE_CASES: list[tuple[str, str, str | None]] = [
     (r"a\x4", "typescript", None),
     (r"a\u{}", "typescript", None),
     (r"a\1b", "typescript", None),
+    # Refused by a guard rather than by falling through: drop the hex check and
+    # `int(digits, 16)` raises out of the scan instead of recording an
+    # omission, and the caller loses the whole file rather than one name.
+    (r"a\u{zz}", "typescript", None),
+    (r"a\u{110000}", "typescript", None),
+    (r"a\U00110000", "go", None),
 ]
 
 

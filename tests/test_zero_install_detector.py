@@ -1407,11 +1407,13 @@ _MCP_ROUTE_WORKSPACES: dict[str, dict[str, str]] = {
         "mcp-tools.json": '{"tools": [{"name": "search_docs", "description": "d"}]}',
     },
     # A wildcard export enumerates nothing, so it can never be shown to
-    # contain anything and the source route is the more informative of the two.
+    # contain anything: the source route stands, and the evidence says an
+    # export is present that names none of these registrations. The shape is
+    # the one the CLI's own wildcard test uses.
     "wildcard_export_contains_nothing": {
         "package.json": _TS_PACKAGE_JSON,
         "src/tools/search.ts": _TS_REGISTRATION,
-        "mcp-tools.json": '{"wildcard": true}',
+        "mcp-tools.json": '{"wildcard": true, "tools": []}',
     },
     # Two registration directories: the route is their common ancestor, which
     # is the directory the adapter walks once the manifest points at it.
@@ -1577,3 +1579,43 @@ def test_script_and_cli_stop_at_the_same_source_file_cap(script_module, tmp_path
     assert mcp_source_discovery.discover_mcp_server_source(
         workspace, files=_candidate_files(workspace), max_source_files=2
     ).truncated is True
+
+
+def test_an_export_past_the_size_bound_does_not_withhold_the_source_route(
+    script_module, tmp_path, monkeypatch
+):
+    """The bound is the loader's, so the outcome has to be the loader's too.
+
+    ``load_mcp_tools`` refuses an input over 10 MB before parsing it, so on the
+    CLI side an oversized export is excluded at the probe and never reaches the
+    containment test — the source route stands. The port reads the file itself,
+    so without the same bound it would read an arbitrarily large JSON out of an
+    unknown repository *and* withhold a route the CLI keeps.
+
+    Driven by lowering the bound rather than by writing a 10 MB fixture; the
+    file being over it is the whole condition.
+    """
+
+    workspace = _write(
+        tmp_path / "big-export", _MCP_ROUTE_WORKSPACES["export_covers_every_registration"]
+    )
+
+    withheld = script_module.detect(workspace)
+    assert [
+        source["path"]
+        for source in withheld["excluded_sources"]
+        if source["type"] == script_module.MCP_SOURCE_TYPE
+    ] == ["src/tools"], "the fixture no longer withholds the route at all"
+
+    monkeypatch.setattr(script_module, "MAX_STRUCTURED_FILE_BYTES", 8)
+    kept = script_module.detect(workspace)
+    assert [
+        source["path"]
+        for source in kept["suggested_sources"]
+        if source["type"] == script_module.MCP_SOURCE_TYPE
+    ] == ["src/tools"]
+    assert not [
+        source
+        for source in kept["excluded_sources"]
+        if source["type"] == script_module.MCP_SOURCE_TYPE
+    ]

@@ -2033,6 +2033,15 @@ def _mcp_export_tool_names(workspace: Path, relative: str) -> set[str] | None:
             # Wildcard exposure, and the wildcard-plus-array contradiction the
             # loader refuses outright, both reach the caller the same way:
             # there are no names here to contain anything.
+            #
+            # No fixture can distinguish this branch from the fall-through
+            # below, and that is a fact about the *caller*, not a gap: every
+            # wildcard shape `_probe_mcp` accepts also has no usable `tools`
+            # array, and the one that does — wildcard plus a populated array —
+            # is refused at the probe and never reaches this function. The
+            # branch stays because it mirrors `load_mcp_tools`, and resting on
+            # the probe to make it redundant would couple this reader to a
+            # gate that is not its own.
             return None
     else:
         return None
