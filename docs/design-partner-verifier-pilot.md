@@ -278,20 +278,11 @@ agents-shipgate audit --host
 agents-shipgate audit --host --save-baseline   # then commit .agents-shipgate/
 ```
 
-Then, on each change under review:
-
-```bash
-agents-shipgate audit --host --drift --json --out shipgate-drift.json
-agents-shipgate check --agent <codex|claude-code|cursor> \
-  --base <base-ref> --head <change-ref>
-```
-
-**The baseline has to be reachable from the change under review, and usually
-is not.** A partner arrives with a PR whose branch was cut *before* the
-baseline commit, so checking that branch out removes
-`.agents-shipgate/host-grants.json` and `--drift` exits 2 with
-`No host-grants baseline at …`. Pick one of these before running the second
-block:
+**Before the per-change block: the baseline has to be reachable from the
+change under review, and usually is not.** A partner arrives with a PR whose
+branch was cut *before* the baseline commit, so checking that branch out
+removes `.agents-shipgate/host-grants.json` and `--drift` exits 2 with
+`No host-grants baseline at …`. Pick one of these first:
 
 ```bash
 # Either — the team wants the baseline committed for ongoing use:
@@ -301,8 +292,6 @@ git checkout <change-ref> && git merge <default-branch>   # or rebase onto it
 git checkout <default-branch>
 agents-shipgate audit --host --save-baseline --baseline-file /tmp/base-grants.json
 git checkout <change-ref>
-agents-shipgate audit --host --drift --baseline-file /tmp/base-grants.json \
-  --json --out shipgate-drift.json
 ```
 
 **Never `--save-baseline` from the changed checkout to get past that error.**
@@ -310,6 +299,21 @@ That is what the CLI's own recovery line suggests when the file is missing,
 and following it here acknowledges the very expansion under review — the
 drift then reports nothing and the run looks clean. If a partner does it,
 that is a recorded setup failure, not a first valid result.
+
+Then, on each change under review:
+
+```bash
+agents-shipgate audit --host --drift --json --out shipgate-drift.json
+agents-shipgate check --agent <codex|claude-code|cursor> \
+  --base <base-ref> --head <change-ref>
+```
+
+With the out-of-tree snapshot, pass it to the drift command every time:
+
+```bash
+agents-shipgate audit --host --drift --baseline-file /tmp/base-grants.json \
+  --json --out shipgate-drift.json
+```
 
 The baseline is otherwise recorded once and re-acknowledged only after a human
 has reviewed the drift. Before pointing a partner at `check`, read
