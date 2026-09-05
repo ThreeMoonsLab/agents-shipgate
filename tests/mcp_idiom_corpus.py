@@ -271,6 +271,29 @@ ADVERSARIAL: list[tuple[str, str, str, list[str], list[str]]] = [
         [],
     ),
     (
+        # A Go raw string is not escape-processed: this registers the literal
+        # name `raw\137name`, which is not a tool-name shape, so the site is an
+        # omission. Decoding it the way an interpreted string is decoded yields
+        # `raw_name` — a name the server does not serve, entered into the
+        # catalog as though it did.
+        "a Go raw string is not escape-processed",
+        "go",
+        "mcpgrafana.MustTool(`raw\\137name`, desc, handler)\n",
+        [],
+        ["implausible_tool_name"],
+    ),
+    (
+        # A `/` inside a character class does not end the regex. Stop tracking
+        # the class and the pattern ends early, leaving `']/;` as code — an
+        # apostrophe that opens a string and swallows the line, which is how
+        # one regex costs the registrations after it.
+        "a slash inside a regex character class does not end it",
+        "typescript",
+        "const sep = /[/\']/;\n" 'server.registerTool("real", {}, h);\n',
+        ["real"],
+        [],
+    ),
+    (
         "a rune literal holding a quote must not desync the lexer",
         "go",
         "if c == '\"' {\n}\n" 'mcpgrafana.MustTool("real", desc, handler)\n',
