@@ -11,6 +11,7 @@ import hashlib
 import importlib.util
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -2192,6 +2193,97 @@ def test_ordinary_codex_commands_are_not_refused(packet: Path, tmp_path: Path) -
     assert result.label.decision == "review_required"
 
 
+def test_a_codex_session_may_read_its_own_packet_by_absolute_path(
+    packet: Path, tmp_path: Path
+) -> None:
+    """The assigned input is the one thing the session is *supposed* to read.
+
+    An earlier version searched each script for an ancestor's spelling, and
+    ``packet.parent`` is a prefix of every absolute path inside the packet --
+    so ``cat <packet>/repo/agent.py``, a session reading only what it was
+    given, produced no label at all. The deployment layout makes ``REPO_ROOT``
+    an ancestor of the packets too, which is the same bug from the other side.
+    """
+
+    absolute = packet.resolve()
+    transcript = _codex_transcript_running(
+        [
+            f'/bin/zsh -lc "cat {absolute}/repo/agent.py"',
+            f'/bin/zsh -lc "sed -n \'1,50p\' {absolute}/diff.patch"',
+            # A `..` that normalises back inside the packet never left it.
+            '/bin/zsh -lc "cat repo/../repo/agent.py"',
+            # ...and naming the packet directory itself is not naming a sibling.
+            f'/bin/zsh -lc "ls {absolute}"',
+        ]
+    )
+    result = run_rater.run_rater(
+        family="openai",
+        role="security_governance",
+        packet=packet,
+        out=tmp_path / "out",
+        model="model-x",
+        runner=_Recorder(transcript),
+        prober=_stub_prober,
+    )
+    assert result.label.decision == "review_required"
+
+
+def test_a_path_carried_in_a_flag_value_is_still_audited(
+    packet: Path, tmp_path: Path
+) -> None:
+    """`--file=<sibling>` is a path, even though the whole token is not one.
+
+    Read whole, ``--file=/x`` is a *relative* path that lands inside the
+    packet, so a containment test that only saw whole tokens would pass it.
+    """
+
+    sibling = packet.resolve().parent / "cal-9.framework_tooling" / "repo" / "agent.py"
+    transcript = _codex_transcript_running([f'/bin/zsh -lc "rg --file={sibling} pattern"'])
+    with pytest.raises(run_rater.RaterError, match="reached outside the packet"):
+        run_rater.run_rater(
+            family="openai",
+            role="security_governance",
+            packet=packet,
+            out=tmp_path / "out",
+            model="model-x",
+            runner=_Recorder(transcript),
+            prober=_stub_prober,
+        )
+
+
+def test_the_command_audit_asks_where_a_path_lands_not_how_it_is_spelled(
+    packet: Path, tmp_path: Path
+) -> None:
+    """Unit-level, so each side of the containment rule is named once."""
+
+    out = tmp_path / "out"
+    out.mkdir()
+    resolved = packet.resolve()
+    checkout = build_packet.REPO_ROOT.resolve()
+
+    def flagged(command: str) -> bool:
+        return bool(
+            run_rater.commands_that_reached_outside(
+                _codex_transcript_running([f"/bin/zsh -lc {shlex.quote(command)}"]), packet, out
+            )
+        )
+
+    # Allowed: anything that lands inside the assigned packet, plus a system
+    # binary, which lands outside every forbidden root and is named by nobody.
+    assert not flagged("cat repo/agent.py")
+    assert not flagged(f"cat {resolved}/repo/agent.py")
+    assert not flagged("grep -rn tools repo/")
+    assert not flagged("/usr/bin/grep -n x repo/agent.py")
+
+    # Refused: the three things condition 2 forbids, in either spelling...
+    assert flagged("cat ../other.framework_tooling/repo/x")
+    assert flagged(f"cat {resolved.parent}/other.framework_tooling/repo/x")
+    assert flagged(f"ls {out.resolve()}/labels")
+    assert flagged(f"cat {checkout}/benchmark/safety-qualification/strata-inventory.csv")
+    # ...and a walk that leaves the packet for somewhere else entirely.
+    assert flagged("cat ../../../../etc/passwd")
+
+
 def test_the_claude_family_is_not_subject_to_the_command_audit(
     packet: Path, tmp_path: Path
 ) -> None:
@@ -2267,6 +2359,46 @@ def test_a_calibration_run_may_proceed_on_that_host_and_says_so_on_the_label(
     )
     record = json.loads(result.label_path.read_text())
     assert record["host_isolation"] == "1 answer-key files on host (working material, not evidence)"
+    assert record["working_material"] is True
+
+
+def test_the_working_material_declaration_is_on_every_record(
+    packet: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`host_isolation` cannot carry it, so a freeze could not recover it.
+
+    For the claude family that field is always "no shell", and on a clean
+    deployment it is "no answer key on host" whichever way the flag was
+    passed. So two runs differing only in this produced byte-identical records
+    once the session identities were removed, and nothing downstream could
+    tell which labels the caller had excluded from evidence. A calibration
+    label reaching a corpus by looking like one is the failure this prevents.
+    """
+
+    seen = {}
+    for family, transcript in (
+        ("claude", _claude_transcript(VALID_LABEL)),
+        ("openai", _openai_transcript(VALID_LABEL)),
+    ):
+        for working_material in (False, True):
+            result = run_rater.run_rater(
+                family=family,
+                role="security_governance",
+                packet=packet,
+                out=tmp_path / f"out-{family}-{working_material}",
+                model="model-x",
+                runner=_Recorder(transcript),
+                prober=_stub_prober,
+                working_material=working_material,
+            )
+            record = json.loads(result.label_path.read_text())
+            assert record["working_material"] is working_material, (family, working_material)
+            seen[(family, working_material)] = record["host_isolation"]
+
+    # The point, stated: on a clean host the isolation string is identical for
+    # both settings, in both families -- so it was never the place to read this.
+    assert seen[("claude", False)] == seen[("claude", True)] == "no shell"
+    assert seen[("openai", False)] == seen[("openai", True)] == "no answer key on host"
 
 
 def test_a_rater_with_no_shell_is_not_subject_to_the_host_check(
@@ -2513,23 +2645,44 @@ def test_a_transcript_naming_two_serving_models_produces_no_label(
         )
 
 
+ANSWER_STATING_FILES = (
+    # The literal key: a `target_decision` and a `candidate_ref` per slot.
+    "benchmark/safety-qualification/strata-inventory.csv",
+    "benchmark/safety-qualification/strata-inventory.md",
+    # Every prose record in that directory states decisions -- the calibration
+    # records name each `cal-*` outcome, and a corpus round record publishes a
+    # table of case id -> both primary labels -> the owner's final decision.
+    "benchmark/safety-qualification/calibration.md",
+    "benchmark/safety-qualification/calibration-round-2026-09-03.md",
+    "benchmark/safety-qualification/corpus-round-2026-09-03.md",
+    "benchmark/safety-qualification/corpus-round-2-2026-09-03.md",
+    # A construction's design record names its target cell and its slot id.
+    # The name here is deliberately not a real construction: naming one in a
+    # test declares it engine-exposed, which
+    # `test_declared_exposure_is_at_least_what_the_tree_shows` enforces --
+    # so this guard would otherwise cost the corpus a holdout-eligible slot.
+    "benchmark/safety-qualification/constructed/fixture_case_not_a_real_one/CASE.md",
+    # The miner's adjudicated labels, and -- the wider class -- its sweeps,
+    # which carry `head_decision`/`verify_decision` per `pr_url`: verifier
+    # output for the very PRs the inventory pinned.
+    "benchmark/miner/results/2026-W24-mined.labels.csv",
+    "benchmark/miner/results/2026-W36-cutb.labels.csv",
+    "benchmark/miner/results/2026-W24-mined.csv",
+    "benchmark/miner/results/2026-W24-mined.jsonl",
+)
+
+
 def test_every_answer_stating_file_in_the_checkout_is_looked_for(tmp_path: Path) -> None:
     """The inventory is not the only file in here that states an answer.
 
-    The miner's adjudicated labels carry `pr_url,label` for real PRs, several
-    of which the inventory then pinned as corpus candidates, and the
-    calibration records now state every `cal-*` decision. A guard that knew
-    only about `strata-inventory.csv` left those readable.
+    Each entry above is a *class* that was found readable at some point, and
+    the two that a per-file pattern list missed are the reason this is matched
+    by directory now: a corpus round record (written after the patterns were,
+    by someone who would not think to come back here) and the miner's sweeps
+    (which are verifier output, the thing condition 2 forbids most directly).
     """
 
-    for relative in (
-        "benchmark/safety-qualification/strata-inventory.csv",
-        "benchmark/safety-qualification/strata-inventory.md",
-        "benchmark/safety-qualification/calibration.md",
-        "benchmark/safety-qualification/calibration-round-2026-09-03.md",
-        "benchmark/miner/results/2026-W24-mined.labels.csv",
-        "benchmark/miner/results/2026-W36-cutb.labels.csv",
-    ):
+    for relative in ANSWER_STATING_FILES:
         target = tmp_path / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("x\n", encoding="utf-8")
@@ -2537,14 +2690,28 @@ def test_every_answer_stating_file_in_the_checkout_is_looked_for(tmp_path: Path)
     (tmp_path / "src" / "unrelated.py").write_text("x = 1\n", encoding="utf-8")
 
     found = {p.relative_to(tmp_path).as_posix() for p in run_rater.answer_keys_on_host(tmp_path)}
-    assert found == {
-        "benchmark/safety-qualification/strata-inventory.csv",
-        "benchmark/safety-qualification/strata-inventory.md",
-        "benchmark/safety-qualification/calibration.md",
-        "benchmark/safety-qualification/calibration-round-2026-09-03.md",
-        "benchmark/miner/results/2026-W24-mined.labels.csv",
-        "benchmark/miner/results/2026-W36-cutb.labels.csv",
-    }
+    assert found == set(ANSWER_STATING_FILES)
+
+
+@pytest.mark.parametrize("relative", ANSWER_STATING_FILES)
+def test_a_host_carrying_one_answer_file_and_nothing_else_is_refused(
+    tmp_path: Path, relative: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each class must refuse *on its own*.
+
+    The bug this closes was masked by exactly this: a deployment that acquired
+    a corpus round record between rounds still failed the check, but only
+    because the inventory happened to be beside it. Alone, it passed.
+    """
+
+    target = tmp_path / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("x\n", encoding="utf-8")
+    monkeypatch.setattr(build_packet, "REPO_ROOT", tmp_path)
+
+    assert run_rater.answer_keys_on_host(tmp_path) == [target]
+    with pytest.raises(run_rater.RaterError, match="answer-stating files are readable"):
+        run_rater.check_answer_key_not_on_host("openai", working_material=False)
 
 
 def test_a_deployment_carrying_only_the_harness_is_clean(tmp_path: Path) -> None:

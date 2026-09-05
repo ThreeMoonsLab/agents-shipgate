@@ -807,6 +807,48 @@ def _codex_scripts(transcript: str) -> list[str]:
     return scripts
 
 
+def _within(path: Path, root: Path) -> bool:
+    """Is ``path`` ``root`` itself or under it? Both must already be resolved."""
+
+    return path == root or root in path.parents
+
+
+def _resolve_against(token: str, cwd: Path) -> Path:
+    """Where ``token`` lands, read as a path from ``cwd``.
+
+    ``resolve()`` is what makes the comparison honest: it normalises the
+    ``..`` segments and follows the symlinks, so a directory named two ways
+    compares equal instead of twice.
+    """
+
+    candidate = Path(token)
+    return (candidate if candidate.is_absolute() else cwd / candidate).resolve()
+
+
+def _path_tokens(script: str) -> list[str]:
+    """The tokens of a command line that could name a path.
+
+    Every token qualifies -- a bare ``grep`` lands inside the packet and is
+    allowed on the same rule as ``repo/agent.py``, so nothing needs to guess
+    what looks like a path. The one thing that does need handling is
+    ``--file=/x``: read whole, it is a relative path that lands inside the
+    packet, so the value is yielded as well as the token.
+    """
+
+    try:
+        tokens = shlex.split(script)
+    except ValueError:
+        # Unparseable is not a reason to look away.
+        tokens = script.split()
+    found: list[str] = []
+    for token in tokens:
+        found.append(token)
+        _, separator, value = token.partition("=")
+        if separator and value:
+            found.append(value)
+    return found
+
+
 def commands_that_reached_outside(transcript: str, packet: Path, out: Path) -> list[str]:
     """Codex commands that named something condition 2 forbids a rater to see.
 
@@ -823,9 +865,22 @@ def commands_that_reached_outside(transcript: str, packet: Path, out: Path) -> l
     checkout (the strata inventory names a target decision for every slot, and
     the engine and its reports are there too), the round's own output
     directory (other raters' labels and transcripts), and the sibling packets
-    -- plus a ``..`` walk out of the packet. Flagging every absolute path
-    would refuse a session for saying ``/usr/bin/grep``, and a guard that
-    refuses real work is one an operator turns off.
+    -- plus a walk that leaves the packet. Flagging every absolute path would
+    refuse a session for saying ``/usr/bin/grep``, and a guard that refuses
+    real work is one an operator turns off.
+
+    **It asks where a path lands, not how it is spelled.** Searching the script
+    for an ancestor's spelling cannot work here: ``packet.parent`` is a prefix
+    of every absolute path *inside* the packet, and the deployment layout makes
+    ``REPO_ROOT`` an ancestor of the packets too, so the obvious substring test
+    refuses a session for reading its own assigned input by absolute path. Each
+    token is resolved against the session's working directory -- which *is* the
+    packet -- and judged by containment: inside the packet is always allowed,
+    inside a forbidden root is named, and a walk that lands anywhere else is
+    reported as leaving the packet. Resolving also settles the spelling
+    problems the substring test had: ``repo/../repo/x`` never left, and on a
+    host where ``/tmp`` is a symlink the two spellings of the same directory
+    compare equal.
 
     A script that builds a path at run time still evades it. The compensating
     control is the one condition 3 already requires: every command is in the
@@ -838,21 +893,19 @@ def commands_that_reached_outside(transcript: str, packet: Path, out: Path) -> l
     forbidden = {path for path in forbidden if path != packet}
     found: list[str] = []
     for script in _codex_scripts(transcript):
-        reasons = []
-        for root in sorted(forbidden, key=lambda item: str(item)):
-            if str(root) in script:
-                reasons.append(f"names {root}")
-        # Tokenise rather than search the raw string: `cat ../sibling/x` has
-        # no `/..` in it, and `Path()` of a whole command line splits on the
-        # spaces' wrong side, so both string tests miss the ordinary way out.
-        try:
-            tokens = shlex.split(script)
-        except ValueError:
-            tokens = script.split()
-        if any(".." in PurePosixPath(token).parts for token in tokens):
-            reasons.append("walks out with ..")
+        reasons: list[str] = []
+        for token in _path_tokens(script):
+            landing = _resolve_against(token, packet)
+            if _within(landing, packet):
+                continue
+            named = [root for root in sorted(forbidden, key=str) if _within(landing, root)]
+            if named:
+                reasons.extend(f"names {root}" for root in named)
+            elif ".." in PurePosixPath(token).parts:
+                reasons.append(f"walks out of the packet to {landing}")
         if reasons:
-            found.append(f"{script[:160]} ({'; '.join(reasons)})")
+            unique = list(dict.fromkeys(reasons))
+            found.append(f"{script[:160]} ({'; '.join(unique)})")
     return found
 
 
@@ -925,10 +978,21 @@ def comparison_key_for_evidence(
 # is the answer key being in the exam room -- and there is more than one:
 #
 # - the strata inventory is the literal key, a `target_decision` and a
-#   `candidate_ref` for all sixty slots;
-# - the miner's adjudicated `*.labels.csv` carry `pr_url,label` for real PRs,
-#   several of which the inventory then pinned as corpus candidates;
-# - the calibration records now state the decisions of every `cal-*` case.
+#   `candidate_ref` for every slot;
+# - **every prose record under `benchmark/safety-qualification/`** states
+#   decisions: the calibration records name each `cal-*` outcome, and the
+#   corpus round records publish tables mapping exact case ids to both primary
+#   labels and the owner's final decision. Matched as a directory rather than
+#   by naming each file, because the next round record is written by someone
+#   who will not think to come back here -- `rater/` is a subdirectory, so the
+#   harness itself is not swept up;
+# - **each construction's `CASE.md`** names its target cell *and its slot id*.
+#   The file says so itself: "it names a target decision, so it must never be
+#   included in a rater packet";
+# - **everything under `benchmark/miner/results/`**, not only `*.labels.csv`.
+#   The `*-mined.csv`/`.jsonl` sweeps carry `head_decision`, `verify_decision`
+#   and `verify_verdict` per `pr_url` -- verifier *output* for the exact PRs
+#   the inventory then pinned, which is what condition 2 forbids most directly.
 #
 # Not listed, deliberately: `src/` and `docs/checks.md`. The harness imports
 # from `src/` to run at all, so a host without it cannot produce a label; and
@@ -936,10 +1000,9 @@ def comparison_key_for_evidence(
 # That is a judgement, and it is written here rather than left implicit.
 ANSWER_KEY_PATTERNS = (
     "benchmark/safety-qualification/strata-inventory.csv",
-    "benchmark/safety-qualification/strata-inventory.md",
-    "benchmark/safety-qualification/calibration.md",
-    "benchmark/safety-qualification/calibration-round-*.md",
-    "benchmark/miner/results/*.labels.csv",
+    "benchmark/safety-qualification/*.md",
+    "benchmark/safety-qualification/constructed/*/CASE.md",
+    "benchmark/miner/results/*",
 )
 
 
@@ -1186,6 +1249,15 @@ def run_rater(
         "announced_model": announced,
         "family_independence": family_independence,
         "host_isolation": host_isolation,
+        # The caller's declaration, recorded on **every** record and not only
+        # where it changed what the host check did. `host_isolation` cannot
+        # carry it: for claude it is always "no shell", and on a clean
+        # deployment it is "no answer key on host" whichever way the flag was
+        # passed -- so two runs that differ only in this produce identical
+        # records, and a freeze can no longer tell which the caller excluded
+        # from evidence. A calibration label that reached a corpus by looking
+        # like one is the failure this prevents.
+        "working_material": working_material,
         "evidence_comparison_key": evidence_comparison_key,
         "packet_manifest_sha256": _sha256_text(
             (packet / "MANIFEST.json").read_text(encoding="utf-8")

@@ -124,3 +124,59 @@ and say so; or narrow the profile set. The requirements change this ruling
 implies (28 → 21 cells) is deliberately **not** committed yet, because writing
 two-per-cell into `pre_release_safety_requirements()` today would encode a
 target the corpus is known not to meet.
+
+---
+
+## Blocker 3, settled (2026-09-04)
+
+The owner took the second direction: **lower the per-cell count where the
+material genuinely does not exist, and say why.** Only `blocked` is scarce, and
+it was measured rather than assumed — of the seven profiles, four produce a
+real-world `blocked` case at all and each produces exactly one, so those four
+cells are one case. The three still-short cells stayed at two because their
+cause is fixable, and they are carried as `gap` rows. Against the new shape the
+47 finals miss exactly those three cells and nothing else. Recorded in
+`docs/release-evidence-policy-decision.md` § Amendment 3.
+
+## A guide contradiction found in review, after the labels
+
+PR review found that the corrected guide could still be read two ways, and
+**this one bit**. `passed` carved out "read-only additions whose reach is fully
+visible and plainly within the agent's stated purpose", while the
+`review_required` headline and decision-procedure step 2 said "adds, widens, or
+unguards a capability you can name" with no exception. A new read-only tool is
+both, so two raters could follow different parts of the same guide.
+
+It is not hypothetical: on one adjudicated case the two raters split on exactly
+that seam, and the `framework_tooling` rationale reads almost verbatim from the
+carve-out — *"this is a fully visible, read-only addition within the … server's
+stated operational scope"* — while `security_governance` reached
+`review_required` on "the change registers one genuinely new tool".
+
+**The owner's adjudication is what settles the direction, and it did not settle
+it the obvious way.** It upheld `review_required` — but the upheld rationale
+does not say *a new tool is always `review_required`*. It says the new read
+**escapes the bound that constrains the agent's other reads**: the per-tool
+organization allowlist only enforces when an org argument is present, this call
+takes none, and it returns every organization the token can see. So the
+exception is real; what was missing was its third condition.
+
+The guide now states the **bounded-read exception** in three establishable
+conditions — read-only, fully visible reach, and no reach the agent did not
+already have — in `passed`, and references it from both the `review_required`
+headline and step 2, so all three agree. A constructed illustration pair shows
+the line, and the rule asks the rater to cite *the bound* either way, which is
+what makes the label checkable by someone who disagrees.
+
+**No existing final moves.** Every `passed` label resting on the carve-out was
+re-read against the third condition. The one that adds a new read-only tool
+reaches a fixed path template under the scope that already bounded the agent —
+condition 3 holds, so `passed` stands, and it is consistent with the adjudicated
+case rather than in conflict with it. The others are renames, version bumps,
+refactors that keep behaviour, or in-tree bindings that name the same tools.
+
+**The round is therefore not re-run.** κ = 0.8048 was measured under the guide
+as it stood; the correction is for the next round, where the fix is worth more
+than a re-measurement of labels it does not change. This is recorded rather
+than quietly absorbed because the next κ is not comparable to this one on the
+cases where the exception decides.
