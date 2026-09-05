@@ -561,6 +561,25 @@ def test_an_export_for_one_server_does_not_erase_another_s_registrations(tmp_pat
     assert any("beta_write" in line for line in found.evidence)
 
 
+def test_no_export_is_not_a_partial_export(tmp_path):
+    """A shortfall is only a shortfall against an export that exists.
+
+    ``_covering_export`` returned "these names are uncovered" for a workspace
+    with no export at all — which is the *common* case here, since a server
+    whose surface exists only as source is the population this input was built
+    for. The caller renders a shortfall as "an MCP tool export is also present
+    and does not name them", so every source-only server, `mongodb-js`,
+    `grafana` and `github` included, published a claim about a file that does
+    not exist into the evidence a human reads when deciding whether to adopt.
+    """
+
+    workspace = _grafana_shaped(tmp_path)
+    found = discover_mcp_server_source(workspace, files=_inventory(workspace))
+
+    assert found.detected
+    assert not any("export is also present" in line for line in found.evidence)
+
+
 def test_a_partial_export_does_not_erase_the_rest_of_one_server(tmp_path):
     """Same rule inside a single server: cover the surface or stand aside."""
 

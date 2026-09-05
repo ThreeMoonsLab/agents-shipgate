@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+- **The zero-install detector reads MCP registration sites, so it stops
+  telling vendor MCP server maintainers to stop.** (#485) `tools/shipgate-detect.py`
+  is the documented first command run against a repository that has *not*
+  adopted Shipgate — which is every repository #431 was about. #431 taught the
+  installed CLI to read a tool's name out of a TypeScript or Go registration
+  site; the script did not gain it, so the two disagreed on the one question
+  the script exists to answer: `mongodb-js/mongodb-mcp-server` (61 tools),
+  `github/github-mcp-server` (110) and `grafana/mcp-grafana` (114) were agent
+  projects to the CLI and "Stop, not an agent project" to the script. The
+  masking lexer, the five idioms, the path predicate, the dependency gate and
+  the export-precedence rule are now all in the script too, stdlib-only.
+
+  Porting a load-bearing matcher means a second implementation of it, which is
+  this repository's recurring bug class. What makes it affordable is that the
+  two are not allowed to become *different* implementations: every case either
+  reader has ever been asked about now lives once in `tests/mcp_idiom_corpus.py`
+  — every idiom's positive sample, the whole adversarial sweep, the path
+  predicate's cases and both escape grammars — and both readers are driven
+  through all of it, compared site by site including each site's byte span.
+  `samples/mcp_source_only_server` puts the route inside the existing
+  `samples/` parity sweep, nine constructed workspaces pin the branches around
+  it (covering export, partial export, wildcard export, no dependency, no
+  resolved registration, test-only registrations, two registration
+  directories), and `test_framework_vocabulary_names_every_cli_omission` now
+  passes with an empty `known_omissions`.
+
+  One defect surfaced while porting and is fixed in both: with no MCP export in
+  the workspace at all, `_covering_export` returned every resolved name as
+  "uncovered", and the caller renders a shortfall as *"An MCP tool export is
+  also present and does not name N of these registrations"*. A server whose
+  surface exists only as source is the population this input was built for, so
+  that claim about a file that does not exist was published into the adoption
+  evidence for every one of them.
+
 - **No corpus case is graded against `insufficient_evidence` any more, and four
   `blocked` cells hold one case instead of two.** (#520, #508) A verdict exists
   to route a change somewhere: `passed` merges, `review_required` hands a human

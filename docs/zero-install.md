@@ -35,11 +35,15 @@ The script's output is a **structural subset** of `agents-shipgate detect --json
   "python_parse_truncated": false,
   "next_action": "agents-shipgate init --workspace .",
   "workspace_signals": {...},
-  "script_version": "0.4.0"
+  "script_version": "0.5.0"
 }
 ```
 
 Like the canonical CLI, the script parse-probes each glob-matched MCP/OpenAPI candidate before suggesting it — a filename match is not a guarantee. A Cursor plugin `mcp.json` is an `mcpServers`-style host config, not an MCP tools-array export; suggesting it would make the next `init --write` → `scan` step fail. Rejected candidates appear under `excluded_sources` (`{type, path, reason}`) instead of `suggested_sources`. The probe is **JSON-only** (stdlib has no YAML parser): a `.json` candidate the adapters would reject is excluded here too, while a `.yaml`/`.yml` OpenAPI spec is always kept as a suggestion (never wrongly dropped). The real-world miss this guards against — `mcpServers`-style host configs — is always JSON, so the probe is exact where it matters.
+
+An MCP server whose tool surface exists **only as TypeScript or Go registration sites** — `mongodb-js/mongodb-mcp-server`, `grafana/mcp-grafana`, `github/github-mcp-server` — is detected here too, and suggested as `{"type": "mcp_server_source", "path": "..."}`. That is 100% of the population this script is pointed at: a repository that has not adopted Shipgate. Until v0.5.0 of the script the reader lived only in the installed CLI, so the documented first command answered "Stop, not an agent project" on exactly the repositories the CLI reported as agent projects with 61, 110 and 114 tools.
+
+Porting it means a second implementation of the load-bearing matcher — the masking lexer and the five registration idioms. It is held to the CLI's answers by a shared conformance corpus rather than by inspection: every positive sample, the whole adversarial sweep, the path predicate and both escape grammars live once in [`tests/mcp_idiom_corpus.py`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/tests/mcp_idiom_corpus.py) and are driven through both readers, compared site by site with the byte span of each. Neither reader can change its answer on a case either of them has ever been asked about without the other following.
 
 Like `agents-shipgate detect`, the script silently skips common fixture corpus directories such as `fixtures/`, `_fixtures/`, `__fixtures__/`, `testdata/`, `test_data/`, `test-fixtures/`, `test_fixtures/`, `golden/`, and `goldens/` when they are below the selected workspace. Point `--workspace` directly at a fixture project if you intentionally want to classify that fixture itself.
 
