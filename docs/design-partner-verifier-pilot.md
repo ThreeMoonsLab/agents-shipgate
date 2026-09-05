@@ -286,9 +286,34 @@ agents-shipgate check --agent <codex|claude-code|cursor> \
   --base <base-ref> --head <change-ref>
 ```
 
-The baseline is committed once and re-acknowledged only after a human has
-reviewed the drift, so a change under review needs the second block alone.
-Before pointing a partner at `check`, read § Standing decision in
+**The baseline has to be reachable from the change under review, and usually
+is not.** A partner arrives with a PR whose branch was cut *before* the
+baseline commit, so checking that branch out removes
+`.agents-shipgate/host-grants.json` and `--drift` exits 2 with
+`No host-grants baseline at …`. Pick one of these before running the second
+block:
+
+```bash
+# Either — the team wants the baseline committed for ongoing use:
+git checkout <change-ref> && git merge <default-branch>   # or rebase onto it
+
+# Or — leave the PR untouched: snapshot the base ref outside the repository
+git checkout <default-branch>
+agents-shipgate audit --host --save-baseline --baseline-file /tmp/base-grants.json
+git checkout <change-ref>
+agents-shipgate audit --host --drift --baseline-file /tmp/base-grants.json \
+  --json --out shipgate-drift.json
+```
+
+**Never `--save-baseline` from the changed checkout to get past that error.**
+That is what the CLI's own recovery line suggests when the file is missing,
+and following it here acknowledges the very expansion under review — the
+drift then reports nothing and the run looks clean. If a partner does it,
+that is a recorded setup failure, not a first valid result.
+
+The baseline is otherwise recorded once and re-acknowledged only after a human
+has reviewed the drift. Before pointing a partner at `check`, read
+§ Standing decision in
 [`design-partner-pilot-results.md`](design-partner-pilot-results.md): it
 records which surfaces are invitable on a build a partner can install today,
 and which are not.
@@ -355,8 +380,24 @@ Add Agents Shipgate as an advisory reviewer for this agent-capability change.
    agents-shipgate audit --host
    If this repository declares coding-agent host configuration and publishes
    no tool surface of its own, use route H and skip the manifest entirely.
-3. Route H. Once, on the default branch, then commit .agents-shipgate/:
-   agents-shipgate audit --host --save-baseline
+3. Route H. Record the baseline on the default branch, from the unchanged
+   tree, and make it reachable from the change under review. If the change's
+   branch was cut before the baseline commit, checking it out removes the
+   baseline file and drift exits 2 — so do one of these two:
+     a. commit the baseline on the default branch, then merge or rebase that
+        branch into the change branch; or
+     b. leave the change branch untouched and keep the snapshot outside the
+        repository:
+        git checkout <default-branch>
+        agents-shipgate audit --host --save-baseline \
+          --baseline-file /tmp/base-grants.json
+        git checkout <change-ref>
+        and pass --baseline-file /tmp/base-grants.json to every drift command
+        below.
+   Never run --save-baseline from the changed checkout to clear a missing
+   baseline error, even though the CLI's recovery line says to record one:
+   from that checkout it acknowledges the expansion being reviewed and the
+   drift then reports nothing. Report the error instead.
    Per change under review:
    agents-shipgate audit --host --drift --json --out shipgate-drift.json
    agents-shipgate check --agent <codex|claude-code|cursor> \
@@ -538,11 +579,37 @@ Pre-registered so the terminal decision is not selected after the fact. Apply
 it once the cohort closes, and record the outcome in
 [`design-partner-pilot-results.md`](design-partner-pilot-results.md).
 
-| Decision | Condition |
-| --- | --- |
-| **Continue** | ≥ 2 repositories reach first value unaided **and** ≥ 1 reaches `second_change_observed`, on the same route |
-| **Narrow** | first value is reached, but only on one route, only with maintainer translation, or with no observed second change |
-| **Stop** | no repository reaches first value, or every failure traces to the product rather than to enrollment |
+**Evaluate the rungs in order and take the first that matches.** They are
+written as a ladder rather than three independent tests because independent
+tests overlap: a cohort where two repositories reach first value, one of them
+runs again, and a third fails on a product defect satisfies a plainly-worded
+"continue", "narrow" *and* "stop" at once, which is not a pre-registered rule
+at all. Precedence, not phrasing, is what makes the outcome single-valued.
+
+| # | Decision | Matches when |
+| ---: | --- | --- |
+| 1 | **Continue** | `first_value` ≥ 2 reached unaided **and** `second_change_observed` ≥ 1, all on the same route |
+| 2 | **Stop** | `first_value` = 0 **and** `first_valid_result` ≥ 1 — repositories got a working result and no reviewer could act on it |
+| 3 | **Narrow** | anything else |
+
+Rung 3 is the default on purpose: every outcome that is neither strong enough
+to continue on nor a demonstrated failure of the review itself is a narrowing,
+and the report says *what* to narrow to.
+
+Worked evaluations, including the cases that used to be ambiguous:
+
+| Cohort | Rung | Decision |
+| --- | ---: | --- |
+| 3 attempts on Route H; 2 reach first value unaided, 1 of those runs again; the third fails on a product defect | 1 | **Continue** — the defect goes to an existing issue; it does not cancel two first values and a repeat |
+| Same, but the two first values are on *different* routes and only one repeated | 3 | **Narrow** — to the route that repeated. Two singletons on two routes are not a workflow earning repeat use |
+| 3 attempts; 3 reach first value unaided; none has a second eligible change in the window | 3 | **Narrow** — first value without observed repeat use is the definition of narrowing |
+| 3 attempts; all reach a valid result; none of the reviewers can name the changed capability | 2 | **Stop** |
+| 3 attempts; all fail at install on an entry defect; no valid result | 3 | **Narrow** — the experiment did not run, so nothing about the review was tested. Narrow to repairing entry. This is the cohort the 2026-09-04 checkpoint is in |
+| 5 attempts; 2 reach first value but only after a maintainer explained the report; 1 repeated | 3 | **Narrow** — rung 1 requires *unaided*, so translation keeps a cohort off it |
+
+Rung 2 deliberately excludes the "everything failed before a valid result"
+cohort. Stopping the product experiment because our own entry defects blocked
+entry would be reading a fact about this repository as a fact about the market.
 
 These counts are read **against the reported denominators**, never against a
 selected subset. Two repositories reaching first value out of three attempts

@@ -174,6 +174,12 @@ terminal decision. The terminal decision needs observations that do not exist
 yet; recording "undecided" and moving on would leave the shortfall
 unexplained, so the checkpoint says what is being done about it.
 
+Applying the ladder to today's counts: rung 1 needs `first_value` ≥ 2 and it
+is 0. Rung 2 needs `first_valid_result` ≥ 1 and it is also 0 — no repository
+got a working result that a reviewer then failed to act on, so this is not a
+demonstrated failure of the review. Rung 3 takes it: **narrow**, and what to
+narrow to is entry.
+
 - **Persona and workflow that earned repeated use:** none. Nothing has been
   observed once, let alone twice, so no route, persona or workflow has earned
   anything yet. The rest of this decision is about where to spend the next

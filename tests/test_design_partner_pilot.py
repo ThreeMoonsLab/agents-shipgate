@@ -46,6 +46,25 @@ def _flat(text: str) -> str:
     return " ".join(text.split())
 
 
+def _logical_lines(text: str) -> list[str]:
+    """Shell continuations joined, so a flag and the command it belongs to are
+    on one line. `--save-baseline \\` / `--baseline-file <path>` is one
+    instruction split across two source lines, and checking them separately
+    would accept a snapshot that is written and never read."""
+    joined: list[str] = []
+    buffer = ""
+    for line in text.splitlines():
+        buffer += line.rstrip()
+        if buffer.endswith("\\"):
+            buffer = buffer[:-1] + " "
+            continue
+        joined.append(buffer)
+        buffer = ""
+    if buffer:
+        joined.append(buffer)
+    return joined
+
+
 def _section(text: str, heading: str) -> str:
     """The body under ``heading``, up to the next same-or-higher heading.
 
@@ -223,6 +242,55 @@ def test_decision_rule_is_pre_registered_in_the_runbook():
     assert "Pre-registered" in rule
 
 
+def test_decision_rule_selects_exactly_one_outcome():
+    """Three independently-worded conditions overlap. PR #523 review supplied
+    the cohort that proves it: two repositories reach first value, one of them
+    runs again, a third fails on a product defect — plainly-worded continue,
+    narrow and stop are all true at once, so the "pre-registered" rule licenses
+    any answer. The repair is precedence, and precedence only works if it is
+    ordered, total, and stated."""
+    rule = _flat(_section(_read(RUNBOOK), "## Decision rule"))
+    assert "Evaluate the rungs in order and take the first that matches." in rule, (
+        "the decision rule must state its precedence explicitly; three "
+        "conditions with no ordering are not a pre-registered rule."
+    )
+    assert "anything else" in rule, (
+        "one rung must be the default, or a cohort can match no rung at all "
+        "and the rule stops being total."
+    )
+
+    # The ordered table itself: rung numbers ascending, one outcome each.
+    section = _section(_read(RUNBOOK), "## Decision rule")
+    rungs = re.findall(r"^\|\s*(\d+)\s*\|\s*\*\*(\w+)\*\*\s*\|", section, re.M)
+    assert [n for n, _ in rungs] == ["1", "2", "3"], (
+        f"the rungs must be numbered 1..3 in order; got {rungs}"
+    )
+    assert sorted(outcome for _, outcome in rungs) == ["Continue", "Narrow", "Stop"], (
+        f"each rung must carry a distinct outcome; got {rungs}"
+    )
+
+
+def test_decision_rule_works_the_ambiguous_cohorts():
+    """A precedence table is only checkable against examples. These two are the
+    ones that were ambiguous before: the review's counterexample, and the
+    all-failed-at-entry cohort where "stop" would read a fact about this
+    repository as a fact about the market."""
+    section = _flat(_section(_read(RUNBOOK), "## Decision rule"))
+    assert "Worked evaluations" in section
+    assert "the third fails on a product defect" in section, (
+        "the worked evaluations must cover the mixed-success cohort from the "
+        "PR #523 review, which satisfied all three plainly-worded conditions."
+    )
+    assert "all fail at install on an entry defect" in section, (
+        "the worked evaluations must cover a cohort that never reached a valid "
+        "result; rung 2 must not claim that as a demonstrated review failure."
+    )
+    assert "routes and only one repeated" in section, (
+        "the worked evaluations must cover a single-route vs multi-route "
+        "cohort, since 'only one route' is vacuous when only one was tested."
+    )
+
+
 def test_consent_is_three_separate_grants():
     """One blanket 'yes' must not unlock a name, a link and a raw bundle."""
     section = _flat(_section(_read(RUNBOOK), "## Consent and redaction"))
@@ -270,6 +338,51 @@ def test_tracker_template_carries_every_required_observation_field():
     )
     missing = [field for field in required if field not in tracker]
     assert not missing, f"docs/{RUNBOOK.name} § Success Tracker is missing rows: {missing}"
+
+
+def test_route_h_makes_the_baseline_reachable_from_the_change():
+    """Reproduced in the PR #523 review: a partner's PR branch is cut before
+    the baseline commit, so checking it out removes the baseline file and
+    `--drift` exits 2. The CLI's own recovery line then says to record a
+    baseline — which, run from the changed checkout, acknowledges the very
+    expansion under review and makes the drift report nothing. Both the
+    command block and the agent prompt have to carry the remedy and the
+    prohibition, because a partner follows whichever one they were handed."""
+    text = _flat(_read(RUNBOOK))
+    sections = {
+        "Pilot Commands": _section(_read(RUNBOOK), "## Pilot Commands"),
+        "Partner Agent Prompt": _section(_read(RUNBOOK), "## Partner Agent Prompt"),
+    }
+
+    for where, raw in sections.items():
+        body = _flat(raw)
+        # Mentioning `--baseline-file` is not the same as using it on both
+        # ends. A snapshot written to a custom path and then never read back
+        # leaves the drift command hitting the same missing-baseline error the
+        # step exists to avoid, so both halves are required.
+        uses = [line for line in _logical_lines(raw) if "--baseline-file" in line]
+        assert any("--save-baseline" in line for line in uses), (
+            f"§ {where} must record the snapshot with "
+            "`--save-baseline --baseline-file <path>`."
+        )
+        assert any("drift" in line for line in uses), (
+            f"§ {where} names `--baseline-file` but never passes it to a drift "
+            "command; the snapshot would be written and then not read."
+        )
+        assert "merge" in body and "rebase" in body, (
+            f"§ {where} must offer merging or rebasing the reviewed baseline "
+            "into the change branch as the other remedy."
+        )
+        assert "exits 2" in body, (
+            f"§ {where} must name the failure a partner will actually hit, not "
+            "only the remedy — an unexplained extra step gets skipped."
+        )
+    assert "Never `--save-baseline` from the changed checkout" in text or (
+        "Never run --save-baseline from the changed checkout" in text
+    ), "the runbook must prohibit re-baselining from the changed checkout."
+    assert "acknowledges the very expansion under review" in text or (
+        "acknowledges the expansion being reviewed" in text
+    ), "the prohibition must say why, or it reads as arbitrary."
 
 
 def test_second_change_window_is_stated_with_its_unobserved_rule():
