@@ -36,6 +36,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # Full history and tags, so
+          # `tests/test_distribution_surface_parity.py` can read the released
+          # build's contract back out of its own tag and corroborate the
+          # committed `PUBLISHED_BUILDS` table. On a shallow clone that check
+          # can only skip, and a check that skips in CI is not a check. This
+          # repository is a few hundred commits; the clone cost is noise.
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97

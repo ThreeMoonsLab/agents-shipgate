@@ -45,8 +45,8 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": "b09ffc59ad9e52ae34b0015d55ff311f2856e745581fc83b607b5eacf84c1a69",
-    ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": "93be92789ede5647322d6d340e52588e93ef52521cb7fd140d720f45faa3b2a2",
-    ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "5b6876bd4ac59281f3458b45d3ba1d600487697328b067e4362b247693790c48",
+    ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": "7fd2c718e5dad94b231409a72710e05af1b231c3d495d8796c501a7e9493a394",
+    ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "c63323ba277250b1c5d09305a4a6e4f292214e18b0b418a7dba653239d64cfa8",
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": "cbdb4868a68b76c4e46611e8718ebe9950e6b1088e87691c7b23b82d3b1476d9",
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829",
     ".claude/skills/agents-shipgate/prompts/fix-top-finding.md": "1956133a2d1003326e471f8ecab7b781e655dc9c33fbd2d1d681711f9ac0f08c",
@@ -60,7 +60,7 @@ EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": "34ef4bdac90ff7b409eb2254f6b73c52888e92bd9ba44824d6f056c44c2a50ff",
     ".agents/skills/agents-shipgate/agents/openai.yaml": "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef",
     ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": "89580914407edd5516db10c8d7725f22c1a919e827e9b820115007a7a6caab31",
-    ".agents/skills/agents-shipgate/references/recipes.md": "49f71ac4f5b6c83f34caa1e5a7126cf4550d95188725ce37d93b558c6bfae17a",
+    ".agents/skills/agents-shipgate/references/recipes.md": "dcf9f982036d6189e4663923a97bf56ecd3ae68f34b4ce46081d135a88c4b564",
     ".agents/skills/agents-shipgate/references/report-reading.md": "d9709d600fa6ed6c697202f731977e66c102a4757e29ab825fa89935abe8f72a",
 }
 
@@ -330,9 +330,17 @@ def test_claude_code_skill_source_matches_renderer() -> None:
     for rel, content in render_claude_code_skill_files().items():
         source_rel = rel.removeprefix(".claude/")
         source_path = REPO_ROOT / source_rel
-        if source_rel.endswith("advisory-pr-comment.yml"):
-            continue
-        assert source_path.read_text(encoding="utf-8") == content
+        # `advisory-pr-comment.yml` used to be skipped here. The skip was what
+        # let the recipe's two pins be templated on `{{ shipgate_version }}`
+        # while the checked-in mirror kept naming the published release: the
+        # renderer emitted `@v0.16.0` and `shipgate_version: '0.16.0'` into an
+        # adopter's CI, where GitHub resolves `uses:` before any step runs and
+        # `shipgate_version` installs from PyPI — neither of which existed
+        # (#497). The recipe now names the published release literally, exactly
+        # as the Codex kit's copy always did, so there is nothing left to
+        # exempt. An unregistered exemption is how a distribution surface
+        # drifts without anybody seeing it.
+        assert source_path.read_text(encoding="utf-8") == content, source_rel
 
 
 def test_claude_code_skill_render_hashes_change_intentionally() -> None:
