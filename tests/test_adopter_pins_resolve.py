@@ -95,7 +95,8 @@ PIN_SHAPES: tuple[tuple[str, re.Pattern[str], str], ...] = (
 #: Refs the bundled prompts print as a *blank for the reader to fill in* while
 #: teaching an adopter to bump a pin. Enumerated, never pattern-matched: an
 #: allowlist that guessed at "looks like a placeholder" is one bad guess away
-#: from excusing `@main`. `test_the_reader_blanks_are_blanks` holds both ends —
+#: from excusing `@main`. `test_the_reader_blanks_are_blanks_and_are_still_in_use`
+#: holds both ends —
 #: every entry is visibly unfillable, and every entry is still in use.
 READER_BLANK_REFS = frozenset({"v<NEW>", "v…"})
 
@@ -121,7 +122,12 @@ def _emitted_files(tmp_path: Path) -> dict[str, str]:
     passing on the day one of them grew an install snippet.
     """
 
-    workspace = tmp_path / "adopter"
+    # Resolved, because `render_targets` resolves before joining and reports
+    # absolute paths against *its* view. `tmp_path` is already resolved, so an
+    # unresolved workspace here passes under pytest and raises `ValueError` for
+    # any caller whose temporary directory goes through a symlink — which is
+    # every `tempfile.TemporaryDirectory()` on macOS (`/var` -> `/private/var`).
+    workspace = (tmp_path / "adopter").resolve()
     workspace.mkdir()
     result = write_ci_workflow(workspace)
     assert result.status == "written", result
@@ -134,8 +140,25 @@ def _emitted_files(tmp_path: Path) -> dict[str, str]:
         # writes it; file-tree targets additionally carry their own paths.
         emitted[f"<{outcome.name}> {SPECS[outcome.name].relative_path}"] = outcome.rendered
         for entry in outcome.files or ():
-            emitted[entry["path"]] = entry["content"]
+            # Workspace-relative. `render_targets` reports absolute paths under
+            # this test's temporary directory, and a violation message naming
+            # `/private/var/folders/.../adopter/.claude/...` tells the reader
+            # nothing about which shipped file to fix.
+            emitted[str(Path(entry["path"]).relative_to(workspace))] = entry["content"]
     return emitted
+
+
+@pytest.fixture(autouse=True)
+def _default_workflow_ref(monkeypatch):
+    """Measure what `init` writes by default, not what an operator overrode.
+
+    `AGENTS_SHIPGATE_WORKFLOW_REF` is a documented escape hatch for tracking
+    `main`. Exported in a shell, it would turn every sweep in this module red
+    for a reason that has nothing to do with the code under test — and the one
+    test that *wants* the override sets it itself, after this fixture runs.
+    """
+
+    monkeypatch.delenv("AGENTS_SHIPGATE_WORKFLOW_REF", raising=False)
 
 
 def test_the_sweep_covers_every_agent_instruction_target(tmp_path):
