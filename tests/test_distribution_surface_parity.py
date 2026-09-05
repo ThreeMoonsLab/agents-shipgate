@@ -1216,6 +1216,35 @@ def test_surface_routes_human_owned_placeholders_to_a_human(path: Path):
     )
 
 
+def test_placeholder_ownership_guard_is_not_vacuous():
+    """The scan must find human-owned fields to have an opinion about.
+
+    Widening it to every Markdown file on the surface removed the ``CHANGE_ME``
+    filter but could just as easily have left it with nothing to look at. Seven
+    files name ``agent.declared_purpose``; if a rewording drops that below the
+    handful the shipped prompts carry, this is the row that says so rather than
+    the guard quietly passing on an empty set.
+    """
+
+    human = [
+        field
+        for field in NAMEABLE_PLACEHOLDER_PATHS
+        if placeholder_owner(field) == "human"
+    ]
+    assert human, "no human-owned field in the scanned vocabulary"
+    mentions = sum(
+        len(re.findall(rf"\b{re.escape(field)}\b", path.read_text(encoding="utf-8")))
+        for path in _placeholder_surfaces()
+        for field in human
+    )
+    assert mentions >= 5, (
+        f"only {mentions} human-owned field mentions across the surfaces that "
+        "claim placeholder_ownership; the setup prompt names "
+        "agent.declared_purpose in four shipped copies, and the runbook and both "
+        "recipe pages name it too."
+    )
+
+
 def test_placeholder_routing_check_catches_a_blanket_instruction():
     """Negative control: the wording that was actually shipped must fail."""
 
