@@ -48,14 +48,6 @@ Intentional simplifications vs. the canonical CLI:
 
 - No ``diagnostics[]`` / ``next_actions[]`` (the diagnostic engine is
   not in scope for stdlib-only / zero-install).
-- **No ``mcp_server_source`` detection.** The installed CLI reads an MCP
-  server's tool names out of TypeScript or Go registration sites through a
-  built-in idiom registry (#431); this script does not, so a repository whose
-  tool surface exists only as code is reported here as *not* an agent project
-  while the CLI reports it as one. That is the largest divergence in this list
-  and the only one that changes ``is_agent_project``. No sample exercises it
-  today, so the parity test cannot see it; ``test_framework_vocabulary_names_every_cli_omission``
-  pins it instead, and it is filed as #485.
 - ``agent_scope`` / ``agent_scope_truncated`` / ``python_parse_truncated`` /
   ``agent_project_candidates[]``
   are carried, and the contract test pins them against the CLI: an agent that
@@ -69,6 +61,15 @@ Intentional simplifications vs. the canonical CLI:
   unconditionally (never wrongly dropped). The real-world miss this
   guards against — ``mcpServers``-style host configs — is always JSON,
   so the probe is exact where it matters.
+
+``mcp_server_source`` — an MCP server whose tool surface exists only as
+TypeScript or Go registration sites (#431) — **is** detected here, through a
+port of the CLI's masking reader and its idiom registry (#485). That port is a
+second implementation of a load-bearing matcher, so it is held to the CLI's
+answers by a shared conformance corpus rather than by inspection: every
+positive sample, the whole adversarial sweep, the path predicate and both
+escape grammars in ``tests/mcp_idiom_corpus.py`` are driven through both
+readers and compared site by site, span included.
 
 The verdict, detected framework set, suggested/excluded source split, and
 the ranked ``agent_name_candidates`` all match. The name ranking is pinned
@@ -87,10 +88,11 @@ import re
 import subprocess
 import sys
 import threading
-from pathlib import Path
+from dataclasses import dataclass, field
+from pathlib import Path, PurePosixPath
 from typing import Any
 
-SCRIPT_VERSION = "0.4.0"
+SCRIPT_VERSION = "0.5.0"
 MAX_STRUCTURED_FILE_BYTES = 10 * 1024 * 1024
 # Matches ``detect_workspace``'s ``max_python_files``. The bound is on
 # parses, not on the inventory: capping the inventory lets an asset-heavy
@@ -127,7 +129,29 @@ PACKAGE_HINTS: dict[str, tuple[str, ...]] = {
     "conductor": ("conductor-client", "conductor-server", "conductor-oss"),
     "openai_api": (),
 }
+#: The tool-source type the MCP registration-site route suggests, and the
+#: framework key it scores under. Mirrors
+#: ``agents_shipgate.inputs.mcp_server_source.SOURCE_TYPE``.
+MCP_SOURCE_TYPE = "mcp_server_source"
 FRAMEWORKS = (
+    "langchain", "crewai", "google_adk", "anthropic",
+    "openai_agents_sdk", "n8n", "conductor", "openai_api",
+    # Not a Python framework and scored from neither the AST pass nor a
+    # filename glob: it is the workspace's own TypeScript or Go registration
+    # sites, scored by `_discover_mcp_server_source` (#431, ported by #485).
+    MCP_SOURCE_TYPE,
+)
+#: The frameworks a conventional directory is weak evidence for. Deliberately
+#: not every entry in ``FRAMEWORKS`` — mirrors
+#: ``signals.CONVENTIONAL_DIR_FRAMEWORKS``, and pinned against it.
+#:
+#: ``mcp_server_source`` is the one absentee. Its evidence is already a
+#: conjunction — a declared MCP dependency *and* a tool name resolved at a
+#: registration site — so a ``tools/`` directory adds nothing it does not
+#: already have, and adding it would let two conventional directories carry
+#: the published confidence to ``high`` for a route the engine caps at
+#: ``medium``.
+CONVENTIONAL_DIR_FRAMEWORKS = (
     "langchain", "crewai", "google_adk", "anthropic",
     "openai_agents_sdk", "n8n", "conductor", "openai_api",
 )
@@ -675,6 +699,1614 @@ def _probe_openapi(data: Any) -> str | None:
     if not isinstance(data.get("paths"), dict):
         return "OpenAPI file missing paths object"
     return None
+
+
+# --- MCP registration idioms (mirror of inputs/mcp_idioms.py) ---------------
+#
+# Most MCP servers never emit their tool surface: `mongodb-js/mongodb-mcp-server`
+# and `grafana/mcp-grafana` publish `drop-database`, `delete-many` and
+# `update_incident` and commit no export at all. What every one of them does do
+# is write the tool's name as a **string literal at a registration site**. The
+# installed CLI reads that literal through a built-in registry of named idioms
+# (`agents_shipgate.inputs.mcp_idioms`, #431); until #485 this script did not,
+# so the documented first-contact detector answered "Stop, not an agent
+# project" on exactly the repositories the installed CLI had just learned to
+# read.
+#
+# This is a second implementation of a load-bearing matcher, which is the
+# recurring bug class in this repository. What makes it affordable is that it
+# is not allowed to become a *different* one: `tests/mcp_idiom_corpus.py` holds
+# one conformance corpus — every idiom's positive sample, the whole adversarial
+# sweep, the path predicate's cases and both escape grammars — and
+# `tests/test_zero_install_detector.py` drives it through both readers,
+# comparing every field of every site including its span. Neither reader can
+# change its answer on any case either of them has ever been asked about
+# without the other following.
+#
+# Reading is done over a **masked** copy of the source, in which comments and
+# string bodies have been overwritten. A registration site can therefore never
+# be found inside a comment or inside another string, and a name is a name only
+# when the masking pass recorded a real literal at that offset.
+
+#: File suffixes each language's idioms are read from. TypeScript's list covers
+#: JavaScript too. ``.tsx``/``.jsx`` are deliberately absent: JSX puts prose in
+#: code position, so an apostrophe in ``<p>don't</p>`` would open a string that
+#: never closes and hold a whole repository's surface at partial.
+LANGUAGE_EXTENSIONS: dict[str, tuple[str, ...]] = {
+    "typescript": (".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"),
+    "go": (".go",),
+}
+
+#: Declared-dependency tokens that establish an MCP framework for a language.
+#: The provenance gate: an idiom hit in a repository that declares no MCP
+#: dependency is a coincidence of spelling until something says otherwise.
+TYPESCRIPT_FRAMEWORK_PACKAGES: tuple[str, ...] = (
+    "@modelcontextprotocol/",
+    "fastmcp",
+    "mcp-framework",
+    "@mcp-ui/",
+    "xmcp",
+)
+GO_FRAMEWORK_MODULES: tuple[str, ...] = (
+    "github.com/modelcontextprotocol/go-sdk",
+    "github.com/mark3labs/mcp-go",
+    "github.com/metoro-io/mcp-golang",
+    "github.com/thinkinaixyz/go-mcp",
+    "github.com/ktr0731/go-mcp",
+)
+
+#: Directory names never walked for registration sites. Distinct from this
+#: script's own inventory-level ``SKIP_DIRS`` on purpose: this is the CLI
+#: reader's list, and the two detectors have to skip the same directories *for
+#: registrations* whatever each one's inventory already dropped.
+SKIP_DIRECTORY_NAMES: frozenset[str] = frozenset(
+    {
+        ".git", ".hg", ".svn", ".next", ".nuxt", ".turbo", ".venv",
+        "__pycache__", "bin", "build", "coverage", "dist", "node_modules",
+        "obj", "out", "target", "vendor", "venv",
+    }
+)
+
+#: Path segments whose files declare tools for a test, not for the server.
+TEST_DIRECTORY_NAMES: frozenset[str] = frozenset(
+    {
+        "__mocks__", "__tests__", "e2e", "fixtures", "test", "test-fixtures",
+        "testdata", "tests",
+    }
+)
+_TEST_FILE_SUFFIXES: tuple[str, ...] = (
+    "_test.go",
+    ".test.ts", ".test.js", ".test.mts", ".test.mjs",
+    ".spec.ts", ".spec.js", ".spec.mts", ".spec.mjs",
+)
+
+#: Every idiom's pattern requires these four characters, in some case. A file
+#: that does not contain them cannot hold a registration, so ``scan_source``
+#: answers it without masking. It lives *inside* ``scan_source`` rather than at
+#: the call sites: a caller's own copy is a second, weaker matcher, and the one
+#: written against the trigger catalog's diff tokens missed
+#: ``public static readonly toolName``.
+PREFILTER_TOKEN = "tool"
+
+#: The shape a tool name has to have to be read as one.
+TOOL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+
+#: The largest source file this reader opens. Deliberately below the input
+#: loader's 10 MB bound, so an oversized file is recorded as "too large"
+#: rather than as a decoding failure.
+MAX_SOURCE_FILE_BYTES = 8 * 1024 * 1024
+
+#: The idioms this reader implements, by id. Pinned from both sides by the
+#: conformance test: equal to the CLI registry's ids — an idiom the CLI gains
+#: and this script does not is the #485 divergence happening again — and
+#: covering every id ``scan_source`` actually emits, so the constant cannot
+#: describe a reader it has drifted from.
+IDIOM_IDS: frozenset[str] = frozenset(
+    {
+        "ts_static_tool_name",
+        "ts_sdk_register_tool",
+        "go_must_tool",
+        "go_new_tool",
+        "go_tool_struct",
+    }
+)
+
+
+@dataclass(frozen=True)
+class RegistrationSite:
+    """One registration this reader found, resolved or not.
+
+    ``span`` is the byte range of the construct that matched — the whole call
+    including its argument list, or the whole composite literal, never a
+    lookup scope. Containment of one span in another is what lets a wrapper
+    call whose own first argument is not a literal
+    (``NewTool(meta, mcp.Tool{Name: "issue_read"})``) stay silent instead of
+    reporting an omission for a tool that was, in fact, named.
+    """
+
+    idiom: str
+    name: str | None
+    line: int
+    column: int
+    span: tuple[int, int]
+    description: str | None = None
+    operation_type: str | None = None
+    unresolved_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class SourceScanResult:
+    """What one file yielded.
+
+    ``anomalies`` are masking failures. They are separate from an unresolved
+    site because they are a fact about the *file*: past the anomaly this reader
+    cannot tell code from content, so a site it did not find there proves
+    nothing.
+    """
+
+    sites: tuple[RegistrationSite, ...] = ()
+    anomalies: tuple[str, ...] = ()
+
+
+def language_for_path(path: Any) -> str | None:
+    """The language whose idioms apply to ``path``, or ``None``."""
+    suffix = PurePosixPath(str(path)).suffix.lower()
+    for language, extensions in LANGUAGE_EXTENSIONS.items():
+        if suffix in extensions:
+            return language
+    return None
+
+
+def is_scannable_path(relative_path: Any) -> bool:
+    """Whether a workspace-relative path is read for registration sites.
+
+    One predicate on the CLI side, used by both its adapter's walk and its
+    discovery probe. This is its mirror, and the pair that disagrees is the
+    pair where one detector promises tools the other refuses to enumerate.
+    """
+    path = PurePosixPath(str(relative_path).replace("\\", "/"))
+    if language_for_path(path) is None:
+        return False
+    parts = path.parts
+    if any(part in SKIP_DIRECTORY_NAMES for part in parts):
+        return False
+    if any(part.lower() in TEST_DIRECTORY_NAMES for part in parts[:-1]):
+        return False
+    name = path.name.lower()
+    return not name.endswith(_TEST_FILE_SUFFIXES)
+
+
+# Masking. Comments become spaces so a token cannot span the hole they leave;
+# string literals become NULs so a literal's *position* stays findable while
+# its content can never be matched as code.
+_COMMENT_FILL = " "
+_STRING_FILL = "\x00"
+
+# Characters after which a `/` opens a regular expression rather than dividing.
+_REGEX_PRECEDING_CHARS = frozenset("(,=:[!&|?{};+-*%~^<>")
+#: Keywords whose parenthesised condition can be followed directly by a regex
+#: that begins the statement's body. `)` alone cannot decide: `foo(a) / 2`
+#: divides and `if (a) /re/.test(b)` does not.
+_REGEX_PRECEDING_STATEMENTS = frozenset({"if", "for", "while", "switch", "catch", "with"})
+_REGEX_PRECEDING_WORDS = frozenset(
+    {
+        "return", "typeof", "instanceof", "in", "of", "new", "delete", "void",
+        "throw", "case", "do", "else", "yield", "await",
+    }
+)
+
+#: The only characters that can begin a comment or a string in either language.
+#: The masking loop jumps between them instead of visiting every character.
+_INTERESTING = re.compile(r"""[/'"`]""")
+
+#: Escapes both languages spell the same way and mean the same thing.
+_SHARED_ESCAPES = {
+    "n": "\n", "t": "\t", "r": "\r", "b": "\b", "f": "\f", "v": "\v",
+    "\\": "\\", "'": "'", '"': '"',
+}
+#: JavaScript adds a backtick, ``\0`` for NUL, and a line continuation.
+_TYPESCRIPT_ESCAPES = {**_SHARED_ESCAPES, "`": "`"}
+#: Go adds the bell and has no line continuation and no bare ``\0``.
+_GO_ESCAPES = {**_SHARED_ESCAPES, "a": "\a"}
+
+#: The line terminators a backslash can continue a line across. ``\r`` is here
+#: because a CRLF checkout spells the same continuation with two characters,
+#: and JavaScript reads both files identically — so a reader that lost the
+#: registration on one of them would answer "not an agent project" for a
+#: line-ending translation (#485 review).
+_TYPESCRIPT_LINE_TERMINATORS = frozenset("\n\r")
+#: Go adds the bell and has no line continuation and no bare ``\0``.
+_GO_ESCAPES = {**_SHARED_ESCAPES, "a": "\a"}
+
+
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+_OCTAL_DIGITS = frozenset("01234567")
+
+
+@dataclass(frozen=True)
+class MaskedSource:
+    """``text`` with comments and string bodies overwritten.
+
+    ``literals`` maps the offset of a string literal's opening quote to its
+    decoded value (``None`` when the literal is not a constant) and the offset
+    just past its closing quote. The end offset is recorded rather than
+    recovered by scanning the fill characters, because masking preserves
+    newlines: a multi-line template literal's fill run stops at its first line
+    break, and a caller asking what follows the literal would be looking
+    inside it.
+    """
+
+    text: str
+    masked: str
+    literals: dict[int, tuple[str | None, int]]
+    anomalies: tuple[str, ...]
+
+    def skip_space(self, index: int) -> int:
+        length = len(self.masked)
+        while index < length and self.masked[index].isspace():
+            index += 1
+        return index
+
+    def literal_at(self, index: int) -> tuple[bool, str | None, int]:
+        """Resolve a string literal starting at ``index`` (whitespace skipped)."""
+        start = self.skip_space(index)
+        record = self.literals.get(start)
+        if record is None:
+            return False, None, start
+        value, end = record
+        return True, value, end
+
+    def line_column(self, index: int) -> tuple[int, int]:
+        prefix = self.text[:index]
+        line = prefix.count("\n") + 1
+        column = index - (prefix.rfind("\n") + 1) + 1
+        return line, column
+
+
+def mask_source(text: str, language: str) -> MaskedSource:
+    """Overwrite comments and string bodies, recording every string literal."""
+    if language == "go":
+        return _mask_go(text)
+    return _mask_typescript(text)
+
+
+def decode_literal(body: str, language: str) -> str | None:
+    """The literal's value, or ``None`` when it cannot be decoded exactly.
+
+    Escape grammars are per language, and one decoder shared between them is a
+    silent mistranslation rather than a parse error: Go writes an octal escape
+    as three digits, so ``MustTool("delete\\137all", …)`` registers
+    ``delete_all`` and a JavaScript-shaped decoder produced ``delete137all`` —
+    the real action absent and an id nobody serves in its place. Anything
+    either grammar does not define is refused, and a refusal becomes a
+    recorded omission instead of a guessed name.
+    """
+    if "\\" not in body:
+        return body
+    if language == "go":
+        return _decode_go(body)
+    return _decode_typescript(body)
+
+
+def _hex_value(body: str, start: int, width: int) -> int | None:
+    digits = body[start : start + width]
+    if len(digits) != width or any(char not in _HEX_DIGITS for char in digits):
+        return None
+    return int(digits, 16)
+
+
+def _decode_typescript(body: str) -> str | None:
+    out: list[str] = []
+    index = 0
+    length = len(body)
+    while index < length:
+        char = body[index]
+        if char != "\\":
+            out.append(char)
+            index += 1
+            continue
+        if index + 1 >= length:
+            return None
+        marker = body[index + 1]
+        if marker in _TYPESCRIPT_LINE_TERMINATORS:
+            # A LineContinuation contributes nothing to the value. CRLF is one
+            # terminator sequence: reading it as `\r` plus a stray line break
+            # both mangles the value and, in the scanner, ends the string.
+            index += 3 if marker == "\r" and body[index + 2 : index + 3] == "\n" else 2
+            continue
+        if marker in _TYPESCRIPT_ESCAPES:
+            out.append(_TYPESCRIPT_ESCAPES[marker])
+            index += 2
+            continue
+        if marker == "0" and (index + 2 >= length or body[index + 2] not in "0123456789"):
+            out.append("\0")
+            index += 2
+            continue
+        if marker == "x":
+            value = _hex_value(body, index + 2, 2)
+            if value is None:
+                return None
+            out.append(chr(value))
+            index += 4
+            continue
+        if marker == "u":
+            if index + 2 < length and body[index + 2] == "{":
+                close = body.find("}", index + 3)
+                digits = body[index + 3 : close] if close != -1 else ""
+                if not digits or any(char not in _HEX_DIGITS for char in digits):
+                    return None
+                point = int(digits, 16)
+                if point > 0x10FFFF:
+                    return None
+                out.append(chr(point))
+                index = close + 1
+                continue
+            value = _hex_value(body, index + 2, 4)
+            if value is None:
+                return None
+            out.append(chr(value))
+            index += 6
+            continue
+        if marker.isdigit():
+            # Legacy octal (`\1`-`\7`) is a syntax error under `use strict`
+            # and in a template literal, and octal *elsewhere*; `\8`/`\9` are
+            # their own special case. Which one a file means depends on a mode
+            # this reader does not track, so it refuses rather than pick.
+            return None
+        out.append(marker)
+        index += 2
+    return "".join(out)
+
+
+def _decode_go(body: str) -> str | None:
+    out: list[str] = []
+    index = 0
+    length = len(body)
+    while index < length:
+        char = body[index]
+        if char != "\\":
+            out.append(char)
+            index += 1
+            continue
+        if index + 1 >= length:
+            return None
+        marker = body[index + 1]
+        if marker in _GO_ESCAPES:
+            out.append(_GO_ESCAPES[marker])
+            index += 2
+            continue
+        if marker in _OCTAL_DIGITS:
+            digits = body[index + 1 : index + 4]
+            if len(digits) != 3 or any(char not in _OCTAL_DIGITS for char in digits):
+                return None
+            value = int(digits, 8)
+            if value > 255:
+                return None
+            out.append(chr(value))
+            index += 4
+            continue
+        widths = {"x": 2, "u": 4, "U": 8}
+        if marker in widths:
+            value = _hex_value(body, index + 2, widths[marker])
+            if value is None or value > 0x10FFFF:
+                return None
+            out.append(chr(value))
+            index += 2 + widths[marker]
+            continue
+        # Every other escape is a Go compile error, so the file this reader is
+        # looking at is not the file that built the server.
+        return None
+    return "".join(out)
+
+
+class _Masker:
+    """Shared bookkeeping for the two language maskers."""
+
+    def __init__(self, text: str, language: str) -> None:
+        self.text = text
+        self.language = language
+        self.out: list[str] = list(text)
+        self.literals: dict[int, tuple[str | None, int]] = {}
+        self.anomalies: list[str] = []
+
+    def blank(self, start: int, end: int, fill: str) -> None:
+        end = min(end, len(self.out))
+        if end <= start:
+            return
+        segment = self.text[start:end]
+        # Newlines survive so line numbers stay the file's own. Slice
+        # assignment rather than a per-character loop: the latter cost more
+        # than a second on a 1.4 MB module that registers nothing.
+        if "\n" in segment:
+            self.out[start:end] = ["\n" if char == "\n" else fill for char in segment]
+        else:
+            self.out[start:end] = fill * (end - start)
+
+    def record(self, start: int, end: int, value: str | None) -> None:
+        self.blank(start, end, _STRING_FILL)
+        self.literals[start] = (value, end)
+
+    def result(self) -> MaskedSource:
+        return MaskedSource(
+            text=self.text,
+            masked="".join(self.out),
+            literals=self.literals,
+            anomalies=tuple(self.anomalies),
+        )
+
+
+def _previous_significant(masked: list[str], index: int) -> tuple[str, int]:
+    while index >= 0 and masked[index].isspace():
+        index -= 1
+    return (masked[index], index) if index >= 0 else ("", -1)
+
+
+def _preceding_word(masked: list[str], index: int) -> str:
+    """The identifier ending at or before ``index``, read from the mask.
+
+    The mask, not the raw text: comments have been overwritten with spaces
+    there, so `if /*why*/ (ok) /re/` still finds `if`. Reading the raw text
+    found `/` — the tail of the comment — decided the slash was division, and
+    scanned the regex body as code, which reported a tool invented out of a
+    pattern. That is the one outcome masking exists to make impossible.
+    """
+
+    while index >= 0 and masked[index].isspace():
+        index -= 1
+    end = index + 1
+    while index >= 0 and (masked[index].isalnum() or masked[index] in "_$"):
+        index -= 1
+    return "".join(masked[index + 1 : end])
+
+
+def _mask_typescript(text: str) -> MaskedSource:
+    masker = _Masker(text, "typescript")
+    index = 0
+    length = len(text)
+    while index < length:
+        found = _INTERESTING.search(text, index)
+        if found is None:
+            break
+        index = found.start()
+        char = text[index]
+        if char == "/" and index + 1 < length and text[index + 1] == "/":
+            end = text.find("\n", index)
+            end = length if end == -1 else end
+            masker.blank(index, end, _COMMENT_FILL)
+            index = end
+            continue
+        if char == "/" and index + 1 < length and text[index + 1] == "*":
+            end = text.find("*/", index + 2)
+            if end == -1:
+                masker.blank(index, length, _COMMENT_FILL)
+                masker.anomalies.append("unterminated_block_comment")
+                break
+            masker.blank(index, end + 2, _COMMENT_FILL)
+            index = end + 2
+            continue
+        if char in {"'", '"'}:
+            index = _consume_quoted(masker, index, char, allow_newline=False)
+            continue
+        if char == "`":
+            index = _consume_template(masker, index)
+            continue
+        if char == "/" and _opens_regex(masker.out, index):
+            index = _consume_regex(masker, index)
+            continue
+        index += 1
+    return masker.result()
+
+
+def _opens_regex(out: list[str], index: int) -> bool:
+    previous, previous_index = _previous_significant(out, index - 1)
+    if previous == "" or previous in _REGEX_PRECEDING_CHARS:
+        return True
+    if previous == ")":
+        # A `)` is usually the end of a call or a parenthesised expression, and
+        # `foo(a) / 2` divides. But it is also the end of a control statement's
+        # condition, and there a regex validly *begins the body*:
+        # `if (ok) /\.registerTool("fake", handler)/.test(value);` is
+        # JavaScript, and reading its `/` as division scanned the pattern as
+        # code and reported a `fake` tool — a registration invented out of a
+        # regex body, which is the one thing this module's masking exists to
+        # make impossible. Which of the two it is, is decided by the keyword in
+        # front of the matching `(`.
+        opener = _matching_open(out, previous_index)
+        if opener is None:
+            return False
+        return _preceding_word(out, opener - 1) in _REGEX_PRECEDING_STATEMENTS
+    if previous.isalnum() or previous in "_$":
+        return _preceding_word(out, index - 1) in _REGEX_PRECEDING_WORDS
+    return False
+
+
+def _matching_open(out: list[str], close_index: int) -> int | None:
+    depth = 0
+    for index in range(close_index, -1, -1):
+        char = out[index]
+        if char == ")":
+            depth += 1
+        elif char == "(":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def _past_escape(text: str, index: int, language: str) -> int:
+    """The index just past the escape whose backslash sits at ``index``.
+
+    Two characters, except for a JavaScript line continuation spelled with
+    CRLF, which is three: the backslash and one *line terminator sequence*.
+    Stepping over two of them leaves the ``\n`` behind, and the scanner then
+    ends the string there — so the identical file lost its registration on a
+    Git-for-Windows checkout while resolving it on a Unix one.
+
+    Go has no line continuation, and its scanner must keep treating a newline
+    as the end of an interpreted string, so this is TypeScript's rule only.
+    """
+
+    if language == "typescript" and text[index + 1 : index + 3] == "\r\n":
+        return index + 3
+    return index + 2
+
+
+def _consume_quoted(
+    masker: _Masker, start: int, quote: str, *, allow_newline: bool
+) -> int:
+    text = masker.text
+    length = len(text)
+    index = start + 1
+    while index < length:
+        char = text[index]
+        if char == "\\":
+            index = _past_escape(text, index, masker.language)
+            continue
+        if char == quote:
+            masker.record(
+                start, index + 1, decode_literal(text[start + 1 : index], masker.language)
+            )
+            return index + 1
+        if char == "\n" and not allow_newline:
+            break
+        index += 1
+    # Unterminated. Blank to the resync point but record no literal, and say so:
+    # past here this reader cannot tell code from content.
+    end = text.find("\n", start)
+    end = length if end == -1 or allow_newline else end
+    masker.blank(start, end, _STRING_FILL)
+    masker.anomalies.append("unterminated_string")
+    return max(end, start + 1)
+
+
+def _consume_template(masker: _Masker, start: int) -> int:
+    """Consume a backtick template literal, tracking ``${…}`` substitutions."""
+
+    text = masker.text
+    length = len(text)
+    end, substituted = _template_end(text, masker.out, start)
+    if end is None:
+        masker.blank(start, length, _STRING_FILL)
+        masker.anomalies.append("unterminated_string")
+        return length
+    body = text[start + 1 : end - 1]
+    masker.record(
+        start, end, None if substituted else decode_literal(body, masker.language)
+    )
+    return end
+
+
+def _template_end(
+    text: str, out: list[str], start: int
+) -> tuple[int | None, bool]:
+    """Where the template literal at ``start`` ends, and whether it substitutes.
+
+    ``None`` when it never closes. The second value says whether the *outer*
+    template carries a ``${…}``, which is what makes its value non-constant.
+
+    **A `${…}` holds code, so a brace inside a string, a comment, a regex or a
+    nested template is not a structural brace.** Counting them made
+    ``const msg = `Literal brace: ${"{"}`;`` leave the substitution open, and
+    from there the rest of the file was consumed as one unterminated template
+    — every registration after that line silently gone, and a workspace that
+    declares an MCP dependency reported as "not an agent project" over a brace
+    in a string (#485 review).
+
+    Iterative, with one stack entry per open template, because a nested
+    template is reached through a substitution and recursion on attacker-shaped
+    input is a crash rather than a wrong answer.
+    """
+
+    length = len(text)
+    index = start + 1
+    # One entry per open template: its `${…}` brace depth, 0 in template text.
+    depths: list[int] = [0]
+    substituted = False
+    while index < length and depths:
+        char = text[index]
+        if char == "\\":
+            index = _past_escape(text, index, "typescript")
+            continue
+        if depths[-1] == 0:
+            if char == "$" and text[index + 1 : index + 2] == "{":
+                substituted = substituted or len(depths) == 1
+                depths[-1] = 1
+                index += 2
+                continue
+            if char == "`":
+                depths.pop()
+                index += 1
+                continue
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            index = _skip_quoted(text, index)
+            continue
+        if char == "`":
+            depths.append(0)
+            index += 1
+            continue
+        if char == "/" and text[index + 1 : index + 2] == "/":
+            line_end = text.find("\n", index)
+            line_end = length if line_end == -1 else line_end
+            # Blanked as it is walked, not merely stepped over: the regex
+            # heuristic below reads the mask to find the keyword in front of a
+            # slash, and a comment still spelled out there hides it.
+            out[index:line_end] = _COMMENT_FILL * (line_end - index)
+            index = line_end
+            continue
+        if char == "/" and text[index + 1 : index + 2] == "*":
+            close = text.find("*/", index + 2)
+            block_end = length if close == -1 else close + 2
+            out[index:block_end] = [
+                "\n" if character == "\n" else _COMMENT_FILL
+                for character in text[index:block_end]
+            ]
+            index = block_end
+            continue
+        if char == "/" and _opens_regex(out, index):
+            index = _skip_regex(text, index)
+            continue
+        if char == "{":
+            depths[-1] += 1
+        elif char == "}":
+            depths[-1] -= 1
+        index += 1
+    return (index if not depths else None), substituted
+
+
+def _skip_quoted(text: str, start: int) -> int:
+    """Index just past a quoted string this reader only needs to walk over."""
+
+    quote = text[start]
+    length = len(text)
+    index = start + 1
+    while index < length:
+        char = text[index]
+        if char == "\\":
+            index = _past_escape(text, index, "typescript")
+            continue
+        if char == quote:
+            return index + 1
+        if char == "\n":
+            # Unterminated on its line. Resync there rather than swallowing the
+            # rest of the substitution.
+            return index
+        index += 1
+    return length
+
+
+def _skip_regex(text: str, start: int) -> int:
+    """Index just past a regex literal, or one past the slash if it is not one."""
+
+    length = len(text)
+    index = start + 1
+    in_class = False
+    while index < length:
+        char = text[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == "\n":
+            return start + 1
+        if char == "[":
+            in_class = True
+        elif char == "]":
+            in_class = False
+        elif char == "/" and not in_class:
+            return index + 1
+        index += 1
+    return start + 1
+
+
+def _consume_regex(masker: _Masker, start: int) -> int:
+    text = masker.text
+    length = len(text)
+    index = start + 1
+    in_class = False
+    while index < length:
+        char = text[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == "\n":
+            # Not a regex after all — a lone `/` on a line. Leave it as code.
+            return start + 1
+        if char == "[":
+            in_class = True
+        elif char == "]":
+            in_class = False
+        elif char == "/" and not in_class:
+            masker.blank(start, index + 1, _COMMENT_FILL)
+            return index + 1
+        index += 1
+    return start + 1
+
+
+def _mask_go(text: str) -> MaskedSource:
+    masker = _Masker(text, "go")
+    index = 0
+    length = len(text)
+    while index < length:
+        found = _INTERESTING.search(text, index)
+        if found is None:
+            break
+        index = found.start()
+        char = text[index]
+        if char == "/" and index + 1 < length and text[index + 1] == "/":
+            end = text.find("\n", index)
+            end = length if end == -1 else end
+            masker.blank(index, end, _COMMENT_FILL)
+            index = end
+            continue
+        if char == "/" and index + 1 < length and text[index + 1] == "*":
+            end = text.find("*/", index + 2)
+            if end == -1:
+                masker.blank(index, length, _COMMENT_FILL)
+                masker.anomalies.append("unterminated_block_comment")
+                break
+            masker.blank(index, end + 2, _COMMENT_FILL)
+            index = end + 2
+            continue
+        if char == '"':
+            index = _consume_quoted(masker, index, '"', allow_newline=False)
+            continue
+        if char == "'":
+            index = _consume_quoted(masker, index, "'", allow_newline=False)
+            continue
+        if char == "`":
+            end = text.find("`", index + 1)
+            if end == -1:
+                masker.blank(index, length, _STRING_FILL)
+                masker.anomalies.append("unterminated_string")
+                break
+            masker.record(index, end + 1, text[index + 1 : end])
+            index = end + 1
+            continue
+        index += 1
+    return masker.result()
+
+
+# Idiom matchers.
+
+_TS_MODIFIERS = r"(?:(?:public|private|protected|readonly|override|declare|abstract)\s+)*"
+_TS_STATIC_TOOL_NAME_RE = re.compile(
+    rf"(?<![\w$])static\s+{_TS_MODIFIERS}toolName\s*(?::[^=;\n]*)?=\s*"
+)
+_TS_STATIC_OPERATION_TYPE_RE = re.compile(
+    rf"(?<![\w$])static\s+{_TS_MODIFIERS}operationType\s*(?::[^=;\n]*)?=\s*"
+)
+# ``(?<![\w$.])`` and not ``(?<![\w$])``: the character before ``description``
+# in ``this.description = "…"`` is a dot, which the narrower lookbehind admits,
+# so an assignment inside a method read as the class's description field.
+_TS_DESCRIPTION_RE = re.compile(
+    rf"(?<![\w$.])(?:static\s+)?{_TS_MODIFIERS}description\s*(?::[^=;\n]*)?=\s*"
+)
+_TS_REGISTER_TOOL_RE = re.compile(r"\.\s*(?:registerTool|tool)\s*\(\s*")
+_GO_MUST_TOOL_RE = re.compile(r"(?<![\w])MustTool\s*\(\s*")
+_GO_NEW_TOOL_RE = re.compile(r"(?<![\w])NewTool\s*\(\s*")
+_GO_TOOL_STRUCT_RE = re.compile(r"(?<![\w])Tool\s*\{")
+_GO_STRUCT_NAME_FIELD_RE = re.compile(r"(?<![\w])Name\s*:\s*")
+_GO_KEYED_FIELD_RE = re.compile(r"(?<![\w])[A-Za-z_]\w*\s*:")
+_GO_STRUCT_DESCRIPTION_FIELD_RE = re.compile(r"(?<![\w])Description\s*:\s*")
+
+
+def _matching_close(masked: str, open_index: int, opener: str, closer: str) -> int | None:
+    depth = 0
+    for index in range(open_index, len(masked)):
+        char = masked[index]
+        if char == opener:
+            depth += 1
+        elif char == closer:
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    return None
+
+
+def _brace_pairs(masked: str) -> list[tuple[int, int]]:
+    stack: list[int] = []
+    pairs: list[tuple[int, int]] = []
+    for match in re.finditer(r"[{}]", masked):
+        if match.group() == "{":
+            stack.append(match.start())
+        elif stack:
+            pairs.append((stack.pop(), match.start() + 1))
+    return pairs
+
+
+def _enclosing_block(pairs: list[tuple[int, int]], index: int) -> tuple[int, int] | None:
+    """The innermost ``{…}`` containing ``index``, as ``(open, close_exclusive)``."""
+    best: tuple[int, int] | None = None
+    for start, end in pairs:
+        if start <= index < end and (best is None or start > best[0]):
+            best = (start, end)
+    return best
+
+
+def _resolve_name(value: str | None, found: bool) -> tuple[str | None, str | None]:
+    if not found or value is None:
+        return None, "name_not_literal"
+    if not TOOL_NAME_RE.match(value):
+        return None, "implausible_tool_name"
+    return value, None
+
+
+#: Characters that continue an expression rather than beginning a statement.
+#: Consulted only *after* a line break, and only for a character the caller's
+#: own terminators do not claim: Go ends a struct field with `,` on the next
+#: line, and that comma ends the value rather than continuing it.
+_EXPRESSION_CONTINUATION = frozenset("+-*/%&|^<>=!?.,([")
+
+
+def _literal_is_whole_value(
+    source: MaskedSource, end: int, terminators: str
+) -> bool:
+    """Whether the literal ending at ``end`` is the entire value, not part of one.
+
+    ``static toolName = "backup" + SUFFIX`` resolves to a literal this reader
+    can see, and reading it as the tool name would publish ``backup`` for a
+    tool the server registers under some other name — a fail-open of exactly
+    the shape #393 catalogues, where the proof rests on a spelling. The literal
+    counts only when the expression ends there: at one of ``terminators``, at
+    the end of input, or at a line break (JavaScript inserts the semicolon).
+    """
+
+    masked = source.masked
+    length = len(masked)
+    index = end
+    while index < length and masked[index] in " \t\r":
+        index += 1
+    if index >= length:
+        return True
+    if masked[index] in terminators:
+        return True
+    if masked[index] != "\n":
+        return False
+    # A line break ends the statement only when what follows cannot continue
+    # the expression. `static toolName = "safe"` followed by `+ "_delete"` on
+    # the next line is one value spelled across two lines, and accepting the
+    # first literal publishes `safe` for a tool the server registers as
+    # `safe_delete` — a name nobody serves, at `medium` confidence, which is
+    # worse than the omission refusing it produces. Comments are already
+    # spaces in the mask, so skipping whitespace skips them too.
+    while index < length and masked[index].isspace():
+        index += 1
+    if index >= length:
+        return True
+    following = masked[index]
+    return following in terminators or following not in _EXPRESSION_CONTINUATION
+
+
+def _call_sites(
+    source: MaskedSource, pattern: re.Pattern[str], idiom: str
+) -> list[RegistrationSite]:
+    """Sites for a ``Name(<literal>, …)`` idiom."""
+    sites: list[RegistrationSite] = []
+    for match in pattern.finditer(source.masked):
+        open_paren = source.masked.rfind("(", match.start(), match.end())
+        if open_paren == -1:
+            continue
+        close = _matching_close(source.masked, open_paren, "(", ")")
+        span = (match.start(), close if close is not None else match.end())
+        found, value, end = source.literal_at(match.end())
+        name, unresolved = _resolve_name(value, found)
+        if name is not None:
+            # A registration passes the name *and* what to do with it, so the
+            # first argument is followed by a comma. `)` means a one-argument
+            # call — `map.tool("issues")` is a lookup, and reading it as a
+            # registration is how an accessor becomes a phantom tool. Anything
+            # else (`+`) means the name is not this literal.
+            after = source.skip_space(end)
+            following = source.masked[after] if after < len(source.masked) else ""
+            if following == ")":
+                continue
+            if following != ",":
+                name, unresolved = None, "name_not_literal"
+        if name is None and (
+            close is None or not _has_second_argument(source.masked, open_paren, close)
+        ):
+            # An unresolved site needs the same second argument before it is
+            # reported: it is what keeps `map.tool(key)` out of the ledger.
+            continue
+        line, column = source.line_column(match.start())
+        sites.append(
+            RegistrationSite(
+                idiom=idiom,
+                name=name,
+                line=line,
+                column=column,
+                span=span,
+                unresolved_reason=unresolved,
+            )
+        )
+    return sites
+
+
+def _has_second_argument(masked: str, open_paren: int, close: int) -> bool:
+    depth = 0
+    for index in range(open_paren, close):
+        char = masked[index]
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        elif char == "," and depth == 1:
+            return True
+    return False
+
+
+def _ts_static_tool_name_sites(source: MaskedSource) -> list[RegistrationSite]:
+    sites: list[RegistrationSite] = []
+    pairs = _brace_pairs(source.masked)
+    for match in _TS_STATIC_TOOL_NAME_RE.finditer(source.masked):
+        found, value, end = source.literal_at(match.end())
+        name, unresolved = _resolve_name(value, found)
+        if name is not None and not _literal_is_whole_value(source, end, ";}"):
+            name, unresolved = None, "name_not_literal"
+        line, column = source.line_column(match.start())
+        block = _enclosing_block(pairs, match.start())
+        operation_type: str | None = None
+        description: str | None = None
+        if block is not None and name is not None:
+            operation_type = _first_literal_in(source, _TS_STATIC_OPERATION_TYPE_RE, block)
+            description = _first_literal_in(source, _TS_DESCRIPTION_RE, block)
+        # The construct, never the enclosing class body. `block` is the scope
+        # the sibling literals are looked up in; using it as the span made the
+        # containment rule read *any* registration written inside the class as
+        # "the same registration", so a class whose `toolName` is built at
+        # runtime lost its omission the moment it also called `.registerTool(`.
+        sites.append(
+            RegistrationSite(
+                idiom="ts_static_tool_name",
+                name=name,
+                line=line,
+                column=column,
+                span=(match.start(), max(end, match.end())),
+                description=description,
+                operation_type=operation_type,
+                unresolved_reason=unresolved,
+            )
+        )
+    return sites
+
+
+def _first_literal_in(
+    source: MaskedSource, pattern: re.Pattern[str], block: tuple[int, int]
+) -> str | None:
+    start, end = block
+    for match in pattern.finditer(source.masked, start, end):
+        found, value, literal_end = source.literal_at(match.end())
+        if found and value and _literal_is_whole_value(source, literal_end, ";}"):
+            return value
+    return None
+
+
+def _go_tool_struct_sites(source: MaskedSource) -> list[RegistrationSite]:
+    sites: list[RegistrationSite] = []
+    for match in _GO_TOOL_STRUCT_RE.finditer(source.masked):
+        open_brace = source.masked.index("{", match.start())
+        close = _matching_close(source.masked, open_brace, "{", "}")
+        if close is None:
+            continue
+        if _has_keyed_field(source.masked, open_brace, close):
+            sites.extend(_go_tool_struct_site(source, match.start(), open_brace, close))
+            continue
+        # No keyed field at this literal's own level, so it is a composite of
+        # elements — `[]mcp.Tool{{Name: "a"}, {Name: "b"}}`. Reading only the
+        # outer brace would find the first element's `Name:` two levels down,
+        # reject it as nested, and report nothing at all.
+        for child_open, child_close in _child_braces(source.masked, open_brace, close):
+            sites.extend(_go_tool_struct_site(source, child_open, child_open, child_close))
+    return sites
+
+
+def _go_tool_struct_site(
+    source: MaskedSource, start: int, open_brace: int, close: int
+) -> list[RegistrationSite]:
+    field = _GO_STRUCT_NAME_FIELD_RE.search(source.masked, open_brace + 1, close)
+    # Only the literal's own `Name:` field, never one belonging to something
+    # nested inside it: `mcp.Tool{Annotations: &mcp.ToolAnnotations{Name: …}}`
+    # names the annotation, not the tool.
+    while field is not None and _brace_depth(source.masked, open_brace, field.start()) != 1:
+        field = _GO_STRUCT_NAME_FIELD_RE.search(source.masked, field.end(), close)
+    if field is None:
+        return []
+    found, value, literal_end = source.literal_at(field.end())
+    name, unresolved = _resolve_name(value, found)
+    if name is not None and not _literal_is_whole_value(source, literal_end, ",}"):
+        name, unresolved = None, "name_not_literal"
+    line, column = source.line_column(start)
+    return [
+        RegistrationSite(
+            idiom="go_tool_struct",
+            name=name,
+            line=line,
+            column=column,
+            span=(start, close),
+            description=_go_struct_description(source, open_brace, close),
+            unresolved_reason=unresolved,
+        )
+    ]
+
+
+def _has_keyed_field(masked: str, open_brace: int, close: int) -> bool:
+    """Whether the literal names fields at its own level (a struct, not a list)."""
+    for match in _GO_KEYED_FIELD_RE.finditer(masked, open_brace + 1, close):
+        if _brace_depth(masked, open_brace, match.start()) == 1:
+            return True
+    return False
+
+
+def _child_braces(masked: str, open_brace: int, close: int) -> list[tuple[int, int]]:
+    children: list[tuple[int, int]] = []
+    index = open_brace + 1
+    while index < close - 1:
+        if masked[index] == "{":
+            child_close = _matching_close(masked, index, "{", "}")
+            if child_close is None or child_close > close:
+                break
+            children.append((index, child_close))
+            index = child_close
+            continue
+        index += 1
+    return children
+
+
+def _go_struct_description(source: MaskedSource, open_brace: int, close: int) -> str | None:
+    for match in _GO_STRUCT_DESCRIPTION_FIELD_RE.finditer(
+        source.masked, open_brace + 1, close
+    ):
+        if _brace_depth(source.masked, open_brace, match.start()) != 1:
+            continue
+        found, value, literal_end = source.literal_at(match.end())
+        if found and value and _literal_is_whole_value(source, literal_end, ",}"):
+            return value
+    return None
+
+
+def _brace_depth(masked: str, open_brace: int, index: int) -> int:
+    depth = 0
+    for position in range(open_brace, index):
+        char = masked[position]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+    return depth
+
+
+def scan_source(text: str, language: str) -> SourceScanResult:
+    """Find every registration site in one file.
+
+    An unresolved site is dropped when a resolved one sits inside it. The
+    wrapper shape is real and common — ``NewTool(metadata, mcp.Tool{Name:
+    "issue_read"}, …)`` is 132 of them in ``github/github-mcp-server`` — and
+    reporting the wrapper's non-literal first argument as an unenumerated tool
+    would fill the ledger with omissions for tools the very same call names one
+    argument later.
+    """
+    if PREFILTER_TOKEN not in text.lower():
+        return SourceScanResult()
+    source = mask_source(text, language)
+    sites: list[RegistrationSite] = []
+    if language == "typescript":
+        sites.extend(_ts_static_tool_name_sites(source))
+        sites.extend(_call_sites(source, _TS_REGISTER_TOOL_RE, "ts_sdk_register_tool"))
+    else:
+        sites.extend(_call_sites(source, _GO_MUST_TOOL_RE, "go_must_tool"))
+        sites.extend(_call_sites(source, _GO_NEW_TOOL_RE, "go_new_tool"))
+        sites.extend(_go_tool_struct_sites(source))
+
+    kept = [
+        site
+        for site in sites
+        if site.name is not None or not _contains_another_site(site, sites)
+    ]
+    kept.sort(key=lambda site: (site.line, site.column, site.idiom))
+    return SourceScanResult(sites=tuple(kept), anomalies=source.anomalies)
+
+
+def _contains_another_site(site: RegistrationSite, sites: list[RegistrationSite]) -> bool:
+    """Whether a nested site describes the same registration as ``site``.
+
+    Sound only because every ``span`` is the *construct* that registers. A span
+    standing for a lookup *scope* would make any registration written inside
+    that scope suppress the site, which is a different relationship entirely.
+    """
+    start, end = site.span
+    return any(
+        start < other.span[0] and other.span[1] <= end
+        for other in sites
+        if other is not site
+    )
+
+
+# --- MCP source discovery (mirror of cli/discovery/mcp_source.py) -----------
+#
+# Every function below is byte-for-byte the CLI's, with two deliberate
+# exceptions a reviewer diffing the two files should expect:
+#
+#   `_mcp_export_tool_names` — the CLI probes an export by calling the real
+#   `load_mcp_tools`, which is a pydantic-backed adapter. Here it is the same
+#   accept rule read with `json`, which is also what `_probe_mcp` above already
+#   mirrors for the same file.
+#
+#   `_read_mcp_source_text` — the CLI's read is `inputs.common.load_text_file`
+#   (a regular file, at most 10 MB, decoded strict). It is factored out here so
+#   the contract is visible in one place: discovery that decoded leniently was
+#   a shipped defect, and a port that shared the path predicate but not the
+#   read would reintroduce it.
+
+#: How many source files discovery reads before it stops. Truncation is
+#: reported, never silent.
+DEFAULT_MAX_SOURCE_FILES = 1500
+
+#: How many tool names the evidence names before it summarises. The line is
+#: read by a human deciding whether to adopt, and 110 names is not evidence.
+_EVIDENCE_NAME_LIMIT = 5
+
+#: Dependency sections of a ``package.json`` that count. ``devDependencies`` is
+#: included on purpose: the question is "was this repository written against
+#: MCP", not "does it ship the SDK at runtime".
+_PACKAGE_JSON_DEPENDENCY_KEYS = (
+    "dependencies",
+    "devDependencies",
+    "peerDependencies",
+    "optionalDependencies",
+)
+
+
+@dataclass
+class _FrameworkEvidence:
+    """Declared MCP dependencies, per language."""
+
+    languages: set[str] = field(default_factory=set)
+    reasons: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class McpSourceDiscovery:
+    """What discovery concluded about the workspace's own registration sites."""
+
+    path: str | None = None
+    languages: tuple[str, ...] = ()
+    tool_names: tuple[str, ...] = ()
+    unresolved_count: int = 0
+    evidence: tuple[str, ...] = ()
+    #: The declared-dependency reasons behind the language gate, on their own.
+    #: Scoring reads this rather than indexing into ``evidence``: the rendered
+    #: lines are ordered for a human and gain conditional entries at the end.
+    framework_evidence: tuple[str, ...] = ()
+    candidate_files: tuple[str, ...] = ()
+    excluded: tuple[dict[str, str], ...] = ()
+    truncated: bool = False
+
+    @property
+    def detected(self) -> bool:
+        return self.path is not None
+
+
+def _discover_mcp_server_source(
+    workspace: Path,
+    files: list[Path],
+    exported_source_paths: list[str],
+    max_source_files: int = DEFAULT_MAX_SOURCE_FILES,
+) -> McpSourceDiscovery:
+    """Decide whether this workspace registers MCP tools in its own source.
+
+    Two facts have to hold together, and the pairing is the whole design. A
+    **declared MCP dependency** turns a spelling into provenance — a repository
+    that declares none is not an MCP server because a class of its own happens
+    to spell a field ``toolName``. A **resolved registration** is the other
+    half: the dependency alone says the repository uses MCP, which every client
+    does too.
+
+    ``exported_source_paths`` are the workspace-relative paths of MCP exports
+    already accepted as suggestions. An export that names every registration
+    withholds this route: it is the server's own published contract, carries
+    the input schemas this route does not read, and is read at high confidence
+    against medium.
+    """
+    workspace = workspace.resolve()
+    framework = _mcp_framework_evidence(workspace, files)
+    if not framework.languages:
+        return McpSourceDiscovery()
+
+    # Paired with the workspace-relative path once, here: a file that is not
+    # under the workspace at all (a symlink out of the tree) has no relative
+    # form, and inventing one from its basename would put it in the wrong
+    # directory for both the skip rules and the route's common ancestor.
+    scannable = [
+        pair
+        for pair in ((path, _mcp_relative(path, workspace)) for path in files)
+        if pair[1] is not None
+        and _mcp_language_in_scope(pair[1], framework.languages)
+    ]
+    # Sorted before the cap, so which files are read is a property of the
+    # workspace and not of the walk order — and capped where the flag is set,
+    # rather than beside it.
+    scannable.sort(key=lambda pair: pair[1])
+    truncated = len(scannable) > max_source_files
+    names: set[str] = set()
+    languages: set[str] = set()
+    unresolved_by_file: dict[str, int] = {}
+    candidate_files: list[str] = []
+    for path, relative in scannable[:max_source_files]:
+        language = language_for_path(path)
+        if language is None:  # pragma: no cover - filtered above
+            continue
+        try:
+            if path.stat().st_size > MAX_SOURCE_FILE_BYTES:
+                continue
+        except OSError:
+            continue
+        text = _read_mcp_source_text(path)
+        if text is None:
+            continue
+        result = scan_source(text, language)
+        resolved = [site.name for site in result.sites if site.name is not None]
+        opaque = sum(1 for site in result.sites if site.name is None)
+        if opaque:
+            unresolved_by_file[relative] = opaque
+        if not resolved:
+            continue
+        languages.add(language)
+        names.update(resolved)
+        candidate_files.append(relative)
+
+    if not names:
+        return McpSourceDiscovery(
+            unresolved_count=sum(unresolved_by_file.values()), truncated=truncated
+        )
+
+    root = _mcp_common_directory(candidate_files)
+    # Counted over the directory the route actually points at, so the number
+    # this publishes is the number the adapter will report once the route is
+    # configured.
+    unresolved = sum(
+        count
+        for relative, count in unresolved_by_file.items()
+        if root == "." or PurePosixPath(relative).is_relative_to(root)
+    )
+    evidence = _mcp_evidence_lines(
+        framework, languages, names, root, truncated, unresolved
+    )
+    covering_export, uncovered = _mcp_covering_export(
+        workspace, exported_source_paths, names
+    )
+    if covering_export is not None:
+        return McpSourceDiscovery(
+            unresolved_count=unresolved,
+            truncated=truncated,
+            excluded=(
+                {
+                    "type": MCP_SOURCE_TYPE,
+                    "path": root,
+                    "reason": (
+                        f"An MCP tool export ({covering_export}) already names "
+                        f"every one of these {len(names)} registrations, and an "
+                        "export is read at high confidence with its input "
+                        "schemas; reading them in source would restate it at "
+                        "medium."
+                    ),
+                },
+            ),
+        )
+    if uncovered:
+        # An export exists and does not account for the whole surface. It used
+        # to withhold this route anyway, which in a workspace holding two
+        # servers meant an export for one erased every source-only registration
+        # of the other. Both routes are suggested instead, and the overlap is
+        # named.
+        sample = ", ".join(sorted(uncovered)[:_EVIDENCE_NAME_LIMIT])
+        if len(uncovered) > _EVIDENCE_NAME_LIMIT:
+            sample += ", …"
+        evidence = (
+            *evidence,
+            f"An MCP tool export is also present and does not name "
+            f"{len(uncovered)} of these registrations ({sample}); both routes "
+            "are suggested, and a reviewed tool_identity binding is what joins "
+            "the two surfaces",
+        )
+
+    return McpSourceDiscovery(
+        path=root,
+        languages=tuple(sorted(languages)),
+        tool_names=tuple(sorted(names)),
+        unresolved_count=unresolved,
+        evidence=evidence,
+        framework_evidence=tuple(sorted(framework.reasons)),
+        candidate_files=tuple(sorted(candidate_files)),
+        truncated=truncated,
+    )
+
+
+def _read_mcp_source_text(path: Path) -> str | None:
+    """The adapter's own read, not a lenient copy of it.
+
+    Decoding with ``errors="replace"`` let ``detect`` resolve a registration
+    out of a file the scan-time loader then refuses as ``unreadable_file``, so
+    the route promised more tools than it could enumerate. Sharing the path
+    predicate is not enough — the read has to be shared too.
+    """
+    try:
+        if not path.is_file():
+            return None
+        data = path.read_bytes()
+    except OSError:
+        return None
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def _mcp_framework_evidence(workspace: Path, files: list[Path]) -> _FrameworkEvidence:
+    evidence = _FrameworkEvidence()
+    for path in files:
+        name = path.name
+        if name not in {"package.json", "go.mod"}:
+            continue
+        relative = _mcp_relative(path, workspace)
+        if relative is None:
+            continue
+        # The same skip set the source walk uses, not a narrower one of its
+        # own: two lists would let a directory be skipped for registrations
+        # while still granting the language gate that admits them.
+        parts = PurePosixPath(relative).parts
+        if any(part in SKIP_DIRECTORY_NAMES for part in parts):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if name == "go.mod":
+            lowered = text.lower()
+            for module in GO_FRAMEWORK_MODULES:
+                if module in lowered:
+                    evidence.languages.add("go")
+                    evidence.reasons.append(f"{relative} requires {module}")
+                    break
+            continue
+        package = _mcp_package_dependencies(text)
+        for dependency in sorted(package):
+            if any(
+                dependency.lower().startswith(token)
+                for token in TYPESCRIPT_FRAMEWORK_PACKAGES
+            ):
+                evidence.languages.add("typescript")
+                evidence.reasons.append(f"{relative} depends on {dependency}")
+                break
+    return evidence
+
+
+def _mcp_package_dependencies(text: str) -> set[str]:
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return set()
+    if not isinstance(data, dict):
+        return set()
+    names: set[str] = set()
+    for key in _PACKAGE_JSON_DEPENDENCY_KEYS:
+        section = data.get(key)
+        if isinstance(section, dict):
+            names.update(str(name) for name in section)
+    return names
+
+
+def _mcp_language_in_scope(relative: str, languages: set[str]) -> bool:
+    language = language_for_path(relative)
+    if language is None or language not in languages:
+        return False
+    return is_scannable_path(relative)
+
+
+def _mcp_relative(path: Path, workspace: Path) -> str | None:
+    """The CLI's own relative-path rule for this route, not this script's `_rel`.
+
+    ``_rel`` prefers the *logical* name and falls back to the path itself, which
+    is right for the inventory it serves. Here the answer decides the route's
+    common ancestor and which skip rules apply, and the CLI resolves — so this
+    resolves too. Two spellings of one path is how the two detectors would
+    disagree about which directory a manifest should point at.
+    """
+    try:
+        return path.resolve().relative_to(workspace).as_posix()
+    except (OSError, ValueError):
+        return None
+
+
+def _mcp_common_directory(relative_files: list[str]) -> str:
+    """The deepest directory containing every file that registered a tool.
+
+    Not a scope decision — #363 settled that a deepest-common-ancestor is the
+    wrong answer for *which project a manifest describes*. This is the narrower
+    question of which subtree the adapter walks, where widening only costs a
+    longer walk.
+    """
+    parts_list = [PurePosixPath(name).parent.parts for name in relative_files]
+    if not parts_list:
+        return "."
+    common = parts_list[0]
+    for parts in parts_list[1:]:
+        limit = min(len(common), len(parts))
+        index = 0
+        while index < limit and common[index] == parts[index]:
+            index += 1
+        common = common[:index]
+    return PurePosixPath(*common).as_posix() if common else "."
+
+
+def _mcp_covering_export(
+    workspace: Path, exported_source_paths: list[str], names: set[str]
+) -> tuple[str | None, set[str]]:
+    """The export that names *every* registration, and what no export names.
+
+    Location is not the test, and neither is mere existence: "any export
+    anywhere wins" let an export for one server erase another server's
+    source-only registrations, and let a partial export erase the remainder of
+    a single one. Only containment makes withholding lossless.
+    """
+    candidates = sorted(exported_source_paths)
+    if not candidates:
+        # No export at all — the common case for a source-only server. Without
+        # this the caller would report "an MCP tool export is also present and
+        # does not name them" about a file that does not exist.
+        return None, set()
+    covered: set[str] = set()
+    for candidate in candidates:
+        exported = _mcp_export_tool_names(workspace, candidate)
+        if exported is None:
+            continue
+        covered |= exported
+        if names <= covered:
+            return candidate, set()
+    return None, names - covered
+
+
+def _mcp_export_tool_names(workspace: Path, relative: str) -> set[str] | None:
+    """Tool names an accepted MCP export publishes. Mirrors ``load_mcp_tools``.
+
+    ``None`` when the export declines to name them — a wildcard export claims a
+    surface without enumerating it, so it can never be shown to contain
+    anything, and the source route is the more informative of the two.
+    """
+    export = workspace / relative
+    try:
+        # Bounded like the loader this mirrors: `load_mcp_tools` refuses a file
+        # over `MAX_INPUT_FILE_BYTES` before parsing it, so an export past the
+        # bound names nothing on either side — and this reader is reached with
+        # a path chosen by the workspace, in a script that is curled onto an
+        # unknown repository.
+        if export.stat().st_size > MAX_STRUCTURED_FILE_BYTES:
+            return None
+        data = json.loads(export.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    if isinstance(data, list):
+        raw_tools: Any = data
+    elif isinstance(data, dict):
+        raw_tools = data.get("tools")
+        if data.get("wildcard") is True or raw_tools == "*":
+            # Wildcard exposure, and the wildcard-plus-array contradiction the
+            # loader refuses outright, both reach the caller the same way:
+            # there are no names here to contain anything.
+            #
+            # No fixture can distinguish this branch from the fall-through
+            # below, and that is a fact about the *caller*, not a gap: every
+            # wildcard shape `_probe_mcp` accepts also has no usable `tools`
+            # array, and the one that does — wildcard plus a populated array —
+            # is refused at the probe and never reaches this function. The
+            # branch stays because it mirrors `load_mcp_tools`, and resting on
+            # the probe to make it redundant would couple this reader to a
+            # gate that is not its own.
+            return None
+    else:
+        return None
+    if not isinstance(raw_tools, list):
+        return None
+    return {
+        str(entry["name"])
+        for entry in raw_tools
+        if isinstance(entry, dict) and entry.get("name")
+    }
+
+
+def _mcp_evidence_lines(
+    framework: _FrameworkEvidence,
+    languages: set[str],
+    names: set[str],
+    root: str,
+    truncated: bool,
+    unresolved: int,
+) -> tuple[str, ...]:
+    sample = sorted(names)[:_EVIDENCE_NAME_LIMIT]
+    shown = ", ".join(sample)
+    if len(names) > len(sample):
+        shown += ", …"
+    lines = [
+        f"MCP tool registrations in {'/'.join(sorted(languages))} source under "
+        f"{root}/: {len(names)} tool name(s) — {shown}",
+    ]
+    lines.extend(sorted(framework.reasons)[:_EVIDENCE_NAME_LIMIT])
+    if unresolved:
+        # Named here because this is what a human reads when deciding whether
+        # to adopt, and "61 tools" without "and 3 more this reader cannot name"
+        # is the over-claim the whole input is built to avoid.
+        lines.append(
+            f"{unresolved} registration(s) name themselves at runtime and are "
+            "not enumerated"
+        )
+    if truncated:
+        lines.append(
+            "Discovery stopped at the source-file cap, so this count is a "
+            "lower bound."
+        )
+    return tuple(lines)
+
+
+def _score_mcp_server_source(
+    discovery: McpSourceDiscovery, scores: dict[str, dict[str, Any]]
+) -> None:
+    """Score the workspace's own MCP registration sites (mirror of signals.py).
+
+    The registration evidence reaches the detection threshold on its own,
+    because the fact behind it is already a conjunction: a declared MCP
+    dependency *and* a tool name resolved at a registration site. The
+    dependency then adds the same point a dependency adds for every other
+    framework.
+
+    The candidate file is the **route directory**, not the registration files
+    under it: an MCP server is one thing however many packages its tools are
+    spread across, and contributing each file made `mongodb-js/mongodb-mcp-server`
+    look like six separate projects.
+    """
+    if not discovery.detected or discovery.path is None:
+        return
+    _add(scores, MCP_SOURCE_TYPE, 2.0, "strong", discovery.evidence[0])
+    # The declared dependency is identified by *value* — the line is one of the
+    # discovery result's `framework_evidence` entries. Awarding it to
+    # `evidence[1]` read the point off a list position instead, in a list that
+    # is ordered for a human and gains conditional entries at the end.
+    reasons = set(discovery.framework_evidence)
+    awarded = False
+    for line in discovery.evidence[1:]:
+        dependency = not awarded and line in reasons
+        awarded = awarded or dependency
+        _add(
+            scores,
+            MCP_SOURCE_TYPE,
+            1.0 if dependency else 0.0,
+            "medium" if dependency else "supporting",
+            line,
+        )
+    # `_add`'s candidate argument would attribute the directory to whichever
+    # evidence line happened to be last; the route directory belongs to the
+    # detection, not to a line of prose about it.
+    if discovery.path not in scores[MCP_SOURCE_TYPE]["candidate_files"]:
+        scores[MCP_SOURCE_TYPE]["candidate_files"].append(discovery.path)
 
 
 def _name(node: ast.AST) -> str | None:
@@ -1825,36 +3457,9 @@ def detect(workspace: Path) -> dict[str, Any]:
     present_dirs = [
         conventional_locations[d] for d in CONVENTIONAL_DIRS if d in conventional_locations
     ]
-    for fw in FRAMEWORKS:
+    for fw in CONVENTIONAL_DIR_FRAMEWORKS:
         for d in present_dirs:
             _add(scores, fw, 0.5, "weak", f"conventional dir: {d}/")
-
-    detections: list[dict[str, Any]] = [
-        {
-            "type": fw,
-            "score": round(st["score"], 2),
-            "confidence": _confidence(st["score"]),
-            "evidence": st["evidence"],
-            "candidate_files": st["candidate_files"],
-        }
-        for fw, st in scores.items()
-        if st["score"] >= 2.0 and st["has_strong"]
-    ]
-    detections.sort(key=lambda d: (-d["score"], d["type"]))
-
-    project_names: list[dict[str, str]] = []
-    pyproject = workspace / "pyproject.toml"
-    if pyproject.is_file():
-        try:
-            text = pyproject.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            text = ""
-        m = PYPROJECT_NAME_RE.search(text)
-        if m:
-            project_names.append({"value": m.group(1).strip(), "source": "pyproject"})
-    project_names.append({"value": workspace.name, "source": "workspace_dir"})
-
-    name_candidates = _rank_agent_names(py_facts, workspace, project_names)
 
     # Glob candidates, then keep only the ones the input adapters accept —
     # a glob hit (e.g. an mcpServers-style host config matching *mcp*.json)
@@ -1888,6 +3493,46 @@ def detect(workspace: Path) -> dict[str, Any]:
         else:
             failures.append({"type": kind, "path": p, "reason": reason})
     excluded = [e for e in failures if e["path"] not in suggested_paths]
+
+    # The artifact probe runs before the detection loop because the source
+    # route below is scored from its result: an MCP export is the better route
+    # to the same server, so this one stands down wherever one exists (#431).
+    mcp_source = _discover_mcp_server_source(
+        workspace,
+        files,
+        [s["path"] for s in suggested if s["type"] == "mcp"],
+    )
+    _score_mcp_server_source(mcp_source, scores)
+    excluded.extend(mcp_source.excluded)
+    if mcp_source.path is not None:
+        suggested.append({"type": MCP_SOURCE_TYPE, "path": mcp_source.path})
+
+    detections: list[dict[str, Any]] = [
+        {
+            "type": fw,
+            "score": round(st["score"], 2),
+            "confidence": _confidence(st["score"]),
+            "evidence": st["evidence"],
+            "candidate_files": st["candidate_files"],
+        }
+        for fw, st in scores.items()
+        if st["score"] >= 2.0 and st["has_strong"]
+    ]
+    detections.sort(key=lambda d: (-d["score"], d["type"]))
+
+    project_names: list[dict[str, str]] = []
+    pyproject = workspace / "pyproject.toml"
+    if pyproject.is_file():
+        try:
+            text = pyproject.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            text = ""
+        m = PYPROJECT_NAME_RE.search(text)
+        if m:
+            project_names.append({"value": m.group(1).strip(), "source": "pyproject"})
+    project_names.append({"value": workspace.name, "source": "workspace_dir"})
+
+    name_candidates = _rank_agent_names(py_facts, workspace, project_names)
 
     marketplace_paths = [
         path

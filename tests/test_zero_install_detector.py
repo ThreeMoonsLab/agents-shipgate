@@ -29,7 +29,10 @@ from typing import Any
 import pytest
 
 from agents_shipgate.cli.discovery import detect_workspace
+from agents_shipgate.cli.discovery import mcp_source as mcp_source_discovery
+from agents_shipgate.inputs import mcp_server_source
 from agents_shipgate.inputs.codex_plugin import resolve_local_codex_marketplace_roots
+from tests.mcp_idiom_corpus import ESCAPE_CASES, SCANNABLE_PATHS, SOURCE_CASES
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_PATH = REPO_ROOT / "tools" / "shipgate-detect.py"
@@ -126,26 +129,24 @@ def test_script_does_not_claim_drop_in_parity(script_module):
 def test_framework_vocabulary_names_every_cli_omission(script_module):
     """Every framework the CLI can report is either here or a named omission.
 
-    The parity test above compares the two on ``samples/``, which is only as
-    strong as the fixtures: a detection the CLI gains and the script does not
-    is invisible to it until a sample exercises the difference. That is exactly
-    what happened with ``mcp_server_source`` (#431) — the CLI reads an MCP
-    server's tool names out of TypeScript or Go registration sites, no sample
-    contains one, and the script goes on reporting a repository like
-    ``mongodb-js/mongodb-mcp-server`` as *not an agent project*.
+    The parity sweep compares the two on ``samples/``, which is only as strong
+    as the fixtures: a detection the CLI gains and the script does not is
+    invisible to it until a sample exercises the difference. That is exactly
+    what happened with ``mcp_server_source`` (#431) — the CLI learned to read
+    an MCP server's tool names out of TypeScript or Go registration sites, no
+    sample contained one, and the script went on reporting
+    ``mongodb-js/mongodb-mcp-server`` as *not an agent project* for a whole
+    release. #485 ported it, and ``known_omissions`` is empty again.
 
-    So the omission is written down instead of discovered. Adding a detection
-    to the CLI now fails here until it is either ported or listed, and the list
-    is the thing a reader can check against the script's own documented
-    simplifications.
+    Keep it that way, or write the next omission down here rather than leaving
+    it to be discovered on someone's repository. A listed omission also has to
+    be legible in the script itself: a reader of the file must be able to find
+    it without reading this test.
     """
 
     from agents_shipgate.cli.discovery.signals import _initial_framework_scores
 
-    # Documented, deliberate, and filed as #485. Porting the reader means a
-    # second implementation of the load-bearing matcher, which needs its own
-    # increment and a conformance corpus shared with the package.
-    known_omissions = {"mcp_server_source"}
+    known_omissions: set[str] = set()
 
     cli = set(_initial_framework_scores())
     script = set(script_module.FRAMEWORKS)
@@ -164,6 +165,25 @@ def test_framework_vocabulary_names_every_cli_omission(script_module):
             f"{omitted!r} is a known omission but the script never says so; "
             "a reader of the script cannot discover it."
         )
+
+
+def test_conventional_directory_frameworks_match_the_cli(script_module):
+    """A conventional directory is weak evidence for the same list on both sides.
+
+    Not every framework: ``mcp_server_source``'s evidence is already a
+    conjunction, so a ``tools/`` directory adds nothing it does not have, and
+    adding it would carry the published confidence to ``high`` for a route the
+    engine caps at ``medium``. That exclusion never changes which frameworks
+    fire, so no parity assertion over a workspace can see it — which is why it
+    is pinned by value here.
+    """
+
+    from agents_shipgate.cli.discovery.signals import CONVENTIONAL_DIR_FRAMEWORKS
+
+    assert (
+        tuple(script_module.CONVENTIONAL_DIR_FRAMEWORKS)
+        == CONVENTIONAL_DIR_FRAMEWORKS
+    )
 
 
 def test_script_emits_canonical_top_level_keys(script_module):
@@ -206,23 +226,31 @@ def _write_skipped_fixture_signals(root: Path) -> None:
     (plugin / "plugin.json").write_text("{}", encoding="utf-8")
 
 
-@pytest.mark.parametrize("sample_dir", _sample_dirs(), ids=_sample_ids())
-def test_script_verdict_matches_cli(script_module, sample_dir):
-    """Structural parity: for every sample, the zero-install script
-    must agree with the canonical CLI on (a) ``is_agent_project``,
-    (b) the set of fired frameworks, (c) the set of suggested-source
-    types and paths, (d) the set of excluded-source types and paths,
-    and (e) workspace-signals keys."""
-    if sample_dir.name in SCRIPT_PARITY_GAPS:
-        pytest.skip(
-            f"{sample_dir.name}: zero-install script parity not yet implemented "
-            "(see SCRIPT_PARITY_GAPS)."
-        )
-    script_result = script_module.detect(sample_dir)
-    cli_result = detect_workspace(sample_dir.resolve()).model_dump(mode="json")
+def _framework(result: dict[str, Any], framework: str) -> dict[str, Any] | None:
+    return next(
+        (item for item in result["frameworks"] if item["type"] == framework), None
+    )
+
+
+def _assert_detect_parity(script_module, workspace: Path, label: str) -> None:
+    """Structural parity on one workspace: the script must agree with the
+    canonical CLI on (a) ``is_agent_project``, (b) the set of fired
+    frameworks, (c) the set of suggested-source types and paths, (d) the set
+    of excluded-source types and paths, and (e) workspace-signals keys.
+
+    One function, called by the ``samples/`` sweep and by the constructed
+    workspaces below. A second comparison written beside this one would be a
+    weaker comparison: the route added in #485 is exercised by workspaces no
+    sample has, and pinning it against a hand-written subset of these
+    assertions is how the two detectors would agree on everything anybody
+    checked and differ everywhere else.
+    """
+
+    script_result = script_module.detect(workspace)
+    cli_result = detect_workspace(workspace.resolve()).model_dump(mode="json")
 
     assert script_result["is_agent_project"] == cli_result["is_agent_project"], (
-        f"{sample_dir.name}: is_agent_project diverged "
+        f"{label}: is_agent_project diverged "
         f"(script={script_result['is_agent_project']}, "
         f"cli={cli_result['is_agent_project']})."
     )
@@ -230,10 +258,47 @@ def test_script_verdict_matches_cli(script_module, sample_dir):
     script_frameworks = sorted(f["type"] for f in script_result["frameworks"])
     cli_frameworks = sorted(f["type"] for f in cli_result["frameworks"])
     assert script_frameworks == cli_frameworks, (
-        f"{sample_dir.name}: framework set diverged "
+        f"{label}: framework set diverged "
         f"(script={script_frameworks!r}, cli={cli_frameworks!r}). "
         "The script's scoring rules must match cli/discovery/signals.py."
     )
+
+    # `mcp_server_source` is the one framework whose score and evidence are
+    # pinned as well as its presence. The looseness the rest of this contract
+    # grants — ±0.5 on the score, descriptive rather than byte-identical
+    # strings — was granted to detections scored from many heuristic signals
+    # and described in the script's own words. This one has exactly two
+    # scoring inputs, a resolved registration and a declared dependency, and
+    # its lines are rendered by a function ported verbatim; there is nothing
+    # here for the script to paraphrase.
+    #
+    # Both halves are load-bearing and invisible to every other assertion. The
+    # dependency is what carries the published label to `medium` rather than to
+    # the weakest thing discovery can say, and the framework fires either way.
+    # And the conditional lines are claims, not prose: "61 tools" without "and
+    # 3 more this reader cannot name" is the over-claim this whole input exists
+    # to avoid, and a detector that dropped it would agree on the verdict and
+    # publish a different fact about it (#485).
+    script_mcp = _framework(script_result, mcp_server_source.SOURCE_TYPE)
+    cli_mcp = _framework(cli_result, mcp_server_source.SOURCE_TYPE)
+    assert (script_mcp is None) == (cli_mcp is None)
+    if script_mcp is not None and cli_mcp is not None:
+        assert (
+            script_mcp["score"],
+            script_mcp["confidence"],
+            script_mcp["evidence"],
+        ) == (
+            cli_mcp["score"],
+            cli_mcp["confidence"],
+            cli_mcp["evidence"],
+        ), (
+            f"{label}: the MCP registration route reported a different "
+            f"score/confidence/evidence "
+            f"(script={script_mcp['score']}/{script_mcp['confidence']}/"
+            f"{script_mcp['evidence']}, "
+            f"cli={cli_mcp['score']}/{cli_mcp['confidence']}/"
+            f"{cli_mcp['evidence']})."
+        )
 
     script_sources = sorted(
         (s["type"], s["path"]) for s in script_result["suggested_sources"]
@@ -242,8 +307,23 @@ def test_script_verdict_matches_cli(script_module, sample_dir):
         (s["type"], s["path"]) for s in cli_result["suggested_sources"]
     )
     assert script_sources == cli_sources, (
-        f"{sample_dir.name}: suggested_sources diverged "
+        f"{label}: suggested_sources diverged "
         f"(script={script_sources!r}, cli={cli_sources!r})."
+    )
+
+    assert sorted(
+        (s["path"], s["reason"])
+        for s in script_result["excluded_sources"]
+        if s["type"] == mcp_server_source.SOURCE_TYPE
+    ) == sorted(
+        (s["path"], s["reason"])
+        for s in cli_result["excluded_sources"]
+        if s["type"] == mcp_server_source.SOURCE_TYPE
+    ), (
+        f"{label}: the withheld MCP registration route was explained "
+        "differently. The reason is the only thing a reader gets when a route "
+        "disappears, and a route that vanishes without one is "
+        "indistinguishable from one nobody implemented."
     )
 
     script_excluded = sorted(
@@ -253,7 +333,7 @@ def test_script_verdict_matches_cli(script_module, sample_dir):
         (s["type"], s["path"]) for s in cli_result["excluded_sources"]
     )
     assert script_excluded == cli_excluded, (
-        f"{sample_dir.name}: excluded_sources diverged "
+        f"{label}: excluded_sources diverged "
         f"(script={script_excluded!r}, cli={cli_excluded!r}). "
         "The script's stdlib parse probe must reject the same JSON "
         "candidates as cli/discovery/artifacts.py:probe_suggested_source."
@@ -266,12 +346,12 @@ def test_script_verdict_matches_cli(script_module, sample_dir):
         (s["mode"], s["path"]) for s in cli_result["codex_plugin_candidates"]
     )
     assert script_codex == cli_codex, (
-        f"{sample_dir.name}: codex_plugin_candidates diverged "
+        f"{label}: codex_plugin_candidates diverged "
         f"(script={script_codex!r}, cli={cli_codex!r})."
     )
 
     assert script_result["agent_scope"] == cli_result["agent_scope"], (
-        f"{sample_dir.name}: agent_scope diverged "
+        f"{label}: agent_scope diverged "
         f"(script={script_result['agent_scope']!r}, "
         f"cli={cli_result['agent_scope']!r}). An agent that consults the "
         "zero-install path must not adopt a scope the CLI refuses."
@@ -280,7 +360,7 @@ def test_script_verdict_matches_cli(script_module, sample_dir):
         script_result["python_parse_truncated"]
         == cli_result["python_parse_truncated"]
     ), (
-        f"{sample_dir.name}: python_parse_truncated diverged "
+        f"{label}: python_parse_truncated diverged "
         f"(script={script_result['python_parse_truncated']!r}, "
         f"cli={cli_result['python_parse_truncated']!r}). It is the guard every "
         "whole-workspace negative is gated on, `is_agent_project: false` "
@@ -291,7 +371,7 @@ def test_script_verdict_matches_cli(script_module, sample_dir):
         script_result["agent_scope_truncated"]
         == cli_result["agent_scope_truncated"]
     ), (
-        f"{sample_dir.name}: agent_scope_truncated diverged "
+        f"{label}: agent_scope_truncated diverged "
         f"(script={script_result['agent_scope_truncated']!r}, "
         f"cli={cli_result['agent_scope_truncated']!r}). It says whether "
         "agent_project_candidates enumerates the workspace or only the part "
@@ -307,14 +387,14 @@ def test_script_verdict_matches_cli(script_module, sample_dir):
         for c in cli_result["agent_project_candidates"]
     )
     assert script_projects == cli_projects, (
-        f"{sample_dir.name}: agent_project_candidates diverged "
+        f"{label}: agent_project_candidates diverged "
         f"(script={script_projects!r}, cli={cli_projects!r})."
     )
 
     cli_signals = cli_result["workspace_signals"]
     script_signals = script_result["workspace_signals"]
     assert set(script_signals) == set(cli_signals), (
-        f"{sample_dir.name}: workspace_signals keys diverged "
+        f"{label}: workspace_signals keys diverged "
         f"(script={set(script_signals)!r}, cli={set(cli_signals)!r})."
     )
     # Keys alone let the same named field mean two different things. When the
@@ -325,14 +405,14 @@ def test_script_verdict_matches_cli(script_module, sample_dir):
     # they are compared by value.
     for key in ("has_prompts_dir", "has_tools_dir", "conventional_dirs"):
         assert script_signals[key] == cli_signals[key], (
-            f"{sample_dir.name}: workspace_signals[{key!r}] diverged "
+            f"{label}: workspace_signals[{key!r}] diverged "
             f"(script={script_signals[key]!r}, cli={cli_signals[key]!r}). "
             "The script must mirror cli/discovery/signals.py:"
             "_conventional_dir_locations exactly."
         )
 
     assert script_result["agent_name_candidates"] == cli_result["agent_name_candidates"], (
-        f"{sample_dir.name}: agent_name_candidates diverged.\n"
+        f"{label}: agent_name_candidates diverged.\n"
         f"script={script_result['agent_name_candidates']!r}\n"
         f"cli={cli_result['agent_name_candidates']!r}\n"
         "The ranking decides which agent the generated manifest declares as "
@@ -340,6 +420,16 @@ def test_script_verdict_matches_cli(script_module, sample_dir):
         "the script's rules must match "
         "cli/discovery/signals.py:_rank_agent_name_candidates exactly."
     )
+
+
+@pytest.mark.parametrize("sample_dir", _sample_dirs(), ids=_sample_ids())
+def test_script_verdict_matches_cli(script_module, sample_dir):
+    if sample_dir.name in SCRIPT_PARITY_GAPS:
+        pytest.skip(
+            f"{sample_dir.name}: zero-install script parity not yet implemented "
+            "(see SCRIPT_PARITY_GAPS)."
+        )
+    _assert_detect_parity(script_module, sample_dir, sample_dir.name)
 
 
 @pytest.mark.parametrize("sample_dir", _sample_dirs(), ids=_sample_ids())
@@ -1085,3 +1175,542 @@ def test_script_locates_nested_conventional_dirs_like_the_cli(
         "awslabs/billing_cost_management_mcp_server/tools",
     ]
     assert cli_signals["has_tools_dir"] is True
+
+
+# --- The two MCP registration readers ---------------------------------------
+#
+# `tools/shipgate-detect.py` carries a stdlib-only port of
+# `agents_shipgate.inputs.mcp_idioms` (#485). That is a second implementation
+# of a load-bearing matcher, which is the recurring bug class in this
+# repository, so it is not held to the CLI's answers by inspection: every case
+# either reader has ever been asked about lives once in
+# `tests/mcp_idiom_corpus.py`, and the tests below drive all of it through
+# both. Add a case there, never in one test file — a case added to one is a
+# case the other reader was never asked.
+
+
+def _site_fields(site: Any) -> dict[str, Any]:
+    """One site as plain data, for comparison across the two implementations.
+
+    Every field, ``span`` included. The span is not cosmetic: containment of
+    one span in another is what decides whether a wrapper call reports a second
+    omission for a tool its own argument already named, so two readers with
+    matching names and different spans disagree about the exclusion ledger.
+    """
+
+    return {
+        "idiom": site.idiom,
+        "name": site.name,
+        "line": site.line,
+        "column": site.column,
+        "span": tuple(site.span),
+        "description": site.description,
+        "operation_type": site.operation_type,
+        "unresolved_reason": site.unresolved_reason,
+    }
+
+
+@pytest.mark.parametrize(
+    "case", SOURCE_CASES, ids=[case.case for case in SOURCE_CASES]
+)
+def test_both_readers_resolve_the_corpus_identically(script_module, case):
+    """Same sites, same fields, same anomalies — from the same source text."""
+
+    from agents_shipgate.inputs import mcp_idioms
+
+    cli = mcp_idioms.scan_source(case.text, case.language)
+    script = script_module.scan_source(case.text, case.language)
+
+    assert [_site_fields(site) for site in script.sites] == [
+        _site_fields(site) for site in cli.sites
+    ], (
+        f"{case.case}: the zero-install reader and "
+        "agents_shipgate.inputs.mcp_idioms resolved different registration "
+        "sites for the same source."
+    )
+    assert script.anomalies == cli.anomalies, (
+        f"{case.case}: the two readers disagree about whether this file could "
+        "be masked at all, which decides whether its surface is reported "
+        "complete or partial."
+    )
+
+
+@pytest.mark.parametrize(
+    "case", SOURCE_CASES, ids=[case.case for case in SOURCE_CASES]
+)
+def test_neither_reader_answers_differently_on_a_crlf_checkout(script_module, case):
+    """A Windows checkout is a supported one, and it changes every offset.
+
+    Git for Windows translates line endings on checkout by default, so the
+    detector a maintainer curls onto their own repository is reading `\r\n`
+    source. The maskers work in offsets and the value tests skip `\r` before
+    looking for a terminator, so the answer should not move — but "should not"
+    is what a test is for, and this repository has lost a day to CRLF in a
+    corpus reader before.
+
+    Names, omissions and anomalies rather than whole sites: the two carriage
+    returns per line legitimately shift every line's spans. The readers are
+    still compared to each other in full, because they see identical bytes.
+    """
+
+    from agents_shipgate.inputs import mcp_idioms
+
+    crlf = case.text.replace("\n", "\r\n")
+
+    def answer(result):
+        return (
+            sorted(site.name for site in result.sites if site.name),
+            sorted(
+                site.unresolved_reason for site in result.sites if site.name is None
+            ),
+            result.anomalies,
+        )
+
+    lf = mcp_idioms.scan_source(case.text, case.language)
+    cli = mcp_idioms.scan_source(crlf, case.language)
+    script = script_module.scan_source(crlf, case.language)
+
+    assert answer(cli) == answer(lf), (
+        f"{case.case}: the CLI reader answers differently on a CRLF checkout"
+    )
+    assert [_site_fields(site) for site in script.sites] == [
+        _site_fields(site) for site in cli.sites
+    ], f"{case.case}: the two readers diverge on a CRLF checkout"
+    assert script.anomalies == cli.anomalies
+
+
+@pytest.mark.parametrize(
+    ("path", "scannable"), SCANNABLE_PATHS, ids=[case[0] for case in SCANNABLE_PATHS]
+)
+def test_both_readers_open_the_same_files(script_module, path: str, scannable: bool):
+    """The path predicate decides which files are the surface at all.
+
+    A disagreement here is a tool one detector can see and the other cannot,
+    before any masking happens — and it is the half of the contract that a
+    source-text corpus can never reach.
+    """
+
+    from agents_shipgate.inputs import mcp_idioms
+
+    assert script_module.is_scannable_path(path) is scannable
+    assert mcp_idioms.is_scannable_path(path) is scannable
+
+
+@pytest.mark.parametrize(
+    ("body", "language", "expected"),
+    ESCAPE_CASES,
+    ids=[f"{language}:{body}" for body, language, _expected in ESCAPE_CASES],
+)
+def test_both_readers_decode_escapes_identically(
+    script_module, body: str, language: str, expected: str | None
+):
+    """A decoder that differs by one grammar publishes a name nobody serves.
+
+    Go writes an octal escape as three digits, so ``MustTool("delete\\137all")``
+    registers ``delete_all``; a JavaScript-shaped decoder produced
+    ``delete137all`` — the real action absent from the catalog and an id
+    nobody serves standing in for it. Two decoders make that failure possible
+    twice.
+    """
+
+    from agents_shipgate.inputs import mcp_idioms
+
+    assert script_module.decode_literal(body, language) == expected
+    assert mcp_idioms.decode_literal(body, language) == expected
+
+
+def test_the_script_implements_every_idiom_the_cli_registry_publishes(script_module):
+    """An idiom the CLI gains and the script does not is #485 happening again.
+
+    The corpus sweep would catch it too — every idiom is required to have a
+    positive sample, and the sample would resolve on one side only — but the
+    failure would read as one mysterious case rather than as a missing idiom.
+
+    Pinned from both sides, because a constant no code reads can describe a
+    reader it has drifted from: equal to the CLI registry, *and* equal to the
+    ids the script's own reader emits across the corpus — which is the whole
+    registry, since every idiom is required to have a positive sample.
+    """
+
+    from agents_shipgate.inputs.mcp_idioms import IDIOMS_BY_ID
+
+    assert set(script_module.IDIOM_IDS) == set(IDIOMS_BY_ID)
+
+    emitted = {
+        site.idiom
+        for case in SOURCE_CASES
+        for site in script_module.scan_source(case.text, case.language).sites
+    }
+    assert emitted == set(script_module.IDIOM_IDS)
+
+
+def test_the_script_records_omissions_in_the_cli_vocabulary(script_module):
+    """A reason spelled differently is a second vocabulary for one event.
+
+    Asserted over what the reader produces rather than over a constant listing
+    what it might: the script emits site-level reasons only — the file-level
+    ones (``file_too_large``, ``unreadable_file``) belong to the scan-time
+    adapter — so a copied constant would have pinned four tokens no code here
+    can reach.
+    """
+
+    from agents_shipgate.inputs.mcp_idioms import OMISSION_REASONS
+
+    produced = {
+        site.unresolved_reason
+        for case in SOURCE_CASES
+        for site in script_module.scan_source(case.text, case.language).sites
+        if site.unresolved_reason is not None
+    }
+    assert produced, "the corpus no longer exercises a single unresolved site"
+    assert produced <= set(OMISSION_REASONS)
+
+
+def test_the_script_mirrors_the_readers_shared_vocabulary(script_module):
+    """Constants that decide what either reader looks at, pinned by value.
+
+    Each of these is a silent divergence rather than a loud one: a framework
+    package missing from one list withholds the whole route in that detector
+    and says nothing, and an omission reason spelled differently is a second
+    vocabulary for one event.
+    """
+
+    from agents_shipgate.inputs import mcp_idioms
+
+    assert script_module.LANGUAGE_EXTENSIONS == mcp_idioms.LANGUAGE_EXTENSIONS
+    assert (
+        script_module.TYPESCRIPT_FRAMEWORK_PACKAGES
+        == mcp_idioms.TYPESCRIPT_FRAMEWORK_PACKAGES
+    )
+    assert script_module.GO_FRAMEWORK_MODULES == mcp_idioms.GO_FRAMEWORK_MODULES
+    assert script_module.SKIP_DIRECTORY_NAMES == mcp_idioms.SKIP_DIRECTORY_NAMES
+    assert script_module.TEST_DIRECTORY_NAMES == mcp_idioms.TEST_DIRECTORY_NAMES
+    assert script_module.PREFILTER_TOKEN == mcp_idioms.PREFILTER_TOKEN
+    assert script_module.TOOL_NAME_RE.pattern == mcp_idioms.TOOL_NAME_RE.pattern
+    assert script_module.MAX_SOURCE_FILE_BYTES == mcp_idioms.MAX_SOURCE_FILE_BYTES
+    assert script_module.MCP_SOURCE_TYPE == mcp_server_source.SOURCE_TYPE
+    assert (
+        script_module.DEFAULT_MAX_SOURCE_FILES
+        == mcp_source_discovery.DEFAULT_MAX_SOURCE_FILES
+    )
+
+
+# --- The MCP source route, on workspaces no sample has ----------------------
+#
+# `samples/mcp_source_only_server` pins the plain case through the sweep above.
+# These are the branches around it, and every one of them is a place a route
+# can be withheld: withholding is invisible in a verdict that was already
+# `true`, so a detector that withheld for the wrong reason would look identical
+# to one that did not.
+
+
+def _write(root: Path, files: dict[str, str]) -> Path:
+    for name, body in files.items():
+        target = root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(body, encoding="utf-8")
+    return root
+
+
+_TS_PACKAGE_JSON = '{"name": "srv", "dependencies": {"@modelcontextprotocol/sdk": "^1.0.0"}}'
+_GO_MOD = "module example.com/srv\n\ngo 1.23\n\nrequire github.com/mark3labs/mcp-go v0.30.0\n"
+_TS_REGISTRATION = 'server.registerTool("search_docs", { inputSchema: shape }, handler);\n'
+_GO_REGISTRATION = 'var Incident = mcpgrafana.MustTool("update_incident", "Update", update)\n'
+
+_MCP_ROUTE_WORKSPACES: dict[str, dict[str, str]] = {
+    # The plain TypeScript route: a declared SDK dependency and a name
+    # resolved at a registration site.
+    "typescript_source_only": {
+        "package.json": _TS_PACKAGE_JSON,
+        "src/tools/search.ts": _TS_REGISTRATION,
+    },
+    # The same shape in Go, which is two of the three vendor servers this
+    # input exists for.
+    "go_source_only": {
+        "go.mod": _GO_MOD,
+        "pkg/incident.go": _GO_REGISTRATION,
+    },
+    # No declared MCP dependency: a class of one's own spelling a field
+    # `toolName` is a coincidence until something says otherwise, so neither
+    # detector may offer the route.
+    "registrations_without_a_declared_dependency": {
+        "package.json": '{"name": "srv", "dependencies": {"express": "^4.0.0"}}',
+        "src/tools/search.ts": _TS_REGISTRATION,
+    },
+    # The dependency is declared and nothing resolves: "uses MCP" is what
+    # every client can say, so it is not a tool surface.
+    "dependency_without_a_resolved_registration": {
+        "package.json": _TS_PACKAGE_JSON,
+        "src/tools/search.ts": "server.registerTool(NAME, { inputSchema: shape }, h);\n",
+    },
+    # A test's fake tool is not the published surface.
+    "registrations_only_under_tests": {
+        "package.json": _TS_PACKAGE_JSON,
+        "src/__tests__/search.ts": _TS_REGISTRATION,
+    },
+    # An export naming every registration wins: it is the server's own
+    # published contract, carries the input schemas this route does not read,
+    # and is high confidence against medium. The route is withheld and named
+    # in `excluded_sources`, never silently dropped.
+    "export_covers_every_registration": {
+        "package.json": _TS_PACKAGE_JSON,
+        "src/tools/search.ts": _TS_REGISTRATION,
+        "mcp-tools.json": '{"tools": [{"name": "search_docs", "description": "d"}]}',
+    },
+    # A partial export used to withhold the route anyway, which deleted the
+    # registrations it does not name. Both routes are suggested instead.
+    "export_covers_part_of_the_surface": {
+        "package.json": _TS_PACKAGE_JSON,
+        "src/tools/search.ts": _TS_REGISTRATION,
+        "src/tools/index.ts": 'server.registerTool("list_docs", { inputSchema: s }, h);\n',
+        "mcp-tools.json": '{"tools": [{"name": "search_docs", "description": "d"}]}',
+    },
+    # A wildcard export enumerates nothing, so it can never be shown to
+    # contain anything: the source route stands, and the evidence says an
+    # export is present that names none of these registrations. The shape is
+    # the one the CLI's own wildcard test uses.
+    "wildcard_export_contains_nothing": {
+        "package.json": _TS_PACKAGE_JSON,
+        "src/tools/search.ts": _TS_REGISTRATION,
+        "mcp-tools.json": '{"wildcard": true, "tools": []}',
+    },
+    # Two registration directories: the route is their common ancestor, which
+    # is the directory the adapter walks once the manifest points at it.
+    "registrations_in_two_directories": {
+        "package.json": _TS_PACKAGE_JSON,
+        "src/tools/search.ts": _TS_REGISTRATION,
+        "src/admin/drop.ts": 'class T { static toolName = "drop-database"; }\n',
+    },
+    # Both languages register in one repository — `mcp-grafana` is shaped this
+    # way — so the route is the ancestor of both and the evidence names the
+    # pair. A port that resolved one language's gate but not the other would
+    # still offer a route, just a narrower one.
+    "both_languages_register_tools": {
+        "package.json": _TS_PACKAGE_JSON,
+        "go.mod": _GO_MOD,
+        "internal/ts/search.ts": _TS_REGISTRATION,
+        "internal/go/incident.go": _GO_REGISTRATION,
+    },
+    # Both gates open and only one language actually registers — the shape
+    # `grafana/mcp-grafana` has, where a `ui/` package declares an MCP
+    # dependency and every tool is in Go. The evidence names the language the
+    # tools were *read* in, not the languages the workspace declared; naming
+    # both would say a TypeScript surface exists that this reader never found.
+    "a_declared_language_that_registers_nothing": {
+        "package.json": _TS_PACKAGE_JSON,
+        "go.mod": _GO_MOD,
+        "pkg/incident.go": _GO_REGISTRATION,
+        "src/client.ts": "const client = new Client();\nawait client.callTool(x);\n",
+    },
+    # An unresolved registration outside the route directory. The count is
+    # taken over the directory the route points at, so this one is *not*
+    # reported: naming a registration `scan` will never reach is the mirror of
+    # the over-claim the count exists to prevent.
+    "an_unresolved_site_outside_the_route": {
+        "package.json": _TS_PACKAGE_JSON,
+        "src/tools/search.ts": _TS_REGISTRATION,
+        "other/registry.ts": "server.registerTool(NAME, { inputSchema: s }, h);\n",
+    },
+    # A single-file server registers at the workspace root, so the route is
+    # `"."` — its own branch in the unresolved-count rollup, and the one route
+    # path that also reaches `agent_project_candidates` as a bare workspace.
+    "registrations_at_the_workspace_root": {
+        "package.json": _TS_PACKAGE_JSON,
+        "server.ts": _TS_REGISTRATION
+        + "server.registerTool(DYNAMIC, { inputSchema: shape }, handler);\n",
+    },
+}
+
+
+@pytest.mark.parametrize("case", sorted(_MCP_ROUTE_WORKSPACES), ids=sorted(_MCP_ROUTE_WORKSPACES))
+def test_script_and_cli_agree_on_the_mcp_source_route(script_module, tmp_path, case):
+    workspace = _write(tmp_path / case, _MCP_ROUTE_WORKSPACES[case])
+    _assert_detect_parity(script_module, workspace, case)
+
+
+def test_the_constructed_route_workspaces_actually_exercise_the_route(tmp_path):
+    """The parity assertions above pass on two detectors that both do nothing.
+
+    A fixture set that never fires the route would agree perfectly and prove
+    nothing — the same vacuum `test_script_verdict_matches_cli` sat in for a
+    whole release. So the CLI's own answers are pinned here: which of these
+    workspaces offers the route, which withholds it and says why, and which
+    never had one.
+    """
+
+    routed: dict[str, str | None] = {}
+    excluded: dict[str, list[str]] = {}
+    for case, files in _MCP_ROUTE_WORKSPACES.items():
+        workspace = _write(tmp_path / case, files)
+        result = detect_workspace(workspace.resolve()).model_dump(mode="json")
+        routed[case] = next(
+            (
+                source["path"]
+                for source in result["suggested_sources"]
+                if source["type"] == mcp_server_source.SOURCE_TYPE
+            ),
+            None,
+        )
+        excluded[case] = [
+            source["path"]
+            for source in result["excluded_sources"]
+            if source["type"] == mcp_server_source.SOURCE_TYPE
+        ]
+
+    assert routed == {
+        "typescript_source_only": "src/tools",
+        "go_source_only": "pkg",
+        "registrations_without_a_declared_dependency": None,
+        "dependency_without_a_resolved_registration": None,
+        "registrations_only_under_tests": None,
+        "export_covers_every_registration": None,
+        "export_covers_part_of_the_surface": "src/tools",
+        "wildcard_export_contains_nothing": "src/tools",
+        "registrations_in_two_directories": "src",
+        "registrations_at_the_workspace_root": ".",
+        "both_languages_register_tools": "internal",
+        "a_declared_language_that_registers_nothing": "pkg",
+        "an_unresolved_site_outside_the_route": "src/tools",
+    }
+    assert excluded == {
+        "typescript_source_only": [],
+        "go_source_only": [],
+        "registrations_without_a_declared_dependency": [],
+        "dependency_without_a_resolved_registration": [],
+        "registrations_only_under_tests": [],
+        "export_covers_every_registration": ["src/tools"],
+        "export_covers_part_of_the_surface": [],
+        "wildcard_export_contains_nothing": [],
+        "registrations_in_two_directories": [],
+        "registrations_at_the_workspace_root": [],
+        "both_languages_register_tools": [],
+        "a_declared_language_that_registers_nothing": [],
+        "an_unresolved_site_outside_the_route": [],
+    }
+
+
+def test_script_and_cli_refuse_the_same_undecodable_source_file(
+    script_module, tmp_path
+):
+    """One decoding contract across both detectors, not just one path predicate.
+
+    Discovery decoding with ``errors="replace"`` was already a shipped defect
+    once: ``detect`` resolved a registration out of a file the scan-time loader
+    then refuses as ``unreadable_file``, so the route it named enumerated fewer
+    tools than it promised. A port that shares the path predicate and not the
+    read reintroduces exactly that, in the detector a cold maintainer runs
+    first.
+
+    The undecodable bytes sit in a *comment*, with an ordinary registration
+    beside them. Bad bytes inside the name would make both readers agree for
+    the wrong reason — replacement characters fail the tool-name shape, so a
+    lenient decode and a strict refusal produce the same empty answer.
+    """
+
+    workspace = tmp_path / "mixed"
+    (workspace / "src" / "tools").mkdir(parents=True)
+    (workspace / "legacy").mkdir()
+    (workspace / "package.json").write_text(_TS_PACKAGE_JSON, encoding="utf-8")
+    (workspace / "src" / "tools" / "search.ts").write_text(
+        _TS_REGISTRATION, encoding="utf-8"
+    )
+    # A lenient reader resolves `legacy_tool` here and widens the route's
+    # common ancestor from `src/tools` to the workspace root, which is what
+    # makes the difference visible in the verdict rather than only in a count.
+    (workspace / "legacy" / "broken.ts").write_bytes(
+        b"// \xff\xfe\n" b'server.registerTool("legacy_tool", {}, handler);\n'
+    )
+
+    _assert_detect_parity(script_module, workspace, "undecodable_source_file")
+
+    cli_result = detect_workspace(workspace.resolve()).model_dump(mode="json")
+    assert [
+        source["path"]
+        for source in cli_result["suggested_sources"]
+        if source["type"] == mcp_server_source.SOURCE_TYPE
+    ] == ["src/tools"], (
+        "the undecodable file was read after all, so this fixture no longer "
+        "distinguishes a strict read from a lenient one"
+    )
+
+
+def test_script_and_cli_stop_at_the_same_source_file_cap(script_module, tmp_path):
+    """The cap, and the flag that reports it, describe the same walk in both.
+
+    Unreachable through ``detect`` without 1500 source files, and it is not a
+    cosmetic bound: which files are read decides which names are found, so two
+    detectors capping differently would name different tools and point at
+    different route directories on any repository large enough to hit it. The
+    CLI shipped a version that reported ``truncated`` while reading every file;
+    the port has its own copy of that slice.
+    """
+
+    workspace = tmp_path / "many"
+    (workspace / "src").mkdir(parents=True)
+    (workspace / "package.json").write_text(_TS_PACKAGE_JSON, encoding="utf-8")
+    for index in range(6):
+        (workspace / "src" / f"t{index}.ts").write_text(
+            f'server.registerTool("tool_{index}", {{}}, handler);\n', encoding="utf-8"
+        )
+
+    from agents_shipgate.cli.discovery.artifacts import _candidate_files
+
+    for cap in (2, 6, 10):
+        cli = mcp_source_discovery.discover_mcp_server_source(
+            workspace,
+            files=_candidate_files(workspace),
+            max_source_files=cap,
+        )
+        script = script_module._discover_mcp_server_source(
+            workspace, script_module._inventory(workspace), [], cap
+        )
+        assert (script.path, script.tool_names, script.truncated) == (
+            cli.path,
+            cli.tool_names,
+            cli.truncated,
+        ), f"the two detectors read different files at max_source_files={cap}"
+
+    # And the fixture is only meaningful because the cap actually binds at 2.
+    assert mcp_source_discovery.discover_mcp_server_source(
+        workspace, files=_candidate_files(workspace), max_source_files=2
+    ).truncated is True
+
+
+def test_an_export_past_the_size_bound_does_not_withhold_the_source_route(
+    script_module, tmp_path, monkeypatch
+):
+    """The bound is the loader's, so the outcome has to be the loader's too.
+
+    ``load_mcp_tools`` refuses an input over 10 MB before parsing it, so on the
+    CLI side an oversized export is excluded at the probe and never reaches the
+    containment test — the source route stands. The port reads the file itself,
+    so without the same bound it would read an arbitrarily large JSON out of an
+    unknown repository *and* withhold a route the CLI keeps.
+
+    Driven by lowering the bound rather than by writing a 10 MB fixture; the
+    file being over it is the whole condition.
+    """
+
+    workspace = _write(
+        tmp_path / "big-export", _MCP_ROUTE_WORKSPACES["export_covers_every_registration"]
+    )
+
+    withheld = script_module.detect(workspace)
+    assert [
+        source["path"]
+        for source in withheld["excluded_sources"]
+        if source["type"] == script_module.MCP_SOURCE_TYPE
+    ] == ["src/tools"], "the fixture no longer withholds the route at all"
+
+    monkeypatch.setattr(script_module, "MAX_STRUCTURED_FILE_BYTES", 8)
+    kept = script_module.detect(workspace)
+    assert [
+        source["path"]
+        for source in kept["suggested_sources"]
+        if source["type"] == script_module.MCP_SOURCE_TYPE
+    ] == ["src/tools"]
+    assert not [
+        source
+        for source in kept["excluded_sources"]
+        if source["type"] == script_module.MCP_SOURCE_TYPE
+    ]

@@ -40,6 +40,72 @@
   is "names a tag that exists", so it holds on the first commit after the tag
   too.
 
+- **Four lexer defects in the MCP registration reader, fixed in both
+  implementations.** (#485 review) Found reviewing the zero-install port; all
+  four were in the reader #431 shipped, so the port had copied them rather than
+  introduced them. Two invent a tool name, which is the one outcome a reader of
+  a *name* cannot afford, and two lose a whole file's surface:
+
+  - A `${…}` holds code, so a brace inside a string, comment, regex or nested
+    template is not a structural brace. ``const msg = `brace: ${"{"}`;`` left
+    the substitution open and consumed the rest of the file as one unterminated
+    template — every registration after that line gone, and a workspace
+    declaring an MCP dependency reported as "not an agent project" over a brace
+    in a string.
+  - A line break ends a JavaScript initializer only when what follows cannot
+    continue the expression. `static toolName = "safe"` with `+ "_delete"` on
+    the next line published `safe` at `medium` confidence for a tool the server
+    registers as `safe_delete`.
+  - The regex heuristic now resolves the keyword in front of a slash from the
+    *masked* source. Read from the raw text, a comment between `if` and its
+    condition hid the keyword, the slash was read as division, and the pattern
+    was scanned as code — reporting a tool invented out of a regex body, which
+    is precisely what masking exists to make impossible.
+  - A backslash before CRLF is one line continuation, not `\r` plus a line
+    break. The identical file resolved its registration on a Unix checkout and
+    lost it on a Git-for-Windows one.
+
+  Each is an expected-result case in `tests/mcp_idiom_corpus.py`, so both
+  readers are pinned to the corrected behaviour rather than to each other's
+  agreement, and the CRLF sweep now has a continuation case that actually
+  exercises it. The three vendor servers this input exists for are unaffected —
+  61, 114 and 114 tools before and after.
+
+- **The zero-install detector reads MCP registration sites, so it stops
+  telling vendor MCP server maintainers to stop.** (#485) `tools/shipgate-detect.py`
+  is the documented first command run against a repository that has *not*
+  adopted Shipgate — which is every repository #431 was about. #431 taught the
+  installed CLI to read a tool's name out of a TypeScript or Go registration
+  site; the script did not gain it, so the two disagreed on the one question
+  the script exists to answer: `mongodb-js/mongodb-mcp-server` (61 tools),
+  `github/github-mcp-server` (110) and `grafana/mcp-grafana` (114) were agent
+  projects to the CLI and "Stop, not an agent project" to the script. The
+  masking lexer, the five idioms, the path predicate, the dependency gate and
+  the export-precedence rule are now all in the script too, stdlib-only.
+
+  Porting a load-bearing matcher means a second implementation of it, which is
+  this repository's recurring bug class. What makes it affordable is that the
+  two are not allowed to become *different* implementations: every case either
+  reader has ever been asked about now lives once in `tests/mcp_idiom_corpus.py`
+  — every idiom's positive sample, the whole adversarial sweep, the path
+  predicate's cases and both escape grammars — and both readers are driven
+  through all of it, compared site by site including each site's byte span.
+  `samples/mcp_source_only_server` puts the route inside the existing
+  `samples/` parity sweep, nine constructed workspaces pin the branches around
+  it (covering export, partial export, wildcard export, no dependency, no
+  resolved registration, test-only registrations, two registration
+  directories), and `test_framework_vocabulary_names_every_cli_omission` now
+  passes with an empty `known_omissions`.
+
+  One defect surfaced while porting and is fixed in both: with no MCP export in
+  the workspace at all, `_covering_export` returned every resolved name as
+  "uncovered", and the caller renders a shortfall as *"An MCP tool export is
+  also present and does not name N of these registrations"*. A server whose
+  surface exists only as source is the population this input was built for, so
+  that claim about a file that does not exist was published into the adoption
+  evidence for every one of them.
+
+
 - **No corpus case is graded against `insufficient_evidence` any more, and four
   `blocked` cells hold one case instead of two.** (#520, #508) A verdict exists
   to route a change somewhere: `passed` merges, `review_required` hands a human

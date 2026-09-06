@@ -1,0 +1,11 @@
+{
+  "name": "@example/support-mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A support MCP server whose tool surface exists only in its TypeScript registration sites.",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.23.8"
+  }
+}
