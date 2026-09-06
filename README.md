@@ -370,7 +370,7 @@ This file was a 900-line reference. The material is intact, in these places:
 | Was | Now |
 | --- | --- |
 | `#60-seconds-watch-it-block-two-prs` | [One capability change, one verdict](#one-capability-change-one-verdict) |
-| `#verify-first-quickstart`, `#how-to-read-your-first-result` | [`docs/quickstart.md`](docs/quickstart.md) |
+| `#verify-first-quickstart`, `#local-boundary-check`, `#pr-and-local-verification`, `#host-grant-audit`, `#how-to-read-your-first-result` | [`docs/quickstart.md`](docs/quickstart.md) — the three prominent flows are under [Run it on your own repository](docs/quickstart.md#run-it-on-your-own-repository), the verdict tables under [Verdict reference](docs/quickstart.md#verdict-reference) |
 | `#verify-your-repo`, `#adopt-in-one-turn-scan-helper` | [`docs/quickstart.md`](docs/quickstart.md#run-it-on-your-own-repository) |
 | `#temporary-external-repository-review` | [`docs/quickstart.md`](docs/quickstart.md#temporary-external-repository-review) |
 | `#authorize-one-exact-coding-agent-action` | [`docs/agent-contract-current.md`](docs/agent-contract-current.md#trusted-human-authorization-for-one-exact-command) |
@@ -378,4 +378,7 @@ This file was a 900-line reference. The material is intact, in these places:
 | `#what-it-produces` | [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-first-for-release-gating) |
 | `#copy-this-into-your-coding-agent`, `#use-with-your-coding-agent` | [`docs/target-repo-agent-snippets.md`](docs/target-repo-agent-snippets.md), [`docs/agents/README.md`](docs/agents/README.md) |
 | `#sample-reports`, `#findings-gallery`, `#see-it-block-a-pr` | [`samples/README.md`](samples/README.md), [`examples/golden-prs/README.md`](examples/golden-prs/README.md) |
-| `#why-not-just`, `#framework-notes` | [`docs/category.md`](docs/category.md), [`docs/minimal-real-configs.md`](docs/minimal-real-configs.md) |
+| `#why-not-just` | [`docs/category.md`](docs/category.md) |
+| `#framework-notes` | The AST-only boundary is under [What it scans](#what-it-scans); the per-framework manifests are in [`docs/minimal-real-configs.md`](docs/minimal-real-configs.md) |
+| `#not-sure-if-shipgate-applies` | [Where to go next](#where-to-go-next), and [`docs/zero-install.md`](docs/zero-install.md) |
+| `#use-this-when` | Folded into [Who this is for](#who-this-is-for) |

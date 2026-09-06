@@ -1013,11 +1013,14 @@ def _first_column_sets(text: str) -> list[set[str]]:
     registry claimed exact vocabulary parity. That is this guard's own failure,
     wearing Markdown instead of braces.
 
-    The header row is skipped: it names the column, not a member.
+    The header row is skipped: it names the column, not a member. The trailing
+    newline is optional, because a table that ends the file has none and its
+    last row is still a row — requiring one dropped the final verdict and
+    failed a document that was correct.
     """
 
     sets: list[set[str]] = []
-    for block in re.findall(r"(?:^\|.*\|[ \t]*\n)+", text, flags=re.M):
+    for block in re.findall(r"(?:^\|.*\|[ \t]*(?:\n|\Z))+", text, flags=re.M):
         rows = [
             [cell.strip() for cell in line.strip().strip("|").split("|")]
             for line in block.splitlines()
@@ -1690,11 +1693,7 @@ def _published_check_formats() -> frozenset[str]:
         # shapes name the value as a literal beside the option's own name, which
         # is what makes this readable without importing the release.
         if isinstance(node, ast.Compare) and _names_format(node.left):
-            accepted.update(
-                value.value
-                for value in node.comparators
-                if isinstance(value, ast.Constant) and isinstance(value.value, str)
-            )
+            accepted.update(_format_literals(node.comparators, module))
         if isinstance(node, ast.Call) and any(
             isinstance(arg, ast.Constant) and arg.value == "--format" for arg in node.args
         ):
@@ -1719,6 +1718,65 @@ def _names_format(node: ast.expr) -> bool:
     return isinstance(node, ast.Name) and node.id in {"format_", "format"}
 
 
+def _format_literals(comparators: list[ast.expr], module: ast.Module) -> set[str]:
+    """The string values ``format_`` is compared against, resolving one name.
+
+    ``v0.15.0`` compares against literals; this tree writes
+    ``format_ not in CHECK_FORMATS``, and the next release will be one or the
+    other. A reader that understood only literals would return the option's
+    default alone from such a release — a *partial* set, which is worse than an
+    empty one: the emptiness assertion would not fire, and
+    :func:`test_the_published_format_reader_sees_the_difference_it_exists_for`
+    could no longer tell that the entry path's caveat had gone stale. So a name
+    is resolved when its module-level binding is a set of string constants, and
+    anything else raises rather than being read as "no values".
+    """
+
+    values: set[str] = set()
+    for node in comparators:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            values.add(node.value)
+        elif isinstance(node, ast.Name):
+            values |= _module_level_string_set(node.id, module)
+    return values
+
+
+def _module_level_string_set(name: str, module: ast.Module) -> set[str]:
+    """A module-level ``NAME = {"a", "b"}`` / ``frozenset({...})`` as a set."""
+
+    for node in module.body:
+        targets = (
+            node.targets
+            if isinstance(node, ast.Assign)
+            else [node.target]
+            if isinstance(node, ast.AnnAssign)
+            else []
+        )
+        if not any(isinstance(t, ast.Name) and t.id == name for t in targets):
+            continue
+        value = node.value
+        if isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
+            # `frozenset({...})` / `set({...})` — one argument, the literal.
+            value = value.args[0] if len(value.args) == 1 else None
+        if isinstance(value, ast.Set | ast.Tuple | ast.List) and all(
+            isinstance(element, ast.Constant) and isinstance(element.value, str)
+            for element in value.elts
+        ):
+            return {element.value for element in value.elts}
+        raise AssertionError(
+            f"`{name}` is compared against `format_` in the published release, "
+            "and it is not a module-level set of string literals this reader "
+            "can resolve. Teach it that shape rather than letting the sweep "
+            "return a partial set — a partial set passes the emptiness check "
+            "and silently stops detecting a stale caveat."
+        )
+    raise AssertionError(
+        f"`{name}` is compared against `format_` in the published release but "
+        "has no module-level binding in the same file. The reader cannot say "
+        "which values that build accepts; teach it where to look."
+    )
+
+
 def test_the_human_entry_path_states_what_the_published_build_provides():
     """The page that says "install this" must say what that build can do.
 
@@ -1738,9 +1796,7 @@ def test_the_human_entry_path_states_what_the_published_build_provides():
 
     # Collapsed, because a hard-wrapped line is a formatting choice and not a
     # different claim; the first draft of this guard failed on its own README.
-    readme = re.sub(
-        r"\s+", " ", (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    )
+    readme = re.sub(r"\s+", " ", (REPO_ROOT / "README.md").read_text(encoding="utf-8"))
     assert (
         f"newest published release is `v{LATEST_PUBLISHED_VERSION}`" in readme
         and f"runtime contract `{LATEST_PUBLISHED_CONTRACT_VERSION}`" in readme
