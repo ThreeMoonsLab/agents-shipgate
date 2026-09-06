@@ -35,11 +35,15 @@ The script's output is a **structural subset** of `agents-shipgate detect --json
   "python_parse_truncated": false,
   "next_action": "agents-shipgate init --workspace .",
   "workspace_signals": {...},
-  "script_version": "0.4.0"
+  "script_version": "0.5.0"
 }
 ```
 
 Like the canonical CLI, the script parse-probes each glob-matched MCP/OpenAPI candidate before suggesting it — a filename match is not a guarantee. A Cursor plugin `mcp.json` is an `mcpServers`-style host config, not an MCP tools-array export; suggesting it would make the next `init --write` → `scan` step fail. Rejected candidates appear under `excluded_sources` (`{type, path, reason}`) instead of `suggested_sources`. The probe is **JSON-only** (stdlib has no YAML parser): a `.json` candidate the adapters would reject is excluded here too, while a `.yaml`/`.yml` OpenAPI spec is always kept as a suggestion (never wrongly dropped). The real-world miss this guards against — `mcpServers`-style host configs — is always JSON, so the probe is exact where it matters.
+
+An MCP server whose tool surface exists **only as TypeScript or Go registration sites** — `mongodb-js/mongodb-mcp-server`, `grafana/mcp-grafana`, `github/github-mcp-server` — is detected here too, and suggested as `{"type": "mcp_server_source", "path": "..."}`. That is 100% of the population this script is pointed at: a repository that has not adopted Shipgate. Until v0.5.0 of the script the reader lived only in the installed CLI, so the documented first command answered "Stop, not an agent project" on exactly the repositories the CLI reported as agent projects with 61, 110 and 114 tools.
+
+Porting it means a second implementation of the load-bearing matcher — the masking lexer and the five registration idioms. It is held to the CLI's answers by a shared conformance corpus rather than by inspection: every positive sample, the whole adversarial sweep, the path predicate and both escape grammars live once in [`tests/mcp_idiom_corpus.py`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/tests/mcp_idiom_corpus.py) and are driven through both readers, compared site by site with the byte span of each. Neither reader can change its answer on a case either of them has ever been asked about without the other following.
 
 Like `agents-shipgate detect`, the script silently skips common fixture corpus directories such as `fixtures/`, `_fixtures/`, `__fixtures__/`, `testdata/`, `test_data/`, `test-fixtures/`, `test_fixtures/`, `golden/`, and `goldens/` when they are below the selected workspace. Point `--workspace` directly at a fixture project if you intentionally want to classify that fixture itself.
 
@@ -47,9 +51,11 @@ The script and the canonical CLI are pinned to **structural verdict parity** by 
 
 `agent_name_candidates` is the one field pinned byte for byte, including its ranking and each entry's `rationale[]`. It is not a yes/no signal: it names the agent a generated manifest would declare as the reviewed identity, so a script that ranked differently would point you at a different agent than `init` does.
 
+The `mcp_server_source` detection is the one *framework* pinned past its presence — score, confidence, and evidence lines. The looseness the rest of this contract grants was granted to detections scored from many heuristic signals and described in the script's own words; this one has exactly two scoring inputs and its lines are rendered by a ported function. Both halves matter and neither is visible in a verdict: the declared dependency is what carries the label to `medium`, and `"61 tools"` without `"and 3 more this reader cannot name"` is the over-claim the input exists to avoid.
+
 **When to use this:** you're a coding agent (Claude Code, Codex, Cursor) deciding *whether* to propose Shipgate. The script tells you in one fetch + one Python invocation. The full flow (`init`, `scan`, `apply-patches`) requires the actual install.
 
-**Constraints:** Python 3.12+ on the runner. Evidence/reason strings and absolute framework scores are simplified — the verdict is what's pinned, not the prose.
+**Constraints:** Python 3.12+ on the runner. Evidence/reason strings and absolute framework scores are simplified — the verdict is what's pinned, not the prose. `mcp_server_source` is the exception noted above.
 
 The workspace inventory does match the canonical CLI's — `git ls-files` when Git can read the workspace, a contained filesystem walk otherwise. That is a correctness requirement, not a speed one: a `.gitignore`d module is invisible to `init`, so a script that walked it anyway could name an agent `init` will never write. Paths escaping the workspace through a symlink are dropped for the same reason.
 

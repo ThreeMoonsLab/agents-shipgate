@@ -13,6 +13,10 @@ from typing import Any, Literal
 import yaml
 
 from agents_shipgate import __version__
+from agents_shipgate.published_release import (
+    LATEST_PUBLISHED_VERSION,
+    contract_floor_prose,
+)
 from agents_shipgate.schemas.contract import MINIMUM_CONTROL_CONTRACT_VERSION
 
 DEFAULT_CONFIG_RELATIVE_PATH = ".agents-shipgate/adoption-kit.yaml"
@@ -448,13 +452,25 @@ def _read_metadata(spec: KitTarget) -> dict[str, Any]:
 
 def _render_template(text: str) -> str:
     # Rendered, never hand-written. The runner pin and the contract floor a
-    # prompt demands have to come from the same build that emitted the prompt,
-    # or they drift apart: the kits shipped a floor of 14/15 against a pinned
-    # runner that reports contract 10, so an agent following them literally
-    # could never satisfy the check it was told to gate on.
+    # prompt demands have to be decided together, or they drift apart: the kits
+    # once shipped a floor of 14/15 against a pinned runner that reports
+    # contract 10, so an agent following them literally could never satisfy the
+    # check it was told to gate on.
+    #
+    # Binding the pin to ``__version__`` was the first attempt at that, and it
+    # traded one broken prompt for another: the pin then named the *emitting*
+    # build, which for the whole interval between releases is a version no
+    # index carries, so the very first command in the prompt failed to resolve
+    # (#506). The pin names the newest published release, and
+    # ``contract_floor_prose`` states — in the prompt, beside the pin — whether
+    # that release reports the floor. When it does not, the honest output is to
+    # say so; it is never to pin a build that cannot be fetched.
+    floor = contract_floor_prose(MINIMUM_CONTROL_CONTRACT_VERSION)
     context = {
-        "shipgate_version": __version__,
+        "shipgate_version": LATEST_PUBLISHED_VERSION,
         "minimum_control_contract_version": MINIMUM_CONTROL_CONTRACT_VERSION,
+        "contract_floor_notice": floor.notice,
+        "contract_floor_source": floor.source,
     }
 
     def replace(match: re.Match[str]) -> str:

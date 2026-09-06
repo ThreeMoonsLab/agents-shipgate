@@ -5,6 +5,12 @@ repositories through an actual review workflow: someone introduces a
 capability or permission change, someone else reviews it, and the next
 eligible change tests whether the integration stayed useful.
 
+It teaches the **current** loop, which is ahead of the newest published
+release — settle [which build a partner is on](#which-build-this-runbook-is-for)
+and [which route their repository is on](#routes-under-test) before you quote a
+command at them. Those two choices decide what the partner can see, and both
+belong in the tracker.
+
 Dated results, denominators and the standing continue/narrow/stop record live
 in [`design-partner-pilot-results.md`](design-partner-pilot-results.md). This
 page is how to observe; that page is what was observed.
@@ -46,6 +52,27 @@ verdict, and it must be recorded as one if it happens.
 Include tool-building teams on Route A only where a real partner already has
 that workflow. Do not recruit for Route A to balance the cohort.
 
+## Which build this runbook is for
+
+The read order, the tracker and the agent prompt below all name `control.state`
+and `control.next_action.actor`. Those come from the agent-control envelope,
+which landed **after** the newest published tag — so this runbook is not
+runnable end to end on the released build, and saying so is part of the
+instructions rather than a footnote:
+
+| Channel | How a partner gets it | Runtime contract | Emits `control.*`? | Qualification |
+| --- | --- | --- | --- | --- |
+| Published release `v0.15.0` | `pipx install agents-shipgate` | 10 | **No.** `agent-handoff.json` is `shipgate.agent_handoff/v1`; its nearest field is `controller`, and there is no `control.state` | Qualified release |
+| Unqualified preview | `gh release download preview-<version> --repo ThreeMoonsLab/agents-shipgate --pattern '*.whl'`, then `pip install ./<wheel>` | that of the source commit it was cut from | Yes | **None.** No adjudicated corpus, no qualification artifact, nothing signed — see [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) § Amendment 2 |
+| Source checkout | `git clone`, then `./shipgate …` from the checkout | that of the checkout | Yes | Not a distributed build |
+
+Pick one channel per partner and stay on it. The released build against this
+runbook's read order produces a partner asking where `control.state` went;
+a preview quoted without its qualification status sells an evaluation build as
+a release. `agents-shipgate contract --json` prints the `contract_version` the
+installed build actually implements — run it first and record it in the
+tracker, rather than assuming the number this document was written against.
+
 ## Definition Of Running
 
 A partner counts as **attempted** once they start the documented route in a
@@ -59,8 +86,15 @@ result** when all of these are true:
   a change, a drift record against a committed baseline; on Route A
   `agent-handoff.json`, `verifier.json`, `pr-comment.md` and `report.json`.
 - On Route A, `shipgate.yaml` has been reviewed and has no unresolved
-  `CHANGE_ME` values, a reviewer read `agent-handoff.json` first, and
-  `report.json.release_decision.decision` was used as the release gate.
+  `CHANGE_ME` values, **and every human-owned one was filled by a person**. On
+  a build that emits the agent-control envelope `init` routes those itself —
+  `control.next_action.actor: "human"`, naming the fields and lines — because a
+  purpose, effect, authority or binding claim a coding agent supplied is a
+  declaration nobody made, and this pilot is measuring exactly the gate that
+  would have caught it. On the released build nothing but the instruction
+  enforces it, so check it by hand before counting the row.
+- On Route A, a reviewer read `agent-handoff.json` first and used
+  `report.json.release_decision.decision` as the release gate.
 - `agents-shipgate-reports/` is ignored and not committed.
 
 A first valid result is a *machine* event. It is not first value. Record both
@@ -251,12 +285,27 @@ success path.
 
 ## Pilot Commands
 
-Run these from the target repo root.
+Run these from the target repo root, on the channel you settled above.
 
 **Record what was installed before running anything else.** The build a
-partner can actually install and the build this tree carries are not the
-same, and the difference has decided every pilot attempt so far. The two
-commands below are the first observation of the run, not preamble:
+partner can install and the build this tree carries are not the same, and that
+difference has decided every pilot attempt so far. The two commands below are
+the first observation of the run, not preamble.
+
+`verify` and `feedback export` are present in every channel, including the
+released build. The runbook's **read order** is what needs the newer contract:
+`control.state` requires the agent-control envelope, which the released
+`v0.15.0` (contract 10) does not emit. So either take a partner down the
+preview or source-checkout route, or run the released build and read
+`controller` / `gate` instead — do not quote a contract floor the build you
+just told them to install cannot reach.
+
+On the released channel the block leads with `pipx install` then
+`pipx upgrade`: a plain `pipx install` is a no-op when an older build is
+already installed, and the follow-up `pipx upgrade` brings a stale copy
+current. If `pipx` is unavailable, use
+`python -m pip install -U "agents-shipgate>=0.15"`. For committed PR/CI refs,
+make `origin/main` and `HEAD` available before the final verify command.
 
 ```bash
 pipx install agents-shipgate
@@ -265,11 +314,9 @@ agents-shipgate --version
 agents-shipgate contract --json
 ```
 
-A plain `pipx install` is a no-op when an older build is already installed,
-so the `pipx upgrade` brings a stale copy current. If `pipx` is unavailable,
-use `python -m pip install -U agents-shipgate`. Record `cli_version` and
-`contract_version` from `contract --json` in the tracker; do not assume a
-contract floor that the published build may not carry.
+Record `cli_version` and `contract_version` from `contract --json` in the
+tracker, alongside the channel. Do not assume a contract floor that the build
+you just installed may not carry.
 
 Route H — no manifest. Once, on the default branch:
 
@@ -342,7 +389,10 @@ switch routes rather than inventing a manifest.
 
 ## Read Order
 
-Route A — read `agents-shipgate-reports/agent-handoff.json` first:
+Route A — read `agents-shipgate-reports/agent-handoff.json` first. This order
+needs a build that emits the agent-control envelope (preview or source
+checkout); on the released `v0.15.0` build start at step 2 and read
+`controller` in place of `control`:
 
 1. `control.state`
 2. `gate.can_merge_without_human`
@@ -366,20 +416,28 @@ suppression, or policy-weakening evidence.
 
 ## Partner Agent Prompt
 
-Paste this into the partner's coding agent from the target repo root:
+Paste this into the partner's coding agent from the target repo root, with the
+install line for the channel you settled above — the block below carries the
+released one. Steps 3 and 5 name the agent-control envelope; on the released
+build there is none, so the agent reads `controller` and `gate` instead. The
+ownership boundary in step 3 is the rule either way: on a build with the
+envelope the tool enforces it, and on one without it, nothing but the
+instruction does.
 
 ```text
 Add Agents Shipgate as an advisory reviewer for this agent-capability change.
 
-1. Install and record the build:
+1. Install and record the build, on the channel settled for this partner:
    pipx install agents-shipgate
    pipx upgrade agents-shipgate
    agents-shipgate --version
    agents-shipgate contract --json
    A plain pipx install is a no-op when an older build is already installed,
    so the follow-up pipx upgrade brings a stale copy current. If pipx is
-   unavailable, use python -m pip install -U agents-shipgate. Report
-   cli_version and contract_version before running anything else.
+   unavailable, use python -m pip install -U "agents-shipgate>=0.15".
+   Then report what you actually installed, and stop if either command fails:
+   agents-shipgate --version
+   agents-shipgate contract --json
 2. Decide the route. Run:
    agents-shipgate audit --host
    If this repository declares coding-agent host configuration and publishes
@@ -412,16 +470,28 @@ Add Agents Shipgate as an advisory reviewer for this agent-capability change.
    agents-shipgate verify --preview --json
    agents-shipgate init --workspace . --write --ci \
      --agent-instructions=default --json
-   Replace every CHANGE_ME value in shipgate.yaml using the agent's system
-   prompt, README, main agent module, or owner-provided context. If discovery
-   found no tool source at all, tool_sources is a scaffold and this repository
-   belongs on route H — say so instead of guessing a type.
+   Resolve only the placeholders you own. init lists each one in placeholders[]
+   by manifest path and line. Fill the agent-owned ones (agent.name, tool source
+   paths) from the repository. Do not fill agent.declared_purpose,
+   prohibited_actions, permissions, action_surface, agent_bindings,
+   tool_identity or any other declaration field from the system prompt, README
+   or main module — those must be supplied by a human, and a value a coding
+   agent supplied is a declaration nobody made. Report each one to the
+   repository owner by manifest path and line, and stop there. On a build that
+   emits the agent-control envelope, init says the same thing itself: while a
+   human-owned placeholder is unresolved the payload comes back with
+   control.next_action.actor "human", control_state "human_review_required" and
+   permissions.edit false, and control.reason names the exact fields and lines.
+   If discovery found no tool source at all, tool_sources is a scaffold and
+   this repository belongs on route H — say so instead of guessing a type.
    Open or update the PR, make origin/main and HEAD available, then run:
    agents-shipgate verify --workspace . --config shipgate.yaml \
      --base origin/main --head HEAD --ci-mode advisory --format json
    Read agents-shipgate-reports/agent-handoff.json first. Lead with
    control.state, gate.merge_verdict, gate.can_merge_without_human,
-   next_action, fix_task, and capability_review.top_changes. Then read
+   next_action, fix_task, and capability_review.top_changes. If the handoff
+   carries no control block, say so and lead with gate and controller instead
+   — do not report a state the artifact does not contain. Then read
    agents-shipgate-reports/report.json.release_decision.decision.
 5. Preserve evidence. Route A:
    agents-shipgate feedback export \

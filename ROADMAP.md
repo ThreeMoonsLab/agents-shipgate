@@ -84,9 +84,10 @@ release qualification or to complete every open issue in that window.
    counts, the dated enrollment shortfall and the standing continue/narrow/stop
    record are published in
    [docs/design-partner-pilot-results.md](docs/design-partner-pilot-results.md);
-   every external denominator there is currently zero, and the reason is a
-   route that is not yet invitable on a published build rather than a
-   recruiting gap.
+   every external denominator there is currently zero, and the reason is that
+   the channel to invite on was an unmade decision rather than a recruiting
+   gap. The released build cannot show a host-boundary change; the unqualified
+   preview can. That choice is now recorded.
 
 ### Next — complete the review and make its claims trustworthy
 

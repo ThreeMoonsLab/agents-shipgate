@@ -15,29 +15,233 @@
   continue/narrow/stop rule. Ten minutes to first value is stated as an
   experiment target; a test fails if any page later restates it as a result.
 
-  Dry-running the runbook's own commands is what produced the first result. The
-  newest published build carries **contract 10**, and the runbook required
-  "runtime contract 14" in the paragraph that installed it with `pipx install`
-  — a precondition no published build has ever satisfied. On a synthetic
-  host-boundary change (three permission rules widened to `Bash(*)` / `Read(**)`
-  / `WebFetch(*)`, one remote MCP server added), that installable build's
-  `check` returns `warn` / `none` and mentions none of the widened rules, while
-  this tree returns `block` / `critical` with all four named. The two entry
-  failures are mutually exclusive by build: the published one writes a CI pin
-  that resolves and an evaluator that cannot see the change; this tree has the
-  evaluator and writes a pin to a tag that does not exist (#506). And the
-  documented `init` → `verify` order dead-ends on precisely the repositories
-  the host-boundary route is for, because they have no tool surface to declare.
+  Dry-running the runbook's own commands is what produced the first result,
+  across all three distribution channels. On a synthetic host-boundary change
+  (three permission rules widened to `Bash(*)` / `Read(**)` / `WebFetch(*)`,
+  one remote MCP server added) the released `0.15.0` returns `warn` / `none`
+  with **zero** violations and no coverage surface, while the unqualified
+  preview and the source tree both return `block` / `critical` with all four
+  named. So a build that shows the change *is* installable — the preview —
+  and it carries no qualification of any kind, which is a thing to say to a
+  partner rather than a footnote. The runbook had also demanded "runtime
+  contract 14" in the paragraph that installed it with `pipx install`, a
+  precondition no published build has ever satisfied; #497's channel table and
+  this change both retire it. And `init` then `verify` still dead-ends on
+  exactly the repositories the host-boundary route is for (#498), because they
+  have no tool surface to declare.
 
   So [`docs/design-partner-pilot-results.md`](docs/design-partner-pilot-results.md)
   publishes six external denominators at zero, a dated enrollment shortfall
-  naming that cause rather than a recruiting gap, the reproduced blockers routed
-  to #506, #497, #520 and #504 → #337 with no new issue opened, and a dated
-  standing decision of **narrow**: invite the host-boundary route's
-  baseline/drift pair, which does run on the installable build, and withhold
-  invitations onto `check` and `verify` until a published build's evaluator
-  matches this tree's. Every finding is build-dated, and a guard fails the day a
-  new tag ships so the comparison is re-run instead of carried forward.
+  naming an unmade channel decision rather than a recruiting gap, the
+  reproduced blockers routed to #506, #497, #520, #498 and #504 → #337 with no
+  new issue opened, and a dated standing decision of **narrow**: invite Route H
+  on the preview channel with its unqualified status stated in the invitation,
+  and withhold the released channel for per-change review. Every finding is
+  build-dated, and a guard fails the day the newest published tag moves so the
+  comparison is re-run instead of carried forward — a guard the page itself
+  records as insufficient, since nothing fails when a new preview is cut.
+- **Everything `init` writes into an adopter's repository now names a release
+  that exists.** (#506) `init --write --ci` generated
+  `uses: ThreeMoonsLab/agents-shipgate@v0.16.0`, and no such tag had ever been
+  cut — GitHub fails that job at action-resolution time, so a first-time
+  adopter's very first Shipgate run was a red check carrying an error about
+  *our* repository rather than theirs. The bundled onboarding prompt had the
+  same defect one layer up (`uvx agents-shipgate@0.16.0`, a version the index
+  does not carry). Every render since 2026-07-09 pinned a nonexistent ref — 56
+  days of them by the time #506 was filed.
+
+  Two conventions coexisted and only one was correct. The docs, `llms.txt`,
+  `.well-known` and the Action examples tracked the latest published tag; the
+  one artifact that gets *executed* by a stranger's CI tracked `__version__`,
+  which for the whole interval between releases is a version nothing can
+  fetch. `LATEST_PUBLISHED_VERSION` moves into
+  `src/agents_shipgate/published_release.py` as the single constant every
+  surface — documentation and emitted artifact alike — derives from.
+
+  Pinning the published release keeps the pin resolvable but does not make it
+  *sufficient*, and conflating those is what the previous fix got wrong: the
+  bundled prompts demand runtime contract 21, and `v0.15.0` emits contract 10.
+  So the prompts now state that gap where they state the pin, rendered from
+  `LATEST_PUBLISHED_CONTRACT_VERSION` — which is read back out of the tag
+  itself by the suite, not asserted about it. The honest output when the newest
+  published build predates the floor is to say so; it is never to pin a build
+  that cannot be fetched.
+
+  `tests/test_init_ci.py` asserted the defect, which is why it shipped. It now
+  requires a published tag, and `tests/test_adopter_pins_resolve.py` sweeps
+  every pin shape across everything `init` emits — driven off `SPECS`, the
+  registry `--agent-instructions` itself selects from, so a target added there
+  is swept the day it is registered rather than the day someone remembers.
+  The sweep fails on an empty tag list rather than passing over one, asserts
+  each pin shape was actually found, and carries two negative controls that
+  re-introduce the defect. Cutting `v0.16.0` is not what fixes this: the rule
+  is "names a tag that exists", so it holds on the first commit after the tag
+  too.
+
+- **Four lexer defects in the MCP registration reader, fixed in both
+  implementations.** (#485 review) Found reviewing the zero-install port; all
+  four were in the reader #431 shipped, so the port had copied them rather than
+  introduced them. Two invent a tool name, which is the one outcome a reader of
+  a *name* cannot afford, and two lose a whole file's surface:
+
+  - A `${…}` holds code, so a brace inside a string, comment, regex or nested
+    template is not a structural brace. ``const msg = `brace: ${"{"}`;`` left
+    the substitution open and consumed the rest of the file as one unterminated
+    template — every registration after that line gone, and a workspace
+    declaring an MCP dependency reported as "not an agent project" over a brace
+    in a string.
+  - A line break ends a JavaScript initializer only when what follows cannot
+    continue the expression. `static toolName = "safe"` with `+ "_delete"` on
+    the next line published `safe` at `medium` confidence for a tool the server
+    registers as `safe_delete`.
+  - The regex heuristic now resolves the keyword in front of a slash from the
+    *masked* source. Read from the raw text, a comment between `if` and its
+    condition hid the keyword, the slash was read as division, and the pattern
+    was scanned as code — reporting a tool invented out of a regex body, which
+    is precisely what masking exists to make impossible.
+  - A backslash before CRLF is one line continuation, not `\r` plus a line
+    break. The identical file resolved its registration on a Unix checkout and
+    lost it on a Git-for-Windows one.
+
+  Each is an expected-result case in `tests/mcp_idiom_corpus.py`, so both
+  readers are pinned to the corrected behaviour rather than to each other's
+  agreement, and the CRLF sweep now has a continuation case that actually
+  exercises it. The three vendor servers this input exists for are unaffected —
+  61, 114 and 114 tools before and after.
+
+- **The zero-install detector reads MCP registration sites, so it stops
+  telling vendor MCP server maintainers to stop.** (#485) `tools/shipgate-detect.py`
+  is the documented first command run against a repository that has *not*
+  adopted Shipgate — which is every repository #431 was about. #431 taught the
+  installed CLI to read a tool's name out of a TypeScript or Go registration
+  site; the script did not gain it, so the two disagreed on the one question
+  the script exists to answer: `mongodb-js/mongodb-mcp-server` (61 tools),
+  `github/github-mcp-server` (110) and `grafana/mcp-grafana` (114) were agent
+  projects to the CLI and "Stop, not an agent project" to the script. The
+  masking lexer, the five idioms, the path predicate, the dependency gate and
+  the export-precedence rule are now all in the script too, stdlib-only.
+
+  Porting a load-bearing matcher means a second implementation of it, which is
+  this repository's recurring bug class. What makes it affordable is that the
+  two are not allowed to become *different* implementations: every case either
+  reader has ever been asked about now lives once in `tests/mcp_idiom_corpus.py`
+  — every idiom's positive sample, the whole adversarial sweep, the path
+  predicate's cases and both escape grammars — and both readers are driven
+  through all of it, compared site by site including each site's byte span.
+  `samples/mcp_source_only_server` puts the route inside the existing
+  `samples/` parity sweep, nine constructed workspaces pin the branches around
+  it (covering export, partial export, wildcard export, no dependency, no
+  resolved registration, test-only registrations, two registration
+  directories), and `test_framework_vocabulary_names_every_cli_omission` now
+  passes with an empty `known_omissions`.
+
+  One defect surfaced while porting and is fixed in both: with no MCP export in
+  the workspace at all, `_covering_export` returned every resolved name as
+  "uncovered", and the caller renders a shortfall as *"An MCP tool export is
+  also present and does not name N of these registrations"*. A server whose
+  surface exists only as source is the population this input was built for, so
+  that claim about a file that does not exist was published into the adoption
+  evidence for every one of them.
+
+- **Ten distribution surfaces, one registry, and a test that they agree with
+  the engine.** (#497) One engine is published through `action.yml`, `plugins/`,
+  `skills/`, `adoption-kits/`, `harness/`, `examples/`, `prompts/`, `policies/`,
+  `tools/` and the MCP server, and nothing checked that they said the same
+  thing. `docs/distribution-surfaces.md` now lists every one of them, what it
+  claims, and which test proves the claim;
+  `tests/test_distribution_surface_parity.py` is that test, and
+  `CONTRIBUTING.md` points at both. A surface that answers nothing the engine
+  answers still gets a row saying so — `policies/` are inputs the engine
+  evaluates and the MCP server is transport — because that is what stops the
+  next reader re-deriving it. A new top-level directory now fails the suite
+  until somebody classifies it.
+
+  Four things the registry found, each a surface disagreeing with the engine
+  rather than with itself:
+
+  - **The bundled setup prompt told a coding agent to write a declaration only a
+    person may make.** `add-shipgate-to-repo.md` step 5 said to replace
+    `agent.declared_purpose[]` with "a one-line description of what the agent
+    should do", derived from the prompt or main module. `init` returns
+    `control.next_action.actor: "human"` and `permissions.edit: false` for
+    exactly that field. The prompt now separates the placeholder the agent owns
+    (`agent.name`) from the one it must surface to a person, and quotes the
+    engine's own wording. The Codex kit's recipe page and the design-partner
+    runbook carried the same instruction as a blanket "replace every
+    `CHANGE_ME`", and no longer do.
+  - **The Claude Code kit rendered a GitHub Action tag that does not exist.**
+    Its advisory CI recipe pinned `@v{{ shipgate_version }}` and
+    `shipgate_version: '{{ shipgate_version }}'`, so `init
+    --agent-instructions=claude-code-skill` wrote `@v0.16.0` and
+    `agents-shipgate==0.16.0` into an adopter's CI — a tag and a release that
+    are not published. GitHub resolves `uses:` before any step runs, so that
+    workflow fails on our repository's name, not the adopter's change. Both pins
+    now name the published release, as the Codex kit's identical recipe always
+    did. The drift was invisible because
+    `test_claude_code_skill_source_matches_renderer` skipped this one file; that
+    exemption is gone, which is the actual repair.
+  - **Two published surfaces demanded a runtime contract nobody could reach.**
+    The Claude Code plugin's marketplace description and `plugin.json` both said
+    "runtime contract 15" beside `pipx install agents-shipgate`, which yields
+    contract 10. The number was a second copy of a value the bundled skill
+    already states; it is now removed rather than re-synced.
+  - **The design-partner runbook taught a route its own build could not run.**
+    It named `v0.15.0`, demanded "runtime contract 14" — which that build has
+    never implemented — floored `pip` at `>=0.13`, and then gave a read order
+    starting at `control.state`, which `shipgate.agent_handoff/v1` does not
+    emit. It now names one channel per partner (released, unqualified preview,
+    source checkout) with the contract each implements, and says what the
+    released build does *not* produce instead of implying it does.
+
+  The registry is checked against the code in **both** directions — roots,
+  claims and the proving test named for each claim — and a claim must be proved
+  by a test that both exists and matches at least one file on that surface.
+  Review found both halves of that mattering immediately: the first draft's
+  `harness` row named a proving test that had been renamed out of existence, and
+  `design_partner_runbook` registered `executable_pin` while carrying only a
+  `>=` install floor no pin pattern looked at. Surfaces now also state the
+  engine's verdict vocabulary or none of it: a braced set literal must name the
+  whole set, and a `merge_verdict == '…'` comparison must name a value the
+  engine emits.
+
+  Review of the harness itself found three more, each reproduced before it was
+  fixed. The pin scanner never read the Action's own `shipgate_version:` input,
+  which `action.yml` turns into `pip install agents-shipgate==<value>` — so a
+  workflow could name a valid Action ref beside a package version that was never
+  released. The vocabulary guard projected each documented set onto the expected
+  values before comparing, so adding `needs_a_wizard` to the setup prompt's
+  otherwise-complete release-decision set still compared equal; sets are now
+  judged by all of their members, and a literal mixing the two vocabularies
+  fails instead of being skipped by both. And requiring tags in CI was landed in
+  `ci.yml` only, while `release-verify.yml` — which `release.yml` and
+  `release-rehearsal.yml` both call — still checked out the candidate shallow
+  and tagless before running the whole suite, so the release path would have
+  gone red on a green PR. That checkout is fixed and the contract is now
+  asserted for every job that runs the suite, whichever workflow adds one next.
+
+  #485 and #506 landed while this was in review, which is the first real test of
+  the exemption mechanism: all three registered gaps flipped to `XPASS`, their
+  strict markers failed, and the exemptions had to be removed to get back to
+  green. `KNOWN_GAPS` is empty because it worked, and the registry records what
+  each gap was rather than quietly dropping it. The same merge removed a
+  duplicate: #506's `agents_shipgate.published_release` and its pin-shape table
+  are now imported rather than restated, leaving this harness the half that file
+  does not reach — pins committed under a registered surface, found by path. That
+  immediately caught an `@main` in a committed CI example, which turns out to be
+  the one case #497's rule allows — an explicit version incompatibility rather
+  than an unresolvable pin — so it is enumerated as a declared exception whose
+  file has to say why, and an unexplained `@main` elsewhere still fails.
+
+  Known divergences are rows, not omissions. `#485`'s exact case — a minimized
+  TypeScript and Go MCP server whose tool surface exists only as registration
+  sites — is now a fixture under `tests/fixtures/distribution_parity/` and a
+  parity row that fails today and passes the day the port lands, with
+  `xfail(strict=True)` so the exemption itself fails once it is unnecessary.
+  `#506`'s two unpublished-pin gaps are recorded the same way, against a ledger
+  of exactly the files that diverge, so a newly drifting file fails loudly
+  instead of inheriting a surface-wide excuse. Resolvability is judged offline
+  against committed release metadata; the live tag check stays in
+  `release-tag-consistency`, for the reason that job already records.
 
 - **No corpus case is graded against `insufficient_evidence` any more, and four
   `blocked` cells hold one case instead of two.** (#520, #508) A verdict exists

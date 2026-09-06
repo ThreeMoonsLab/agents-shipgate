@@ -124,6 +124,16 @@ Before adding one, the PR description must answer, in a sentence or two:
    No second verdict; more adapters is not the roadmap; no agent execution, LLM
    calls, or network access in the default path.
 
+Once a surface exists, [`docs/distribution-surfaces.md`](docs/distribution-surfaces.md)
+governs what it is allowed to *say*: every surface that answers a question the
+engine also answers must give the engine's answer, or record in that registry
+what it does not answer. Adding or changing one means adding its row there and
+its claims in `tests/test_distribution_surface_parity.py` — the two are checked
+against each other, so neither can be updated alone. A surface that cannot be
+brought to parity is a **gap**: it needs a row in that document's *Known parity
+gaps* table with an owning issue, and an `xfail(strict=True)` row in the parity
+test, so the day the fix lands the exemption fails and has to be retired.
+
 If the answer to (1) is unclear, the default is **don't** — open an issue
 instead. Deleting or consolidating surface never needs this new-surface
 justification — but removing or renaming surface that already shipped in a

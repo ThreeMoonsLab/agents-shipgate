@@ -433,6 +433,26 @@ The shape that holds:
 7. Confirm the GitHub Release is published (not draft) with all assets and the
    changelog section as its body, then run the fan-out checks in
    [`distribution.md`](distribution.md).
+8. **Only now, move the published-release constants.**
+   `LATEST_PUBLISHED_VERSION` and `LATEST_PUBLISHED_CONTRACT_VERSION` in
+   [`src/agents_shipgate/published_release.py`](../src/agents_shipgate/published_release.py),
+   then `.well-known`'s `release_status.latest_release` and every other surface
+   that names the newest release — `tests/test_public_surface_contract.py`
+   fails once per file until each does, so the suite enumerates them for you.
+
+   These two are what `init` writes into an adopter's repository: the `uses:`
+   pin in the workflow it generates, the runner pins in the bundled adoption
+   prompts, the `shipgate_version` the bundled CI recipe installs. Moving them
+   *before* the tag exists is the failure they guard against (#506) — a
+   generated workflow that names a ref GitHub cannot resolve fails the
+   adopter's job before any step runs. Moving them late costs nothing: the
+   previous release still resolves.
+
+   `LATEST_PUBLISHED_CONTRACT_VERSION` is the `CONTRACT_VERSION` the new tag
+   emits, not the tree's. When it lands below
+   `MINIMUM_CONTROL_CONTRACT_VERSION`, the adoption prompts say so in the same
+   breath as the pin rather than quietly promising a floor the pinned build
+   does not report.
 
 ## The unqualified preview channel
 

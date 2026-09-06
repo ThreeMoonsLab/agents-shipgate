@@ -24,27 +24,33 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from agents_shipgate import __version__
-
-# The generated workflow pins to the current package version so users
-# get a reproducible action reference. Override via the
-# ``AGENTS_SHIPGATE_WORKFLOW_REF`` env var if you need to track main or
-# pin to a different release for testing.
+from agents_shipgate.published_release import latest_published_action_ref
 
 
 def _action_ref() -> str:
     """Return the action ref the generated workflow should pin to.
 
-    Defaults to ``v<__version__>`` so newly-onboarded repos pin to the
-    Shipgate release that wrote their workflow. ``@main`` is unpinned and
-    breaks reproducibility.
+    The newest *published* release tag, not ``v<__version__>``. ``@main`` is
+    unpinned and breaks reproducibility, which is why this pins at all — but
+    "pin to a ref that resolves" and "pin to the version of the tree that
+    happens to be emitting" are different requirements, and only the first was
+    ever needed. This file is written into a stranger's repository and then
+    executed by their CI, so a ref that does not exist yet fails at
+    action-resolution time, before any step runs: for 56 days every workflow
+    `init --ci` wrote named a tag that had never been cut, and a first-time
+    adopter's first Shipgate run was a red check about our repository rather
+    than theirs (#506).
+
+    ``AGENTS_SHIPGATE_WORKFLOW_REF`` overrides it for tracking ``main`` or
+    testing against another release. The override is the operator's claim that
+    the ref resolves; nothing here can check it.
     """
     import os
 
     override = os.environ.get("AGENTS_SHIPGATE_WORKFLOW_REF")
     if override:
         return override
-    return f"v{__version__}"
+    return latest_published_action_ref()
 
 
 # Inputs/outputs mirror ``action.yml``; update both when adding inputs.

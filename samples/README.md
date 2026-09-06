@@ -119,6 +119,8 @@ the pointer for the reader, not merely for the test.
 | [`multi_agent_workspace`](multi_agent_workspace/) | Multiple manifests in one workspace. |
 | [`baseline_workflow`](baseline_workflow/) | Baseline adoption before strict CI. |
 | [`large_multi_framework_agent`](large_multi_framework_agent/) | Production-shape retail-ops agent with ~65 unique tools across 6 declared sources, including a reviewed SDK inventory. Exercises the pipeline at scale and pins the CI latency budget. No committed goldens — see the per-sample README. |
+| [`mcp_only_server`](mcp_only_server/) | An MCP server that commits its surface as a `tools/list` export. |
+| [`mcp_source_only_server`](mcp_source_only_server/) | The same server with no export: its tools exist only as TypeScript registration sites, which is the normal state of a vendor MCP server. Detected identically by the CLI and the zero-install script (#485). |
 | [`_anti_patterns`](_anti_patterns/) | Intentionally unsafe or invalid examples for tests and docs. |
 
 ## Direct scans

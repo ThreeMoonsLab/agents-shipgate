@@ -46,6 +46,15 @@ def _flat(text: str) -> str:
     return " ".join(text.split())
 
 
+def _sentence_around(text: str, index: int) -> str:
+    """The sentence containing ``index`` in already-flattened text."""
+    start = max((text.rfind(mark, 0, index) for mark in (". ", "? ", "! ", "; ")), default=-1)
+    end_candidates = [pos for pos in (text.find(mark, index) for mark in (". ", "? ", "! ", "; "))
+                      if pos != -1]
+    end = min(end_candidates) + 1 if end_candidates else len(text)
+    return text[start + 1 : end].strip()
+
+
 def _logical_lines(text: str) -> list[str]:
     """Shell continuations joined, so a flag and the command it belongs to are
     on one line. `--save-baseline \\` / `--baseline-file <path>` is one
@@ -406,11 +415,27 @@ def test_runbook_does_not_assert_an_unpublished_contract_floor():
     contract 14. The repair is to record the installed build, so the doc may
     no longer assert a floor at all."""
     text = _flat(_read(RUNBOOK))
-    assert not re.search(r"contract\s+\d+\b", text), (
-        "the runbook must not assert a numeric contract floor; published "
-        "builds may not carry it. Tell the partner to record "
-        "`contract --json` instead."
+    # The original defect was a *floating* number: "the verify and feedback
+    # commands require Agents Shipgate runtime contract 14", in the paragraph
+    # that installed it with `pipx install`, when no published build has ever
+    # carried 14. What makes that unsafe is not the number — naming one is
+    # often necessary, and the channel table names three — it is that the
+    # number is attached to nothing, so no reader can check it. So the rule is
+    # the one this repository already applies to stale claims: bind the claim
+    # to what it claims. Every contract number names the build that carries it.
+    subjects = re.compile(
+        r"(v?\d+\.\d+\.\d+|released|release|preview|source checkout|this tree|"
+        r"installed build|checkout|channel)",
+        re.I,
     )
+    for match in re.finditer(r"contract\s+\d+\b", text):
+        sentence = _sentence_around(text, match.start())
+        assert subjects.search(sentence), (
+            f"an unbound contract number in {sentence!r}. Name the build that "
+            "carries it — a floating floor is what made the old precondition "
+            "unsatisfiable by the `pipx install` printed beside it, and a "
+            "partner had no way to see the contradiction."
+        )
     assert "agents-shipgate contract --json" in text
     assert "agents-shipgate --version" in text
 
@@ -453,6 +478,44 @@ def test_route_readiness_findings_name_the_build_they_were_measured_on():
         "documented route against the new release, then re-date the section "
         "and the standing decision. These are build-dated claims and cannot "
         "be carried forward untested."
+    )
+
+
+def test_route_readiness_source_tree_row_matches_this_tree():
+    """The published-tag guard above fires when a release ships. It did not
+    fire when #506, #485 and #497 merged, and the page went stale inside a day
+    — the ledger records that gap. This closes the half of it that can be
+    checked offline: the source-tree column is a claim about *this* tree, so
+    its version and contract must be this tree's. A contract bump on main now
+    forces the dry run to be re-run rather than carried forward.
+
+    The other half — a newly cut preview — needs the network and stays a
+    documented limitation rather than a guard that lies about its coverage."""
+    from agents_shipgate import __version__
+    from agents_shipgate.schemas.contract import CONTRACT_VERSION
+
+    section = _flat(_section(_read(RESULTS), "### Route readiness dry run (dogfooding)"))
+    match = re.search(r"Source tree: `([^`]+)`", section)
+    assert match, (
+        f"docs/{RESULTS.name} § Route readiness dry run must name the source "
+        "tree build it measured, as ``Source tree: `X.Y.Z```."
+    )
+    assert match.group(1) == __version__, (
+        f"the ledger measured source tree {match.group(1)}, but this tree is "
+        f"{__version__}. Re-run the dry run and re-date the section."
+    )
+
+    raw = _section(_read(RESULTS), "### Route readiness dry run (dogfooding)")
+    row = next(
+        (line for line in raw.splitlines() if line.startswith("| Runtime contract |")),
+        None,
+    )
+    assert row is not None, "the channel matrix must carry a `Runtime contract` row"
+    cells = [cell.strip() for cell in row.strip("|").split("|")]
+    assert cells[-1] == CONTRACT_VERSION, (
+        f"the ledger's source-tree contract is {cells[-1]!r}, but this tree "
+        f"emits {CONTRACT_VERSION!r}. The measurement predates a contract bump; "
+        "re-run the dry run rather than citing it."
     )
 
 
