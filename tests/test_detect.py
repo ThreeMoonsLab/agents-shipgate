@@ -645,6 +645,359 @@ def test_unresolvable_root_name_blocks_selection_entirely(tmp_path: Path) -> Non
     assert "name: CHANGE_ME" in render_auto_manifest(project, result).text
 
 
+ADK_HEADER = "from google.adk.agents import LlmAgent\nfrom google.adk.apps import App\n\n"
+#: A module-level `root_agent` bound to a factory call. Statically the root
+#: exists and its identity is unreadable — the shape #398 found poisoning a
+#: whole repository from one file.
+UNREADABLE_ROOT = "def build():\n    return LlmAgent(name='inner')\n\nroot_agent = build()\n"
+
+
+def _write_files(root: Path, files: dict[str, str]) -> Path:
+    for relative, body in files.items():
+        target = root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(body, encoding="utf-8")
+    return root
+
+
+def _rejection(candidate) -> str:
+    """The unresolvable-root rejection on ``candidate``, or ``""``."""
+    return next(
+        (
+            reason
+            for reason in candidate.rationale
+            if "declares an application root" in reason
+        ),
+        "",
+    )
+
+
+def test_unresolvable_root_is_scoped_to_its_own_project(tmp_path: Path) -> None:
+    """#398. One application root that cannot be read used to reject every
+    agent name in the repository — on adk-samples, 55 candidates across 25
+    projects, blamed on one file none of them had any relationship to. The
+    rule is sound inside a project and meaningless across projects: a name
+    in `python/agents/financial-advisor` is not a worker of whatever root
+    `python/agents/RAG` failed to declare."""
+    workspace = _write_files(
+        tmp_path / "adk-samples",
+        {
+            "python/agents/financial-advisor/pyproject.toml": (
+                '[project]\nname = "financial-advisor"\n'
+            ),
+            "python/agents/financial-advisor/agent.py": (
+                ADK_HEADER
+                + 'worker = LlmAgent(name="market_watcher")\n'
+                + "root_agent = LlmAgent("
+                + 'name="financial_coordinator", sub_agents=[worker])\n'
+            ),
+            "python/agents/RAG/pyproject.toml": '[project]\nname = "rag"\n',
+            "python/agents/RAG/agent.py": ADK_HEADER + UNREADABLE_ROOT,
+        },
+    )
+    result = detect_workspace(workspace)
+    by_value = {c.value: c for c in result.agent_name_candidates}
+
+    coordinator = by_value["financial_coordinator"]
+    assert coordinator.selectable is True
+    assert _rejection(coordinator) == ""
+    assert by_value["market_watcher"].selectable is True
+
+    # The project that actually declared the unreadable root keeps its
+    # refusal, and the sentence now names the project rather than only a
+    # file the reader has no reason to recognise.
+    inner = by_value["inner"]
+    assert inner.selectable is False
+    assert "project `python/agents/RAG`" in _rejection(inner)
+    assert "python/agents/RAG/agent.py" in _rejection(inner)
+
+
+def test_scoped_init_on_the_unresolvable_project_still_refuses(
+    tmp_path: Path,
+) -> None:
+    """The other half of #398's product note. Narrowing the blast radius must
+    not narrow the rule: run against the project whose own root is
+    unreadable, nothing is selectable and the manifest keeps CHANGE_ME."""
+    project = _write_files(
+        tmp_path / "rag",
+        {
+            "pyproject.toml": '[project]\nname = "rag"\n',
+            "agent.py": (
+                ADK_HEADER + 'worker = LlmAgent(name="WorkerAgent")\n' + UNREADABLE_ROOT
+            ),
+        },
+    )
+    result = detect_workspace(project)
+    assert result.agent_scope == "single"
+    assert select_agent_name(result.agent_name_candidates) is None
+    worker = next(c for c in result.agent_name_candidates if c.value == "WorkerAgent")
+    assert "this workspace declares an application root" in _rejection(worker)
+    assert "name: CHANGE_ME" in render_auto_manifest(project, result).text
+
+
+def test_a_test_only_root_does_not_reject_the_product_agent(tmp_path: Path) -> None:
+    """#398's second culprit, and the one scoping alone cannot fix: the file
+    that could not declare a root is `eval/test_eval_arize.py`, inside the
+    very project being adopted. A fixture that builds an App is a fixture —
+    the ranker already says so for selection, and saying the opposite for
+    rejection is what left `init` with no name at the correct scope."""
+    project = _write_files(
+        tmp_path / "rag",
+        {
+            "pyproject.toml": '[project]\nname = "rag"\n',
+            "rag/agent.py": ADK_HEADER + 'root_agent = LlmAgent(name="rag_root_agent")\n',
+            "eval/test_eval_arize.py": ADK_HEADER + UNREADABLE_ROOT,
+        },
+    )
+    result = detect_workspace(project)
+    selected = select_agent_name(result.agent_name_candidates)
+    assert selected is not None and selected.value == "rag_root_agent"
+    assert "name: rag_root_agent" in render_auto_manifest(project, result).text
+
+
+def test_a_scaffolding_template_root_does_not_reject_the_product_agent(
+    tmp_path: Path,
+) -> None:
+    """#398's first culprit: `.agents/skills/**/resources/templates/app/agent.py`
+    is what a generator copies into a new project, not what this repository
+    runs, so the root it declares is not this project's root."""
+    project = _write_files(
+        tmp_path / "repo",
+        {
+            "agent.py": ADK_HEADER + 'root_agent = LlmAgent(name="RealRoot")\n',
+            ".agents/skills/scaffold-python-recipe/resources/templates/app/agent.py": (
+                ADK_HEADER + UNREADABLE_ROOT
+            ),
+        },
+    )
+    result = detect_workspace(project)
+    selected = select_agent_name(result.agent_name_candidates)
+    assert selected is not None and selected.value == "RealRoot"
+
+
+def test_a_template_declared_name_ranks_below_the_product_name(
+    tmp_path: Path,
+) -> None:
+    """The exclusion is one predicate used twice, so a template that *can* be
+    read is demoted for selection exactly as a fixture is. Excluding it from
+    rejection while still letting it win the ranking would move the failure
+    rather than fix it: `init` would write the example's name."""
+    project = _write_files(
+        tmp_path / "repo",
+        {
+            "agent.py": ADK_HEADER + 'helper = LlmAgent(name="ProductHelper")\n',
+            "skills/recipe/resources/templates/app/agent.py": (
+                ADK_HEADER
+                + 'root_agent = LlmAgent(name="TemplateRoot")\n'
+                + 'app = App(name="t", root_agent=root_agent)\n'
+            ),
+        },
+    )
+    result = detect_workspace(project)
+    selected = select_agent_name(result.agent_name_candidates)
+    assert selected is not None and selected.value == "ProductHelper"
+    template = next(
+        c for c in result.agent_name_candidates if c.value == "TemplateRoot"
+    )
+    assert any("scaffolding template" in reason for reason in template.rationale)
+
+
+def test_a_bare_templates_directory_still_blocks_selection(tmp_path: Path) -> None:
+    """The template rule is a directory *pair*, deliberately. A bare
+    `templates/` is a real package name — Django and Flask both ship one —
+    and every name added to the exclusion widens what fails open. A root
+    this reader cannot prove is scaffolding still stops selection."""
+    project = _write_files(
+        tmp_path / "repo",
+        {
+            "agent.py": ADK_HEADER + 'root_agent = LlmAgent(name="RealRoot")\n',
+            "templates/agent.py": ADK_HEADER + UNREADABLE_ROOT,
+        },
+    )
+    result = detect_workspace(project)
+    assert select_agent_name(result.agent_name_candidates) is None
+    # Asserting only "nothing is selectable" would pass on any other reason —
+    # the quality floor, a future rule — while the property this test names
+    # had quietly gone. The rejection has to be *this* one.
+    real_root = next(c for c in result.agent_name_candidates if c.value == "RealRoot")
+    assert "templates/agent.py" in _rejection(real_root)
+
+
+def test_case_folded_template_directory_is_still_scaffolding(
+    tmp_path: Path,
+) -> None:
+    """`Resources/Templates` and `resources/templates` are the same directory
+    on a case-insensitive checkout. Matching the sequence exactly let the
+    #398 symptom survive a spelling difference the filesystem does not
+    make."""
+    project = _write_files(
+        tmp_path / "repo",
+        {
+            "agent.py": ADK_HEADER + 'root_agent = LlmAgent(name="RealRoot")\n',
+            "Skills/Recipe/Resources/Templates/app/agent.py": (
+                ADK_HEADER + UNREADABLE_ROOT
+            ),
+        },
+    )
+    result = detect_workspace(project)
+    selected = select_agent_name(result.agent_name_candidates)
+    assert selected is not None and selected.value == "RealRoot"
+
+
+def test_the_rejection_quotes_the_parse_time_root_over_a_symbol_failure(
+    tmp_path: Path,
+) -> None:
+    """Two unreadable roots in one project: one found while parsing, one only
+    when cross-module resolution fails. The published sentence quotes the
+    parse-time one, which is what the repository-scoped list did before the
+    rejection was scoped. `rationale[]` is pinned byte for byte against the
+    zero-install script, so this precedence is a contract between two
+    implementations, not an implementation detail."""
+    project = _write_files(
+        tmp_path / "both",
+        {
+            "pyproject.toml": '[project]\nname = "both"\n',
+            # Resolution-time, and *first* in walk order on purpose: the
+            # root's name is a symbol that never resolves, which only the
+            # cross-module pass can see. Merging the two passes into one
+            # walk-order loop would make this file win, so the filenames are
+            # what make the assertion about precedence rather than order.
+            "a_symbol.py": (
+                ADK_HEADER
+                + 'NAME = "One"\nNAME = "Two"\n'
+                + 'worker = LlmAgent(name="WorkerAgent")\n'
+                + "root_agent = LlmAgent(name=NAME, sub_agents=[worker])\n"
+            ),
+            # Parse-time: the module symbol is bound to a factory call.
+            "z_parse_time.py": ADK_HEADER + UNREADABLE_ROOT,
+        },
+    )
+    result = detect_workspace(project)
+    worker = next(c for c in result.agent_name_candidates if c.value == "WorkerAgent")
+    assert "z_parse_time.py" in _rejection(worker)
+    assert "a_symbol.py" not in _rejection(worker)
+
+
+#: A module that defines its own, unrelated ``Agent`` class. Its
+#: ``Agent(name=…)`` literal is a *name suggestion* and nothing more: it draws
+#: no project boundary, because a file with no supported framework import is
+#: not an agent project (#363 review).
+UNRELATED_AGENT_CLASS = "class Agent:\n    def __init__(self, name):\n        self.name = name\n"
+
+
+def test_a_name_under_a_non_agent_marker_cannot_escape_the_blocked_scope(
+    tmp_path: Path,
+) -> None:
+    """Which project a name belongs to is decided against the projects
+    `agent_project_candidates` established, not against the nearest marker.
+
+    A utilities package carries its own `pyproject.toml` but no agent
+    evidence, so it is not a manifest scope — `agent_scope` is `single` and
+    the only project is `.`. Attributing its bare `Agent(name="CrmHelper")`
+    to `util/` exempted it from the workspace's refusal, and `init` wrote a
+    helper class's argument as the reviewed identity of a repository whose
+    real application root could not be read at all (#532 review)."""
+    workspace = _write_files(
+        tmp_path / "repo",
+        {
+            "agent.py": ADK_HEADER + UNREADABLE_ROOT,
+            "domain.py": UNRELATED_AGENT_CLASS,
+            "util/pyproject.toml": '[project]\nname = "util"\n',
+            "util/agent.py": 'from domain import Agent\n\nhelper = Agent(name="CrmHelper")\n',
+        },
+    )
+    result = detect_workspace(workspace)
+    # The premise: `util` is not one of the workspace's agent projects.
+    assert result.agent_scope == "single"
+    assert [c.path for c in result.agent_project_candidates] == ["."]
+
+    helper = next(c for c in result.agent_name_candidates if c.value == "CrmHelper")
+    assert helper.path == "util/agent.py"
+    assert helper.selectable is False
+    assert "this workspace declares an application root" in _rejection(helper)
+    assert select_agent_name(result.agent_name_candidates) is None
+
+
+def test_init_write_refuses_a_name_under_a_non_agent_marker(tmp_path: Path) -> None:
+    """The same shape through the command an adopter actually runs. No
+    `--allow-unresolved-scope`, no test or template code: plain `init
+    --write` on a single-scope workspace has to keep `CHANGE_ME` when the
+    only application root it found cannot be read."""
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+
+    workspace = _write_files(
+        tmp_path / "repo",
+        {
+            "agent.py": ADK_HEADER + UNREADABLE_ROOT,
+            "domain.py": UNRELATED_AGENT_CLASS,
+            "util/pyproject.toml": '[project]\nname = "util"\n',
+            "util/agent.py": 'from domain import Agent\n\nhelper = Agent(name="CrmHelper")\n',
+        },
+    )
+    written = CliRunner().invoke(
+        app, ["init", "--workspace", str(workspace), "--write", "--json"]
+    )
+    assert written.exit_code == 0, written.output
+    manifest = (workspace / "shipgate.yaml").read_text(encoding="utf-8")
+    assert "name: CHANGE_ME" in manifest
+    assert "CrmHelper" not in manifest
+
+
+def test_a_name_two_projects_declare_is_rejected_when_either_is_blocked(
+    tmp_path: Path,
+) -> None:
+    """Scoping decides which project a *name* belongs to, and a name can
+    belong to two. In the blocked one it is a worker whatever it is
+    elsewhere, so the union — not the best-scoring site — is what the
+    rejection reads. Fail-closed is the only safe direction here."""
+    workspace = _write_files(
+        tmp_path / "monorepo",
+        {
+            "clean/pyproject.toml": '[project]\nname = "clean"\n',
+            "clean/agent.py": ADK_HEADER + 'root_agent = LlmAgent(name="SharedName")\n',
+            "blocked/pyproject.toml": '[project]\nname = "blocked"\n',
+            "blocked/agent.py": (
+                ADK_HEADER + 'helper = LlmAgent(name="SharedName")\n' + UNREADABLE_ROOT
+            ),
+        },
+    )
+    result = detect_workspace(workspace)
+    shared = next(c for c in result.agent_name_candidates if c.value == "SharedName")
+    assert shared.selectable is False
+    # Every other field of this candidate points at `clean` — the site that
+    # ranked best. Naming `blocked` without saying the value is declared
+    # there too is the #398 complaint again, one project narrower.
+    assert shared.path == "clean/agent.py"
+    assert _rejection(shared).startswith(
+        "rejected: this name is also declared in project `blocked`, which "
+        "declares an application root"
+    )
+
+
+def test_weak_marker_siblings_are_scoped_independently(tmp_path: Path) -> None:
+    """The grouping is the one `agent_project_candidates` publishes, weak
+    markers included. Two sibling agents whose only boundary is a
+    `requirements.txt` beside an `agent.py` are two projects (#363), so an
+    unreadable root in one must not reject the other — a second, weaker
+    implementation of "which project" here would have missed that."""
+    workspace = _write_files(
+        tmp_path / "monorepo",
+        {
+            "one/requirements.txt": "google-adk\n",
+            "one/agent.py": ADK_HEADER + 'root_agent = LlmAgent(name="OneRoot")\n',
+            "two/requirements.txt": "google-adk\n",
+            "two/agent.py": ADK_HEADER + UNREADABLE_ROOT,
+        },
+    )
+    result = detect_workspace(workspace)
+    assert [c.path for c in result.agent_project_candidates] == ["one", "two"]
+    by_value = {c.value: c for c in result.agent_name_candidates}
+    assert by_value["OneRoot"].selectable is True
+    assert "project `two`" in _rejection(by_value["inner"])
+
+
 def test_root_reference_resolves_to_the_reaching_assignment(tmp_path: Path) -> None:
     """`App(root_agent=agent)` names the binding live at that point, not
     every construction that ever used the identifier. Classifying both as
@@ -1200,21 +1553,22 @@ def test_origin_penalty_dominates_the_other_signals_by_construction(
     tmp_path: Path,
 ) -> None:
     """Pins the arithmetic the contract rests on. If a future signal widens
-    the spread past ORIGIN_TEST_PENALTY, a test fixture can outrank product
-    code again and only this assertion would notice."""
+    the spread past ORIGIN_NON_PRODUCT_PENALTY, a test fixture can outrank
+    product code again and only this assertion would notice."""
     from agents_shipgate.cli.discovery import signals
 
-    best_test_score = (
+    best_non_product_score = (
         1.0
         + signals.ROOT_AGENT_BONUS
         + signals.CORROBORATION_BONUS
-        - signals.ORIGIN_TEST_PENALTY
+        - signals.ORIGIN_NON_PRODUCT_PENALTY
     )
     worst_product_score = 1.0 - signals.SUB_AGENT_PENALTY
-    assert best_test_score < worst_product_score, (
-        "ORIGIN_TEST_PENALTY must exceed the whole spread of the hierarchy "
-        "and corroboration signals, or 'product code outranks test code' "
-        "stops being true for the best-placed fixture."
+    assert best_non_product_score < worst_product_score, (
+        "ORIGIN_NON_PRODUCT_PENALTY must exceed the whole spread of the "
+        "hierarchy and corroboration signals, or 'product code outranks code "
+        "that is not the product' stops being true for the best-placed "
+        "fixture."
     )
 
 
