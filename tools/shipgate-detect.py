@@ -65,10 +65,16 @@ Intentional simplifications vs. the canonical CLI:
 - Absolute scores may differ by ±0.5 in edge cases.
 - The parse probe is **JSON-only** (stdlib has no YAML parser). A
   ``.json`` candidate the input adapters would reject is excluded here
-  too; a ``.yaml`` / ``.yml`` OpenAPI spec is kept as a suggestion
-  unconditionally (never wrongly dropped). The real-world miss this
-  guards against — ``mcpServers``-style host configs — is always JSON,
-  so the probe is exact where it matters.
+  too; a ``.yaml`` / ``.yml`` OpenAPI spec is kept as a suggestion unless
+  it trips the size bound below (never wrongly dropped). The real-world
+  miss this guards against — ``mcpServers``-style host configs — is always
+  JSON, so the probe is exact where it matters.
+- Every structured candidate is size-gated at ``MAX_STRUCTURED_FILE_BYTES``
+  before it is read, matching the ``MAX_INPUT_FILE_BYTES`` refusal the input
+  adapters apply ahead of their own parse. This is both a bound on what an
+  unknown workspace can make this script allocate and a parity rule: an
+  oversized ``*mcp*.json`` is excluded by the CLI, so suggesting it here
+  would send an agent to write a manifest entry ``scan`` rejects.
 
 The verdict, detected framework set, suggested/excluded source split, and
 the ranked ``agent_name_candidates`` all match. The name ranking is pinned
@@ -549,12 +555,53 @@ def _glob(workspace: Path, files: list[Path], patterns: tuple[str, ...]) -> list
     return sorted(found)
 
 
+def _oversized(path: Path) -> bool:
+    """Whether ``path`` exceeds the input adapters' pre-parse size bound.
+
+    Every adapter reads through ``core.static_inputs.read_static_input_bytes``,
+    which refuses an input larger than ``inputs.common.MAX_INPUT_FILE_BYTES``
+    *before* the loader sees a byte. So an oversized candidate cannot become a
+    tool source or a workflow whatever it contains, and answering that needs no
+    parse — which is the point: this script runs against repositories it knows
+    nothing about, over ``curl | python3``, and must not pull a
+    several-hundred-megabyte glob hit into memory to learn it is too big.
+
+    A ``stat`` that fails is not an oversize answer; the caller's existing
+    ``OSError`` handling on the read is what reports an unreadable candidate.
+    """
+    try:
+        return path.stat().st_size > MAX_STRUCTURED_FILE_BYTES
+    except OSError:
+        return False
+
+
+def _oversize_reason(rel: str) -> str:
+    """Spell the CLI's refusal for an oversized suggestion candidate.
+
+    ``load_structured_file`` re-raises the size refusal as ``Unable to read
+    input file <path>: <error>`` and ``probe_suggested_source`` rewrites the
+    absolute path back to the manifest-relative one. Reproduced here so the
+    ``excluded_sources`` reason an agent reads from the zero-install script is
+    the reason ``detect --json`` would have given it — excluding the same file
+    under a different explanation only moves the divergence.
+    """
+    return (
+        f"Unable to read input file {rel}: Input file too large "
+        f"(limit: {MAX_STRUCTURED_FILE_BYTES} bytes): {rel}"
+    )
+
+
 def _looks_like_n8n_workflow(path: Path) -> bool:
     """Match the CLI heuristic in cli/discovery/artifacts.py: a JSON file
     is an n8n workflow when it (or any element in a list) is a dict with
     a ``nodes`` list and ``connections`` dict, and at least one node has
     a ``type`` starting with ``n8n-nodes-`` or ``@n8n/n8n-nodes-``."""
     if path.suffix.lower() != ".json":
+        return False
+    if _oversized(path):
+        # The n8n adapter loads workflows through ``load_structured_file``,
+        # so an oversized file cannot be scanned as one; scoring `n8n` off a
+        # file `scan` refuses would name a framework nobody can verify.
         return False
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -622,8 +669,19 @@ def _probe_suggested(workspace: Path, rel: str, kind: str) -> str | None:
     or YAML candidate is kept as a suggestion rather than wrongly dropped.
     The MCP suggestion globs are all ``*.json`` / ``.agents-shipgate/*.json``,
     so the load-bearing ``mcpServers``-host-config case is always covered.
+
+    The one rejection this mirror can make without a parser is the size
+    bound: it applies to every candidate, JSON or YAML, and it is checked
+    before the file is read at all.
     """
     path = workspace / rel
+    if _oversized(path):
+        # Asked before the YAML early return and before any read. The size
+        # refusal is content-independent — the adapters apply it to a .yaml
+        # spec exactly as to a .json one — so it is the one exclusion this
+        # script can make without a parser, and skipping it would leave an
+        # oversized spec suggested here and excluded by the CLI.
+        return _oversize_reason(rel)
     if kind == "openapi" and path.suffix.lower() in (".yaml", ".yml"):
         return None  # No stdlib YAML parser — keep, never wrongly exclude.
     try:
@@ -1806,8 +1864,13 @@ def detect(workspace: Path) -> dict[str, Any]:
         if _looks_like_n8n_workflow(workspace / p):
             _add(scores, "n8n", 2.0, "strong", f"n8n workflow: {p}", p)
     for p in _glob(workspace, files, CONDUCTOR_WORKFLOW_PATTERNS):
+        workflow_path = workspace / p
+        # Same bound as the Conductor adapter's ``load_structured_file``:
+        # a workflow `scan` refuses to read must not score `conductor` here.
+        if _oversized(workflow_path):
+            continue
         try:
-            data = json.loads((workspace / p).read_text(encoding="utf-8"))
+            data = json.loads(workflow_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             continue
         markers = _conductor_agent_markers(data)

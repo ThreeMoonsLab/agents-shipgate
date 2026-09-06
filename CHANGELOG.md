@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- **The zero-install detector refuses an oversized candidate instead of
+  reading it.** `tools/shipgate-detect.py` is fetched over `curl | python3`
+  and run against repositories nobody has inspected, and it read every
+  glob-matched MCP/OpenAPI/Conductor candidate — and every n8n and Conductor
+  workflow it scored a framework off — with an unbounded `read_text()`. A
+  multi-hundred-megabyte `*mcp*.json` was pulled into memory whole. The input
+  adapters have always refused such a file before parsing it
+  (`MAX_INPUT_FILE_BYTES`, 10 MB), so this was also a parity break: the file
+  was *excluded* by `agents-shipgate detect --json` and *suggested* by the
+  script, and an agent following the script would write a `tool_sources` entry
+  the next `scan` rejects. Both sides now ask the same content-independent
+  question from `stat` alone, and the script spells the refusal exactly as the
+  CLI does, so `excluded_sources` agrees on the reason and not just the split.
+
+  CLI discovery had the mirror-image hole: `_looks_like_n8n_workflow` and the
+  Conductor framework probe read their glob hits whole to score a framework
+  whose adapter would then refuse the same file, and the MCP host-config sniff
+  in `_probe_failure_reason` re-read a file the adapter had *just* rejected for
+  being too large. All three are bounded now. The size gate is asked before the
+  script's YAML early return: a `.yaml` OpenAPI spec is still never excluded on
+  content the stdlib cannot parse, but size needs no parser.
+
 - **No corpus case is graded against `insufficient_evidence` any more, and four
   `blocked` cells hold one case instead of two.** (#520, #508) A verdict exists
   to route a change somewhere: `passed` merges, `review_required` hands a human

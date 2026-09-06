@@ -673,6 +673,198 @@ def test_script_excludes_swagger2_json_like_cli(script_module, tmp_path):
     ]
 
 
+#: The bound the size-gate tests below patch in, and padding that clears it.
+#: A faithful fixture would be 10 MB of writes per candidate; the rule under
+#: test is "compare the file's size against the configured bound", and that
+#: rule is exercised identically at 512 bytes.
+_PATCHED_INPUT_BOUND = 512
+_OVER_BOUND_PAD = "x" * 4096
+
+
+def _patch_structured_input_bound(monkeypatch, script_module) -> None:
+    """Lower the pre-parse size bound on both sides of the parity contract.
+
+    Three constants, because the refusal has three enforcement points: the
+    adapters (``MAX_INPUT_FILE_BYTES``, what actually makes ``scan`` reject an
+    oversized source), CLI discovery (``MAX_STRUCTURED_FILE_BYTES``, which
+    must reach the same verdict without loading the file), and the
+    zero-install script's stdlib copy. They are pinned equal by
+    ``test_structured_input_bound_matches_the_adapter_bound``; patching one
+    and not the others would make these tests pass on a build whose surfaces
+    disagree.
+    """
+
+    from agents_shipgate.cli.discovery import artifacts
+    from agents_shipgate.inputs import common
+
+    monkeypatch.setattr(common, "MAX_INPUT_FILE_BYTES", _PATCHED_INPUT_BOUND)
+    monkeypatch.setattr(
+        artifacts, "MAX_STRUCTURED_FILE_BYTES", _PATCHED_INPUT_BOUND
+    )
+    monkeypatch.setattr(
+        script_module, "MAX_STRUCTURED_FILE_BYTES", _PATCHED_INPUT_BOUND
+    )
+
+
+def _oversize_reason(rel: str) -> str:
+    """The reason ``load_structured_file``'s refusal reaches a user as."""
+
+    return (
+        f"Unable to read input file {rel}: Input file too large "
+        f"(limit: {_PATCHED_INPUT_BOUND} bytes): {rel}"
+    )
+
+
+def test_structured_input_bound_matches_the_adapter_bound(script_module):
+    """The three copies of the pre-parse size bound must be one value.
+
+    ``MAX_INPUT_FILE_BYTES`` is the only one that decides anything at scan
+    time; the other two exist so discovery and the zero-install script can
+    predict that decision without reading the file. Let them drift and the
+    prediction is wrong in exactly the window between them — a file the
+    script suggests and ``scan`` refuses, which is the cold-start break the
+    parse probe exists to prevent.
+    """
+
+    from agents_shipgate.cli.discovery.artifacts import MAX_STRUCTURED_FILE_BYTES
+    from agents_shipgate.inputs.common import MAX_INPUT_FILE_BYTES
+
+    assert (
+        MAX_STRUCTURED_FILE_BYTES
+        == MAX_INPUT_FILE_BYTES
+        == script_module.MAX_STRUCTURED_FILE_BYTES
+    )
+
+
+def test_script_and_cli_exclude_oversized_sources_alike(
+    script_module, tmp_path, monkeypatch
+):
+    """An oversized candidate is refused by the adapters before they parse
+    it, so the CLI reports it under ``excluded_sources``. The script has to
+    reach that verdict from ``stat`` alone — both because reading a
+    several-hundred-megabyte ``*mcp*.json`` into memory is not something a
+    ``curl | python3`` detector may do on an unknown repository, and because
+    suggesting a source ``scan`` refuses breaks the documented
+    ``init --write`` → ``scan`` step.
+
+    Three shapes, each valid but for its size, so size is the only thing
+    that can exclude them:
+
+    * JSON the stdlib probe *could* have parsed and accepted;
+    * a ``.yaml`` OpenAPI spec, which the script keeps whenever the verdict
+      would depend on content it has no parser for — the size gate is asked
+      ahead of that, because it is the one content-independent rejection;
+    * an ``mcpServers``-style host config, which must still be excluded
+      under the *size* reason: the CLI's host-config sniff re-reads the
+      file, so it is skipped above the bound, and the two surfaces would
+      otherwise name different causes for the same exclusion.
+    """
+
+    _patch_structured_input_bound(monkeypatch, script_module)
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "payments-mcp.json").write_text(
+        '{"tools": [{"name": "create_payment_link", "description": "Pay."}]}',
+        encoding="utf-8",
+    )
+    (tmp_path / "tools" / "bulk-mcp.json").write_text(
+        '{"tools": [{"name": "bulk_export", "description": "'
+        + _OVER_BOUND_PAD
+        + '"}]}',
+        encoding="utf-8",
+    )
+    (tmp_path / "providers").mkdir()
+    (tmp_path / "providers" / "host-mcp.json").write_text(
+        '{"mcpServers": {"stripe": {"command": "npx", "note": "'
+        + _OVER_BOUND_PAD
+        + '"}}}',
+        encoding="utf-8",
+    )
+    (tmp_path / "specs").mkdir()
+    (tmp_path / "specs" / "support.openapi.yaml").write_text(
+        "openapi: 3.1.0\ninfo:\n  title: T\n  version: '1'\n"
+        f"  description: {_OVER_BOUND_PAD}\npaths: {{}}\n",
+        encoding="utf-8",
+    )
+
+    script_result = script_module.detect(tmp_path)
+    cli_result = detect_workspace(tmp_path.resolve()).model_dump(mode="json")
+
+    assert script_result["suggested_sources"] == [
+        {"type": "mcp", "path": "tools/payments-mcp.json"}
+    ]
+    assert [(s["type"], s["path"]) for s in script_result["suggested_sources"]] == [
+        (s["type"], s["path"]) for s in cli_result["suggested_sources"]
+    ]
+
+    expected_excluded = [
+        ("openapi", "specs/support.openapi.yaml"),
+        ("mcp", "providers/host-mcp.json"),
+        ("mcp", "tools/bulk-mcp.json"),
+    ]
+    assert (
+        [(s["type"], s["path"]) for s in script_result["excluded_sources"]]
+        == [(s["type"], s["path"]) for s in cli_result["excluded_sources"]]
+        == expected_excluded
+    )
+    # The reason is pinned byte for byte here, unlike the script's other
+    # evidence strings: an agent that reads ``excluded_sources`` decides
+    # whether to shrink, split, or ignore the file, and "too large" and
+    # "wrong shape" call for different work.
+    for result in (script_result, cli_result):
+        assert {s["path"]: s["reason"] for s in result["excluded_sources"]} == {
+            path: _oversize_reason(path) for _kind, path in expected_excluded
+        }
+
+
+def test_script_and_cli_ignore_oversized_workflows_for_scoring(
+    script_module, tmp_path, monkeypatch
+):
+    """The n8n and Conductor framework signals read their glob hits whole.
+
+    Both adapters load workflows through ``load_structured_file``, so a
+    workflow above the bound cannot be scanned as one — scoring its framework
+    off it would name a framework nobody can verify, and reading it to decide
+    is the same unbounded read. Small siblings hold the frameworks fired, so
+    this pins that the *oversized* files stopped contributing rather than
+    that the detector stopped looking at workflows.
+    """
+
+    _patch_structured_input_bound(monkeypatch, script_module)
+    n8n_node = (
+        '{"nodes": [{"type": "n8n-nodes-base.httpRequest", "name": "call"}], '
+        '"connections": {}'
+    )
+    conductor_task = (
+        '{"name": "review", "schemaVersion": 2, '
+        '"tasks": [{"type": "CALL_MCP_TOOL", "name": "call"}]'
+    )
+    (tmp_path / "n8n").mkdir()
+    (tmp_path / "n8n" / "small.json").write_text(n8n_node + "}", encoding="utf-8")
+    (tmp_path / "n8n" / "bulk.json").write_text(
+        f'{n8n_node}, "notes": "{_OVER_BOUND_PAD}"}}', encoding="utf-8"
+    )
+    (tmp_path / "conductor").mkdir()
+    (tmp_path / "conductor" / "small.json").write_text(
+        conductor_task + "}", encoding="utf-8"
+    )
+    (tmp_path / "conductor" / "bulk.json").write_text(
+        f'{conductor_task}, "notes": "{_OVER_BOUND_PAD}"}}', encoding="utf-8"
+    )
+
+    script_result = script_module.detect(tmp_path)
+    cli_result = detect_workspace(tmp_path.resolve()).model_dump(mode="json")
+
+    for result in (script_result, cli_result):
+        fired = {f["type"] for f in result["frameworks"]}
+        assert fired == {"n8n", "conductor"}
+        cited = {
+            path
+            for framework in result["frameworks"]
+            for path in framework["candidate_files"]
+        }
+        assert cited == {"n8n/small.json", "conductor/small.json"}
+
+
 def _write_ranking_probe(root: Path) -> None:
     """Both issue shapes in one workspace: an ADK coordinator bound through
     ``App(root_agent=…)`` with a name resolved from an adjacent config

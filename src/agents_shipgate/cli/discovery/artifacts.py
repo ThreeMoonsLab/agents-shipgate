@@ -126,6 +126,19 @@ SKIP_DIRS = {
     "venv",
 }
 SKIP_DIR_PREFIXES = (".venv",)
+
+#: Pre-parse size refusal, mirroring ``inputs.common.MAX_INPUT_FILE_BYTES``.
+#: Every adapter reads through ``read_static_input_bytes``, which refuses an
+#: oversized input before the loader sees a byte, so a file above this bound
+#: can be neither a tool source nor an n8n/Conductor workflow whatever it
+#: contains. Discovery must answer that the same way — without reading the
+#: file whole to find out, and without suggesting or scoring off it.
+#: Re-declared rather than imported so discovery stays loader-free for
+#: framework scoring (see ``probe_suggested_source``);
+#: ``test_zero_install_detector`` pins this constant, ``MAX_INPUT_FILE_BYTES``
+#: and the zero-install script's copy to one value.
+MAX_STRUCTURED_FILE_BYTES = 10 * 1024 * 1024
+
 #: The keys that anchor an ``openai_api:`` block. A bare ``prompts/`` directory
 #: does not: an Anthropic-only project has one too, so emitting the block on it
 #: would declare a framework nobody uses. The auto renderer has always gated on
@@ -195,10 +208,30 @@ def probe_suggested_source(workspace: Path, rel_path: str, source_type: str) -> 
     return None
 
 
+def _oversized_structured_input(path: Path) -> bool:
+    """Whether ``path`` is above the adapters' pre-parse size bound.
+
+    A ``stat`` that fails is not an oversize answer — an unreadable candidate
+    is reported by the caller's own read-error handling, which says what is
+    actually wrong with it.
+    """
+
+    try:
+        return path.stat().st_size > MAX_STRUCTURED_FILE_BYTES
+    except OSError:
+        return False
+
+
 def _probe_failure_reason(
     workspace: Path, rel_path: str, source_type: str, message: str
 ) -> str:
-    if source_type == "mcp":
+    if source_type == "mcp" and not _oversized_structured_input(workspace / rel_path):
+        # Guarded by size because this sniff re-reads the whole file — the
+        # very file the adapter may have just refused for being too large. An
+        # oversized candidate keeps the size message: an ``mcpServers``-shaped
+        # one would otherwise be excluded under a reason that hides the cause,
+        # and the zero-install mirror, which cannot read it at all, would then
+        # name a different one.
         try:
             data = json.loads((workspace / rel_path).read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
@@ -452,6 +485,12 @@ def _discover_n8n_workflows(workspace: Path) -> list[str]:
 
 def _looks_like_n8n_workflow(path: Path) -> bool:
     if path.suffix.lower() != ".json":
+        return False
+    if _oversized_structured_input(path):
+        # The n8n adapter loads workflows through ``load_structured_file``,
+        # which refuses this file. Listing it under ``n8n.workflows`` would
+        # write a manifest entry ``scan`` fails on, and scoring ``n8n`` off it
+        # would name a framework nobody can verify.
         return False
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
