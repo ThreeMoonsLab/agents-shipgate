@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import replace
 from pathlib import Path
 
@@ -21,6 +22,8 @@ from agents_shipgate.fixtures import (
 )
 from agents_shipgate.schemas.report import Finding, ReadinessReport, ReleaseDecision
 from agents_shipgate.schemas.verifier import VerifierArtifact
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 runner = CliRunner()
 
@@ -137,6 +140,98 @@ def test_cli_fixture_run(tmp_path: Path):
             "open_questions": [],
         },
     }
+
+
+#: The human entry path (#498). Both files quote this fixture's PR comment, and
+#: both are registered distribution surfaces in `docs/distribution-surfaces.md`.
+_ENTRY_PATH_SURFACES = ("README.md", "docs/quickstart.md")
+
+#: A fenced or quoted block, and the prose immediately before it. A block is
+#: read as a quotation of the PR comment when that prose names the artifact.
+_QUOTED_BLOCK = re.compile(r"(?P<lead>(?:[^\n]*\n){0,4})```[a-z]*\n(?P<body>.*?)\n```", re.DOTALL)
+_BLOCKQUOTE = re.compile(r"(?P<lead>(?:[^\n]*\n){0,4})(?P<body>(?:^>[^\n]*\n)+)", re.M)
+
+
+def _unescaped(text: str) -> str:
+    """Markdown escaping removed and whitespace collapsed.
+
+    The comment writes ``high\\-risk`` because it renders into a Markdown
+    surface; a document quoting it as ``high-risk`` is quoting the same content,
+    and where a paragraph wraps is not part of the claim either.
+    """
+
+    return re.sub(r"\s+", " ", re.sub(r"\\([^A-Za-z0-9\s])", r"\1", text)).strip()
+
+
+def _logical_lines(body: str) -> list[str]:
+    """One entry per rendered line, with hard-wrapped continuations rejoined.
+
+    A quoted excerpt wraps the comment's long lines to fit the page and skips
+    the rows it is not making a point about. Neither is a difference in what it
+    claims, so the comparison is per rendered line: a bullet or heading starts
+    one, anything else continues the previous.
+    """
+
+    lines: list[str] = []
+    for raw in body.splitlines():
+        stripped = raw.strip()
+        if not stripped:
+            continue
+        if stripped.startswith(("-", "#", "|")) or not lines:
+            lines.append(stripped)
+        else:
+            lines[-1] = f"{lines[-1]} {stripped}"
+    return [_unescaped(line) for line in lines]
+
+
+def test_the_entry_path_quotes_lines_the_pr_comment_actually_renders(tmp_path: Path):
+    """README and quickstart quote this fixture's comment; the engine writes it.
+
+    The README used to show a `### Agents Shipgate result: block` heading, an
+    `Impact | Change | Subject | Why` table and a numbered *Required before
+    merge* list, and said the fixture wrote that "verbatim". No code path
+    rendered any of it, and `block` is not a value `merge_verdict` or
+    `release_decision.decision` ever takes. It was the flagship example on the
+    surface a stranger reads first, and nothing compared it to the artifact it
+    named (#498).
+    """
+
+    out = tmp_path / "verify-out"
+    result = runner.invoke(app, ["fixture", "run", "ai_generated_refund_pr", "--out", str(out)])
+    assert result.exit_code == 0, result.output
+    rendered = _unescaped((out / "pr-comment.md").read_text(encoding="utf-8"))
+
+    checked = 0
+    for relpath in _ENTRY_PATH_SURFACES:
+        text = (REPO_ROOT / relpath).read_text(encoding="utf-8")
+        for pattern in (_QUOTED_BLOCK, _BLOCKQUOTE):
+            for match in pattern.finditer(text):
+                if "pr-comment.md" not in match.group("lead"):
+                    continue
+                body = match.group("body").replace("\n>", "\n").lstrip(">")
+                for logical in _logical_lines(body):
+                    # `…` is the abridgement marker: each side of one is a
+                    # claim, what it elides is not. An excerpt also *skips*
+                    # rows, so each line is checked on its own rather than the
+                    # block being required to appear contiguously.
+                    for segment in logical.split("…"):
+                        segment = segment.strip(" ;-")
+                        if len(segment) < 12:
+                            continue
+                        checked += 1
+                        assert segment in rendered, (
+                            f"{relpath} shows this as part of `pr-comment.md`, "
+                            f"and the fixture's comment does not contain it:\n"
+                            f"  {segment!r}\n"
+                            "Quote what the engine renders, or stop calling the "
+                            "block a PR comment."
+                        )
+    assert checked >= 3, (
+        f"only {checked} quoted PR-comment segments found across "
+        f"{list(_ENTRY_PATH_SURFACES)}; this guard is checking nothing. Either "
+        "the entry path stopped showing the comment, or the block it shows is "
+        "no longer introduced by prose naming `pr-comment.md`."
+    )
 
 
 def test_cli_fixture_run_ai_generated_refund_pr_writes_verifier_artifacts(tmp_path: Path):

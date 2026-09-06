@@ -2458,14 +2458,34 @@ def test_prominent_surfaces_only_promote_check_verify_and_host_audit():
         "agents-shipgate bootstrap",
         "agents-shipgate apply-patches",
     )
+    # #498 replaced the README's own quickstart with a landing page, so the
+    # first-look region is the landing page itself: everything above the
+    # section the README opens by telling human readers to skip. That is
+    # strictly wider than the section slice it replaces. Below the line is a
+    # contract index for coding agents, where naming `agents-shipgate detect`
+    # to say what the zero-install detector is equivalent to is a reference and
+    # not a route.
     readme = _read("README.md")
-    readme_top = readme.split("## Verify-first quickstart", 1)[1].split(
-        "## How to read your first result", 1
-    )[0]
+    readme_marker = "## For coding agents"
+    assert readme_marker in readme, (
+        f"README.md no longer has a {readme_marker!r} heading, so this test "
+        "cannot tell the landing page from the contract index. Restore the "
+        "heading or re-derive the boundary."
+    )
+    readme_top = readme.split(readme_marker, 1)[0]
     quickstart = _read("docs/quickstart.md")
-    quickstart_top = quickstart.split("## Verify-first quickstart", 1)[1].split(
-        "## Supporting zero-install relevance check", 1
-    )[0]
+    # The quickstart's first-look region is everything up to the point where it
+    # stops demonstrating and starts acting: install, the relevance check, and
+    # the one review read end to end. `apply-patches` belongs to the repair
+    # boundary and `detect` / `init` to Route A, both below that line; nothing
+    # above it may send a first-look reader to a setup or repair command.
+    marker = "## Two kinds of fix"
+    assert marker in quickstart, (
+        f"docs/quickstart.md no longer has a {marker!r} heading, so this test "
+        "cannot tell the demonstration region from the adoption region. Restore "
+        "the heading or re-derive the boundary."
+    )
+    quickstart_top = quickstart.split(marker, 1)[0]
     slash = _read(".claude/commands/shipgate.md")
     slash_commands = slash.split("Prominent commands:", 1)[1].split("Required behavior", 1)[0]
     target_snippets = _read("docs/target-repo-agent-snippets.md")
@@ -3402,10 +3422,16 @@ def _resolve_freeform(text: str) -> tuple[set[str], list[str]]:
     """Substring-scan freeform prose for every alias. Unresolved is
     always empty for prose — the bidirectional adapter test plus the
     structured extractors below catch unknown-input drift on surfaces
-    that have a parseable list shape."""
+    that have a parseable list shape.
+
+    Whitespace is collapsed first. A multi-word alias — ``Codex repo config``
+    — otherwise resolves or not depending on where the paragraph happens to
+    wrap, so re-flowing a sentence drops an input the surface still names. That
+    is a false failure about the *shape* of the prose, not about its claim."""
+    haystack = _normalize_ws(text)
     resolved: set[str] = set()
     for alias in _ALIASES_LONGEST_FIRST:
-        if alias in text:
+        if _normalize_ws(alias) in haystack:
             resolved.add(_ALIAS_TO_ENUM[alias])
     return resolved, []
 
@@ -4136,7 +4162,8 @@ def test_discovery_and_runtime_publish_the_same_compatibility_floor():
     assert (
         "the permission-scoped agent-control model requires "
         f'`minimum_control_contract_version: "{MINIMUM_CONTROL_CONTRACT_VERSION}"`'
-        in _read("README.md")
+        # Collapsed: the sentence is prose, and where it wraps is not a claim.
+        in _normalize_ws(_read("README.md"))
     )
 
 
