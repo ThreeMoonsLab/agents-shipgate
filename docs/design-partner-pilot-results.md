@@ -24,6 +24,14 @@ sections below say why, in denominators rather than adjectives.
 
 Dogfooding is reported separately below and never enters these counts.
 
+These six counts are this experiment's, not the project's adopter count.
+Public, consenting adopters are listed and counted in
+[`ADOPTERS.md`](../ADOPTERS.md). The two ledgers answer different questions
+under different consents — a pilot row is an observation we made, an adopter
+entry is a statement someone else chose to publish — so they are never added
+together, and a pilot participant appears in the registry only by adding
+themselves.
+
 ## Enrollment and opportunity shortfall — 2026-09-05
 
 Zero invitations have gone out. The first version of this section, dated

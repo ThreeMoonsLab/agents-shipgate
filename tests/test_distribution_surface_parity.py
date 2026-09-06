@@ -283,6 +283,7 @@ NOT_A_DISTRIBUTION_SURFACE: dict[str, str] = {
     ".gitignore": "repository mechanics",
     ".pre-commit-hooks.yaml": "repository mechanics",
     ".well-known": "the channel metadata this registry reads; the source of truth for executable_pin, not a restatement of it",
+    "ADOPTERS.md": "the opt-in public adopters registry; it publishes self-reported adopter claims, not an engine answer, and is pinned by tests/test_adopters_registry.py",
     "AGENTS.md": "repository documentation, pinned by tests/test_public_surface_contract.py",
     "CHANGELOG.md": "repository documentation, pinned by tests/test_public_surface_contract.py",
     "CLAUDE.md": "repository documentation, pinned by tests/test_public_surface_contract.py",
