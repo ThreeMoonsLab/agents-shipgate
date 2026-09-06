@@ -100,9 +100,14 @@ AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate apply-patches \
   --confidence high --apply
 ```
 
-If `init` reports placeholders, replace `CHANGE_ME` values from repo context
-before verification. If `shipgate.yaml` already exists, edit it rather than
-overwriting it.
+If `init` reports placeholders, resolve only the ones you own. `init` routes the
+rest itself: while a human-owned placeholder is unresolved it returns
+`control.next_action.actor: "human"` with `permissions.edit: false`, and names
+the field and line. Fill the agent-owned values (`agent.name`, tool source
+paths) from repo context. `agent.declared_purpose` and the other declaration
+fields must be supplied by a human — report them to the repository owner and
+stop there. If `shipgate.yaml` already exists, edit it rather than overwriting
+it.
 
 ## Fix Or Explain Findings
 

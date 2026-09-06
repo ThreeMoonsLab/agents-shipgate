@@ -45,8 +45,8 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": "b09ffc59ad9e52ae34b0015d55ff311f2856e745581fc83b607b5eacf84c1a69",
-    ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": "b6f87f58f70b5920442f342b5118419ef685ad9f4ff8b0ff87c2729a92929786",
-    ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "8bf8c2d3992769bd5eec2495cb177d93f65d5c6391d5ee4ad1b332a51de7da5c",
+    ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": "7fd2c718e5dad94b231409a72710e05af1b231c3d495d8796c501a7e9493a394",
+    ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "b600b97d5a94768213cea27d725561e9b7572f0b84e1aee3c1e89939214ca6cf",
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": "be3079a2f41b66d2db19cfea14c57ccd80ab9047ef7d69eccf30e97fa1beca5b",
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829",
     ".claude/skills/agents-shipgate/prompts/fix-top-finding.md": "1956133a2d1003326e471f8ecab7b781e655dc9c33fbd2d1d681711f9ac0f08c",
@@ -60,7 +60,7 @@ EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": "34ef4bdac90ff7b409eb2254f6b73c52888e92bd9ba44824d6f056c44c2a50ff",
     ".agents/skills/agents-shipgate/agents/openai.yaml": "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef",
     ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": "89580914407edd5516db10c8d7725f22c1a919e827e9b820115007a7a6caab31",
-    ".agents/skills/agents-shipgate/references/recipes.md": "49f71ac4f5b6c83f34caa1e5a7126cf4550d95188725ce37d93b558c6bfae17a",
+    ".agents/skills/agents-shipgate/references/recipes.md": "dcf9f982036d6189e4663923a97bf56ecd3ae68f34b4ce46081d135a88c4b564",
     ".agents/skills/agents-shipgate/references/report-reading.md": "d9709d600fa6ed6c697202f731977e66c102a4757e29ab825fa89935abe8f72a",
 }
 

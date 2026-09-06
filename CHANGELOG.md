@@ -105,6 +105,105 @@
   that claim about a file that does not exist was published into the adoption
   evidence for every one of them.
 
+- **Ten distribution surfaces, one registry, and a test that they agree with
+  the engine.** (#497) One engine is published through `action.yml`, `plugins/`,
+  `skills/`, `adoption-kits/`, `harness/`, `examples/`, `prompts/`, `policies/`,
+  `tools/` and the MCP server, and nothing checked that they said the same
+  thing. `docs/distribution-surfaces.md` now lists every one of them, what it
+  claims, and which test proves the claim;
+  `tests/test_distribution_surface_parity.py` is that test, and
+  `CONTRIBUTING.md` points at both. A surface that answers nothing the engine
+  answers still gets a row saying so — `policies/` are inputs the engine
+  evaluates and the MCP server is transport — because that is what stops the
+  next reader re-deriving it. A new top-level directory now fails the suite
+  until somebody classifies it.
+
+  Four things the registry found, each a surface disagreeing with the engine
+  rather than with itself:
+
+  - **The bundled setup prompt told a coding agent to write a declaration only a
+    person may make.** `add-shipgate-to-repo.md` step 5 said to replace
+    `agent.declared_purpose[]` with "a one-line description of what the agent
+    should do", derived from the prompt or main module. `init` returns
+    `control.next_action.actor: "human"` and `permissions.edit: false` for
+    exactly that field. The prompt now separates the placeholder the agent owns
+    (`agent.name`) from the one it must surface to a person, and quotes the
+    engine's own wording. The Codex kit's recipe page and the design-partner
+    runbook carried the same instruction as a blanket "replace every
+    `CHANGE_ME`", and no longer do.
+  - **The Claude Code kit rendered a GitHub Action tag that does not exist.**
+    Its advisory CI recipe pinned `@v{{ shipgate_version }}` and
+    `shipgate_version: '{{ shipgate_version }}'`, so `init
+    --agent-instructions=claude-code-skill` wrote `@v0.16.0` and
+    `agents-shipgate==0.16.0` into an adopter's CI — a tag and a release that
+    are not published. GitHub resolves `uses:` before any step runs, so that
+    workflow fails on our repository's name, not the adopter's change. Both pins
+    now name the published release, as the Codex kit's identical recipe always
+    did. The drift was invisible because
+    `test_claude_code_skill_source_matches_renderer` skipped this one file; that
+    exemption is gone, which is the actual repair.
+  - **Two published surfaces demanded a runtime contract nobody could reach.**
+    The Claude Code plugin's marketplace description and `plugin.json` both said
+    "runtime contract 15" beside `pipx install agents-shipgate`, which yields
+    contract 10. The number was a second copy of a value the bundled skill
+    already states; it is now removed rather than re-synced.
+  - **The design-partner runbook taught a route its own build could not run.**
+    It named `v0.15.0`, demanded "runtime contract 14" — which that build has
+    never implemented — floored `pip` at `>=0.13`, and then gave a read order
+    starting at `control.state`, which `shipgate.agent_handoff/v1` does not
+    emit. It now names one channel per partner (released, unqualified preview,
+    source checkout) with the contract each implements, and says what the
+    released build does *not* produce instead of implying it does.
+
+  The registry is checked against the code in **both** directions — roots,
+  claims and the proving test named for each claim — and a claim must be proved
+  by a test that both exists and matches at least one file on that surface.
+  Review found both halves of that mattering immediately: the first draft's
+  `harness` row named a proving test that had been renamed out of existence, and
+  `design_partner_runbook` registered `executable_pin` while carrying only a
+  `>=` install floor no pin pattern looked at. Surfaces now also state the
+  engine's verdict vocabulary or none of it: a braced set literal must name the
+  whole set, and a `merge_verdict == '…'` comparison must name a value the
+  engine emits.
+
+  Review of the harness itself found three more, each reproduced before it was
+  fixed. The pin scanner never read the Action's own `shipgate_version:` input,
+  which `action.yml` turns into `pip install agents-shipgate==<value>` — so a
+  workflow could name a valid Action ref beside a package version that was never
+  released. The vocabulary guard projected each documented set onto the expected
+  values before comparing, so adding `needs_a_wizard` to the setup prompt's
+  otherwise-complete release-decision set still compared equal; sets are now
+  judged by all of their members, and a literal mixing the two vocabularies
+  fails instead of being skipped by both. And requiring tags in CI was landed in
+  `ci.yml` only, while `release-verify.yml` — which `release.yml` and
+  `release-rehearsal.yml` both call — still checked out the candidate shallow
+  and tagless before running the whole suite, so the release path would have
+  gone red on a green PR. That checkout is fixed and the contract is now
+  asserted for every job that runs the suite, whichever workflow adds one next.
+
+  #485 and #506 landed while this was in review, which is the first real test of
+  the exemption mechanism: all three registered gaps flipped to `XPASS`, their
+  strict markers failed, and the exemptions had to be removed to get back to
+  green. `KNOWN_GAPS` is empty because it worked, and the registry records what
+  each gap was rather than quietly dropping it. The same merge removed a
+  duplicate: #506's `agents_shipgate.published_release` and its pin-shape table
+  are now imported rather than restated, leaving this harness the half that file
+  does not reach — pins committed under a registered surface, found by path. That
+  immediately caught an `@main` in a committed CI example, which turns out to be
+  the one case #497's rule allows — an explicit version incompatibility rather
+  than an unresolvable pin — so it is enumerated as a declared exception whose
+  file has to say why, and an unexplained `@main` elsewhere still fails.
+
+  Known divergences are rows, not omissions. `#485`'s exact case — a minimized
+  TypeScript and Go MCP server whose tool surface exists only as registration
+  sites — is now a fixture under `tests/fixtures/distribution_parity/` and a
+  parity row that fails today and passes the day the port lands, with
+  `xfail(strict=True)` so the exemption itself fails once it is unnecessary.
+  `#506`'s two unpublished-pin gaps are recorded the same way, against a ledger
+  of exactly the files that diverge, so a newly drifting file fails loudly
+  instead of inheriting a surface-wide excuse. Resolvability is judged offline
+  against committed release metadata; the live tag check stays in
+  `release-tag-consistency`, for the reason that job already records.
 
 - **No corpus case is graded against `insufficient_evidence` any more, and four
   `blocked` cells hold one case instead of two.** (#520, #508) A verdict exists
