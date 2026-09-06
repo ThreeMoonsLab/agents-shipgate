@@ -2214,7 +2214,7 @@ def _rank_agent_name_candidates(
     def _block(fact: _PyFacts, detail: str) -> None:
         if not _can_declare_application_root(fact.rel_path):
             return
-        blocked_projects.setdefault(attribution.of(fact.path)[0], detail)
+        blocked_projects.setdefault(attribution.scope_of(fact.path), detail)
 
     for fact in facts:
         if fact.unresolved_root:
@@ -2257,7 +2257,7 @@ def _rank_agent_name_candidates(
         # Invariant across the evidence in one file, and `of()` pays a stat
         # before it reaches its cache, so it is asked once per file rather
         # than once per name.
-        project = attribution.of(fact.path)[0]
+        project = attribution.scope_of(fact.path)
         for evidence in fact.agent_names:
             resolved = _resolve_agent_name_evidence(evidence, fact, by_path, workspace)
             if resolved is None:
@@ -2521,6 +2521,9 @@ class _ProjectAttribution:
             path if path.is_dir() else path.parent for path in evidence_paths
         )
         self._by_directory: dict[Path, tuple[Path, str | None]] = {}
+        self._agent_projects: frozenset[Path] = frozenset()
+        self._established = False
+        self._scope_by_directory: dict[Path, Path] = {}
 
     def of(self, path: Path) -> tuple[Path, str | None]:
         """``(project directory, marker)`` for the file or directory ``path``.
@@ -2551,6 +2554,65 @@ class _ProjectAttribution:
         )
         self._by_directory[directory] = resolved
         return resolved
+
+    def establish(self, projects: Iterable[Path]) -> None:
+        """Record which projects the grouping actually published.
+
+        Called by :func:`_agent_project_candidates`, whose grouping keys
+        *are* the answer, and which is the only thing entitled to say what
+        an agent project is in this workspace.
+        """
+
+        self._agent_projects = frozenset(projects)
+        self._established = True
+        self._scope_by_directory.clear()
+
+    def scope_of(self, path: Path) -> Path:
+        """The nearest *established* agent project at or above ``path``.
+
+        :meth:`of` answers with the nearest project *marker*, which is the
+        right boundary for grouping evidence: it is what decides whether two
+        agents are one manifest's business. It is the wrong one for deciding
+        whether a name is disqualified. A marker directory holding no agent
+        evidence is not a manifest scope at all — a utilities package with
+        its own ``pyproject.toml`` — so a name found there belongs to the
+        scope that encloses it, which is the scope ``init`` would write.
+
+        Reading the marker directly is how a workspace whose only
+        application root was unreadable still wrote ``agent.name`` from a
+        bare ``Agent(name="CrmHelper")`` sitting under such a package: the
+        candidate's marker directory was not the blocked project, so nothing
+        rejected it (#532 review). The refusal has to be decided against the
+        projects that were actually established.
+
+        The workspace is the fallback: a name under no established project
+        belongs to no scope of its own, and attributing it to the enclosing
+        workspace is the fail-closed reading.
+        """
+
+        if not self._established:  # pragma: no cover - programming error
+            raise RuntimeError(
+                "scope_of() read before _agent_project_candidates established "
+                "the projects; it would attribute every name to the workspace"
+            )
+        directory = path if path.is_dir() else path.parent
+        cached = self._scope_by_directory.get(directory)
+        if cached is not None:
+            return cached
+        current = directory
+        scope = self._workspace
+        while True:
+            if current in self._agent_projects:
+                scope = current
+                break
+            if current == self._workspace:
+                break
+            parent = current.parent
+            if parent == current:  # defensive: never climb past a filesystem root
+                break
+            current = parent
+        self._scope_by_directory[directory] = scope
+        return scope
 
     def relative(self, project: Path) -> str:
         """``project`` as a workspace-relative POSIX path; ``"."`` for the root."""
@@ -2633,6 +2695,11 @@ def _agent_project_candidates(
         literals = fact.name_literals()
         if literals and fact.framework:
             names[_claim(fact.path)].update(literals)
+
+    # These keys are the workspace's agent projects, and ranking resolves a
+    # name's scope against them rather than against the nearest marker —
+    # see :meth:`_ProjectAttribution.scope_of`.
+    attribution.establish(names)
 
     candidates = [
         AgentProjectCandidate(

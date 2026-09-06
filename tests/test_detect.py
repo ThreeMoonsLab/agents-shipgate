@@ -878,6 +878,73 @@ def test_the_rejection_quotes_the_parse_time_root_over_a_symbol_failure(
     assert "a_symbol.py" not in _rejection(worker)
 
 
+#: A module that defines its own, unrelated ``Agent`` class. Its
+#: ``Agent(name=…)`` literal is a *name suggestion* and nothing more: it draws
+#: no project boundary, because a file with no supported framework import is
+#: not an agent project (#363 review).
+UNRELATED_AGENT_CLASS = "class Agent:\n    def __init__(self, name):\n        self.name = name\n"
+
+
+def test_a_name_under_a_non_agent_marker_cannot_escape_the_blocked_scope(
+    tmp_path: Path,
+) -> None:
+    """Which project a name belongs to is decided against the projects
+    `agent_project_candidates` established, not against the nearest marker.
+
+    A utilities package carries its own `pyproject.toml` but no agent
+    evidence, so it is not a manifest scope — `agent_scope` is `single` and
+    the only project is `.`. Attributing its bare `Agent(name="CrmHelper")`
+    to `util/` exempted it from the workspace's refusal, and `init` wrote a
+    helper class's argument as the reviewed identity of a repository whose
+    real application root could not be read at all (#532 review)."""
+    workspace = _write_files(
+        tmp_path / "repo",
+        {
+            "agent.py": ADK_HEADER + UNREADABLE_ROOT,
+            "domain.py": UNRELATED_AGENT_CLASS,
+            "util/pyproject.toml": '[project]\nname = "util"\n',
+            "util/agent.py": 'from domain import Agent\n\nhelper = Agent(name="CrmHelper")\n',
+        },
+    )
+    result = detect_workspace(workspace)
+    # The premise: `util` is not one of the workspace's agent projects.
+    assert result.agent_scope == "single"
+    assert [c.path for c in result.agent_project_candidates] == ["."]
+
+    helper = next(c for c in result.agent_name_candidates if c.value == "CrmHelper")
+    assert helper.path == "util/agent.py"
+    assert helper.selectable is False
+    assert "this workspace declares an application root" in _rejection(helper)
+    assert select_agent_name(result.agent_name_candidates) is None
+
+
+def test_init_write_refuses_a_name_under_a_non_agent_marker(tmp_path: Path) -> None:
+    """The same shape through the command an adopter actually runs. No
+    `--allow-unresolved-scope`, no test or template code: plain `init
+    --write` on a single-scope workspace has to keep `CHANGE_ME` when the
+    only application root it found cannot be read."""
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+
+    workspace = _write_files(
+        tmp_path / "repo",
+        {
+            "agent.py": ADK_HEADER + UNREADABLE_ROOT,
+            "domain.py": UNRELATED_AGENT_CLASS,
+            "util/pyproject.toml": '[project]\nname = "util"\n',
+            "util/agent.py": 'from domain import Agent\n\nhelper = Agent(name="CrmHelper")\n',
+        },
+    )
+    written = CliRunner().invoke(
+        app, ["init", "--workspace", str(workspace), "--write", "--json"]
+    )
+    assert written.exit_code == 0, written.output
+    manifest = (workspace / "shipgate.yaml").read_text(encoding="utf-8")
+    assert "name: CHANGE_ME" in manifest
+    assert "CrmHelper" not in manifest
+
+
 def test_a_name_two_projects_declare_is_rejected_when_either_is_blocked(
     tmp_path: Path,
 ) -> None:

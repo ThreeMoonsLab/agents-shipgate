@@ -42,6 +42,7 @@
   exists to catch, and that the legitimate edits — a correctly added adopter, a
   GitLab-hosted one, a second maintainer row, a grammatically singular count —
   still pass.
+
 - **One unreadable application root no longer rejects every agent name in the
   repository.** (#398) A declared root whose identity cannot be established
   statically makes nothing selectable — the #324 rule, and a sound one, because
@@ -54,6 +55,15 @@
   publishes, now computed once and read by both — and the sentence names that
   project. A name several projects declare is still rejected when any of them
   is blocked; that direction is the fail-closed one.
+
+  "Which project" is resolved against the projects that grouping actually
+  *established*, not against the nearest project marker. The two are not the
+  same, and reading the marker fails open: a utilities package carrying its own
+  `pyproject.toml` but no agent evidence is not a manifest scope, so a bare
+  `Agent(name="CrmHelper")` found there was exempt from the workspace's refusal
+  and plain `init --write` wrote a helper class's argument as the reviewed
+  identity of a repository whose real application root could not be read at
+  all. A name under no established project belongs to the scope enclosing it.
 
   Scoping alone would not have unblocked the reproduction, because one of the
   two observed culprits was `eval/test_eval_arize.py` *inside* the project
@@ -85,13 +95,25 @@
   `0.6.0`): `agent_name_candidates` is the field the zero-install path pins
   byte for byte, so a script that scoped the rejection differently would name a
   different agent than `init` does. Putting the grouping behind one object on
-  each side surfaced a parity break that predates this issue — where no marker
-  was found above the evidence at all, the script named the workspace's
-  `requirements.txt` as the project marker while the CLI reported `null`. A
-  weak marker only draws a boundary in a directory that already holds agent
-  evidence, so one that unlocked nothing is not the boundary the project rests
-  on. Every sample carries a `pyproject.toml`, which is why the per-sample
-  parity check never reached the fallback; a test does now.
+  each side surfaced two parity breaks that predate this issue.
+
+  The script counted **every** `Agent(name=…)` literal as project evidence,
+  where the CLI counts only framework-attributed ones. A module defining its
+  own `Agent` class and constructing `Agent(name="crm")` is not an agent
+  project (#363 review), so the script drew a boundary the CLI does not: a
+  phantom entry in `agent_project_candidates` and, through it, `agent_scope:
+  "ambiguous"` on a workspace the CLI calls `"single"` — a *verdict*
+  disagreement on the surface whose whole contract is verdict parity. The
+  script now qualifies those literals the same way, snapshotting each Python
+  file's framework attribution right after the Python pass, which is exactly
+  what `_score_python_signals` records on the CLI side.
+
+  And where no marker was found above the evidence at all, the script named the
+  workspace's `requirements.txt` as the project marker while the CLI reported
+  `null`. A weak marker only draws a boundary in a directory that already holds
+  agent evidence, so one that unlocked nothing is not the boundary the project
+  rests on. Every sample carries a `pyproject.toml` and one readable root,
+  which is why the per-sample parity check reached neither; tests do now.
 
 - **The zero-install detector refuses an oversized candidate instead of
   reading it.** `tools/shipgate-detect.py` is fetched over `curl | python3`

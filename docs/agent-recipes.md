@@ -122,6 +122,12 @@ Consume the response to decide whether to proceed. Key fields:
   `agent_project_candidates[]` stay selectable. A name two projects declare
   is rejected when either one is blocked.
 
+  "Which project" means an entry of `agent_project_candidates[]`, not the
+  nearest directory carrying a project marker. A marker directory that holds
+  no agent evidence — a utilities package with its own `pyproject.toml` — is
+  not a manifest scope, and a name found there belongs to the scope that
+  encloses it.
+
   The same product/not-product split above decides *which* roots block: a
   root declared only by test code or by a scaffolding template is not the
   application a project ships, so it does not disable selection for the

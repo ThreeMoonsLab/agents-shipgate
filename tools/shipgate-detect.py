@@ -100,6 +100,7 @@ import re
 import subprocess
 import sys
 import threading
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -541,6 +542,9 @@ class _ProjectAttribution:
             for rel in evidence_paths
         )
         self._by_directory: dict[Path, tuple[str, str | None]] = {}
+        self._agent_projects: frozenset[str] = frozenset()
+        self._established = False
+        self._scope_by_directory: dict[Path, str] = {}
 
     def of(self, path: Path) -> tuple[str, str | None]:
         """``(project relative path, marker)``; ``"."`` for the workspace."""
@@ -564,6 +568,47 @@ class _ProjectAttribution:
         self._by_directory[directory] = resolved
         return resolved
 
+    def establish(self, projects: Iterable[str]) -> None:
+        """Record which projects the grouping actually published."""
+        self._agent_projects = frozenset(projects)
+        self._established = True
+        self._scope_by_directory.clear()
+
+    def scope_of(self, path: Path) -> str:
+        """The nearest *established* agent project at or above ``path``.
+
+        `of()` answers with the nearest project *marker*, which is the right
+        boundary for grouping evidence and the wrong one for deciding
+        whether a name is disqualified: a marker directory holding no agent
+        evidence is not a manifest scope, so a name found there belongs to
+        the scope enclosing it. Mirror of
+        ``signals.py:_ProjectAttribution.scope_of``.
+        """
+        if not self._established:
+            raise RuntimeError(
+                "scope_of() read before _agent_project_candidates established "
+                "the projects; it would attribute every name to the workspace"
+            )
+        directory = path if path.is_dir() else path.parent
+        cached = self._scope_by_directory.get(directory)
+        if cached is not None:
+            return cached
+        current = directory
+        scope = "."
+        while True:
+            rel = "." if current == self._workspace else _rel(current, self._workspace)
+            if rel in self._agent_projects:
+                scope = rel
+                break
+            if current == self._workspace:
+                break
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+        self._scope_by_directory[directory] = scope
+        return scope
+
 
 def _agent_project_candidates(
     workspace: Path,
@@ -582,6 +627,9 @@ def _agent_project_candidates(
         project, marker = attribution.of(workspace / rel)
         names.setdefault(project, set()).update(literals_by_path.get(rel, []))
         markers.setdefault(project, marker)
+    # These keys are the workspace's agent projects, and ranking resolves a
+    # name's scope against them rather than against the nearest marker.
+    attribution.establish(names)
     return [
         {"path": project, "marker": markers[project], "agent_names": sorted(found)}
         for project, found in sorted(names.items())
@@ -3306,7 +3354,7 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
     def _block(path: Path, rel: str, detail: str) -> None:
         if not _can_declare_application_root(rel):
             return
-        blocked_projects.setdefault(attribution.of(path)[0], detail)
+        blocked_projects.setdefault(attribution.scope_of(path), detail)
 
     for path, facts in py_facts:
         if facts["unresolved_root"]:
@@ -3328,7 +3376,7 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
         rel = _rel(path, workspace)
         # Invariant across the evidence in one file, so it is asked once
         # per file rather than once per name.
-        project = attribution.of(path)[0]
+        project = attribution.scope_of(path)
         for evidence in facts["names"]:
             resolved = _resolve_agent_name(evidence, path, facts, by_path, workspace)
             if resolved is None:
@@ -3624,6 +3672,13 @@ def detect(workspace: Path) -> dict[str, Any]:
             _add(scores, "openai_agents_sdk", 2.0, "strong",
                  f"{rel}: @function_tool decorator", rel)
 
+    # Mirror of `_PyFacts.framework`: whether any framework's scoring claimed
+    # this file. Snapshotted here, before package tokens, glob hits and the
+    # MCP source add candidates of their own, because a Python file's
+    # *framework* attribution is exactly what `_score_python_signals` records
+    # on the CLI side and nothing later touches it there.
+    framework_files = {rel for st in scores.values() for rel in st["candidate_files"]}
+
     for token in _package_tokens(workspace):
         for fw, hints in PACKAGE_HINTS.items():
             if token.lower() in {h.lower() for h in hints}:
@@ -3799,6 +3854,15 @@ def detect(workspace: Path) -> dict[str, Any]:
     # name that needs cross-module resolution is not available per-file, and
     # a project boundary is about *where* agents live, not what they are
     # called.
+    #
+    # *Framework-attributed* literals only, matching the CLI's
+    # `if literals and fact.framework`. A module that defines its own
+    # `Agent` class and constructs `Agent(name="crm")` is not an agent
+    # project; counting it drew a boundary the CLI does not draw, which put
+    # a phantom entry in `agent_project_candidates` and flipped `agent_scope`
+    # to "ambiguous" on a workspace the CLI calls "single". Those literals
+    # stay in `agent_name_candidates` as name suggestions either way — they
+    # just do not draw a boundary (#532 review).
     literals_by_path = {
         rel: literals
         for rel, literals in (
@@ -3812,7 +3876,7 @@ def detect(workspace: Path) -> dict[str, Any]:
             )
             for p, f in py_facts
         )
-        if literals
+        if literals and rel in framework_files
     }
     evidence_paths = list(
         dict.fromkeys(

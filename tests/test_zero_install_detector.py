@@ -1011,6 +1011,9 @@ def test_script_agent_name_ranking_matches_cli(script_module, tmp_path):
 
 _ADK_HEADER = "from google.adk.agents import LlmAgent\nfrom google.adk.apps import App\n\n"
 _UNREADABLE_ROOT = "def build():\n    return LlmAgent(name='inner')\n\nroot_agent = build()\n"
+#: A module defining its own, unrelated `Agent` class. Its `Agent(name=…)`
+#: literal is a name suggestion that draws no project boundary.
+_UNRELATED_AGENT_CLASS = "class Agent:\n    def __init__(self, name):\n        self.name = name\n"
 
 #: Workspaces where a declared application root cannot be read statically.
 #: Which names that rejects is scoped to the project the root sits in, and
@@ -1090,6 +1093,24 @@ _UNREADABLE_ROOT_SCOPES: dict[str, dict[str, str]] = {
         ),
         "z_parse_time.py": _ADK_HEADER + _UNREADABLE_ROOT,
     },
+    # A name in a marker directory that holds no *framework* evidence. The
+    # literal is a name suggestion and draws no boundary, so the directory
+    # is not an agent project and the name cannot escape the workspace's
+    # refusal. Both markers are covered: the script counted the literal as
+    # project evidence, which activated the weak one and put a phantom entry
+    # in `agent_project_candidates` under the strong one.
+    "non_agent_strong_marker": {
+        "agent.py": _ADK_HEADER + _UNREADABLE_ROOT,
+        "domain.py": _UNRELATED_AGENT_CLASS,
+        "util/pyproject.toml": '[project]\nname = "util"\n',
+        "util/agent.py": 'from domain import Agent\n\nhelper = Agent(name="CrmHelper")\n',
+    },
+    "non_agent_weak_marker": {
+        "agent.py": _ADK_HEADER + _UNREADABLE_ROOT,
+        "domain.py": _UNRELATED_AGENT_CLASS,
+        "util/requirements.txt": "requests\n",
+        "util/agent.py": 'from domain import Agent\n\nhelper = Agent(name="CrmHelper")\n',
+    },
     # The project's own product root is unreadable: refusal is preserved.
     "own_root": {
         "pyproject.toml": '[project]\nname = "rag"\n',
@@ -1141,6 +1162,8 @@ def test_script_scopes_an_unreadable_root_like_the_cli(script_module, tmp_path, 
         "bare_templates": set(),
         "case_folded_template": {"RealRoot", "inner"},
         "two_unreadable_roots": set(),
+        "non_agent_strong_marker": set(),
+        "non_agent_weak_marker": set(),
         "own_root": set(),
     }[label]
     assert selectable == expected
@@ -1160,6 +1183,14 @@ def test_script_scopes_an_unreadable_root_like_the_cli(script_module, tmp_path, 
             )
             for reason in shared["rationale"]
         )
+    if label.startswith("non_agent_"):
+        # The premise both halves rest on: the marker directory holds no
+        # framework evidence, so it is not one of the workspace's agent
+        # projects and `init` has one scope to write.
+        assert cli_result["agent_scope"] == "single"
+        assert [
+            candidate["path"] for candidate in cli_result["agent_project_candidates"]
+        ] == ["."]
     if label == "two_unreadable_roots":
         worker = next(
             candidate
