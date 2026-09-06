@@ -35,7 +35,7 @@ The script's output is a **structural subset** of `agents-shipgate detect --json
   "python_parse_truncated": false,
   "next_action": "agents-shipgate init --workspace .",
   "workspace_signals": {...},
-  "script_version": "0.5.0"
+  "script_version": "0.6.0"
 }
 ```
 

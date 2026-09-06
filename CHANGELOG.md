@@ -43,6 +43,78 @@
   GitLab-hosted one, a second maintainer row, a grammatically singular count —
   still pass.
 
+- **One unreadable application root no longer rejects every agent name in the
+  repository.** (#398) A declared root whose identity cannot be established
+  statically makes nothing selectable — the #324 rule, and a sound one, because
+  every name still standing is by construction *not* that root. It was being
+  applied with repository scope. On adk-samples that meant one file rejected
+  roughly 55 candidates across 25 projects, `financial_coordinator` and
+  `cyber_guardian_orchestrator` among them, and told the reader so by naming a
+  file in a project they were not adopting. The rejection is now scoped to the
+  project the root sits in — the same grouping `agent_project_candidates`
+  publishes, now computed once and read by both — and the sentence names that
+  project. A name several projects declare is still rejected when any of them
+  is blocked; that direction is the fail-closed one.
+
+  "Which project" is resolved against the projects that grouping actually
+  *established*, not against the nearest project marker. The two are not the
+  same, and reading the marker fails open: a utilities package carrying its own
+  `pyproject.toml` but no agent evidence is not a manifest scope, so a bare
+  `Agent(name="CrmHelper")` found there was exempt from the workspace's refusal
+  and plain `init --write` wrote a helper class's argument as the reviewed
+  identity of a repository whose real application root could not be read at
+  all. A name under no established project belongs to the scope enclosing it.
+
+  Scoping alone would not have unblocked the reproduction, because one of the
+  two observed culprits was `eval/test_eval_arize.py` *inside* the project
+  being adopted and the other was
+  `.agents/skills/**/resources/templates/app/agent.py`. Neither is the
+  application a project ships: a fixture that builds an `App` is a fixture, and
+  a scaffolding template is what a generator copies. The ranker already said so
+  for *selection* and said the opposite for *rejection* — one predicate now
+  answers both, so a scaffolding template is demoted exactly as a test fixture
+  is instead of standing in for the product. The template rule is the directory
+  pair `resources/templates/`, not a bare `templates/`, which real packages
+  use; an unreadable root anywhere else still stops selection, and a project
+  whose own product root is unreadable still refuses with `CHANGE_ME`.
+
+  One consequence is worth stating rather than discovering: where the *only*
+  agent evidence in a workspace is non-product code, an unreadable root there
+  used to force `CHANGE_ME`, and now the fixture or template name is written.
+  That guard was accidental — a readable root in the same file already had its
+  name written before this change — so what this does is make the two cases
+  agree, not open a new one. The general rule it points at, that a name only
+  non-product code declares should never be asserted as the reviewed identity,
+  is [#533](https://github.com/ThreeMoonsLab/agents-shipgate/issues/533); it
+  would close the readable case too and is a wider decision than this fix. The
+  same widening reaches `init --write --allow-unresolved-scope`, whose whole
+  contract is already "adopt the first agent name it parsed" on a workspace
+  with several unrelated projects.
+
+  `tools/shipgate-detect.py` carries the same change (`script_version`
+  `0.6.0`): `agent_name_candidates` is the field the zero-install path pins
+  byte for byte, so a script that scoped the rejection differently would name a
+  different agent than `init` does. Putting the grouping behind one object on
+  each side surfaced two parity breaks that predate this issue.
+
+  The script counted **every** `Agent(name=…)` literal as project evidence,
+  where the CLI counts only framework-attributed ones. A module defining its
+  own `Agent` class and constructing `Agent(name="crm")` is not an agent
+  project (#363 review), so the script drew a boundary the CLI does not: a
+  phantom entry in `agent_project_candidates` and, through it, `agent_scope:
+  "ambiguous"` on a workspace the CLI calls `"single"` — a *verdict*
+  disagreement on the surface whose whole contract is verdict parity. The
+  script now qualifies those literals the same way, snapshotting each Python
+  file's framework attribution right after the Python pass, which is exactly
+  what `_score_python_signals` records on the CLI side.
+
+  And where no marker was found above the evidence at all, the script named the
+  workspace's `requirements.txt` as the project marker while the CLI reported
+  `null`. A weak marker only draws a boundary in a directory that already holds
+  agent evidence, so one that unlocked nothing is not the boundary the project
+  rests on. Every sample carries a `pyproject.toml` and one readable root,
+  which is why the per-sample parity check reached neither; tests do now.
+
 - **The zero-install detector refuses an oversized candidate instead of
   reading it.** `tools/shipgate-detect.py` is fetched over `curl | python3`
   and run against repositories nobody has inspected, and it read every
