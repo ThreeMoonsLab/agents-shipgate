@@ -447,14 +447,35 @@ def test_runbook_does_not_assert_an_unpublished_contract_floor():
 def test_runbook_routes_host_boundary_partners_away_from_a_manifest():
     """#521 is explicit that the supported host-boundary route must not
     require a manifest. The dry run found `init --write` then `verify` dead-
-    ending on exactly those repositories."""
+    ending on exactly those repositories.
+
+    The property is unchanged; the instruction it pinned was wrong. This used to
+    require the literal "this repository is on Route H" on a `CHANGE_ME`
+    scaffold, and a scaffold does not establish that: `tests/
+    test_init_scaffold_disclosure.py`'s FastMCP reproduction publishes real
+    `@server.tool` functions, scaffolds anyway because they sit under an import
+    package, and `audit --host` on it reports only generic instruction trust
+    roots — so following that instruction abandoned the tool surface the partner
+    came to review. The runbook must still say what to do, and must no longer
+    say that (#498 review).
+    """
     text = _flat(_read(RUNBOOK))
     section = _flat(_section(_read(RUNBOOK), "## Routes under test"))
     assert "Do not require a partner on Route H to maintain a manifest." in section
     assert "CHANGE_ME" in section
-    assert "this repository is on Route H" in text, (
+    assert "Never invent a manifest." in text, (
         "the pilot commands must tell a partner what to do when `init` emits "
         "a CHANGE_ME scaffold, not leave them to invent a manifest."
+    )
+    assert "exported MCP tool list" in text, (
+        "the scaffold instruction must name the input that would let `verify` "
+        "read the surface, or the partner has nowhere to go."
+    )
+    assert "this repository is on Route H" not in text, (
+        "a `CHANGE_ME` scaffold says discovery could not read a surface, not "
+        "that the repository only has a coding-host boundary. Re-asserting that "
+        "sends a partner with a real tool surface to an audit that never looks "
+        "at it."
     )
 
 

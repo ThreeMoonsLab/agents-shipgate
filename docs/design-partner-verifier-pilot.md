@@ -388,9 +388,15 @@ pre-commit run, then rerun with base/head refs after opening the PR. For
 committed PR/CI refs, make `origin/main` and `HEAD` available before the final
 `verify`.
 
-If `init --write` emits `CHANGE_ME` for `tool_sources` because discovery found
-no tool surface, stop: this repository is on Route H. Record the dead end and
-switch routes rather than inventing a manifest.
+If `init --write` emits `CHANGE_ME` for `tool_sources`, stop — but do not read
+that as a route. A scaffolded `tool_sources` block says discovery could not
+*read* a surface, not that the repository has none: a FastMCP server whose
+`@server.tool` functions sit under an import package scaffolds while genuinely
+publishing tools, and `audit --host` there reports only generic instruction
+trust roots, never those tools. Never invent a manifest. Ask the partner for an
+exported MCP tool list, an OpenAPI spec, or a local tool inventory, and record
+the extraction gap; move the partner to Route H only when what they want
+reviewed is the coding-host configuration.
 
 ## Read Order
 

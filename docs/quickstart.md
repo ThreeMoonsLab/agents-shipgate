@@ -32,10 +32,14 @@ documentation describe landed after that tag.
 | Unqualified preview | `gh release download preview-<version> --repo ThreeMoonsLab/agents-shipgate --pattern '*.whl'`, then `pip install ./<wheel>` | that of the source commit it was cut from | Yes | Yes | **None**, by construction — no adjudicated corpus, no qualification artifact, nothing signed. See [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) § Amendment 2 |
 | Source checkout | `git clone`, then `./shipgate …` from the checkout | that of the checkout | Yes | Yes | Not a distributed build |
 
-Pick one channel and stay on it for the whole walkthrough. **Everything in
-[One review, end to end](#one-review-end-to-end) below runs on the published
-release**; where a step needs a newer contract this page says so in the step
-itself.
+Pick one channel and stay on it for the whole walkthrough. **Every command in
+[One review, end to end](#one-review-end-to-end) runs on the published
+release, and reaches the same verdict there** — `blocked`, `can merge without
+human: false`, exit `0`. What differs is how much the artifacts *say*. The
+excerpts below are from a source checkout; where the released build renders
+something else, the step names `v0.15.0` and shows what it prints instead —
+a test fails if a step quotes output only one channel produces without saying
+which.
 
 Whatever you install, ask it what it is before you trust a field name:
 
@@ -160,6 +164,22 @@ That is the answer to "what did this capability change": one tool added, one
 existing tool whose binding moved. You did not have to read the identity model
 to get it — the subject is the tool you would open.
 
+**On the published `v0.15.0` build this step reads differently.** Per-subject
+grouping postdates that release, so its `pr-comment.md` counts changes rather
+than subjects and lists them flat, with no `support.search_kb` row:
+
+```text
+- Capability delta: +2, 3 modified, -0
+- Top capability changes:
+  - `stripe.create_refund`: blocks release; Capability added. (tools.json)
+  - `stripe.create_refund`: blocks release; tool added (tools.json)
+  - `stripe.create_refund`: blocks release; high-risk effect financial_action added (tools.json)
+  - `stripe.create_refund`: blocks release; high-risk effect destructive added (tools.json)
+  - `stripe.create_refund:stripe:*`: blocks release; scope added (tools.json)
+```
+
+Same change, same verdict; you read it per change instead of per subject.
+
 ### 4. Why the top result matters
 
 `report.md` in that same directory orders findings by subject, most urgent
@@ -178,27 +198,43 @@ Blockers (4):
 
 The top blocker is not "a new tool appeared". It is that a tool which moves
 real money can be called with no declared approval gate, under a `stripe:*`
-scope the manifest never granted. Each finding names the evidence it rests on —
+scope the manifest never granted. The published `v0.15.0` build names the same
+four check IDs in the same order; two of the messages are worded differently
+("adds destructive capability without rollback controls", "adds financial write
+capability without required controls"). Match on the check ID, not the
+sentence. Each finding names the evidence it rests on —
 in this fixture, the MCP export at `tools.json#/tools/1`. Run
 `agents-shipgate explain SHIP-POLICY-APPROVAL-MISSING` for the check's own
 description, or see [`checks.md`](checks.md) for the catalog.
 
 ### 5. What the run did not establish
 
-Every result carries its own coverage limit, and it is part of the answer:
+`report.md` carries its own coverage limit, and that limit is part of the
+answer:
 
 ```text
 Evidence coverage: static (2/2 catalog tools reachable; 1 semantic review
 concern(s); 2/2 actions pass-eligible; human review recommended)
 ```
 
-and, on the PR comment:
+**On the published `v0.15.0` build that line carries no counts** — it reads
+`Evidence coverage: static (human review recommended)`. The limit is stated;
+what it is a limit *on* is not enumerated. That enumeration is the part of this
+step you need a newer build for.
+
+The same boundary is repeated in `pr-comment.md`:
 
 ```text
 - Static-verdict boundary: This verdict covers deterministic static evidence
   only. Agents Shipgate did not execute the agent or prove runtime behavior,
   tool routing, credential enforcement, or safety.
 ```
+
+`v0.15.0` prints that sentence nowhere — not in its comment, not in its
+artifacts, not on stdout. What it carries instead is the `## Disclaimer`
+section at the foot of `report.md`, which makes the same point in the report
+rather than beside the verdict: "Runtime behavior, actual tool routing, and
+output interpretation are not verified."
 
 Nothing here proves the refund tool behaves as described at runtime, that the
 credential is really scoped, or that a human is really in the loop. It proves
@@ -235,8 +271,9 @@ CI](#advisory-ci) below is where you make the verdict load-bearing.
 
 ### 7. The next action, and who owns it
 
-`verifier.json` carries `fix_task`. Four of its five instructions, and the
-`allowed_repairs[]` array beside them, are elided here:
+`verifier.json` carries `fix_task`. One of its five instructions — an
+evidence-gap line — and the `allowed_repairs[]` array beside them are elided
+here:
 
 ```json
 {
@@ -254,12 +291,25 @@ CI](#advisory-ci) below is where you make the verdict load-bearing.
 `actor: "human"` is the operative field, and `safe_to_attempt: false` says the
 same thing to a machine. Every instruction is a declaration about approval,
 control or safety — a claim only a person can make. A coding agent may report
-this, and may not resolve it.
+this, and may not resolve it. The published `v0.15.0` build carries the same
+`fix_task` with the same `actor` and `safe_to_attempt`; its instruction list
+differs in wording and adds one about replacing the wildcard scope. This step
+reads the same on either channel.
 
 On a build that implements contract `21` or newer, the same answer arrives as
-an explicit state machine. Read `current-control.json`
-first — it names which run is current and refuses the read when HEAD or the
-working tree has moved since the decision — then `agent-handoff.json`
+an explicit state machine. **Validate the pointer before you read anything it
+binds** — `current-control.json` is an ordinary file and goes stale silently:
+
+```bash
+agents-shipgate agent control --workspace .
+```
+
+That command checks the pointer against every artifact it binds and against
+the live repository, and exits `4` when the workspace has moved since the
+decision (`workspace_changed`, naming the commit the pointer was published
+against). Reading the file directly cannot tell you that — after an unrelated
+commit it still reports the old state. Only once `agent control` succeeds do
+you read `current-control.json` and then `agent-handoff.json`
 (`control.state`, then `gate.merge_verdict`). Here `control.state` is
 `human_review_required` and every entry in `control.permissions` is `false`.
 On the published `v0.15.0` build those fields do not exist; read
@@ -403,10 +453,22 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 The short `shipgate verify` alias remains invokable for compatibility;
 agent-facing PR-gate guidance uses `agents-shipgate verify`.
 
-**`init` reports what it could not infer, and who owns each one.** `init
---write --json` returns a `placeholders[]` array, and each entry carries its
-owner — follow that, rather than a list in any document. The split is real in
-both directions:
+**`init` reports what it could not infer, and routes the half a person owns.**
+Two fields, and only one of them decides. `placeholders[]` is a *location*
+list — each entry is `path`, `current` and `line`, with no owner on it.
+`control.next_action` is the routing: while any human-owned value is
+unresolved it returns `actor: "human"`, `permissions.edit: false`, and a `why`
+naming those exact fields and lines, like
+
+```text
+In ./shipgate.yaml: line 13 (agent.declared_purpose[0]) must be supplied by a
+human. These fields declare what this agent is for and what it is permitted to
+do; Shipgate never invents them, and a value a coding agent supplied is a
+declaration nobody made.
+```
+
+Take the fields `control.next_action.why` names to a person; the rest of
+`placeholders[]` is repository reading. The split is real in both directions:
 
 - **A coding agent owns** the facts it can read out of the repository:
   `agent.name`, `project.name`, and the `tool_sources[]` rows. Sending these to
@@ -421,8 +483,8 @@ both directions:
   because these values must be supplied by a human — Shipgate never invents a
   declaration nobody made.
 
-Those names illustrate the rule; the `owner` on each `placeholders[]` entry is
-what decides it.
+Those names illustrate the rule; `control.next_action` is what decides a given
+run, and it is the field to read when the two disagree.
 
 Do not let a coding agent fill a human-owned value from a prompt, the main
 agent file or the repository README. A purpose or authority claim lifted out of
@@ -436,9 +498,19 @@ render reached neither disk nor the payload. On `"scaffold"` the `tool_sources`
 block is a placeholder — `id`, `type` and `path` are all `CHANGE_ME`, all three
 are in `placeholders[]`, and `manifest_message` says nothing was inferred. That
 is the common outcome for an MCP server whose tools are registered in code
-rather than exported to a file. **A scaffolded `tool_sources` block means this
-repository is on Route H**: record the dead end and switch, rather than
-inventing a manifest to fill.
+rather than exported to a file.
+
+**A scaffold says discovery could not read a surface — not that there is none,
+and not that you are on Route H.** A FastMCP server whose `@server.tool`
+functions sit under an import package returns `"scaffold"` while genuinely
+publishing tools, and `audit --host` on that repository reports only generic
+instruction trust roots: it never looks at those tools. Switching routes there
+stops reviewing the capability you came to review. Stay on Route A and give
+`verify` something it can read — an exported MCP tool list, an OpenAPI spec, or
+a local tool inventory (see [Choose your first
+source](#choose-your-first-source)) — or report that static extraction cannot
+reach this surface. Switch to Route H only when the thing you actually want
+reviewed is the coding-host configuration.
 
 ### If the first real repository stalls
 
@@ -448,7 +520,7 @@ inventing a manifest to fill.
 | `detect` says `is_agent_project: false`, but `codex_plugin_candidates` is non-empty | Proceed to `init`. Codex plugin repos are valid static plugin-surface targets. |
 | `doctor` shows zero tools | Check `tool_sources[].path`, MCP `tools[]`, OpenAPI `paths`, optional source warnings, and dynamic ADK/MCP toolsets. |
 | Tools are created by factories, wrappers, or dynamic toolsets | Provide an explicit MCP export, OpenAPI spec, local tool inventory artifact, or a broader OpenAI SDK source directory when tools are static but split across files. |
-| `init --write --json` returns `placeholders[]` entries | Read each entry's owner. Agent-owned ones the agent fills from the repository; human-owned ones go to a person. See [Route A](#route-a--a-repository-that-builds-a-tool-surface). |
+| `init --write --json` returns `placeholders[]` entries | Read `control.next_action`, not the array: the fields its `why` names go to a person, the rest are repository reading. See [Route A](#route-a--a-repository-that-builds-a-tool-surface). |
 | Install fails in a Python 3.10/3.11 project | Install the CLI outside the project env with `pipx` or `uv` using Python 3.12+. |
 | Reports appear in `git status` | Add `agents-shipgate-reports/` to `.gitignore`; reports are local release-review artifacts. |
 

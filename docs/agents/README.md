@@ -88,11 +88,14 @@ Parse stdout as `shipgate.agent_boundary_result/v2`; switch on
 and `control.human_review`, and treat `decision` as diagnostic context only.
 Do not infer control from prose.
 
-For committed PR verification, run `agents-shipgate verify`, then read
-`agents-shipgate-reports/current-control.json` first — it names which run is
-current and refuses the read when HEAD or the working tree has moved since the
-decision. Then validate the receipt it binds, read `agent-handoff.json`
-(`control.state`, then `gate.merge_verdict`), and use
+For committed PR verification, run `agents-shipgate verify`, then
+`agents-shipgate agent control --workspace .` and require it to succeed before
+you read anything: it validates `agents-shipgate-reports/current-control.json`
+against every artifact it binds and against the live repository, and exits `4`
+(`workspace_changed`) once HEAD or the working tree has moved since the
+decision. Reading that file directly does not check freshness and will hand you
+a stale state. Then read the pointer, validate the receipt it binds, read
+`agent-handoff.json` (`control.state`, then `gate.merge_verdict`), and use
 `report.json.release_decision.decision` as the release gate.
 
 The normative local protocol is [`protocol.md`](protocol.md). Per-agent compact

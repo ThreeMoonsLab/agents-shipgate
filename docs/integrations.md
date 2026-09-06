@@ -100,9 +100,13 @@ Action outputs:
 The action runs `agents-shipgate verify`, which writes Markdown, JSON, SARIF,
 packet JSON, verifier JSON, verify-run JSON, and PR-comment Markdown
 artifacts. It intentionally emits `packet.json` only for the packet;
-`pr-comment.md` is the human PR surface. Read `current-control.json` first —
-it names which run is current and refuses the read when HEAD or the working
-tree has moved since the decision — then `agent-handoff.json` for the compact
+`pr-comment.md` is the human PR surface. Run
+`agents-shipgate agent control --workspace .` first and require it to succeed:
+it validates `current-control.json` against every artifact it binds and against
+the live repository, and exits `4` (`workspace_changed`) once HEAD or the
+working tree has moved since the decision. Reading the pointer file directly
+does not check that — it returns the old state until verification is re-run.
+Then read `current-control.json`, `agent-handoff.json` for the compact
 agent handoff, `verifier.json` for detailed control context,
 `verify-run.json` for reproducibility metadata, and
 `report.json.release_decision.decision` for the gate. Capability diffs and

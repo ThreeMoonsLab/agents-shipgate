@@ -378,17 +378,18 @@ rules before changing code:
 - If tools are created by factories, wrappers, runtime imports, or
   dynamic ADK/MCP toolsets, provide an explicit MCP export, OpenAPI
   spec, or local tool inventory artifact.
-- Resolve the `placeholders[]` entries `init --json` reports before
-  scanning, **by the owner each entry names** — that field is
-  authoritative, not any list in a document. You own what the
-  repository states (`agent.name`, `project.name`, the
-  `tool_sources[]` rows). Every declaration — purpose, prohibited
-  actions, effect, authority, binding, approval, confirmation,
-  idempotency, safeguards, accepted debt — must be supplied by a
-  human, and `init` routes those with
-  `control.next_action.actor: "human"` because Shipgate never invents
-  a declaration nobody made. Do not derive one from a prompt, main
-  agent file or README.
+- Resolve the placeholders `init --json` reports before scanning, and
+  read **`control.next_action`** to know which are yours:
+  `placeholders[]` is a location list (`path`, `current`, `line`) and
+  carries no owner. While a human-owned value is unresolved,
+  `control.next_action` returns `actor: "human"` and a `why` naming
+  those exact fields and lines. You own what the repository states
+  (`agent.name`, `project.name`, the `tool_sources[]` rows). Every
+  declaration — purpose, prohibited actions, effect, authority,
+  binding, approval, confirmation, idempotency, safeguards, accepted
+  debt — must be supplied by a human, because Shipgate never invents a
+  declaration nobody made. Do not derive one from a prompt, main agent
+  file or README.
 - Agents Shipgate requires Python 3.12+. If the project runtime is
   older, install the CLI outside the project env with `pipx` or `uv`.
 - Ensure `agents-shipgate-reports/` is listed in `.gitignore`.
