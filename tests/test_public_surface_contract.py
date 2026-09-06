@@ -3605,6 +3605,7 @@ TRUST_QUALIFIER_WINDOW = 400  # ~one paragraph; matches CONTEXT_WINDOW
 
 TRUST_CLAIM_SURFACES = (
     "README.md",
+    "ADOPTERS.md",
     "AGENTS.md",
     "STABILITY.md",
     "llms.txt",

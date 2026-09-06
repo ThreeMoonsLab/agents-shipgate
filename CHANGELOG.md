@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+- **Adoption evidence now has a counting mechanism, and its first published
+  number is a zero.** (#475) This project collects nothing — local-first and
+  static by default, no telemetry, no account — and the price of that stance is
+  that it cannot count its own users. Downloads measure CI caches and stars
+  measure sentiment, so neither is adoption. The new root-level
+  [`ADOPTERS.md`](ADOPTERS.md) is the opt-in registry that pays the price
+  honestly: one row per adopter, added by the adopter through an
+  [issue form](.github/ISSUE_TEMPLATE/adopter_entry.yml) or a pull request,
+  naming what they gate, whether it runs as local evaluation, advisory CI or
+  blocking CI, the date, and a link to the public act where they asked. Private
+  repositories are listed at organization granularity — the word `private` and
+  nothing else. An entry is removed on request, without a reason.
+
+  It ships with an eight-rule **claims policy** (no entry, no claim; every
+  number carries its as-of date; external and dogfooding are never summed; an
+  entry is a dated statement rather than a measurement; a tier is self-reported
+  and never upgraded; a badge is not an entry; the design-partner ledger stays
+  separate; removal is unconditional), an optional tier-neutral README badge
+  that links back to the registry, and the maintainer dogfooding entry the
+  acceptance asks for — which reads `advisory CI`, not `blocking CI`, because
+  `main` requires no status check and a red run there stops no merge.
+
+  The policy is enforced rather than promised. `tests/test_adopters_registry.py`
+  parses both tables and fails on a row missing a field, an undefined tier, a
+  non-ISO or future date, an entry link that does not point into this
+  repository, this repository listed as an *external* adopter, counts that
+  disagree with the rows, an as-of date older than the newest entry, a claims
+  rule quietly dropped, a second badge variant, an issue form that drifts from
+  the registry's vocabulary or stops requiring consent — and any adopter number
+  stated anywhere in the repository's prose that these rows cannot source. A
+  42-case perturbation sweep confirmed every one of those fails on the
+  weakening it exists to catch, and that a correctly added adopter still
+  passes.
+
 - **The zero-install detector refuses an oversized candidate instead of
   reading it.** `tools/shipgate-detect.py` is fetched over `curl | python3`
   and run against repositories nobody has inspected, and it read every

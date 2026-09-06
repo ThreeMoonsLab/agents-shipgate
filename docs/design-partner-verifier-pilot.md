@@ -211,6 +211,11 @@ gitignored in this repository for exactly this. Only the aggregate ledger in
 [`design-partner-pilot-results.md`](design-partner-pilot-results.md) is
 public.
 
+None of the three consents lists a partner in
+[`ADOPTERS.md`](../ADOPTERS.md). That registry is opt-in and self-served: a
+partner who wants to be counted there adds themselves, as a separate decision,
+and being in this pilot never creates an entry.
+
 ## Evidence to preserve
 
 Preserve a real before/after artifact or a redacted decision note for **every

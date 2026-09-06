@@ -886,6 +886,26 @@ evidence). What the pilot has actually observed, including the counts that are
 still zero, is published in
 [`docs/design-partner-pilot-results.md`](docs/design-partner-pilot-results.md).
 
+## Adopters
+
+Agents Shipgate is local-first and static by default, and it collects nothing:
+no telemetry, no analytics, no account. It therefore cannot count its own
+users. [`ADOPTERS.md`](ADOPTERS.md) is the opt-in public registry that stands
+in for that: one line per adopter, added by the adopter, naming what they gate
+and whether it runs locally, as advisory CI, or as blocking CI. There is **no automatic collection of any kind** behind it —
+every entry is user-initiated and consenting, private repositories are listed
+at organization granularity, and an entry is removed on request without a
+reason. Private design-partner observations are a separate ledger under
+separate consent and never become public entries on their own.
+
+Every adoption number this project publishes traces to a named entry there —
+no entry, no claim — and maintainer dogfooding is counted apart from external
+adoption. Today that is **0 external adopter entries and 1 maintainer
+dogfooding entry** (as of 2026-09-06). If you run it,
+[add yourself](ADOPTERS.md#add-yourself); there is an optional
+[badge](ADOPTERS.md#badge) that links back to the registry, and it implies
+nothing about which tier you run.
+
 ## Docs
 
 The marketing site at [threemoonslab.com](https://threemoonslab.com/) carries

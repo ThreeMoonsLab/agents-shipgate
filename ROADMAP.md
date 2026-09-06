@@ -77,8 +77,10 @@ release qualification or to complete every open issue in that window.
    decision, and use on a second eligible change. Ten minutes to first value is
    an experiment target. Failed attempts and repositories with no second change
    remain visible. [#475](https://github.com/ThreeMoonsLab/agents-shipgate/issues/475)
-   records public consenting adopters separately; dogfooding, stars and downloads
-   do not prove external repeat use. Pilot preparation need not wait for the
+   records public consenting adopters separately, in
+   [ADOPTERS.md](ADOPTERS.md) — opt-in, one row per adopter, with an
+   eight-rule claims policy and a published external count of zero;
+   dogfooding, stars and downloads do not prove external repeat use. Pilot preparation need not wait for the
    historical-corpus outreach in
    [#511](https://github.com/ThreeMoonsLab/agents-shipgate/issues/511). The
    counts, the dated enrollment shortfall and the standing continue/narrow/stop
