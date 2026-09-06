@@ -49,6 +49,13 @@
   recorded rather than guessed at or silently dropped. `IDIOM_REGISTRY_VERSION`
   is `2` and `TRIGGER-MCP-TOOL-REGISTRATION-SOURCE` routes `@mcp.tool`.
 
+  Every dependency table the gate names is reachable, which took a second
+  pass to be true: the walker read a Poetry table's *constraint* where the
+  distribution is the key, so `mcp = "^1.6.0"` produced `^1.6.0` and never
+  `mcp` — three of the five tables named in the constant were dead, and a
+  Poetry-managed server got no route at all. Both halves of a table are
+  admitted now, and all five are exercised.
+
   The zero-install detector moved in the same commit, to `0.6.0`: #485 made
   `tools/shipgate-detect.py` a second implementation of this reader, and
   `tests/mcp_idiom_corpus.py` is what keeps it from becoming a different one —

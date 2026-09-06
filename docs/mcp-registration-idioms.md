@@ -42,11 +42,14 @@ test files are included in these raw counts and excluded by the shipped reader
 | Go `MustTool("…"` | 1 | `grafana/mcp-grafana` (132) | yes (`go_must_tool`) |
 | TS `static toolName = "…"` | 1 | `mongodb-js/mongodb-mcp-server` (77) | yes (`ts_static_tool_name`) |
 
-The six shipped idioms cover every surveyed server. Measured against the
-current heads of the three walked vendor repositories, the reader finds 61,
-114, and 110 tool names respectively, with 3, 1, and 3 registrations whose
+The six shipped idioms cover every surveyed server. Re-measured against the
+current heads of the three walked vendor repositories when #484 shipped, the
+reader finds 61, 115 and 114 tool names, with 3, 0 and 3 registrations whose
 names are built at runtime — each recorded as an unenumerated subject rather
-than dropped.
+than dropped. (#431 published 61/114/110 with 3/1/3 against the heads of the
+day; the same clones give the same numbers to the reader before and after
+#484, so the difference is those servers gaining tools, not this reader
+changing its mind.)
 
 One shape was measured and deliberately rejected: an object literal carrying
 `name:` and `description:` keys, which appears in 14 of the surveyed

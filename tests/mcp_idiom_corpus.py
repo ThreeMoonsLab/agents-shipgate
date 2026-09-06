@@ -1166,6 +1166,57 @@ ADVERSARIAL: list[tuple[str, str, str, list[str], list[str]]] = [
         [],
         ['server_binding_not_proven'],
     ),
+    (
+        'a class attribute does not shadow the module for a nested function',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        '\n'
+        'class Handlers:\n'
+        '    mcp = "not a server"\n'
+        '\n'
+        '    def register(self):\n'
+        '        @mcp.tool()\n'
+        '        def nested_in_a_method() -> None:\n'
+        '            pass\n',
+        ['nested_in_a_method'],
+        [],
+    ),
+    (
+        'a class attribute is the scope a decorator in that body is written in',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        '\n'
+        'class Handlers:\n'
+        '    mcp = FastMCP("s")\n'
+        '\n'
+        '    @mcp.tool()\n'
+        '    def in_the_class_body(self) -> None:\n'
+        '        pass\n',
+        ['in_the_class_body'],
+        [],
+    ),
+    (
+        'a PEP 695 type parameter is a child list the walk must not skip',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        '\n'
+        'class Box[T]:\n'
+        '    pass\n'
+        '\n'
+        '\n'
+        '@mcp.tool()\n'
+        'def generic[T](item: T) -> T:\n'
+        '    return item\n',
+        ['generic'],
+        [],
+    ),
 ]
 
 # --- Paths the reader is and is not allowed to open -------------------------
@@ -1196,6 +1247,12 @@ SCANNABLE_PATHS: list[tuple[str, bool]] = [
     ("src/tools/hash_test.py", False),
     ("conftest.py", False),
     ("src/conftest.py", False),
+    # The prefix rule exists because pytest collects `test_*.py`. It is scoped
+    # to Python: `test_helpers.ts` is an ordinary module name in the other two
+    # languages, and dropping one is a lost surface with no omission to show
+    # for it, because an excluded path is never read at all.
+    ("src/test_helpers.ts", True),
+    ("pkg/test_util.go", True),
     (".venv/lib/python3.12/site-packages/fastmcp/server.py", False),
     ("build/lib/server.py", False),
     (".tox/py312/lib/server.py", False),

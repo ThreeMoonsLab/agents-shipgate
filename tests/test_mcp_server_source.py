@@ -24,6 +24,7 @@ from agents_shipgate.core.semantic_assessment import (
     AST_ONLY_SOURCE_TYPES,
     MCP_SOURCE_TYPES,
 )
+from agents_shipgate.inputs import mcp_server_source
 from agents_shipgate.inputs.mcp_idioms import DIFF_TOKENS
 from agents_shipgate.inputs.mcp_server_source import (
     MAX_SCANNED_FILES,
@@ -113,6 +114,10 @@ def _redis_shaped(root: Path) -> Path:
     cross-module index at all: all 53 of its registrations sit in
     ``src/tools/*.py`` and the server they register on is built in
     ``src/common/server.py``.
+
+    Two tool modules, not one, because one is the shape in which several
+    defects are invisible: a route that repeats its proving module once per
+    importer looks correct with a single importer.
     """
 
     workspace = root / "redis"
@@ -145,6 +150,16 @@ def _redis_shaped(root: Path) -> Path:
         "\n"
         "@mcp.tool(name=NAMESPACE + \'hdel\')\n"
         "async def hdel(name: str) -> str:\n"
+        '    return ""\n',
+        encoding="utf-8",
+    )
+    (workspace / "src" / "tools" / "list.py").write_text(
+        "from src.common.server import mcp\n"
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "async def lpush(name: str, value: str) -> str:\n"
+        '    """Prepend a value to a list."""\n'
         '    return ""\n',
         encoding="utf-8",
     )
@@ -914,6 +929,129 @@ def test_an_export_beside_the_source_route_keeps_its_high_confidence(tmp_path):
     assert by_provider["registrations"]["confidence"] == "medium"
 
 
+# --- The Python language gate ------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("label", "pyproject", "expected"),
+    [
+        (
+            "pep621",
+            '[project]\nname = "s"\ndependencies = ["mcp[cli]>=1.26.0,<2"]\n',
+            "mcp",
+        ),
+        (
+            "pep621_optional",
+            '[project]\nname = "s"\n'
+            "[project.optional-dependencies]\n"
+            'server = ["fastmcp>=2.10"]\n',
+            "fastmcp",
+        ),
+        (
+            "pep735_groups",
+            '[project]\nname = "s"\n'
+            "[dependency-groups]\n"
+            'dev = ["mcp[cli]>=1.0"]\n',
+            "mcp",
+        ),
+        # Poetry writes the distribution as the table *key*, so a walker that
+        # read only the values found `^1.6.0` and never `mcp` — every Poetry
+        # table below was dead, and the gate withheld the route from a
+        # Poetry-managed server entirely.
+        (
+            "poetry_table",
+            '[tool.poetry.dependencies]\npython = "^3.10"\nmcp = "^1.6.0"\n',
+            "mcp",
+        ),
+        (
+            "poetry_inline_table",
+            '[tool.poetry.dependencies]\nfastmcp = {version = "^2.10"}\n',
+            "fastmcp",
+        ),
+        (
+            "poetry_group",
+            '[tool.poetry.group.dev.dependencies]\nmcp = "^1.0"\n',
+            "mcp",
+        ),
+        # The server's *own* distribution name is not a dependency on MCP.
+        (
+            "the_servers_own_name",
+            '[project]\nname = "mcp-neo4j-cypher"\ndependencies = ["neo4j>=5"]\n',
+            None,
+        ),
+        ("unparseable", "[project\nname =\n", None),
+    ],
+)
+def test_the_python_gate_reads_every_dependency_table_it_names(
+    tmp_path, label: str, pyproject: str, expected: str | None
+):
+    """Five tables are named in the constant; all five have to be reachable.
+
+    A route table with one tested entry is the shape #485 warns about — the
+    Poetry rows shipped dead in the first draft of this input and no fixture
+    could see it, because every fixture in this file writes PEP 621.
+    """
+
+    workspace = tmp_path / label
+    (workspace / "pkg").mkdir(parents=True)
+    (workspace / "pyproject.toml").write_text(pyproject, encoding="utf-8")
+    (workspace / "pkg" / "server.py").write_text(
+        "from fastmcp import FastMCP\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def gated() -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+
+    discovery = discover_mcp_server_source(
+        workspace, files=sorted(workspace.rglob("*"))
+    )
+    if expected is None:
+        assert discovery.path is None, label
+        return
+    assert discovery.path == "pkg", label
+    assert discovery.tool_names == ("gated",)
+    assert any(
+        line.endswith(f"depends on {expected}")
+        for line in discovery.framework_evidence
+    ), (label, discovery.framework_evidence)
+
+
+def test_a_requirements_file_opens_the_python_gate(tmp_path):
+    """`requirements*.txt` is the pre-`pyproject.toml` spelling, and the glob
+    is deliberate: a server pinning its SDK in `requirements-dev.txt` has
+    declared it just as plainly."""
+
+    workspace = tmp_path / "reqs"
+    (workspace / "pkg").mkdir(parents=True)
+    (workspace / "requirements-dev.txt").write_text(
+        "# tooling\n-r base.txt\nfastmcp>=2.10.5\n", encoding="utf-8"
+    )
+    (workspace / "pkg" / "server.py").write_text(
+        "from fastmcp import FastMCP\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def gated() -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+
+    discovery = discover_mcp_server_source(
+        workspace, files=sorted(workspace.rglob("*"))
+    )
+    assert discovery.path == "pkg"
+    assert discovery.framework_evidence == (
+        "requirements-dev.txt depends on fastmcp",
+    )
+
+
 # --- Reading a Python server ------------------------------------------------
 
 
@@ -930,7 +1068,7 @@ def test_a_python_server_yields_its_tools_with_the_signature_schema(tmp_path):
     loaded = load_mcp_server_source(_source("src"), workspace)
 
     by_name = {tool.name: tool for tool in loaded.tools}
-    assert set(by_name) == {"hset"}
+    assert set(by_name) == {"hset", "lpush"}
     hset = by_name["hset"]
     assert hset.extraction["idiom"] == "py_fastmcp_decorator"
     assert hset.extraction_confidence == "medium"
@@ -969,19 +1107,18 @@ def test_a_python_binding_that_lives_in_another_module_still_resolves(tmp_path):
     """
 
     workspace = _redis_shaped(tmp_path)
-    assert [
+    assert sorted(
         tool.name
         for tool in load_mcp_server_source(_source("src"), workspace).tools
-    ] == ["hset"]
+    ) == ["hset", "lpush"]
     # Point the route at the decorators alone and the proof is gone — recorded
     # as an omission rather than silently resolved against a module this walk
     # never opened.
     narrowed = load_mcp_server_source(_source("src/tools"), workspace)
     assert narrowed.tools == []
     assert [o.reason for o in narrowed.omissions] == [
-        "server_binding_not_proven",
-        "server_binding_not_proven",
-    ]
+        "server_binding_not_proven"
+    ] * 3
 
 
 def test_the_route_covers_the_module_that_proves_the_binding(tmp_path):
@@ -1000,7 +1137,14 @@ def test_the_route_covers_the_module_that_proves_the_binding(tmp_path):
     )
 
     assert discovery.path == "src"
-    assert "src/common/server.py" in discovery.candidate_files
+    # Once, not once per importer: two modules import this server, and a route
+    # that listed its proving module twice would over-count what one manifest
+    # has to describe.
+    assert discovery.candidate_files == (
+        "src/common/server.py",
+        "src/tools/hash.py",
+        "src/tools/list.py",
+    )
     # The agreement the route exists for, asserted rather than assumed.
     assert set(discovery.tool_names) == {
         tool.name
@@ -1033,6 +1177,28 @@ def test_a_variadic_is_not_a_tool_parameter(tmp_path):
     tool = load_mcp_server_source(_source("server.py"), workspace).tools[0]
     assert [p.name for p in tool.parameters] == ["query"]
     assert tool.function_signature == "forwarding(query) -> str"
+
+
+def test_the_index_read_cache_is_a_cost_bound_and_not_a_decision(tmp_path):
+    """Past the cache bound a file is read twice, not read differently.
+
+    Every other cap in this input leaves a hole in the enumeration and is
+    reported as an omission. This one leaves a hole in nothing, so the test is
+    that turning it off entirely changes no answer — if it ever does, it has
+    stopped being a bound and started being a rule.
+    """
+
+    workspace = _redis_shaped(tmp_path)
+    cached = load_mcp_server_source(_source("src"), workspace)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(mcp_server_source, "MAX_CACHED_SOURCE_BYTES", 0)
+        uncached = load_mcp_server_source(_source("src"), workspace)
+
+    assert [tool.model_dump() for tool in uncached.tools] == [
+        tool.model_dump() for tool in cached.tools
+    ]
+    assert uncached.omissions == cached.omissions
+    assert uncached.warnings == cached.warnings
 
 
 def test_a_python_context_parameter_is_not_a_tool_parameter(tmp_path):

@@ -37,6 +37,7 @@ the exclusion ledger accounts for by subject.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from typing import ClassVar, Literal
 
@@ -98,6 +99,21 @@ EXTRACTION_CONFIDENCE = "medium"
 #: contributed at ``partial``: past the cap, nothing is known about what was
 #: not read.
 MAX_SCANNED_FILES = 4000
+
+#: How many bytes of Python source the index pass keeps for the scan pass.
+#:
+#: A cost bound and never a decision: past it a file is simply read twice
+#: instead of once, so no answer moves and nothing is recorded. That is what
+#: makes it different from every other cap in this module — exceeding
+#: :data:`MAX_SCANNED_FILES` or :data:`MAX_SOURCE_FILE_BYTES` leaves a hole in
+#: the enumeration and has to be reported; exceeding this one leaves a hole in
+#: nothing.
+#:
+#: Sized against the measurement: all of ``awslabs/mcp``'s non-test Python is
+#: 12.8 MB, so the largest server in the survey is read once. The bound exists
+#: for the shape the file cap alone does not stop — 4,000 files of 8 MB each
+#: would be 32 GB held to save a second read.
+MAX_CACHED_SOURCE_BYTES = 64 * 1024 * 1024
 
 #: ``operationType``-style classifications an idiom can read, mapped to the
 #: risk-tag vocabulary. Deliberately partial, in one direction only.
@@ -176,14 +192,15 @@ def load_mcp_server_source(source: ToolSourceConfig, base_dir: Path) -> LoadedTo
             ),
         )
 
-    server_index = _python_server_index(files, root)
+    server_index, python_texts = _python_server_index(files, root)
 
     for path in files:
         language = language_for_path(path)
         assert language is not None  # guaranteed by _scannable_files
         relative = _relative_source_path(path, source.path, base_dir)
         unread = _unread_reason(path)
-        if unread is None:
+        text = python_texts.pop(path, None)
+        if unread is None and text is None:
             try:
                 text = load_text_file(path)
             except InputParseError:
@@ -287,38 +304,55 @@ def _apply_source_gaps(tools: list[Tool], gaps: list[str]) -> None:
         tool.extraction["surface_gaps"] = merged
 
 
-def _python_server_index(files: list[Path], root: Path) -> PythonServerIndex:
-    """Index every module in the walk that constructs a FastMCP server.
+def _python_server_index(
+    files: list[Path], root: Path
+) -> tuple[PythonServerIndex, dict[Path, str]]:
+    """Index every module in the walk that constructs an MCP server.
 
-    A second read of the Python files, ahead of the one that scans them, and
-    the ordering is the whole point: ``redis/mcp-redis`` applies all 55 of its
+    A pass over the Python files ahead of the one that scans them, and the
+    ordering is the whole point: ``redis/mcp-redis`` applies all 53 of its
     decorators in ``src/tools/*.py`` and constructs the server they register on
     in ``src/common/server.py``, so a reader that resolved bindings as it went
     would prove or refuse the same decorator depending on walk order.
 
-    The extra read is bounded by the prefilter inside
-    :func:`~agents_shipgate.inputs.mcp_idioms.python_server_exports`: a module
-    that never names ``fastmcp`` cannot construct one and is not parsed. What
-    is *not* bounded away is the read itself, which is why this walks only the
-    Python files — the TypeScript and Go halves of a mixed repository are read
-    once, as before.
+    The texts come back with the index so the scan pass does not read them a
+    second time — on ``awslabs/mcp`` that is 2,500 files' worth of I/O — up to
+    :data:`MAX_CACHED_SOURCE_BYTES`, past which a file is read twice rather
+    than held. Only Python files are held either way: the TypeScript and Go
+    halves of a mixed repository are streamed as before, one read each.
     """
 
-    modules: list[tuple[str, str]] = []
-    for path in files:
-        if language_for_path(path) != "python" or _unread_reason(path) is not None:
-            continue
-        relative = _root_relative(path, root)
-        if relative is None:
-            continue
-        try:
-            modules.append((relative, load_text_file(path)))
-        except InputParseError:
-            # Reported as an omission by the read loop, which is the pass that
-            # owns the file's surface. Recording it here too would put one
-            # file's problem into the ledger twice.
-            continue
-    return PythonServerIndex.build(modules)
+    texts: dict[Path, str] = {}
+    cached = 0
+
+    def _modules() -> Iterator[tuple[str, str]]:
+        # A generator, so ``build`` sees one module at a time and keeps only
+        # each one's exported names. Materialising the list would hold every
+        # file's text alive at once, which is the cost the bound above exists
+        # to refuse.
+        nonlocal cached
+        for path in files:
+            if (
+                language_for_path(path) != "python"
+                or _unread_reason(path) is not None
+            ):
+                continue
+            relative = _root_relative(path, root)
+            if relative is None:
+                continue
+            try:
+                text = load_text_file(path)
+            except InputParseError:
+                # Reported as an omission by the read loop, which is the pass
+                # that owns the file's surface. Recording it here too would put
+                # one file's problem into the ledger twice.
+                continue
+            if cached + len(text) <= MAX_CACHED_SOURCE_BYTES:
+                texts[path] = text
+                cached += len(text)
+            yield relative, text
+
+    return PythonServerIndex.build(_modules()), texts
 
 
 def _root_relative(path: Path, root: Path) -> str | None:

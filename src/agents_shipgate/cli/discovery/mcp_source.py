@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import json
 import tomllib
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
@@ -61,7 +61,10 @@ from agents_shipgate.inputs.mcp_idioms import (
     language_for_path,
     scan_source,
 )
-from agents_shipgate.inputs.mcp_server_source import SOURCE_TYPE
+from agents_shipgate.inputs.mcp_server_source import (
+    MAX_CACHED_SOURCE_BYTES,
+    SOURCE_TYPE,
+)
 
 #: How many source files discovery reads before it stops. Discovery runs on an
 #: unknown workspace with no manifest and has to stay bounded; the scan-time
@@ -182,7 +185,7 @@ def discover_mcp_server_source(
     scannable.sort(key=lambda pair: pair[1])
     truncated = len(scannable) > max_source_files
     read = scannable[:max_source_files]
-    server_index = _python_server_index(read)
+    server_index, python_texts = _python_server_index(read)
     names: set[str] = set()
     languages: set[SourceLanguage] = set()
     unresolved_by_file: dict[str, int] = {}
@@ -191,7 +194,7 @@ def discover_mcp_server_source(
         language = language_for_path(path)
         if language is None:  # pragma: no cover - filtered above
             continue
-        text = _source_text(path)
+        text = python_texts.pop(path, None) or _source_text(path)
         if text is None:
             continue
         result = scan_source(
@@ -296,15 +299,18 @@ def discover_mcp_server_source(
         unresolved_count=unresolved,
         evidence=evidence,
         framework_evidence=tuple(sorted(framework.reasons)),
-        candidate_files=tuple(sorted(candidate_files)),
+        # De-duplicated: one module can prove the binding for every file
+        # that imports it, so a plain sort repeated `src/common/server.py`
+        # once per decorating module.
+        candidate_files=tuple(sorted(set(candidate_files))),
         truncated=truncated,
     )
 
 
 def _python_server_index(
     scannable: Sequence[tuple[Path, str]]
-) -> PythonServerIndex:
-    """Index every Python module in the walk that constructs a FastMCP server.
+) -> tuple[PythonServerIndex, dict[Path, str]]:
+    """Index every Python module in the walk that constructs an MCP server.
 
     Built ahead of the scan for the same reason the adapter builds one:
     ``redis/mcp-redis`` constructs the server in ``src/common/server.py`` and
@@ -314,17 +320,30 @@ def _python_server_index(
     The keys are workspace-relative here and root-relative in the adapter, and
     that is not a divergence: both are the path *inside the tree being read*,
     which is what an import's segments are matched against.
+
+    Returns the texts it read alongside the index, up to
+    :data:`MAX_CACHED_SOURCE_BYTES`, so the scan pass reads each Python file
+    once. Past the bound a file is read twice rather than held, which changes
+    no answer.
     """
 
-    return PythonServerIndex.build(
-        (relative, text)
-        for relative, text in (
-            (relative, _source_text(path))
-            for path, relative in scannable
-            if language_for_path(path) == "python"
-        )
-        if text is not None
-    )
+    texts: dict[Path, str] = {}
+    cached = 0
+
+    def _modules() -> Iterator[tuple[str, str]]:
+        nonlocal cached
+        for path, relative in scannable:
+            if language_for_path(path) != "python":
+                continue
+            text = _source_text(path)
+            if text is None:
+                continue
+            if cached + len(text) <= MAX_CACHED_SOURCE_BYTES:
+                texts[path] = text
+                cached += len(text)
+            yield relative, text
+
+    return PythonServerIndex.build(_modules()), texts
 
 
 def _source_text(path: Path) -> str | None:
@@ -461,12 +480,21 @@ def _pyproject_requirements(text: str) -> list[str]:
 
 
 def _toml_requirements(node: object, depth: int = 0) -> list[str]:
-    """Requirement strings inside a dependency list, table, or table of lists.
+    """Every string in a dependency table that could name a distribution.
 
-    One walker for three shapes, because they are three spellings of one fact:
-    PEP 621 writes a list of requirement strings, PEP 735 and Poetry's groups
-    write a table of them, and Poetry's own table writes the *name* as the key
-    with a constraint as the value.
+    Four spellings of one fact, and the walker admits **both** halves of a
+    table rather than choosing between them: PEP 621 writes a list of
+    requirement strings, PEP 735 and Poetry's groups write a table of such
+    lists, and Poetry's own table writes the *name as the key* with a
+    constraint as the value — sometimes an inline table (``{version = "^2"}``)
+    rather than a string.
+
+    Choosing was the bug. A first draft emitted the key only when the value
+    yielded nothing, so ``mcp = "^1.6.0"`` produced ``^1.6.0`` and never
+    ``mcp`` — every Poetry table in the list above was dead, and the gate
+    withheld the route from a Poetry-managed server. Emitting the key too
+    costs nothing: a group name like ``dev`` is not a distribution this gate
+    looks for, and :func:`normalized_distribution` drops ``^1.6.0`` anyway.
     """
 
     if depth > 3:  # pragma: no cover - a dependency table is never this deep
@@ -478,12 +506,8 @@ def _toml_requirements(node: object, depth: int = 0) -> list[str]:
     if isinstance(node, dict):
         found: list[str] = []
         for key, value in node.items():
-            nested = _toml_requirements(value, depth + 1)
-            # A Poetry table maps ``name -> constraint``, so the *key* is the
-            # requirement; a group table maps ``group -> [requirements]``, so
-            # the values are. Both are admitted, and the key only when the
-            # value was not itself a requirement list.
-            found.extend(nested if nested else [str(key)])
+            found.append(str(key))
+            found.extend(_toml_requirements(value, depth + 1))
         return found
     return []
 

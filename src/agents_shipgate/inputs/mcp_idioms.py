@@ -232,6 +232,10 @@ _TEST_FILE_SUFFIXES: tuple[str, ...] = (
 #: ``pytest`` collects ``test_*.py`` by default, so a suffix-only rule reads
 #: ``test_server.py`` as the server. ``conftest.py`` is matched whole because
 #: it is neither.
+#:
+#: Applied to Python only. ``test_helpers.ts`` and ``test_util.go`` are
+#: ordinary module names, and an excluded path is never read — so widening
+#: this to them would drop a surface with no omission to show for it.
 _TEST_FILE_PREFIXES: tuple[str, ...] = ("test_",)
 _TEST_FILE_NAMES: frozenset[str] = frozenset({"conftest.py"})
 
@@ -520,7 +524,14 @@ def is_scannable_path(relative_path: Path | PurePosixPath | str) -> bool:
     if any(part.lower() in TEST_DIRECTORY_NAMES for part in parts[:-1]):
         return False
     name = path.name.lower()
-    if name in _TEST_FILE_NAMES or name.startswith(_TEST_FILE_PREFIXES):
+    # Scoped to Python, because the *reason* is: pytest collects `test_*.py`,
+    # so a suffix-only rule reads `test_server.py` as the server. `test_util.go`
+    # and `test_helpers.ts` are ordinary module names, and excluding one costs
+    # a surface with no omission to show for it — an excluded path is never
+    # read, so nothing records that it was skipped.
+    if language_for_path(path) == "python" and (
+        name in _TEST_FILE_NAMES or name.startswith(_TEST_FILE_PREFIXES)
+    ):
         return False
     return not name.endswith(_TEST_FILE_SUFFIXES)
 
@@ -1703,7 +1714,23 @@ class _PythonModule:
             return
         if isinstance(node, ast.ClassDef):
             self._bind(scope, node.name, node)
-            for child in (*node.decorator_list, *node.bases):
+            for child in (
+                *node.decorator_list,
+                *node.bases,
+                # PEP 695 type parameters — the one child list of a scope
+                # node this walk would otherwise skip.
+                #
+                # Inert for any module Python will run, and knowably so: the
+                # only construct that could bind a name here is a walrus, and
+                # `compile` refuses one in a TypeVar bound ("named expression
+                # cannot be used within a TypeVar bound") even though
+                # `ast.parse` accepts it. So a perturbation sweep reports this
+                # line untested and is right to. It is here because the rule is
+                # "visit every child list of a scope node", and a reader who
+                # later adds a construct to `type_params` should not have to
+                # rediscover the gap.
+                *getattr(node, "type_params", ()),
+            ):
                 self._visit(child, scope)
             for keyword in node.keywords:
                 self._visit(keyword.value, scope)
@@ -1726,6 +1753,8 @@ class _PythonModule:
             self._bind(scope, node.name, node)
             for decorator in node.decorator_list:
                 self._visit(decorator, scope)
+            for parameter in getattr(node, "type_params", ()):
+                self._visit(parameter, scope)
             if node.returns is not None:
                 self._visit(node.returns, scope)
         for default in (*arguments.defaults, *arguments.kw_defaults):
@@ -1789,10 +1818,22 @@ class _PythonModule:
     # -- Resolution -----------------------------------------------------
 
     def _scope_chain(self, node: ast.AST) -> list[ast.AST]:
+        """The scopes a name at ``node`` is looked up in, innermost first.
+
+        A class body is searched only when it is the scope the name is written
+        in. Python does not close over class scope: a function nested inside a
+        method resolves ``mcp`` to the module, never to a class attribute of
+        the same name, so keeping the class in the chain made a module-level
+        server unreachable from a decorator written one level in — and, the
+        other way round, could resolve a class attribute the interpreter never
+        consults.
+        """
+
         chain: list[ast.AST] = []
         scope = self._scopes.get(id(node))
         while scope is not None:
-            chain.append(scope)
+            if not isinstance(scope, ast.ClassDef) or not chain:
+                chain.append(scope)
             if scope is self.tree:
                 break
             scope = self._scopes.get(id(scope))
@@ -2037,10 +2078,19 @@ def _python_module_key_matches(key: tuple[str, ...], parts: tuple[str, ...]) -> 
 def _python_module_paths(
     package: PurePosixPath, parts: tuple[str, ...]
 ) -> tuple[str, ...]:
-    base = package.joinpath(*parts) if parts else package
+    if not parts:
+        # ``from . import x`` names no module path of its own: what it binds is
+        # an attribute of the package's ``__init__``, which is where a name it
+        # re-exports would be bound. That is Python's rule and not an
+        # approximation of it: after ``from . import server``, the name
+        # is the submodule *unless* ``__init__`` binds something else
+        # of that name, and a submodule has no ``.tool`` to register
+        # with — so the only case worth resolving is the re-export.
+        return ((package / "__init__.py").as_posix(),)
+    base = package.joinpath(*parts)
     return (
         (base / "__init__.py").as_posix(),
-        base.with_suffix(".py").as_posix() if parts else "",
+        base.with_suffix(".py").as_posix(),
     )
 
 
@@ -2056,8 +2106,8 @@ def _python_sites(
     if tree is None:
         return SourceScanResult(anomalies=("unparseable_python",))
     module = _PythonModule(tree)
-    offsets = _PythonOffsets(text)
     index = server_index or PythonServerIndex()
+    offsets: _PythonOffsets | None = None
     sites: list[RegistrationSite] = []
     server_modules: set[str] = set()
     for node in ast.walk(tree):
@@ -2072,8 +2122,14 @@ def _python_sites(
             )
             if proving_module is not None:
                 server_modules.add(proving_module)
+            # Built on the first site, not per file: most modules that pass the
+            # `"tool"` prefilter register nothing — a variable of that name, a
+            # word in a docstring — and the line table would be built and
+            # thrown away for every one of them.
+            if offsets is None:
+                offsets = _PythonOffsets(text)
             sites.append(
-                _python_site(node, decorator, receiver, offsets, proven=proven)
+                _python_site(node, decorator, offsets, proven=proven)
             )
     sites.sort(key=lambda site: (site.line, site.column))
     return SourceScanResult(
@@ -2164,7 +2220,6 @@ def _python_server_receiver(
 def _python_site(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     decorator: ast.expr,
-    receiver: ast.expr,
     offsets: _PythonOffsets,
     *,
     proven: bool,
@@ -2186,7 +2241,6 @@ def _python_site(
             span=span,
             unresolved_reason="server_binding_not_proven",
         )
-    del receiver
     name, unresolved = _python_tool_name(node, decorator)
     return RegistrationSite(
         idiom="py_fastmcp_decorator",
