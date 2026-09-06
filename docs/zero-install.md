@@ -35,7 +35,7 @@ The script's output is a **structural subset** of `agents-shipgate detect --json
   "python_parse_truncated": false,
   "next_action": "agents-shipgate init --workspace .",
   "workspace_signals": {...},
-  "script_version": "0.5.0"
+  "script_version": "0.6.0"
 }
 ```
 
@@ -43,7 +43,7 @@ Like the canonical CLI, the script parse-probes each glob-matched MCP/OpenAPI ca
 
 One rejection needs no parser and so applies to every candidate, JSON or YAML: a file larger than 10 MB is refused unread. The input adapters apply that same bound before their own parse, so such a file cannot be scanned whatever it contains — suggesting it would hand you a `tool_sources` entry `scan` rejects, and reading it to find out is exactly what a script you piped from `curl` should not do to a repository it knows nothing about. It appears under `excluded_sources` with the reason the CLI gives it.
 
-An MCP server whose tool surface exists **only as TypeScript or Go registration sites** — `mongodb-js/mongodb-mcp-server`, `grafana/mcp-grafana`, `github/github-mcp-server` — is detected here too, and suggested as `{"type": "mcp_server_source", "path": "..."}`. That is 100% of the population this script is pointed at: a repository that has not adopted Shipgate. Until v0.5.0 of the script the reader lived only in the installed CLI, so the documented first command answered "Stop, not an agent project" on exactly the repositories the CLI reported as agent projects with 61, 110 and 114 tools.
+An MCP server whose tool surface exists **only as registration sites in its own source** — `mongodb-js/mongodb-mcp-server`, `grafana/mcp-grafana`, `github/github-mcp-server` in TypeScript and Go, `redis/mcp-redis`, `chroma-core/chroma-mcp` and `neo4j-contrib/mcp-neo4j` in Python — is detected here too, and suggested as `{"type": "mcp_server_source", "path": "..."}`. That is 100% of the population this script is pointed at: a repository that has not adopted Shipgate. Until v0.5.0 of the script the reader lived only in the installed CLI, so the documented first command answered "Stop, not an agent project" on exactly the repositories the CLI reported as agent projects with 61, 110 and 114 tools; v0.6.0 added the Python idiom on both sides at once.
 
 Porting it means a second implementation of the load-bearing matcher — the masking lexer and the five registration idioms. It is held to the CLI's answers by a shared conformance corpus rather than by inspection: every positive sample, the whole adversarial sweep, the path predicate and both escape grammars live once in [`tests/mcp_idiom_corpus.py`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/tests/mcp_idiom_corpus.py) and are driven through both readers, compared site by site with the byte span of each. Neither reader can change its answer on a case either of them has ever been asked about without the other following.
 

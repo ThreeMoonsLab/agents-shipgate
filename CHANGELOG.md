@@ -2,6 +2,62 @@
 
 ## Unreleased
 
+- **Python MCP servers get the route the survey said they needed most.**
+  (#484) #431 shipped a built-in registry of tool-registration idioms covering
+  TypeScript and Go, and its own 30-server survey named what it left out:
+  Python's `@mcp.tool` decorator, the largest single shape by both repositories
+  and call sites. `redis/mcp-redis`, `chroma-core/chroma-mcp` and
+  `neo4j-contrib/mcp-neo4j` were all in the state MongoDB and Grafana were in
+  before #431 — `detect` returned `is_agent_project: false` for a first-party
+  server publishing dozens of tools. All three are now read, and so is the one
+  the survey measured as the largest of all: `awslabs/mcp` yields **334 tools**
+  with 107 registrations recorded as unenumerable.
+
+  It is a sixth idiom (`py_fastmcp_decorator`) and a different **extraction
+  mechanism**, which is why it waited for its own increment and its own probe
+  list. Three facts about the shape are why it could not be a sixth pattern:
+  the name is usually *not written down* — `@mcp.tool()` on `def dbsize()`
+  registers `dbsize`, which is all 53 of `redis/mcp-redis`'s registrations; the
+  input schema is the **annotated signature**, so this idiom publishes one
+  where the lexical idioms genuinely have nothing to publish; and whether the
+  decorator registers anything at all is a **binding fact**, since `@app.tool`
+  is a tool registration when `app` is a server and somebody else's decorator
+  otherwise. So it is read with the standard library's parser, it follows the
+  decorated name back to a server construction — across modules, because
+  `redis/mcp-redis` constructs its server in `src/common/server.py` and
+  decorates in `src/tools/*.py` — and it refuses out loud when it cannot.
+
+  Two findings changed the design after it was measured rather than before.
+  The official Python SDK's v2 **renamed `FastMCP` to `MCPServer`** and left
+  `mcp.server.fastmcp` as a module that only raises; 41 of `awslabs/mcp`'s
+  servers had already moved, and a reader that knew one name read 105 tools
+  where there are 334. And every one of `neo4j-contrib/mcp-neo4j`'s 40 tools is
+  registered as `name=namespace_prefix + "…"`, so the rule the lexical idioms
+  use — offer no route without a resolved name — would have reported that
+  repository as "not an agent project" *because* its names are dynamic. A
+  Python site carries its own provenance, having already been followed back to
+  a server construction, so the route is offered and the evidence says "40
+  registration(s), none of which this reader can name". A committed export
+  cannot displace such a route either: containment is the test, and an export
+  contains an empty set of names vacuously.
+
+  Nothing is claimed more loudly for having been read more closely. The
+  ceiling stays `medium`, a name built at run time stays an omission the
+  exclusion ledger accounts for, and a decorator on an object this reader
+  cannot follow — `@self.mcp.tool` on an injected server, `app =
+  create_server()` on a factory's result, both measured in `awslabs/mcp` — is
+  recorded rather than guessed at or silently dropped. `IDIOM_REGISTRY_VERSION`
+  is `2` and `TRIGGER-MCP-TOOL-REGISTRATION-SOURCE` routes `@mcp.tool`.
+
+  The zero-install detector moved in the same commit, to `0.6.0`: #485 made
+  `tools/shipgate-detect.py` a second implementation of this reader, and
+  `tests/mcp_idiom_corpus.py` is what keeps it from becoming a different one —
+  every case either reader has been asked about lives there once, the whole
+  Python probe list and the cross-module trees included, and both are driven
+  through all of it and compared site by site, span by span. Both detectors
+  return identical verdicts, sources and evidence on all four live
+  repositories.
+
 - **The zero-install detector refuses an oversized candidate instead of
   reading it.** `tools/shipgate-detect.py` is fetched over `curl | python3`
   and run against repositories nobody has inspected, and it read every

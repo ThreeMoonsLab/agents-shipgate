@@ -159,7 +159,31 @@
           "surface": "enumerated",
           "surface_complete": true,
           "surface_flags": [],
-          "variant": null,
+          "variant": "literal name at a registration site",
+          "verdict": "Every action from this route raises `low_confidence_tool` and either `unattested_surface` (when its set was enumerated) or `incomplete_surface` (when it was not), so none can be pass-eligible. Only the latter adds an exclusion-ledger row for an unread remainder. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
+        },
+        {
+          "ceiling": "medium",
+          "emits": [
+            "mcp_server_source"
+          ],
+          "evidence_gaps": [
+            "low_confidence_tool",
+            "unattested_surface"
+          ],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "low_confidence",
+          "raises": [],
+          "reads": "A `@mcp.tool` decorator on a Python function, where `mcp` is followed back to a `FastMCP(...)` construction \u2014 in the same module or in one this walk also read. The name is the `name=` literal or, where the framework's own default applies, the function's; the description is the `description=` literal or the docstring; the input schema is the annotated signature.",
+          "shape": "literal_registration",
+          "status": "extracted",
+          "surface": "enumerated",
+          "surface_complete": true,
+          "surface_flags": [],
+          "variant": "FastMCP decorator",
           "verdict": "Every action from this route raises `low_confidence_tool` and either `unattested_surface` (when its set was enumerated) or `incomplete_surface` (when it was not), so none can be pass-eligible. Only the latter adds an exclusion-ledger row for an unread remainder. Semantic evidence gaps are zero-tolerance, so **one** such action is already enough to put the run below the evidence threshold and withhold a verdict. A reviewed tool inventory is the route out."
         },
         {
@@ -191,13 +215,32 @@
           "extraction_permits_pass": false,
           "outcome": "not_extracted",
           "raises": [],
+          "reads": "A `.tool` decorator whose object does not resolve to a `FastMCP(...)` construction \u2014 `@self.mcp.tool` on a server handed in as an argument is the measured shape \u2014 registers something this reader can neither name nor confirm is a tool at all. It enters no catalog and is recorded as an unenumerated subject in the exclusion ledger.",
+          "shape": "dynamic_construction",
+          "status": "not_extracted",
+          "surface": null,
+          "surface_complete": false,
+          "surface_flags": [],
+          "variant": "decorator on an object this reader cannot follow",
+          "verdict": "No action enters the catalog, so nothing here carries an action-level ceiling. That is not the same as unseen: the scan records that it read this construct and refused to guess what it produces, and a framework check may raise a finding on the record itself \u2014 see the row's own `Raises` column."
+        },
+        {
+          "ceiling": null,
+          "emits": [],
+          "evidence_gaps": [],
+          "exclusion_detail": null,
+          "exclusion_reason": null,
+          "extraction_complete": false,
+          "extraction_permits_pass": false,
+          "outcome": "not_extracted",
+          "raises": [],
           "reads": "A registration whose name is a variable, a concatenation, or a template substitution names no tool this reader can check. It enters no catalog and is recorded as an unenumerated subject in the exclusion ledger, which holds its file's surface at `partial`.",
           "shape": "dynamic_construction",
           "status": "not_extracted",
           "surface": null,
           "surface_complete": false,
           "surface_flags": [],
-          "variant": null,
+          "variant": "name built at runtime",
           "verdict": "No action enters the catalog, so nothing here carries an action-level ceiling. That is not the same as unseen: the scan records that it read this construct and refused to guess what it produces, and a framework check may raise a finding on the record itself \u2014 see the row's own `Raises` column."
         }
       ],
@@ -208,7 +251,7 @@
       "label": "MCP server source",
       "manifest_section": null,
       "manifest_section_role": "activates",
-      "reads": "The TypeScript or Go source of an MCP server that does not commit an export, through a built-in registry of registration idioms."
+      "reads": "The TypeScript, Go or Python source of an MCP server that does not commit an export, through a built-in registry of registration idioms."
     },
     {
       "adapter": "openapi",

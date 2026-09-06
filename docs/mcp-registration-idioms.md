@@ -35,19 +35,18 @@ test files are included in these raw counts and excluded by the shipped reader
 
 | idiom | repositories | largest single repo | shipped |
 |---|---|---|---|
-| Python `@mcp.tool` (FastMCP decorator) | 5 | `awslabs/mcp` (488) | **no — next increment** |
+| Python `@mcp.tool` (server decorator) | 5 | `awslabs/mcp` (488) | yes (`py_fastmcp_decorator`) |
 | Go `Tool{Name: "…"}` | 3 | `github/github-mcp-server` (135) | yes (`go_tool_struct`) |
 | TS `.tool(` / `.registerTool("…"` | 3 | `cloudflare/mcp-server-cloudflare` (85) | yes (`ts_sdk_register_tool`) |
 | Go `NewTool("…"` | 2 | `hashicorp/terraform-mcp-server` (63) | yes (`go_new_tool`) |
 | Go `MustTool("…"` | 1 | `grafana/mcp-grafana` (132) | yes (`go_must_tool`) |
 | TS `static toolName = "…"` | 1 | `mongodb-js/mongodb-mcp-server` (77) | yes (`ts_static_tool_name`) |
 
-The five shipped idioms cover every surveyed server whose tools are declared in
-TypeScript or Go, including all three walked vendors. Measured against the
-current heads of the three vendor repositories, the reader finds 61, 114, and
-110 tool names respectively, with 3, 1, and 3 registrations whose names are
-built at runtime — each recorded as an unenumerated subject rather than
-dropped.
+The six shipped idioms cover every surveyed server. Measured against the
+current heads of the three walked vendor repositories, the reader finds 61,
+114, and 110 tool names respectively, with 3, 1, and 3 registrations whose
+names are built at runtime — each recorded as an unenumerated subject rather
+than dropped.
 
 One shape was measured and deliberately rejected: an object literal carrying
 `name:` and `description:` keys, which appears in 14 of the surveyed
@@ -55,25 +54,91 @@ repositories. It matches any object with those two keys, which is most
 configuration in a TypeScript codebase, and a reader resting on it would invent
 tools rather than find them.
 
-## Why Python FastMCP is not in this increment
+## Python: a different mechanism, not a sixth pattern
 
-It is the largest single shape in the survey, and it is a **different
-extraction mechanism**: the name defaults to the decorated function's, the
-schema comes from the signature, and the provenance gate is an import binding
-rather than a declared dependency. Per [#393](https://github.com/ThreeMoonsLab/agents-shipgate/issues/393),
-the mechanism is reusable but each one needs its own adversarial probe list
-before it can claim anything — the lexical reader shipped here had eight
-fail-open constructs in its first draft, all found by writing that list. Python
-gets its own increment, its own probes, and a real AST rather than a masking
-lexer — filed as
-[#484](https://github.com/ThreeMoonsLab/agents-shipgate/issues/484).
+Python was deliberately held back from the first increment and shipped in
+[#484](https://github.com/ThreeMoonsLab/agents-shipgate/issues/484) with its
+own adversarial probe list, because per
+[#393](https://github.com/ThreeMoonsLab/agents-shipgate/issues/393) an
+extraction mechanism can only claim what its probes have been run against. The
+lexical reader had eight fail-open constructs in its first draft, all found by
+writing that list.
+
+Three facts make it a mechanism rather than a pattern, and each was measured
+before it was designed for:
+
+- **The name is usually not written down.** `@mcp.tool()` on `def dbsize()`
+  registers `dbsize`. All 53 of `redis/mcp-redis`'s registrations are the bare
+  form, so a reader looking for a literal beside the call would find none of
+  them. The name is the `name=` literal where one is given and the decorated
+  function's otherwise.
+- **The schema is the signature.** The server builds the tool's input schema
+  from the annotated parameters, so this idiom publishes one where the
+  TypeScript and Go idioms genuinely have nothing to publish. The request
+  `Context` parameter is dropped, because the server drops it too.
+- **Whether it registers anything is a binding fact.** `@app.tool()` registers
+  an MCP tool when `app` is a server and is somebody else's decorator
+  otherwise. The reader follows the decorated name back to a server
+  construction and refuses out loud when it cannot: `awslabs/mcp` writes
+  `@self.mcp.tool()` on a server passed in as a constructor argument, and
+  `app = create_server()` on the result of a factory. Both are recorded as
+  unenumerated subjects — 107 of them across that monorepo, against 334 tools
+  it does read.
+
+The binding is followed **across modules**, because the population requires it:
+`redis/mcp-redis` constructs its server in `src/common/server.py` and applies
+every decorator in `src/tools/*.py`. An import is resolved by matching path
+segments against the modules the walk read, and only when exactly one module
+matches — the scanned root can sit anywhere along the import path, so neither
+end is anchored, and two candidates mean the reader cannot tell which module
+was imported.
+
+### Three server classes, because all three are live
+
+The class whose instance carries `.tool` has been spelled three ways, and the
+reader knows the `(module, class)` pairs rather than one name:
+
+| import | shipped in |
+|---|---|
+| `from fastmcp import FastMCP` | the standalone `fastmcp` package (2.x) |
+| `from mcp.server.fastmcp import FastMCP` | the official Python SDK, v1 |
+| `from mcp.server.mcpserver import MCPServer` | the official Python SDK, v2 |
+
+The v2 rename is not a detail. `mcp.server.fastmcp` in the v2 SDK is a module
+that exists only to raise `ModuleNotFoundError` with a migration hint, and 41
+of `awslabs/mcp`'s servers had already moved when this shipped. A reader that
+knew only `FastMCP` reported every one of their registrations as unenumerable —
+105 tools read where there are 334.
+
+### A route for a server whose tool names are all dynamic
+
+The lexical idioms need a **resolved name** before discovery offers a route,
+because they match a spelling and a spelling in a client repository is a
+coincidence. The Python idiom does not: its site is only emitted after the
+decorator has been followed back to a server construction, and a client does
+not construct a server.
+
+That distinction is load-bearing rather than theoretical.
+`neo4j-contrib/mcp-neo4j` registers 40 tools and writes every single name as
+`name=namespace_prefix + "…"`. Requiring a readable name would report the
+repository as *not an agent project* precisely because its tool names are
+built at run time, which is the silent miss this whole input exists to end.
+`detect` offers the route, the evidence says "40 registration(s), none of which
+this reader can name", and every one of them reaches the exclusion ledger.
+
+For the same reason a committed export cannot displace such a route:
+containment is the test, and an export contains an empty set of names
+vacuously.
 
 ## What the reader does and does not read
 
 It reads a name, an operation-class literal where the idiom defines one, and a
-description literal where one sits beside the name. It runs no code, evaluates
-no schema library (Zod included), infers no type, and reads no annotation the
-source declares about itself.
+description literal where one sits beside the name — plus, for the Python
+idiom, the decorated function's docstring and signature, because that is where
+the server itself takes them from. It runs no code, evaluates no schema library
+(Zod and Pydantic included), resolves no type, and reads no annotation the
+source declares about itself: a parameter's annotation is mapped to a JSON
+Schema type by spelling, never by import resolution.
 
 Escape sequences are decoded with **each language's own grammar**, and anything
 either grammar does not define is refused rather than guessed. Go writes an
@@ -94,12 +159,16 @@ untrusted source has an incentive to make.
 
 ### What the reader excludes
 
-- **Test files** — `*_test.go`, `*.test.ts`, `*.spec.ts`, and files under
-  `test/`, `tests/`, `__tests__/`, `testdata/`, `fixtures/`. A test's fake tool
-  is not the published surface. Excluding them drops 14 phantom tools from the
-  MongoDB repository and 8 from Grafana.
-- **Vendored and built code** — `node_modules/`, `vendor/`, `dist/`, `build/`.
-  Somebody else's registrations are not this repository's surface.
+- **Test files** — `*_test.go`, `*.test.ts`, `*.spec.ts`, `test_*.py`,
+  `*_test.py`, `conftest.py`, and files under `test/`, `tests/`, `__tests__/`,
+  `testdata/`, `fixtures/`. A test's fake tool is not the published surface.
+  Excluding them drops 14 phantom tools from the MongoDB repository and 8 from
+  Grafana. Python is the reason the prefix rule exists at all: `pytest`
+  collects `test_*.py`, so a suffix-only rule read `test_server.py` as the
+  server.
+- **Vendored and built code** — `node_modules/`, `vendor/`, `dist/`, `build/`,
+  `.venv/`, `site-packages/`, `.tox/`. Somebody else's registrations are not
+  this repository's surface.
 - **JSX** (`.tsx`, `.jsx`) — JSX puts prose in code position, so an apostrophe
   in `<p>don't</p>` opens a string that never closes and the file reads as
   unreadable. That is the fail-closed direction, which is exactly why it is
@@ -109,13 +178,15 @@ untrusted source has an incentive to make.
 
 ## Confidence, and where an export still wins
 
-A literal at a registration site is `medium`. A committed export stays `high`
-and remains the better route wherever one exists: it is the server's own
-published contract and it carries the input schemas this input does not read.
-`detect` therefore withholds the source route when a committed export **names
-every tool the source route resolved**, and records the withheld route in
-`excluded_sources` with the export that displaced it — named and visible, never
-silently dropped.
+A registration read out of source is `medium`, including the Python one that
+carries a signature: a signature is what the author wrote, not what the server
+publishes, and the ceiling is about the route rather than about how much of it
+was read. A committed export stays `high` and remains the better route wherever
+one exists, because it is the server's own contract in the shape a client
+receives it. `detect` therefore withholds the source route when a committed
+export **names every tool the source route resolved**, and records the withheld
+route in `excluded_sources` with the export that displaced it — named and
+visible, never silently dropped.
 
 Containment is the test, not location and not mere existence. "Any export in
 the workspace wins" deleted real actions in two ways: in a repository holding
@@ -144,11 +215,13 @@ reach. The over-broad route is visible in the manifest `init` writes and an
 adopter narrows it in one line; the withheld one leaves them where they
 started, which is the state #431 was filed about.
 
-The zero-install detector (`tools/shipgate-detect.py`) does not read registration
-sites at all, so it still answers "not an agent project" for these repositories
-while the installed CLI does not. That divergence is named in the script's own
-"intentional simplifications" list, pinned by a test, and filed as
-[#485](https://github.com/ThreeMoonsLab/agents-shipgate/issues/485).
+The zero-install detector (`tools/shipgate-detect.py`) carries a port of this
+reader, so it answers these repositories the same way the installed CLI does —
+[#485](https://github.com/ThreeMoonsLab/agents-shipgate/issues/485) closed the
+divergence, and `tests/mcp_idiom_corpus.py` is what keeps the two from becoming
+different implementations: every case either reader has ever been asked about
+lives there once and both are driven through all of it, site by site and span
+by span.
 
 ## Routing a diff
 
@@ -156,9 +229,12 @@ while the installed CLI does not. That divergence is named in the script's own
 `diff_tokens`. Those are deliberately narrower than what the reader matches: a
 matched capability rule overrides the workspace stop condition, so a router
 firing on `.tool(` or a bare `Tool{` would turn "this is not an agent project"
-into "run" for any diff containing that substring. The router's job is to stop
-the *silent* miss; the reader's is to read the surface once the repository is
-adopted.
+into "run" for any diff containing that substring. `@mcp.tool` is the Python
+token for the same reason: it is the spelling four of the five surveyed servers
+use and 329 of `awslabs/mcp`'s call sites, while `@app.tool` — which the reader
+does read — is a decorator name a non-MCP repository can plausibly carry. The
+router's job is to stop the *silent* miss; the reader's is to read the surface
+once the repository is adopted.
 
 ## Adding an idiom
 
@@ -168,7 +244,8 @@ Idioms live in `agents_shipgate.inputs.mcp_idioms`. Adding one means:
    invisible without it, in the survey's terms.
 2. An entry in `IDIOMS` with its `diff_tokens`, and a positive sample in
    `tests/test_mcp_idioms.py` (the sample is what proves the tokens are real).
-3. Adversarial cases in the same file for every way the shape can be faked or
-   built at runtime.
+3. Adversarial cases in `tests/mcp_idiom_corpus.py` for every way the shape can
+   be faked or built at runtime — the corpus, not one test file, because the
+   zero-install detector is driven through the same cases.
 4. A bump of `IDIOM_REGISTRY_VERSION`, because the trigger catalog's token list
    is derived from this registry.

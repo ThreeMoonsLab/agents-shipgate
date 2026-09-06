@@ -14,12 +14,19 @@ is exactly such an artifact. Effect and authority still come from the
 declaration questionnaire (#410). The one thing the source is trusted to state
 is a name, which is checkable against the registration site that carries it.
 
+The Python idiom (#484) also reads the decorated function's **signature**,
+because for FastMCP that is where the input schema comes from — it is written
+in the same file, at the same site, and checking it costs no inference. That
+does not lift the ceiling: a signature is what the author wrote, not what the
+server publishes, and the ``medium`` bound is about the route, not about how
+much of it was read.
+
 Where a repository publishes a committed export, that export stays the better
-route: it is the server's own contract, it carries the input schemas this input
-deliberately does not read, and it is ``high`` confidence against this input's
-``medium``. ``detect`` therefore withholds this route wherever an export
-already covers the scope, and an adopter with both configured keeps the
-export's evidence untouched.
+route: it is the server's own contract published in the shape a client
+receives it, and it is ``high`` confidence against this input's ``medium``.
+``detect`` therefore withholds this route wherever an export already covers
+the scope, and an adopter with both configured keeps the export's evidence
+untouched.
 
 **Completeness is per file**, following #393: one unresolved registration holds
 every tool that file produced at ``partial``, and its siblings elsewhere in the
@@ -39,6 +46,7 @@ from agents_shipgate.core.domain import (
     LoadedToolSource,
     SourceSurfaceOmission,
     Tool,
+    ToolParameter,
     ToolRiskHint,
 )
 from agents_shipgate.core.errors import InputParseError
@@ -55,12 +63,18 @@ from agents_shipgate.inputs.mcp_idioms import (
     IDIOM_REGISTRY_VERSION,
     MAX_SOURCE_FILE_BYTES,
     OMISSION_REASONS,
+    PythonServerIndex,
     RegistrationSite,
+    SignatureParameter,
     is_scannable_path,
     language_for_path,
     scan_source,
 )
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
+from agents_shipgate.inputs.python_static import (
+    SKIPPED_TOOL_PARAMETERS,
+    json_schema_type,
+)
 from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
     ToolSourceConfig,
@@ -125,7 +139,8 @@ def load_mcp_server_source(source: ToolSourceConfig, base_dir: Path) -> LoadedTo
     files, capped = _scannable_files(root)
     if not files:
         raise InputParseError(
-            f"MCP server source has no TypeScript or Go files to read: {root}. "
+            "MCP server source has no TypeScript, Go or Python files to read: "
+            f"{root}. "
             "Point tool_sources[].path at the directory holding the server's "
             "tool registrations, or at one such file."
         )
@@ -161,6 +176,8 @@ def load_mcp_server_source(source: ToolSourceConfig, base_dir: Path) -> LoadedTo
             ),
         )
 
+    server_index = _python_server_index(files, root)
+
     for path in files:
         language = language_for_path(path)
         assert language is not None  # guaranteed by _scannable_files
@@ -183,7 +200,12 @@ def load_mcp_server_source(source: ToolSourceConfig, base_dir: Path) -> LoadedTo
                 detail=OMISSION_REASONS[unread],
             )
             continue
-        result = scan_source(text, language)
+        result = scan_source(
+            text,
+            language,
+            module_path=_root_relative(path, root),
+            server_index=server_index,
+        )
 
         file_gaps: list[str] = []
         for anomaly in result.anomalies:
@@ -265,6 +287,58 @@ def _apply_source_gaps(tools: list[Tool], gaps: list[str]) -> None:
         tool.extraction["surface_gaps"] = merged
 
 
+def _python_server_index(files: list[Path], root: Path) -> PythonServerIndex:
+    """Index every module in the walk that constructs a FastMCP server.
+
+    A second read of the Python files, ahead of the one that scans them, and
+    the ordering is the whole point: ``redis/mcp-redis`` applies all 55 of its
+    decorators in ``src/tools/*.py`` and constructs the server they register on
+    in ``src/common/server.py``, so a reader that resolved bindings as it went
+    would prove or refuse the same decorator depending on walk order.
+
+    The extra read is bounded by the prefilter inside
+    :func:`~agents_shipgate.inputs.mcp_idioms.python_server_exports`: a module
+    that never names ``fastmcp`` cannot construct one and is not parsed. What
+    is *not* bounded away is the read itself, which is why this walks only the
+    Python files — the TypeScript and Go halves of a mixed repository are read
+    once, as before.
+    """
+
+    modules: list[tuple[str, str]] = []
+    for path in files:
+        if language_for_path(path) != "python" or _unread_reason(path) is not None:
+            continue
+        relative = _root_relative(path, root)
+        if relative is None:
+            continue
+        try:
+            modules.append((relative, load_text_file(path)))
+        except InputParseError:
+            # Reported as an omission by the read loop, which is the pass that
+            # owns the file's surface. Recording it here too would put one
+            # file's problem into the ledger twice.
+            continue
+    return PythonServerIndex.build(modules)
+
+
+def _root_relative(path: Path, root: Path) -> str | None:
+    """``path`` relative to the walked root, as an import-resolvable key.
+
+    Deliberately *not* the manifest-relative path the omissions and tools
+    carry. Module resolution matches path segments against a dotted import, so
+    the segments have to be the ones inside the source tree; prefixing them
+    with the manifest's own directory layout would make ``from .server import
+    mcp`` resolve against a package that does not exist.
+    """
+
+    if root.is_file():
+        return path.name if path == root else None
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return None
+
+
 def _unread_reason(path: Path) -> str | None:
     """Why this file was not opened, or ``None`` when it was."""
 
@@ -294,6 +368,7 @@ def _tool_from_site(
     }
     if surface_gaps:
         extraction["surface_gaps"] = surface_gaps
+    parameters = _signature_parameters(site)
     return Tool(
         id=stable_tool_id(site.name),
         name=site.name,
@@ -304,10 +379,101 @@ def _tool_from_site(
         source_path=source_path,
         source_start_line=site.line,
         source_start_column=site.column,
+        input_schema=_signature_input_schema(parameters, site),
+        output_schema=(
+            {"type": json_schema_type(site.returns)} if site.returns else {}
+        ),
+        parameters=parameters,
+        function_signature=_signature_text(site, parameters),
         risk_hints=_operation_type_hints(site),
         extraction_confidence=EXTRACTION_CONFIDENCE,
         extraction=extraction,
     )
+
+
+#: Annotations naming the framework's request context. A tool declares one to
+#: reach logging and progress reporting, and the server strips it from the
+#: schema it publishes — so a catalog that kept it would publish a required
+#: argument no caller can supply.
+#:
+#: Matched on the annotation as well as the name because the framework matches
+#: on the *type*: ``SKIPPED_TOOL_PARAMETERS`` catches the conventional ``ctx``
+#: and ``context`` spellings, and this catches the parameter that is annotated
+#: ``Context`` and called something else.
+_CONTEXT_ANNOTATIONS: frozenset[str] = frozenset({"Context"})
+
+
+def _is_context_parameter(parameter: SignatureParameter) -> bool:
+    if parameter.name in SKIPPED_TOOL_PARAMETERS:
+        return True
+    annotation = (parameter.annotation or "").strip()
+    # A forward reference is a string literal in the source and comes back from
+    # the reader with its quotes, because the reader renders the annotation
+    # rather than resolving it.
+    annotation = annotation.strip("'\"").strip()
+    # `Context`, `mcp.Context`, and the optional spellings a tool uses when the
+    # context is injected only in some transports.
+    annotation = annotation.removeprefix("Optional[").removesuffix("]")
+    annotation = annotation.split("|", 1)[0].strip()
+    return annotation.rsplit(".", 1)[-1] in _CONTEXT_ANNOTATIONS
+
+
+def _signature_parameters(site: RegistrationSite) -> list[ToolParameter]:
+    """The registered tool's parameters, for an idiom that reads a signature.
+
+    The exclusions are applied here rather than in the reader because they are
+    *framework* facts, not syntactic ones: the server drops the request context
+    from the schema it publishes, and every other Python input in this package
+    drops the same conventional parameter names. Keeping the reader purely
+    syntactic is what lets the zero-install detector mirror it without carrying
+    the catalog's vocabulary too.
+    """
+
+    if site.parameters is None:
+        return []
+    return [
+        ToolParameter(
+            name=parameter.name,
+            type=json_schema_type(parameter.annotation),
+            required=parameter.required,
+        )
+        for parameter in site.parameters
+        if not _is_context_parameter(parameter)
+    ]
+
+
+def _signature_input_schema(
+    parameters: list[ToolParameter], site: RegistrationSite
+) -> dict[str, object]:
+    """The JSON Schema the signature implies, or ``{}`` when there is no signature.
+
+    An empty schema and a schema with no properties are different claims: the
+    first says this idiom reads no signature at all, the second says the tool
+    takes no arguments. A lexical idiom must publish the first — inventing
+    "this tool takes nothing" for a TypeScript registration would be a schema
+    assertion nobody made.
+    """
+
+    if site.parameters is None:
+        return {}
+    return {
+        "type": "object",
+        "properties": {
+            parameter.name: {"type": parameter.type} for parameter in parameters
+        },
+        "required": [
+            parameter.name for parameter in parameters if parameter.required
+        ],
+    }
+
+
+def _signature_text(
+    site: RegistrationSite, parameters: list[ToolParameter]
+) -> str | None:
+    if site.parameters is None:
+        return None
+    rendered = f"{site.name}({', '.join(parameter.name for parameter in parameters)})"
+    return f"{rendered} -> {site.returns}" if site.returns else rendered
 
 
 def _operation_type_hints(site: RegistrationSite) -> list[ToolRiskHint]:
@@ -336,7 +502,8 @@ def _scannable_files(root: Path) -> tuple[list[Path], bool]:
     if root.is_file():
         if language_for_path(root) is None:
             raise InputParseError(
-                f"MCP server source is not a TypeScript or Go file: {root}"
+                "MCP server source is not a TypeScript, Go or Python file: "
+                f"{root}"
             )
         return [root], False
     candidates = [
@@ -378,8 +545,9 @@ class MCPServerSourceAdapter:
         adapter=SOURCE_TYPE,
         label="MCP server source",
         reads=(
-            "The TypeScript or Go source of an MCP server that does not commit "
-            "an export, through a built-in registry of registration idioms."
+            "The TypeScript, Go or Python source of an MCP server that does "
+            "not commit an export, through a built-in registry of "
+            "registration idioms."
         ),
         cells=(
             BoundaryCell(
@@ -394,6 +562,7 @@ class MCPServerSourceAdapter:
             BoundaryCell(
                 shape="literal_registration",
                 status="extracted",
+                variant="literal name at a registration site",
                 reads=(
                     'A tool name written as a string literal at a registration '
                     'site — `static toolName = "…"`, `.registerTool("…"`, '
@@ -403,6 +572,36 @@ class MCPServerSourceAdapter:
                 emits=(SOURCE_TYPE,),
                 ceiling=EXTRACTION_CONFIDENCE,
                 surface=SURFACE_ENUMERATED,
+            ),
+            BoundaryCell(
+                shape="literal_registration",
+                status="extracted",
+                variant="FastMCP decorator",
+                reads=(
+                    "A `@mcp.tool` decorator on a Python function, where `mcp` "
+                    "is followed back to a `FastMCP(...)` construction — in the "
+                    "same module or in one this walk also read. The name is the "
+                    "`name=` literal or, where the framework's own default "
+                    "applies, the function's; the description is the "
+                    "`description=` literal or the docstring; the input schema "
+                    "is the annotated signature."
+                ),
+                emits=(SOURCE_TYPE,),
+                ceiling=EXTRACTION_CONFIDENCE,
+                surface=SURFACE_ENUMERATED,
+            ),
+            BoundaryCell(
+                shape="dynamic_construction",
+                status="not_extracted",
+                variant="decorator on an object this reader cannot follow",
+                reads=(
+                    "A `.tool` decorator whose object does not resolve to a "
+                    "`FastMCP(...)` construction — `@self.mcp.tool` on a server "
+                    "handed in as an argument is the measured shape — registers "
+                    "something this reader can neither name nor confirm is a "
+                    "tool at all. It enters no catalog and is recorded as an "
+                    "unenumerated subject in the exclusion ledger."
+                ),
             ),
             BoundaryCell(
                 shape="factory",
@@ -417,6 +616,7 @@ class MCPServerSourceAdapter:
             BoundaryCell(
                 shape="dynamic_construction",
                 status="not_extracted",
+                variant="name built at runtime",
                 reads=(
                     "A registration whose name is a variable, a concatenation, "
                     "or a template substitution names no tool this reader can "

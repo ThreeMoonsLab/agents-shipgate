@@ -23,20 +23,26 @@ from agents_shipgate.inputs.mcp_idioms import (
     LANGUAGE_EXTENSIONS,
     OMISSION_REASONS,
     PREFILTER_TOKEN,
+    PythonServerIndex,
     SourceScanResult,
+    declares_python_mcp_framework,
     decode_literal,
     is_scannable_path,
     language_for_path,
     mask_source,
+    normalized_distribution,
     scan_source,
 )
 from tests.mcp_idiom_corpus import (
     ADVERSARIAL,
     ESCAPE_CASES,
     MASKING_FAILURES,
+    PARSE_FAILURES,
     POSITIVE_SAMPLES,
+    PYTHON_TREES,
     REGRESSIONS,
     SCANNABLE_PATHS,
+    PythonTree,
 )
 
 
@@ -312,6 +318,173 @@ def test_a_file_without_the_prefilter_token_is_answered_without_masking(monkeypa
     assert scan_source(
         POSITIVE_SAMPLES["go_must_tool"].text, "go"
     ).sites
+
+
+# --- Python: the FastMCP decorator ------------------------------------------
+
+
+def test_a_python_tool_reads_its_signature_docstring_and_position():
+    """The three facts the lexed idioms do not have.
+
+    A FastMCP tool's name defaults to the decorated function's, its
+    description to the docstring, and its input schema to the signature — so a
+    reader that stopped at "is there a literal here" would find nothing at all
+    in `redis/mcp-redis`, whose 53 registrations are 53 bare `@mcp.tool()`.
+    """
+
+    sample = POSITIVE_SAMPLES["py_fastmcp_decorator"]
+    site = scan_source(sample.text, "python").sites[0]
+    assert site.name == "dbsize"
+    assert site.description == "Get the number of keys stored in the Redis database"
+    assert site.parameters == ()
+    assert site.returns == "int"
+    assert site.proves_server is True
+    # The decorator, not the function: the line a reviewer is sent to has to be
+    # the registration, and the span is what keeps a nested registration from
+    # deleting its own enclosing omission.
+    assert site.line == 6
+    assert sample.text[slice(*site.span)] == "mcp.tool()"
+
+
+def test_a_python_description_argument_beats_the_docstring():
+    """FastMCP's own precedence, not this reader's preference."""
+
+    case = REGRESSIONS["python_description_beats_the_docstring"]
+    site = scan_source(case.text, case.language).sites[0]
+    assert site.description == "What the server publishes"
+
+
+def test_a_python_tool_with_no_parameters_is_not_one_without_a_signature():
+    """``()`` and ``None`` are different claims, and the adapter reads both.
+
+    An idiom that reads no signature must publish no input schema; one that
+    read a signature with nothing in it must publish "this tool takes no
+    arguments". Collapsing them would invent a schema assertion for every
+    TypeScript and Go registration in the catalog.
+    """
+
+    case = REGRESSIONS["python_tool_with_no_parameters"]
+    assert scan_source(case.text, case.language).sites[0].parameters == ()
+    go = POSITIVE_SAMPLES["go_tool_struct"]
+    assert scan_source(go.text, go.language).sites[0].parameters is None
+
+
+def test_a_python_variadic_is_not_a_signature_parameter():
+    """``*args`` and ``**kwargs`` name no property a caller can send.
+
+    Publishing one called ``options`` would put a parameter in the catalog
+    that no request carries — a tool taking them takes arguments this reader
+    cannot enumerate, which is a different statement from taking one more.
+    """
+
+    case = REGRESSIONS["python_variadic_signature"]
+    site = scan_source(case.text, case.language).sites[0]
+    assert site.name == "forwarding"
+    assert [parameter.name for parameter in site.parameters] == ["query"]
+
+
+def test_python_offsets_are_characters_not_bytes():
+    """``col_offset`` counts UTF-8 bytes; every offset published here counts
+    characters, and the two part company on a line carrying either.
+
+    On the decorator's *own* line, because the offset is per line: a first
+    draft put the non-ASCII text three lines above and the case passed with
+    the conversion deleted.
+    """
+
+    case = REGRESSIONS["python_offsets_are_characters_not_bytes"]
+    site = scan_source(case.text, case.language).sites[0]
+    assert (
+        case.text[slice(*site.span)] == 'mcp.tool(description="süß — naïve café")'
+    )
+    assert site.description == "süß — naïve café"
+
+
+def test_a_python_syntax_error_is_an_anomaly_not_silence():
+    case = PARSE_FAILURES["unparseable_python"]
+    result = scan_source(case.text, case.language)
+    assert result.anomalies == ("unparseable_python",)
+    assert result.sites == ()
+    assert "unparseable_python" in OMISSION_REASONS
+
+
+@pytest.mark.parametrize("tree", PYTHON_TREES, ids=[t.case for t in PYTHON_TREES])
+def test_python_bindings_resolve_across_modules(tree: PythonTree):
+    index = PythonServerIndex.build(tree.modules.items())
+    for path, text in tree.modules.items():
+        result = scan_source(
+            text, "python", module_path=path, server_index=index
+        )
+        assert sorted(
+            site.name for site in result.sites if site.name
+        ) == sorted(tree.names.get(path, [])), (tree.case, path)
+        assert sorted(
+            site.unresolved_reason for site in result.sites if site.name is None
+        ) == sorted(tree.unresolved.get(path, [])), (tree.case, path)
+        assert list(result.server_modules) == tree.depends_on.get(path, []), (
+            tree.case,
+            path,
+        )
+
+
+def test_only_a_site_that_followed_a_binding_proves_a_server():
+    """``proves_server`` is what lets a route exist with no readable names.
+
+    Every `neo4j-contrib/mcp-neo4j` tool is `name=namespace_prefix + "…"`, so
+    requiring a resolved name would leave the repository reported as "not an
+    agent project" — the state this input exists to end. It must stay false for
+    a spelling, which is all the lexed idioms ever match, and false for a
+    decorator whose object this reader could not follow.
+    """
+
+    proven, unproven = (
+        scan_source(text, "python").sites[0]
+        for text in (
+            'from fastmcp import FastMCP\n'
+            'mcp = FastMCP("s")\n'
+            "@mcp.tool(name=RUNTIME)\n"
+            "def built() -> None:\n"
+            "    pass\n",
+            "@app.tool()\ndef foreign() -> None:\n    pass\n",
+        )
+    )
+    assert proven.proves_server is True and proven.name is None
+    assert unproven.proves_server is False
+    for idiom, sample in POSITIVE_SAMPLES.items():
+        if idiom == "py_fastmcp_decorator":
+            continue
+        sites = scan_source(sample.text, sample.language).sites
+        assert not any(site.proves_server for site in sites), idiom
+
+
+@pytest.mark.parametrize(
+    ("requirement", "expected"),
+    [
+        # The spelling `redis/mcp-redis` and `chroma-core/chroma-mcp` both
+        # declare, and the one discovery's general token scan throws away.
+        ("mcp[cli]>=1.26.0,<2", "mcp"),
+        ("fastmcp>=2.10.5,<2.14", "fastmcp"),
+        ("  mcp == 1.6.0  ", "mcp"),
+        ("Mcp_Server.Extras", "mcp-server-extras"),
+        ("mcp @ https://example.invalid/mcp.whl", "mcp"),
+        ('mcp; python_version >= "3.10"', "mcp"),
+        ("# mcp", None),
+        ("", None),
+        ("-r other.txt", None),
+    ],
+)
+def test_a_requirement_resolves_to_its_distribution_name(
+    requirement: str, expected: str | None
+):
+    assert normalized_distribution(requirement) == expected
+
+
+def test_the_python_gate_names_the_dependency_it_matched():
+    assert declares_python_mcp_framework(["redis>=6", "mcp[cli]>=1.26"]) == "mcp"
+    assert declares_python_mcp_framework(["fastmcp>=2.10"]) == "fastmcp"
+    # `mcp-neo4j-cypher` is the *server's own* distribution name. A prefix
+    # match would read a server's own package as its dependency on itself.
+    assert declares_python_mcp_framework(["mcp-neo4j-cypher", "neo4j>=5"]) is None
 
 
 # --- The published token list ----------------------------------------------

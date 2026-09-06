@@ -508,7 +508,7 @@ Do NOT use it for:
 | Trigger in this PR | Run Shipgate? |
 |---|---|
 | Adds/changes MCP exports, OpenAPI specs, or `tools/*openai*tools*.json` | Yes |
-| Adds/changes an MCP tool registration written in TypeScript or Go source (`static toolName`, `.registerTool(`, `MustTool(`, `NewTool(`, `mcp.Tool{`) | Yes |
+| Adds/changes an MCP tool registration written in TypeScript, Go or Python source (`static toolName`, `.registerTool(`, `MustTool(`, `NewTool(`, `mcp.Tool{`, `@mcp.tool`) | Yes |
 | Adds/changes Codex repo config, hooks, or permission profiles | Yes |
 | Adds/changes coding-agent host config, hooks, permissions, MCP servers, or workflows | Yes |
 | Adds/changes Codex plugin manifests, marketplace files, `.app.json`, `.mcp.json`, or `SKILL.md` files | Yes |

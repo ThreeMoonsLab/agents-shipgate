@@ -32,7 +32,12 @@ from agents_shipgate.cli.discovery import detect_workspace
 from agents_shipgate.cli.discovery import mcp_source as mcp_source_discovery
 from agents_shipgate.inputs import mcp_server_source
 from agents_shipgate.inputs.codex_plugin import resolve_local_codex_marketplace_roots
-from tests.mcp_idiom_corpus import ESCAPE_CASES, SCANNABLE_PATHS, SOURCE_CASES
+from tests.mcp_idiom_corpus import (
+    ESCAPE_CASES,
+    PYTHON_TREES,
+    SCANNABLE_PATHS,
+    SOURCE_CASES,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_PATH = REPO_ROOT / "tools" / "shipgate-detect.py"
@@ -133,7 +138,7 @@ def test_framework_vocabulary_names_every_cli_omission(script_module):
     as the fixtures: a detection the CLI gains and the script does not is
     invisible to it until a sample exercises the difference. That is exactly
     what happened with ``mcp_server_source`` (#431) — the CLI learned to read
-    an MCP server's tool names out of TypeScript or Go registration sites, no
+    an MCP server's tool names out of TypeScript, Go or Python registration sites, no
     sample contained one, and the script went on reporting
     ``mongodb-js/mongodb-mcp-server`` as *not an agent project* for a whole
     release. #485 ported it, and ``known_omissions`` is empty again.
@@ -1399,6 +1404,21 @@ def _site_fields(site: Any) -> dict[str, Any]:
         "description": site.description,
         "operation_type": site.operation_type,
         "unresolved_reason": site.unresolved_reason,
+        # `proves_server` decides whether a route exists at all for a server
+        # whose tool names are built at run time, and the signature fields
+        # decide what schema the catalog publishes. A port that returned the
+        # dataclass defaults for all three would pass a names-only comparison
+        # while withholding `neo4j-contrib/mcp-neo4j` from one detector.
+        "parameters": (
+            None
+            if site.parameters is None
+            else [
+                (parameter.name, parameter.annotation, parameter.required)
+                for parameter in site.parameters
+            ]
+        ),
+        "returns": site.returns,
+        "proves_server": site.proves_server,
     }
 
 
@@ -1536,6 +1556,37 @@ def test_the_script_implements_every_idiom_the_cli_registry_publishes(script_mod
     assert emitted == set(script_module.IDIOM_IDS)
 
 
+@pytest.mark.parametrize("tree", PYTHON_TREES, ids=[t.case for t in PYTHON_TREES])
+def test_both_readers_follow_a_binding_across_modules_identically(
+    script_module, tree
+):
+    """The cross-module half of the Python reader, driven through both.
+
+    A per-file comparison cannot reach it: the largest Python server in the
+    survey constructs its server in one module and decorates in eleven others,
+    so the index — and the path-segment matching that resolves an import
+    against it — is what decides whether either detector sees 53 tools or none.
+    """
+
+    from agents_shipgate.inputs import mcp_idioms
+
+    cli_index = mcp_idioms.PythonServerIndex.build(tree.modules.items())
+    script_index = script_module.PythonServerIndex.build(tree.modules.items())
+    assert script_index.modules == cli_index.modules, tree.case
+
+    for path, text in tree.modules.items():
+        cli = mcp_idioms.scan_source(
+            text, "python", module_path=path, server_index=cli_index
+        )
+        script = script_module.scan_source(
+            text, "python", module_path=path, server_index=script_index
+        )
+        assert [_site_fields(site) for site in script.sites] == [
+            _site_fields(site) for site in cli.sites
+        ], (tree.case, path)
+        assert script.server_modules == cli.server_modules, (tree.case, path)
+
+
 def test_the_script_records_omissions_in_the_cli_vocabulary(script_module):
     """A reason spelled differently is a second vocabulary for one event.
 
@@ -1578,6 +1629,25 @@ def test_the_script_mirrors_the_readers_shared_vocabulary(script_module):
     assert script_module.SKIP_DIRECTORY_NAMES == mcp_idioms.SKIP_DIRECTORY_NAMES
     assert script_module.TEST_DIRECTORY_NAMES == mcp_idioms.TEST_DIRECTORY_NAMES
     assert script_module.PREFILTER_TOKEN == mcp_idioms.PREFILTER_TOKEN
+    assert (
+        script_module.PYTHON_SERVER_PREFILTER_TOKENS
+        == mcp_idioms.PYTHON_SERVER_PREFILTER_TOKENS
+    )
+    assert (
+        script_module.PYTHON_FRAMEWORK_PACKAGES
+        == mcp_idioms.PYTHON_FRAMEWORK_PACKAGES
+    )
+    assert (
+        script_module.PYTHON_SERVER_CONSTRUCTORS
+        == mcp_idioms.PYTHON_SERVER_CONSTRUCTORS
+    )
+    assert (
+        script_module.PYTHON_TOOL_DECORATOR_ATTR
+        == mcp_idioms.PYTHON_TOOL_DECORATOR_ATTR
+    )
+    assert script_module.LEXED_LANGUAGES == mcp_idioms.LEXED_LANGUAGES
+    assert script_module._TEST_FILE_PREFIXES == mcp_idioms._TEST_FILE_PREFIXES
+    assert script_module._TEST_FILE_NAMES == mcp_idioms._TEST_FILE_NAMES
     assert script_module.TOOL_NAME_RE.pattern == mcp_idioms.TOOL_NAME_RE.pattern
     assert script_module.MAX_SOURCE_FILE_BYTES == mcp_idioms.MAX_SOURCE_FILE_BYTES
     assert script_module.MCP_SOURCE_TYPE == mcp_server_source.SOURCE_TYPE
@@ -1608,6 +1678,19 @@ _TS_PACKAGE_JSON = '{"name": "srv", "dependencies": {"@modelcontextprotocol/sdk"
 _GO_MOD = "module example.com/srv\n\ngo 1.23\n\nrequire github.com/mark3labs/mcp-go v0.30.0\n"
 _TS_REGISTRATION = 'server.registerTool("search_docs", { inputSchema: shape }, handler);\n'
 _GO_REGISTRATION = 'var Incident = mcpgrafana.MustTool("update_incident", "Update", update)\n'
+_PY_PROJECT = '[project]\nname = "srv"\ndependencies = ["mcp[cli]>=1.26.0,<2"]\n'
+_PY_SERVER_MODULE = (
+    "from mcp.server.fastmcp import FastMCP\n\nmcp = FastMCP(\"Redis MCP Server\")\n"
+)
+_PY_TOOL_MODULE = (
+    "from src.common.server import mcp\n"
+    "\n"
+    "\n"
+    "@mcp.tool()\n"
+    "async def hset(name: str, key: str) -> str:\n"
+    '    """Set a field in a hash stored at key."""\n'
+    '    return ""\n'
+)
 
 _MCP_ROUTE_WORKSPACES: dict[str, dict[str, str]] = {
     # The plain TypeScript route: a declared SDK dependency and a name
@@ -1711,6 +1794,51 @@ _MCP_ROUTE_WORKSPACES: dict[str, dict[str, str]] = {
         "server.ts": _TS_REGISTRATION
         + "server.registerTool(DYNAMIC, { inputSchema: shape }, handler);\n",
     },
+    # `redis/mcp-redis`'s shape: the decorators are in one package and the
+    # server they register on is constructed in another, so the route has to
+    # widen to `src` to cover the module that proves the binding. A port that
+    # dropped the cross-module index would answer "not an agent project" here
+    # while the CLI reported the tool — and no sample has this shape.
+    "python_binding_from_another_module": {
+        "pyproject.toml": _PY_PROJECT,
+        "src/common/server.py": _PY_SERVER_MODULE,
+        "src/tools/hash.py": _PY_TOOL_MODULE,
+    },
+    # Every tool name built at run time, which is all 40 of
+    # `neo4j-contrib/mcp-neo4j`'s. The route exists because the site was
+    # followed back to a server construction, not because a name was read.
+    "python_names_are_all_dynamic": {
+        "pyproject.toml": _PY_PROJECT,
+        "pkg/server.py": (
+            "from fastmcp.server import FastMCP\n"
+            "\n"
+            'mcp = FastMCP("s")\n'
+            "\n"
+            "\n"
+            '@mcp.tool(name=PREFIX + "get_schema")\n'
+            "def get_schema() -> str:\n"
+            '    return ""\n'
+        ),
+    },
+    # A `.tool` decorator on an object this reader cannot follow proves
+    # nothing, so a repository that only ever writes that shape has no route —
+    # the fail-open both detectors have to refuse together.
+    "python_decorator_on_an_unfollowable_object": {
+        "pyproject.toml": _PY_PROJECT,
+        "pkg/module.py": (
+            "from mcp.server.fastmcp import FastMCP\n"
+            "\n"
+            "\n"
+            "class Module:\n"
+            "    def __init__(self, mcp: FastMCP) -> None:\n"
+            "        self.mcp = mcp\n"
+            "\n"
+            "    def register(self) -> None:\n"
+            "        @self.mcp.tool()\n"
+            "        def injected() -> None:\n"
+            "            pass\n"
+        ),
+    },
 }
 
 
@@ -1763,6 +1891,9 @@ def test_the_constructed_route_workspaces_actually_exercise_the_route(tmp_path):
         "both_languages_register_tools": "internal",
         "a_declared_language_that_registers_nothing": "pkg",
         "an_unresolved_site_outside_the_route": "src/tools",
+        "python_binding_from_another_module": "src",
+        "python_names_are_all_dynamic": "pkg",
+        "python_decorator_on_an_unfollowable_object": None,
     }
     assert excluded == {
         "typescript_source_only": [],
@@ -1778,6 +1909,9 @@ def test_the_constructed_route_workspaces_actually_exercise_the_route(tmp_path):
         "both_languages_register_tools": [],
         "a_declared_language_that_registers_nothing": [],
         "an_unresolved_site_outside_the_route": [],
+        "python_binding_from_another_module": [],
+        "python_names_are_all_dynamic": [],
+        "python_decorator_on_an_unfollowable_object": [],
     }
 
 

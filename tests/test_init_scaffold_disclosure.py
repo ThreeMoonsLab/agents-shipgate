@@ -4,7 +4,10 @@ Three defects, one walk of ``awslabs/mcp#4489`` (a FastMCP Python MCP server):
 
 1. ``detect`` says "not a Shipgate target"; ``init`` — the command the control
    loop routes to from ``verify --preview`` — writes a manifest anyway, and
-   reports it exactly as it reports a manifest it inferred.
+   reports it exactly as it reports a manifest it inferred. (#484 later taught
+   ``detect`` to read the ``@mcp.tool`` decorator, so *this* server is now
+   detected; the scaffold tests below moved to :func:`_undetected_server`, the
+   factory-bound shape that is still unreadable.)
 2. The manifest it writes declares ``type: openapi`` for a Python MCP server.
    ``id`` and ``path`` were flagged as placeholders; ``type`` was not, so the
    one value the tool chose without evidence was the one nothing told the
@@ -62,6 +65,33 @@ def _fastmcp_server(root: Path) -> Path:
     )
     (package / "tools" / "budget_tools.py").write_text(
         "async def budget_server(ctx):\n    return {}\n", encoding="utf-8"
+    )
+    return workspace
+
+
+def _undetected_server(root: Path) -> Path:
+    """The same server, built the one way this reader still declines to read.
+
+    #484 taught ``detect`` to read a ``@mcp.tool`` decorator, which resolves
+    :func:`_fastmcp_server` — defect 1's original reproduction is no longer a
+    workspace ``detect`` declines, and that is the fix rather than a
+    regression. The scaffold path it exercised still has to be tested, so this
+    is a workspace ``detect`` genuinely still declines, and it is a *measured*
+    shape rather than an invented one: ``app = create_server()`` is how
+    ``awslabs/mcp``'s healthimaging, s3-tables and dynamodb servers bind
+    theirs, and resolving what the factory returns would mean running it.
+    """
+
+    workspace = _fastmcp_server(root)
+    package = workspace / "awslabs" / "billing_cost_management_mcp_server"
+    (package / "server.py").write_text(
+        "from mcp.server.fastmcp import FastMCP\n\n\n"
+        "def create_server():\n"
+        "    return FastMCP(name='billing-cost-management-mcp-server')\n\n\n"
+        "app = create_server()\n\n\n"
+        "@app.tool(name='budgets', description='Get budgets')\n"
+        "async def budgets(ctx):\n    return {}\n",
+        encoding="utf-8",
     )
     return workspace
 
@@ -128,7 +158,7 @@ def test_negative_control_names_the_conventional_dir_it_found(tmp_path: Path) ->
     """The flat "no tool artifacts" list stopped being the whole truth once the
     signal read below the root: the same payload reported ``has_tools_dir``."""
 
-    workspace = _fastmcp_server(tmp_path)
+    workspace = _undetected_server(tmp_path)
     runner = CliRunner()
     result = runner.invoke(app, ["detect", "--workspace", str(workspace), "--json"])
     assert result.exit_code == 0
@@ -242,7 +272,7 @@ def test_minimal_template_scaffolds_the_same_way(tmp_path: Path) -> None:
 
 
 def test_init_states_that_the_source_block_is_a_scaffold(tmp_path: Path) -> None:
-    workspace = _fastmcp_server(tmp_path)
+    workspace = _undetected_server(tmp_path)
     runner = CliRunner()
     result = runner.invoke(
         app, ["init", "--workspace", str(workspace), "--write", "--json"]
@@ -261,7 +291,7 @@ def test_init_dry_run_control_reason_states_the_scaffold(tmp_path: Path) -> None
     """A dry run writes nothing, so no manifest placeholder outranks the
     advance and the envelope's reason is init's own."""
 
-    workspace = _fastmcp_server(tmp_path)
+    workspace = _undetected_server(tmp_path)
     runner = CliRunner()
     result = runner.invoke(app, ["init", "--workspace", str(workspace), "--json"])
     payload = json.loads(result.stdout)
@@ -271,7 +301,7 @@ def test_init_dry_run_control_reason_states_the_scaffold(tmp_path: Path) -> None
 
 
 def test_init_human_output_states_the_scaffold(tmp_path: Path) -> None:
-    workspace = _fastmcp_server(tmp_path)
+    workspace = _undetected_server(tmp_path)
     runner = CliRunner()
     result = runner.invoke(app, ["init", "--workspace", str(workspace), "--write"])
     assert DISCOVERY_SCAFFOLD_SUMMARY in result.stdout
@@ -356,7 +386,7 @@ def test_written_scaffold_publishes_the_human_declaration(tmp_path: Path) -> Non
     have to carry the scaffold fact, and why neither may be dropped.
     """
 
-    workspace = _fastmcp_server(tmp_path)
+    workspace = _undetected_server(tmp_path)
     runner = CliRunner()
     result = runner.invoke(
         app, ["init", "--workspace", str(workspace), "--write", "--json"]
@@ -374,7 +404,7 @@ def test_tool_surface_origin_is_null_when_this_run_wrote_nothing(
     """Same authority rule ``placeholders`` follows: on ``skipped_existing``
     the render was discarded, so it describes no file the caller can open."""
 
-    workspace = _fastmcp_server(tmp_path)
+    workspace = _undetected_server(tmp_path)
     runner = CliRunner()
     first = runner.invoke(
         app, ["init", "--workspace", str(workspace), "--write", "--json"]

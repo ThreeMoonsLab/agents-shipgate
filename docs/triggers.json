@@ -97,10 +97,11 @@
     {
       "id": "TRIGGER-MCP-TOOL-REGISTRATION-SOURCE",
       "surface_class": "capability",
-      "agents_md_row": "Adds/changes an MCP tool registration written in TypeScript or Go source (`static toolName`, `.registerTool(`, `MustTool(`, `NewTool(`, `mcp.Tool{`)",
+      "agents_md_row": "Adds/changes an MCP tool registration written in TypeScript, Go or Python source (`static toolName`, `.registerTool(`, `MustTool(`, `NewTool(`, `mcp.Tool{`, `@mcp.tool`)",
       "when": {
         "any_of": [
           {"diff_contains": ".registerTool("},
+          {"diff_contains": "@mcp.tool"},
           {"diff_contains": "MustTool("},
           {"diff_contains": "NewTool("},
           {"diff_contains": "mcp.Tool{"},
@@ -108,7 +109,7 @@
         ]
       },
       "action": "run_shipgate",
-      "rationale": "Most MCP servers never emit their tool list: the official MongoDB and Grafana servers declare every tool as a string literal at a registration site in TypeScript or Go, and no filename or schema-content rule matches such a diff. These five tokens are the high-precision subset of the built-in idiom registry (`agents_shipgate.inputs.mcp_idioms.DIFF_TOKENS`), narrower than what that reader matches because a matched capability rule overrides the workspace stop condition. Routing this diff stops the silent miss; the `mcp_server_source` input reads the whole surface once the repository is adopted.",
+      "rationale": "Most MCP servers never emit their tool list: the official MongoDB and Grafana servers declare every tool as a string literal at a registration site in TypeScript or Go, and the largest measured shape is a Python `@mcp.tool` decorator whose name is usually not written down at all. No filename or schema-content rule matches such a diff. These six tokens are the high-precision subset of the built-in idiom registry (`agents_shipgate.inputs.mcp_idioms.DIFF_TOKENS`), narrower than what that reader matches because a matched capability rule overrides the workspace stop condition. Routing this diff stops the silent miss; the `mcp_server_source` input reads the whole surface once the repository is adopted.",
       "command": "agents-shipgate verify --preview --json"
     },
     {
