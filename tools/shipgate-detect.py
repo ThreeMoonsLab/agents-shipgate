@@ -224,6 +224,7 @@ TEST_MODULE_NAMES = frozenset({"conftest.py", "test.py", "tests.py"})
 # as the running application: a `templates/` directory nested in a
 # `resources/` one holds what a generator copies. The pair is required, not a
 # bare `templates/` — every name added here widens what fails open (#398).
+# Entries must be lowercase: the path is case-folded before the comparison.
 NON_PRODUCT_DIR_SEQUENCES: tuple[tuple[str, ...], ...] = (("resources", "templates"),)
 ROOT_AGENT_BONUS = 3.0
 SUB_AGENT_PENALTY = 1.5
@@ -3320,8 +3321,13 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
     best_project: dict[str, str] = {}
     order = 0
     for path, facts in py_facts:
+        if not facts["names"]:
+            # Most files declare no agent; attributing them to a project is
+            # a stat and a walk for an answer nothing below reads.
+            continue
         rel = _rel(path, workspace)
-        # Invariant across the evidence in one file, so it is asked once.
+        # Invariant across the evidence in one file, so it is asked once
+        # per file rather than once per name.
         project = attribution.of(path)[0]
         for evidence in facts["names"]:
             resolved = _resolve_agent_name(evidence, path, facts, by_path, workspace)

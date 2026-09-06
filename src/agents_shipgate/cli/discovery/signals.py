@@ -228,6 +228,8 @@ TEST_MODULE_NAMES = frozenset({"conftest.py", "test.py", "tests.py"})
 #: repository runs. The pair is required rather than a bare ``templates/``,
 #: which web frameworks use for a directory of real modules — every name
 #: added here widens what fails *open*, so it is kept to the shape observed.
+#: Entries must be lowercase: the path is case-folded before the comparison,
+#: so a capitalised entry here would match nothing at all.
 NON_PRODUCT_DIR_SEQUENCES: tuple[tuple[str, ...], ...] = (("resources", "templates"),)
 ROOT_AGENT_BONUS = 3.0
 SUB_AGENT_PENALTY = 1.5
@@ -2247,8 +2249,14 @@ def _rank_agent_name_candidates(
     best_project: dict[str, Path] = {}
     order = 0
     for fact in facts:
+        if not fact.agent_names:
+            # Most files in a repository declare no agent. Attributing them
+            # to a project is a stat and a walk for an answer nothing below
+            # reads.
+            continue
         # Invariant across the evidence in one file, and `of()` pays a stat
-        # before it reaches its cache, so it is asked once per file.
+        # before it reaches its cache, so it is asked once per file rather
+        # than once per name.
         project = attribution.of(fact.path)[0]
         for evidence in fact.agent_names:
             resolved = _resolve_agent_name_evidence(evidence, fact, by_path, workspace)
