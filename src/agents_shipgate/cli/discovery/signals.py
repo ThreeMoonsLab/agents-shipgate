@@ -211,19 +211,28 @@ ROOT_AGENT_SYMBOL = "root_agent"
 CHILD_AGENT_KEYWORDS = ("sub_agents", "handoffs")
 # Score adjustments. Hierarchy and corroboration move a candidate within
 # its origin; origin itself is meant to dominate, because the documented
-# contract is that product code outranks test code — full stop, not "unless
-# the test one happens to be a root". ORIGIN_TEST_PENALTY is therefore
-# strictly greater than the whole spread of the other signals
+# contract is that product code outranks code that is not the product —
+# full stop, not "unless the fixture happens to be a root".
+# ORIGIN_NON_PRODUCT_PENALTY is therefore strictly greater than the whole
+# spread of the other signals
 # (ROOT_BONUS + CORROBORATION_BONUS − SUB_AGENT_PENALTY = 5.5), which keeps
 # the published rank_score the single ordering key instead of needing a
 # separate tier the score cannot explain.
 # Conventional test module filenames that carry no ``test_`` prefix, so the
 # prefix rule alone reads them as product code.
 TEST_MODULE_NAMES = frozenset({"conftest.py", "test.py", "tests.py"})
+#: Consecutive directory names that mark code shipped as *material* rather
+#: than as the running application. A ``templates/`` directory nested inside
+#: a ``resources/`` one is the scaffolding convention #398 found: the file it
+#: holds is what a generator copies into a new project, not what this
+#: repository runs. The pair is required rather than a bare ``templates/``,
+#: which web frameworks use for a directory of real modules — every name
+#: added here widens what fails *open*, so it is kept to the shape observed.
+NON_PRODUCT_DIR_SEQUENCES: tuple[tuple[str, ...], ...] = (("resources", "templates"),)
 ROOT_AGENT_BONUS = 3.0
 SUB_AGENT_PENALTY = 1.5
 CORROBORATION_BONUS = 1.0
-ORIGIN_TEST_PENALTY = 6.0
+ORIGIN_NON_PRODUCT_PENALTY = 6.0
 QUALITY_FLOOR_PENALTY = 3.0
 
 # Quality floor for a value that may be written as ``agent.name``. A
@@ -377,11 +386,8 @@ def detect_workspace(
     detections.sort(key=lambda d: (-d.score, d.type))
 
     project_name_candidates = _project_name_candidates(workspace)
-    agent_name_candidates = _rank_agent_name_candidates(
-        py_facts, workspace, project_name_candidates
-    )
     codex_plugin_candidates = _codex_plugin_candidates(workspace, inventory)
-    agent_project_candidates = _agent_project_candidates(
+    evidence_paths = _agent_evidence_paths(
         py_facts,
         detections,
         # An artifact-only project — an OpenAPI spec, an MCP export, a Codex
@@ -394,6 +400,16 @@ def detect_workspace(
         + [candidate.path for candidate in codex_plugin_candidates]
         + _nested_manifest_paths(inventory, workspace),
         workspace,
+    )
+    attribution = _ProjectAttribution(workspace, evidence_paths)
+    agent_project_candidates = _agent_project_candidates(
+        py_facts, evidence_paths, attribution
+    )
+    # Ranking runs after the grouping because it reads the same attribution:
+    # an application root it cannot resolve disqualifies the names in *that
+    # project* and no others (#398).
+    agent_name_candidates = _rank_agent_name_candidates(
+        py_facts, workspace, project_name_candidates, attribution
     )
     project_root_count = _project_root_count(inventory, workspace)
     python_file_total = sum(1 for path in inventory if path.suffix == ".py")
@@ -1934,6 +1950,78 @@ def _safe_resolve(path: Path) -> Path:
         return path
 
 
+def _non_product_origin(rel_path: str) -> str | None:
+    """Why ``rel_path`` is not the product's own code, or ``None``.
+
+    One predicate, two uses, because #398 is what an asymmetry between them
+    costs: the ranker discounted a fixture for *selection* while still
+    letting the same file disable selection for every other name in the
+    repository. Both readings go through this function —
+    :func:`_score_agent_name` for the penalty and
+    :func:`_can_declare_application_root` for the block — so a file cannot
+    be product code for one and material for the other.
+
+    Two kinds of file declare agents that are not the product's:
+
+    * **Test code.** A fixture that builds an ``App`` is a fixture. #398
+      found one ``eval/test_*.py`` rejecting every real product agent in the
+      repository.
+    * **Scaffolding templates.** :data:`NON_PRODUCT_DIR_SEQUENCES` names the
+      directory shape that holds what a generator copies. Only the
+      *directory* part is examined, because the sequence is about where a
+      file sits rather than what it is called.
+
+    The return value is the rationale line the penalty publishes, so the
+    reason a name was demoted and the reason its file cannot speak for the
+    project are the same sentence.
+    """
+
+    if _is_test_path(rel_path):
+        return "declared in test code, which names fixtures rather than the product"
+    parts = Path(rel_path).parts[:-1]
+    if any(
+        parts[index : index + len(sequence)] == sequence
+        for sequence in NON_PRODUCT_DIR_SEQUENCES
+        for index in range(len(parts))
+    ):
+        return (
+            "declared under a scaffolding template directory, which names an "
+            "example rather than the product"
+        )
+    return None
+
+
+def _can_declare_application_root(rel_path: str) -> bool:
+    """Whether a root declared in ``rel_path`` speaks for the product.
+
+    The unresolvable-root rule is a statement about the application a
+    project ships: if that root cannot be identified, no other name in the
+    project may stand in for it (#324). A root declared by code that is not
+    the product (:func:`_non_product_origin`) is not that root, and reading
+    it as one disables name selection over files neither ``init`` nor the
+    runtime would ever reach.
+    """
+
+    return _non_product_origin(rel_path) is None
+
+
+def _unresolvable_root_rejection(scope: str, detail: str) -> str:
+    """Why no name a project declares may be written as its identity.
+
+    ``scope`` is the project's workspace-relative path, so the sentence
+    names the project the unreadable root belongs to. #398's report was that
+    it named only a file — one in a project the reader was not adopting.
+    """
+
+    where = "this workspace" if scope == "." else f"project `{scope}`"
+    return (
+        f"{where} declares an application root whose name is not statically "
+        f"resolvable ({detail}); every other name it declares is by "
+        "construction not that root, so none of them can be the reviewed "
+        "identity"
+    )
+
+
 def _is_test_path(rel_path: str) -> bool:
     """Whether ``rel_path`` is test code rather than product code.
 
@@ -2059,7 +2147,10 @@ class _RankedName:
 
 
 def _rank_agent_name_candidates(
-    facts: list[_PyFacts], workspace: Path, project_names: Sequence[NameCandidate]
+    facts: list[_PyFacts],
+    workspace: Path,
+    project_names: Sequence[NameCandidate],
+    attribution: _ProjectAttribution,
 ) -> list[AgentNameCandidate]:
     """Rank ``Agent(name=…)`` evidence best-first.
 
@@ -2078,17 +2169,40 @@ def _rank_agent_name_candidates(
       is ranked last and made unselectable, so ``init`` writes CHANGE_ME and
       asks for review rather than asserting something unreliable.
 
-    One rule overrides all four: if a workspace declares an application root
-    whose identity cannot be established statically, *nothing* is
-    selectable. Any name still standing is by construction not the root, so
-    writing it would declare a worker as the reviewed identity — the exact
-    failure #324 asks to fail closed on.
+    One rule overrides all four: a *project* that declares an application
+    root whose identity cannot be established statically has nothing
+    selectable. Any name still standing in it is by construction not the
+    root, so writing one would declare a worker as the reviewed identity —
+    the exact failure #324 asks to fail closed on.
+
+    That rule is scoped to the project, not to the repository. Applied with
+    repository scope it read one unresolvable root in a scaffolding template
+    as grounds for rejecting all 55 real product agents in a monorepo, and
+    told the reader so by naming a file with no relationship to the project
+    they were adopting (#398). ``attribution`` supplies the same grouping
+    :func:`_agent_project_candidates` publishes, so "which project" has one
+    answer here and there. A name several projects declare is rejected when
+    *any* of them is blocked: it is a worker in that project whatever it is
+    elsewhere, so this direction is the fail-closed one.
+
+    Only a root the product itself declares blocks a project — see
+    :func:`_can_declare_application_root`.
 
     Scores are published so a reordering regression is visible in
     ``detect --json`` instead of silently changing what the manifest claims.
     """
     by_path = {_safe_resolve(fact.path): fact for fact in facts}
-    unresolved_roots = [fact.unresolved_root for fact in facts if fact.unresolved_root]
+    # Project directory → the first unreadable application root found in it.
+    blocked_projects: dict[Path, str] = {}
+
+    def _block(fact: _PyFacts, detail: str) -> None:
+        if not _can_declare_application_root(fact.rel_path):
+            return
+        blocked_projects.setdefault(attribution.of(fact.path)[0], detail)
+
+    for fact in facts:
+        if fact.unresolved_root:
+            _block(fact, fact.unresolved_root)
     # A root whose *name* is a symbol that fails the cross-module resolution
     # below is just as unresolved as one whose name is an f-string. The
     # failure surfaces here rather than at parse time because resolution
@@ -2098,9 +2212,10 @@ def _rank_agent_name_candidates(
             if evidence.role != "root_agent" or evidence.literal is not None:
                 continue
             if _resolve_agent_name_evidence(evidence, fact, by_path, workspace) is None:
-                unresolved_roots.append(
+                _block(
+                    fact,
                     f"{evidence.rel_path}: the application root's name comes from "
-                    f"`{evidence.symbol}`, which does not resolve to a static value"
+                    f"`{evidence.symbol}`, which does not resolve to a static value",
                 )
     project_forms = {
         _normalise_name(candidate.value) for candidate in project_names if candidate.value
@@ -2109,6 +2224,10 @@ def _rank_agent_name_candidates(
     project_forms.discard("")
 
     best: dict[str, _RankedName] = {}
+    # Every project a value is declared in, not only the site that scored
+    # best: the rejection below asks whether *any* of them is blocked, and
+    # `best` keeps one entry per value.
+    declared_in: dict[str, list[Path]] = {}
     order = 0
     for fact in facts:
         for evidence in fact.agent_names:
@@ -2127,19 +2246,27 @@ def _rank_agent_name_candidates(
                 order=order,
             )
             order += 1
+            project = attribution.of(fact.path)[0]
+            projects = declared_in.setdefault(value, [])
+            if project not in projects:
+                projects.append(project)
             previous = best.get(value)
             if previous is None or ranked.score > previous.score:
                 best[value] = ranked
 
-    if unresolved_roots:
-        blocked = (
-            "an application root is declared here but its name is not statically "
-            f"resolvable ({unresolved_roots[0]}); any other name would declare a "
-            "worker as the reviewed identity"
+    for value, ranked in best.items():
+        blocking = [
+            project for project in declared_in[value] if project in blocked_projects
+        ]
+        if not blocking:
+            continue
+        ranked.selectable = False
+        ranked.rationale.append(
+            "rejected: "
+            + _unresolvable_root_rejection(
+                attribution.relative(blocking[0]), blocked_projects[blocking[0]]
+            )
         )
-        for ranked in best.values():
-            ranked.selectable = False
-            ranked.rationale.append(f"rejected: {blocked}")
 
     ordered = sorted(best.values(), key=lambda r: (not r.selectable, -r.score, r.order))
     candidates = [
@@ -2205,12 +2332,14 @@ def _score_agent_name(
             root_evidence or "declared as a child of another agent, not the root"
         )
 
-    if _is_test_path(rel_path):
-        # Deliberately larger than every other signal combined: a fixture
-        # that happens to build an App root is still a fixture, and must not
-        # outrank a plain agent the shipped code declares.
-        score -= ORIGIN_TEST_PENALTY
-        rationale.append("declared in test code, which names fixtures rather than the product")
+    origin = _non_product_origin(rel_path)
+    if origin is not None:
+        # Deliberately larger than every other signal combined: a fixture or
+        # a scaffolding template that happens to build an App root is still
+        # not the product, and must not outrank a plain agent the shipped
+        # code declares.
+        score -= ORIGIN_NON_PRODUCT_PENALTY
+        rationale.append(origin)
 
     normalised = _normalise_name(value)
     if normalised and normalised in project_forms:
@@ -2325,44 +2454,89 @@ def _project_root_count(inventory: list[Path], workspace: Path) -> int:
     return len(roots)
 
 
-def _agent_project_candidates(
+class _ProjectAttribution:
+    """Which project each path in the workspace belongs to.
+
+    A file's project is the nearest directory at or above it that carries a
+    project marker, bounded by the workspace; a file with no marker above it
+    belongs to the workspace itself.
+
+    One rule, two readers, one object — because the two readers must not
+    drift apart about where a project ends.
+    :func:`_agent_project_candidates` groups agent evidence by project to
+    decide whether one manifest can describe the workspace (#363).
+    :func:`_rank_agent_name_candidates` asks the same question for a
+    different reason: an application root whose identity cannot be
+    established disqualifies the names declared *in that project*, and one
+    unresolvable root in an unrelated corner of a monorepo must not disable
+    name selection everywhere (#398).
+
+    ``evidence_dirs`` is derived here from the same evidence paths the
+    grouping reads, so a weak marker (a bare ``requirements.txt``) draws a
+    boundary in exactly the directories agent evidence was found in — see
+    :func:`find_project_root`.
+    """
+
+    def __init__(self, workspace: Path, evidence_paths: Sequence[Path]) -> None:
+        self._workspace = workspace
+        self._evidence_dirs = frozenset(
+            path if path.is_dir() else path.parent for path in evidence_paths
+        )
+        self._by_directory: dict[Path, tuple[Path, str | None]] = {}
+
+    def of(self, path: Path) -> tuple[Path, str | None]:
+        """``(project directory, marker)`` for the file or directory ``path``.
+
+        A Codex plugin package is named by its directory, not by a file
+        inside it; everything else is a file whose directory we want. A
+        source reached through a symlink out of the workspace cannot name a
+        project inside it, so it is attributed to the workspace rather than
+        to a directory nobody asked about.
+        """
+
+        directory = path if path.is_dir() else path.parent
+        cached = self._by_directory.get(directory)
+        if cached is not None:
+            return cached
+        try:
+            directory.relative_to(self._workspace)
+        except ValueError:
+            found = None
+        else:
+            found = find_project_root(
+                directory, root=self._workspace, evidence_dirs=self._evidence_dirs
+            )
+        resolved = (
+            (found.directory, found.marker)
+            if found is not None
+            else (self._workspace, project_marker(self._workspace))
+        )
+        self._by_directory[directory] = resolved
+        return resolved
+
+    def relative(self, project: Path) -> str:
+        """``project`` as a workspace-relative POSIX path; ``"."`` for the root."""
+
+        if project == self._workspace:
+            return "."
+        return project.relative_to(self._workspace).as_posix()
+
+
+def _agent_evidence_paths(
     facts: list[_PyFacts],
     detections: list[FrameworkDetection],
     artifact_paths: list[str],
     workspace: Path,
-) -> list[AgentProjectCandidate]:
-    """Group the agent evidence in this workspace by the project it sits in.
+) -> list[Path]:
+    """Everything ``init`` would turn into a manifest, as absolute paths.
 
-    A file's project is the nearest directory at or above it that carries a
-    project marker, bounded by the workspace; a file with no marker above it
-    belongs to the workspace itself. Several agents inside *one* project are
-    one manifest's business — a crew, a router and its sub-agents. Agents in
-    *separate* projects are not: one ``agent.name``, one ``declared_purpose``,
-    and one ``tool_sources`` list cannot describe both, which is what makes
-    the scope ambiguous (#363).
-
-    Evidence is everything ``init`` would turn into a manifest: the file set
-    the frameworks fired on, every framework-attributed ``Agent(name=…)``
-    literal, and the artifact paths (``suggested_sources``, Codex plugin
-    packages and marketplaces) that become ``tool_sources`` on their own. No
-    single one of those is enough. The literal is the value ``init`` adopts
-    for ``agent.name`` without asking — but the #363 agent is constructed as
-    ``LlmAgent(name=CONFIG.agent_name)`` and has none. The framework file
-    set covers that — but an OpenAPI- or MCP-only project fires no framework
-    detection at all, and two of those under one root is the same
-    one-manifest-for-two-agents outcome with none of the Python evidence.
-
-    *Framework-attributed* is the operative word for the literals. A file
-    with no supported framework import that happens to construct its own
-    ``Agent(name="crm")`` is not an agent project, and reading it as one
-    would refuse ``init`` on a repository that has exactly one (#363
-    review). Those literals stay in ``agent_name_candidates`` as name
-    suggestions; they just do not draw a boundary.
+    The file set the frameworks fired on, the artifact paths
+    (``suggested_sources``, Codex plugin packages and marketplaces, nested
+    manifests) that become ``tool_sources`` on their own, and every file
+    carrying a framework-attributed ``Agent(name=…)`` literal. No single one
+    of those is enough — see :func:`_agent_project_candidates`.
     """
 
-    # Directories holding agent evidence, which is what lets a weak marker
-    # (a bare ``requirements.txt``) count as a project root there and only
-    # there. Collected before attribution because the walk up needs it.
     evidence_paths: list[Path] = [
         workspace / relative
         for detection in detections
@@ -2372,50 +2546,59 @@ def _agent_project_candidates(
     evidence_paths.extend(
         fact.path for fact in facts if fact.name_literals() and fact.framework
     )
-    evidence_dirs = frozenset(
-        path if path.is_dir() else path.parent for path in evidence_paths
-    )
+    return evidence_paths
+
+
+def _agent_project_candidates(
+    facts: list[_PyFacts],
+    evidence_paths: Sequence[Path],
+    attribution: _ProjectAttribution,
+) -> list[AgentProjectCandidate]:
+    """Group the agent evidence in this workspace by the project it sits in.
+
+    Several agents inside *one* project are one manifest's business — a
+    crew, a router and its sub-agents. Agents in *separate* projects are
+    not: one ``agent.name``, one ``declared_purpose``, and one
+    ``tool_sources`` list cannot describe both, which is what makes the
+    scope ambiguous (#363).
+
+    Evidence is everything ``init`` would turn into a manifest
+    (:func:`_agent_evidence_paths`), and no single kind of it is enough. The
+    literal is the value ``init`` adopts for ``agent.name`` without asking —
+    but the #363 agent is constructed as ``LlmAgent(name=CONFIG.agent_name)``
+    and has none. The framework file set covers that — but an OpenAPI- or
+    MCP-only project fires no framework detection at all, and two of those
+    under one root is the same one-manifest-for-two-agents outcome with none
+    of the Python evidence.
+
+    *Framework-attributed* is the operative word for the literals. A file
+    with no supported framework import that happens to construct its own
+    ``Agent(name="crm")`` is not an agent project, and reading it as one
+    would refuse ``init`` on a repository that has exactly one (#363
+    review). Those literals stay in ``agent_name_candidates`` as name
+    suggestions; they just do not draw a boundary.
+    """
 
     names: dict[Path, set[str]] = {}
     markers: dict[Path, str | None] = {}
 
-    def _project_of(path: Path) -> Path:
-        # A Codex plugin package is named by its directory, not by a file
-        # inside it; everything else is a file whose directory we want.
-        directory = path if path.is_dir() else path.parent
-        try:
-            directory.relative_to(workspace)
-        except ValueError:
-            # A source reached through a symlink out of the workspace cannot
-            # name a project inside it, so attribute it to the workspace
-            # rather than to a directory nobody asked about.
-            found = None
-        else:
-            found = find_project_root(
-                directory, root=workspace, evidence_dirs=evidence_dirs
-            )
-        project = found.directory if found is not None else workspace
+    def _claim(path: Path) -> Path:
+        project, marker = attribution.of(path)
         if project not in markers:
-            markers[project] = (
-                found.marker if found is not None else project_marker(workspace)
-            )
+            markers[project] = marker
             names.setdefault(project, set())
         return project
 
     for path in evidence_paths:
-        _project_of(path)
+        _claim(path)
     for fact in facts:
         literals = fact.name_literals()
         if literals and fact.framework:
-            names[_project_of(fact.path)].update(literals)
+            names[_claim(fact.path)].update(literals)
 
     candidates = [
         AgentProjectCandidate(
-            path=(
-                project.relative_to(workspace).as_posix()
-                if project != workspace
-                else "."
-            ),
+            path=attribution.relative(project),
             marker=markers[project],
             agent_names=sorted(found_names),
         )

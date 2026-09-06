@@ -42,6 +42,43 @@
   exists to catch, and that the legitimate edits — a correctly added adopter, a
   GitLab-hosted one, a second maintainer row, a grammatically singular count —
   still pass.
+- **One unreadable application root no longer rejects every agent name in the
+  repository.** (#398) A declared root whose identity cannot be established
+  statically makes nothing selectable — the #324 rule, and a sound one, because
+  every name still standing is by construction *not* that root. It was being
+  applied with repository scope. On adk-samples that meant one file rejected
+  roughly 55 candidates across 25 projects, `financial_coordinator` and
+  `cyber_guardian_orchestrator` among them, and told the reader so by naming a
+  file in a project they were not adopting. The rejection is now scoped to the
+  project the root sits in — the same grouping `agent_project_candidates`
+  publishes, now computed once and read by both — and the sentence names that
+  project. A name several projects declare is still rejected when any of them
+  is blocked; that direction is the fail-closed one.
+
+  Scoping alone would not have unblocked the reproduction, because one of the
+  two observed culprits was `eval/test_eval_arize.py` *inside* the project
+  being adopted and the other was
+  `.agents/skills/**/resources/templates/app/agent.py`. Neither is the
+  application a project ships: a fixture that builds an `App` is a fixture, and
+  a scaffolding template is what a generator copies. The ranker already said so
+  for *selection* and said the opposite for *rejection* — one predicate now
+  answers both, so a scaffolding template is demoted exactly as a test fixture
+  is instead of standing in for the product. The template rule is the directory
+  pair `resources/templates/`, not a bare `templates/`, which real packages
+  use; an unreadable root anywhere else still stops selection, and a project
+  whose own product root is unreadable still refuses with `CHANGE_ME`.
+
+  `tools/shipgate-detect.py` carries the same change (`script_version`
+  `0.6.0`): `agent_name_candidates` is the field the zero-install path pins
+  byte for byte, so a script that scoped the rejection differently would name a
+  different agent than `init` does. Putting the grouping behind one object on
+  each side surfaced a parity break that predates this issue — where no marker
+  was found above the evidence at all, the script named the workspace's
+  `requirements.txt` as the project marker while the CLI reported `null`. A
+  weak marker only draws a boundary in a directory that already holds agent
+  evidence, so one that unlocked nothing is not the boundary the project rests
+  on. Every sample carries a `pyproject.toml`, which is why the per-sample
+  parity check never reached the fallback; a test does now.
 
 - **The zero-install detector refuses an oversized candidate instead of
   reading it.** `tools/shipgate-detect.py` is fetched over `curl | python3`

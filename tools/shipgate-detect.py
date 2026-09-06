@@ -104,7 +104,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-SCRIPT_VERSION = "0.5.0"
+SCRIPT_VERSION = "0.6.0"
 MAX_STRUCTURED_FILE_BYTES = 10 * 1024 * 1024
 # Matches ``detect_workspace``'s ``max_python_files``. The bound is on
 # parses, not on the inventory: capping the inventory lets an asset-heavy
@@ -215,14 +215,20 @@ AGENT_FRAMEWORK_MODULE_PREFIXES = (
 )
 ROOT_AGENT_SYMBOL = "root_agent"
 CHILD_AGENT_KEYWORDS = ("sub_agents", "handoffs")
-# Origin is meant to dominate hierarchy and corroboration, so the test
-# penalty is strictly greater than their whole spread (3.0 + 1.0 + 1.5).
+# Origin is meant to dominate hierarchy and corroboration, so the
+# non-product penalty is strictly greater than their whole spread
+# (3.0 + 1.0 + 1.5).
 # Conventional test module filenames that carry no `test_` prefix.
 TEST_MODULE_NAMES = frozenset({"conftest.py", "test.py", "tests.py"})
+# Consecutive directory names that hold code shipped as material rather than
+# as the running application: a `templates/` directory nested in a
+# `resources/` one holds what a generator copies. The pair is required, not a
+# bare `templates/` — every name added here widens what fails open (#398).
+NON_PRODUCT_DIR_SEQUENCES: tuple[tuple[str, ...], ...] = (("resources", "templates"),)
 ROOT_AGENT_BONUS = 3.0
 SUB_AGENT_PENALTY = 1.5
 CORROBORATION_BONUS = 1.0
-ORIGIN_TEST_PENALTY = 6.0
+ORIGIN_NON_PRODUCT_PENALTY = 6.0
 QUALITY_FLOOR_PENALTY = 3.0
 AGENT_NAME_MIN_LENGTH = 3
 GENERIC_AGENT_NAME_VALUES = frozenset({
@@ -516,10 +522,53 @@ def _project_of(
         directory = parent
 
 
+class _ProjectAttribution:
+    """Which project each path in the workspace belongs to — mirror of
+    ``cli/discovery/signals.py:_ProjectAttribution``.
+
+    One rule, two readers. ``_agent_project_candidates`` groups agent
+    evidence by project to decide whether one manifest can describe the
+    workspace; ``_rank_agent_names`` asks the same question because an
+    application root whose identity cannot be established disqualifies the
+    names declared *in that project* and no others (#398).
+    """
+
+    def __init__(self, workspace: Path, evidence_paths: list[str]) -> None:
+        self._workspace = workspace
+        self._evidence_dirs = frozenset(
+            (workspace / rel) if (workspace / rel).is_dir() else (workspace / rel).parent
+            for rel in evidence_paths
+        )
+        self._by_directory: dict[Path, tuple[str, str | None]] = {}
+
+    def of(self, path: Path) -> tuple[str, str | None]:
+        """``(project relative path, marker)``; ``"."`` for the workspace."""
+        directory = path if path.is_dir() else path.parent
+        cached = self._by_directory.get(directory)
+        if cached is not None:
+            return cached
+        found = _project_of(path, self._workspace, self._evidence_dirs)
+        # No marker anywhere above: the workspace is the project by default,
+        # not because a marker said so. The fallback marker is therefore the
+        # workspace's *strong* marker only, matching
+        # `signals.py:_ProjectAttribution.of`. Passing WEAK_PROJECT_MARKERS
+        # here reported `marker: "requirements.txt"` where the CLI reported
+        # `marker: null` — a weak marker that unlocks nowhere it was found
+        # is not the boundary this project rests on.
+        resolved = (
+            found
+            if found is not None
+            else (".", _project_marker(self._workspace))
+        )
+        self._by_directory[directory] = resolved
+        return resolved
+
+
 def _agent_project_candidates(
     workspace: Path,
     evidence_paths: list[str],
     literals_by_path: dict[str, list[str]],
+    attribution: _ProjectAttribution,
 ) -> list[dict[str, Any]]:
     """Group agent evidence by the project each piece of it sits in.
 
@@ -528,17 +577,8 @@ def _agent_project_candidates(
     """
     names: dict[str, set[str]] = {}
     markers: dict[str, str | None] = {}
-    evidence_dirs = frozenset(
-        (workspace / rel) if (workspace / rel).is_dir() else (workspace / rel).parent
-        for rel in evidence_paths
-    )
     for rel in evidence_paths:
-        found = _project_of(workspace / rel, workspace, evidence_dirs)
-        project, marker = (
-            found
-            if found is not None
-            else (".", _project_marker(workspace, WEAK_PROJECT_MARKERS))
-        )
+        project, marker = attribution.of(workspace / rel)
         names.setdefault(project, set()).update(literals_by_path.get(rel, []))
         markers.setdefault(project, marker)
     return [
@@ -3101,6 +3141,50 @@ def _is_test_path(rel: str) -> bool:
             or stem.endswith("_test.py"))
 
 
+def _non_product_origin(rel: str) -> str | None:
+    """Why ``rel`` is not the product's own code, or ``None`` — mirror of
+    ``cli/discovery/signals.py:_non_product_origin``.
+
+    One predicate, two uses: the score penalty below and the
+    application-root block. A test fixture that builds an ``App`` is a
+    fixture, and a file under a scaffolding ``resources/templates/``
+    directory is what a generator copies. The returned string is the
+    rationale line the penalty publishes.
+    """
+    if _is_test_path(rel):
+        return "declared in test code, which names fixtures rather than the product"
+    parts = Path(rel).parts[:-1]
+    if any(
+        parts[index:index + len(sequence)] == sequence
+        for sequence in NON_PRODUCT_DIR_SEQUENCES
+        for index in range(len(parts))
+    ):
+        return ("declared under a scaffolding template directory, which names "
+                "an example rather than the product")
+    return None
+
+
+def _can_declare_application_root(rel: str) -> bool:
+    """Whether a root declared in ``rel`` speaks for the product.
+
+    Neither a fixture nor a template is the application whose identity the
+    project ships, and reading either as one rejected every real agent in
+    the repository (#398).
+    """
+    return _non_product_origin(rel) is None
+
+
+def _unresolvable_root_rejection(scope: str, detail: str) -> str:
+    """Why no name a project declares may be written as its identity."""
+    where = "this workspace" if scope == "." else f"project `{scope}`"
+    return (
+        f"{where} declares an application root whose name is not statically "
+        f"resolvable ({detail}); every other name it declares is by "
+        "construction not that root, so none of them can be the reviewed "
+        "identity"
+    )
+
+
 def _constant_module_paths(importer: Path, module: str, level: int,
                            workspace: Path) -> list[Path]:
     """Every in-workspace file the import could refer to. All of them, not
@@ -3175,7 +3259,8 @@ def _resolve_agent_name(evidence: dict[str, Any], path: Path, facts: dict[str, A
 
 
 def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Path,
-                      project_names: list[dict[str, str]]) -> list[dict[str, Any]]:
+                      project_names: list[dict[str, str]],
+                      attribution: _ProjectAttribution) -> list[dict[str, Any]]:
     """Rank ``Agent(name=…)`` evidence best-first — mirror of
     ``cli/discovery/signals.py:_rank_agent_name_candidates``.
 
@@ -3184,6 +3269,12 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
     corroboration by the project name decide the order; a value too short or
     too generic to be an identity is ranked last and made unselectable so
     ``init`` writes CHANGE_ME rather than asserting something unreliable.
+
+    A project whose application root cannot be resolved has nothing
+    selectable, and that rule is scoped to the project: with repository
+    scope one unresolvable root in a scaffolding template rejected every
+    real agent in a monorepo (#398). A name several projects declare is
+    rejected when any of them is blocked — the fail-closed direction.
     """
     by_path: dict[Path, dict[str, Any]] = {}
     for path, facts in py_facts:
@@ -3195,7 +3286,23 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
     project_forms.add(_normalise_name(workspace.name))
     project_forms.discard("")
 
+    # Project → the first unreadable application root found in it. Only a
+    # root the product itself declares blocks a project.
+    blocked_projects: dict[str, str] = {}
+
+    def _block(path: Path, rel: str, detail: str) -> None:
+        if not _can_declare_application_root(rel):
+            return
+        blocked_projects.setdefault(attribution.of(path)[0], detail)
+
+    for path, facts in py_facts:
+        if facts["unresolved_root"]:
+            rel = _rel(path, workspace)
+            _block(path, rel, f"{rel}: {facts['unresolved_root']}")
+
     best: dict[str, dict[str, Any]] = {}
+    # Every project a value is declared in, not only its best-scoring site.
+    declared_in: dict[str, list[str]] = {}
     order = 0
     for path, facts in py_facts:
         rel = _rel(path, workspace)
@@ -3222,13 +3329,13 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
                 rationale.append(
                     evidence["why"] or "declared as a child of another agent, not the root"
                 )
-            if _is_test_path(rel):
-                # Larger than every other signal combined: a fixture that
-                # happens to build an App root is still a fixture.
-                score -= ORIGIN_TEST_PENALTY
-                rationale.append(
-                    "declared in test code, which names fixtures rather than the product"
-                )
+            origin = _non_product_origin(rel)
+            if origin is not None:
+                # Larger than every other signal combined: a fixture or a
+                # scaffolding template that happens to build an App root is
+                # still not the product.
+                score -= ORIGIN_NON_PRODUCT_PENALTY
+                rationale.append(origin)
             normalised = _normalise_name(value)
             if normalised and normalised in project_forms:
                 score += CORROBORATION_BONUS
@@ -3256,15 +3363,14 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
                 "_order": order,
             }
             order += 1
+            project = attribution.of(path)[0]
+            projects = declared_in.setdefault(value, [])
+            if project not in projects:
+                projects.append(project)
             previous = best.get(value)
             if previous is None or ranked["rank_score"] > previous["rank_score"]:
                 best[value] = ranked
 
-    unresolved = [
-        f"{_rel(p, workspace)}: {f['unresolved_root']}"
-        for p, f in py_facts
-        if f["unresolved_root"]
-    ]
     # A root whose *name* is a symbol that fails cross-module resolution is
     # just as unresolved as one whose name is an f-string; it surfaces here
     # because resolution needs every file's constants.
@@ -3273,23 +3379,25 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
             if evidence["role"] != "root_agent" or evidence["literal"] is not None:
                 continue
             if _resolve_agent_name(evidence, path, facts, by_path, workspace) is None:
-                unresolved.append(
-                    f"{_rel(path, workspace)}: the application root's name comes "
-                    f"from `{evidence['symbol']}`, which does not resolve to a "
-                    "static value"
+                rel = _rel(path, workspace)
+                _block(
+                    path,
+                    rel,
+                    f"{rel}: the application root's name comes from "
+                    f"`{evidence['symbol']}`, which does not resolve to a "
+                    "static value",
                 )
-    if unresolved:
-        # A declared application root whose identity is not statically
-        # resolvable. Anything still standing is by construction not the
-        # root, so nothing may be selected.
-        blocked = (
-            "an application root is declared here but its name is not statically "
-            f"resolvable ({unresolved[0]}); any other name would declare a worker "
-            "as the reviewed identity"
+    for value, ranked in best.items():
+        blocking = [
+            project for project in declared_in[value] if project in blocked_projects
+        ]
+        if not blocking:
+            continue
+        ranked["selectable"] = False
+        ranked["rationale"].append(
+            "rejected: "
+            + _unresolvable_root_rejection(blocking[0], blocked_projects[blocking[0]])
         )
-        for ranked in best.values():
-            ranked["selectable"] = False
-            ranked["rationale"].append(f"rejected: {blocked}")
 
     ordered = sorted(
         best.values(),
@@ -3601,8 +3709,6 @@ def detect(workspace: Path) -> dict[str, Any]:
             project_names.append({"value": m.group(1).strip(), "source": "pyproject"})
     project_names.append({"value": workspace.name, "source": "workspace_dir"})
 
-    name_candidates = _rank_agent_names(py_facts, workspace, project_names)
-
     marketplace_paths = [
         path
         for path in files
@@ -3691,8 +3797,15 @@ def detect(workspace: Path) -> dict[str, Any]:
             + list(literals_by_path)
         )
     )
+    attribution = _ProjectAttribution(workspace, evidence_paths)
     agent_project_candidates = _agent_project_candidates(
-        workspace, evidence_paths, literals_by_path
+        workspace, evidence_paths, literals_by_path, attribution
+    )
+    # Ranking runs after the grouping because it reads the same attribution:
+    # an application root it cannot resolve disqualifies the names in *that
+    # project* and no others (#398).
+    name_candidates = _rank_agent_names(
+        py_facts, workspace, project_names, attribution
     )
     # The workspace is always a candidate scope, marker or not: agent evidence
     # under no marker is attributed to it as ".", so an unmarked root agent in

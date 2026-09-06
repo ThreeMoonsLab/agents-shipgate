@@ -1059,21 +1059,31 @@ Consume the response to decide whether to proceed. Key fields:
     `sub_agent` (named inside another agent's `sub_agents=[…]` /
     `handoffs=[…]`). `workspace_dir` is the directory-name fallback and is
     never selectable.
-  - `path` — a name declared in product code outranks one declared in test
-    code, which names fixtures. This dominates: a test fixture that builds
-    an `App(root_agent=…)` still ranks below a plain agent the shipped code
-    declares.
+  - `path` — a name declared in product code outranks one that is not the
+    product's: test code, which names fixtures, and a scaffolding template
+    under a `resources/templates/` directory, which names an example. This
+    dominates: either one building an `App(root_agent=…)` still ranks below
+    a plain agent the shipped code declares.
   - corroboration — a value the project name independently agrees with
     ranks above one only a single site declares.
   - a quality floor — values under three significant characters, and
     generic scaffolding names (`agent`, `foo`, `test`, …), are ranked last
     and marked `selectable: false`.
 
-  One rule overrides all four: if the workspace declares an application root
+  One rule overrides all four: if a **project** declares an application root
   whose name cannot be resolved statically — a dynamic expression, a factory
-  call, a symbol bound more than once — then **nothing** is selectable, and
-  the `rationale[]` says why. Anything still ranked is by construction not
-  the root, so writing it would declare a worker as the reviewed identity.
+  call, a symbol bound more than once — then nothing that project declares
+  is selectable, and the `rationale[]` names the project and says why.
+  Anything still ranked there is by construction not the root, so writing it
+  would declare a worker as the reviewed identity. The scope is the project,
+  not the repository: on a monorepo, agents in the other entries of
+  `agent_project_candidates[]` stay selectable. A name two projects declare
+  is rejected when either one is blocked.
+
+  The same product/not-product split above decides *which* roots block: a
+  root declared only by test code or by a scaffolding template is not the
+  application a project ships, so it does not disable selection for the
+  rest of the project (#398).
 
   `rationale[]` states which of those applied, so a ranking change is
   visible in the output rather than silently changing what the manifest

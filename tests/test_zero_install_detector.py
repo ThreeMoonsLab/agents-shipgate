@@ -1009,6 +1009,148 @@ def test_script_agent_name_ranking_matches_cli(script_module, tmp_path):
     ] == ["t", "smart_closer"]
 
 
+_ADK_HEADER = "from google.adk.agents import LlmAgent\nfrom google.adk.apps import App\n\n"
+_UNREADABLE_ROOT = "def build():\n    return LlmAgent(name='inner')\n\nroot_agent = build()\n"
+
+#: Workspaces where a declared application root cannot be read statically.
+#: Which names that rejects is scoped to the project the root sits in, and
+#: skipped entirely for code that is not the product (#398) — a rule the two
+#: implementations have to apply identically, because
+#: ``agent_name_candidates`` is the field pinned byte for byte.
+_UNREADABLE_ROOT_SCOPES: dict[str, dict[str, str]] = {
+    # Two projects, one blocked. The other keeps every name selectable.
+    "monorepo": {
+        "clean/pyproject.toml": '[project]\nname = "clean"\n',
+        "clean/agent.py": _ADK_HEADER + 'root_agent = LlmAgent(name="CleanRoot")\n',
+        "blocked/pyproject.toml": '[project]\nname = "blocked"\n',
+        "blocked/agent.py": _ADK_HEADER + _UNREADABLE_ROOT,
+    },
+    # Sibling projects whose only boundary is a weak marker beside an agent.
+    "weak_markers": {
+        "one/requirements.txt": "google-adk\n",
+        "one/agent.py": _ADK_HEADER + 'root_agent = LlmAgent(name="OneRoot")\n',
+        "two/requirements.txt": "google-adk\n",
+        "two/agent.py": _ADK_HEADER + _UNREADABLE_ROOT,
+    },
+    # One name declared in both a clean and a blocked project: rejected.
+    "shared_name": {
+        "clean/pyproject.toml": '[project]\nname = "clean"\n',
+        "clean/agent.py": _ADK_HEADER + 'root_agent = LlmAgent(name="SharedName")\n',
+        "blocked/pyproject.toml": '[project]\nname = "blocked"\n',
+        "blocked/agent.py": (
+            _ADK_HEADER + 'helper = LlmAgent(name="SharedName")\n' + _UNREADABLE_ROOT
+        ),
+    },
+    # A fixture that builds a root is a fixture, at the correct scope.
+    "eval_test_file": {
+        "pyproject.toml": '[project]\nname = "rag"\n',
+        "rag/agent.py": _ADK_HEADER + 'root_agent = LlmAgent(name="RagRoot")\n',
+        "eval/test_eval_arize.py": _ADK_HEADER + _UNREADABLE_ROOT,
+    },
+    # Scaffolding material: what a generator copies, not what this repo runs.
+    "scaffolding_template": {
+        "agent.py": _ADK_HEADER + 'root_agent = LlmAgent(name="RealRoot")\n',
+        ".agents/skills/recipe/resources/templates/app/agent.py": (
+            _ADK_HEADER + _UNREADABLE_ROOT
+        ),
+    },
+    # A readable template root is demoted, not excluded, by the same rule.
+    "readable_template": {
+        "agent.py": _ADK_HEADER + 'helper = LlmAgent(name="ProductHelper")\n',
+        "skills/recipe/resources/templates/app/agent.py": (
+            _ADK_HEADER
+            + 'root_agent = LlmAgent(name="TemplateRoot")\n'
+            + 'app = App(name="t", root_agent=root_agent)\n'
+        ),
+    },
+    # A bare `templates/` is a real package name, so it still blocks.
+    "bare_templates": {
+        "agent.py": _ADK_HEADER + 'root_agent = LlmAgent(name="RealRoot")\n',
+        "templates/agent.py": _ADK_HEADER + _UNREADABLE_ROOT,
+    },
+    # The project's own product root is unreadable: refusal is preserved.
+    "own_root": {
+        "pyproject.toml": '[project]\nname = "rag"\n',
+        "agent.py": (
+            _ADK_HEADER + 'worker = LlmAgent(name="WorkerAgent")\n' + _UNREADABLE_ROOT
+        ),
+    },
+}
+
+
+@pytest.mark.parametrize("label", sorted(_UNREADABLE_ROOT_SCOPES))
+def test_script_scopes_an_unreadable_root_like_the_cli(script_module, tmp_path, label):
+    """An application root the reader cannot resolve rejects the names in
+    *its own project*, and only where the product itself declared it (#398).
+    The samples all have one project and one readable root, so the per-sample
+    parity check cannot see any of this — and a script that scoped the
+    rejection differently would tell an agent no name is safe on a repository
+    where `init` names one, or the reverse."""
+    project = tmp_path / label
+    for relative, body in _UNREADABLE_ROOT_SCOPES[label].items():
+        target = project / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(body, encoding="utf-8")
+
+    script_result = script_module.detect(project)
+    cli_result = detect_workspace(project.resolve()).model_dump(mode="json")
+    assert (
+        script_result["agent_name_candidates"] == cli_result["agent_name_candidates"]
+    ), f"{label}: unreadable-root scoping diverged from the CLI"
+    assert (
+        script_result["agent_project_candidates"]
+        == cli_result["agent_project_candidates"]
+    ), f"{label}: project grouping diverged from the CLI"
+
+    # Both readers must land on the same *verdict*, not merely the same
+    # bytes: a shared bug that rejected everything would satisfy equality.
+    selectable = {
+        candidate["value"]
+        for candidate in cli_result["agent_name_candidates"]
+        if candidate["selectable"]
+    }
+    expected = {
+        "monorepo": {"CleanRoot"},
+        "weak_markers": {"OneRoot"},
+        "shared_name": set(),
+        "eval_test_file": {"RagRoot", "inner"},
+        "scaffolding_template": {"RealRoot", "inner"},
+        "readable_template": {"ProductHelper", "TemplateRoot"},
+        "bare_templates": set(),
+        "own_root": set(),
+    }[label]
+    assert selectable == expected
+
+
+def test_script_names_the_workspace_fallback_marker_like_the_cli(
+    script_module, tmp_path
+):
+    """A weak marker at the workspace root that unlocked no boundary must not
+    be reported as the project's marker. `find_project_root` only honours
+    `requirements.txt` in a directory it already found agent evidence in, so
+    a root that holds one while the agent lives a level down carries no
+    marker at all — and the script named it anyway. Every sample has a
+    `pyproject.toml`, so the per-sample parity check never reached the
+    fallback."""
+    project = tmp_path / "weak_root"
+    (project / "sub").mkdir(parents=True)
+    (project / "requirements.txt").write_text("google-adk\n", encoding="utf-8")
+    (project / "sub" / "agent.py").write_text(
+        'from google.adk.agents import LlmAgent\n\nroot_agent = LlmAgent(name="SubRoot")\n',
+        encoding="utf-8",
+    )
+
+    script_result = script_module.detect(project)
+    cli_result = detect_workspace(project.resolve()).model_dump(mode="json")
+    assert cli_result["agent_project_candidates"] == [
+        {"path": ".", "marker": None, "agent_names": ["SubRoot"]}
+    ]
+    assert (
+        script_result["agent_project_candidates"]
+        == cli_result["agent_project_candidates"]
+    )
+
+
 def _git_init(root: Path) -> None:
     subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
     for key, value in (("user.email", "t@example.test"), ("user.name", "T")):
