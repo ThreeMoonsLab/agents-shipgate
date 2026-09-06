@@ -61,12 +61,18 @@ Intentional simplifications vs. the canonical CLI:
   it trips the size bound below (never wrongly dropped). The real-world
   miss this guards against — ``mcpServers``-style host configs — is always
   JSON, so the probe is exact where it matters.
-- Every structured candidate is size-gated at ``MAX_STRUCTURED_FILE_BYTES``
-  before it is read, matching the ``MAX_INPUT_FILE_BYTES`` refusal the input
-  adapters apply ahead of their own parse. This is both a bound on what an
-  unknown workspace can make this script allocate and a parity rule: an
-  oversized ``*mcp*.json`` is excluded by the CLI, so suggesting it here
-  would send an agent to write a manifest entry ``scan`` rejects.
+- Every **suggestion candidate** — the MCP/OpenAPI/Conductor glob hits — and
+  every n8n/Conductor workflow read for framework scoring is size-gated at
+  ``MAX_STRUCTURED_FILE_BYTES`` before it is read, matching the
+  ``MAX_INPUT_FILE_BYTES`` refusal the input adapters apply ahead of their own
+  parse. This is both a bound on what an unknown workspace can make this script
+  allocate and a parity rule: an oversized ``*mcp*.json`` is excluded by the
+  CLI, so suggesting it here would send an agent to write a manifest entry
+  ``scan`` rejects. The MCP registration-site walk applies its own, smaller
+  ``MAX_SOURCE_FILE_BYTES``. Reads that feed neither surface are *not* covered:
+  ``package.json`` / ``go.mod`` language evidence and the ``pyproject.toml`` /
+  ``requirements.txt`` package tokens are still read whole, exactly as the CLI
+  reads them, so the two stay in step — do not bound one without the other.
 
 ``mcp_server_source`` — an MCP server whose tool surface exists only as
 TypeScript or Go registration sites (#431) — **is** detected here, through a
