@@ -543,7 +543,8 @@ Template: copy into a private tracker, one row per repository.
 | Entry point (how they arrived) |  |
 | Build installed (`cli_version`) |  |
 | Contract (`contract_version`) |  |
-| Published or preview build |  |
+| Channel (released / preview / source checkout) |  |
+| Qualification status told to the partner |  |
 | Environment (OS, Python, CI) |  |
 | Installation attempted / succeeded |  |
 | Setup steps performed |  |

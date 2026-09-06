@@ -326,6 +326,10 @@ def test_tracker_template_carries_every_required_observation_field():
         "Entry point",
         "Build installed",
         "Contract (`contract_version`)",
+        # The standing decision turns on the channel, so a row that does not
+        # record which one the partner was on cannot be read against it later.
+        "Channel (released / preview / source checkout)",
+        "Qualification status told to the partner",
         "Environment",
         "Installation attempted",
         "Setup steps performed",
