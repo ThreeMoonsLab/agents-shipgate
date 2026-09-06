@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+- **The design-partner pilot now measures a reviewer's decision and the next
+  eligible change — and its first published number is a zero with a reason.**
+  (#521) The runbook counted three partners through one PR each and exited on a
+  first-run feedback note, which cannot answer whether a reviewer made a better
+  decision or whether anyone ran it again.
+  [`docs/design-partner-verifier-pilot.md`](docs/design-partner-verifier-pilot.md)
+  now names two routes under test, six denominators that failures stay inside,
+  first value as four things a reviewer who did not write the change can name
+  plus a recorded decision, a four-week window for the second eligible change,
+  three separately-granted consents, and a **pre-registered**
+  continue/narrow/stop rule. Ten minutes to first value is stated as an
+  experiment target; a test fails if any page later restates it as a result.
+
+  Dry-running the runbook's own commands is what produced the first result,
+  across all three distribution channels. On a synthetic host-boundary change
+  (three permission rules widened to `Bash(*)` / `Read(**)` / `WebFetch(*)`,
+  one remote MCP server added) the released `0.15.0` returns `warn` / `none`
+  with **zero** violations and no coverage surface, while the unqualified
+  preview and the source tree both return `block` / `critical` with all four
+  named. So a build that shows the change *is* installable — the preview —
+  and it carries no qualification of any kind, which is a thing to say to a
+  partner rather than a footnote. The runbook had also demanded "runtime
+  contract 14" in the paragraph that installed it with `pipx install`, a
+  precondition no published build has ever satisfied; #497's channel table and
+  this change both retire it. And `init` then `verify` still dead-ends on
+  exactly the repositories the host-boundary route is for (#498), because they
+  have no tool surface to declare.
+
+  So [`docs/design-partner-pilot-results.md`](docs/design-partner-pilot-results.md)
+  publishes six external denominators at zero, a dated enrollment shortfall
+  naming an unmade channel decision rather than a recruiting gap, the
+  reproduced blockers routed to #506, #497, #520, #498 and #504 → #337 with no
+  new issue opened, and a dated standing decision of **narrow**: invite Route H
+  on the preview channel with its unqualified status stated in the invitation,
+  and withhold the released channel for per-change review. Every finding is
+  build-dated, and a guard fails the day the newest published tag moves so the
+  comparison is re-run instead of carried forward — a guard the page itself
+  records as insufficient, since nothing fails when a new preview is cut.
 - **Everything `init` writes into an adopter's repository now names a release
   that exists.** (#506) `init --write --ci` generated
   `uses: ThreeMoonsLab/agents-shipgate@v0.16.0`, and no such tag had ever been
