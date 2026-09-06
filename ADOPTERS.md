@@ -51,9 +51,13 @@ never counted as external adoption.
 
 That row says `advisory CI`, not `blocking CI`, and the difference is worth
 reading. Both workflows do fail the run on `blocked` and `unknown` — but
-`main` carries no required status check, so a red run stops no merge. Under
-the definitions below that is advisory, and writing anything stronger in our
-own row would be the exact failure this file exists to prevent.
+`main` carries no required status check, so a red run stops no merge. Anyone
+can re-check that claim the way it was made: the branch ruleset on `main`
+(`gh api repos/ThreeMoonsLab/agents-shipgate/rulesets`) protects against
+deletion and non-linear history and requires a pull request, and carries no
+`required_status_checks` rule. Under the definitions below that is advisory,
+and writing anything stronger in our own row would be the exact failure this
+file exists to prevent.
 
 ## What the Use column means
 

@@ -892,10 +892,10 @@ Agents Shipgate is local-first and static by default, and it collects nothing:
 no telemetry, no analytics, no account. It therefore cannot count its own
 users. [`ADOPTERS.md`](ADOPTERS.md) is the opt-in public registry that stands
 in for that: one line per adopter, added by the adopter, naming what they gate
-and whether it runs locally, as advisory CI, or as blocking CI. There is **no automatic collection of any kind** behind it —
-every entry is user-initiated and consenting, private repositories are listed
-at organization granularity, and an entry is removed on request without a
-reason. Private design-partner observations are a separate ledger under
+and whether it runs locally, as advisory CI, or as blocking CI. There is **no
+automatic collection of any kind** behind it — every entry is user-initiated
+and consenting, private repositories are listed at organization granularity,
+and an entry is removed on request without a reason. Private design-partner observations are a separate ledger under
 separate consent and never become public entries on their own.
 
 Every adoption number this project publishes traces to a named entry there —

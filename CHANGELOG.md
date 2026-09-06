@@ -32,9 +32,9 @@
   rule quietly dropped, a second badge variant, an issue form that drifts from
   the registry's vocabulary or stops requiring consent — and any adopter number
   stated anywhere in the repository's prose that these rows cannot source. A
-  42-case perturbation sweep confirmed every one of those fails on the
-  weakening it exists to catch, and that a correctly added adopter still
-  passes.
+  45-case perturbation sweep confirmed every one of those fails on the
+  weakening it exists to catch, and that a correctly added adopter — or a
+  second maintainer row, or a grammatically singular count — still passes.
 
 - **The zero-install detector refuses an oversized candidate instead of
   reading it.** `tools/shipgate-detect.py` is fetched over `curl | python3`

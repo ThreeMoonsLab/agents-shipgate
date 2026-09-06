@@ -79,8 +79,9 @@ release qualification or to complete every open issue in that window.
    remain visible. [#475](https://github.com/ThreeMoonsLab/agents-shipgate/issues/475)
    records public consenting adopters separately, in
    [ADOPTERS.md](ADOPTERS.md) — opt-in, one row per adopter, with an
-   eight-rule claims policy and a published external count of zero;
-   dogfooding, stars and downloads do not prove external repeat use. Pilot preparation need not wait for the
+   eight-rule claims policy and a dated external count published in the file
+   itself rather than restated here; dogfooding, stars and downloads do not
+   prove external repeat use. Pilot preparation need not wait for the
    historical-corpus outreach in
    [#511](https://github.com/ThreeMoonsLab/agents-shipgate/issues/511). The
    counts, the dated enrollment shortfall and the standing continue/narrow/stop
