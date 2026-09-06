@@ -43,6 +43,49 @@
   GitLab-hosted one, a second maintainer row, a grammatically singular count —
   still pass.
 
+- **The human entry path reaches one useful review, and is checked like every
+  other distribution surface.** (#498) The README was 933 lines with 28
+  second-level sections, and the quickstart opened with three commands before
+  the reader had seen a result. Both were also wrong in ways nobody was
+  checking, because `README.md` and `docs/quickstart.md` were recorded in
+  [`docs/distribution-surfaces.md`](docs/distribution-surfaces.md) as
+  "repository documentation" and therefore registered nowhere: the quickstart's
+  first command was `shipgate check --format agent-boundary-json`, which the
+  release the same page tells a reader to install rejects outright — `v0.15.0`
+  accepts only `codex-boundary-json` — and its placeholder step sent a coding
+  agent to the README for `agent.declared_purpose`, a declaration only a person
+  may make. The README's flagship "what your PR sees" block quoted a comment
+  with an `### Agents Shipgate result: block` heading and an
+  `Impact | Change | Subject | Why` table, called it verbatim, and no code path
+  rendered any of it; `block` is not a value any verdict field takes.
+
+  The README is now a landing page: one before/after capability change, one
+  demo, one install, the accuracy numbers that are still zero, and an
+  audience-routing table. [`docs/quickstart.md`](docs/quickstart.md) is one
+  review end to end on the committed `ai_generated_refund_pr` sample — what
+  changed, why the top result matters, what the run did not establish, that
+  **exit zero is not merge permission**, and who owns the next action — before
+  either adoption route, and it opens with a channel table saying which build
+  provides which commands. Displaced README material moved into the docs that
+  own it, with a mapping table from every retired anchor.
+
+  Three guards keep it there. `README.md` and `docs/quickstart.md` are a
+  registered `human_entry_path` surface and `AGENTS.md`, `docs/agent-recipes.md`,
+  `docs/agents/` and `docs/target-repo-agent-snippets.md` a registered
+  `agent_instructions` surface, so the placeholder-ownership and pin rules that
+  already covered the design-partner runbook now cover them too;
+  `test_the_human_entry_path_states_what_the_published_build_provides` reads the
+  `--format` values the published tag accepts out of the tag and fails if the
+  entry path teaches one it does not, the way #506 reads that tag's
+  `CONTRACT_VERSION`; and
+  `test_the_entry_path_quotes_lines_the_pr_comment_actually_renders` runs the
+  fixture and compares every quoted comment line against the artifact. The
+  vocabulary reader learned to see a Markdown reference table, which is the only
+  shape the entry path states a verdict set in. Four unresolvable
+  `uvx agents-shipgate@0.18.0` pins in `docs/incidents/` and `samples/README.md`
+  named a version the index does not carry; they now name the checkout, and say
+  what to pin once a release carries the fixture.
+
 - **The zero-install detector refuses an oversized candidate instead of
   reading it.** `tools/shipgate-detect.py` is fetched over `curl | python3`
   and run against repositories nobody has inspected, and it read every

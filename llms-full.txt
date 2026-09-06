@@ -590,12 +590,17 @@ Otherwise proceed to `init`. MCP/OpenAPI tool-surface repos and Codex plugin pac
 
 ```bash
 pipx install agents-shipgate
-agents-shipgate init --workspace . --write
-# edit shipgate.yaml to replace any CHANGE_ME values
+agents-shipgate init --workspace . --write --json
+# resolve the placeholders init reports, by owner (below), then:
 agents-shipgate scan -c shipgate.yaml
 ```
 
-`init` writes a manifest with `CHANGE_ME` placeholders for `agent.name` and `agent.declared_purpose`. Replace them by reading the agent's prompt or main file.
+`init --json` returns `placeholders[]`, and **each entry names its owner**. Read that field; do not treat the array as one list of edits. The rule behind it:
+
+- **You own** what you can read out of the repository — `agent.name`, `project.name`, the `tool_sources[]` rows. Escalating these stops a turn for work you own.
+- **A person owns** every *declaration*: purpose, prohibited actions, effect, authority, binding, approval, confirmation, idempotency, safeguards, accepted debt and its owner/reason/expiry, and the manifest blocks that are declarations end to end (`action_surface`, `permissions`, `policies`, `agent_bindings`, `tool_identity`, `checks`, `baseline`, `human_ack`, `risk_overrides`, `validation`, `organization`). While one is unresolved, `init` returns `control.next_action.actor: "human"` and `permissions.edit: false`. These values must be supplied by a human, because Shipgate never invents a declaration nobody made — a purpose or authority claim you lifted out of a prompt or README is a declaration nobody made, and the engine will treat it as evidence.
+
+Those names are examples of the rule, not the rule. `placeholders[]` is authoritative; when it disagrees with this list, it is right.
 
 ### Task 2 · Read findings programmatically
 
@@ -1161,8 +1166,9 @@ Auto-detection runs again inside `init` and writes:
 - `shipgate.yaml` with `tool_sources` populated per detected framework
   candidate file.
 - `.github/workflows/agents-shipgate.yml` (if `--ci` is set; refuses
-  to overwrite an existing workflow file or one that already calls
-  `ThreeMoonsLab/agents-shipgate@*` from a sibling workflow).
+  to overwrite an existing workflow file, or one where a sibling
+  workflow already uses the `ThreeMoonsLab/agents-shipgate` action at
+  any ref).
 
 Key response fields:
 
@@ -1335,8 +1341,17 @@ rules before changing code:
 - If tools are created by factories, wrappers, runtime imports, or
   dynamic ADK/MCP toolsets, provide an explicit MCP export, OpenAPI
   spec, or local tool inventory artifact.
-- Replace every `CHANGE_ME` value in `shipgate.yaml` before scanning;
-  use the prompt, main agent file, README, or owner-provided context.
+- Resolve the `placeholders[]` entries `init --json` reports before
+  scanning, **by the owner each entry names** — that field is
+  authoritative, not any list in a document. You own what the
+  repository states (`agent.name`, `project.name`, the
+  `tool_sources[]` rows). Every declaration — purpose, prohibited
+  actions, effect, authority, binding, approval, confirmation,
+  idempotency, safeguards, accepted debt — must be supplied by a
+  human, and `init` routes those with
+  `control.next_action.actor: "human"` because Shipgate never invents
+  a declaration nobody made. Do not derive one from a prompt, main
+  agent file or README.
 - Agents Shipgate requires Python 3.12+. If the project runtime is
   older, install the CLI outside the project env with `pipx` or `uv`.
 - Ensure `agents-shipgate-reports/` is listed in `.gitignore`.

@@ -100,8 +100,10 @@ Action outputs:
 The action runs `agents-shipgate verify`, which writes Markdown, JSON, SARIF,
 packet JSON, verifier JSON, verify-run JSON, and PR-comment Markdown
 artifacts. It intentionally emits `packet.json` only for the packet;
-`pr-comment.md` is the human PR surface. Read `agent-handoff.json` first for
-the compact agent handoff, `verifier.json` for detailed control context,
+`pr-comment.md` is the human PR surface. Read `current-control.json` first —
+it names which run is current and refuses the read when HEAD or the working
+tree has moved since the decision — then `agent-handoff.json` for the compact
+agent handoff, `verifier.json` for detailed control context,
 `verify-run.json` for reproducibility metadata, and
 `report.json.release_decision.decision` for the gate. Capability diffs and
 `capability_review.top_changes` are supporting/provisional review context.
@@ -113,6 +115,34 @@ workflow if you want SARIF annotations. Policy-pack findings use stable policy
 rule IDs as SARIF `ruleId` values when present, so the first upgrade run can
 close/reopen existing GitHub code-scanning alerts whose identity was previously
 the built-in Shipgate check ID.
+
+After adoption, choose an explicit merge policy in the workflow rather than
+leaving advisory mode load-bearing.
+[`07-block-on-blocked-verdict.yml`](../examples/github-actions/07-block-on-blocked-verdict.yml)
+blocks only when `merge_verdict == 'blocked'`;
+[`08-require-mergeable.yml`](../examples/github-actions/08-require-mergeable.yml)
+requires `can_merge_without_human == true`;
+[`11-fail-on-insufficient-evidence.yml`](../examples/github-actions/11-fail-on-insufficient-evidence.yml)
+fails only on `insufficient_evidence`. Strict, baseline, SARIF, Check Run and
+multi-config recipes are in
+[`examples/github-actions/`](../examples/github-actions/); the full input and
+output catalog is [`action.yml`](../action.yml).
+
+CI is advisory by default. Strict mode exits `20` only on unsuppressed critical
+findings, so on an existing project it fails on the backlog the first time it
+runs. Record that backlog as a baseline, then gate on what is new:
+
+```bash
+# 1. see what strict would do today — expect exit 20 if there is any backlog
+agents-shipgate scan --config shipgate.yaml --ci-mode strict
+# 2. accept the current findings as the baseline
+agents-shipgate baseline save --config shipgate.yaml --out .agents-shipgate/baseline.json
+# 3. strict from here: fails only on findings the baseline does not carry
+agents-shipgate scan --config shipgate.yaml --baseline .agents-shipgate/baseline.json --ci-mode strict
+```
+
+Severity and failure thresholds are configurable in the manifest
+(`checks.severity_overrides`, `ci.fail_on`) — see [`baseline.md`](baseline.md).
 
 For source-only testing in this repository:
 

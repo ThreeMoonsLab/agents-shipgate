@@ -2,6 +2,12 @@
 
 A single entry point for human readers and AI agents walking the `docs/` tree.
 
+**Start here.** A human evaluating one change wants
+[`quickstart.md`](quickstart.md) — one review end to end on a committed sample,
+including which build provides which commands. A coding agent wants
+[`../AGENTS.md`](../AGENTS.md) and [`agents/README.md`](agents/README.md). The
+repository [`README.md`](../README.md) is the landing page that routes to both.
+
 ## Concepts
 
 - [`overview.md`](overview.md) — one-page summary for developers, reviewers, and AI agents
@@ -36,6 +42,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`baseline.md`](baseline.md) — baseline workflow
 - [`framework-adapter-checklist.md`](framework-adapter-checklist.md) — checklist for adding static framework adapters
 - [`mcp-registration-idioms.md`](mcp-registration-idioms.md) — the 30-server survey behind the built-in MCP registration-idiom registry: which shapes ship, what the reader excludes, and why an export still wins
+- [`distribution-surfaces.md`](distribution-surfaces.md) — every surface this engine is published through, what each one claims, and the test that proves it; the registry a new surface has to be added to
 - [`determinism-boundary.md`](determinism-boundary.md) — generated coverage matrix: what each input can establish per declaration shape, the extraction-confidence ceiling it reaches, and what that ceiling means for a verdict
 
 ## Reference
@@ -186,7 +193,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 
 ## Workflows
 
-- [`quickstart.md`](quickstart.md) — verify-first AI-generated PR workflow
+- [`quickstart.md`](quickstart.md) — **the human entry path**: one review end to end on a committed sample — which build you get, what the change added, why the top result matters, what was not established, and who owns the next action; then the two adoption routes, advisory CI, and the second PR
 - [`faq.md`](faq.md) — common questions, AI-search-friendly
 - [`integrations.md`](integrations.md) — CI/CD integration recipes (GitHub Actions, GitLab CI, CircleCI, Jenkins snippet)
 - [`troubleshooting.md`](troubleshooting.md) — error messages → fixes

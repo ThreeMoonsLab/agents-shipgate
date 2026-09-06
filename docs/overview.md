@@ -41,7 +41,7 @@ surface before production-like permissions are granted.
 
 ## Core references
 
-- [Quickstart](quickstart.md)
+- [Quickstart](quickstart.md) — the human entry path: one review end to end
 - [Concepts](concepts.md)
 - [Manifest v0.1](manifest-v0.1.md)
 - [Check catalog](checks.md)

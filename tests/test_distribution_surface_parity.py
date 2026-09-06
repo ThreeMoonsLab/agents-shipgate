@@ -238,6 +238,32 @@ SURFACES: tuple[Surface, ...] = (
             "placeholder_ownership": _OWNERSHIP,
         },
     ),
+    Surface(
+        "human_entry_path",
+        ("README.md", "docs/quickstart.md"),
+        {
+            "executable_pin": ("test_executable_pin_resolves_in_a_published_channel",),
+            "contract_floor": (
+                "test_the_human_entry_path_states_what_the_published_build_provides",
+            ),
+            "placeholder_ownership": _OWNERSHIP,
+            "merge_verdict_vocabulary": _VOCABULARY,
+            "release_decision_vocabulary": _VOCABULARY,
+        },
+    ),
+    Surface(
+        "agent_instructions",
+        (
+            "AGENTS.md",
+            "docs/agent-recipes.md",
+            "docs/agents",
+            "docs/target-repo-agent-snippets.md",
+        ),
+        {
+            "executable_pin": ("test_executable_pin_resolves_in_a_published_channel",),
+            "placeholder_ownership": _OWNERSHIP,
+        },
+    ),
 )
 
 SURFACES_BY_ID = {surface.id: surface for surface in SURFACES}
@@ -284,13 +310,11 @@ NOT_A_DISTRIBUTION_SURFACE: dict[str, str] = {
     ".pre-commit-hooks.yaml": "repository mechanics",
     ".well-known": "the channel metadata this registry reads; the source of truth for executable_pin, not a restatement of it",
     "ADOPTERS.md": "the opt-in public adopters registry; it publishes self-reported adopter claims, not an engine answer, and is pinned by tests/test_adopters_registry.py",
-    "AGENTS.md": "repository documentation, pinned by tests/test_public_surface_contract.py",
     "CHANGELOG.md": "repository documentation, pinned by tests/test_public_surface_contract.py",
     "CLAUDE.md": "repository documentation, pinned by tests/test_public_surface_contract.py",
     "CODE_OF_CONDUCT.md": "repository documentation",
     "CONTRIBUTING.md": "repository documentation",
     "LICENSE": "repository documentation",
-    "README.md": "repository documentation, pinned by tests/test_public_surface_contract.py",
     "ROADMAP.md": "repository documentation, pinned by tests/test_public_surface_contract.py",
     "SECURITY.md": "repository documentation",
     "STABILITY.md": "repository documentation",
@@ -978,8 +1002,45 @@ _ALL_VOCABULARY_TOKENS: frozenset[str] = frozenset(MERGE_VERDICTS) | frozenset(
 )
 
 
+def _first_column_sets(text: str) -> list[set[str]]:
+    """Every Markdown table whose first column enumerates an engine vocabulary.
+
+    The other shape a surface uses to state a set, and the only one the human
+    entry path uses: a reference table with one row per verdict and a *Meaning*
+    / *Next action* column beside it. #498 put the reader in front of those two
+    tables, and the braced-literal reader below cannot see either — so a table
+    that dropped ``unknown`` would teach a reader four of five cases while the
+    registry claimed exact vocabulary parity. That is this guard's own failure,
+    wearing Markdown instead of braces.
+
+    The header row is skipped: it names the column, not a member. The trailing
+    newline is optional, because a table that ends the file has none and its
+    last row is still a row — requiring one dropped the final verdict and
+    failed a document that was correct.
+    """
+
+    sets: list[set[str]] = []
+    for block in re.findall(r"(?:^\|.*\|[ \t]*(?:\n|\Z))+", text, flags=re.M):
+        rows = [
+            [cell.strip() for cell in line.strip().strip("|").split("|")]
+            for line in block.splitlines()
+        ]
+        members = {
+            row[0].strip().strip("`*_").strip()
+            for row in rows[1:]
+            if row and row[0].strip() and set(row[0].strip()) - set("-: ")
+        }
+        if len(members & _ALL_VOCABULARY_TOKENS) >= 2:
+            sets.append(members)
+    return sets
+
+
 def documented_vocabulary_sets(text: str) -> list[set[str]]:
-    """Every braced literal that reads as a statement of an engine vocabulary.
+    """Every literal that reads as a statement of an engine vocabulary.
+
+    Two shapes, because the surfaces use both: a braced set —
+    ``decision ∈ {"blocked", …}`` — and a Markdown reference table with one row
+    per value. A comma- or slash-joined *run* is neither.
 
     **All** members come back, including ones the engine does not define. An
     earlier version projected each literal onto the expected values before
@@ -1004,6 +1065,7 @@ def documented_vocabulary_sets(text: str) -> list[set[str]]:
         if len(members & _ALL_VOCABULARY_TOKENS) < 2:
             continue
         sets.append(members)
+    sets.extend(_first_column_sets(text))
     return sets
 
 
@@ -1124,6 +1186,32 @@ def test_vocabulary_reader_judges_a_set_by_all_of_its_members():
     # Short, and mixed. Neither may pass, and neither may be skipped.
     assert _vocabulary_set_verdicts('{"blocked", "review_required", "passed"}') == [False]
     assert _vocabulary_set_verdicts('{"mergeable", "passed"}') == [False]
+
+    # A Markdown reference table states the set too, and its header row is a
+    # column name rather than a member. This is the only shape the human entry
+    # path uses; before #498 taught the reader about it, both of that surface's
+    # tables were invisible here.
+    table = (
+        "| Merge verdict | Meaning |\n"
+        "| --- | --- |\n"
+        + "".join(f"| `{verdict}` | … |\n" for verdict in MERGE_VERDICTS)
+    )
+    assert documented_vocabulary_sets(table) == [set(MERGE_VERDICTS)]
+    assert _vocabulary_set_verdicts(table) == [True]
+    short_table = table.replace("| `unknown` | … |\n", "")
+    assert _vocabulary_set_verdicts(short_table) == [False]
+
+    # A table whose first column is something else entirely is not a claim
+    # about the vocabulary, however many verdicts appear in its other columns.
+    assert (
+        documented_vocabulary_sets(
+            "| Output | Meaning |\n"
+            "| --- | --- |\n"
+            "| `decision` | `blocked`, `review_required`, `passed` |\n"
+            "| `merge_verdict` | `mergeable`, `blocked` |\n"
+        )
+        == []
+    )
 
     # A passing mention, and a correct partial statement in prose, are not
     # claims about the set.
@@ -1527,6 +1615,27 @@ def test_the_committed_sweep_adds_files_the_emitted_sweep_cannot_see():
 # release implements. Nothing else checks that number.
 
 
+#: A channel table's row for the published release: its *How a reader gets it*
+#: cell, then the runtime contract it implements. Both surfaces that carry such
+#: a table spell the row the same way, so one reader serves both.
+_PUBLISHED_CHANNEL_ROW = re.compile(
+    rf"\|\s*Published release `v{re.escape(LATEST_PUBLISHED_VERSION)}`\s*\|"
+    rf"[^|]*\|\s*(\d+)\s*\|"
+)
+
+
+def _published_channel_contract(relpath: str) -> str:
+    """The contract ``relpath``'s channel table says the published build implements."""
+
+    text = (REPO_ROOT / relpath).read_text(encoding="utf-8")
+    row = _PUBLISHED_CHANNEL_ROW.search(text)
+    assert row, (
+        f"{relpath} must carry a channel row for the published release "
+        f"v{LATEST_PUBLISHED_VERSION} naming the contract it implements."
+    )
+    return row.group(1)
+
+
 def test_runbook_channel_table_states_the_released_contract_correctly():
     """The design-partner runbook names one channel per partner, with its contract.
 
@@ -1535,22 +1644,217 @@ def test_runbook_channel_table_states_the_released_contract_correctly():
     named `control.state`, which that build does not emit at all.
     """
 
-    text = (REPO_ROOT / "docs" / "design-partner-verifier-pilot.md").read_text(
-        encoding="utf-8"
-    )
-    row = re.search(
-        rf"\|\s*Published release `v{re.escape(LATEST_PUBLISHED_VERSION)}`\s*\|[^|]*\|\s*(\d+)\s*\|",
-        text,
-    )
-    assert row, (
-        "docs/design-partner-verifier-pilot.md must carry a channel row for the "
-        f"published release v{LATEST_PUBLISHED_VERSION} naming the contract it "
-        "implements."
-    )
-    assert row.group(1) == LATEST_PUBLISHED_CONTRACT_VERSION, (
+    relpath = "docs/design-partner-verifier-pilot.md"
+    stated = _published_channel_contract(relpath)
+    assert stated == LATEST_PUBLISHED_CONTRACT_VERSION, (
         f"the runbook says the published release implements contract "
-        f"{row.group(1)}; agents_shipgate.published_release records "
+        f"{stated}; agents_shipgate.published_release records "
         f"{LATEST_PUBLISHED_CONTRACT_VERSION}."
+    )
+
+
+#: The ``--format`` the human entry path teaches for ``shipgate check``. The
+#: value is the engine's, not this test's: it is the one the installed CLI
+#: documents, and the guard below reads what the *published* build accepts out
+#: of the tag rather than trusting either.
+_TAUGHT_CHECK_FORMAT = "agent-boundary-json"
+
+
+def _published_check_formats() -> frozenset[str]:
+    """The ``--format`` values ``check`` accepts in the newest published release.
+
+    Read out of the tag, the way #506 reads that release's ``CONTRACT_VERSION``
+    rather than asserting about it. The number this guard exists for is the
+    *difference*: this tree accepts three, ``v0.15.0`` accepts one, and the
+    entry path told a reader to install ``v0.15.0`` and then run a ``--format``
+    that build rejects outright — an unresolvable pin's exact failure, spelled
+    as a flag instead of a version.
+    """
+
+    tag = f"v{LATEST_PUBLISHED_VERSION}"
+    relpath = "src/agents_shipgate/cli/check.py"
+    result = subprocess.run(
+        ["git", "show", f"{tag}:{relpath}"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:  # pragma: no cover - shallow or tagless checkout
+        pytest.skip(
+            f"Could not read {relpath} at {tag}: {result.stderr.strip()}. "
+            "The job needs `fetch-depth: 0` and `fetch-tags: true`."
+        )
+    module = ast.parse(result.stdout)
+    accepted: set[str] = set()
+    for node in ast.walk(module):
+        # `format_ != "codex-boundary-json"` / `format_ == "agent-json"` and the
+        # `typer.Option("codex-boundary-json", "--format", …)` default. Both
+        # shapes name the value as a literal beside the option's own name, which
+        # is what makes this readable without importing the release.
+        if isinstance(node, ast.Compare) and _names_format(node.left):
+            accepted.update(_format_literals(node.comparators, module))
+        if isinstance(node, ast.Call) and any(
+            isinstance(arg, ast.Constant) and arg.value == "--format" for arg in node.args
+        ):
+            accepted.update(
+                arg.value
+                for arg in node.args
+                if isinstance(arg, ast.Constant)
+                and isinstance(arg.value, str)
+                and arg.value != "--format"
+            )
+    assert accepted, (
+        f"read no `--format` value out of {tag}:{relpath}. The release spells "
+        "the option differently from every shape this reader knows, so it is "
+        "reporting 'no problem' while checking nothing — teach it the new shape "
+        "rather than deleting the guard."
+    )
+    # `agent-json` is named at that tag only to reject it with a removal notice.
+    return frozenset(accepted) - {"agent-json"}
+
+
+def _names_format(node: ast.expr) -> bool:
+    return isinstance(node, ast.Name) and node.id in {"format_", "format"}
+
+
+def _format_literals(comparators: list[ast.expr], module: ast.Module) -> set[str]:
+    """The string values ``format_`` is compared against, resolving one name.
+
+    ``v0.15.0`` compares against literals; this tree writes
+    ``format_ not in CHECK_FORMATS``, and the next release will be one or the
+    other. A reader that understood only literals would return the option's
+    default alone from such a release — a *partial* set, which is worse than an
+    empty one: the emptiness assertion would not fire, and
+    :func:`test_the_published_format_reader_sees_the_difference_it_exists_for`
+    could no longer tell that the entry path's caveat had gone stale. So a name
+    is resolved when its module-level binding is a set of string constants, and
+    anything else raises rather than being read as "no values".
+    """
+
+    values: set[str] = set()
+    for node in comparators:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            values.add(node.value)
+        elif isinstance(node, ast.Name):
+            values |= _module_level_string_set(node.id, module)
+    return values
+
+
+def _module_level_string_set(name: str, module: ast.Module) -> set[str]:
+    """A module-level ``NAME = {"a", "b"}`` / ``frozenset({...})`` as a set."""
+
+    for node in module.body:
+        targets = (
+            node.targets
+            if isinstance(node, ast.Assign)
+            else [node.target]
+            if isinstance(node, ast.AnnAssign)
+            else []
+        )
+        if not any(isinstance(t, ast.Name) and t.id == name for t in targets):
+            continue
+        value = node.value
+        if isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
+            # `frozenset({...})` / `set({...})` — one argument, the literal.
+            value = value.args[0] if len(value.args) == 1 else None
+        if isinstance(value, ast.Set | ast.Tuple | ast.List) and all(
+            isinstance(element, ast.Constant) and isinstance(element.value, str)
+            for element in value.elts
+        ):
+            return {element.value for element in value.elts}
+        raise AssertionError(
+            f"`{name}` is compared against `format_` in the published release, "
+            "and it is not a module-level set of string literals this reader "
+            "can resolve. Teach it that shape rather than letting the sweep "
+            "return a partial set — a partial set passes the emptiness check "
+            "and silently stops detecting a stale caveat."
+        )
+    raise AssertionError(
+        f"`{name}` is compared against `format_` in the published release but "
+        "has no module-level binding in the same file. The reader cannot say "
+        "which values that build accepts; teach it where to look."
+    )
+
+
+def test_the_human_entry_path_states_what_the_published_build_provides():
+    """The page that says "install this" must say what that build can do.
+
+    Both halves failed at once before #498: the quickstart's first command was
+    `check --format agent-boundary-json`, which `v0.15.0` rejects outright, and
+    the read order it taught named `control.state`, which that build does not
+    emit. Neither page mentioned a channel. A reader following it got an error
+    from the build the same page told them to install.
+    """
+
+    stated = _published_channel_contract("docs/quickstart.md")
+    assert stated == LATEST_PUBLISHED_CONTRACT_VERSION, (
+        f"docs/quickstart.md says the published release implements contract "
+        f"{stated}; agents_shipgate.published_release records "
+        f"{LATEST_PUBLISHED_CONTRACT_VERSION}."
+    )
+
+    # Collapsed, because a hard-wrapped line is a formatting choice and not a
+    # different claim; the first draft of this guard failed on its own README.
+    readme = re.sub(r"\s+", " ", (REPO_ROOT / "README.md").read_text(encoding="utf-8"))
+    assert (
+        f"newest published release is `v{LATEST_PUBLISHED_VERSION}`" in readme
+        and f"runtime contract `{LATEST_PUBLISHED_CONTRACT_VERSION}`" in readme
+    ), (
+        "README.md must name the newest published release and the contract it "
+        f"implements (v{LATEST_PUBLISHED_VERSION}, contract "
+        f"{LATEST_PUBLISHED_CONTRACT_VERSION}) beside its install step, so a "
+        "reader learns which build they are about to get."
+    )
+
+    published = _published_check_formats()
+    quickstart = re.sub(
+        r"\s+", " ", (REPO_ROOT / "docs" / "quickstart.md").read_text(encoding="utf-8")
+    )
+    # Bounded, and non-greedy: over whitespace-collapsed text an unbounded
+    # `[^\n]*` spans the whole file and backtracks to the last `--format`, so
+    # the sweep would report one value however many the page teaches.
+    taught_here = {
+        match.group(1)
+        for match in re.finditer(r"check[^`\n]{0,80}?--format\s+`?([a-z-]+)", quickstart)
+    }
+    assert taught_here, (
+        "docs/quickstart.md no longer shows `check --format …` at all, so this "
+        "half of the guard is checking nothing."
+    )
+    accepted_here = ", ".join(f"`--format {value}`" for value in sorted(published))
+    for taught in sorted(taught_here - published):
+        assert f"accepts only {accepted_here}" in quickstart, (
+            f"docs/quickstart.md teaches `check --format {taught}`, which "
+            f"v{LATEST_PUBLISHED_VERSION} does not accept (it takes "
+            f"{sorted(published)}), without saying so. State it as "
+            f"\"accepts only {accepted_here}\", or name the channel that provides "
+            "it — see docs/distribution-surfaces.md § Release channels."
+        )
+
+
+def test_the_published_format_reader_sees_the_difference_it_exists_for():
+    """Non-vacuous: the release really does accept less than this tree.
+
+    A reader that returned the source tree's answer would pass the guard above
+    on any page, which is the state #498 found. When a release finally carries
+    the current option set this assertion fails, and the honest edit is to drop
+    the caveat from the entry path — not to loosen the reader.
+    """
+
+    from agents_shipgate.cli.check import CHECK_FORMATS
+
+    published = _published_check_formats()
+    assert published, "no published --format value read"
+    assert published < set(CHECK_FORMATS), (
+        f"v{LATEST_PUBLISHED_VERSION} accepts {sorted(published)} and this tree "
+        f"accepts {sorted(CHECK_FORMATS)}; they no longer differ, so the "
+        "quickstart's channel caveat about `--format` is stale. Remove the "
+        "caveat and this assertion together."
+    )
+    assert _TAUGHT_CHECK_FORMAT not in published, (
+        f"v{LATEST_PUBLISHED_VERSION} now accepts {_TAUGHT_CHECK_FORMAT!r}; the "
+        "entry path no longer needs to say otherwise."
     )
 
 
