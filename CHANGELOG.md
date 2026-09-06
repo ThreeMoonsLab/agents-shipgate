@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+- **Everything `init` writes into an adopter's repository now names a release
+  that exists.** (#506) `init --write --ci` generated
+  `uses: ThreeMoonsLab/agents-shipgate@v0.16.0`, and no such tag had ever been
+  cut — GitHub fails that job at action-resolution time, so a first-time
+  adopter's very first Shipgate run was a red check carrying an error about
+  *our* repository rather than theirs. The bundled onboarding prompt had the
+  same defect one layer up (`uvx agents-shipgate@0.16.0`, a version the index
+  does not carry). Every render since 2026-07-09 pinned a nonexistent ref — 56
+  days of them by the time #506 was filed.
+
+  Two conventions coexisted and only one was correct. The docs, `llms.txt`,
+  `.well-known` and the Action examples tracked the latest published tag; the
+  one artifact that gets *executed* by a stranger's CI tracked `__version__`,
+  which for the whole interval between releases is a version nothing can
+  fetch. `LATEST_PUBLISHED_VERSION` moves into
+  `src/agents_shipgate/published_release.py` as the single constant every
+  surface — documentation and emitted artifact alike — derives from.
+
+  Pinning the published release keeps the pin resolvable but does not make it
+  *sufficient*, and conflating those is what the previous fix got wrong: the
+  bundled prompts demand runtime contract 21, and `v0.15.0` emits contract 10.
+  So the prompts now state that gap where they state the pin, rendered from
+  `LATEST_PUBLISHED_CONTRACT_VERSION` — which is read back out of the tag
+  itself by the suite, not asserted about it. The honest output when the newest
+  published build predates the floor is to say so; it is never to pin a build
+  that cannot be fetched.
+
+  `tests/test_init_ci.py` asserted the defect, which is why it shipped. It now
+  requires a published tag, and `tests/test_adopter_pins_resolve.py` sweeps
+  every pin shape across everything `init` emits — driven off `SPECS`, the
+  registry `--agent-instructions` itself selects from, so a target added there
+  is swept the day it is registered rather than the day someone remembers.
+  The sweep fails on an empty tag list rather than passing over one, asserts
+  each pin shape was actually found, and carries two negative controls that
+  re-introduce the defect. Cutting `v0.16.0` is not what fixes this: the rule
+  is "names a tag that exists", so it holds on the first commit after the tag
+  too.
+
 - **Four lexer defects in the MCP registration reader, fixed in both
   implementations.** (#485 review) Found reviewing the zero-install port; all
   four were in the reader #431 shipped, so the port had copied them rather than
@@ -66,6 +104,7 @@
   surface exists only as source is the population this input was built for, so
   that claim about a file that does not exist was published into the adoption
   evidence for every one of them.
+
 
 - **No corpus case is graded against `insufficient_evidence` any more, and four
   `blocked` cells hold one case instead of two.** (#520, #508) A verdict exists

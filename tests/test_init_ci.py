@@ -47,10 +47,18 @@ def test_write_ci_workflow_writes_to_fresh_workspace(tmp_path: Path) -> None:
     target = tmp_path / WORKFLOW_RELATIVE_PATH
     assert target.exists()
     content = target.read_text(encoding="utf-8")
-    # Generated workflow pins to the current package version (per v0.6
-    # reviewer feedback: @main is unpinned and breaks reproducibility).
+    # The generated workflow pins to the newest *published* release. It pins at
+    # all because `@main` is unpinned and breaks reproducibility (v0.6 reviewer
+    # feedback); it pins to a published tag because this file is executed by a
+    # stranger's CI, and a ref that does not exist fails at action-resolution
+    # time before any step runs. This assertion named `__version__` for 56 days
+    # and is the reason that shipped (#506).
     from agents_shipgate import __version__
-    assert f"ThreeMoonsLab/agents-shipgate@v{__version__}" in content
+    from agents_shipgate.published_release import LATEST_PUBLISHED_VERSION
+
+    assert f"ThreeMoonsLab/agents-shipgate@v{LATEST_PUBLISHED_VERSION}" in content
+    if LATEST_PUBLISHED_VERSION != __version__:
+        assert f"agents-shipgate@v{__version__}" not in content
     assert "ci_mode: advisory" in content
     assert "pull_request:" in content
     assert "push:" not in content

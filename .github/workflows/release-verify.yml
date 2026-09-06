@@ -94,6 +94,13 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
+          # Tags, for the same reason `ci.yml`'s suite job fetches them: the
+          # candidate's own suite checks every pin `init` writes into an
+          # adopter's repository against this repository's release tags (#506).
+          # `ref` alone brings the tag under test and no other, so the newest
+          # *published* release — which the pins name until the constants are
+          # bumped after this tag lands — would be missing.
+          fetch-tags: true
 
       - name: Record the commit under test
         id: tested
