@@ -9,10 +9,10 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
 
 ## Your task
 
-1. **Install the tool - pin the version so a stale build can't shadow it.** This flow uses the permission-scoped multi-host boundary contract and requires **runtime contract 21** (`agents-shipgate` 0.16.0 or newer); an older copy lingering on `PATH` may lack the command or schema fields this prompt expects. Prefer a **pinned, zero-install** runner that fetches the exact version every time instead of trusting whatever is already on `PATH`. **Pin it into one variable and use that for every step below**, so no single command can fall through to a stale binary:
+1. **Install the tool - pin the version so a stale build can't shadow it.** This flow uses the permission-scoped multi-host boundary contract and requires **runtime contract 21**. **No published release reports that contract yet — say so before you start.** The newest published build is `agents-shipgate` `0.15.0`, which reports contract `10`, and every pin below names it because a version the index does not carry cannot be fetched at all: the install fails before any step runs. Run the steps `0.15.0` supports, and at the first step that needs contract `21`, stop and tell the user no released build provides it yet rather than reporting that step as done. An older copy lingering on `PATH` may lack the command or schema fields this prompt expects. Prefer a **pinned, zero-install** runner that fetches the exact version every time instead of trusting whatever is already on `PATH`. **Pin it into one variable and use that for every step below**, so no single command can fall through to a stale binary:
    ```bash
-   SG="uvx agents-shipgate@0.16.0"    # uv: ephemeral, pinned to this exact build
-   # or: SG="pipx run agents-shipgate==0.16.0"
+   SG="uvx agents-shipgate@0.15.0"    # uv: ephemeral, pinned to this exact build
+   # or: SG="pipx run agents-shipgate==0.15.0"
    $SG --version                             # confirm the pinned runner resolves
    ```
    Every step below calls `$SG …`; e.g. `$SG verify --preview --json` runs the verify preview through the pinned runner, never a `PATH` copy.
@@ -106,11 +106,11 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
    writes one manifest for the workspace as a whole, and is right only when a
    single agent surface genuinely spans it.
 
-5. **Replace placeholders.** Walk `placeholders[]` from the JSON output. On a fresh workspace the template typically leaves two:
-   - `agent.name: CHANGE_ME` — replace with the agent's actual role (no strong `Agent(name="…")` literal was found in the source).
-   - `agent.declared_purpose[]: CHANGE_ME` — replace with a one-line description of what the agent should do (auto-init can't infer this; the schema requires a non-empty value).
+5. **Resolve the placeholders you own — and only those.** Walk `placeholders[]` from the JSON output. They do not all have the same owner, and `init` has already routed them: while a human-owned placeholder is unresolved the payload comes back with `control.next_action.actor: "human"`, `control.control_state: "human_review_required"`, and `control.permissions.edit: false`. On a fresh workspace the template typically leaves two, one of each kind:
+   - `agent.name: CHANGE_ME` — **yours.** Replace with the agent's actual role, read from the agent's prompt or main file (no strong `Agent(name="…")` literal was found in the source).
+   - `agent.declared_purpose[]: CHANGE_ME` — **a human's.** It declares what this agent is for, so it must be supplied by a human: Shipgate never invents it, and a value a coding agent supplied is a declaration nobody made. Surface it to a person with the manifest path and the line `init` reported, then stop. Do not derive it from the README, the system prompt, or the main module.
 
-   Read the agent's prompt or main file to derive both. Skipping this leaves an invalid adoption artifact — the manifest validates but downstream consumers see meaningless defaults.
+   Leaving the one you own unresolved gives an invalid adoption artifact — the manifest validates, but downstream consumers see meaningless defaults. Filling the one you do not own forges the very declaration the gate exists to check, and `permissions.edit: false` is Shipgate refusing that edit rather than a state to work around.
 
 6. **Run the scan with patch suggestions** — in the workspace you initialized:
    ```bash

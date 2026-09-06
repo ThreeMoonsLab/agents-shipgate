@@ -444,7 +444,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/discovery/agent_instructions/adoption_kit.py",
         surface="attr_call:importlib.resources.files",
-        line=355,
+        line=359,
         snippet="files('agents_shipgate')",
         rationale=(
             "Resolves bundled adoption-kits/* content inside the "

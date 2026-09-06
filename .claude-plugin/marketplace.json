@@ -9,7 +9,7 @@
     {
       "name": "agents-shipgate",
       "source": "./plugins/claude-code",
-      "description": "Run Agents Shipgate Tool-Use Readiness workflows from Claude Code: detect whether Shipgate applies, bootstrap the advisory gate, verify agent-capability PRs, and triage findings without fabricating human approval. Requires the agents-shipgate CLI (pipx install agents-shipgate, runtime contract 15).",
+      "description": "Run Agents Shipgate Tool-Use Readiness workflows from Claude Code: detect whether Shipgate applies, bootstrap the advisory gate, verify agent-capability PRs, and triage findings without fabricating human approval. Requires the agents-shipgate CLI (pipx install agents-shipgate; the bundled skill names the runtime contract its setup route needs, and `agents-shipgate contract --json` reports the one you have).",
       "version": "0.16.0",
       "author": {
         "name": "Three Moons Lab",

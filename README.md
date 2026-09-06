@@ -878,10 +878,13 @@ Teams shipping production-like tool-using agents can apply to the
 [`docs/design-partners.md`](docs/design-partners.md) in the repo and includes a
 prefilled email CTA for review criteria and contact. The current pilot runbook
 is [`docs/design-partner-verifier-pilot.md`](docs/design-partner-verifier-pilot.md):
-bring one AI-generated agent PR, run the verifier loop, and export redacted
-feedback (`agents-shipgate feedback export --from
-agents-shipgate-reports/verifier.json --redact --out shipgate-feedback.json` —
-never raw report evidence).
+bring one real agent-capability change, run the route that fits the repository,
+and preserve a redacted before/after artifact (`agents-shipgate feedback export
+--from agents-shipgate-reports/verifier.json --redact --out
+shipgate-feedback.json` where a `verifier.json` exists — never raw report
+evidence). What the pilot has actually observed, including the counts that are
+still zero, is published in
+[`docs/design-partner-pilot-results.md`](docs/design-partner-pilot-results.md).
 
 ## Docs
 
@@ -925,6 +928,7 @@ readers and AI search ingest.
 - [Agent entry points](docs/agents/README.md)
 - [Design partners](docs/design-partners.md)
 - [Design partner verifier pilot](docs/design-partner-verifier-pilot.md)
+- [Design partner pilot results](docs/design-partner-pilot-results.md)
 - [Runtime inventory design note](docs/runtime-inventory.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Integration recipes](docs/integrations.md)
