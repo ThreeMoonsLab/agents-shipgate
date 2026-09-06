@@ -816,6 +816,66 @@ def test_a_bare_templates_directory_still_blocks_selection(tmp_path: Path) -> No
     )
     result = detect_workspace(project)
     assert select_agent_name(result.agent_name_candidates) is None
+    # Asserting only "nothing is selectable" would pass on any other reason —
+    # the quality floor, a future rule — while the property this test names
+    # had quietly gone. The rejection has to be *this* one.
+    real_root = next(c for c in result.agent_name_candidates if c.value == "RealRoot")
+    assert "templates/agent.py" in _rejection(real_root)
+
+
+def test_case_folded_template_directory_is_still_scaffolding(
+    tmp_path: Path,
+) -> None:
+    """`Resources/Templates` and `resources/templates` are the same directory
+    on a case-insensitive checkout. Matching the sequence exactly let the
+    #398 symptom survive a spelling difference the filesystem does not
+    make."""
+    project = _write_files(
+        tmp_path / "repo",
+        {
+            "agent.py": ADK_HEADER + 'root_agent = LlmAgent(name="RealRoot")\n',
+            "Skills/Recipe/Resources/Templates/app/agent.py": (
+                ADK_HEADER + UNREADABLE_ROOT
+            ),
+        },
+    )
+    result = detect_workspace(project)
+    selected = select_agent_name(result.agent_name_candidates)
+    assert selected is not None and selected.value == "RealRoot"
+
+
+def test_the_rejection_quotes_the_parse_time_root_over_a_symbol_failure(
+    tmp_path: Path,
+) -> None:
+    """Two unreadable roots in one project: one found while parsing, one only
+    when cross-module resolution fails. The published sentence quotes the
+    parse-time one, which is what the repository-scoped list did before the
+    rejection was scoped. `rationale[]` is pinned byte for byte against the
+    zero-install script, so this precedence is a contract between two
+    implementations, not an implementation detail."""
+    project = _write_files(
+        tmp_path / "both",
+        {
+            "pyproject.toml": '[project]\nname = "both"\n',
+            # Resolution-time, and *first* in walk order on purpose: the
+            # root's name is a symbol that never resolves, which only the
+            # cross-module pass can see. Merging the two passes into one
+            # walk-order loop would make this file win, so the filenames are
+            # what make the assertion about precedence rather than order.
+            "a_symbol.py": (
+                ADK_HEADER
+                + 'NAME = "One"\nNAME = "Two"\n'
+                + 'worker = LlmAgent(name="WorkerAgent")\n'
+                + "root_agent = LlmAgent(name=NAME, sub_agents=[worker])\n"
+            ),
+            # Parse-time: the module symbol is bound to a factory call.
+            "z_parse_time.py": ADK_HEADER + UNREADABLE_ROOT,
+        },
+    )
+    result = detect_workspace(project)
+    worker = next(c for c in result.agent_name_candidates if c.value == "WorkerAgent")
+    assert "z_parse_time.py" in _rejection(worker)
+    assert "a_symbol.py" not in _rejection(worker)
 
 
 def test_a_name_two_projects_declare_is_rejected_when_either_is_blocked(
@@ -839,7 +899,14 @@ def test_a_name_two_projects_declare_is_rejected_when_either_is_blocked(
     result = detect_workspace(workspace)
     shared = next(c for c in result.agent_name_candidates if c.value == "SharedName")
     assert shared.selectable is False
-    assert "project `blocked`" in _rejection(shared)
+    # Every other field of this candidate points at `clean` — the site that
+    # ranked best. Naming `blocked` without saying the value is declared
+    # there too is the #398 complaint again, one project narrower.
+    assert shared.path == "clean/agent.py"
+    assert _rejection(shared).startswith(
+        "rejected: this name is also declared in project `blocked`, which "
+        "declares an application root"
+    )
 
 
 def test_weak_marker_siblings_are_scoped_independently(tmp_path: Path) -> None:

@@ -1068,6 +1068,28 @@ _UNREADABLE_ROOT_SCOPES: dict[str, dict[str, str]] = {
         "agent.py": _ADK_HEADER + 'root_agent = LlmAgent(name="RealRoot")\n',
         "templates/agent.py": _ADK_HEADER + _UNREADABLE_ROOT,
     },
+    # The same directory pair, spelled the way a case-insensitive checkout
+    # may hold it.
+    "case_folded_template": {
+        "agent.py": _ADK_HEADER + 'root_agent = LlmAgent(name="RealRoot")\n',
+        "Skills/Recipe/Resources/Templates/app/agent.py": (
+            _ADK_HEADER + _UNREADABLE_ROOT
+        ),
+    },
+    # Two unreadable roots in one project, found by the two different passes.
+    # Which one the published sentence quotes is a contract between the two
+    # implementations, and the filenames put the resolution-time one first in
+    # walk order so the assertion is about precedence, not order.
+    "two_unreadable_roots": {
+        "pyproject.toml": '[project]\nname = "both"\n',
+        "a_symbol.py": (
+            _ADK_HEADER
+            + 'NAME = "One"\nNAME = "Two"\n'
+            + 'worker = LlmAgent(name="WorkerAgent")\n'
+            + "root_agent = LlmAgent(name=NAME, sub_agents=[worker])\n"
+        ),
+        "z_parse_time.py": _ADK_HEADER + _UNREADABLE_ROOT,
+    },
     # The project's own product root is unreadable: refusal is preserved.
     "own_root": {
         "pyproject.toml": '[project]\nname = "rag"\n',
@@ -1117,9 +1139,42 @@ def test_script_scopes_an_unreadable_root_like_the_cli(script_module, tmp_path, 
         "scaffolding_template": {"RealRoot", "inner"},
         "readable_template": {"ProductHelper", "TemplateRoot"},
         "bare_templates": set(),
+        "case_folded_template": {"RealRoot", "inner"},
+        "two_unreadable_roots": set(),
         "own_root": set(),
     }[label]
     assert selectable == expected
+
+    if label == "shared_name":
+        # Every other field of this candidate names `clean`. Both readers
+        # have to say why `blocked` is the one being quoted.
+        shared = next(
+            candidate
+            for candidate in cli_result["agent_name_candidates"]
+            if candidate["value"] == "SharedName"
+        )
+        assert shared["path"] == "clean/agent.py"
+        assert any(
+            reason.startswith(
+                "rejected: this name is also declared in project `blocked`,"
+            )
+            for reason in shared["rationale"]
+        )
+    if label == "two_unreadable_roots":
+        worker = next(
+            candidate
+            for candidate in cli_result["agent_name_candidates"]
+            if candidate["value"] == "WorkerAgent"
+        )
+        # The rejection line only: `a_symbol.py` is legitimately named by the
+        # *declaration* line above it.
+        rejection = next(
+            reason
+            for reason in worker["rationale"]
+            if "declares an application root" in reason
+        )
+        assert "z_parse_time.py" in rejection
+        assert "a_symbol.py" not in rejection
 
 
 def test_script_names_the_workspace_fallback_marker_like_the_cli(

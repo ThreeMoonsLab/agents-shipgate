@@ -1978,7 +1978,10 @@ def _non_product_origin(rel_path: str) -> str | None:
 
     if _is_test_path(rel_path):
         return "declared in test code, which names fixtures rather than the product"
-    parts = Path(rel_path).parts[:-1]
+    # Case-folded: `Resources/Templates` and `resources/templates` are the
+    # same directory on a case-insensitive checkout, and an exact match let
+    # the #398 symptom survive the spelling difference.
+    parts = tuple(part.lower() for part in Path(rel_path).parts[:-1])
     if any(
         parts[index : index + len(sequence)] == sequence
         for sequence in NON_PRODUCT_DIR_SEQUENCES
@@ -2005,17 +2008,28 @@ def _can_declare_application_root(rel_path: str) -> bool:
     return _non_product_origin(rel_path) is None
 
 
-def _unresolvable_root_rejection(scope: str, detail: str) -> str:
+def _unresolvable_root_rejection(
+    scope: str, detail: str, *, declared_elsewhere: bool
+) -> str:
     """Why no name a project declares may be written as its identity.
 
     ``scope`` is the project's workspace-relative path, so the sentence
     names the project the unreadable root belongs to. #398's report was that
     it named only a file — one in a project the reader was not adopting.
+
+    ``declared_elsewhere`` covers the case that leaves: a value whose
+    best-ranked site sits in a *clean* project and which some blocked
+    project also declares. Every other published field then points at the
+    clean project, and without this clause the reader sees exactly the #398
+    complaint again — a rejection naming a project their candidate has no
+    visible relationship to. The relationship is the whole justification, so
+    it is stated.
     """
 
     where = "this workspace" if scope == "." else f"project `{scope}`"
+    opening = f"this name is also declared in {where}, which" if declared_elsewhere else where
     return (
-        f"{where} declares an application root whose name is not statically "
+        f"{opening} declares an application root whose name is not statically "
         f"resolvable ({detail}); every other name it declares is by "
         "construction not that root, so none of them can be the reviewed "
         "identity"
@@ -2226,10 +2240,16 @@ def _rank_agent_name_candidates(
     best: dict[str, _RankedName] = {}
     # Every project a value is declared in, not only the site that scored
     # best: the rejection below asks whether *any* of them is blocked, and
-    # `best` keeps one entry per value.
+    # `best` keeps one entry per value. `best_project` is the project of the
+    # site `best` kept, which is the one every other published field of the
+    # candidate points at.
     declared_in: dict[str, list[Path]] = {}
+    best_project: dict[str, Path] = {}
     order = 0
     for fact in facts:
+        # Invariant across the evidence in one file, and `of()` pays a stat
+        # before it reaches its cache, so it is asked once per file.
+        project = attribution.of(fact.path)[0]
         for evidence in fact.agent_names:
             resolved = _resolve_agent_name_evidence(evidence, fact, by_path, workspace)
             if resolved is None:
@@ -2246,25 +2266,35 @@ def _rank_agent_name_candidates(
                 order=order,
             )
             order += 1
-            project = attribution.of(fact.path)[0]
             projects = declared_in.setdefault(value, [])
             if project not in projects:
                 projects.append(project)
             previous = best.get(value)
             if previous is None or ranked.score > previous.score:
                 best[value] = ranked
+                best_project[value] = project
 
     for value, ranked in best.items():
-        blocking = [
-            project for project in declared_in[value] if project in blocked_projects
-        ]
+        # The candidate's own project first when it is blocked, so the
+        # sentence names the project every other field already points at;
+        # declaration order decides the rest.
+        blocking = sorted(
+            (
+                project
+                for project in declared_in[value]
+                if project in blocked_projects
+            ),
+            key=lambda project: project != best_project[value],
+        )
         if not blocking:
             continue
         ranked.selectable = False
         ranked.rationale.append(
             "rejected: "
             + _unresolvable_root_rejection(
-                attribution.relative(blocking[0]), blocked_projects[blocking[0]]
+                attribution.relative(blocking[0]),
+                blocked_projects[blocking[0]],
+                declared_elsewhere=blocking[0] != best_project[value],
             )
         )
 

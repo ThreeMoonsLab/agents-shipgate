@@ -68,6 +68,19 @@
   use; an unreadable root anywhere else still stops selection, and a project
   whose own product root is unreadable still refuses with `CHANGE_ME`.
 
+  One consequence is worth stating rather than discovering: where the *only*
+  agent evidence in a workspace is non-product code, an unreadable root there
+  used to force `CHANGE_ME`, and now the fixture or template name is written.
+  That guard was accidental — a readable root in the same file already had its
+  name written before this change — so what this does is make the two cases
+  agree, not open a new one. The general rule it points at, that a name only
+  non-product code declares should never be asserted as the reviewed identity,
+  is [#533](https://github.com/ThreeMoonsLab/agents-shipgate/issues/533); it
+  would close the readable case too and is a wider decision than this fix. The
+  same widening reaches `init --write --allow-unresolved-scope`, whose whole
+  contract is already "adopt the first agent name it parsed" on a workspace
+  with several unrelated projects.
+
   `tools/shipgate-detect.py` carries the same change (`script_version`
   `0.6.0`): `agent_name_candidates` is the field the zero-install path pins
   byte for byte, so a script that scoped the rejection differently would name a

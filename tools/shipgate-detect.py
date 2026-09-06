@@ -3153,7 +3153,10 @@ def _non_product_origin(rel: str) -> str | None:
     """
     if _is_test_path(rel):
         return "declared in test code, which names fixtures rather than the product"
-    parts = Path(rel).parts[:-1]
+    # Case-folded: `Resources/Templates` is the same directory on a
+    # case-insensitive checkout, and an exact match let the symptom survive
+    # the spelling difference.
+    parts = tuple(part.lower() for part in Path(rel).parts[:-1])
     if any(
         parts[index:index + len(sequence)] == sequence
         for sequence in NON_PRODUCT_DIR_SEQUENCES
@@ -3174,11 +3177,20 @@ def _can_declare_application_root(rel: str) -> bool:
     return _non_product_origin(rel) is None
 
 
-def _unresolvable_root_rejection(scope: str, detail: str) -> str:
-    """Why no name a project declares may be written as its identity."""
+def _unresolvable_root_rejection(scope: str, detail: str, *,
+                                 declared_elsewhere: bool) -> str:
+    """Why no name a project declares may be written as its identity.
+
+    ``declared_elsewhere`` covers a value whose best-ranked site sits in a
+    clean project while a blocked project also declares it: every other
+    published field points at the clean project, so the relationship that
+    justifies the rejection has to be stated.
+    """
     where = "this workspace" if scope == "." else f"project `{scope}`"
+    opening = (f"this name is also declared in {where}, which"
+               if declared_elsewhere else where)
     return (
-        f"{where} declares an application root whose name is not statically "
+        f"{opening} declares an application root whose name is not statically "
         f"resolvable ({detail}); every other name it declares is by "
         "construction not that root, so none of them can be the reviewed "
         "identity"
@@ -3302,10 +3314,15 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
 
     best: dict[str, dict[str, Any]] = {}
     # Every project a value is declared in, not only its best-scoring site.
+    # `best_project` is the project of the site `best` kept — the one every
+    # other published field of the candidate points at.
     declared_in: dict[str, list[str]] = {}
+    best_project: dict[str, str] = {}
     order = 0
     for path, facts in py_facts:
         rel = _rel(path, workspace)
+        # Invariant across the evidence in one file, so it is asked once.
+        project = attribution.of(path)[0]
         for evidence in facts["names"]:
             resolved = _resolve_agent_name(evidence, path, facts, by_path, workspace)
             if resolved is None:
@@ -3363,13 +3380,13 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
                 "_order": order,
             }
             order += 1
-            project = attribution.of(path)[0]
             projects = declared_in.setdefault(value, [])
             if project not in projects:
                 projects.append(project)
             previous = best.get(value)
             if previous is None or ranked["rank_score"] > previous["rank_score"]:
                 best[value] = ranked
+                best_project[value] = project
 
     # A root whose *name* is a symbol that fails cross-module resolution is
     # just as unresolved as one whose name is an f-string; it surfaces here
@@ -3388,15 +3405,22 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
                     "static value",
                 )
     for value, ranked in best.items():
-        blocking = [
-            project for project in declared_in[value] if project in blocked_projects
-        ]
+        # The candidate's own project first when it is blocked, so the
+        # sentence names the project every other field already points at.
+        blocking = sorted(
+            (p for p in declared_in[value] if p in blocked_projects),
+            key=lambda p: p != best_project[value],
+        )
         if not blocking:
             continue
         ranked["selectable"] = False
         ranked["rationale"].append(
             "rejected: "
-            + _unresolvable_root_rejection(blocking[0], blocked_projects[blocking[0]])
+            + _unresolvable_root_rejection(
+                blocking[0],
+                blocked_projects[blocking[0]],
+                declared_elsewhere=blocking[0] != best_project[value],
+            )
         )
 
     ordered = sorted(
