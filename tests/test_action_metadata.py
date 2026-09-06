@@ -428,19 +428,26 @@ def _jobs_running_the_whole_suite() -> list[tuple[Path, str, dict]]:
     return found
 
 
-def test_jobs_running_the_whole_suite_check_out_history_and_tags():
-    """The suite reads a released build's contract out of its own tag.
+def test_jobs_running_the_whole_suite_check_out_release_tags():
+    """The suite reads release tags, so any job running it must fetch them.
 
-    ``tests/test_distribution_surface_parity.py::test_published_build_table_matches_the_tag``
-    corroborates the committed ``PUBLISHED_BUILDS`` table against the real
-    ``v0.15.0``, and refuses to skip when ``CI`` is set — a check that skips in
-    CI is not a check. The default ``actions/checkout`` fetch is shallow and
-    tagless, so any job running the whole suite has to ask for more.
+    ``tests/test_adopter_pins_resolve.py`` checks every pin ``init`` writes into
+    an adopter's repository against this repository's tag history, and reads the
+    published release's ``CONTRACT_VERSION`` out of the tag itself. The default
+    ``actions/checkout`` fetch brings no tags, and that file fails loudly rather
+    than passing over an empty tag list — correctly, since a check that skips is
+    not a check.
 
-    This exists because updating only `ci.yml` left `release-verify.yml`
-    checking out the candidate the default way and then running the full suite,
-    which `release.yml` and `release-rehearsal.yml` both call. The PR's own CI
-    was green; the release path would not have been.
+    ``ci.yml``'s ``suite`` and ``release-verify.yml``'s ``tests`` both set
+    ``fetch-tags: true`` today. This asserts the property rather than trusting
+    two hand-edited files to stay in step: they were fixed one at a time once
+    already, and ``release-verify.yml`` is called by both ``release.yml`` and
+    ``release-rehearsal.yml``, so a job left behind there goes red on the
+    release path while every pull request stays green.
+
+    ``fetch-depth`` is deliberately not required. Depth-1 with tags brings each
+    tag's commit and tree, which is all the tag reads need; demanding a full
+    history would cost every shard a deeper clone for nothing.
     """
 
     jobs = _jobs_running_the_whole_suite()
@@ -459,13 +466,9 @@ def test_jobs_running_the_whole_suite_check_out_history_and_tags():
         assert checkouts, f"{path.name}:{job_name} runs the suite without a checkout"
         for step in checkouts:
             options = step.get("with") or {}
-            assert options.get("fetch-depth") == 0, (
+            assert options.get("fetch-tags") is True or options.get("fetch-depth") == 0, (
                 f"{path.name}:{job_name} runs the whole suite but checks out "
-                "with the default shallow fetch. Add `fetch-depth: 0`."
-            )
-            assert options.get("fetch-tags") is True, (
-                f"{path.name}:{job_name} runs the whole suite but does not "
-                "fetch tags. Add `fetch-tags: true`."
+                "without release tags. Add `fetch-tags: true`."
             )
 
 

@@ -366,8 +366,17 @@ def _covering_export(
     restatement, and only then is withholding it lossless.
     """
 
+    candidates = sorted(exported_source_paths)
+    if not candidates:
+        # No export at all, which is the *common* case here: a server whose
+        # tool surface exists only as source is the population this input
+        # exists for. `names - covered` would be every name, and the caller
+        # renders a non-empty shortfall as "an MCP tool export is also present
+        # and does not name them" — a statement about a file that does not
+        # exist, in the evidence a human reads when deciding whether to adopt.
+        return None, set()
     covered: set[str] = set()
-    for candidate in sorted(exported_source_paths):
+    for candidate in candidates:
         exported = _export_tool_names(workspace, candidate)
         if exported is None:
             continue

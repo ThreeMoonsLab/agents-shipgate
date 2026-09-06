@@ -2,6 +2,109 @@
 
 ## Unreleased
 
+- **Everything `init` writes into an adopter's repository now names a release
+  that exists.** (#506) `init --write --ci` generated
+  `uses: ThreeMoonsLab/agents-shipgate@v0.16.0`, and no such tag had ever been
+  cut — GitHub fails that job at action-resolution time, so a first-time
+  adopter's very first Shipgate run was a red check carrying an error about
+  *our* repository rather than theirs. The bundled onboarding prompt had the
+  same defect one layer up (`uvx agents-shipgate@0.16.0`, a version the index
+  does not carry). Every render since 2026-07-09 pinned a nonexistent ref — 56
+  days of them by the time #506 was filed.
+
+  Two conventions coexisted and only one was correct. The docs, `llms.txt`,
+  `.well-known` and the Action examples tracked the latest published tag; the
+  one artifact that gets *executed* by a stranger's CI tracked `__version__`,
+  which for the whole interval between releases is a version nothing can
+  fetch. `LATEST_PUBLISHED_VERSION` moves into
+  `src/agents_shipgate/published_release.py` as the single constant every
+  surface — documentation and emitted artifact alike — derives from.
+
+  Pinning the published release keeps the pin resolvable but does not make it
+  *sufficient*, and conflating those is what the previous fix got wrong: the
+  bundled prompts demand runtime contract 21, and `v0.15.0` emits contract 10.
+  So the prompts now state that gap where they state the pin, rendered from
+  `LATEST_PUBLISHED_CONTRACT_VERSION` — which is read back out of the tag
+  itself by the suite, not asserted about it. The honest output when the newest
+  published build predates the floor is to say so; it is never to pin a build
+  that cannot be fetched.
+
+  `tests/test_init_ci.py` asserted the defect, which is why it shipped. It now
+  requires a published tag, and `tests/test_adopter_pins_resolve.py` sweeps
+  every pin shape across everything `init` emits — driven off `SPECS`, the
+  registry `--agent-instructions` itself selects from, so a target added there
+  is swept the day it is registered rather than the day someone remembers.
+  The sweep fails on an empty tag list rather than passing over one, asserts
+  each pin shape was actually found, and carries two negative controls that
+  re-introduce the defect. Cutting `v0.16.0` is not what fixes this: the rule
+  is "names a tag that exists", so it holds on the first commit after the tag
+  too.
+
+- **Four lexer defects in the MCP registration reader, fixed in both
+  implementations.** (#485 review) Found reviewing the zero-install port; all
+  four were in the reader #431 shipped, so the port had copied them rather than
+  introduced them. Two invent a tool name, which is the one outcome a reader of
+  a *name* cannot afford, and two lose a whole file's surface:
+
+  - A `${…}` holds code, so a brace inside a string, comment, regex or nested
+    template is not a structural brace. ``const msg = `brace: ${"{"}`;`` left
+    the substitution open and consumed the rest of the file as one unterminated
+    template — every registration after that line gone, and a workspace
+    declaring an MCP dependency reported as "not an agent project" over a brace
+    in a string.
+  - A line break ends a JavaScript initializer only when what follows cannot
+    continue the expression. `static toolName = "safe"` with `+ "_delete"` on
+    the next line published `safe` at `medium` confidence for a tool the server
+    registers as `safe_delete`.
+  - The regex heuristic now resolves the keyword in front of a slash from the
+    *masked* source. Read from the raw text, a comment between `if` and its
+    condition hid the keyword, the slash was read as division, and the pattern
+    was scanned as code — reporting a tool invented out of a regex body, which
+    is precisely what masking exists to make impossible.
+  - A backslash before CRLF is one line continuation, not `\r` plus a line
+    break. The identical file resolved its registration on a Unix checkout and
+    lost it on a Git-for-Windows one.
+
+  Each is an expected-result case in `tests/mcp_idiom_corpus.py`, so both
+  readers are pinned to the corrected behaviour rather than to each other's
+  agreement, and the CRLF sweep now has a continuation case that actually
+  exercises it. The three vendor servers this input exists for are unaffected —
+  61, 114 and 114 tools before and after.
+
+- **The zero-install detector reads MCP registration sites, so it stops
+  telling vendor MCP server maintainers to stop.** (#485) `tools/shipgate-detect.py`
+  is the documented first command run against a repository that has *not*
+  adopted Shipgate — which is every repository #431 was about. #431 taught the
+  installed CLI to read a tool's name out of a TypeScript or Go registration
+  site; the script did not gain it, so the two disagreed on the one question
+  the script exists to answer: `mongodb-js/mongodb-mcp-server` (61 tools),
+  `github/github-mcp-server` (110) and `grafana/mcp-grafana` (114) were agent
+  projects to the CLI and "Stop, not an agent project" to the script. The
+  masking lexer, the five idioms, the path predicate, the dependency gate and
+  the export-precedence rule are now all in the script too, stdlib-only.
+
+  Porting a load-bearing matcher means a second implementation of it, which is
+  this repository's recurring bug class. What makes it affordable is that the
+  two are not allowed to become *different* implementations: every case either
+  reader has ever been asked about now lives once in `tests/mcp_idiom_corpus.py`
+  — every idiom's positive sample, the whole adversarial sweep, the path
+  predicate's cases and both escape grammars — and both readers are driven
+  through all of it, compared site by site including each site's byte span.
+  `samples/mcp_source_only_server` puts the route inside the existing
+  `samples/` parity sweep, nine constructed workspaces pin the branches around
+  it (covering export, partial export, wildcard export, no dependency, no
+  resolved registration, test-only registrations, two registration
+  directories), and `test_framework_vocabulary_names_every_cli_omission` now
+  passes with an empty `known_omissions`.
+
+  One defect surfaced while porting and is fixed in both: with no MCP export in
+  the workspace at all, `_covering_export` returned every resolved name as
+  "uncovered", and the caller renders a shortfall as *"An MCP tool export is
+  also present and does not name N of these registrations"*. A server whose
+  surface exists only as source is the population this input was built for, so
+  that claim about a file that does not exist was published into the adoption
+  evidence for every one of them.
+
 - **Ten distribution surfaces, one registry, and a test that they agree with
   the engine.** (#497) One engine is published through `action.yml`, `plugins/`,
   `skills/`, `adoption-kits/`, `harness/`, `examples/`, `prompts/`, `policies/`,
@@ -77,6 +180,19 @@
   and tagless before running the whole suite, so the release path would have
   gone red on a green PR. That checkout is fixed and the contract is now
   asserted for every job that runs the suite, whichever workflow adds one next.
+
+  #485 and #506 landed while this was in review, which is the first real test of
+  the exemption mechanism: all three registered gaps flipped to `XPASS`, their
+  strict markers failed, and the exemptions had to be removed to get back to
+  green. `KNOWN_GAPS` is empty because it worked, and the registry records what
+  each gap was rather than quietly dropping it. The same merge removed a
+  duplicate: #506's `agents_shipgate.published_release` and its pin-shape table
+  are now imported rather than restated, leaving this harness the half that file
+  does not reach — pins committed under a registered surface, found by path. That
+  immediately caught an `@main` in a committed CI example, which turns out to be
+  the one case #497's rule allows — an explicit version incompatibility rather
+  than an unresolvable pin — so it is enumerated as a declared exception whose
+  file has to say why, and an unexplained `@main` elsewhere still fails.
 
   Known divergences are rows, not omissions. `#485`'s exact case — a minimized
   TypeScript and Go MCP server whose tool surface exists only as registration

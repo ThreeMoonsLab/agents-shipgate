@@ -37,13 +37,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          # Full history and tags, so
-          # `tests/test_distribution_surface_parity.py` can read the released
-          # build's contract back out of its own tag and corroborate the
-          # committed `PUBLISHED_BUILDS` table. On a shallow clone that check
-          # can only skip, and a check that skips in CI is not a check. This
-          # repository is a few hundred commits; the clone cost is noise.
-          fetch-depth: 0
+          # Tags, because `tests/test_adopter_pins_resolve.py` checks the pins
+          # `init` writes into an adopter's repository against this
+          # repository's release tags — the check whose absence let a workflow
+          # pinned to a tag that was never cut ship for 56 days (#506). The
+          # default shallow fetch brings none, and that test fails loudly
+          # rather than passing over an empty tag list.
           fetch-tags: true
 
       - name: Set up Python

@@ -24,6 +24,21 @@ today; the day the owning fix lands the row starts passing, the strict marker
 turns that into a failure, and the gap has to be retired. A gap cannot rot here
 unnoticed, which is the property the previous arrangement lacked.
 
+That is not a hypothetical. Three gaps were registered when this module was
+written — the detector's missing ``mcp_server_source`` route (#485) and two
+unpublished-pin gaps (#506) — and both fixes landed while this branch was open.
+Every row flipped to ``XPASS``, every strict marker failed, and the exemptions
+had to be removed to get back to green. :data:`KNOWN_GAPS` is empty because it
+worked.
+
+**Deriving beats duplicating, including here.** #506 shipped
+``agents_shipgate.published_release`` and ``tests/test_adopter_pins_resolve.py``
+while this branch held its own copy of the same table and pin shapes. The copy
+is gone: the release constants are imported, the pin shapes are imported, and
+what remains is the half that file does not reach — pins **committed** under a
+registered surface, found by path rather than from a list, so an example or a
+runbook added later is covered without anyone remembering to enumerate it.
+
 **Offline by construction.** Resolvability is judged against committed release
 metadata (``.well-known/agents-shipgate.json``), never the network. The live
 check that the claimed tag exists on origin is the ``release-tag-consistency``
@@ -35,7 +50,6 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
-import os
 import re
 import subprocess
 import sys
@@ -50,18 +64,23 @@ import yaml
 from agents_shipgate import __version__
 from agents_shipgate.cli.discovery import detect_workspace
 from agents_shipgate.cli.discovery.agent_instructions.adoption_kit import _render_template
-from agents_shipgate.cli.discovery.ci_workflow import (
-    WORKFLOW_RELATIVE_PATH,
-    write_ci_workflow,
-)
 from agents_shipgate.cli.discovery.placeholders import placeholder_owner
 from agents_shipgate.cli.setup_control import _PLACEHOLDER_REVIEW_TAIL
+from agents_shipgate.published_release import (
+    LATEST_PUBLISHED_CONTRACT_VERSION,
+    LATEST_PUBLISHED_VERSION,
+)
 from agents_shipgate.schemas.contract import (
-    CONTRACT_VERSION,
     MERGE_VERDICTS,
-    MINIMUM_CONTROL_CONTRACT_VERSION,
     RELEASE_DECISIONS,
 )
+
+# One definition of the shapes an adopter's machine has to resolve. #506 owns
+# that rule and `tests/test_adopter_pins_resolve.py` owns the shapes; importing
+# them is the whole point of this module, which exists to stop a second
+# implementation of an answer the repository already gives. The same file owns
+# the reader-blank allowlist, so `@v<NEW>` cannot be mistaken for a bad ref.
+from tests.test_adopter_pins_resolve import PIN_SHAPES, READER_BLANK_REFS, _expected
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REGISTRY_DOC = REPO_ROOT / "docs" / "distribution-surfaces.md"
@@ -107,9 +126,21 @@ class Surface:
         return [REPO_ROOT / root for root in self.roots]
 
 
-_PIN = ("test_executable_pin_resolves_in_a_published_channel",)
+#: A claim may be proved by a test in another module. `#506` owns the pins and
+#: contract floors of everything `init` emits, and naming its tests here is the
+#: point: the registry records which test proves a claim, not which test *this
+#: file* happens to contain. `test_every_claim_names_a_test_that_exists` resolves
+#: names in either module.
+_ADOPTER_PINS = "tests/test_adopter_pins_resolve.py"
+
+_PIN = (
+    "test_executable_pin_resolves_in_a_published_channel",
+    f"{_ADOPTER_PINS}::test_every_pin_init_writes_into_an_adopter_repo_names_the_published_release",
+)
 _OWNERSHIP = ("test_surface_routes_human_owned_placeholders_to_a_human",)
-_FLOOR = ("test_contract_floor_is_reachable_in_the_build_the_surface_names",)
+_FLOOR = (
+    f"{_ADOPTER_PINS}::test_the_shipped_floor_is_decided_against_the_release_the_prompts_pin",
+)
 _VOCABULARY = ("test_surface_enumerations_match_the_engine_vocabulary",)
 
 SURFACES: tuple[Surface, ...] = (
@@ -131,7 +162,11 @@ SURFACES: tuple[Surface, ...] = (
     Surface(
         "emitted_ci_workflow",
         ("src/agents_shipgate/cli/discovery/ci_workflow.py",),
-        {"executable_pin": ("test_emitted_ci_workflow_pins_a_published_ref",)},
+        {
+            "executable_pin": (
+                f"{_ADOPTER_PINS}::test_the_emitted_workflow_pins_the_release_and_not_the_source_tree",
+            )
+        },
     ),
     Surface(
         "prompts",
@@ -220,35 +255,16 @@ class ParityGap:
     issue: int
 
 
-KNOWN_GAPS: tuple[ParityGap, ...] = (
-    ParityGap("detector-mcp-server-source", ("zero_install_detector",), 485),
-    ParityGap("emitted-workflow-unpublished-pin", ("emitted_ci_workflow",), 506),
-    ParityGap(
-        "rendered-prompt-unpublished-pin",
-        ("prompts", "skills", "plugins", "adoption_kits"),
-        506,
-    ),
-)
+#: Empty, and it earned that. Three gaps were registered here when this branch
+#: opened — the detector's missing ``mcp_server_source`` route (#485) and two
+#: unpublished-pin gaps (#506) — each an ``xfail(strict=True)`` row that would
+#: fail the moment its fix landed. Both fixes landed while the branch was open,
+#: every row flipped to XPASS, the strict markers failed, and the exemptions had
+#: to be removed to get back to green. That is the mechanism working; the record
+#: is in `docs/distribution-surfaces.md` § Known parity gaps.
+KNOWN_GAPS: tuple[ParityGap, ...] = ()
 
 GAPS_BY_ID = {gap.id: gap for gap in KNOWN_GAPS}
-
-
-def _gap_marks(gap_id: str) -> list[pytest.MarkDecorator]:
-    """``xfail(strict=True)`` naming the gap and the issue that owns it."""
-
-    gap = GAPS_BY_ID[gap_id]
-    return [
-        pytest.mark.xfail(
-            strict=True,
-            reason=(
-                f"known parity gap {gap.id!r} on "
-                f"{', '.join(gap.surfaces)}, owned by "
-                f"#{gap.issue}. When that lands this row passes, the strict marker "
-                "fails, and the gap is retired from KNOWN_GAPS and from "
-                "docs/distribution-surfaces.md."
-            ),
-        )
-    ]
 
 
 #: Every tracked top-level repository entry that is *not* part of a distribution
@@ -295,66 +311,16 @@ NOT_A_DISTRIBUTION_SURFACE: dict[str, str] = {
 
 
 # --------------------------------------------------------------------------
-# Release channels, read from committed metadata. No network.
+# Release channels. Read from the package, not re-derived here.
 # --------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class PublishedBuild:
-    """What a published build actually implements.
-
-    Committed rather than derived at run time so the suite is deterministic in a
-    shallow clone. :func:`test_published_build_table_matches_the_tag` reads the
-    real tag back and corroborates it wherever the tag object is present, and
-    ``release-tag-consistency`` in ``.github/workflows/ci.yml`` is what proves
-    the tag exists at all.
-    """
-
-    version: str
-    contract_version: str
-
-
-PUBLISHED_BUILDS: dict[str, PublishedBuild] = {
-    # v0.15.0 shipped `CONTRACT_VERSION = "10"` and no
-    # `MINIMUM_CONTROL_CONTRACT_VERSION` at all: the agent-control envelope
-    # landed after the tag. Surfaces that name this build must not demand a
-    # contract it cannot reach.
-    "0.15.0": PublishedBuild("0.15.0", "10"),
-}
-
-
-def published_version() -> str:
-    """The newest release a reader can actually install, from committed metadata."""
-
-    payload = json.loads(WELL_KNOWN.read_text(encoding="utf-8"))
-    latest = payload["release_status"]["latest_release"]
-    assert latest.startswith("v"), f"latest_release {latest!r} should be a v-prefixed tag"
-    return latest[1:]
-
-
-def source_build_contract() -> str:
-    """The contract of the tree emitting these surfaces."""
-
-    return CONTRACT_VERSION
-
-
-def contract_of(version: str) -> str:
-    """The runtime contract the build ``version`` implements.
-
-    The source build is whatever this tree is; anything else has to be in
-    :data:`PUBLISHED_BUILDS`, because a claim about a build nobody recorded is
-    not a claim anybody can check.
-    """
-
-    if version == __version__:
-        return source_build_contract()
-    build = PUBLISHED_BUILDS.get(version)
-    assert build is not None, (
-        f"No committed record of what build {version!r} implements. Add it to "
-        "PUBLISHED_BUILDS (and to the channel table in "
-        "docs/distribution-surfaces.md) before a surface names it."
-    )
-    return build.contract_version
+#
+# `agents_shipgate.published_release` is the source of truth for what a
+# stranger can actually fetch — `LATEST_PUBLISHED_VERSION` and the
+# `CONTRACT_VERSION` that release emits — and `tests/test_adopter_pins_resolve.py`
+# binds both to this repository's tag history and to `.well-known`. This module
+# held its own copy of that table for one review round; #506 landed the real one
+# while this branch was open, and carrying the second would have been the exact
+# defect the registry exists to catch.
 
 
 # --------------------------------------------------------------------------
@@ -368,7 +334,15 @@ def _registry_text() -> str:
     return REGISTRY_DOC.read_text(encoding="utf-8")
 
 
-def _registry_section(heading: str) -> str:
+def _registry_section(heading: str, *, stop_at_subsection: bool = False) -> str:
+    """The body of one ``##`` section.
+
+    ``stop_at_subsection`` stops at the first ``###`` too. The gaps section needs
+    it: its live table is what the code is checked against, while the ``###
+    Closed`` table below is history — a record of three exemptions that expired
+    on their own — and reading history as a live gap would resurrect all three.
+    """
+
     text = _registry_text()
     marker = f"\n## {heading}\n"
     start = text.find(marker)
@@ -377,8 +351,10 @@ def _registry_section(heading: str) -> str:
         "a heading breaks the code that reads it — rename it in both places."
     )
     rest = text[start + 1 :]
-    end = rest.find("\n## ", 1)
-    return rest if end == -1 else rest[:end]
+    ends = [offset for offset in (rest.find("\n## ", 1),) if offset != -1]
+    if stop_at_subsection:
+        ends += [offset for offset in (rest.find("\n### ", 1),) if offset != -1]
+    return rest if not ends else rest[: min(ends)]
 
 
 def _table_rows(section: str) -> list[list[str]]:
@@ -425,10 +401,13 @@ def _documented_surfaces() -> dict[str, dict[str, set[str]]]:
 
 
 def _documented_gaps() -> dict[str, set[str]]:
-    """The gap table, as ``{gap id: surface ids}``."""
+    """The *live* gap table, as ``{gap id: surface ids}``. Empty is a valid state."""
 
+    section = _registry_section("Known parity gaps", stop_at_subsection=True)
+    if not any(line.strip().startswith("|") for line in section.splitlines()):
+        return {}
     documented: dict[str, set[str]] = {}
-    for cells in _table_rows(_registry_section("Known parity gaps")):
+    for cells in _table_rows(section):
         assert len(cells) == 4, f"unexpected gap row shape: {cells!r}"
         ids = _backticked(cells[0])
         assert len(ids) == 1, f"gap row must open with one `id`: {cells!r}"
@@ -436,15 +415,31 @@ def _documented_gaps() -> dict[str, set[str]]:
     return documented
 
 
-def _defined_test_names() -> set[str]:
-    """Every test function this module defines, read from its own source."""
-
-    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+def _test_names_in(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     return {
         node.name
         for node in tree.body
         if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
     }
+
+
+def _defined_test_names() -> set[str]:
+    """Every proving-test name a registry row may use.
+
+    Bare names are this module's own. A ``<module path>::<name>`` entry names a
+    test in another file — which the registry has to allow, because a claim is
+    proved by whichever test actually proves it, and #506 owns the pins and
+    floors of everything ``init`` emits. Both forms are resolved against real
+    source, so neither can name a function that is not there.
+    """
+
+    names = set(_test_names_in(Path(__file__)))
+    for relpath in {_ADOPTER_PINS}:
+        module = REPO_ROOT / relpath
+        assert module.is_file(), f"registry names tests in {relpath}, which is gone"
+        names |= {f"{relpath}::{name}" for name in _test_names_in(module)}
+    return names
 
 
 def test_registry_document_exists_and_is_referenced_from_contributing():
@@ -588,7 +583,7 @@ def test_stale_classifications_are_removed():
 
 
 def test_known_gaps_are_documented_with_an_owner():
-    section = _registry_section("Known parity gaps")
+    section = _registry_section("Known parity gaps", stop_at_subsection=True)
     documented = _documented_gaps()
     for gap in KNOWN_GAPS:
         unregistered = set(gap.surfaces) - set(SURFACES_BY_ID)
@@ -644,14 +639,10 @@ PARITY_WORKSPACES: tuple[ParityWorkspace, ...] = (
     # #485's exact case, minimized: an MCP server whose tool surface exists only
     # as registration sites in TypeScript / Go source.
     ParityWorkspace(
-        "ts_registertool_positive",
-        CORPUS_ROOT / "ts_registertool_positive",
-        gap="detector-mcp-server-source",
+        "sample_mcp_source_only_server", SAMPLES_ROOT / "mcp_source_only_server"
     ),
     ParityWorkspace(
-        "go_tool_struct_positive",
-        CORPUS_ROOT / "go_tool_struct_positive",
-        gap="detector-mcp-server-source",
+        "go_tool_struct_positive", CORPUS_ROOT / "go_tool_struct_positive"
     ),
     # The provenance gate: the registration idiom is spelled exactly, but the
     # repository declares no MCP dependency, so neither implementation may claim
@@ -711,13 +702,8 @@ def detector_divergences(
     return divergences
 
 
-def _detector_row(workspace: ParityWorkspace) -> Any:
-    marks = _gap_marks(workspace.gap) if workspace.gap else []
-    return pytest.param(workspace, marks=marks, id=workspace.id)
-
-
 @pytest.mark.parametrize(
-    "workspace", [_detector_row(w) for w in PARITY_WORKSPACES]
+    "workspace", PARITY_WORKSPACES, ids=lambda w: w.id
 )
 def test_detector_verdict_matches_cli(detector: Any, workspace: ParityWorkspace):
     """`tools/shipgate-detect.py` answers what `detect` answers.
@@ -757,16 +743,22 @@ def test_detector_comparison_reports_a_seeded_divergence():
     assert not detector_divergences(changed, changed)
 
 
-def test_parity_corpus_covers_the_shape_that_produced_the_gap():
+def test_parity_corpus_covers_the_registration_site_route():
     """The corpus has to contain the case, not merely a case.
 
-    A row that both implementations happen to agree on proves nothing about
-    #485. These fixtures exist because the CLI reads a tool surface out of them
-    that no ``samples/`` fixture carries.
+    A row both implementations happen to agree on proves nothing about #485.
+    Two shapes have to be present: the TypeScript one, now a committed sample,
+    and the Go one, which `samples/` still has none of. When these rows were
+    added the detector answered `false` for both and they were registered gaps;
+    #485 landed, they turned green, and the gaps were retired.
     """
 
-    positives = [w for w in PARITY_WORKSPACES if w.gap == "detector-mcp-server-source"]
-    assert len(positives) >= 2, "want a TypeScript and a Go registration-site case"
+    positives = [
+        w
+        for w in PARITY_WORKSPACES
+        if w.id in {"sample_mcp_source_only_server", "go_tool_struct_positive"}
+    ]
+    assert len(positives) == 2, "want a TypeScript and a Go registration-site case"
     for workspace in positives:
         cli_result = detect_workspace(workspace.path.resolve()).model_dump(mode="json")
         assert cli_result["is_agent_project"] is True, workspace.id
@@ -938,6 +930,38 @@ def test_alternation_reader_sees_a_seeded_extra_value():
         "mergeable",
         "needs_a_wizard",
     }
+
+
+def _rendered(path: Path) -> str:
+    """A kit template as the adopter receives it.
+
+    ``adoption-kits/`` is the renderer's *input*: its pins are
+    ``{{ shipgate_version }}``, so reading the literal would check a template
+    variable rather than the ref a reader runs. Substituted through the
+    package's own renderer, not a copy of it — a harness that re-implemented
+    rendering to check for second implementations would be the joke it sounds
+    like, and would go on passing after the real renderer changed. Untemplated
+    files pass through unchanged.
+    """
+
+    return _render_template(path.read_text(encoding="utf-8"))
+
+
+def test_rendering_here_is_the_packages_own_rendering():
+    """Pin the helper above to the renderer, so a context change reaches it.
+
+    ``shipgate_version`` renders the newest *published* release, not this tree's
+    version — that is #506's fix, and asserting it here is what would have
+    caught this helper still substituting ``__version__`` after the rule moved.
+    """
+
+    assert _render_template("{{ shipgate_version }}") == LATEST_PUBLISHED_VERSION
+    assert _render_template("{{ shipgate_version }}") != __version__, (
+        "the source tree and the newest published release are the same version, "
+        "so this assertion no longer distinguishes the two rules. That is the "
+        "state right after a release; re-check it at the next version bump."
+    )
+    assert _render_template("no placeholders here") == "no placeholders here"
 
 
 #: A braced set literal, the one shape that is unambiguously a surface saying
@@ -1298,55 +1322,23 @@ def test_agent_owned_placeholders_are_not_routed_to_a_human():
 # --------------------------------------------------------------------------
 # executable_pin — a ref a reader will actually run.
 # --------------------------------------------------------------------------
-
-_VERSION = r"\d+\.\d+\.\d+(?:[A-Za-z]+\d*)?"
-PIN_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("action", re.compile(rf"ThreeMoonsLab/agents-shipgate@v({_VERSION})")),
-    ("pip", re.compile(rf"agents-shipgate==({_VERSION})")),
-    ("uvx", re.compile(rf"agents-shipgate@({_VERSION})")),
-    # The Action's own package-version input. `action.yml`'s "Install Agents
-    # Shipgate" step turns it into `pip install agents-shipgate==<value>`, so it
-    # is an install pin wearing a YAML key — and a workflow can name a perfectly
-    # valid Action ref beside a package version that was never released. The
-    # older public-surface guard checks this key against an explicit file list,
-    # which by construction cannot cover a workflow example added later.
-    ("shipgate_version input", re.compile(rf"shipgate_version:\s*[\"']?({_VERSION})")),
-)
-
-#: Exactly the files that pin the emitting build rather than a published one.
-#: A per-surface exemption would excuse the *next* file to drift as well, which
-#: is how the gap became invisible in the first place; this is a ledger, and
-#: :func:`test_unpublished_pin_ledger_is_exact` keeps it equal to reality in
-#: both directions.
-_UNPUBLISHED_PIN_FILES: frozenset[str] = frozenset(
-    {
-        "adoption-kits/claude-code-skill/prompts/add-shipgate-to-repo.md",
-        "adoption-kits/claude-code-skill/prompts/decide-shipgate-relevance.md",
-        "plugins/claude-code/skills/agents-shipgate/prompts/add-shipgate-to-repo.md",
-        "plugins/claude-code/skills/agents-shipgate/prompts/decide-shipgate-relevance.md",
-        "prompts/add-shipgate-to-repo.md",
-        "prompts/decide-shipgate-relevance.md",
-        "skills/agents-shipgate/prompts/add-shipgate-to-repo.md",
-        "skills/agents-shipgate/prompts/decide-shipgate-relevance.md",
-    }
-)
-_PIN_GAP = "rendered-prompt-unpublished-pin"
-
+#
+# `tests/test_adopter_pins_resolve.py` owns everything `init` *emits*: it
+# renders the workflow and every `--agent-instructions` target and sweeps them.
+# This checks the other half — the pins **committed** under a registered
+# surface, found by path rather than from a list, so a CI example or a runbook
+# added later is covered without anyone remembering to enumerate it. The shapes
+# are imported rather than restated; a second copy of them here is the defect
+# this module was written to catch.
 
 #: ``pip install -U "agents-shipgate>=X.Y"`` — a *floor*, not a pin, so the rule
-#: is different: it has to be reachable, not equal. A floor above the newest
-#: release is the same defect as a pin to a nonexistent one, and it is how a
-#: surface asks a reader to install a build that does not exist yet.
+#: is reachability rather than equality. Not one of #506's shapes because
+#: nothing `init` emits carries one; the design-partner runbook does.
 INSTALL_FLOOR_PATTERN = re.compile(r"agents-shipgate>=(\d+(?:\.\d+){1,2})")
 
 
 def _release(version: str) -> tuple[int, ...]:
-    """A dotted version as a comparable 3-tuple; ``0.15`` is ``(0, 15, 0)``.
-
-    Numeric components only. A pre-release segment would make ``>=`` comparison
-    a different question than this function answers, so it is refused by name
-    rather than silently truncated to its release part.
-    """
+    """A dotted version as a comparable 3-tuple; ``0.15`` is ``(0, 15, 0)``."""
 
     components = re.split(r"[.]", version)[:3]
     assert all(part.isdigit() for part in components), (
@@ -1356,49 +1348,68 @@ def _release(version: str) -> tuple[int, ...]:
     return tuple([int(part) for part in components] + [0] * (3 - len(components)))
 
 
-def unpublished_pins(text: str, *, published: str) -> list[tuple[str, str]]:
+def unresolvable_pins(text: str) -> list[tuple[str, str]]:
     """Every pin or floor in ``text`` a reader could not resolve today.
 
-    A pin must equal the published release; a floor must be at or below it.
-    Both fail the same way for the reader — the install command errors — so
-    both are reported here.
+    A pin must name the published release; a floor must be at or below it. Both
+    fail the same way for the reader — the install errors — so both are
+    reported. Reader blanks (``@v<NEW>``) are the prompts teaching an adopter
+    which line to edit, and #506 enumerates them rather than pattern-matching
+    them, so an allowlist here cannot drift from that one.
     """
 
     found: list[tuple[str, str]] = []
-    for kind, pattern in PIN_PATTERNS:
+    for label, pattern, _why in PIN_SHAPES:
         for match in pattern.finditer(text):
-            if match.group(1) != published:
-                found.append((kind, match.group(1)))
+            value = match.group(1)
+            if value in READER_BLANK_REFS:
+                continue
+            if value != _expected(label):
+                found.append((label, value))
     for match in INSTALL_FLOOR_PATTERN.finditer(text):
-        if _release(match.group(1)) > _release(published):
+        if _release(match.group(1)) > _release(LATEST_PUBLISHED_VERSION):
             found.append(("pip floor", match.group(1)))
     return found
 
 
-def _rendered(path: Path) -> str:
-    """A kit template as the adopter receives it.
+#: Refs a committed example deliberately leaves unpinned, and the ref it uses.
+#: ``@main`` resolves — it is a branch — so this is not #506's defect, and it is
+#: the alternative #497 allows: "a resolvable supported path **or an explicit
+#: version/contract incompatibility**". ``check_run_policy`` postdates the newest
+#: release, so the example cannot pin one and says so in its own header.
+#:
+#: Enumerated, never inferred, for the same reason #506 enumerates reader
+#: blanks: an allowlist that guessed at "looks deliberate" is one bad guess away
+#: from excusing a silent ``@main`` somewhere nobody meant it.
+DECLARED_UNPINNED_REFS: dict[str, str] = {
+    "examples/github-actions/10-check-run-annotations.yml": "main",
+}
 
-    ``adoption-kits/`` is the renderer's *input*: its pins are
-    ``{{ shipgate_version }}``, so reading the literal would check a template
-    variable rather than the ref a reader runs. Substituted through the
-    package's own renderer, not a copy of it — a harness that re-implemented
-    rendering to check for second implementations would be the joke it sounds
-    like, and would go on passing after the real renderer changed. Untemplated
-    files pass through unchanged.
+
+def test_declared_unpinned_refs_explain_themselves():
+    """An exception is only an exception if the file says why, in the file.
+
+    Both ends are held: the ref named here is the one actually present, and the
+    file states the incompatibility that makes pinning impossible. An entry that
+    stopped being true would otherwise go on excusing whatever the file now says.
     """
 
-    return _render_template(path.read_text(encoding="utf-8"))
-
-
-def test_rendering_here_is_the_packages_own_rendering():
-    """Pin the helper above to the renderer, so a context change reaches it."""
-
-    assert _render_template("{{ shipgate_version }}") == __version__
-    assert (
-        _render_template("{{ minimum_control_contract_version }}")
-        == MINIMUM_CONTROL_CONTRACT_VERSION
-    )
-    assert _render_template("no placeholders here") == "no placeholders here"
+    for relpath, ref in DECLARED_UNPINNED_REFS.items():
+        path = REPO_ROOT / relpath
+        assert path.is_file(), f"{relpath} is listed but does not exist"
+        text = path.read_text(encoding="utf-8")
+        assert f"agents-shipgate@{ref}" in text, (
+            f"{relpath} is excused for `@{ref}`, which it does not use."
+        )
+        assert f"newer than v{LATEST_PUBLISHED_VERSION}" in text, (
+            f"{relpath} leaves a ref unpinned without stating which capability "
+            f"postdates v{LATEST_PUBLISHED_VERSION}. An unexplained `@{ref}` is "
+            "the unpinned-ref defect, not an exception to it."
+        )
+        assert "After release, pin" in text, (
+            f"{relpath} must say what to do once a release carries the feature, "
+            "or the exception has no end."
+        )
 
 
 def _pin_bearing_paths() -> list[Path]:
@@ -1410,292 +1421,109 @@ def _pin_bearing_paths() -> list[Path]:
             continue
         for path in _surface_files(surface, (".md", ".yml", ".yaml", ".json", ".txt")):
             rendered = _rendered(path)
-            if any(
-                pattern.search(rendered)
-                for _kind, pattern in (*PIN_PATTERNS, ("floor", INSTALL_FLOOR_PATTERN))
+            if any(pattern.search(rendered) for _label, pattern, _why in PIN_SHAPES) or (
+                INSTALL_FLOOR_PATTERN.search(rendered)
             ):
                 paths.append(path)
     return paths
 
 
-def _pin_bearing_files() -> list[Any]:
-    return [
-        pytest.param(
-            path,
-            marks=(
-                _gap_marks(_PIN_GAP)
-                if str(path.relative_to(REPO_ROOT)) in _UNPUBLISHED_PIN_FILES
-                else []
-            ),
-            id=str(path.relative_to(REPO_ROOT)),
-        )
-        for path in _pin_bearing_paths()
-    ]
-
-
-def test_unpublished_pin_ledger_is_exact():
-    """The ledger must equal the divergence, in both directions.
-
-    Exempting a *surface* would excuse the next file on it to drift too, which
-    is how this became invisible. Exempting named files means a new one fails
-    loudly, and a repaired one turns its ``xfail(strict=True)`` row into a
-    failure until the ledger is trimmed.
-    """
-
-    published = published_version()
-    diverging = {
-        str(path.relative_to(REPO_ROOT))
-        for path in _pin_bearing_paths()
-        if unpublished_pins(_rendered(path), published=published)
-    }
-    assert diverging == _UNPUBLISHED_PIN_FILES, (
-        "_UNPUBLISHED_PIN_FILES and reality disagree: newly drifted "
-        f"{sorted(diverging - _UNPUBLISHED_PIN_FILES)}, stale ledger entries "
-        f"{sorted(_UNPUBLISHED_PIN_FILES - diverging)}. A new entry needs the "
-        f"#{GAPS_BY_ID[_PIN_GAP].issue} gap to cover it; a stale one means the "
-        "gap is closing and should be retired."
-    )
-
-
-@pytest.mark.parametrize("path", _pin_bearing_files())
+@pytest.mark.parametrize(
+    "path", _pin_bearing_paths(), ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
 def test_executable_pin_resolves_in_a_published_channel(path: Path):
     """A ref a stranger executes must exist on the day it is written.
 
-    That is strictly stronger than reproducibility-by-pinning and implies it.
-    A pin to the emitting build is reproducible and still 404s for the whole
+    That is strictly stronger than reproducibility-by-pinning and implies it. A
+    pin to the emitting build is reproducible and still 404s for the whole
     window in which the tree is ahead of the newest tag — 56 days, at the point
     #506 was filed.
     """
 
-    published = published_version()
-    offenders = unpublished_pins(_rendered(path), published=published)
+    relpath = str(path.relative_to(REPO_ROOT))
+    declared = DECLARED_UNPINNED_REFS.get(relpath)
+    offenders = [
+        (label, value)
+        for label, value in unresolvable_pins(_rendered(path))
+        if not (label == "action ref" and value == declared)
+    ]
     assert not offenders, (
-        f"{path.relative_to(REPO_ROOT)} pins "
-        + ", ".join(f"{kind} {version}" for kind, version in offenders)
-        + f"; the newest published release is {published}. Name a published ref, "
-        "or mark the route as the preview channel it is — see "
+        f"{path.relative_to(REPO_ROOT)} names "
+        + ", ".join(f"{label} {value}" for label, value in offenders)
+        + f"; the newest published release is {LATEST_PUBLISHED_VERSION}. Name a "
+        "published ref, or mark the route as the preview channel it is — see "
         "docs/distribution-surfaces.md § Release channels."
     )
 
 
 def test_pin_scanner_catches_a_seeded_wrong_ref():
-    """Negative control: a wrong emitted Action ref fails the responsible check."""
+    """Negative control: a wrong ref, and a wrong package version beside a good ref.
 
-    assert unpublished_pins(
-        "uses: ThreeMoonsLab/agents-shipgate@v9.9.9", published="0.15.0"
-    ) == [("action", "9.9.9")]
-    assert not unpublished_pins(
-        "uses: ThreeMoonsLab/agents-shipgate@v0.15.0", published="0.15.0"
-    )
-
-
-def test_pin_scanner_catches_a_bad_package_version_beside_a_good_ref():
-    """Negative control: the ref is valid and only the install pin is wrong.
-
-    `action.yml` installs `agents-shipgate==${{ inputs.shipgate_version }}`, so
-    a workflow can pass Action-ref resolution and then fail at `pip install`.
-    Keeping the ref valid here is the point — a scanner that only read the ref
-    would report nothing.
+    The second case is the one a ref-only scanner misses: `action.yml` installs
+    `agents-shipgate==${{ inputs.shipgate_version }}`, so a workflow can pass
+    Action-ref resolution and then fail at `pip install`.
     """
 
-    workflow = (
-        "      - uses: ThreeMoonsLab/agents-shipgate@v0.15.0\n"
+    assert unresolvable_pins("uses: ThreeMoonsLab/agents-shipgate@v9.9.9") == [
+        ("action ref", "v9.9.9")
+    ]
+    assert not unresolvable_pins(
+        f"uses: ThreeMoonsLab/agents-shipgate@v{LATEST_PUBLISHED_VERSION}"
+    )
+    good_ref_bad_version = (
+        f"      - uses: ThreeMoonsLab/agents-shipgate@v{LATEST_PUBLISHED_VERSION}\n"
         "        with:\n"
         "          shipgate_version: '9.9.9'\n"
     )
-    assert unpublished_pins(workflow, published="0.15.0") == [
+    assert unresolvable_pins(good_ref_bad_version) == [
         ("shipgate_version input", "9.9.9")
     ]
-    assert not unpublished_pins(
-        workflow.replace("9.9.9", "0.15.0"), published="0.15.0"
-    )
-    # The upgrade prompt's placeholder is not a version and must stay unread.
-    assert not unpublished_pins("shipgate_version: '<NEW>'", published="0.15.0")
+    # A reader blank is a blank, not a bad ref.
+    assert not unresolvable_pins("uses: ThreeMoonsLab/agents-shipgate@v<NEW>")
 
 
 def test_pin_scanner_catches_an_unreachable_install_floor():
-    """A floor is judged reachable, not equal — a pin's rule would misread it.
+    """A floor is judged reachable, not equal — a pin's rule would misread it."""
 
-    `>=0.15` against a published `0.15.0` is satisfiable and must not be
-    reported; `>=0.16` is the same defect as pinning a tag that does not exist.
-    """
-
-    assert not unpublished_pins(
-        'pip install -U "agents-shipgate>=0.15"', published="0.15.0"
-    )
-    assert not unpublished_pins(
-        'pip install -U "agents-shipgate>=0.13"', published="0.15.0"
-    )
-    assert unpublished_pins(
-        'pip install -U "agents-shipgate>=0.16"', published="0.15.0"
-    ) == [("pip floor", "0.16")]
+    assert not unresolvable_pins('pip install -U "agents-shipgate>=0.15"')
+    assert not unresolvable_pins('pip install -U "agents-shipgate>=0.13"')
+    assert unresolvable_pins('pip install -U "agents-shipgate>=9.9"') == [
+        ("pip floor", "9.9")
+    ]
     assert _release("0.15") == (0, 15, 0) == _release("0.15.0")
 
 
-def test_published_version_metadata_agrees_with_the_source_tree():
-    """The two committed numbers must be the two they claim to be."""
+def test_the_committed_sweep_adds_files_the_emitted_sweep_cannot_see():
+    """This module earns its place only where #506's does not reach.
 
-    payload = json.loads(WELL_KNOWN.read_text(encoding="utf-8"))
-    assert payload["version"] == __version__, (
-        ".well-known/agents-shipgate.json must carry the source build's version"
-    )
-    assert published_version() in PUBLISHED_BUILDS, (
-        f"the newest published release {published_version()!r} has no entry in "
-        "PUBLISHED_BUILDS, so nothing in this suite knows what it implements."
-    )
-
-
-@_gap_marks("emitted-workflow-unpublished-pin")[0]
-def test_emitted_ci_workflow_pins_a_published_ref(tmp_path: Path, monkeypatch):
-    """The one artifact written into a stranger's repository and then executed.
-
-    GitHub resolves ``uses:`` before any step runs, so an unresolvable ref makes
-    a first-time adopter's very first Shipgate run a red check about *our*
-    repository. Everything else on this surface is a copy-paste snippet a person
-    reads; this one is generated, committed and executed without being read.
+    #506 renders what `init` writes; these are files a reader opens in the
+    repository, which that sweep never sees. If this set ever empties, the
+    scanner here is redundant and should go.
     """
 
-    monkeypatch.delenv("AGENTS_SHIPGATE_WORKFLOW_REF", raising=False)
-    result = write_ci_workflow(tmp_path)
-    assert result.status == "written"
-    emitted = (tmp_path / WORKFLOW_RELATIVE_PATH).read_text(encoding="utf-8")
-    offenders = unpublished_pins(emitted, published=published_version())
-    assert not offenders, (
-        "init --write --ci emitted "
-        + ", ".join(f"{kind} {version}" for kind, version in offenders)
-        + f"; the newest published release is {published_version()}."
+    scanned = {str(path.relative_to(REPO_ROOT)) for path in _pin_bearing_paths()}
+    committed_only = {rel for rel in scanned if rel.startswith(("examples/", "docs/"))}
+    assert committed_only, (
+        "no committed-only surface carries a pin any more; #506's emitted sweep "
+        "would then cover everything this scanner does."
     )
-
-
-def test_emitted_ci_workflow_check_catches_a_bad_override(tmp_path: Path, monkeypatch):
-    """Negative control, through the emitter rather than around it."""
-
-    monkeypatch.setenv("AGENTS_SHIPGATE_WORKFLOW_REF", "v9.9.9")
-    assert write_ci_workflow(tmp_path).status == "written"
-    emitted = (tmp_path / WORKFLOW_RELATIVE_PATH).read_text(encoding="utf-8")
-    assert unpublished_pins(emitted, published=published_version()) == [
-        ("action", "9.9.9")
-    ]
 
 
 # --------------------------------------------------------------------------
 # contract_floor — a floor the named build can actually reach.
 # --------------------------------------------------------------------------
-
-
-#: The one spelling in which a surface demands a runtime contract of a reader it
-#: has also told what to install. Scanned for rather than listed: a hand-written
-#: table of files would have covered the two originals and missed the three
-#: rendered mirrors carrying the identical claim.
-#:
-#: Deliberately not tied to the bold-Markdown spelling the prompts happen to
-#: use: the two worst instances were a plugin manifest and a marketplace entry
-#: writing plain "runtime contract 15" into JSON, and a rule that only saw
-#: Markdown emphasis would have walked past both. A `v`-prefixed number
-#: (``runtime contract v13``) is excluded on purpose — those sentences say which
-#: contract *introduced* a field, which is a fact about the past, not a floor
-#: the reader has to reach.
-_CONTRACT_FLOOR_RE = re.compile(r"runtime contract \**(\d+)\**", re.IGNORECASE)
-_CONTRACT_FLOOR_BUILD_RE = re.compile(rf"`agents-shipgate` ({_VERSION}) or newer")
-
-
-def _contract_floor_files() -> list[Path]:
-    return [
-        path
-        for surface in SURFACES
-        if "contract_floor" in surface.claims
-        for path in _surface_files(surface, (".md", ".json", ".yml", ".yaml"))
-        if _CONTRACT_FLOOR_RE.search(_rendered(path))
-    ]
-
-
-def test_contract_floor_scan_finds_the_surfaces_that_state_one():
-    """The scan must not be quietly empty.
-
-    A rewording of the floor sentence would otherwise turn the parametrised
-    check below into zero rows, which reads as green.
-    """
-
-    found = {str(path.relative_to(REPO_ROOT)) for path in _contract_floor_files()}
-    assert "prompts/add-shipgate-to-repo.md" in found, sorted(found)
-    assert len(found) >= 4, (
-        "the setup prompt states a contract floor in four shipped copies "
-        f"(the kit template and its three rendered mirrors); found {sorted(found)}"
-    )
-
-
-def test_contract_floor_scan_sees_the_plain_json_spelling():
-    """Negative control, on the two surfaces that actually shipped the defect.
-
-    `plugins/claude-code/.claude-plugin/plugin.json` and the marketplace entry
-    both wrote "runtime contract 15" beside `pipx install agents-shipgate`,
-    which yields contract 10. A scan tied to the prompts' bold-Markdown spelling
-    would have walked past both, so the pattern is spelling-agnostic — and a
-    floor stated without naming a build fails the check below rather than
-    passing for want of anything to compare against.
-    """
-
-    shipped = (
-        '"description": "… the agents-shipgate CLI installed in the local '
-        'environment (pipx install agents-shipgate, runtime contract 15)."'
-    )
-    match = _CONTRACT_FLOOR_RE.search(shipped)
-    assert match is not None and match.group(1) == "15"
-    assert _CONTRACT_FLOOR_BUILD_RE.search(shipped) is None
-    # `runtime contract v13` says which contract introduced a field. Not a floor.
-    assert _CONTRACT_FLOOR_RE.search("requires runtime contract v13") is None
-
-
-@pytest.mark.parametrize(
-    "path", _contract_floor_files(), ids=lambda p: str(p.relative_to(REPO_ROOT))
-)
-def test_contract_floor_is_reachable_in_the_build_the_surface_names(path: Path):
-    """A floor and an install command in one file have to be satisfiable together.
-
-    The kits once shipped a floor of 14/15 beside a pinned runner that reports
-    contract 10, so an agent following them literally could never satisfy the
-    check it was told to gate on. Both values are rendered from the same build
-    for exactly this reason; this asserts the property rather than the mechanism.
-    """
-
-    relpath = path.relative_to(REPO_ROOT)
-    text = _rendered(path)
-    floor_match = _CONTRACT_FLOOR_RE.search(text)
-    build_match = _CONTRACT_FLOOR_BUILD_RE.search(text)
-    assert floor_match and build_match, (
-        f"{relpath} states a contract floor but not the build it expects of the "
-        "reader (or the other way round). A floor with no named build cannot be "
-        "checked against anything, which is the defect this row exists to catch."
-    )
-    unreachable = floor_out_of_reach(floor_match.group(1), build_match.group(1))
-    assert unreachable is None, f"{relpath}: {unreachable}"
-
-
-def floor_out_of_reach(floor: str, build: str) -> str | None:
-    """Why ``build`` cannot satisfy a demand for runtime contract ``floor``."""
-
-    reached = int(contract_of(build))
-    if reached >= int(floor):
-        return None
-    return (
-        f"demands runtime contract {floor} and names build {build}, which "
-        f"implements contract {reached}"
-    )
-
-
-def test_contract_floor_check_catches_an_unsatisfiable_floor():
-    """Negative control, on the pairing the surfaces actually shipped.
-
-    ``pipx install agents-shipgate`` yields the published release, and the
-    current floor is above it — which is what the design-partner runbook and the
-    plugin metadata each asserted was fine.
-    """
-
-    published = published_version()
-    assert floor_out_of_reach(MINIMUM_CONTROL_CONTRACT_VERSION, published) is not None
-    assert floor_out_of_reach("14", published) is not None
-    assert floor_out_of_reach(contract_of(published), published) is None
-    assert floor_out_of_reach(MINIMUM_CONTROL_CONTRACT_VERSION, __version__) is None
+#
+# The prompts' floor is no longer a literal to scan for. #506 made it a rendered
+# statement — `contract_floor_prose` decides, in one place, whether the release
+# the prompt pins reports the floor the prompt demands, and writes the honest
+# sentence either way — and `test_adopter_pins_resolve.py` proves it against the
+# tag. This module had a regex scan for the older prose; it is deleted rather
+# than kept beside the real rule, and the registry points the claim at the test
+# that owns it.
+#
+# What remains here is the one surface #506 does not render: the design-partner
+# runbook states, in a channel table a human reads, which contract the published
+# release implements. Nothing else checks that number.
 
 
 def test_runbook_channel_table_states_the_released_contract_correctly():
@@ -1709,127 +1537,20 @@ def test_runbook_channel_table_states_the_released_contract_correctly():
     text = (REPO_ROOT / "docs" / "design-partner-verifier-pilot.md").read_text(
         encoding="utf-8"
     )
-    published = published_version()
     row = re.search(
-        rf"\|\s*Published release `v{re.escape(published)}`\s*\|[^|]*\|\s*(\d+)\s*\|",
+        rf"\|\s*Published release `v{re.escape(LATEST_PUBLISHED_VERSION)}`\s*\|[^|]*\|\s*(\d+)\s*\|",
         text,
     )
     assert row, (
         "docs/design-partner-verifier-pilot.md must carry a channel row for the "
-        f"published release v{published} naming the contract it implements."
+        f"published release v{LATEST_PUBLISHED_VERSION} naming the contract it "
+        "implements."
     )
-    assert row.group(1) == contract_of(published), (
+    assert row.group(1) == LATEST_PUBLISHED_CONTRACT_VERSION, (
         f"the runbook says the published release implements contract "
-        f"{row.group(1)}; PUBLISHED_BUILDS records {contract_of(published)}."
+        f"{row.group(1)}; agents_shipgate.published_release records "
+        f"{LATEST_PUBLISHED_CONTRACT_VERSION}."
     )
-
-
-def test_every_scanned_claim_actually_has_rows():
-    """Naming a proving test is not the same as that test looking at anything.
-
-    Three of the claims are proved by a scan that parametrises over whichever
-    files match a pattern. A surface can therefore register the claim, name a
-    real test, and still be examined by nothing — which is what
-    ``design_partner_runbook``'s ``executable_pin`` was before the install-floor
-    pattern was added, since the runbook names a `>=` floor and no pin.
-    """
-
-    scans: dict[str, tuple[str, list[Path]]] = {
-        "executable_pin": (
-            "test_executable_pin_resolves_in_a_published_channel",
-            _pin_bearing_paths(),
-        ),
-        "placeholder_ownership": (
-            "test_surface_routes_human_owned_placeholders_to_a_human",
-            _placeholder_surfaces(),
-        ),
-        "contract_floor": (
-            "test_contract_floor_is_reachable_in_the_build_the_surface_names",
-            _contract_floor_files(),
-        ),
-    }
-    for claim, (test_name, scanned) in scans.items():
-        covered = {str(path.relative_to(REPO_ROOT)) for path in scanned}
-        for surface in SURFACES:
-            if test_name not in surface.claims.get(claim, ()):
-                continue
-            prefixes = tuple(root.rstrip("/") for root in surface.roots)
-            hit = any(
-                rel == prefix or rel.startswith(f"{prefix}/")
-                for rel in covered
-                for prefix in prefixes
-            )
-            assert hit, (
-                f"{surface.id} registers claim {claim!r}, proved by "
-                f"{test_name}, but that scan matches no file under "
-                f"{list(surface.roots)}. The claim is named and unexamined."
-            )
-
-
-def test_published_build_table_matches_the_tag():
-    """Corroborate the committed table against the tag it describes.
-
-    Committed rather than derived so a shallow clone stays deterministic; read
-    back here whenever the tag object is present, which it is in any full clone
-    and in the CI job that fetches tags.
-    """
-
-    for version, build in PUBLISHED_BUILDS.items():
-        tag = f"v{version}"
-        probe = subprocess.run(
-            ["git", "cat-file", "-e", f"{tag}^{{commit}}"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-        )
-        if probe.returncode != 0:
-            # A check that skips in CI is not a check, so CI is required to
-            # provide the tag — `.github/workflows/ci.yml`'s `suite` job
-            # checks out with `fetch-depth: 0` and `fetch-tags: true` for this.
-            assert not os.environ.get("CI"), (
-                f"{tag} is not in this clone. The suite's checkout must fetch "
-                "full history and tags, or this corroboration silently stops "
-                "running."
-            )
-            pytest.skip(f"{tag} is not present in this clone")
-        blob = subprocess.run(
-            ["git", "show", f"{tag}:src/agents_shipgate/schemas/contract.py"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        # Anchored: `CONTRACT_VERSION` is a *suffix* of
-        # `MINIMUM_CONTROL_CONTRACT_VERSION`, so an unanchored search reads
-        # whichever of the two is declared first. It happens to work on the
-        # current file only because line 155 precedes line 156.
-        match = re.search(
-            r'^CONTRACT_VERSION:\s*Literal\["(\d+)"\]', blob, re.MULTILINE
-        )
-        assert match, f"could not read CONTRACT_VERSION out of {tag}"
-        assert match.group(1) == build.contract_version, (
-            f"PUBLISHED_BUILDS says {tag} implements contract "
-            f"{build.contract_version}; the tag says {match.group(1)}."
-        )
-
-
-def test_contract_version_reader_is_not_fooled_by_the_minimum():
-    """Negative control for the anchoring in the check above.
-
-    ``CONTRACT_VERSION`` is a suffix of ``MINIMUM_CONTROL_CONTRACT_VERSION``, so
-    an unanchored search reads whichever is declared first. v0.15.0 has no
-    minimum at all, so the first draft passed for a reason that expires the next
-    time a build is added to PUBLISHED_BUILDS.
-    """
-
-    blob = (
-        'MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"\n'
-        'CONTRACT_VERSION: Literal["29"] = "29"\n'
-    )
-    assert re.search(r'CONTRACT_VERSION:\s*Literal\["(\d+)"\]', blob).group(1) == "21"
-    anchored = re.search(
-        r'^CONTRACT_VERSION:\s*Literal\["(\d+)"\]', blob, re.MULTILINE
-    )
-    assert anchored is not None and anchored.group(1) == "29"
 
 
 def test_resolvability_is_judged_offline():

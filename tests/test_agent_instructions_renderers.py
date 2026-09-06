@@ -46,8 +46,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": "b09ffc59ad9e52ae34b0015d55ff311f2856e745581fc83b607b5eacf84c1a69",
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": "7fd2c718e5dad94b231409a72710e05af1b231c3d495d8796c501a7e9493a394",
-    ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "c63323ba277250b1c5d09305a4a6e4f292214e18b0b418a7dba653239d64cfa8",
-    ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": "cbdb4868a68b76c4e46611e8718ebe9950e6b1088e87691c7b23b82d3b1476d9",
+    ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "b600b97d5a94768213cea27d725561e9b7572f0b84e1aee3c1e89939214ca6cf",
+    ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": "be3079a2f41b66d2db19cfea14c57ccd80ab9047ef7d69eccf30e97fa1beca5b",
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829",
     ".claude/skills/agents-shipgate/prompts/fix-top-finding.md": "1956133a2d1003326e471f8ecab7b781e655dc9c33fbd2d1d681711f9ac0f08c",
     ".claude/skills/agents-shipgate/prompts/recommend-fixes.md": "162aa2fb96066535425d9cf86a247a6782b8ec7cc661a18b42dbedf394779475",
@@ -326,20 +326,18 @@ def test_codex_skill_render_hashes_change_intentionally() -> None:
 
 
 def test_claude_code_skill_source_matches_renderer() -> None:
-    """The checked-in repo-scoped Claude Code skill and init renderer must not drift."""
+    """The checked-in repo-scoped Claude Code skill and init renderer must not drift.
+
+    ``advisory-pr-comment.yml`` used to be exempt here, and the exemption hid
+    exactly the defect #506 is about: the checked-in copy had been hand-corrected
+    to the latest published tag while the renderer still emitted
+    ``@v<__version__>``, so the file a reader opened and the file an adopter
+    received named different — and only one resolvable — releases. Both come
+    from ``LATEST_PUBLISHED_VERSION`` now, so nothing is skipped.
+    """
     for rel, content in render_claude_code_skill_files().items():
         source_rel = rel.removeprefix(".claude/")
         source_path = REPO_ROOT / source_rel
-        # `advisory-pr-comment.yml` used to be skipped here. The skip was what
-        # let the recipe's two pins be templated on `{{ shipgate_version }}`
-        # while the checked-in mirror kept naming the published release: the
-        # renderer emitted `@v0.16.0` and `shipgate_version: '0.16.0'` into an
-        # adopter's CI, where GitHub resolves `uses:` before any step runs and
-        # `shipgate_version` installs from PyPI — neither of which existed
-        # (#497). The recipe now names the published release literally, exactly
-        # as the Codex kit's copy always did, so there is nothing left to
-        # exempt. An unregistered exemption is how a distribution surface
-        # drifts without anybody seeing it.
         assert source_path.read_text(encoding="utf-8") == content, source_rel
 
 

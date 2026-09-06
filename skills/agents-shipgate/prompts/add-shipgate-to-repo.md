@@ -9,10 +9,10 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
 
 ## Your task
 
-1. **Install the tool - pin the version so a stale build can't shadow it.** This flow uses the permission-scoped multi-host boundary contract and requires **runtime contract 21** (`agents-shipgate` 0.16.0 or newer); an older copy lingering on `PATH` may lack the command or schema fields this prompt expects. Prefer a **pinned, zero-install** runner that fetches the exact version every time instead of trusting whatever is already on `PATH`. **Pin it into one variable and use that for every step below**, so no single command can fall through to a stale binary:
+1. **Install the tool - pin the version so a stale build can't shadow it.** This flow uses the permission-scoped multi-host boundary contract and requires **runtime contract 21**. **No published release reports that contract yet — say so before you start.** The newest published build is `agents-shipgate` `0.15.0`, which reports contract `10`, and every pin below names it because a version the index does not carry cannot be fetched at all: the install fails before any step runs. Run the steps `0.15.0` supports, and at the first step that needs contract `21`, stop and tell the user no released build provides it yet rather than reporting that step as done. An older copy lingering on `PATH` may lack the command or schema fields this prompt expects. Prefer a **pinned, zero-install** runner that fetches the exact version every time instead of trusting whatever is already on `PATH`. **Pin it into one variable and use that for every step below**, so no single command can fall through to a stale binary:
    ```bash
-   SG="uvx agents-shipgate@0.16.0"    # uv: ephemeral, pinned to this exact build
-   # or: SG="pipx run agents-shipgate==0.16.0"
+   SG="uvx agents-shipgate@0.15.0"    # uv: ephemeral, pinned to this exact build
+   # or: SG="pipx run agents-shipgate==0.15.0"
    $SG --version                             # confirm the pinned runner resolves
    ```
    Every step below calls `$SG …`; e.g. `$SG verify --preview --json` runs the verify preview through the pinned runner, never a `PATH` copy.
