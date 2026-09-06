@@ -129,12 +129,15 @@ multi-config recipes are in
 output catalog is [`action.yml`](../action.yml).
 
 CI is advisory by default. Strict mode exits `20` only on unsuppressed critical
-findings; for an existing project, save a baseline first so strict CI fails
-only on new findings:
+findings, so on an existing project it fails on the backlog the first time it
+runs. Record that backlog as a baseline, then gate on what is new:
 
 ```bash
+# 1. see what strict would do today — expect exit 20 if there is any backlog
 agents-shipgate scan --config shipgate.yaml --ci-mode strict
+# 2. accept the current findings as the baseline
 agents-shipgate baseline save --config shipgate.yaml --out .agents-shipgate/baseline.json
+# 3. strict from here: fails only on findings the baseline does not carry
 agents-shipgate scan --config shipgate.yaml --baseline .agents-shipgate/baseline.json --ci-mode strict
 ```
 
