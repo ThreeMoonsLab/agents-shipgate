@@ -311,18 +311,54 @@ def test_every_entry_is_dated_in_the_past(heading: str, row: dict[str, str]):
     )
 
 
+#: A public repository link: any host, because Shipgate runs on a checkout and
+#: not on an API. Requiring github.com would have told a GitLab, Codeberg or
+#: self-hosted adopter to write `private` about a repository that is not — a
+#: registry that mislabels its own rows to fit its validator.
+PUBLIC_REPOSITORY_RE = re.compile(r"https?://[\w.-]+\.[a-z]{2,}(?::\d+)?/[\w./~-]*[\w~-]", re.I)
+ENTRY_RECORD_RE = re.compile(rf"{re.escape(REPO_URL)}/(?:issues|pull|discussions)/\d+")
+
+
+def _repository_problem(cell: str) -> str | None:
+    """Why ``cell`` is not a usable ``Repository`` value, or ``None``."""
+    cell = cell.strip()
+    if cell == "private":
+        return None
+    hrefs = LINK_RE.findall(cell)
+    if len(hrefs) != 1:
+        return "expected one linked public repository, or the single word 'private'"
+    if not PUBLIC_REPOSITORY_RE.fullmatch(hrefs[0]):
+        return (
+            f"{hrefs[0]!r} is not a public repository URL; link the repository on "
+            "whichever host it lives, or write 'private'"
+        )
+    return None
+
+
+def _entry_record_problem(cell: str) -> str | None:
+    """Why ``cell`` is not a usable ``Entry`` value, or ``None``.
+
+    Deliberately narrower than the repository check above: a repository can
+    live anywhere, but the *consent* has to be an act in this project that
+    anyone can open and read.
+    """
+    hrefs = LINK_RE.findall(cell.strip())
+    if len(hrefs) != 1:
+        return "expected exactly one linked entry record"
+    if not ENTRY_RECORD_RE.fullmatch(hrefs[0]):
+        return (
+            f"{hrefs[0]!r} is not an issue, pull request or discussion in this repository"
+        )
+    return None
+
+
 @pytest.mark.parametrize(("heading", "row"), _all_entries(), ids=_entry_ids())
 def test_every_entry_links_the_public_act_that_created_it(heading: str, row: dict[str, str]):
     """Consent is what the count rests on, so every row names where it was
     given — an issue, discussion or PR in this repository, not a private
     conversation somebody remembers."""
-    hrefs = LINK_RE.findall(row["Entry"])
-    assert len(hrefs) == 1, f"{heading} row {row['Adopter']!r} must link exactly one entry record"
-    href = hrefs[0]
-    assert re.fullmatch(rf"{re.escape(REPO_URL)}/(issues|pull|discussions)/\d+", href), (
-        f"{heading} row {row['Adopter']!r} links {href!r}; the entry record must be an "
-        "issue, pull request or discussion in this repository"
-    )
+    problem = _entry_record_problem(row["Entry"])
+    assert problem is None, f"{heading} row {row['Adopter']!r}: {problem}"
 
 
 @pytest.mark.parametrize(("heading", "row"), _all_entries(), ids=_entry_ids())
@@ -330,16 +366,57 @@ def test_every_entry_names_a_repository_or_says_private(heading: str, row: dict[
     """Acceptance §1: private-repo entries are allowed at organization
     granularity. `private` is the whole vocabulary for that — a half-named
     private repository ("internal monorepo") discloses without being checkable."""
-    repository = row["Repository"]
-    if repository == "private":
-        return
-    hrefs = LINK_RE.findall(repository)
-    assert len(hrefs) == 1 and re.fullmatch(
-        r"https://github\.com/[\w.-]+/[\w.-]+", hrefs[0]
-    ), (
-        f"{heading} row {row['Adopter']!r} has Repository={repository!r}; "
-        "expected a linked github.com/owner/repo or the single word 'private'"
-    )
+    problem = _repository_problem(row["Repository"])
+    assert problem is None, f"{heading} row {row['Adopter']!r}: {problem}"
+
+
+@pytest.mark.parametrize(
+    "cell",
+    (
+        "private",
+        "[acme/agent](https://github.com/acme/agent)",
+        "[acme/agent](https://gitlab.com/acme/agent)",
+        "[acme/agent](https://codeberg.org/acme/agent)",
+        "[acme/agent](https://git.acme.example/acme/agent)",
+        "[acme/agent](https://git.acme.example:8443/team/acme/agent)",
+    ),
+)
+def test_a_public_repository_on_any_host_is_accepted(cell: str):
+    """An adopter whose code is on GitLab or a self-hosted forge follows the
+    same documented path as everyone else. Rejecting them would leave writing
+    `private` about a public repository as the only way to be counted."""
+    assert _repository_problem(cell) is None, f"{cell!r} should be a valid Repository"
+
+
+@pytest.mark.parametrize(
+    "cell",
+    (
+        "",
+        "internal monorepo",
+        "acme/agent",
+        "[acme/agent](notes/acme.md)",
+        "[a](https://gitlab.com/x) and [b](https://gitlab.com/y)",
+    ),
+)
+def test_an_unlinked_or_half_named_repository_is_rejected(cell: str):
+    """The other half: a cell that is neither `private` nor one resolvable
+    public link cannot be checked by a reader, which is the whole point."""
+    assert _repository_problem(cell) is not None, f"{cell!r} should be rejected"
+
+
+@pytest.mark.parametrize(
+    "cell",
+    (
+        "[#600](https://gitlab.com/acme/agent/-/issues/2)",
+        "[#600](https://github.com/acme/agent/issues/600)",
+        "[ask](mailto:help@threemoonslab.com)",
+        "asked in a call",
+    ),
+)
+def test_a_consent_record_outside_this_repository_is_rejected(cell: str):
+    """The repository may live anywhere; the consent may not. An entry record
+    nobody outside the maintainers can open is not attributable."""
+    assert _entry_record_problem(cell) is not None, f"{cell!r} should be rejected"
 
 
 # --------------------------------------------------------------------------
@@ -354,6 +431,36 @@ def test_the_counts_are_the_row_counts():
     counts = _counts()
     assert counts["External adopter entries"] == str(len(_entries(EXTERNAL_HEADING)))
     assert counts["Maintainer dogfooding entries"] == str(len(_entries(DOGFOOD_HEADING)))
+
+
+def _entry_identity(row: dict[str, str]) -> tuple[str, str]:
+    """What makes two rows the same adoption.
+
+    The repository link, when there is one, is the identity — two rows can
+    describe the same repository in different words. A `private` row is
+    identified by its adopter alone, which is all the registry knows about it,
+    and is exactly why one organization cannot hold two of them.
+    """
+    hrefs = LINK_RE.findall(row["Repository"])
+    repository = hrefs[0] if hrefs else row["Repository"]
+    return (_flat(row["Adopter"]).casefold(), _flat(repository).casefold())
+
+
+def test_no_adopter_is_counted_twice():
+    """The counts are row counts, so a duplicated row is a duplicated adopter:
+    one adoption and one consent record, counted twice, with every other guard
+    still green. Identity is checked across both tables — the same party listed
+    as external and as dogfooding would inflate the headline number the same
+    way, from the one place the policy says it never may."""
+    seen: dict[tuple[str, str], str] = {}
+    for heading, row in _all_entries():
+        identity = _entry_identity(row)
+        assert identity not in seen, (
+            f"{heading} row {row['Adopter']!r} repeats an adoption already listed under "
+            f"{seen[identity]} ({identity[0]!r} / {identity[1]!r}). One row per adopter "
+            "per repository; an adopter with a second repository lists that repository."
+        )
+        seen[identity] = heading
 
 
 def test_the_counts_section_publishes_exactly_two_numbers_and_a_date():
@@ -631,9 +738,26 @@ def _claims(text: str):
     return [seen[start] for start in sorted(seen)]
 
 
-#: How much text around a number counts as its context when deciding whether
-#: it is talking about dogfooding.
-_CONTEXT = 120
+#: Words that qualify a claim as being about maintainer dogfooding, and words
+#: that qualify it as being about external adoption. A claim carrying the
+#: second kind can never borrow the dogfooding count, whatever the sentence
+#: around it says.
+_DOGFOOD_WORDS = ("dogfood", "maintainer")
+_EXTERNAL_WORDS = ("external", "outside")
+_SENTENCE_ENDS = (". ", "? ", "! ", "; ")
+
+
+def _sentence_around(flat: str, start: int, end: int) -> str:
+    """The sentence containing ``flat[start:end]``.
+
+    A character window is the wrong unit: with a 120-character one, "used by 1
+    external team. Maintainer dogfooding is counted separately." had its
+    *neighbour* authorize it. A qualifier only qualifies the sentence it is in.
+    """
+    left = max((flat.rfind(mark, 0, start) for mark in _SENTENCE_ENDS), default=-1)
+    rights = [pos for pos in (flat.find(mark, end) for mark in _SENTENCE_ENDS) if pos != -1]
+    right = min(rights) if rights else len(flat)
+    return flat[left + 1 : right].strip()
 
 
 def _untraceable_claims(text: str, counts: dict[str, str] | None = None) -> list[str]:
@@ -643,6 +767,14 @@ def _untraceable_claims(text: str, counts: dict[str, str] | None = None) -> list
     dogfooding count only sources a number that says it is dogfooding — rule 3
     is that the two are never summed, and "used by 1 team" borrowing the
     maintainer row would be exactly that sum, one row large.
+
+    Two things bound that exemption, because prose about adoption routinely
+    discusses both counts in adjacent sentences:
+
+    * the dogfooding qualifier must be in the claim's **own sentence**, not
+      merely nearby; and
+    * a claim that qualifies *itself* as external never takes the exemption,
+      whatever the rest of the sentence says.
 
     ``counts`` is accepted so a caller sweeping hundreds of files parses the
     registry once rather than once per file.
@@ -656,8 +788,11 @@ def _untraceable_claims(text: str, counts: dict[str, str] | None = None) -> list
         number = match.group(1).replace(",", "")
         if number == external:
             continue
-        context = flat[max(0, match.start() - _CONTEXT) : match.end() + _CONTEXT].lower()
-        if number == dogfood and ("dogfood" in context or "maintainer" in context):
+        claim = match.group(0).lower()
+        sentence = _sentence_around(flat, match.start(), match.end()).lower()
+        says_external = any(word in claim for word in _EXTERNAL_WORDS)
+        says_dogfood = any(word in sentence for word in _DOGFOOD_WORDS)
+        if number == dogfood and says_dogfood and not says_external:
             continue
         untraceable.append(match.group(0))
     return untraceable
@@ -739,6 +874,39 @@ def test_a_dogfooding_number_only_sources_a_dogfooding_sentence():
         pytest.skip("the two counts are equal, so this number is traceable either way")
     assert _untraceable_claims(f"{dogfood} maintainer dogfooding adopters are listed.") == []
     assert _untraceable_claims(f"Agents Shipgate is run by {dogfood} teams.")
+
+
+def test_a_neighbouring_dogfooding_sentence_authorizes_nothing():
+    """The reported case, pinned. With counts 0 external / 1 maintainer, this
+    passed: the scanner read the *next* sentence as the claim's qualifier and
+    let an explicitly external `1` borrow the maintainer row — the sum rule 3
+    forbids, produced by a character window rather than a sentence."""
+    counts = _counts()
+    dogfood = counts["Maintainer dogfooding entries"]
+    if dogfood == counts["External adopter entries"]:
+        pytest.skip("the two counts are equal, so this number is traceable either way")
+    reported = (
+        f"Agents Shipgate is used by {dogfood} external team. "
+        "Maintainer dogfooding is counted separately."
+    )
+    assert _untraceable_claims(reported), "a neighbouring sentence must not qualify a claim"
+    # …and the same number, unqualified, is not rescued by the neighbour either.
+    assert _untraceable_claims(
+        f"Agents Shipgate is used by {dogfood} teams. Maintainer dogfooding is separate."
+    )
+
+
+def test_an_externally_qualified_claim_never_borrows_the_dogfooding_count():
+    """Even inside a sentence that is otherwise about dogfooding. "Beside our
+    own maintainer entry, 1 external adopter runs it" is a claim about the
+    external count, and the external count is what has to source it."""
+    counts = _counts()
+    dogfood = counts["Maintainer dogfooding entries"]
+    if dogfood == counts["External adopter entries"]:
+        pytest.skip("the two counts are equal, so this number is traceable either way")
+    assert _untraceable_claims(
+        f"Beside our maintainer dogfooding row, {dogfood} external adopters run it."
+    )
 
 
 def test_the_claim_scanner_ignores_this_repositorys_other_denominators():

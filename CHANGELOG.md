@@ -26,15 +26,22 @@
 
   The policy is enforced rather than promised. `tests/test_adopters_registry.py`
   parses both tables and fails on a row missing a field, an undefined tier, a
-  non-ISO or future date, an entry link that does not point into this
-  repository, this repository listed as an *external* adopter, counts that
-  disagree with the rows, an as-of date older than the newest entry, a claims
-  rule quietly dropped, a second badge variant, an issue form that drifts from
-  the registry's vocabulary or stops requiring consent — and any adopter number
-  stated anywhere in the repository's prose that these rows cannot source. A
-  45-case perturbation sweep confirmed every one of those fails on the
-  weakening it exists to catch, and that a correctly added adopter — or a
-  second maintainer row, or a grammatically singular count — still passes.
+  non-ISO or future date, a `Repository` that is neither one resolvable public
+  link — on any host, so a GitLab or self-hosted adopter is not pushed into
+  writing `private` about a public repository — nor `private` itself, an entry
+  link that does not point into this repository, **two rows covering the same
+  adopter and repository**, this repository listed as an *external* adopter,
+  counts that disagree with the rows, an as-of date older than the newest
+  entry, a claims rule quietly dropped, a second badge variant, an issue form
+  that drifts from the registry's vocabulary or stops requiring consent — and
+  any adopter number stated anywhere in the repository's prose that these rows
+  cannot source. That last check reads the claim's **own sentence**: a
+  neighbouring sentence about dogfooding does not qualify it, and a claim that
+  calls itself external never borrows the maintainer count. A 50-case
+  perturbation sweep confirmed every one of those fails on the weakening it
+  exists to catch, and that the legitimate edits — a correctly added adopter, a
+  GitLab-hosted one, a second maintainer row, a grammatically singular count —
+  still pass.
 
 - **The zero-install detector refuses an oversized candidate instead of
   reading it.** `tools/shipgate-detect.py` is fetched over `curl | python3`

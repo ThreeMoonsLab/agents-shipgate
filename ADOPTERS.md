@@ -101,18 +101,25 @@ A valid entry has all six fields:
 | Field | What goes in it |
 | --- | --- |
 | `Adopter` | The organization, project or person being counted. |
-| `Repository` | `owner/repo` as a link, or the single word `private`. A private-repo entry names the organization and nothing else — no repository name, no counts, no internal detail. |
+| `Repository` | A link to the public repository, on whichever host it lives — GitHub, GitLab, Codeberg, self-hosted — or the single word `private`. A private-repo entry names the organization and nothing else: no repository name, no counts, no internal detail. |
 | `What it gates` | One clause: which capability surface the gate reviews. |
 | `Use` | One of the three values above, as they are defined above. |
 | `Since` | `YYYY-MM-DD`, the date the entry is added. It is not a start date and not a renewal — an entry is never automatically re-confirmed. |
 | `Entry` | A link to the issue, discussion or pull request in this repository where you asked to be listed. |
 
+**One row per adopter per repository.** A second repository is a second row;
+the same repository twice is one adoption counted twice, and a guard rejects
+it. An organization holds at most one `private` row, because `private` is all
+the registry knows about it and two of them cannot be told apart. If your use
+differs between repositories, that is what the extra row is for.
+
 **Only you may add you.** An entry submitted by someone who does not speak for
 the adopter is removed on sight, and a maintainer who cannot tell will ask
-before merging. Before merging any row a maintainer checks four things: that
+before merging. Before merging any row a maintainer checks five things: that
 the requester speaks for the adopter, that the `Use` value matches what the
 requester actually wrote, that the repository link resolves or the row says
-`private`, and that the counts and as-of date moved with the row.
+`private`, that no row already covers that adopter and repository, and that the
+counts and as-of date moved with the row.
 
 **Removing yourself** takes an issue, a comment, or an email to
 `help@threemoonslab.com` saying so. No reason is required, none will be asked
@@ -195,8 +202,10 @@ site, a release note, a talk, or a sales conversation.
 
 `tests/test_adopters_registry.py` runs in CI on every change. It parses both
 tables, fails on a row missing a field, an unknown `Use` value, a
-non-ISO or future `Since`, an `Entry` link that does not point into this
-repository, this repository appearing as an external adopter, counts that
+non-ISO or future `Since`, a `Repository` that is neither one resolvable public
+link nor `private`, an `Entry` link that does not point into this repository,
+two rows covering the same adopter and repository, this repository appearing as
+an external adopter, counts that
 disagree with the rows, an as-of date older than the newest entry, a claims
 rule quietly dropped, a second badge variant, an issue form that has drifted
 from the tier vocabulary or stopped requiring consent, and an adoption number

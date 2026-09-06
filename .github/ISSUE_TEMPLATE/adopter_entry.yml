@@ -27,8 +27,11 @@ body:
     id: repository
     attributes:
       label: Repository
-      description: "`owner/repo` for a public repository, or the single word `private`."
-      placeholder: "owner/repo"
+      description: >-
+        A link to your public repository, on whichever host it lives — GitHub,
+        GitLab, Codeberg, self-hosted — or the single word `private`. One row
+        covers one repository; ask for a second row if you gate more than one.
+      placeholder: "https://gitlab.com/acme/agent"
     validations:
       required: true
   - type: input
