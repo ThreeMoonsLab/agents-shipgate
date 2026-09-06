@@ -64,6 +64,7 @@ from agents_shipgate.cli.discovery.artifacts import (
     _discover_patterns,
     _looks_like_n8n_workflow,
     _matches_pattern,
+    _oversized_structured_input,
     _relative,
     _skip_part,
     probe_suggested_source,
@@ -1780,6 +1781,10 @@ def _collect_glob_hits(
             hits["n8n"].append(_GlobHit(2.0, "strong", f"n8n workflow: {path}", path))
     for path in _discover_patterns(workspace, files=files, patterns=CONDUCTOR_WORKFLOW_PATTERNS):
         full_path = (workspace / path).resolve()
+        # Same bound the Conductor adapter's ``load_structured_file`` applies:
+        # a workflow `scan` refuses to read must not score `conductor` here.
+        if _oversized_structured_input(full_path):
+            continue
         try:
             data = json.loads(full_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, ValueError):

@@ -4,6 +4,7 @@ import json
 import pytest
 
 from agents_shipgate.checks.n8n import run as run_n8n_checks
+from agents_shipgate.cli.discovery import artifacts as discovery_artifacts
 from agents_shipgate.cli.discovery.signals import detect_workspace
 from agents_shipgate.cli.discovery.template import render_auto_manifest
 from agents_shipgate.cli.scan import inspect_sources, run_scan
@@ -17,6 +18,7 @@ from agents_shipgate.core.domain import (
 )
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.risk_hints import enrich_tools_with_risk_hints, risk_tags
+from agents_shipgate.inputs import common as inputs_common
 from agents_shipgate.inputs.n8n import load_n8n_artifacts
 
 
@@ -1628,6 +1630,64 @@ def test_n8n_detect_and_auto_init_emit_top_level_block(tmp_path):
     assert "    - path: data-tables/customers.json" in manifest_text
     assert "  eval_sets:" in manifest_text
     assert "    - path: evaluations/support.json" in manifest_text
+
+
+def test_n8n_oversized_workflow_is_not_written_into_the_manifest(tmp_path, monkeypatch):
+    """`init` must not list a workflow `scan` will refuse to read.
+
+    ``discover_n8n_artifacts`` feeds the manifest's ``n8n.workflows`` list, and
+    the n8n adapter loads each entry through ``load_structured_file``, which
+    refuses anything over ``MAX_INPUT_FILE_BYTES`` before parsing. Writing an
+    oversized workflow would therefore break the documented ``init --write`` ->
+    ``scan`` step out of the box — the same cold-start failure the tool-source
+    parse probe exists to prevent.
+
+    This is the second consumer of ``_looks_like_n8n_workflow``'s size guard;
+    the first (framework scoring) is pinned in ``test_zero_install_detector``.
+    Pinned separately because a refactor that moved the check into the scoring
+    loop alone would leave those tests green while `init` regressed here.
+
+    The bound is monkeypatched down rather than writing a 10 MB fixture: the
+    rule under test is "compare the file's size against the configured bound".
+    """
+
+    # Above the ~1.8 KB a plain `_write_workflow` produces, so the small
+    # sibling clears the bound on content alone.
+    bound = 4096
+    # ``discovery_artifacts`` is aliased at import: five tests in this file bind
+    # ``artifacts`` as a local, which would shadow an unaliased module import.
+    monkeypatch.setattr(discovery_artifacts, "MAX_STRUCTURED_FILE_BYTES", bound)
+    # Keep the two constants coherent: production pins them equal (see
+    # test_structured_input_bound_matches_the_adapter_bound), and lowering only
+    # the discovery-side copy would put the run in a state that cannot occur.
+    monkeypatch.setattr(inputs_common, "MAX_INPUT_FILE_BYTES", bound)
+    project = tmp_path / "project"
+    workflows = project / "workflows"
+    workflows.mkdir(parents=True)
+    _write_workflow(workflows / "small.json")
+    _write_workflow(workflows / "bulk.json")
+    # Push one workflow over the bound without changing its shape, so size is
+    # the only thing that can drop it.
+    bulk = workflows / "bulk.json"
+    padded = json.loads(bulk.read_text(encoding="utf-8"))
+    padded["notes"] = "x" * (4 * bound)
+    bulk.write_text(json.dumps(padded), encoding="utf-8")
+    assert bulk.stat().st_size > bound
+    assert (workflows / "small.json").stat().st_size <= bound
+
+    assert discovery_artifacts.discover_n8n_artifacts(project)["workflows"] == [
+        "workflows/small.json"
+    ]
+
+    result = detect_workspace(project)
+    manifest_text = render_auto_manifest(project, result).text
+    # Assert on the ``n8n.workflows`` entry form, not a bare substring: both
+    # files also match the Conductor glob, so both are named in the rendered
+    # excluded-sources hint comment. That comment is the manifest reporting
+    # what it declined — it is exactly what must not be confused with a
+    # declared workflow.
+    assert "    - path: workflows/small.json" in manifest_text
+    assert "    - path: workflows/bulk.json" not in manifest_text
 
 
 def _write_workflow(
