@@ -47,8 +47,8 @@ and this document are checked against each other by
 | `merge_verdict_vocabulary` | Enumerates the merge verdicts a caller can gate on, or compares against one | `agents_shipgate.schemas.contract.MERGE_VERDICTS` |
 | `release_decision_vocabulary` | Enumerates the release-gate decisions | `agents_shipgate.schemas.contract.RELEASE_DECISIONS` |
 | `placeholder_ownership` | Tells a reader who may fill a manifest placeholder | `agents_shipgate.cli.discovery.placeholders.placeholder_owner` |
-| `executable_pin` | Names a version, tag or ref a reader will install or run — the Action ref, a `pip`/`uvx` pin, a `>=` install floor, and the Action's own `shipgate_version:` input, which `action.yml` turns into `pip install agents-shipgate==<value>` | `.well-known/agents-shipgate.json` → `release_status.latest_release` |
-| `contract_floor` | Names a runtime contract version a reader must reach | `agents_shipgate.schemas.contract.CONTRACT_VERSION`, per build |
+| `executable_pin` | Names a version, tag or ref a reader will install or run — the Action ref, a `pip`/`uvx` pin, a `>=` install floor, and the Action's own `shipgate_version:` input, which `action.yml` turns into `pip install agents-shipgate==<value>` | `agents_shipgate.published_release.LATEST_PUBLISHED_VERSION` |
+| `contract_floor` | Names a runtime contract version a reader must reach | `agents_shipgate.published_release.LATEST_PUBLISHED_CONTRACT_VERSION` |
 
 ## The registry
 
@@ -123,14 +123,19 @@ pushes to `main`.
 
 | Channel | Metadata | Reader gets it with | Qualification |
 | --- | --- | --- | --- |
-| Published release | `.well-known/agents-shipgate.json` → `release_status.latest_release` | `pipx install agents-shipgate`, `uses: …@v<tag>` | Qualified |
+| Published release | `agents_shipgate.published_release` → `LATEST_PUBLISHED_VERSION` and `LATEST_PUBLISHED_CONTRACT_VERSION`, bound to the tag and to `.well-known` by `tests/test_adopter_pins_resolve.py` | `pipx install agents-shipgate`, `uses: …@v<tag>` | Qualified |
 | Unqualified preview | GitHub pre-release in the `preview-*` namespace, cut by `.github/workflows/release-preview.yml` | `gh release download preview-<version> --pattern '*.whl'` | **None**, by construction — see `docs/release-evidence-policy-decision.md` § Amendment 2 |
 | Source checkout | `pyproject.toml` → `[project].version`, mirrored at `.well-known/agents-shipgate.json` → `version` | `./shipgate …` | Not a distributed build |
 
 The published and source values differ whenever the tree is ahead of the newest
 tag, which is the normal state between releases. A surface may name the source
 build only when it also says which channel that is; naming it as though it were
-published is the `rendered-prompt-unpublished-pin` gap above.
+published was the `rendered-prompt-unpublished-pin` gap, closed by #506.
+
+Where a surface demonstrates a capability no published release carries, the
+honest output is neither an unresolvable pin nor silence: it is to say so. #506
+renders that sentence into the adoption prompts beside the pin, and the
+`### Declared exceptions` rule above covers the committed examples.
 
 ## Adding or changing a surface
 
