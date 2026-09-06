@@ -3036,7 +3036,8 @@ def _discover_mcp_server_source(
         if language is None:  # pragma: no cover - filtered above
             continue
         # ``is None``, not ``or``: an empty module caches as ``""``, which is
-        # the right answer and a falsy one.
+        # the right answer and a falsy one. The re-read returns the same text,
+        # so this costs a read and never an answer.
         text = python_texts.pop(path, None)
         if text is None:
             text = _mcp_source_text(path)

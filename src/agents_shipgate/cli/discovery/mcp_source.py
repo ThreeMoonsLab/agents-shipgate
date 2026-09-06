@@ -195,7 +195,9 @@ def discover_mcp_server_source(
         if language is None:  # pragma: no cover - filtered above
             continue
         # ``is None``, not ``or``: an empty module caches as ``""``, which is
-        # the right answer and a falsy one, so ``or`` would read it again.
+        # the right answer and a falsy one, so ``or`` would read it again. The
+        # re-read returns the same text, so this costs a read and never an
+        # answer — a perturbation sweep reports it untested and is right to.
         text = python_texts.pop(path, None)
         if text is None:
             text = _source_text(path)
