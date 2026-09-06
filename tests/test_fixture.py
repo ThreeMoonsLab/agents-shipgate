@@ -4,7 +4,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
+import sys
+import tarfile
 from dataclasses import replace
 from pathlib import Path
 
@@ -20,6 +24,7 @@ from agents_shipgate.fixtures import (
     list_fixtures,
     replay_fixture,
 )
+from agents_shipgate.published_release import LATEST_PUBLISHED_VERSION
 from agents_shipgate.schemas.report import Finding, ReadinessReport, ReleaseDecision
 from agents_shipgate.schemas.verifier import VerifierArtifact
 
@@ -184,53 +189,195 @@ def _logical_lines(body: str) -> list[str]:
     return [_unescaped(line) for line in lines]
 
 
+#: How a step says an excerpt belongs to one channel: it names the published
+#: release. Rendered from the constant, so it moves with the release rather than
+#: being a literal two files can disagree about.
+#:
+#: Deliberately the *version*, not a fixed sentence. The failure this catches is
+#: a step that never mentions the channel at all; pinning one phrasing would
+#: make authors write prose to satisfy a test, and the first draft already
+#: rejected "The published `v0.15.0` build names the same four check IDs" —
+#: which says exactly what the guard wants said.
+_RELEASE_MARKER = f"`v{LATEST_PUBLISHED_VERSION}`"
+
+#: The artifacts a quoted block can be bound to. A block is bound when the
+#: prose immediately before it names the file; anything else is not a quotation
+#: of an artifact and is left alone.
+_QUOTED_ARTIFACTS = ("pr-comment.md", "report.md")
+
+
+def _run_refund_fixture(out: Path, *, source_root: Path | None = None) -> dict[str, str]:
+    """Render the fixture's artifacts, from this tree or from an extracted tag."""
+
+    if source_root is None:
+        result = runner.invoke(app, ["fixture", "run", "ai_generated_refund_pr", "--out", str(out)])
+        assert result.exit_code == 0, result.output
+    else:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "agents_shipgate",
+                "fixture",
+                "run",
+                "ai_generated_refund_pr",
+                "--out",
+                str(out),
+            ],
+            cwd=source_root,
+            env={**os.environ, "PYTHONPATH": str(source_root / "src")},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:  # pragma: no cover - dependency drift
+            pytest.skip(
+                f"the released engine at {source_root} did not run here: "
+                f"{completed.stderr.strip()[:400]}. Its dependencies must be "
+                "satisfiable by this interpreter for the channel comparison."
+            )
+    return {
+        name: _unescaped((out / name).read_text(encoding="utf-8")) for name in _QUOTED_ARTIFACTS
+    }
+
+
+def _released_source(tmp_path: Path) -> Path:
+    """This repository at the newest published tag, extracted."""
+
+    root = tmp_path / "released"
+    root.mkdir()
+    archive = tmp_path / "released.tar"
+    with archive.open("wb") as handle:
+        completed = subprocess.run(
+            ["git", "archive", f"v{LATEST_PUBLISHED_VERSION}"],
+            cwd=REPO_ROOT,
+            stdout=handle,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    if completed.returncode != 0:  # pragma: no cover - shallow or tagless
+        pytest.skip(
+            f"could not extract v{LATEST_PUBLISHED_VERSION}: "
+            f"{completed.stderr.decode(errors='replace').strip()}. The job "
+            "needs `fetch-depth: 0` and `fetch-tags: true`."
+        )
+    with tarfile.open(archive) as tar:
+        tar.extractall(root, filter="data")
+    return root
+
+
+def _enclosing_section(text: str, offset: int) -> str:
+    """The `##`/`###` section containing ``offset``, heading included.
+
+    Fenced regions are masked first. The PR-comment excerpt quotes the comment's
+    own `## Agents Shipgate` / `### Human summary` headings, so a scan that read
+    them as document structure decided the enclosing section *began inside the
+    block it was trying to place* — and every note before the block fell
+    outside it.
+    """
+
+    masked = re.sub(r"```.*?```", lambda m: " " * len(m.group(0)), text, flags=re.DOTALL)
+    heads = [match.start() for match in re.finditer(r"^#{2,6} ", masked, re.M)]
+    start = max((head for head in heads if head <= offset), default=0)
+    stop = min((head for head in heads if head > offset), default=len(text))
+    return text[start:stop]
+
+
+def _quoted_artifact_segments(text: str):
+    """Every ``(artifact, segment, section)`` a surface quotes from an artifact."""
+
+    for pattern in (_QUOTED_BLOCK, _BLOCKQUOTE):
+        for match in pattern.finditer(text):
+            lead = match.group("lead")
+            named = [name for name in _QUOTED_ARTIFACTS if name in lead]
+            if len(named) != 1:
+                # Zero: not a quotation of an artifact. Two: ambiguous, and a
+                # guard that guessed would bind half these lines to the wrong
+                # file — say so instead.
+                assert not named or len(named) == 1, (
+                    f"a quoted block names {named} in its lead; bind it to one "
+                    "artifact so the comparison has a subject."
+                )
+                continue
+            body = match.group("body").replace("\n>", "\n").lstrip(">")
+            section = _enclosing_section(text, match.start())
+            for logical in _logical_lines(body):
+                # `…` is the abridgement marker: each side of one is a claim,
+                # what it elides is not. An excerpt also *skips* rows, so each
+                # line is checked on its own rather than the block being
+                # required to appear contiguously.
+                for segment in logical.split("…"):
+                    segment = segment.strip(" ;-")
+                    if len(segment) >= 12:
+                        yield named[0], segment, section
+
+
 def test_the_entry_path_quotes_lines_the_pr_comment_actually_renders(tmp_path: Path):
-    """README and quickstart quote this fixture's comment; the engine writes it.
+    """Every artifact line the entry path quotes is rendered by a named channel.
+
+    Two failures produced this test, and one rule covers both.
 
     The README used to show a `### Agents Shipgate result: block` heading, an
     `Impact | Change | Subject | Why` table and a numbered *Required before
     merge* list, and said the fixture wrote that "verbatim". No code path
     rendered any of it, and `block` is not a value `merge_verdict` or
-    `release_decision.decision` ever takes. It was the flagship example on the
-    surface a stranger reads first, and nothing compared it to the artifact it
-    named (#498).
+    `release_decision.decision` ever takes.
+
+    Then the first fix of that introduced the other half: the quickstart said
+    its walkthrough ran on the published release and quoted *this tree's*
+    output at it. `v0.15.0` groups the capability delta by change rather than
+    subject and prints `Evidence coverage: static (human review recommended)`
+    with no counts, so a reader on the recommended install could not find the
+    evidence steps 3 and 5 asked them to interpret. Checking against one engine
+    could not see that, which is why both are rendered here.
+
+    So: a quoted line must be rendered by *some* channel, and a line only one
+    channel renders must sit in a step that names the published release.
     """
 
-    out = tmp_path / "verify-out"
-    result = runner.invoke(app, ["fixture", "run", "ai_generated_refund_pr", "--out", str(out)])
-    assert result.exit_code == 0, result.output
-    rendered = _unescaped((out / "pr-comment.md").read_text(encoding="utf-8"))
+    source = _run_refund_fixture(tmp_path / "source")
+    released = _run_refund_fixture(
+        tmp_path / "released-out", source_root=_released_source(tmp_path)
+    )
 
     checked = 0
+    channel_specific = 0
     for relpath in _ENTRY_PATH_SURFACES:
         text = (REPO_ROOT / relpath).read_text(encoding="utf-8")
-        for pattern in (_QUOTED_BLOCK, _BLOCKQUOTE):
-            for match in pattern.finditer(text):
-                if "pr-comment.md" not in match.group("lead"):
-                    continue
-                body = match.group("body").replace("\n>", "\n").lstrip(">")
-                for logical in _logical_lines(body):
-                    # `…` is the abridgement marker: each side of one is a
-                    # claim, what it elides is not. An excerpt also *skips*
-                    # rows, so each line is checked on its own rather than the
-                    # block being required to appear contiguously.
-                    for segment in logical.split("…"):
-                        segment = segment.strip(" ;-")
-                        if len(segment) < 12:
-                            continue
-                        checked += 1
-                        assert segment in rendered, (
-                            f"{relpath} shows this as part of `pr-comment.md`, "
-                            f"and the fixture's comment does not contain it:\n"
-                            f"  {segment!r}\n"
-                            "Quote what the engine renders, or stop calling the "
-                            "block a PR comment."
-                        )
-    assert checked >= 3, (
-        f"only {checked} quoted PR-comment segments found across "
+        for artifact, segment, section in _quoted_artifact_segments(text):
+            checked += 1
+            in_source = segment in source[artifact]
+            in_released = segment in released[artifact]
+            assert in_source or in_released, (
+                f"{relpath} shows this as part of `{artifact}`, and neither the "
+                f"source tree nor v{LATEST_PUBLISHED_VERSION} renders it:\n"
+                f"  {segment!r}\n"
+                "Quote what an engine writes, or stop calling the block an "
+                "artifact excerpt."
+            )
+            if in_source and in_released:
+                continue
+            channel_specific += 1
+            assert _RELEASE_MARKER in section, (
+                f"{relpath} quotes a `{artifact}` line that only the "
+                f"{'source tree' if in_source else f'v{LATEST_PUBLISHED_VERSION} release'} "
+                f"renders, in a section that never says so:\n  {segment!r}\n"
+                f"Name {_RELEASE_MARKER} in that step and show what the other "
+                "channel prints — a reader on the recommended install cannot "
+                "find what this asks them to read."
+            )
+    assert checked >= 8, (
+        f"only {checked} quoted artifact segments found across "
         f"{list(_ENTRY_PATH_SURFACES)}; this guard is checking nothing. Either "
-        "the entry path stopped showing the comment, or the block it shows is "
-        "no longer introduced by prose naming `pr-comment.md`."
+        "the entry path stopped showing the artifacts, or its blocks are no "
+        "longer introduced by prose naming one of them."
+    )
+    assert channel_specific >= 1, (
+        "no quoted line differs between the source tree and "
+        f"v{LATEST_PUBLISHED_VERSION}, so the channel half of this guard is "
+        "checking nothing. If a release finally renders everything the entry "
+        "path shows, drop the per-step release notes and this assertion "
+        "together."
     )
 
 

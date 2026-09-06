@@ -570,7 +570,7 @@ agents-shipgate init --workspace . --write --json
 agents-shipgate scan -c shipgate.yaml
 ```
 
-`init --json` returns `placeholders[]`, and **each entry names its owner**. Read that field; do not treat the array as one list of edits. The rule behind it:
+`init --json` reports the placeholders two ways, and only one of them routes. **`placeholders[]` is a location list** — each entry is `path`, `current` and `line`, and carries no owner. **`control.next_action` is the routing**: while any human-owned value is unresolved it returns `actor: "human"`, `permissions.edit: false`, and a `why` naming those exact fields and their line numbers. Read `control.next_action` and treat the fields it names as a person's; everything else in `placeholders[]` is yours. The rule behind that split:
 
 - **You own** what you can read out of the repository — `agent.name`, `project.name`, the `tool_sources[]` rows. Escalating these stops a turn for work you own.
 - **A person owns** every *declaration*: purpose, prohibited actions, effect, authority, binding, approval, confirmation, idempotency, safeguards, accepted debt and its owner/reason/expiry, and the manifest blocks that are declarations end to end (`action_surface`, `permissions`, `policies`, `agent_bindings`, `tool_identity`, `checks`, `baseline`, `human_ack`, `risk_overrides`, `validation`, `organization`). While one is unresolved, `init` returns `control.next_action.actor: "human"` and `permissions.edit: false`. These values must be supplied by a human, because Shipgate never invents a declaration nobody made — a purpose or authority claim you lifted out of a prompt or README is a declaration nobody made, and the engine will treat it as evidence.

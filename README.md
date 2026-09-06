@@ -73,6 +73,12 @@ change is still `blocked`. Exit status is a CI policy choice; the verdict is
 the answer. Teaching the two apart is the first thing
 [the quickstart](docs/quickstart.md) does.
 
+These excerpts are from a source checkout. On the published `v0.15.0` build the
+verdict, the exit status and all four check IDs are the same; two of the
+messages are worded differently ("adds destructive capability without rollback
+controls"). The quickstart walks the differences step by step —
+[which build you get](docs/quickstart.md#which-build-you-get).
+
 Now the move every reviewer fears — the agent deletes the Shipgate CI gate so
 its own PR passes:
 
@@ -114,8 +120,10 @@ Abridged from the artifact:
 ```
 
 A second fenced block carries `control` and `fix_task` for the coding agent.
-The exact rendering depends on the build you installed — see
-[which build you get](docs/quickstart.md#which-build-you-get).
+On the published `v0.15.0` build this comment is flatter: it counts changes
+rather than subjects (`Capability delta: +2, 3 modified, -0`), lists them
+without the per-subject grouping, and omits the static-verdict boundary line —
+see [which build you get](docs/quickstart.md#which-build-you-get).
 
 ## What static evidence cannot prove
 
