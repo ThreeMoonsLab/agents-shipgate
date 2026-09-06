@@ -13,14 +13,16 @@ prompt under `prompts/release.md` changes beside `package.json` and
 `CHANGELOG.md` in a routine patch release. It neither reproduces the vendor's
 code nor attempts a destructive action.
 
-Replay it from the v0.18.0 release:
+Replay it from this checkout:
 
 ```bash
-uvx agents-shipgate@0.18.0 fixture run prompt_change_rides_release
+./shipgate fixture run prompt_change_rides_release
 ```
 
-Before v0.18.0 is published, use
-`./shipgate fixture run prompt_change_rides_release` from this checkout.
+Once a release carries this fixture, replay it with
+`uvx agents-shipgate@<that version> fixture run prompt_change_rides_release`. No published release
+does yet — the newest, `v0.15.0`, does not carry it — so naming a version here would
+fail at install before the fixture ran.
 
 Current engine output:
 

@@ -23,8 +23,13 @@ uses only inert synthetic text and generic release metadata.
 ## Replay
 
 ```bash
-uvx agents-shipgate@0.18.0 fixture run prompt_change_rides_release
+./shipgate fixture run prompt_change_rides_release
 ```
+
+Once a release carries this fixture, replay it with
+`uvx agents-shipgate@<that version> fixture run prompt_change_rides_release`. No published release
+does yet — the newest, `v0.15.0`, does not carry it — so naming a version here would
+fail at install before the fixture ran.
 
 Fresh output from the fixture contract:
 

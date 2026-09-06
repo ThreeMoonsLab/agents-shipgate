@@ -203,8 +203,9 @@ Auto-detection runs again inside `init` and writes:
 - `shipgate.yaml` with `tool_sources` populated per detected framework
   candidate file.
 - `.github/workflows/agents-shipgate.yml` (if `--ci` is set; refuses
-  to overwrite an existing workflow file or one that already calls
-  `ThreeMoonsLab/agents-shipgate@*` from a sibling workflow).
+  to overwrite an existing workflow file, or one where a sibling
+  workflow already uses the `ThreeMoonsLab/agents-shipgate` action at
+  any ref).
 
 Key response fields:
 
@@ -377,8 +378,17 @@ rules before changing code:
 - If tools are created by factories, wrappers, runtime imports, or
   dynamic ADK/MCP toolsets, provide an explicit MCP export, OpenAPI
   spec, or local tool inventory artifact.
-- Replace every `CHANGE_ME` value in `shipgate.yaml` before scanning;
-  use the prompt, main agent file, README, or owner-provided context.
+- Resolve the `placeholders[]` entries `init --json` reports before
+  scanning, **by the owner each entry names** — that field is
+  authoritative, not any list in a document. You own what the
+  repository states (`agent.name`, `project.name`, the
+  `tool_sources[]` rows). Every declaration — purpose, prohibited
+  actions, effect, authority, binding, approval, confirmation,
+  idempotency, safeguards, accepted debt — must be supplied by a
+  human, and `init` routes those with
+  `control.next_action.actor: "human"` because Shipgate never invents
+  a declaration nobody made. Do not derive one from a prompt, main
+  agent file or README.
 - Agents Shipgate requires Python 3.12+. If the project runtime is
   older, install the CLI outside the project env with `pipx` or `uv`.
 - Ensure `agents-shipgate-reports/` is listed in `.gitignore`.

@@ -16,14 +16,14 @@ the existing `samples/agent_weakens_gate` repository: the base contains a clean
 read-only docs agent and the Agents Shipgate workflow; the synthetic head
 deletes only that workflow.
 
-Replay it from the v0.18.0 release:
+Replay it with no checkout — this one *is* in the newest published
+release:
 
 ```bash
-uvx agents-shipgate@0.18.0 fixture run agent_weakens_gate
+uvx agents-shipgate fixture run agent_weakens_gate
 ```
 
-Before v0.18.0 is published, use
-`./shipgate fixture run agent_weakens_gate` from this checkout.
+Or `./shipgate fixture run agent_weakens_gate` from this checkout.
 
 Current engine output:
 

@@ -66,11 +66,24 @@ and this document are checked against each other by
 | `harness` | `harness/` | `merge_verdict_vocabulary`, `release_decision_vocabulary` | `test_harness_holds_no_drifted_copy_of_the_engine_vocabularies` | Internal adoption-measurement harness, not an adopter-facing surface. It grades artifacts from whichever build a cell ran, so it carries literal vocabularies — each one derived from the engine's and checked against it. |
 | `mcp_server` | `src/agents_shipgate/mcp_server/` | — | — | Transport only. Every answer it returns is produced by calling the CLI in-process, so it has nothing of its own to drift. |
 | `design_partner_runbook` | `docs/design-partner-verifier-pilot.md` | `contract_floor`, `executable_pin`, `placeholder_ownership` | `test_executable_pin_resolves_in_a_published_channel`, `test_runbook_channel_table_states_the_released_contract_correctly`, `test_surface_routes_human_owned_placeholders_to_a_human`, `tests/test_adopter_pins_resolve.py::test_every_pin_init_writes_into_an_adopter_repo_names_the_published_release` | Version-specific by construction: it names one channel per partner and states what the released build does *not* emit. |
+| `human_entry_path` | `README.md`, `docs/quickstart.md` | `contract_floor`, `executable_pin`, `merge_verdict_vocabulary`, `placeholder_ownership`, `release_decision_vocabulary` | `test_executable_pin_resolves_in_a_published_channel`, `test_the_human_entry_path_states_what_the_published_build_provides`, `test_surface_enumerations_match_the_engine_vocabulary`, `test_surface_routes_human_owned_placeholders_to_a_human` | States its vocabularies as Markdown reference tables rather than braced sets; the vocabulary reader was taught that shape by [#498](https://github.com/ThreeMoonsLab/agents-shipgate/issues/498) rather than exempted from it. |
+| `agent_instructions` | `AGENTS.md`, `docs/agent-recipes.md`, `docs/agents/`, `docs/target-repo-agent-snippets.md` | `executable_pin`, `placeholder_ownership` | `test_executable_pin_resolves_in_a_published_channel`, `test_surface_routes_human_owned_placeholders_to_a_human` | States no contract floor of its own — it links [`agent-contract-current.md`](agent-contract-current.md) for the versions. What it does answer is who may fill a manifest placeholder, on the copy a coding agent actually reads, and it carries an Action ref, a `shipgate_version:` input and an install floor a reader runs. |
 
 `policies/` and `src/agents_shipgate/mcp_server/` carry no claim. That is a
 finding, not an omission: neither restates an engine answer, so parity has
 nothing to say about them and inventing a test for them would be theatre. They
 stay on the list so the *next* reader does not have to re-derive that.
+
+`README.md` and `docs/quickstart.md` were on the *other* list until
+[#498](https://github.com/ThreeMoonsLab/agents-shipgate/issues/498) — recorded
+as "repository documentation" and therefore checked by nobody for the two
+things they do answer. They answer both, and both were wrong: the quickstart's
+first command was `check --format agent-boundary-json`, which the release the
+same page told a reader to install rejects outright, and its placeholder step
+sent a coding agent to the README for `agent.declared_purpose` — a declaration
+only a person may make. Neither is an unusual failure; they are this document's
+two claim families, on the surface a stranger reaches first. Being unregistered
+is what let them sit there.
 
 ## Known parity gaps
 

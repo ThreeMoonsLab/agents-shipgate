@@ -32,3 +32,20 @@ and which release risks need human review.
 | Secret scanners | Detect leaked credentials; Agents Shipgate checks tool permissions, schemas, and policies. |
 | Agent observability | Uses runtime traces after execution; Agents Shipgate runs before promotion. |
 | MCP gateways | Control runtime access; Agents Shipgate produces release-review evidence. |
+
+## Why Not Just...
+
+| Alternative | Gap Agents Shipgate Covers |
+| --- | --- |
+| Unit tests | Tests usually validate code paths, not the released tool surface and declared policies. |
+| Code review | Reviewers miss generated specs, MCP exports, broad scopes, and missing approval policies. |
+| Runtime traces | Useful later, but they arrive after behavior exists. Agents Shipgate runs before promotion. |
+| Nothing | Tool-surface drift becomes a production surprise. |
+
+For named comparisons against specific evaluators and platforms, see the
+marketing-site versus pages:
+[vs evals](https://threemoonslab.com/vs/evals/),
+[vs promptfoo](https://threemoonslab.com/vs/promptfoo/),
+[vs Braintrust](https://threemoonslab.com/vs/braintrust/),
+[vs LangSmith](https://threemoonslab.com/vs/langsmith/), and
+[vs observability platforms](https://threemoonslab.com/vs/observability/).
