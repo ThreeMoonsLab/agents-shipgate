@@ -1883,6 +1883,10 @@ def test_the_script_mirrors_the_readers_shared_vocabulary(script_module):
         script_module.DEFAULT_MAX_SOURCE_FILES
         == mcp_source_discovery.DEFAULT_MAX_SOURCE_FILES
     )
+    assert (
+        script_module.MAX_CACHED_SOURCE_BYTES
+        == mcp_server_source.MAX_CACHED_SOURCE_BYTES
+    )
 
 
 # --- The MCP source route, on workspaces no sample has ----------------------

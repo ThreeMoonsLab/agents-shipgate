@@ -101,7 +101,7 @@ import subprocess
 import sys
 import threading
 import tomllib
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -2919,6 +2919,11 @@ def _contains_another_site(site: RegistrationSite, sites: list[RegistrationSite]
 #: reported, never silent.
 DEFAULT_MAX_SOURCE_FILES = 1500
 
+#: How many bytes of Python source the index pass keeps for the scan pass. A
+#: cost bound and never a decision: past it a file is read twice instead of
+#: once, so no answer moves and nothing is recorded. Mirrors the CLI's bound.
+MAX_CACHED_SOURCE_BYTES = 64 * 1024 * 1024
+
 #: How many tool names the evidence names before it summarises. The line is
 #: read by a human deciding whether to adopt, and 110 names is not evidence.
 _EVIDENCE_NAME_LIMIT = 5
@@ -3021,7 +3026,7 @@ def _discover_mcp_server_source(
     scannable.sort(key=lambda pair: pair[1])
     truncated = len(scannable) > max_source_files
     read = scannable[:max_source_files]
-    server_index = _mcp_python_server_index(read)
+    server_index, python_texts = _mcp_python_server_index(read)
     names: set[str] = set()
     languages: set[str] = set()
     unresolved_by_file: dict[str, int] = {}
@@ -3030,7 +3035,11 @@ def _discover_mcp_server_source(
         language = language_for_path(path)
         if language is None:  # pragma: no cover - filtered above
             continue
-        text = _mcp_source_text(path)
+        # ``is None``, not ``or``: an empty module caches as ``""``, which is
+        # the right answer and a falsy one.
+        text = python_texts.pop(path, None)
+        if text is None:
+            text = _mcp_source_text(path)
         if text is None:
             continue
         result = scan_source(
@@ -3131,21 +3140,38 @@ def _discover_mcp_server_source(
     )
 
 
-def _mcp_python_server_index(scannable: list[tuple[Path, str]]) -> PythonServerIndex:
-    """Index every Python module in the walk that constructs a FastMCP server.
+def _mcp_python_server_index(
+    scannable: list[tuple[Path, str]],
+) -> tuple[PythonServerIndex, dict[Path, str]]:
+    """Index every Python module in the walk that constructs an MCP server.
 
     Built ahead of the scan: `redis/mcp-redis` constructs its server in one
     module and decorates in eleven others, so resolving bindings as the walk
     went would prove or refuse the same decorator depending on file order.
+
+    Returns the texts it read alongside the index, up to
+    ``MAX_CACHED_SOURCE_BYTES``, so the scan pass reads each Python file once.
+    Past the bound a file is read twice rather than held, which changes no
+    answer. Streamed into ``build`` through a generator, so the whole tree is
+    never alive at once.
     """
-    modules: list[tuple[str, str]] = []
-    for path, relative in scannable:
-        if language_for_path(path) != "python":
-            continue
-        text = _mcp_source_text(path)
-        if text is not None:
-            modules.append((relative, text))
-    return PythonServerIndex.build(modules)
+    texts: dict[Path, str] = {}
+    cached = 0
+
+    def _modules() -> Iterator[tuple[str, str]]:
+        nonlocal cached
+        for path, relative in scannable:
+            if language_for_path(path) != "python":
+                continue
+            text = _mcp_source_text(path)
+            if text is None:
+                continue
+            if cached + len(text) <= MAX_CACHED_SOURCE_BYTES:
+                texts[path] = text
+                cached += len(text)
+            yield relative, text
+
+    return PythonServerIndex.build(_modules()), texts
 
 
 def _mcp_source_text(path: Path) -> str | None:

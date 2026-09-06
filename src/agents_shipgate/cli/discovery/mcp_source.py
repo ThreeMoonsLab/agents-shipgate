@@ -194,7 +194,11 @@ def discover_mcp_server_source(
         language = language_for_path(path)
         if language is None:  # pragma: no cover - filtered above
             continue
-        text = python_texts.pop(path, None) or _source_text(path)
+        # ``is None``, not ``or``: an empty module caches as ``""``, which is
+        # the right answer and a falsy one, so ``or`` would read it again.
+        text = python_texts.pop(path, None)
+        if text is None:
+            text = _source_text(path)
         if text is None:
             continue
         result = scan_source(
