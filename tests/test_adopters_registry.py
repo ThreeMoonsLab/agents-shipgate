@@ -66,6 +66,11 @@ EMPTY_MARKER = "No external entries yet."
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
+#: Dates are compared against the runner's local today plus one day. The guard
+#: is here to catch "2027-03-01", not to fail a contributor in Auckland whose
+#: today is still tomorrow in the UTC runner that reviews their pull request.
+CLOCK_SKEW = dt.timedelta(days=1)
+
 
 # --------------------------------------------------------------------------
 # Reading the registry
@@ -237,12 +242,13 @@ def test_readme_counts_match_the_registry():
     section = _flat(_section(_read(README), "## Adopters"))
     external = counts["External adopter entries"]
     dogfood = counts["Maintainer dogfooding entries"]
-    assert f"{external} external adopter entries" in section, (
-        f"README § Adopters must state the registry's external count ({external})"
-    )
-    assert re.search(rf"\b{re.escape(dogfood)} maintainer dogfooding entr(?:y|ies)\b", section), (
-        f"README § Adopters must state the registry's dogfooding count ({dogfood})"
-    )
+    # Both counts accept "entry" and "entries": the first real adopter makes
+    # the external count 1, and a guard that demanded "1 external adopter
+    # entries" would meet that contributor with a red build over grammar.
+    for count, noun in ((external, "external adopter"), (dogfood, "maintainer dogfooding")):
+        assert re.search(rf"\b{re.escape(count)} {noun} entr(?:y|ies)\b", section), (
+            f"README § Adopters must state the registry's {noun} count ({count})"
+        )
     assert counts["Counts as of"] in section, (
         "README § Adopters must carry the registry's as-of date beside its numbers"
     )
@@ -300,7 +306,7 @@ def test_every_entry_is_dated_in_the_past(heading: str, row: dict[str, str]):
     be true."""
     since = row["Since"]
     assert DATE_RE.match(since), f"{heading} row {row['Adopter']!r} has Since={since!r}, want YYYY-MM-DD"
-    assert dt.date.fromisoformat(since) <= dt.date.today(), (
+    assert dt.date.fromisoformat(since) <= dt.date.today() + CLOCK_SKEW, (
         f"{heading} row {row['Adopter']!r} is dated in the future: {since}"
     )
 
@@ -369,7 +375,9 @@ def test_the_as_of_date_is_not_older_than_the_newest_entry():
             f"{heading} row {row['Adopter']!r} is dated {row['Since']}, after the "
             f"stated as-of date {as_of}. Re-date § Counts in the same change."
         )
-    assert as_of <= dt.date.today(), f"§ Counts is dated in the future: {as_of}"
+    assert as_of <= dt.date.today() + CLOCK_SKEW, (
+        f"§ Counts is dated in the future: {as_of}"
+    )
 
 
 def test_the_empty_external_table_says_so_in_words():
@@ -418,7 +426,11 @@ def test_the_maintainer_row_agrees_with_the_paragraph_that_explains_it():
     own table — so it fails instead."""
     section = _flat(_section(_read(REGISTRY), DOGFOOD_HEADING))
     for row in _entries(DOGFOOD_HEADING):
-        assert f"That row says `{row['Use']}`" in section, (
+        # "That row says `x`" today; "the Acme row says `x`" once there are
+        # two. What is pinned is the claim-plus-tier, not one sentence opener —
+        # a guard that only fit one row would be rewritten out on the day a
+        # second one arrived.
+        assert re.search(rf"row says `{re.escape(row['Use'])}`", section), (
             f"the maintainer row states Use={row['Use']!r}, which the prose "
             "beside it does not explain. State the tier and say why it is that one."
         )
@@ -624,15 +636,18 @@ def _claims(text: str):
 _CONTEXT = 120
 
 
-def _untraceable_claims(text: str) -> list[str]:
+def _untraceable_claims(text: str, counts: dict[str, str] | None = None) -> list[str]:
     """Adoption numbers in ``text`` that the registry cannot source.
 
     An unqualified adopter number must equal the **external** count. The
     dogfooding count only sources a number that says it is dogfooding — rule 3
     is that the two are never summed, and "used by 1 team" borrowing the
     maintainer row would be exactly that sum, one row large.
+
+    ``counts`` is accepted so a caller sweeping hundreds of files parses the
+    registry once rather than once per file.
     """
-    counts = _counts()
+    counts = counts if counts is not None else _counts()
     external = counts["External adopter entries"]
     dogfood = counts["Maintainer dogfooding entries"]
     flat = _flat(text)
@@ -666,10 +681,11 @@ def _prose_files() -> list[Path]:
 def test_no_published_adoption_number_is_larger_than_the_registry():
     """Rule 1, enforced rather than promised. Any adopter count stated anywhere
     in the repository's prose must be one the rows can source."""
+    counts = _counts()
     offenders = {
         str(path.relative_to(REPO_ROOT)): claims
         for path in _prose_files()
-        if (claims := _untraceable_claims(_read(path)))
+        if (claims := _untraceable_claims(_read(path), counts))
     }
     assert not offenders, (
         f"adoption numbers with no rows behind them: {offenders}. Add the "
