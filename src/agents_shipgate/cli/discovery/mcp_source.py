@@ -5,7 +5,7 @@ agent project". Both publish dozens of tools — ``drop-database``,
 ``delete-many``, ``update_incident`` — and neither commits an export, so every
 route discovery had was filename-shaped and found nothing. This module supplies
 the missing route: it asks whether a workspace *is* an MCP server written in
-TypeScript or Go, and if so which directory holds the registrations.
+TypeScript, Go or Python, and if so which directory holds the registrations.
 
 Two facts have to hold together before the route is offered, and the pairing is
 the whole design.
@@ -14,27 +14,36 @@ the whole design.
 is not an MCP server just because a class of its own happens to spell a field
 ``toolName``. #393's lesson is that a proof resting on a spelling is the
 fail-open shape, so the dependency — ``@modelcontextprotocol/*`` in a
-``package.json``, an MCP module in a ``go.mod`` — is what turns a spelling into
-provenance. It is also the cheap half: a workspace with no such dependency is
-answered without reading a single source file.
+``package.json``, an MCP module in a ``go.mod``, ``mcp`` or ``fastmcp`` in a
+``pyproject.toml`` — is what turns a spelling into provenance. It is also the
+cheap half: a workspace with no such dependency is answered without reading a
+single source file.
 
-**A resolved registration.** Dependency evidence alone says the repository
-*uses* MCP, which every client does too. At least one tool name has to be
-readable at a registration site before this claims a tool surface.
+**A registration this reader can stand behind.** Dependency evidence alone says
+the repository *uses* MCP, which every client does too. For the lexical idioms
+the second fact is a **resolved name**: they match a spelling, and a spelling
+is all `.registerTool(` in a client repository ever is. The Python idiom
+already carries the second fact in the site itself — it is only emitted after
+the decorator has been followed back to a server construction, and a client
+does not construct a server — so there the route is offered for a registration
+whose *name* is built at run time. That is not a corner: all 40 of
+``neo4j-contrib/mcp-neo4j``'s tools are ``name=namespace_prefix + "…"``, and
+requiring a readable name would report the repository as "not an agent project"
+precisely because its names are dynamic.
 
 Where both hold and the workspace *also* has a parseable MCP export, the export
-wins: it is the server's own published contract, it carries the input schemas
-this route deliberately does not read, and it is ``high`` confidence against
-``medium``. The source route is then withheld and recorded in
-``excluded_sources`` — named and visible, never silently dropped, because a
-route that vanishes without a reason is indistinguishable from one nobody
-implemented.
+wins: it is the server's own published contract, published in the shape a
+client receives it, and it is ``high`` confidence against ``medium``. The
+source route is then withheld and recorded in ``excluded_sources`` — named and
+visible, never silently dropped, because a route that vanishes without a reason
+is indistinguishable from one nobody implemented.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Sequence
+import tomllib
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
@@ -45,12 +54,17 @@ from agents_shipgate.inputs.mcp_idioms import (
     MAX_SOURCE_FILE_BYTES,
     SKIP_DIRECTORY_NAMES,
     TYPESCRIPT_FRAMEWORK_PACKAGES,
+    PythonServerIndex,
     SourceLanguage,
+    declares_python_mcp_framework,
     is_scannable_path,
     language_for_path,
     scan_source,
 )
-from agents_shipgate.inputs.mcp_server_source import SOURCE_TYPE
+from agents_shipgate.inputs.mcp_server_source import (
+    MAX_CACHED_SOURCE_BYTES,
+    SOURCE_TYPE,
+)
 
 #: How many source files discovery reads before it stops. Discovery runs on an
 #: unknown workspace with no manifest and has to stay bounded; the scan-time
@@ -73,6 +87,24 @@ _PACKAGE_JSON_DEPENDENCY_KEYS = (
     "optionalDependencies",
 )
 
+#: Python project files read for the language gate. ``setup.py`` is absent on
+#: purpose: its dependencies are an argument to a function call, so reading them
+#: is either running the file or grepping it, and a grep for ``mcp`` in a Python
+#: module is the spelling-shaped proof #393 rules out.
+_PYTHON_PROJECT_FILES: frozenset[str] = frozenset({"pyproject.toml"})
+
+#: Dependency tables of a ``pyproject.toml`` that count. PEP 621's own list,
+#: PEP 735's dependency groups, and Poetry's table — a server declares its SDK
+#: in whichever one its build backend reads, and all three are live in the
+#: surveyed servers' ecosystems.
+_PYPROJECT_DEPENDENCY_PATHS: tuple[tuple[str, ...], ...] = (
+    ("project", "dependencies"),
+    ("project", "optional-dependencies"),
+    ("dependency-groups",),
+    ("tool", "poetry", "dependencies"),
+    ("tool", "poetry", "group"),
+)
+
 
 @dataclass(frozen=True)
 class McpSourceDiscovery:
@@ -81,9 +113,10 @@ class McpSourceDiscovery:
     #: Workspace-relative directory to point ``tool_sources[].path`` at, or
     #: ``None`` when no route was found.
     path: str | None = None
-    #: Languages whose idioms resolved at least one name.
+    #: Languages that contributed a registration this route rests on.
     languages: tuple[SourceLanguage, ...] = ()
-    #: Distinct resolved tool names, sorted.
+    #: Distinct resolved tool names, sorted. Empty is a real answer: a server
+    #: can register 40 tools and name none of them where a reader can read it.
     tool_names: tuple[str, ...] = ()
     #: Registration sites whose name could not be resolved to a literal.
     unresolved_count: int = 0
@@ -94,7 +127,8 @@ class McpSourceDiscovery:
     #: lines are ordered for a human and gain conditional entries at the end,
     #: so "the dependency reason" was a list position rather than a fact.
     framework_evidence: tuple[str, ...] = ()
-    #: Workspace-relative files that carried a resolved registration.
+    #: Workspace-relative files the route has to cover — the ones that carried
+    #: a registration, plus the modules whose server construction proved one.
     candidate_files: tuple[str, ...] = ()
     #: ``{type, path, reason}`` rows for a route discovery found and withheld.
     excluded: tuple[dict[str, str], ...] = ()
@@ -150,40 +184,56 @@ def discover_mcp_server_source(
     # published "this count is a lower bound" for a count that was exact.
     scannable.sort(key=lambda pair: pair[1])
     truncated = len(scannable) > max_source_files
+    read = scannable[:max_source_files]
+    server_index, python_texts = _python_server_index(read)
     names: set[str] = set()
     languages: set[SourceLanguage] = set()
     unresolved_by_file: dict[str, int] = {}
     candidate_files: list[str] = []
-    unreadable = 0
-    for path, relative in scannable[:max_source_files]:
+    for path, relative in read:
         language = language_for_path(path)
         if language is None:  # pragma: no cover - filtered above
             continue
-        try:
-            if path.stat().st_size > MAX_SOURCE_FILE_BYTES:
-                continue
-            # The adapter's own reader, not a lenient copy of it. Decoding here
-            # with `errors="replace"` let `detect` resolve a registration out of
-            # a file `load_mcp_server_source` then refuses as `unreadable_file`,
-            # so the route this promised enumerated fewer tools than it named —
-            # the detect/scan agreement is the whole point of sharing
-            # `is_scannable_path`, and the read has to be shared too.
-            text = load_text_file(path)
-        except (OSError, InputParseError):
-            unreadable += 1
+        # ``is None``, not ``or``: an empty module caches as ``""``, which is
+        # the right answer and a falsy one, so ``or`` would read it again. The
+        # re-read returns the same text, so this costs a read and never an
+        # answer — a perturbation sweep reports it untested and is right to.
+        text = python_texts.pop(path, None)
+        if text is None:
+            text = _source_text(path)
+        if text is None:
             continue
-        result = scan_source(text, language)
+        result = scan_source(
+            text, language, module_path=relative, server_index=server_index
+        )
         resolved = [site.name for site in result.sites if site.name is not None]
         opaque = sum(1 for site in result.sites if site.name is None)
         if opaque:
             unresolved_by_file[relative] = opaque
-        if not resolved:
+        # A site that proves a server counts even when its name does not
+        # resolve. For the lexed idioms nothing does — they match a spelling,
+        # and a spelling in a repository that merely *uses* MCP is the
+        # coincidence the dependency gate exists to reject. The Python idiom
+        # has already followed the decorator back to a `FastMCP(...)`
+        # construction before it emits anything, and a client does not
+        # construct a server. Requiring a *name* on top of that would withhold
+        # the route from `neo4j-contrib/mcp-neo4j`, whose 40 registrations are
+        # every one of them `name=namespace_prefix + "…"` — the repository
+        # would stay "not an agent project" because its tool names are built at
+        # run time, which is the state this input exists to end.
+        if not resolved and not any(site.proves_server for site in result.sites):
             continue
         languages.add(language)
         names.update(resolved)
         candidate_files.append(relative)
+        # The module that constructed the server is part of the route even
+        # though it registers nothing: `redis/mcp-redis` builds its server in
+        # `src/common/server.py` and decorates in `src/tools/*.py`, and a route
+        # covering only the decorators is one on which `scan` cannot repeat the
+        # proof `detect` just published.
+        candidate_files.extend(result.server_modules)
 
-    if not names:
+    if not candidate_files:
         return McpSourceDiscovery(
             unresolved_count=sum(unresolved_by_file.values()), truncated=truncated
         )
@@ -201,8 +251,15 @@ def discover_mcp_server_source(
     evidence = _evidence_lines(
         framework, languages, names, root, truncated, unresolved
     )
-    covering_export, uncovered = _covering_export(
-        workspace, exported_source_paths, names
+    covering_export, uncovered = (
+        _covering_export(workspace, exported_source_paths, names)
+        if names
+        # An export cannot be shown to *contain* a surface with no names in it.
+        # `names <= covered` is vacuously true for the empty set, so asking the
+        # question here would let any readable export displace a route whose
+        # whole content is "40 registrations nobody can enumerate" — the one
+        # case where the source route says something no export restates.
+        else (None, set())
     )
     if covering_export is not None:
         return McpSourceDiscovery(
@@ -248,9 +305,70 @@ def discover_mcp_server_source(
         unresolved_count=unresolved,
         evidence=evidence,
         framework_evidence=tuple(sorted(framework.reasons)),
-        candidate_files=tuple(sorted(candidate_files)),
+        # De-duplicated: one module can prove the binding for every file
+        # that imports it, so a plain sort repeated `src/common/server.py`
+        # once per decorating module.
+        candidate_files=tuple(sorted(set(candidate_files))),
         truncated=truncated,
     )
+
+
+def _python_server_index(
+    scannable: Sequence[tuple[Path, str]]
+) -> tuple[PythonServerIndex, dict[Path, str]]:
+    """Index every Python module in the walk that constructs an MCP server.
+
+    Built ahead of the scan for the same reason the adapter builds one:
+    ``redis/mcp-redis`` constructs the server in ``src/common/server.py`` and
+    decorates in ``src/tools/*.py``, so resolving bindings as the walk went
+    would prove or refuse the same decorator depending on file order.
+
+    The keys are workspace-relative here and root-relative in the adapter, and
+    that is not a divergence: both are the path *inside the tree being read*,
+    which is what an import's segments are matched against.
+
+    Returns the texts it read alongside the index, up to
+    :data:`MAX_CACHED_SOURCE_BYTES`, so the scan pass reads each Python file
+    once. Past the bound a file is read twice rather than held, which changes
+    no answer.
+    """
+
+    texts: dict[Path, str] = {}
+    cached = 0
+
+    def _modules() -> Iterator[tuple[str, str]]:
+        nonlocal cached
+        for path, relative in scannable:
+            if language_for_path(path) != "python":
+                continue
+            text = _source_text(path)
+            if text is None:
+                continue
+            if cached + len(text) <= MAX_CACHED_SOURCE_BYTES:
+                texts[path] = text
+                cached += len(text)
+            yield relative, text
+
+    return PythonServerIndex.build(_modules()), texts
+
+
+def _source_text(path: Path) -> str | None:
+    """One source file's text, or ``None`` when this walk will not read it.
+
+    The adapter's own reader, not a lenient copy of it. Decoding here with
+    ``errors="replace"`` let ``detect`` resolve a registration out of a file
+    ``load_mcp_server_source`` then refuses as ``unreadable_file``, so the
+    route this promised enumerated fewer tools than it named — the detect/scan
+    agreement is the whole point of sharing ``is_scannable_path``, and the read
+    has to be shared too.
+    """
+
+    try:
+        if path.stat().st_size > MAX_SOURCE_FILE_BYTES:
+            return None
+        return load_text_file(path)
+    except (OSError, InputParseError):
+        return None
 
 
 def _framework_evidence(
@@ -259,6 +377,9 @@ def _framework_evidence(
     evidence = _FrameworkEvidence()
     for path in files:
         name = path.name
+        if name in _PYTHON_PROJECT_FILES or _is_requirements_file(name):
+            _record_python_evidence(workspace, path, evidence)
+            continue
         if name not in {"package.json", "go.mod"}:
             continue
         relative = _relative(path, workspace)
@@ -294,6 +415,123 @@ def _framework_evidence(
                 evidence.reasons.append(f"{relative} depends on {dependency}")
                 break
     return evidence
+
+
+def _is_requirements_file(name: str) -> bool:
+    """Whether ``name`` is a pip requirements file.
+
+    The glob rather than the exact name: ``requirements-dev.txt`` and
+    ``requirements/base.txt`` are both ordinary, and a repository that pins its
+    SDK in one of them has declared it just as plainly.
+    """
+
+    lowered = name.lower()
+    return lowered.startswith("requirements") and lowered.endswith(".txt")
+
+
+def _record_python_evidence(
+    workspace: Path, path: Path, evidence: _FrameworkEvidence
+) -> None:
+    """Admit Python when a project file declares ``mcp`` or ``fastmcp``.
+
+    Weaker than its Go and TypeScript counterparts, and knowingly so: a Python
+    *client* declares ``mcp`` too. It buys the same thing the others buy — a
+    workspace with no such dependency is answered without parsing a single
+    module — while the load-bearing half of the pairing moves into the reader,
+    which will not emit a Python site at all until it has followed the
+    decorated object back to a ``FastMCP(...)`` construction.
+    """
+
+    relative = _relative(path, workspace)
+    if relative is None:
+        return
+    if any(part in SKIP_DIRECTORY_NAMES for part in PurePosixPath(relative).parts):
+        return
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    requirements = (
+        _pyproject_requirements(text)
+        if path.name in _PYTHON_PROJECT_FILES
+        else _requirements_txt(text)
+    )
+    dependency = declares_python_mcp_framework(requirements)
+    if dependency is None:
+        return
+    evidence.languages.add("python")
+    evidence.reasons.append(f"{relative} depends on {dependency}")
+
+
+def _pyproject_requirements(text: str) -> list[str]:
+    """Every requirement string a ``pyproject.toml`` declares.
+
+    Parsed with ``tomllib`` rather than scanned line by line. The general
+    package-token scan in discovery does the latter and drops
+    ``mcp[cli]>=1.26.0,<2`` — the requirement two of the five surveyed servers
+    declare — because an extras marker is not a bare token.
+    """
+
+    try:
+        data = tomllib.loads(text)
+    except (tomllib.TOMLDecodeError, ValueError, RecursionError):
+        return []
+    requirements: list[str] = []
+    for path in _PYPROJECT_DEPENDENCY_PATHS:
+        node: object = data
+        for key in path:
+            node = node.get(key) if isinstance(node, dict) else None
+        requirements.extend(_toml_requirements(node))
+    return requirements
+
+
+def _toml_requirements(node: object, depth: int = 0) -> list[str]:
+    """Every string in a dependency table that could name a distribution.
+
+    Four spellings of one fact, and the walker admits **both** halves of a
+    table rather than choosing between them: PEP 621 writes a list of
+    requirement strings, PEP 735 and Poetry's groups write a table of such
+    lists, and Poetry's own table writes the *name as the key* with a
+    constraint as the value — sometimes an inline table (``{version = "^2"}``)
+    rather than a string.
+
+    Choosing was the bug. A first draft emitted the key only when the value
+    yielded nothing, so ``mcp = "^1.6.0"`` produced ``^1.6.0`` and never
+    ``mcp`` — every Poetry table in the list above was dead, and the gate
+    withheld the route from a Poetry-managed server. Emitting the key too
+    costs nothing: a group name like ``dev`` is not a distribution this gate
+    looks for, and :func:`normalized_distribution` drops ``^1.6.0`` anyway.
+    """
+
+    if depth > 3:  # pragma: no cover - a dependency table is never this deep
+        return []
+    if isinstance(node, str):
+        return [node]
+    if isinstance(node, list):
+        return [item for item in node if isinstance(item, str)]
+    if isinstance(node, dict):
+        found: list[str] = []
+        for key, value in node.items():
+            found.append(str(key))
+            found.extend(_toml_requirements(value, depth + 1))
+        return found
+    return []
+
+
+def _requirements_txt(text: str) -> list[str]:
+    """Requirement lines from a pip requirements file.
+
+    Option lines (``-r``, ``--index-url``, ``-e``) are dropped rather than
+    followed: a requirements file that includes another one names a path, and
+    resolving it is a second file read for a gate whose whole value is that it
+    is cheap.
+    """
+
+    return [
+        line
+        for raw in text.splitlines()
+        if (line := raw.strip()) and not line.startswith(("-", "#"))
+    ]
 
 
 def _package_dependencies(text: str) -> set[str]:
@@ -421,14 +659,24 @@ def _evidence_lines(
     if len(names) > len(sample):
         shown += ", …"
     lines = [
-        f"MCP tool registrations in {'/'.join(sorted(languages))} source under "
-        f"{root}/: {len(names)} tool name(s) — {shown}",
+        (
+            f"MCP tool registrations in {'/'.join(sorted(languages))} source "
+            f"under {root}/: {len(names)} tool name(s) — {shown}"
+        )
+        if names
+        else (
+            f"MCP tool registrations in {'/'.join(sorted(languages))} source "
+            f"under {root}/: {unresolved} registration(s), none of which this "
+            "reader can name"
+        ),
     ]
     lines.extend(sorted(framework.reasons)[:_EVIDENCE_NAME_LIMIT])
-    if unresolved:
+    if unresolved and names:
         # Named here because this is what a human reads when deciding whether
         # to adopt, and "61 tools" without "and 3 more this reader cannot name"
-        # is the over-claim the whole input is built to avoid.
+        # is the over-claim the whole input is built to avoid. Suppressed when
+        # there are no names at all, because the headline above already is the
+        # unresolved count and saying it twice reads as two findings.
         lines.append(
             f"{unresolved} registration(s) name themselves at runtime and are "
             "not enumerated"

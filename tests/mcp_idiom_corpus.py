@@ -103,6 +103,20 @@ POSITIVE_SAMPLES: dict[str, Sample] = {
         ")\n",
         "issue_read",
     ),
+    "py_fastmcp_decorator": Sample(
+        "py_fastmcp_decorator",
+        "python",
+        "from mcp.server.fastmcp import FastMCP\n"
+        "\n"
+        'mcp = FastMCP("Redis MCP Server")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "async def dbsize() -> int:\n"
+        '    """Get the number of keys stored in the Redis database"""\n'
+        "    return 0\n",
+        "dbsize",
+    ),
 }
 
 
@@ -667,6 +681,542 @@ ADVERSARIAL: list[tuple[str, str, str, list[str], list[str]]] = [
         ["real"],
         [],
     ),
+    (
+        'a python decorator on an alias of the tool method',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        'register = mcp.tool\n'
+        '\n'
+        '\n'
+        '@register\n'
+        'def aliased() -> None:\n'
+        '    pass\n',
+        ['aliased'],
+        [],
+    ),
+    (
+        'a python tool name built at runtime',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        '\n'
+        '@mcp.tool(name=NAMESPACE + "delete_instance")\n'
+        'def delete_instance() -> None:\n'
+        '    pass\n',
+        [],
+        ['name_not_literal'],
+    ),
+    (
+        'a python decorator applied inside a factory takes its argument',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        '\n'
+        'def register_all(server: FastMCP) -> None:\n'
+        '    @server.tool()\n'
+        '    def injected() -> None:\n'
+        '        pass\n',
+        [],
+        ['server_binding_not_proven'],
+    ),
+    (
+        'a python server constructed inside a factory is still a server',
+        "python",
+        'from fastmcp.server import FastMCP\n'
+        '\n'
+        '\n'
+        'def create_mcp_server(namespace: str = "") -> FastMCP:\n'
+        '    mcp: FastMCP = FastMCP("mcp-neo4j-cypher")\n'
+        '\n'
+        '    @mcp.tool()\n'
+        '    def get_neo4j_schema() -> str:\n'
+        '        return ""\n'
+        '\n'
+        '    return mcp\n',
+        ['get_neo4j_schema'],
+        [],
+    ),
+    (
+        'functools.wraps is not a registration',
+        "python",
+        'import functools\n'
+        '\n'
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        '\n'
+        'def audited(fn):\n'
+        '    @functools.wraps(fn)\n'
+        '    def wrapper(*args, **kwargs):\n'
+        '        return fn(*args, **kwargs)\n'
+        '\n'
+        '    return wrapper\n'
+        '\n'
+        '\n'
+        '@mcp.tool()\n'
+        '@audited\n'
+        'def wrapped() -> None:\n'
+        '    pass\n',
+        ['wrapped'],
+        [],
+    ),
+    (
+        'a conditional python registration is reported like any other',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        'if FEATURE_ENABLED:\n'
+        '\n'
+        '    @mcp.tool()\n'
+        '    def gated() -> None:\n'
+        '        pass\n',
+        ['gated'],
+        [],
+    ),
+    (
+        'a re-bound python module symbol is not proven',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        'mcp = wrap(mcp)\n'
+        '\n'
+        '\n'
+        '@mcp.tool()\n'
+        'def rebound() -> None:\n'
+        '    pass\n',
+        [],
+        ['server_binding_not_proven'],
+    ),
+    (
+        'a decorator on an object that is not a FastMCP server',
+        "python",
+        'import click\n'
+        '\n'
+        'app = click.Group()\n'
+        '\n'
+        '\n'
+        '@app.tool()\n'
+        'def not_ours() -> None:\n'
+        '    pass\n',
+        [],
+        ['server_binding_not_proven'],
+    ),
+    (
+        'a python decorator reaching through an attribute',
+        "python",
+        'from mcp.server.fastmcp import FastMCP\n'
+        '\n'
+        '\n'
+        'class RabbitMQModule:\n'
+        '    def __init__(self, mcp: FastMCP) -> None:\n'
+        '        self.mcp = mcp\n'
+        '\n'
+        '    def register(self) -> None:\n'
+        '        @self.mcp.tool()\n'
+        '        def rabbitmq_broker_list_queues() -> list:\n'
+        '            return []\n',
+        [],
+        ['server_binding_not_proven'],
+    ),
+    (
+        'a python star import makes every binding unprovable',
+        "python",
+        'from fastmcp import FastMCP\n'
+        'from plugins import *\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        '\n'
+        '@mcp.tool()\n'
+        'def shadowed() -> None:\n'
+        '    pass\n',
+        [],
+        ['server_binding_not_proven'],
+    ),
+    (
+        'a python resource or prompt decorator is not a tool',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        '\n'
+        '@mcp.resource("resource://schema/node")\n'
+        'def node_schema() -> dict:\n'
+        '    return {}\n'
+        '\n'
+        '\n'
+        '@mcp.prompt()\n'
+        'def summarise() -> str:\n'
+        '    return ""\n'
+        '\n'
+        '\n'
+        '@mcp.tool()\n'
+        'def real_tool() -> None:\n'
+        '    pass\n',
+        ['real_tool'],
+        [],
+    ),
+    (
+        'a python parameter shadows the module-level server',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        '\n'
+        'def outer(mcp):\n'
+        '    @mcp.tool()\n'
+        '    def inner() -> None:\n'
+        '        pass\n',
+        [],
+        ['server_binding_not_proven'],
+    ),
+    (
+        'a python name a loop also binds is not proven',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        'for mcp in servers:\n'
+        '    pass\n'
+        '\n'
+        '\n'
+        '@mcp.tool()\n'
+        'def looped() -> None:\n'
+        '    pass\n',
+        [],
+        ['server_binding_not_proven'],
+    ),
+    (
+        'a python function name that is not shaped like a tool name',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        '\n'
+        '@mcp.tool()\n'
+        'def _private_helper() -> None:\n'
+        '    pass\n',
+        [],
+        ['implausible_tool_name'],
+    ),
+    (
+        'a python decorator written without parentheses',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        '\n'
+        '@mcp.tool\n'
+        'def bare() -> None:\n'
+        '    pass\n',
+        ['bare'],
+        [],
+    ),
+    (
+        'a positional python tool name',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        '\n'
+        '@mcp.tool("explicit-name")\n'
+        'def positional() -> None:\n'
+        '    pass\n',
+        ['explicit-name'],
+        [],
+    ),
+    (
+        'a nested python registration keeps the outer omission',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        '\n'
+        '@mcp.tool(name=RUNTIME)\n'
+        'def outer() -> None:\n'
+        '    @mcp.tool()\n'
+        '    def inner() -> None:\n'
+        '        pass\n',
+        ['inner'],
+        ['name_not_literal'],
+    ),
+    (
+        'a python alias for the FastMCP class',
+        "python",
+        'from fastmcp import FastMCP as Server\n'
+        '\n'
+        'mcp = Server("s")\n'
+        '\n'
+        '\n'
+        '@mcp.tool()\n'
+        'def aliased_class() -> None:\n'
+        '    pass\n',
+        ['aliased_class'],
+        [],
+    ),
+    (
+        'a python alias for the FastMCP package',
+        "python",
+        'import fastmcp\n'
+        '\n'
+        'server = fastmcp.FastMCP("s")\n'
+        '\n'
+        '\n'
+        '@server.tool()\n'
+        'def module_alias() -> None:\n'
+        '    pass\n',
+        ['module_alias'],
+        [],
+    ),
+    (
+        'a FastMCP-shaped class from some other package',
+        "python",
+        'from mypackage.fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        '\n'
+        '@mcp.tool()\n'
+        'def foreign() -> None:\n'
+        '    pass\n',
+        [],
+        ['server_binding_not_proven'],
+    ),
+    (
+        'a python registration written inside a docstring',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        '\n'
+        'def documented() -> None:\n'
+        '    """Register one like this:\n'
+        '\n'
+        '    @mcp.tool()\n'
+        '    def ghost() -> None:\n'
+        '        ...\n'
+        '    """\n',
+        [],
+        [],
+    ),
+    (
+        'a python tool decorator on a class registers nothing',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        '\n'
+        '@mcp.tool()\n'
+        'class NotAFunction:\n'
+        '    pass\n',
+        [],
+        [],
+    ),
+    (
+        'a python server bound by tuple unpacking is not proven',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp, sidecar = FastMCP("s"), None\n'
+        '\n'
+        '\n'
+        '@mcp.tool()\n'
+        'def unpacked() -> None:\n'
+        '    pass\n',
+        [],
+        ['server_binding_not_proven'],
+    ),
+    (
+        'a python global declaration is not a proof',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        '\n'
+        'def build() -> None:\n'
+        '    global mcp\n'
+        '    mcp = FastMCP("s")\n'
+        '\n'
+        '    @mcp.tool()\n'
+        '    def declared() -> None:\n'
+        '        pass\n',
+        [],
+        ['server_binding_not_proven'],
+    ),
+    (
+        'the official SDK v2 renamed the server class',
+        "python",
+        'from mcp.server.mcpserver import MCPServer\n'
+        '\n'
+        'mcp = MCPServer("awslabs.amazon-kendra-index-mcp-server")\n'
+        '\n'
+        '\n'
+        '@mcp.tool(name="KendraListIndexesTool")\n'
+        'async def kendra_list_indexes_tool(region: str = "") -> dict:\n'
+        '    """List all Amazon Kendra indexes in the specified region."""\n'
+        '    return {}\n',
+        ['KendraListIndexesTool'],
+        [],
+    ),
+    (
+        'a server built by a factory call is not proven',
+        "python",
+        'from mcp.server.mcpserver import MCPServer\n'
+        '\n'
+        '\n'
+        'def create_server() -> MCPServer:\n'
+        '    return MCPServer("s")\n'
+        '\n'
+        '\n'
+        'app = create_server()\n'
+        '\n'
+        '\n'
+        '@app.tool\n'
+        'def from_a_factory() -> None:\n'
+        '    pass\n',
+        [],
+        ['server_binding_not_proven'],
+    ),
+    (
+        "the v1 class name is not the v2 module's",
+        "python",
+        'from mcp.server.mcpserver import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        '\n'
+        '@mcp.tool()\n'
+        'def wrong_pairing() -> None:\n'
+        '    pass\n',
+        [],
+        ['server_binding_not_proven'],
+    ),
+    (
+        'a Context parameter is not a tool parameter',
+        "python",
+        'from mcp.server.mcpserver import Context, MCPServer\n'
+        '\n'
+        'mcp = MCPServer("s")\n'
+        '\n'
+        '\n'
+        '@mcp.tool()\n'
+        'async def with_context(x: int, ctx: Context) -> str:\n'
+        '    return str(x)\n',
+        ['with_context'],
+        [],
+    ),
+    (
+        'a python parameter named like the server does not shadow it',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        '\n'
+        '@mcp.tool()\n'
+        'def configure(mcp: str) -> None:\n'
+        '    pass\n',
+        ['configure'],
+        [],
+    ),
+    (
+        'a function-local import of a server is an import of a server',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        '\n'
+        'def register() -> None:\n'
+        '    from elsewhere import unrelated\n'
+        '\n'
+        '    @unrelated.tool()\n'
+        '    def nested() -> None:\n'
+        '        pass\n',
+        [],
+        ['server_binding_not_proven'],
+    ),
+    (
+        'a python server unpacked into two names is not proven',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp, sidecar = FastMCP("s")\n'
+        '\n'
+        '\n'
+        '@mcp.tool()\n'
+        'def unpacked_from_a_call() -> None:\n'
+        '    pass\n',
+        [],
+        ['server_binding_not_proven'],
+    ),
+    (
+        'a class attribute does not shadow the module for a nested function',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        '\n'
+        'class Handlers:\n'
+        '    mcp = "not a server"\n'
+        '\n'
+        '    def register(self):\n'
+        '        @mcp.tool()\n'
+        '        def nested_in_a_method() -> None:\n'
+        '            pass\n',
+        ['nested_in_a_method'],
+        [],
+    ),
+    (
+        'a class attribute is the scope a decorator in that body is written in',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        '\n'
+        'class Handlers:\n'
+        '    mcp = FastMCP("s")\n'
+        '\n'
+        '    @mcp.tool()\n'
+        '    def in_the_class_body(self) -> None:\n'
+        '        pass\n',
+        ['in_the_class_body'],
+        [],
+    ),
+    (
+        'a PEP 695 type parameter is a child list the walk must not skip',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        '\n'
+        'class Box[T]:\n'
+        '    pass\n'
+        '\n'
+        '\n'
+        '@mcp.tool()\n'
+        'def generic[T](item: T) -> T:\n'
+        '    return item\n',
+        ['generic'],
+        [],
+    ),
 ]
 
 # --- Paths the reader is and is not allowed to open -------------------------
@@ -688,6 +1238,24 @@ SCANNABLE_PATHS: list[tuple[str, bool]] = [
     ("vendor/other/tools.go", False),
     ("testdata/sample.go", False),
     ("README.md", False),
+    ("src/tools/hash.py", True),
+    ("servers/cypher/src/mcp_neo4j_cypher/server.py", True),
+    # Python spells a test file with a prefix and pytest collects it that way,
+    # so a suffix-only rule read `test_server.py` as the server itself.
+    ("tests/test_server.py", False),
+    ("src/tools/test_hash.py", False),
+    ("src/tools/hash_test.py", False),
+    ("conftest.py", False),
+    ("src/conftest.py", False),
+    # The prefix rule exists because pytest collects `test_*.py`. It is scoped
+    # to Python: `test_helpers.ts` is an ordinary module name in the other two
+    # languages, and dropping one is a lost surface with no omission to show
+    # for it, because an excluded path is never read at all.
+    ("src/test_helpers.ts", True),
+    ("pkg/test_util.go", True),
+    (".venv/lib/python3.12/site-packages/fastmcp/server.py", False),
+    ("build/lib/server.py", False),
+    (".tox/py312/lib/server.py", False),
 ]
 
 
@@ -751,6 +1319,195 @@ MASKING_FAILURES: dict[str, SourceCase] = {
 }
 
 
+# --- Source neither reader can read to the end ------------------------------
+#
+# The Python analogue of a masking failure. Nothing about the file is known
+# past a syntax error, so reporting no sites would be indistinguishable from a
+# module that registers nothing — the exact ambiguity this input removes.
+
+PARSE_FAILURES: dict[str, SourceCase] = {
+    "unparseable_python": SourceCase(
+        "unparseable_python",
+        "python",
+        "from fastmcp import FastMCP\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "@mcp.tool(\n"
+        "def truncated() -> None:\n"
+        "    pass\n",
+    ),
+}
+
+
+# --- Modules whose binding evidence lives in another file -------------------
+#
+# `redis/mcp-redis` constructs its server in `src/common/server.py` and applies
+# all 53 of its decorators in `src/tools/*.py`, so a reader that only ever
+# looked at one file at a time would prove nothing about the largest Python
+# server in the survey. These are whole trees: the index is built from every
+# module, then each is scanned against it.
+#
+# `names` and `unresolved` are keyed by module path and are exact. `depends_on`
+# is what each module reported as the module its proof rested on — the value
+# discovery adds to the route so `scan` can repeat the proof `detect` made.
+
+
+class PythonTree:
+    """One tree of modules, and what each must yield when read together."""
+
+    def __init__(
+        self,
+        case: str,
+        modules: dict[str, str],
+        names: dict[str, list[str]],
+        unresolved: dict[str, list[str]],
+        depends_on: dict[str, list[str]],
+    ) -> None:
+        self.case = case
+        self.modules = modules
+        self.names = names
+        self.unresolved = unresolved
+        self.depends_on = depends_on
+
+
+_SERVER_MODULE = (
+    "from mcp.server.fastmcp import FastMCP\n"
+    "\n"
+    'mcp = FastMCP("Redis MCP Server")\n'
+)
+_TOOL_MODULE = (
+    "from src.common.server import mcp\n"
+    "\n"
+    "\n"
+    "@mcp.tool()\n"
+    "async def dbsize() -> int:\n"
+    '    """Get the number of keys stored in the Redis database"""\n'
+    "    return 0\n"
+)
+_RELATIVE_TOOL_MODULE = (
+    "from .server import mcp\n"
+    "\n"
+    "\n"
+    "@mcp.tool()\n"
+    "def sibling() -> None:\n"
+    "    pass\n"
+)
+
+PYTHON_TREES: list[PythonTree] = [
+    PythonTree(
+        "the import path is anchored above the scanned root",
+        {"src/common/server.py": _SERVER_MODULE, "src/tools/mgmt.py": _TOOL_MODULE},
+        {"src/tools/mgmt.py": ["dbsize"]},
+        {},
+        {"src/tools/mgmt.py": ["src/common/server.py"]},
+    ),
+    PythonTree(
+        # The same repository read from `src/`, which is where `detect`'s
+        # common-ancestor route points. One import, two path spellings.
+        "the scanned root is inside the import path",
+        {"common/server.py": _SERVER_MODULE, "tools/mgmt.py": _TOOL_MODULE},
+        {"tools/mgmt.py": ["dbsize"]},
+        {},
+        {"tools/mgmt.py": ["common/server.py"]},
+    ),
+    PythonTree(
+        # The import is inside the function that registers, which is how a
+        # module avoids an import cycle with the one that builds the server.
+        "a server imported inside a function is still a server",
+        {
+            "pkg/server.py": _SERVER_MODULE,
+            "pkg/tools.py": (
+                "def register() -> None:\n"
+                "    from .server import mcp\n"
+                "\n"
+                "    @mcp.tool()\n"
+                "    def deferred() -> None:\n"
+                "        pass\n"
+            ),
+        },
+        {"pkg/tools.py": ["deferred"]},
+        {},
+        {"pkg/tools.py": ["pkg/server.py"]},
+    ),
+    PythonTree(
+        "a relative import resolves against its own package",
+        {"pkg/server.py": _SERVER_MODULE, "pkg/tools.py": _RELATIVE_TOOL_MODULE},
+        {"pkg/tools.py": ["sibling"]},
+        {},
+        {"pkg/tools.py": ["pkg/server.py"]},
+    ),
+    PythonTree(
+        # Two modules in the tree could be the one imported, and picking either
+        # is a guess about whether the decorator registers a tool at all.
+        #
+        # Both candidates have to *match*, which is the trap: a first draft
+        # used `a/common/server.py` and `b/common/server.py` against an import
+        # of `src.common.server`, where neither side's segments are a suffix of
+        # the other's — so the case proved "no match" and passed with the
+        # uniqueness rule deleted.
+        "an ambiguous import proves nothing",
+        {
+            "src/common/server.py": _SERVER_MODULE,
+            "vendored/src/common/server.py": _SERVER_MODULE,
+            "src/tools/mgmt.py": _TOOL_MODULE,
+        },
+        {},
+        {"src/tools/mgmt.py": ["server_binding_not_proven"]},
+        {},
+    ),
+    PythonTree(
+        "an import from a module that exports no server proves nothing",
+        {
+            "src/common/server.py": "mcp = object()\n",
+            "src/tools/mgmt.py": _TOOL_MODULE,
+        },
+        {},
+        {"src/tools/mgmt.py": ["server_binding_not_proven"]},
+        {},
+    ),
+    PythonTree(
+        # The module *is* indexed and does export a server — under a different
+        # name. Resolving the module is only half the question, and this is
+        # the half a case whose target module exports nothing cannot reach.
+        "an import of a name that module does not export as a server",
+        {
+            "src/common/server.py": _SERVER_MODULE,
+            "src/tools/mgmt.py": (
+                "from src.common.server import helper\n"
+                "\n"
+                "\n"
+                "@helper.tool()\n"
+                "def borrowed() -> None:\n"
+                "    pass\n"
+            ),
+        },
+        {},
+        {"src/tools/mgmt.py": ["server_binding_not_proven"]},
+        {},
+    ),
+    PythonTree(
+        # A factory's local is a server, and it is not reachable by name from
+        # another module — so it must not enter the index and lend its name to
+        # an import of something else entirely.
+        "a server built inside a factory is not an export",
+        {
+            "src/common/server.py": (
+                "from fastmcp import FastMCP\n"
+                "\n"
+                "\n"
+                "def build() -> FastMCP:\n"
+                '    mcp = FastMCP("s")\n'
+                "    return mcp\n"
+            ),
+            "src/tools/mgmt.py": _TOOL_MODULE,
+        },
+        {},
+        {"src/tools/mgmt.py": ["server_binding_not_proven"]},
+        {},
+    ),
+]
+
+
 # --- Regressions the reader carries scars from ------------------------------
 #
 # Each of these was a real defect. They are inputs, not assertions: the test
@@ -798,6 +1555,65 @@ REGRESSIONS: dict[str, SourceCase] = {
         "go",
         "package main\n\nfunc main() {}\n",
     ),
+    # `col_offset` is a UTF-8 *byte* offset into the line while every other
+    # offset this reader publishes counts characters, so a non-ASCII character
+    # before the decorator moves the two apart.
+    "python_offsets_are_characters_not_bytes": SourceCase(
+        "python_offsets_are_characters_not_bytes",
+        "python",
+        "from fastmcp import FastMCP\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        # On the decorator's *own* line: `col_offset` counts bytes within one
+        # line, so a non-ASCII character anywhere else in the file moves
+        # nothing and a case that put it three lines up passed either way.
+        '@mcp.tool(description="süß — naïve café")\n'
+        "def measured() -> None:\n"
+        "    pass\n",
+    ),
+    # An empty signature and a signature this idiom does not read are two
+    # different claims, and the adapter turns them into two different schemas.
+    # ``*args``/``**kwargs`` are not schema properties, and the adversarial
+    # sweep asserts names and omissions only — so this lives here, where a
+    # named test can state what the signature must come back as.
+    "python_variadic_signature": SourceCase(
+        "python_variadic_signature",
+        "python",
+        "from fastmcp import FastMCP\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def forwarding(query: str, *filters: str, **options: str) -> str:\n"
+        "    return query\n",
+    ),
+    "python_tool_with_no_parameters": SourceCase(
+        "python_tool_with_no_parameters",
+        "python",
+        "from fastmcp import FastMCP\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def nullary() -> None:\n"
+        "    pass\n",
+    ),
+    "python_description_beats_the_docstring": SourceCase(
+        "python_description_beats_the_docstring",
+        "python",
+        "from fastmcp import FastMCP\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        '@mcp.tool(description="What the server publishes")\n'
+        "def described() -> None:\n"
+        '    """What the author wrote for a reader."""\n',
+    ),
 }
 
 
@@ -815,6 +1631,10 @@ SOURCE_CASES: tuple[SourceCase, ...] = (
     *(
         SourceCase(f"masking:{name}", entry.language, entry.text)
         for name, entry in sorted(MASKING_FAILURES.items())
+    ),
+    *(
+        SourceCase(f"parse:{name}", entry.language, entry.text)
+        for name, entry in sorted(PARSE_FAILURES.items())
     ),
     *(
         SourceCase(f"regression:{name}", entry.language, entry.text)

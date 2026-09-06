@@ -593,7 +593,7 @@ def _initial_framework_scores() -> dict[str, _FrameworkScore]:
         "openai_api": _FrameworkScore(),
         # mcp_server_source is not a Python framework and scores from neither
         # the AST pass nor a filename glob: it is the workspace's own
-        # TypeScript or Go registration sites, scored by
+        # TypeScript, Go or Python registration sites, scored by
         # :func:`discover_mcp_server_source` (#431). It keeps an entry here
         # because the detection loop reads this sheet, and a framework absent
         # from it is a framework that can never be reported.

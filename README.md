@@ -534,7 +534,7 @@ Run Agents Shipgate when a PR adds or changes agent tool surfaces or the policy
 evidence around them:
 
 - MCP exports, OpenAPI specs, or local tool inventories.
-- An MCP server whose tool surface exists only as code — TypeScript or Go
+- An MCP server whose tool surface exists only as code — TypeScript, Go or Python
   registration sites, read through a built-in idiom registry.
 - OpenAI Agents SDK, Google ADK, LangChain/LangGraph, CrewAI, Anthropic
   Messages API, or OpenAI API artifact tool definitions.

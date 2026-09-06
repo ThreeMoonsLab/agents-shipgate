@@ -24,6 +24,7 @@ from agents_shipgate.core.semantic_assessment import (
     AST_ONLY_SOURCE_TYPES,
     MCP_SOURCE_TYPES,
 )
+from agents_shipgate.inputs import mcp_server_source
 from agents_shipgate.inputs.mcp_idioms import DIFF_TOKENS
 from agents_shipgate.inputs.mcp_server_source import (
     MAX_SCANNED_FILES,
@@ -104,6 +105,66 @@ def _grafana_shaped(root: Path) -> Path:
 
 def _source(path: str, source_id: str = "server") -> ToolSourceConfig:
     return ToolSourceConfig(id=source_id, type=SOURCE_TYPE, path=path)
+
+
+def _redis_shaped(root: Path) -> Path:
+    """A Python server that constructs in one module and decorates in another.
+
+    `redis/mcp-redis`'s shape, which is the reason the reader carries a
+    cross-module index at all: all 53 of its registrations sit in
+    ``src/tools/*.py`` and the server they register on is built in
+    ``src/common/server.py``.
+
+    Two tool modules, not one, because one is the shape in which several
+    defects are invisible: a route that repeats its proving module once per
+    importer looks correct with a single importer.
+    """
+
+    workspace = root / "redis"
+    (workspace / "src" / "common").mkdir(parents=True)
+    (workspace / "src" / "tools").mkdir(parents=True)
+    (workspace / "pyproject.toml").write_text(
+        "[project]\n"
+        'name = "redis-mcp-server"\n'
+        "dependencies = [\n"
+        '    "mcp[cli]>=1.26.0,<2",\n'
+        '    "redis>=6.0.0",\n'
+        "]\n",
+        encoding="utf-8",
+    )
+    (workspace / "src" / "common" / "server.py").write_text(
+        "from mcp.server.fastmcp import FastMCP\n"
+        "\n"
+        'mcp = FastMCP("Redis MCP Server")\n',
+        encoding="utf-8",
+    )
+    (workspace / "src" / "tools" / "hash.py").write_text(
+        "from src.common.server import mcp\n"
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "async def hset(name: str, key: str, expire_seconds: int = 0) -> str:\n"
+        '    """Set a field in a hash stored at key."""\n'
+        '    return ""\n'
+        "\n"
+        "\n"
+        "@mcp.tool(name=NAMESPACE + \'hdel\')\n"
+        "async def hdel(name: str) -> str:\n"
+        '    return ""\n',
+        encoding="utf-8",
+    )
+    (workspace / "src" / "tools" / "list.py").write_text(
+        "from src.common.server import mcp\n"
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "async def lpush(name: str, value: str) -> str:\n"
+        '    """Prepend a value to a list."""\n'
+        '    return ""\n',
+        encoding="utf-8",
+    )
+    return workspace
+
 
 
 # --- Registration -----------------------------------------------------------
@@ -294,16 +355,20 @@ def test_a_path_with_no_readable_source_is_a_parse_error(tmp_path):
     workspace = tmp_path / "empty"
     (workspace / "docs").mkdir(parents=True)
     (workspace / "docs" / "README.md").write_text("# hi\n", encoding="utf-8")
-    with pytest.raises(InputParseError, match="no TypeScript or Go files"):
+    with pytest.raises(
+        InputParseError, match="no TypeScript, Go or Python files"
+    ):
         load_mcp_server_source(_source("docs"), workspace)
 
 
 def test_a_single_file_in_another_language_is_a_parse_error(tmp_path):
-    workspace = tmp_path / "py"
+    workspace = tmp_path / "rb"
     workspace.mkdir()
-    (workspace / "server.py").write_text("x = 1\n", encoding="utf-8")
-    with pytest.raises(InputParseError, match="not a TypeScript or Go file"):
-        load_mcp_server_source(_source("server.py"), workspace)
+    (workspace / "server.rb").write_text("x = 1\n", encoding="utf-8")
+    with pytest.raises(
+        InputParseError, match="not a TypeScript, Go or Python file"
+    ):
+        load_mcp_server_source(_source("server.rb"), workspace)
 
 
 def test_a_missing_path_is_a_parse_error(tmp_path):
@@ -862,6 +927,424 @@ def test_an_export_beside_the_source_route_keeps_its_high_confidence(tmp_path):
     by_provider = {row["provider"]: row for row in report.tool_catalog}
     assert by_provider["exported"]["confidence"] == "high"
     assert by_provider["registrations"]["confidence"] == "medium"
+
+
+# --- The Python language gate ------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("label", "pyproject", "expected"),
+    [
+        (
+            "pep621",
+            '[project]\nname = "s"\ndependencies = ["mcp[cli]>=1.26.0,<2"]\n',
+            "mcp",
+        ),
+        (
+            "pep621_optional",
+            '[project]\nname = "s"\n'
+            "[project.optional-dependencies]\n"
+            'server = ["fastmcp>=2.10"]\n',
+            "fastmcp",
+        ),
+        (
+            "pep735_groups",
+            '[project]\nname = "s"\n'
+            "[dependency-groups]\n"
+            'dev = ["mcp[cli]>=1.0"]\n',
+            "mcp",
+        ),
+        # Poetry writes the distribution as the table *key*, so a walker that
+        # read only the values found `^1.6.0` and never `mcp` — every Poetry
+        # table below was dead, and the gate withheld the route from a
+        # Poetry-managed server entirely.
+        (
+            "poetry_table",
+            '[tool.poetry.dependencies]\npython = "^3.10"\nmcp = "^1.6.0"\n',
+            "mcp",
+        ),
+        (
+            "poetry_inline_table",
+            '[tool.poetry.dependencies]\nfastmcp = {version = "^2.10"}\n',
+            "fastmcp",
+        ),
+        (
+            "poetry_group",
+            '[tool.poetry.group.dev.dependencies]\nmcp = "^1.0"\n',
+            "mcp",
+        ),
+        # The server's *own* distribution name is not a dependency on MCP.
+        (
+            "the_servers_own_name",
+            '[project]\nname = "mcp-neo4j-cypher"\ndependencies = ["neo4j>=5"]\n',
+            None,
+        ),
+        ("unparseable", "[project\nname =\n", None),
+    ],
+)
+def test_the_python_gate_reads_every_dependency_table_it_names(
+    tmp_path, label: str, pyproject: str, expected: str | None
+):
+    """Five tables are named in the constant; all five have to be reachable.
+
+    A route table with one tested entry is the shape #485 warns about — the
+    Poetry rows shipped dead in the first draft of this input and no fixture
+    could see it, because every fixture in this file writes PEP 621.
+    """
+
+    workspace = tmp_path / label
+    (workspace / "pkg").mkdir(parents=True)
+    (workspace / "pyproject.toml").write_text(pyproject, encoding="utf-8")
+    (workspace / "pkg" / "server.py").write_text(
+        "from fastmcp import FastMCP\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def gated() -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+
+    discovery = discover_mcp_server_source(
+        workspace, files=sorted(workspace.rglob("*"))
+    )
+    if expected is None:
+        assert discovery.path is None, label
+        return
+    assert discovery.path == "pkg", label
+    assert discovery.tool_names == ("gated",)
+    assert any(
+        line.endswith(f"depends on {expected}")
+        for line in discovery.framework_evidence
+    ), (label, discovery.framework_evidence)
+
+
+def test_a_requirements_file_opens_the_python_gate(tmp_path):
+    """`requirements*.txt` is the pre-`pyproject.toml` spelling, and the glob
+    is deliberate: a server pinning its SDK in `requirements-dev.txt` has
+    declared it just as plainly."""
+
+    workspace = tmp_path / "reqs"
+    (workspace / "pkg").mkdir(parents=True)
+    (workspace / "requirements-dev.txt").write_text(
+        "# tooling\n-r base.txt\nfastmcp>=2.10.5\n", encoding="utf-8"
+    )
+    (workspace / "pkg" / "server.py").write_text(
+        "from fastmcp import FastMCP\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def gated() -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+
+    discovery = discover_mcp_server_source(
+        workspace, files=sorted(workspace.rglob("*"))
+    )
+    assert discovery.path == "pkg"
+    assert discovery.framework_evidence == (
+        "requirements-dev.txt depends on fastmcp",
+    )
+
+
+# --- Reading a Python server ------------------------------------------------
+
+
+def test_a_python_server_yields_its_tools_with_the_signature_schema(tmp_path):
+    """The three facts the lexed idioms do not have, end to end.
+
+    The name comes from the decorated function, the description from the
+    docstring, and the input schema from the annotated signature — none of
+    which is a literal beside the call, which is why this idiom needed a real
+    parser rather than a sixth pattern.
+    """
+
+    workspace = _redis_shaped(tmp_path)
+    loaded = load_mcp_server_source(_source("src"), workspace)
+
+    by_name = {tool.name: tool for tool in loaded.tools}
+    assert set(by_name) == {"hset", "lpush"}
+    hset = by_name["hset"]
+    assert hset.extraction["idiom"] == "py_fastmcp_decorator"
+    assert hset.extraction_confidence == "medium"
+    assert hset.description == "Set a field in a hash stored at key."
+    assert hset.source_path == "src/tools/hash.py"
+    assert [(p.name, p.type, p.required) for p in hset.parameters] == [
+        ("name", "string", True),
+        ("key", "string", True),
+        ("expire_seconds", "number", False),
+    ]
+    assert hset.input_schema["required"] == ["name", "key"]
+    assert hset.function_signature == "hset(name, key, expire_seconds) -> str"
+    assert hset.output_schema == {"type": "string"}
+
+
+def test_a_lexical_idiom_publishes_no_input_schema(tmp_path):
+    """An idiom that reads no signature must not assert an empty one.
+
+    ``{"type": "object", "properties": {}}`` is the claim "this tool takes no
+    arguments", and inventing it for every TypeScript registration in the
+    catalog would be a schema assertion nobody made.
+    """
+
+    workspace = _mongodb_shaped(tmp_path)
+    tool = load_mcp_server_source(_source("packages"), workspace).tools[0]
+    assert tool.input_schema == {}
+    assert tool.parameters == []
+    assert tool.function_signature is None
+
+
+def test_a_python_binding_that_lives_in_another_module_still_resolves(tmp_path):
+    """The server is built in `src/common/server.py` and used in `src/tools/`.
+
+    A per-file reader proves nothing here, and "nothing" is the whole surface
+    of the largest Python server in the survey.
+    """
+
+    workspace = _redis_shaped(tmp_path)
+    assert sorted(
+        tool.name
+        for tool in load_mcp_server_source(_source("src"), workspace).tools
+    ) == ["hset", "lpush"]
+    # Point the route at the decorators alone and the proof is gone — recorded
+    # as an omission rather than silently resolved against a module this walk
+    # never opened.
+    narrowed = load_mcp_server_source(_source("src/tools"), workspace)
+    assert narrowed.tools == []
+    assert [o.reason for o in narrowed.omissions] == [
+        "server_binding_not_proven"
+    ] * 3
+
+
+def test_the_route_covers_the_module_that_proves_the_binding(tmp_path):
+    """`detect` must not name a route on which `scan` proves less than it did.
+
+    The registrations are under `src/tools/`; the server they register on is
+    built in `src/common/server.py`, which registers nothing. A route computed
+    from the registration files alone is `src/tools` — and pointed there, the
+    adapter cannot open the module that proves the binding, so `detect`
+    promises 53 tools and `scan` enumerates none of them.
+    """
+
+    workspace = _redis_shaped(tmp_path)
+    discovery = discover_mcp_server_source(
+        workspace, files=sorted(workspace.rglob("*"))
+    )
+
+    assert discovery.path == "src"
+    # Once, not once per importer: two modules import this server, and a route
+    # that listed its proving module twice would over-count what one manifest
+    # has to describe.
+    assert discovery.candidate_files == (
+        "src/common/server.py",
+        "src/tools/hash.py",
+        "src/tools/list.py",
+    )
+    # The agreement the route exists for, asserted rather than assumed.
+    assert set(discovery.tool_names) == {
+        tool.name
+        for tool in load_mcp_server_source(
+            _source(discovery.path), workspace
+        ).tools
+    }
+
+
+def test_a_variadic_is_not_a_tool_parameter(tmp_path):
+    """``*args`` and ``**kwargs`` are not schema properties.
+
+    A tool that takes them takes arguments this reader cannot enumerate, and
+    publishing one called ``options`` would name a property no caller sends.
+    """
+
+    workspace = tmp_path / "variadic"
+    workspace.mkdir()
+    (workspace / "server.py").write_text(
+        "from fastmcp import FastMCP\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def forwarding(query: str, *filters: str, **options: str) -> str:\n"
+        "    return query\n",
+        encoding="utf-8",
+    )
+    tool = load_mcp_server_source(_source("server.py"), workspace).tools[0]
+    assert [p.name for p in tool.parameters] == ["query"]
+    assert tool.function_signature == "forwarding(query) -> str"
+
+
+def test_the_index_read_cache_is_a_cost_bound_and_not_a_decision(tmp_path):
+    """Past the cache bound a file is read twice, not read differently.
+
+    Every other cap in this input leaves a hole in the enumeration and is
+    reported as an omission. This one leaves a hole in nothing, so the test is
+    that turning it off entirely changes no answer — if it ever does, it has
+    stopped being a bound and started being a rule.
+    """
+
+    workspace = _redis_shaped(tmp_path)
+    cached = load_mcp_server_source(_source("src"), workspace)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(mcp_server_source, "MAX_CACHED_SOURCE_BYTES", 0)
+        uncached = load_mcp_server_source(_source("src"), workspace)
+
+    assert [tool.model_dump() for tool in uncached.tools] == [
+        tool.model_dump() for tool in cached.tools
+    ]
+    assert uncached.omissions == cached.omissions
+    assert uncached.warnings == cached.warnings
+
+
+def test_a_python_context_parameter_is_not_a_tool_parameter(tmp_path):
+    """The server strips it from the schema it publishes, so this must too.
+
+    Matched on the annotation as well as the conventional name: a catalog that
+    kept it would publish a required argument no caller can supply.
+    """
+
+    workspace = tmp_path / "ctx"
+    workspace.mkdir()
+    (workspace / "server.py").write_text(
+        "from mcp.server.mcpserver import Context, MCPServer\n"
+        "\n"
+        'mcp = MCPServer("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "async def search(query: str, reporter: Context) -> str:\n"
+        '    return ""\n',
+        encoding="utf-8",
+    )
+    tool = load_mcp_server_source(_source("server.py"), workspace).tools[0]
+    assert [p.name for p in tool.parameters] == ["query"]
+
+
+def test_an_unparseable_python_file_holds_its_surface_partial(tmp_path):
+    """Nothing about the file is known past a syntax error.
+
+    Completeness is per file (#393), so the module beside it stays
+    ``enumerated`` — but the broken one is an omission the exclusion ledger
+    accounts for, never a file that quietly registered nothing.
+    """
+
+    workspace = tmp_path / "broken"
+    (workspace / "pkg").mkdir(parents=True)
+    (workspace / "pkg" / "good.py").write_text(
+        "from fastmcp import FastMCP\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def readable() -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    (workspace / "pkg" / "broken.py").write_text(
+        "from fastmcp import FastMCP\n"
+        'mcp = FastMCP("s")\n'
+        "@mcp.tool(\n"
+        "def truncated() -> None:\n",
+        encoding="utf-8",
+    )
+    loaded = load_mcp_server_source(_source("pkg"), workspace)
+
+    assert [tool.name for tool in loaded.tools] == ["readable"]
+    assert loaded.tools[0].extraction["surface"] == SURFACE_ENUMERATED
+    assert [(o.subject, o.reason) for o in loaded.omissions] == [
+        ("pkg/broken.py", "unparseable_python")
+    ]
+
+
+def test_detect_offers_the_route_for_a_server_it_cannot_name_a_tool_of(tmp_path):
+    """`neo4j-contrib/mcp-neo4j` builds every tool name at run time.
+
+    All 40 of its registrations are ``name=namespace_prefix + "…"``, so a rule
+    requiring one resolved name would report the repository as "not an agent
+    project" *because* its names are dynamic — the exact silent miss this input
+    exists to end. The Python idiom's site carries its own provenance: it was
+    only emitted after the decorator was followed back to a server
+    construction, and a client does not construct a server.
+    """
+
+    workspace = tmp_path / "neo4j"
+    (workspace / "servers" / "cypher").mkdir(parents=True)
+    (workspace / "servers" / "cypher" / "pyproject.toml").write_text(
+        '[project]\nname = "mcp-neo4j-cypher"\ndependencies = ["fastmcp>=2.10.5"]\n',
+        encoding="utf-8",
+    )
+    (workspace / "servers" / "cypher" / "server.py").write_text(
+        "from fastmcp.server import FastMCP\n"
+        "\n"
+        "\n"
+        'def create_mcp_server(namespace: str = "") -> FastMCP:\n'
+        '    mcp: FastMCP = FastMCP("mcp-neo4j-cypher")\n'
+        "    namespace_prefix = _format(namespace)\n"
+        "\n"
+        '    @mcp.tool(name=namespace_prefix + "get_neo4j_schema")\n'
+        "    async def get_neo4j_schema() -> str:\n"
+        '        return ""\n'
+        "\n"
+        "    return mcp\n",
+        encoding="utf-8",
+    )
+
+    discovery = discover_mcp_server_source(
+        workspace, files=sorted(workspace.rglob("*"))
+    )
+    assert discovery.path == "servers/cypher"
+    assert discovery.tool_names == ()
+    assert discovery.unresolved_count == 1
+    assert "none of which this reader can name" in discovery.evidence[0]
+
+    result = detect_workspace(workspace)
+    assert result.is_agent_project is True
+    assert SOURCE_TYPE in {f.type for f in result.frameworks}
+
+
+def test_a_readable_export_never_displaces_a_route_with_no_names(tmp_path):
+    """Containment is the test, and nothing contains an empty surface.
+
+    ``names <= covered`` is vacuously true for the empty set, so asking the
+    question would let any readable export withhold the one route that says
+    "40 registrations nobody can enumerate" — which is what no export restates.
+    """
+
+    workspace = tmp_path / "both"
+    (workspace / "pkg").mkdir(parents=True)
+    (workspace / "pyproject.toml").write_text(
+        '[project]\nname = "s"\ndependencies = ["fastmcp"]\n', encoding="utf-8"
+    )
+    (workspace / "pkg" / "server.py").write_text(
+        "from fastmcp import FastMCP\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool(name=RUNTIME)\n"
+        "def built() -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    (workspace / "mcp-tools.json").write_text(
+        json.dumps({"tools": [{"name": "something_else", "description": "d"}]}),
+        encoding="utf-8",
+    )
+
+    discovery = discover_mcp_server_source(
+        workspace,
+        files=sorted(workspace.rglob("*")),
+        exported_source_paths=["mcp-tools.json"],
+    )
+    assert discovery.path == "pkg"
+    assert discovery.excluded == ()
+    assert not any("does not name" in line for line in discovery.evidence)
 
 
 # --- The trigger catalog ----------------------------------------------------
