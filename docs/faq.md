@@ -156,7 +156,7 @@ remains stable across the 0.x series; see
 
 ## How do I add it to GitHub Actions?
 
-See [`docs/quickstart.md`](quickstart.md) for the 5-minute integration.
+See [`docs/quickstart.md`](quickstart.md) — one review end to end on a committed sample, then the two adoption routes.
 Advisory mode is the default and never fails CI; strict mode with a
 baseline lets you adopt the gate without flipping every existing PR red.
 

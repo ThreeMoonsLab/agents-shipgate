@@ -152,6 +152,7 @@
 - Wiki: https://github.com/ThreeMoonsLab/agents-shipgate/wiki
 - Latest release: https://github.com/ThreeMoonsLab/agents-shipgate/releases/latest
 - AGENTS.md: https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/AGENTS.md
+- In-repo quickstart (the human entry path — one review end to end, and which build provides which commands): https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/quickstart.md
 - STABILITY.md: https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/STABILITY.md
 - Discovery metadata: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/.well-known/agents-shipgate.json
 - Website discovery metadata: https://threemoonslab.com/.well-known/agents-shipgate.json

@@ -565,12 +565,22 @@ Otherwise proceed to `init`. MCP/OpenAPI tool-surface repos and Codex plugin pac
 
 ```bash
 pipx install agents-shipgate
-agents-shipgate init --workspace . --write
-# edit shipgate.yaml to replace any CHANGE_ME values
+agents-shipgate init --workspace . --write --json
+# resolve the placeholders init reports, by owner (below), then:
 agents-shipgate scan -c shipgate.yaml
 ```
 
-`init` writes a manifest with `CHANGE_ME` placeholders for `agent.name` and `agent.declared_purpose`. Replace them by reading the agent's prompt or main file.
+`init --json` reports the placeholders two ways, and only one of them routes. **`placeholders[]` is a location list** — each entry is `path`, `current` and `line`, and carries no owner. **`control.next_action.actor` routes the turn**, not individual fields:
+
+- `actor: "human"` — *any* human-owned value is still unresolved. `permissions.edit` is `false`: surface the whole thing and stop. Do not edit the manifest, and do not split the array.
+- `actor: "coding_agent"` — every human-owned value has been supplied and only fields you own are left. `why` names the one to replace.
+
+**Never infer ownership from absence in `why`.** That sentence is fitted to the envelope's prose budget: with seven unresolved declarations it names three paths and then `and 4 more in placeholders[]`, and the four it dropped are human-owned too. It tells you where to start, not what is yours. The rule behind the split:
+
+- **You own** what you can read out of the repository — `agent.name`, `project.name`, the `tool_sources[]` rows. Escalating these stops a turn for work you own.
+- **A person owns** every *declaration*: purpose, prohibited actions, effect, authority, binding, approval, confirmation, idempotency, safeguards, accepted debt and its owner/reason/expiry, and the manifest blocks that are declarations end to end (`action_surface`, `permissions`, `policies`, `agent_bindings`, `tool_identity`, `checks`, `baseline`, `human_ack`, `risk_overrides`, `validation`, `organization`). While one is unresolved, `init` returns `control.next_action.actor: "human"` and `permissions.edit: false`. These values must be supplied by a human, because Shipgate never invents a declaration nobody made — a purpose or authority claim you lifted out of a prompt or README is a declaration nobody made, and the engine will treat it as evidence.
+
+Those names are examples of the rule, not the rule. `placeholders[]` is authoritative; when it disagrees with this list, it is right.
 
 ### Task 2 · Read findings programmatically
 

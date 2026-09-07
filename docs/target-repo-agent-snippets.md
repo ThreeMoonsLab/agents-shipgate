@@ -16,6 +16,53 @@ to agents reading the Agents Shipgate source repo.
 > the canonical reference and the source the renderers in
 > `src/agents_shipgate/cli/discovery/agent_instructions/renderers/` lift from.
 
+## Paste Into A Coding Agent
+
+The one-shot prompt for an agent with a shell, when you do not want to install
+a kit. It names only the prominent flows and the control boundary:
+
+```text
+Add a Tool-Use Readiness release gate for this tool-using AI agent with Agents Shipgate.
+Use only the prominent Shipgate flows as first-look commands:
+shipgate check --agent codex --workspace . --format agent-boundary-json
+shipgate check --agent claude-code --workspace . --format agent-boundary-json
+shipgate check --agent cursor --workspace . --format agent-boundary-json
+agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json
+agents-shipgate verify --workspace . --config shipgate.yaml \
+  --base origin/main --head HEAD --ci-mode advisory --format json
+shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
+For local control, parse the `shipgate check` stdout JSON
+(`shipgate.agent_boundary_result/v2`): switch on `control.state`, then follow
+`control.next_action`, `control.allowed_next_commands`, and
+`control.human_review`; `decision` is diagnostic context only. For local
+uncommitted verify work, omit `--base`/`--head`. For committed PR/CI refs, make
+the base ref available first because `verify` never fetches. Read
+`agents-shipgate-reports/current-control.json` first, validate the
+`verification-receipt.json` it binds, then read
+`agents-shipgate-reports/agent-handoff.json` and lead with `control.state` and
+`gate.merge_verdict`, then read the authoritative substrate
+`agents-shipgate-reports/verifier.json` (`merge_verdict`, `applicability`,
+`control`, `can_merge_without_human`, `control.next_action`, `fix_task`), then
+supporting/provisional `capability_review.top_changes` and
+`agents-shipgate-reports/report.json` for `release_decision.decision`. Do not
+claim completion unless `control.state` is `complete`. `control.permissions`
+says exactly which actions are authorized; updating a pull request is not
+merging it. Conversation-level acknowledgement never clears a human-review
+route. A trusted host may provide a signed external authorization for one exact
+command; only a new verifier artifact that validates that grant can change
+control state. Do not auto-assert action effect, action authority, approval,
+confirmation, idempotency, broad-scope safety, prohibited-action enforcement,
+runtime-trace proof, suppressions, waivers, baselines, or policy weakening.
+Never remove Shipgate CI or weaken agent instructions just to make the verifier
+pass.
+```
+
+Values the manifest leaves as `CHANGE_ME` are not all yours to fill: an
+agent's purpose, an action's effect, its authority, and its bindings
+must be supplied by a human, because Shipgate never invents a declaration
+nobody made. `init --json` routes each one; follow that routing rather than
+this prompt.
+
 ## When To Run
 
 Run Agents Shipgate when a repo or PR changes:

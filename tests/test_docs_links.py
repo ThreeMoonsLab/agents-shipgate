@@ -252,23 +252,48 @@ def test_target_repo_snippets_pin_advisory_agent_contract():
 
 
 def test_readme_onboarding_copy_pins_agent_contract():
+    """The onboarding copy still exists, and the README still reaches it.
+
+    #498 turned the README into a landing page and moved the paste-into-an-agent
+    prompt and the adoption walkthrough into the docs they belong to. What this
+    test protects is unchanged — that a reader arriving at the README can get to
+    the contract, the demo and the boundary — so it now checks the landing page
+    for the route and the destination for the copy, rather than requiring one
+    file to hold both.
+    """
+
     text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     assert "The deterministic merge gate for AI-generated agent capability changes" in text
     assert "5-minute" in text
-    assert "Copy this into your coding agent" in text
     assert "https://github.com/marketplace/actions/agents-shipgate" in text
-    assert "Sample reports" in text
     assert "release_decision.decision" in text
-    assert "agents-shipgate-reports/report.json" in text
     assert "agents-shipgate contract --json" in text
-    assert "apply-patches" in text
-    assert "--confidence high --apply" in text
-    assert "auto-assert action effect, action authority" in text
-    assert "confirmation" in text
-    assert "idempotency" in text
-    assert "broad-scope" in text
-    assert "prohibited-action" in text
     assert "agents-shipgate-reports/" in text
+
+    # Every destination the landing page hands a reader must be linked from it.
+    for destination in (
+        "docs/quickstart.md",
+        "docs/target-repo-agent-snippets.md",
+        "docs/agent-contract-current.md",
+        "docs/agent-autofix-boundary.md",
+        "samples/README.md",
+    ):
+        assert destination in text, (
+            f"README.md no longer links {destination}; the landing page is only "
+            "an entry point if its exits are reachable."
+        )
+
+    snippets = (DOCS_DIR / "target-repo-agent-snippets.md").read_text(encoding="utf-8")
+    assert "Paste Into A Coding Agent" in snippets
+    assert "auto-assert action effect, action authority" in snippets
+    for boundary in ("confirmation", "idempotency", "broad-scope", "prohibited-action"):
+        assert boundary in snippets
+
+    quickstart = (DOCS_DIR / "quickstart.md").read_text(encoding="utf-8")
+    assert "agents-shipgate-reports/report.json" in quickstart
+    assert "apply-patches" in quickstart
+    assert "--confidence high --apply" in quickstart
+    assert "samples/ai_generated_refund_pr" in quickstart
 
 
 def test_target_repo_cursor_globs_cover_shipgate_discovery_names():

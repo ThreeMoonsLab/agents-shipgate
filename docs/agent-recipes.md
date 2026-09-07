@@ -219,8 +219,9 @@ Auto-detection runs again inside `init` and writes:
 - `shipgate.yaml` with `tool_sources` populated per detected framework
   candidate file.
 - `.github/workflows/agents-shipgate.yml` (if `--ci` is set; refuses
-  to overwrite an existing workflow file or one that already calls
-  `ThreeMoonsLab/agents-shipgate@*` from a sibling workflow).
+  to overwrite an existing workflow file, or one where a sibling
+  workflow already uses the `ThreeMoonsLab/agents-shipgate` action at
+  any ref).
 
 Key response fields:
 
@@ -393,8 +394,24 @@ rules before changing code:
 - If tools are created by factories, wrappers, runtime imports, or
   dynamic ADK/MCP toolsets, provide an explicit MCP export, OpenAPI
   spec, or local tool inventory artifact.
-- Replace every `CHANGE_ME` value in `shipgate.yaml` before scanning;
-  use the prompt, main agent file, README, or owner-provided context.
+- Resolve the placeholders `init --json` reports before scanning, and
+  switch on **`control.next_action.actor`**, which routes the turn
+  rather than individual fields. `placeholders[]` is a location list
+  (`path`, `current`, `line`) and carries no owner. `actor: "human"`
+  selects a human review or stop with `permissions.edit: false`:
+  surface the required review and stop. Its `why` is fitted to a
+  prose budget and may end `and N more in placeholders[]`, so absence
+  from it never makes a field yours. `actor: "coding_agent"` authorizes
+  only the exact `control.next_action`: read its `kind`, `path` or
+  `command`, perform that step, and rerun the stated check. A blocking
+  setup repair can take precedence while human-owned declarations
+  remain unresolved; the actor is not proof that all remaining
+  placeholders are yours. Every
+  declaration — purpose, prohibited actions, effect, authority,
+  binding, approval, confirmation, idempotency, safeguards, accepted
+  debt — must be supplied by a human, because Shipgate never invents a
+  declaration nobody made. Do not derive one from a prompt, main agent
+  file or README.
 - Agents Shipgate requires Python 3.12+. If the project runtime is
   older, install the CLI outside the project env with `pipx` or `uv`.
 - Ensure `agents-shipgate-reports/` is listed in `.gitignore`.
