@@ -2460,14 +2460,17 @@ class PythonServerIndex:
 
     @classmethod
     def build(cls, modules: Any) -> PythonServerIndex:
-        """Index ``(relative posix path, source text)`` pairs."""
+        """Index ``(relative posix path, source text)`` pairs.
 
-        indexed: dict[str, frozenset[str]] = {}
-        for path, text in modules:
-            exports = python_server_exports(text)
-            if exports:
-                indexed[path] = exports
-        return cls(indexed)
+        Every scanned module, exporting nothing where it constructs nothing:
+        holding only the servers would take a *conflicting* candidate out of
+        the universe before the uniqueness check runs, and an unrelated module
+        would then supply binding evidence the import never named.
+        """
+
+        return cls(
+            {path: python_server_exports(text) for path, text in modules}
+        )
 
     def resolve(self, module_path: str | None, module: str, level: int) -> str | None:
         """The indexed module an import in ``module_path`` refers to."""
@@ -2553,7 +2556,7 @@ def _python_sites(
     for node in ast.walk(tree):
         if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
-        for decorator in node.decorator_list:
+        for position, decorator in enumerate(node.decorator_list):
             receiver = _python_tool_receiver(decorator, module)
             if receiver is None:
                 continue
@@ -2562,6 +2565,10 @@ def _python_sites(
             )
             if proving_module is not None:
                 server_modules.add(proving_module)
+            # Everything *below* the registration in the source runs first, so
+            # the object `.tool` receives is that decorator's return value and
+            # not this `def`. See `_python_wrapped_before_registration`.
+            wrapped = bool(node.decorator_list[position + 1 :])
             # Built on the first site, not per file: most modules that pass the
             # `"tool"` prefilter register nothing — a variable of that name, a
             # word in a docstring — and the line table would be built and
@@ -2569,7 +2576,9 @@ def _python_sites(
             if offsets is None:
                 offsets = _PythonOffsets(text)
             sites.append(
-                _python_site(node, decorator, offsets, proven=proven)
+                _python_site(
+                    node, decorator, offsets, proven=proven, wrapped=wrapped
+                )
             )
     sites.sort(key=lambda site: (site.line, site.column))
     return SourceScanResult(
@@ -2656,12 +2665,29 @@ def _python_server_receiver(
     return True, target
 
 
+def _python_wrapped_before_registration() -> None:
+    """Why a decorator below the registration withholds the name.
+
+    Decorators apply bottom-up: ``@mcp.tool()`` over ``@replace`` registers
+    ``replace(harmless)``, so the name is that object's ``__name__`` and the
+    schema is ``inspect.signature`` of it. A ``functools.wraps`` wrapper does
+    preserve both, and every such site measured in ``awslabs/mcp`` is that
+    shape — but that is a fact about the decorator's *body*, in another module
+    for most of them, and this reader does not read bodies across modules.
+
+    So the site keeps its provenance and loses its name, which is the direction
+    #431 settled for the Go octal escape: an action id nobody serves is worse
+    than a recorded omission.
+    """
+
+
 def _python_site(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     decorator: ast.expr,
     offsets: _PythonOffsets,
     *,
     proven: bool,
+    wrapped: bool,
 ) -> RegistrationSite:
     line, column = decorator.lineno, offsets.column(decorator)
     # The span is the decorator expression, not the function it decorates.
@@ -2680,7 +2706,11 @@ def _python_site(
             span=span,
             unresolved_reason="server_binding_not_proven",
         )
-    name, unresolved = _python_tool_name(node, decorator)
+    name, unresolved = (
+        (None, "wrapped_before_registration")
+        if wrapped
+        else _python_tool_name(node, decorator)
+    )
     return RegistrationSite(
         idiom="py_fastmcp_decorator",
         name=name,
@@ -2689,8 +2719,9 @@ def _python_site(
         span=span,
         description=_python_tool_description(node, decorator),
         unresolved_reason=unresolved,
-        parameters=_python_signature(node),
-        returns=_python_annotation(node.returns),
+        # Withheld with the name: the schema comes from the same object.
+        parameters=None if wrapped else _python_signature(node),
+        returns=None if wrapped else _python_annotation(node.returns),
         proves_server=True,
     )
 
@@ -2710,6 +2741,11 @@ def _python_tool_name(
     """
 
     if isinstance(decorator, ast.Call):
+        if any(keyword.arg is None for keyword in decorator.keywords):
+            # ``@mcp.tool(**options)``. A ``**`` unpacking can carry ``name``,
+            # decided at run time, so the framework's default no longer
+            # provably applies and the function's name would be a guess.
+            return None, "name_not_literal"
         given = _python_keyword(decorator, "name")
         if given is None and decorator.args:
             given = decorator.args[0]
@@ -3083,15 +3119,24 @@ def _discover_mcp_server_source(
     evidence = _mcp_evidence_lines(
         framework, languages, names, root, truncated, unresolved
     )
-    covering_export, uncovered = (
-        _mcp_covering_export(workspace, exported_source_paths, names)
-        # An export cannot be shown to *contain* a surface with no names in it:
-        # `names <= covered` is vacuously true for the empty set, so asking
-        # would let any readable export displace a route whose whole content is
-        # "40 registrations nobody can enumerate".
-        if names
-        else (None, set())
+    covering_export, uncovered = _mcp_covering_export(
+        workspace, exported_source_paths, names
     )
+    if covering_export is not None and unresolved:
+        # Containment is the test, and an export cannot be shown to contain a
+        # registration *nobody could name*. Withholding the route here sends
+        # the reader to the export and never to `scan`, so the unreadable
+        # registration reaches no exclusion ledger at all. One rule covers both
+        # readings: no readable name makes the comparison vacuous, and some
+        # readable makes an export naming exactly those look complete.
+        evidence = (
+            *evidence,
+            f"An MCP tool export ({covering_export}) names every registration "
+            f"this reader could read and none of the {unresolved} it could "
+            "not; both routes are suggested, so the unreadable ones still "
+            "reach the exclusion ledger",
+        )
+        covering_export = None
     if covering_export is not None:
         return McpSourceDiscovery(
             unresolved_count=unresolved,

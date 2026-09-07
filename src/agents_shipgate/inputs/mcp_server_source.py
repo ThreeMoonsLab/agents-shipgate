@@ -72,10 +72,7 @@ from agents_shipgate.inputs.mcp_idioms import (
     scan_source,
 )
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
-from agents_shipgate.inputs.python_static import (
-    SKIPPED_TOOL_PARAMETERS,
-    json_schema_type,
-)
+from agents_shipgate.inputs.python_static import json_schema_type
 from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
     ToolSourceConfig,
@@ -430,26 +427,42 @@ def _tool_from_site(
 #: schema it publishes — so a catalog that kept it would publish a required
 #: argument no caller can supply.
 #:
-#: Matched on the annotation as well as the name because the framework matches
-#: on the *type*: ``SKIPPED_TOOL_PARAMETERS`` catches the conventional ``ctx``
-#: and ``context`` spellings, and this catches the parameter that is annotated
-#: ``Context`` and called something else.
+#: Matched on the **annotation only**, because that is what the framework
+#: matches on. The name-based ``SKIPPED_TOOL_PARAMETERS`` this input shared
+#: with the other Python adapters is wrong here: it holds ``config``,
+#: ``context`` and ``runtime``, which are ordinary user-supplied inputs to an
+#: MCP tool, and dropping them published an empty schema for
+#: ``configure(config, context, runtime)`` — hiding a real parameter inventory
+#: from every schema and policy consumer downstream. ``self`` is not special
+#: either: a decorated method registers the plain function, and the server puts
+#: ``self`` in the schema, so this reader says what the server says.
 _CONTEXT_ANNOTATIONS: frozenset[str] = frozenset({"Context"})
 
 
-def _is_context_parameter(parameter: SignatureParameter) -> bool:
-    if parameter.name in SKIPPED_TOOL_PARAMETERS:
-        return True
-    annotation = (parameter.annotation or "").strip()
+def _context_annotation(annotation: str | None) -> str:
+    """The bare class name an annotation is written as.
+
+    Written as, never resolved: following ``Context`` to an import would mean
+    reading another module's namespace, and this input reads a signature.
+    """
+
     # A forward reference is a string literal in the source and comes back from
     # the reader with its quotes, because the reader renders the annotation
     # rather than resolving it.
-    annotation = annotation.strip("'\"").strip()
-    # `Context`, `mcp.Context`, and the optional spellings a tool uses when the
-    # context is injected only in some transports.
-    annotation = annotation.removeprefix("Optional[").removesuffix("]")
-    annotation = annotation.split("|", 1)[0].strip()
-    return annotation.rsplit(".", 1)[-1] in _CONTEXT_ANNOTATIONS
+    text = (annotation or "").strip().strip("'\"").strip()
+    # `Context | None`, the spelling a tool uses when the context is injected
+    # only in some transports.
+    text = text.split("|", 1)[0].strip()
+    if text.startswith(("Optional[", "typing.Optional[")):
+        text = text.split("[", 1)[1].rsplit("]", 1)[0].strip()
+    # `Context[ServerSession, None]` — the parameterised spelling the SDK's own
+    # examples use. Taking the head keeps `list[Context]`, which is a list.
+    text = text.split("[", 1)[0].strip()
+    return text.rsplit(".", 1)[-1]
+
+
+def _is_context_parameter(parameter: SignatureParameter) -> bool:
+    return _context_annotation(parameter.annotation) in _CONTEXT_ANNOTATIONS
 
 
 def _signature_parameters(site: RegistrationSite) -> list[ToolParameter]:

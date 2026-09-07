@@ -251,16 +251,32 @@ def discover_mcp_server_source(
     evidence = _evidence_lines(
         framework, languages, names, root, truncated, unresolved
     )
-    covering_export, uncovered = (
-        _covering_export(workspace, exported_source_paths, names)
-        if names
-        # An export cannot be shown to *contain* a surface with no names in it.
-        # `names <= covered` is vacuously true for the empty set, so asking the
-        # question here would let any readable export displace a route whose
-        # whole content is "40 registrations nobody can enumerate" — the one
-        # case where the source route says something no export restates.
-        else (None, set())
+    covering_export, uncovered = _covering_export(
+        workspace, exported_source_paths, names
     )
+    if covering_export is not None and unresolved:
+        # Containment is the test, and an export cannot be shown to contain a
+        # registration *nobody could name*. Withholding the route here is what
+        # sends the reader to the export and never to `scan`, so the unreadable
+        # registration reaches no exclusion ledger at all — it stops being a
+        # measured miss and becomes a silent one, which is the state this whole
+        # input exists to end.
+        #
+        # One rule for two readings. With no readable name at all the
+        # comparison is vacuous — `names <= covered` is true for the empty set,
+        # so any export would displace `neo4j-contrib/mcp-neo4j`'s 40
+        # unenumerable registrations. With *some* readable, an export naming
+        # exactly those looks complete and is not. Both are "the export does
+        # not account for everything this route found", and both are answered
+        # by the unresolved count rather than by a special case.
+        evidence = (
+            *evidence,
+            f"An MCP tool export ({covering_export}) names every registration "
+            f"this reader could read and none of the {unresolved} it could "
+            "not; both routes are suggested, so the unreadable ones still "
+            "reach the exclusion ledger",
+        )
+        covering_export = None
     if covering_export is not None:
         return McpSourceDiscovery(
             unresolved_count=unresolved,

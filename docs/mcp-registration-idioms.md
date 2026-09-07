@@ -85,8 +85,42 @@ before it was designed for:
   construction and refuses out loud when it cannot: `awslabs/mcp` writes
   `@self.mcp.tool()` on a server passed in as a constructor argument, and
   `app = create_server()` on the result of a factory. Both are recorded as
-  unenumerated subjects — 107 of them across that monorepo, against 334 tools
+  unenumerated subjects — 107 of them across that monorepo, against 262 tools
   it does read.
+
+### Three ways the registered identity is not the one on the page
+
+The name and the schema come from the object the decorator receives, and three
+constructs put something else there. Each is a recorded omission rather than a
+guess, because #431 settled that direction for the Go octal escape: an action
+id nobody serves is worse than a measured gap.
+
+- **A decorator below the registration.** Decorators apply bottom-up, so
+  `@mcp.tool()` over `@audited` registers `audited(fn)` — whose `__name__` and
+  `inspect.signature` need not be the decorated function's. A `functools.wraps`
+  wrapper does preserve both (`inspect.signature` follows `__wrapped__`), and
+  every one of the 72 such sites in `awslabs/mcp` is that shape or a plain
+  `return func`. But that is a fact about the decorator's *body*, in another
+  module for most of them, and this reader does not read bodies across
+  modules — seeing `@audited` at the use site proves nothing. The site keeps
+  its provenance and loses its name. Proving the wrapper is the increment this
+  defers; the 72 names are the evidence for whether it is worth it.
+- **An unpacked mapping.** `@mcp.tool(**options)` can carry `name`, decided at
+  run time, so the framework's default no longer provably applies and reading
+  the function's name would publish `harmless` for a tool registered as
+  whatever the mapping said.
+- **A `name=` this reader cannot resolve**, which is the `mcp-neo4j` shape.
+
+### What the request context is, and is not
+
+The server injects its `Context` on the parameter's **annotation**, so this
+reader drops a parameter only when it is annotated `Context` — including
+`Context | None` and `Context[ServerSession, None]`, and not `list[Context]`.
+The conventional-name list this package's other Python adapters share holds
+`config`, `context` and `runtime`, which are ordinary user-supplied inputs to
+an MCP tool: dropping them by name published an empty schema for a
+three-argument tool and hid a real parameter inventory from every schema and
+policy consumer downstream.
 
 The binding is followed **across modules**, because the population requires it:
 `redis/mcp-redis` constructs its server in `src/common/server.py` and applies
@@ -94,7 +128,12 @@ every decorator in `src/tools/*.py`. An import is resolved by matching path
 segments against the modules the walk read, and only when exactly one module
 matches — the scanned root can sit anywhere along the import path, so neither
 end is anchored, and two candidates mean the reader cannot tell which module
-was imported.
+was imported. *Every* scanned module is in that universe, including the ones
+that construct no server: holding only the servers takes the conflicting
+candidate out before the uniqueness check runs, so a `src/common/server.py`
+binding `mcp` to something else, beside an `archive/src/common/server.py` that
+really does build one, would resolve uniquely to the archive and lend a
+decorator binding evidence from a module the import demonstrably did not name.
 
 ### Three server classes, because all three are live
 
@@ -130,8 +169,16 @@ built at run time, which is the silent miss this whole input exists to end.
 this reader can name", and every one of them reaches the exclusion ledger.
 
 For the same reason a committed export cannot displace such a route:
-containment is the test, and an export contains an empty set of names
-vacuously.
+containment is the test, and an export cannot be shown to contain a
+registration **nobody could name**. That is one rule with two readings, and
+both matter. With no readable name the comparison is vacuous — `names <=
+covered` is true for the empty set, so any export would displace all 40 of
+`mcp-neo4j`'s registrations. With *some* readable, an export naming exactly
+those looks like containment and is not: withholding the route sends the
+reader to the export and never to `scan`, so the registration nobody could
+name reaches no exclusion ledger at all — a measured miss turning back into a
+silent one. So the export displaces the source route only when the route has
+nothing the export left out, unreadable registrations included.
 
 ## What the reader does and does not read
 

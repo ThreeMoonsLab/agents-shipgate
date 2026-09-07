@@ -313,6 +313,12 @@ OMISSION_REASONS: dict[str, str] = {
         "follow to an MCP server, so whether it registers a tool — "
         "and under what name — cannot be read from the source."
     ),
+    "wrapped_before_registration": (
+        "Another decorator is applied to this function before the registration "
+        "sees it, and what that decorator returns is not readable here — so "
+        "the name and parameters the server registers may belong to some other "
+        "function entirely."
+    ),
     "unparseable_python": (
         "The file is not valid Python, so it was not read; any tool "
         "registered in it is absent from this catalog."
@@ -2014,20 +2020,29 @@ class PythonServerIndex:
     only when **exactly one** module in the index matches: two candidates mean
     this reader cannot tell which module was imported, and a guess about that
     is a guess about whether the decorator registers a tool at all.
+
+    **Every scanned module is in the index, exporting nothing where it
+    constructs nothing.** Holding only the servers would take the *conflicting*
+    candidate out of the universe before the uniqueness check runs: a
+    ``src/common/server.py`` that binds ``mcp`` to something else, beside an
+    ``archive/src/common/server.py`` that really does build one, would resolve
+    uniquely — to the archive — and lend a decorator binding evidence from a
+    module the import demonstrably did not name. Ambiguity has to be measured
+    against what is *there*, not against what happened to qualify.
     """
 
+    #: Every scanned module, mapped to the server names it exports — empty for
+    #: a module that exports none, which is what keeps it in the universe the
+    #: uniqueness check is measured against.
     modules: dict[str, frozenset[str]] = field(default_factory=dict)
 
     @classmethod
     def build(cls, modules: Iterable[tuple[str, str]]) -> PythonServerIndex:
         """Index ``(relative posix path, source text)`` pairs."""
 
-        indexed: dict[str, frozenset[str]] = {}
-        for path, text in modules:
-            exports = python_server_exports(text)
-            if exports:
-                indexed[path] = exports
-        return cls(indexed)
+        return cls(
+            {path: python_server_exports(text) for path, text in modules}
+        )
 
     def resolve(self, module_path: str | None, module: str, level: int) -> str | None:
         """The indexed module an import in ``module_path`` refers to."""
@@ -2113,7 +2128,7 @@ def _python_sites(
     for node in ast.walk(tree):
         if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
-        for decorator in node.decorator_list:
+        for position, decorator in enumerate(node.decorator_list):
             receiver = _python_tool_receiver(decorator, module)
             if receiver is None:
                 continue
@@ -2122,6 +2137,10 @@ def _python_sites(
             )
             if proving_module is not None:
                 server_modules.add(proving_module)
+            # Everything *below* the registration in the source runs first, so
+            # the object `.tool` receives is that decorator's return value and
+            # not this `def`. See :func:`_python_wrapped_before_registration`.
+            wrapped = bool(node.decorator_list[position + 1 :])
             # Built on the first site, not per file: most modules that pass the
             # `"tool"` prefilter register nothing — a variable of that name, a
             # word in a docstring — and the line table would be built and
@@ -2129,7 +2148,9 @@ def _python_sites(
             if offsets is None:
                 offsets = _PythonOffsets(text)
             sites.append(
-                _python_site(node, decorator, offsets, proven=proven)
+                _python_site(
+                    node, decorator, offsets, proven=proven, wrapped=wrapped
+                )
             )
     sites.sort(key=lambda site: (site.line, site.column))
     return SourceScanResult(
@@ -2217,12 +2238,35 @@ def _python_server_receiver(
     return True, target
 
 
+def _python_wrapped_before_registration() -> None:
+    """Why a decorator below the registration withholds the name.
+
+    Decorators apply bottom-up: ``@mcp.tool()`` over ``@replace`` registers
+    ``replace(harmless)``, so the name is that object's ``__name__`` and the
+    schema is ``inspect.signature`` of it — neither of which need be this
+    ``def``'s. A wrapper built with ``functools.wraps`` does preserve both
+    (``inspect.signature`` follows ``__wrapped__``), and every one of the 106
+    such sites measured in ``awslabs/mcp`` is that shape or a plain
+    ``return func``. But *that* is a fact about the decorator's body, in
+    another module for most of them, and this reader does not read function
+    bodies across modules. Seeing ``@audited`` at the use site proves nothing.
+
+    So the site keeps its provenance — it is still a registration, and still
+    proves a server — and loses its *name*, which is the direction #431 settled
+    for the Go octal escape: an action id nobody serves is worse than a
+    recorded omission. Measured cost: ``awslabs/mcp`` 334 → 228 named tools,
+    with the other 106 in the exclusion ledger; the four servers in #484's
+    acceptance criteria have no such site at all.
+    """
+
+
 def _python_site(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     decorator: ast.expr,
     offsets: _PythonOffsets,
     *,
     proven: bool,
+    wrapped: bool,
 ) -> RegistrationSite:
     line, column = decorator.lineno, offsets.column(decorator)
     # The span is the decorator expression, not the function it decorates.
@@ -2241,7 +2285,11 @@ def _python_site(
             span=span,
             unresolved_reason="server_binding_not_proven",
         )
-    name, unresolved = _python_tool_name(node, decorator)
+    name, unresolved = (
+        (None, "wrapped_before_registration")
+        if wrapped
+        else _python_tool_name(node, decorator)
+    )
     return RegistrationSite(
         idiom="py_fastmcp_decorator",
         name=name,
@@ -2250,8 +2298,11 @@ def _python_site(
         span=span,
         description=_python_tool_description(node, decorator),
         unresolved_reason=unresolved,
-        parameters=_python_signature(node),
-        returns=_python_annotation(node.returns),
+        # Withheld with the name: the schema comes from the same object, so a
+        # signature published beside an unreadable name would be a parameter
+        # list for a function the server may not have registered.
+        parameters=None if wrapped else _python_signature(node),
+        returns=None if wrapped else _python_annotation(node.returns),
         proves_server=True,
     )
 
@@ -2271,6 +2322,13 @@ def _python_tool_name(
     """
 
     if isinstance(decorator, ast.Call):
+        if any(keyword.arg is None for keyword in decorator.keywords):
+            # ``@mcp.tool(**options)``. A ``**`` unpacking can carry ``name``,
+            # and whether it does is decided at run time — so the framework's
+            # default is no longer known to apply, and falling back to the
+            # function's name would publish ``harmless`` for a tool the server
+            # registers as whatever the mapping said.
+            return None, "name_not_literal"
         given = _python_keyword(decorator, "name")
         if given is None and decorator.args:
             given = decorator.args[0]

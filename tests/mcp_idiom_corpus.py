@@ -741,7 +741,12 @@ ADVERSARIAL: list[tuple[str, str, str, list[str], list[str]]] = [
         [],
     ),
     (
-        'functools.wraps is not a registration',
+        # An inner decorator is applied *first*, so the object the registration
+        # receives is its return value. `functools.wraps` happens to preserve
+        # the name and — through `__wrapped__` — the signature, but that is a
+        # fact about the decorator's body, which this reader does not read. So
+        # the site keeps its provenance and loses its name.
+        'a decorator below the registration withholds the name',
         "python",
         'import functools\n'
         '\n'
@@ -762,8 +767,8 @@ ADVERSARIAL: list[tuple[str, str, str, list[str], list[str]]] = [
         '@audited\n'
         'def wrapped() -> None:\n'
         '    pass\n',
-        ['wrapped'],
         [],
+        ['wrapped_before_registration'],
     ),
     (
         'a conditional python registration is reported like any other',
@@ -1217,6 +1222,59 @@ ADVERSARIAL: list[tuple[str, str, str, list[str], list[str]]] = [
         ['generic'],
         [],
     ),
+    (
+        'an inner decorator can return a different function entirely',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        '\n'
+        'def replace(fn):\n'
+        '    def delete_all(target: str) -> str:\n'
+        '        return "unused"\n'
+        '\n'
+        '    return delete_all\n'
+        '\n'
+        '\n'
+        '@mcp.tool()\n'
+        '@replace\n'
+        'def harmless(query: int) -> str:\n'
+        '    return "unused"\n',
+        [],
+        ['wrapped_before_registration'],
+    ),
+    (
+        'a decorator above the registration is applied after it',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        '\n'
+        '@audited\n'
+        '@mcp.tool()\n'
+        'def still_readable(query: int) -> str:\n'
+        '    return ""\n',
+        ['still_readable'],
+        [],
+    ),
+    (
+        'an unpacked mapping can carry the tool name',
+        "python",
+        'from fastmcp import FastMCP\n'
+        '\n'
+        'mcp = FastMCP("s")\n'
+        '\n'
+        'options = {"name": "delete_all"}\n'
+        '\n'
+        '\n'
+        '@mcp.tool(**options)\n'
+        'def harmless() -> str:\n'
+        '    return "unused"\n',
+        [],
+        ['name_not_literal'],
+    ),
 ]
 
 # --- Paths the reader is and is not allowed to open -------------------------
@@ -1456,6 +1514,27 @@ PYTHON_TREES: list[PythonTree] = [
         {},
     ),
     PythonTree(
+        # Only one candidate exports a server, so dropping non-servers from the
+        # index leaves a *unique* match — to the archive copy the import did
+        # not name. Ambiguity has to be measured against what is there.
+        "a conflicting module that exports no server is still a conflict",
+        {
+            "src/common/server.py": (
+                "class Other:\n"
+                "    def tool(self):\n"
+                "        pass\n"
+                "\n"
+                "\n"
+                "mcp = Other()\n"
+            ),
+            "archive/src/common/server.py": _SERVER_MODULE,
+            "src/tools/mgmt.py": _TOOL_MODULE,
+        },
+        {},
+        {"src/tools/mgmt.py": ["server_binding_not_proven"]},
+        {},
+    ),
+    PythonTree(
         "an import from a module that exports no server proves nothing",
         {
             "src/common/server.py": "mcp = object()\n",
@@ -1589,6 +1668,22 @@ REGRESSIONS: dict[str, SourceCase] = {
         "@mcp.tool()\n"
         "def forwarding(query: str, *filters: str, **options: str) -> str:\n"
         "    return query\n",
+    ),
+    # A *withheld* signature and an empty one are different claims, and only a
+    # named test can tell them apart: the adversarial sweep asserts names and
+    # omissions only.
+    "python_signature_withheld_by_a_wrapper": SourceCase(
+        "python_signature_withheld_by_a_wrapper",
+        "python",
+        "from fastmcp import FastMCP\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "@replace\n"
+        "def harmless(query: int) -> str:\n"
+        '    return ""\n',
     ),
     "python_tool_with_no_parameters": SourceCase(
         "python_tool_with_no_parameters",

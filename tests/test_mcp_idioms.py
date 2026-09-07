@@ -367,6 +367,15 @@ def test_a_python_tool_with_no_parameters_is_not_one_without_a_signature():
     assert scan_source(case.text, case.language).sites[0].parameters == ()
     go = POSITIVE_SAMPLES["go_tool_struct"]
     assert scan_source(go.text, go.language).sites[0].parameters is None
+    # And a signature *withheld* reads as the third thing, not the first: the
+    # schema comes from the same object as the name, so publishing a parameter
+    # list beside an unreadable name would describe a function the server may
+    # never have registered.
+    wrapped = REGRESSIONS["python_signature_withheld_by_a_wrapper"]
+    site = scan_source(wrapped.text, wrapped.language).sites[0]
+    assert site.unresolved_reason == "wrapped_before_registration"
+    assert site.parameters is None
+    assert site.returns is None
 
 
 def test_a_python_variadic_is_not_a_signature_parameter():

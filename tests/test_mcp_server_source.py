@@ -1225,6 +1225,161 @@ def test_a_python_context_parameter_is_not_a_tool_parameter(tmp_path):
     assert [p.name for p in tool.parameters] == ["query"]
 
 
+def test_a_conventional_parameter_name_is_still_a_tool_input(tmp_path):
+    """The framework injects on the *annotation*, so this reader must too.
+
+    `SKIPPED_TOOL_PARAMETERS` is shared with the other Python adapters and
+    holds `config`, `context` and `runtime` — all ordinary user-supplied
+    inputs to an MCP tool. Dropping them by name published an empty schema for
+    a three-argument tool, which hides a real parameter inventory from every
+    schema and policy consumer downstream.
+    """
+
+    workspace = tmp_path / "names"
+    workspace.mkdir()
+    (workspace / "server.py").write_text(
+        "from mcp.server.fastmcp import Context, FastMCP\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def configure(config: dict, context: str, runtime: str) -> str:\n"
+        '    return ""\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "async def search(\n"
+        "    query: str,\n"
+        "    reporter: Context,\n"
+        "    optional: Context | None = None,\n"
+        "    parameterised: Context[object, None] = None,\n"
+        "    holder: list[Context] = None,\n"
+        ") -> str:\n"
+        '    return ""\n',
+        encoding="utf-8",
+    )
+    by_name = {
+        tool.name: tool
+        for tool in load_mcp_server_source(_source("server.py"), workspace).tools
+    }
+
+    assert [p.name for p in by_name["configure"].parameters] == [
+        "config",
+        "context",
+        "runtime",
+    ]
+    assert by_name["configure"].input_schema["required"] == [
+        "config",
+        "context",
+        "runtime",
+    ]
+    # Only the annotated context is injected. `list[Context]` is a list.
+    assert [p.name for p in by_name["search"].parameters] == ["query", "holder"]
+
+
+def test_a_decorator_below_the_registration_withholds_the_name(tmp_path):
+    """The registration receives what the inner decorator returned.
+
+    Decorators apply bottom-up, so `@mcp.tool()` over `@replace` registers
+    `replace(harmless)` — whose name and signature need not be this `def`'s.
+    A `functools.wraps` wrapper does preserve both, but that is a fact about
+    the decorator's body, which this reader does not read. So the site keeps
+    its provenance and loses its name, rather than publishing an id nobody
+    serves.
+    """
+
+    workspace = tmp_path / "wrapped"
+    workspace.mkdir()
+    (workspace / "server.py").write_text(
+        "from fastmcp import FastMCP\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "def replace(fn):\n"
+        "    def delete_all(target: str) -> str:\n"
+        '        return "unused"\n'
+        "\n"
+        "    return delete_all\n"
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "@replace\n"
+        "def harmless(query: int) -> str:\n"
+        '    return "unused"\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def plain(query: int) -> str:\n"
+        '    return ""\n',
+        encoding="utf-8",
+    )
+    loaded = load_mcp_server_source(_source("server.py"), workspace)
+
+    assert [tool.name for tool in loaded.tools] == ["plain"]
+    assert [(o.subject, o.reason) for o in loaded.omissions] == [
+        ("server.py:13", "wrapped_before_registration")
+    ]
+    # Completeness is per file, so the readable sibling is held `partial` by
+    # its neighbour rather than published as a complete surface.
+    assert loaded.tools[0].extraction["surface"] == SURFACE_PARTIAL
+
+
+def test_an_export_cannot_displace_a_route_it_only_partly_accounts_for(tmp_path):
+    """A readable tool must not remove the protection a dynamic one has.
+
+    An export naming every registration this reader *could* read looks like
+    containment and is not: withholding the route sends the reader to the
+    export and never to `scan`, so the registration nobody could name reaches
+    no exclusion ledger at all — a measured miss turning back into a silent
+    one.
+    """
+
+    workspace = tmp_path / "mixed"
+    (workspace / "pkg").mkdir(parents=True)
+    (workspace / "pyproject.toml").write_text(
+        '[project]\nname = "s"\ndependencies = ["fastmcp"]\n', encoding="utf-8"
+    )
+    (workspace / "pkg" / "server.py").write_text(
+        "from fastmcp import FastMCP\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def visible() -> None:\n"
+        "    pass\n"
+        "\n"
+        "\n"
+        '@mcp.tool(name=PREFIX + "delete_all")\n'
+        "def hidden() -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    (workspace / "mcp-tools.json").write_text(
+        json.dumps({"tools": [{"name": "visible", "description": "d"}]}),
+        encoding="utf-8",
+    )
+
+    discovery = discover_mcp_server_source(
+        workspace,
+        files=sorted(workspace.rglob("*")),
+        exported_source_paths=["mcp-tools.json"],
+    )
+
+    assert discovery.path == "pkg"
+    assert discovery.excluded == ()
+    assert discovery.unresolved_count == 1
+    assert any(
+        "none of the 1 it could not" in line for line in discovery.evidence
+    )
+    # And the route it kept does reach the ledger.
+    assert [o.reason for o in load_mcp_server_source(_source("pkg"), workspace).omissions] == [
+        "name_not_literal"
+    ]
+
+
 def test_an_unparseable_python_file_holds_its_surface_partial(tmp_path):
     """Nothing about the file is known past a syntax error.
 

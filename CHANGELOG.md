@@ -10,8 +10,8 @@
   `neo4j-contrib/mcp-neo4j` were all in the state MongoDB and Grafana were in
   before #431 — `detect` returned `is_agent_project: false` for a first-party
   server publishing dozens of tools. All three are now read, and so is the one
-  the survey measured as the largest of all: `awslabs/mcp` yields **334 tools**
-  with 107 registrations recorded as unenumerable.
+  the survey measured as the largest of all: `awslabs/mcp` yields **262 tools**
+  with 179 registrations recorded as unenumerable.
 
   It is a sixth idiom (`py_fastmcp_decorator`) and a different **extraction
   mechanism**, which is why it waited for its own increment and its own probe
@@ -42,12 +42,22 @@
   contains an empty set of names vacuously.
 
   Nothing is claimed more loudly for having been read more closely. The
-  ceiling stays `medium`, a name built at run time stays an omission the
-  exclusion ledger accounts for, and a decorator on an object this reader
-  cannot follow — `@self.mcp.tool` on an injected server, `app =
-  create_server()` on a factory's result, both measured in `awslabs/mcp` — is
-  recorded rather than guessed at or silently dropped. `IDIOM_REGISTRY_VERSION`
-  is `2` and `TRIGGER-MCP-TOOL-REGISTRATION-SOURCE` routes `@mcp.tool`.
+  ceiling stays `medium`, and every way the registered identity can differ
+  from the one on the page is a recorded omission rather than a guess: a name
+  built at run time, a `**options` unpacking that can carry `name`, a
+  decorator *below* the registration whose return value is what the server
+  actually receives, and an object this reader cannot follow to a server at
+  all — `@self.mcp.tool` on an injected server, `app = create_server()` on a
+  factory's result. All four are measured in `awslabs/mcp`.
+  `IDIOM_REGISTRY_VERSION` is `2` and `TRIGGER-MCP-TOOL-REGISTRATION-SOURCE`
+  routes `@mcp.tool`.
+
+  A committed export displaces this route only when it accounts for
+  *everything* the route found, unreadable registrations included. An export
+  naming every tool the reader could read looks like containment and is not:
+  withholding the route then sends the reader to the export and never to
+  `scan`, so the registration nobody could name reaches no exclusion ledger —
+  a measured miss turning back into a silent one.
 
   Every dependency table the gate names is reachable, which took a second
   pass to be true: the walker read a Poetry table's *constraint* where the
