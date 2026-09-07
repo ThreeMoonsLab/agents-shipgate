@@ -398,12 +398,15 @@ rules before changing code:
   switch on **`control.next_action.actor`**, which routes the turn
   rather than individual fields. `placeholders[]` is a location list
   (`path`, `current`, `line`) and carries no owner. `actor: "human"`
-  means at least one declaration is unresolved and `permissions.edit`
-  is `false`: surface everything and stop. Its `why` is fitted to a
+  selects a human review or stop with `permissions.edit: false`:
+  surface the required review and stop. Its `why` is fitted to a
   prose budget and may end `and N more in placeholders[]`, so absence
-  from it never makes a field yours. `actor: "coding_agent"` means only
-  fields you own are left (`agent.name`, `project.name`, the
-  `tool_sources[]` rows) and names the one to replace. Every
+  from it never makes a field yours. `actor: "coding_agent"` authorizes
+  only the exact `control.next_action`: read its `kind`, `path` or
+  `command`, perform that step, and rerun the stated check. A blocking
+  setup repair can take precedence while human-owned declarations
+  remain unresolved; the actor is not proof that all remaining
+  placeholders are yours. Every
   declaration — purpose, prohibited actions, effect, authority,
   binding, approval, confirmation, idempotency, safeguards, accepted
   debt — must be supplied by a human, because Shipgate never invents a

@@ -477,9 +477,9 @@ agent-facing PR-gate guidance uses `agents-shipgate verify`.
 **`init` reports what it could not infer, and routes the whole turn.**
 Two fields, and only one of them decides. `placeholders[]` is a *location*
 list — each entry is `path`, `current` and `line`, with no owner on it.
-`control.next_action.actor` is the routing, and it routes the turn rather than
-individual fields: while any human-owned value is unresolved it is `"human"`,
-`permissions.edit` is `false`, and `why` names where to start, like
+`control.next_action.actor` routes the next step rather than assigning
+ownership to individual fields. A human-owned placeholder normally selects
+`"human"` with `permissions.edit: false`, and `why` names where to start, like
 
 ```text
 In ./shipgate.yaml: line 13 (agent.declared_purpose[0]) must be supplied by a
@@ -491,9 +491,12 @@ declaration nobody made.
 **That sentence is a starting point, not a partition.** It is fitted to the
 envelope's prose budget: with seven unresolved declarations it names three
 paths and then `and 4 more in placeholders[]`, and the four it dropped are
-human-owned as well. While `actor` is `"human"`, all of it goes to a person.
-Only once they have supplied those does a re-run flip `actor` to
-`"coding_agent"` and name a field the agent owns.
+human-owned as well. While `actor` is `"human"`, surface the required review
+and stop. When it is `"coding_agent"`, perform only the exact
+`control.next_action`, using its `kind`, `path` or `command`, then rerun the
+stated check. A blocking setup repair can take precedence while human-owned
+declarations remain unresolved. An agent route does not prove every remaining
+placeholder belongs to the agent.
 
 Underneath the routing, the ownership split is real in both directions:
 
@@ -505,10 +508,10 @@ Underneath the routing, the ownership split is real in both directions:
   debt and its owner/reason/expiry, and the blocks that are declarations end to
   end (`action_surface`, `permissions`, `policies`, `agent_bindings`,
   `tool_identity`, `checks`, `baseline`, `human_ack`, `risk_overrides`,
-  `validation`, `organization`). While one of these is unresolved, `init`
-  returns `control.next_action.actor: "human"` and `permissions.edit: false`,
-  because these values must be supplied by a human — Shipgate never invents a
-  declaration nobody made.
+  `validation`, `organization`). These values must be supplied by a human —
+  Shipgate never invents a declaration nobody made. Their review route remains
+  due after any blocking setup repair and returns `control.next_action.actor:
+  "human"` with `permissions.edit: false`.
 
 Those names illustrate the rule; `control.next_action.actor` is what decides a
 given turn, and it is the field to act on. Neither list nor prose overrides it.
@@ -524,14 +527,16 @@ out of the workspace, `"scaffold"` when none was, and `null` when this run's
 render reached neither disk nor the payload. On `"scaffold"` the `tool_sources`
 block is a placeholder — `id`, `type` and `path` are all `CHANGE_ME`, all three
 are in `placeholders[]`, and `manifest_message` says nothing was inferred. That
-is the common outcome for an MCP server whose tools are registered in code
-rather than exported to a file.
+can happen when registration depends on a server factory that static
+discovery cannot resolve.
 
 **A scaffold says discovery could not read a surface — not that there is none,
-and not that you are on Route H.** A FastMCP server whose `@server.tool`
-functions sit under an import package returns `"scaffold"` while genuinely
-publishing tools, and `audit --host` on that repository reports only generic
-instruction trust roots: it never looks at those tools. Switching routes there
+and not that you are on Route H.** This checkout detects a direct
+`server = FastMCP(...)` with `@server.tool` functions, including under an import
+package. A server created through `app = create_server()` with `@app.tool`
+functions still returns `"scaffold"`: the static reader cannot resolve that
+factory. `audit --host` reviews coding-host configuration and never reads those
+tools. Switching routes there
 stops reviewing the capability you came to review. Stay on Route A and give
 `verify` something it can read — an exported MCP tool list, an OpenAPI spec, or
 a local tool inventory (see [Choose your first
@@ -559,6 +564,7 @@ Point the manifest at the clearest tool boundary you already have:
 | --- | --- | --- |
 | OpenAI Agents SDK Python | Tools are defined with `@function_tool` in local Python files. | `tool_sources[].type: openai_agents_sdk`; `path` may be one Python file or a directory |
 | MCP export | You can export the MCP server's tool list to JSON. | `tool_sources[].type: mcp` |
+| MCP server source | This checkout can read the static TypeScript, Go or Python registration shape, including direct FastMCP `@server.tool` decorators. | `tool_sources[].type: mcp_server_source` |
 | OpenAPI spec | The agent calls HTTP APIs described by OpenAPI 3.x. | `tool_sources[].type: openapi` |
 | Codex plugin package | The repo contains `.codex-plugin/plugin.json` or `.agents/plugins/marketplace.json`. | `tool_sources[].type: codex_plugin` |
 

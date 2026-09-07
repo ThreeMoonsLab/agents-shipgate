@@ -452,10 +452,11 @@ def test_runbook_routes_host_boundary_partners_away_from_a_manifest():
     The property is unchanged; the instruction it pinned was wrong. This used to
     require the literal "this repository is on Route H" on a `CHANGE_ME`
     scaffold, and a scaffold does not establish that: `tests/
-    test_init_scaffold_disclosure.py`'s FastMCP reproduction publishes real
-    `@server.tool` functions, scaffolds anyway because they sit under an import
-    package, and `audit --host` on it reports only generic instruction trust
-    roots — so following that instruction abandoned the tool surface the partner
+    test_init_scaffold_disclosure.py`'s `_undetected_server` reproduction uses
+    a factory-bound FastMCP instance with `@app.tool` functions and scaffolds
+    because static discovery cannot resolve the factory. The direct
+    `_fastmcp_server` is detected since #484. Host audit never reads either tool
+    surface — so following that instruction abandoned the surface the partner
     came to review. The runbook must still say what to do, and must no longer
     say that (#498 review).
     """

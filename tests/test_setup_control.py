@@ -1230,6 +1230,11 @@ def test_a_refused_instruction_target_still_reports_what_failed(unadopted: Path)
 
     assert result.exit_code != 0
     assert payload["control"]["next_action"]["kind"] == "edit"
+    assert payload["control"]["next_action"]["actor"] == "coding_agent"
+    assert human_owned_placeholders(payload["placeholders"]), (
+        "the setup edit takes precedence without clearing the human declaration; "
+        "actor alone must never be read as proof that every placeholder is agent-owned"
+    )
     assert "agents-shipgate.mdc" in payload["control"]["next_action"]["path"]
     # And the structured location rides in the ranked list.
     assert payload["next_actions"][0]["kind"] == "edit"

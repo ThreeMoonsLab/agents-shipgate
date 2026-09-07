@@ -390,10 +390,11 @@ committed PR/CI refs, make `origin/main` and `HEAD` available before the final
 
 If `init --write` emits `CHANGE_ME` for `tool_sources`, stop — but do not read
 that as a route. A scaffolded `tool_sources` block says discovery could not
-*read* a surface, not that the repository has none: a FastMCP server whose
-`@server.tool` functions sit under an import package scaffolds while genuinely
-publishing tools, and `audit --host` there reports only generic instruction
-trust roots, never those tools. Never invent a manifest. Ask the partner for an
+*read* a surface, not that the repository has none. This checkout detects direct
+FastMCP `@server.tool` registrations under an import package; a server created
+through `app = create_server()` with `@app.tool` functions still scaffolds
+because the static reader cannot resolve the factory. `audit --host` reviews
+coding-host configuration, never those tools. Never invent a manifest. Ask the partner for an
 exported MCP tool list, an OpenAPI spec, or a local tool inventory, and record
 the extraction gap; move the partner to Route H only when what they want
 reviewed is the coding-host configuration.
@@ -495,8 +496,10 @@ Add Agents Shipgate as an advisory reviewer for this agent-capability change.
    permissions.edit false, and control.reason names the exact fields and lines.
    If discovery found no tool source at all, tool_sources is a scaffold.
    That means discovery could not read a surface, not that there is none:
-   a FastMCP server whose tools sit under an import package scaffolds while
-   publishing real tools, and audit --host there never looks at them. Ask for
+   this checkout detects direct FastMCP @server.tool registrations under an
+   import package, but app = create_server() with @app.tool still scaffolds
+   because static discovery cannot resolve the factory. audit --host never
+   looks at those tools. Ask for
    an exported MCP tool list, an OpenAPI spec or a local tool inventory, and
    say so instead of guessing a type. Move to route H only if what the team
    wants reviewed is the coding-host configuration.

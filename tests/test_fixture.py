@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tarfile
@@ -422,12 +423,21 @@ def test_the_walkthrough_control_command_runs_in_the_walkthrough(
         "nothing. Restore it or drop the test with the step."
     )
 
+    # This change of directory must be taught by the page, not supplied only
+    # by the test. Otherwise deleting its `cd` line leaves the guard green
+    # while restoring the caller-directory failure it is meant to prevent.
+    preceding = section[:printed.start()].rstrip().splitlines()[-1]
+    change_directory = shlex.split(preceding)
+    assert change_directory == [
+        "cd", "/tmp/shipgate-fixture-ai_generated_refund_pr-<random>/ai_generated_refund_pr",
+    ], "step 7 must change to the fixture copy before reading its control"
+
     # The page prints `cd <fixture copy>` on the line above, and the flags are
     # relative to it — `--reports-dir reports` resolves against the working
     # directory, which is exactly what made the first draft of this guard
     # disagree with a hand-run terminal. So take the `cd` literally.
     monkeypatch.chdir(workspace)
-    argv = ["agent", "control", *printed.group("flags").split()]
+    argv = ["agent", "control", *shlex.split(printed.group("flags"))]
 
     control = runner.invoke(app, argv)
     assert control.exit_code == 0, (
