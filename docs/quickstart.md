@@ -298,10 +298,30 @@ reads the same on either channel.
 
 On a build that implements contract `21` or newer, the same answer arrives as
 an explicit state machine. **Validate the pointer before you read anything it
-binds** — `current-control.json` is an ordinary file and goes stale silently:
+binds** — `current-control.json` is an ordinary file and goes stale silently.
+Run it against the workspace and report directory the fixture printed, not
+against your own:
 
 ```bash
-agents-shipgate agent control --workspace .
+cd /tmp/shipgate-fixture-ai_generated_refund_pr-<random>/ai_generated_refund_pr
+agents-shipgate agent control --workspace . --reports-dir reports
+```
+
+The first path is the `Fixture copy left at` line from step 2; `reports` is the
+last segment of its `Reports:` line. Both flags matter: the fixture's history
+lives in that copy, and its artifacts are under `reports/`, not the default
+`agents-shipgate-reports/`. Run it from your own directory instead and it exits
+`3` with `Current control is unavailable (missing)` — or, worse, validates an
+unrelated run you happen to have lying there.
+
+It exits `0` here and returns the compact `shipgate.agent_control/v1`
+envelope, whose fields are top-level:
+
+```text
+"control_state": "human_review_required",
+"next_actor": "human",
+"decision": "blocked",
+"permissions": { … all false … }
 ```
 
 That command checks the pointer against every artifact it binds and against
@@ -309,12 +329,13 @@ the live repository, and exits `4` when the workspace has moved since the
 decision (`workspace_changed`, naming the commit the pointer was published
 against). Reading the file directly cannot tell you that — after an unrelated
 commit it still reports the old state. Only once `agent control` succeeds do
-you read `current-control.json` and then `agent-handoff.json`
-(`control.state`, then `gate.merge_verdict`). Here `control.state` is
-`human_review_required` and every entry in `control.permissions` is `false`.
-On the published `v0.15.0` build those fields do not exist; read
-`agent-handoff.json`'s `gate` block and `report.json`'s
-`release_decision.decision` instead. See
+you read `current-control.json` — whose own spelling is nested, `control.state`
+rather than `control_state` — and then `agent-handoff.json` (`control.state`,
+then `gate.merge_verdict`).
+
+On the published `v0.15.0` build none of this exists: no `agent control`
+command, no pointer, no `control` block. Read `agent-handoff.json`'s `gate`
+block and `report.json`'s `release_decision.decision` instead. See
 [Which build you get](#which-build-you-get).
 
 **Where a human-review route still lets an agent work.** Contract v20 separates
@@ -453,12 +474,12 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 The short `shipgate verify` alias remains invokable for compatibility;
 agent-facing PR-gate guidance uses `agents-shipgate verify`.
 
-**`init` reports what it could not infer, and routes the half a person owns.**
+**`init` reports what it could not infer, and routes the whole turn.**
 Two fields, and only one of them decides. `placeholders[]` is a *location*
 list — each entry is `path`, `current` and `line`, with no owner on it.
-`control.next_action` is the routing: while any human-owned value is
-unresolved it returns `actor: "human"`, `permissions.edit: false`, and a `why`
-naming those exact fields and lines, like
+`control.next_action.actor` is the routing, and it routes the turn rather than
+individual fields: while any human-owned value is unresolved it is `"human"`,
+`permissions.edit` is `false`, and `why` names where to start, like
 
 ```text
 In ./shipgate.yaml: line 13 (agent.declared_purpose[0]) must be supplied by a
@@ -467,8 +488,14 @@ do; Shipgate never invents them, and a value a coding agent supplied is a
 declaration nobody made.
 ```
 
-Take the fields `control.next_action.why` names to a person; the rest of
-`placeholders[]` is repository reading. The split is real in both directions:
+**That sentence is a starting point, not a partition.** It is fitted to the
+envelope's prose budget: with seven unresolved declarations it names three
+paths and then `and 4 more in placeholders[]`, and the four it dropped are
+human-owned as well. While `actor` is `"human"`, all of it goes to a person.
+Only once they have supplied those does a re-run flip `actor` to
+`"coding_agent"` and name a field the agent owns.
+
+Underneath the routing, the ownership split is real in both directions:
 
 - **A coding agent owns** the facts it can read out of the repository:
   `agent.name`, `project.name`, and the `tool_sources[]` rows. Sending these to
@@ -483,8 +510,8 @@ Take the fields `control.next_action.why` names to a person; the rest of
   because these values must be supplied by a human — Shipgate never invents a
   declaration nobody made.
 
-Those names illustrate the rule; `control.next_action` is what decides a given
-run, and it is the field to read when the two disagree.
+Those names illustrate the rule; `control.next_action.actor` is what decides a
+given turn, and it is the field to act on. Neither list nor prose overrides it.
 
 Do not let a coding agent fill a human-owned value from a prompt, the main
 agent file or the repository README. A purpose or authority claim lifted out of
@@ -520,7 +547,7 @@ reviewed is the coding-host configuration.
 | `detect` says `is_agent_project: false`, but `codex_plugin_candidates` is non-empty | Proceed to `init`. Codex plugin repos are valid static plugin-surface targets. |
 | `doctor` shows zero tools | Check `tool_sources[].path`, MCP `tools[]`, OpenAPI `paths`, optional source warnings, and dynamic ADK/MCP toolsets. |
 | Tools are created by factories, wrappers, or dynamic toolsets | Provide an explicit MCP export, OpenAPI spec, local tool inventory artifact, or a broader OpenAI SDK source directory when tools are static but split across files. |
-| `init --write --json` returns `placeholders[]` entries | Read `control.next_action`, not the array: the fields its `why` names go to a person, the rest are repository reading. See [Route A](#route-a--a-repository-that-builds-a-tool-surface). |
+| `init --write --json` returns `placeholders[]` entries | Switch on `control.next_action.actor`, not the array. `"human"` means surface all of them and stop — `why` names where to start and says when it elided more. See [Route A](#route-a--a-repository-that-builds-a-tool-surface). |
 | Install fails in a Python 3.10/3.11 project | Install the CLI outside the project env with `pipx` or `uv` using Python 3.12+. |
 | Reports appear in `git status` | Add `agents-shipgate-reports/` to `.gitignore`; reports are local release-review artifacts. |
 

@@ -493,8 +493,13 @@ Add Agents Shipgate as an advisory reviewer for this agent-capability change.
    human-owned placeholder is unresolved the payload comes back with
    control.next_action.actor "human", control_state "human_review_required" and
    permissions.edit false, and control.reason names the exact fields and lines.
-   If discovery found no tool source at all, tool_sources is a scaffold and
-   this repository belongs on route H — say so instead of guessing a type.
+   If discovery found no tool source at all, tool_sources is a scaffold.
+   That means discovery could not read a surface, not that there is none:
+   a FastMCP server whose tools sit under an import package scaffolds while
+   publishing real tools, and audit --host there never looks at them. Ask for
+   an exported MCP tool list, an OpenAPI spec or a local tool inventory, and
+   say so instead of guessing a type. Move to route H only if what the team
+   wants reviewed is the coding-host configuration.
    Open or update the PR, make origin/main and HEAD available, then run:
    agents-shipgate verify --workspace . --config shipgate.yaml \
      --base origin/main --head HEAD --ci-mode advisory --format json

@@ -381,6 +381,72 @@ def test_the_entry_path_quotes_lines_the_pr_comment_actually_renders(tmp_path: P
     )
 
 
+#: The walkthrough's own control command, as `docs/quickstart.md` prints it.
+_AGENT_CONTROL_LINE = re.compile(r"^agents-shipgate agent control (?P<flags>.+)$", re.M)
+
+
+def test_the_walkthrough_control_command_runs_in_the_walkthrough(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Step 7's command has to work where step 2 left the reader.
+
+    It did not. `fixture run` writes into a temporary copy of the sample and
+    reports under `<copy>/reports`, so the `--workspace .` the step printed
+    looked for `./agents-shipgate-reports` in the caller's directory and exited
+    3 with `Current control is unavailable (missing)` — or, worse, validated an
+    unrelated run the caller happened to have there. Prose said "validate the
+    pointer first" while the command shown could not (#498 review).
+
+    The flags are read out of the page rather than restated, so a step that
+    drops `--reports-dir` fails here rather than on a reader's terminal.
+    """
+
+    # No `--out`: step 2 does not pass one, and that is the whole point — the
+    # default puts the artifacts under the fixture *copy*, not the caller's
+    # directory. Passing one here would test a situation the reader is not in.
+    result = runner.invoke(app, ["fixture", "run", "ai_generated_refund_pr"])
+    assert result.exit_code == 0, result.output
+    copied = re.search(r"Fixture copy left at (?P<path>.+?)\.\s*$", result.output, re.M)
+    assert copied, (
+        "`fixture run` no longer prints `Fixture copy left at <path>.`, which "
+        "is the line docs/quickstart.md step 7 tells the reader to use."
+    )
+    workspace = Path(copied.group("path"))
+
+    quickstart = (REPO_ROOT / "docs" / "quickstart.md").read_text(encoding="utf-8")
+    section = quickstart.split("## One review, end to end", 1)[1].split("## Two kinds of fix", 1)[0]
+    printed = _AGENT_CONTROL_LINE.search(section)
+    assert printed, (
+        "docs/quickstart.md's walkthrough no longer prints an "
+        "`agents-shipgate agent control` command, so this guard is checking "
+        "nothing. Restore it or drop the test with the step."
+    )
+
+    # The page prints `cd <fixture copy>` on the line above, and the flags are
+    # relative to it — `--reports-dir reports` resolves against the working
+    # directory, which is exactly what made the first draft of this guard
+    # disagree with a hand-run terminal. So take the `cd` literally.
+    monkeypatch.chdir(workspace)
+    argv = ["agent", "control", *printed.group("flags").split()]
+
+    control = runner.invoke(app, argv)
+    assert control.exit_code == 0, (
+        "the command docs/quickstart.md prints in step 7 does not succeed where "
+        f"step 2 leaves the reader:\n  argv: {argv}\n  exit: "
+        f"{control.exit_code}\n{control.output}"
+    )
+    payload = json.loads(control.output)
+    assert payload["control_state"] == "human_review_required", (
+        "step 7 tells the reader this run is held for human review; "
+        f"`agent control` reports {payload['control_state']!r}."
+    )
+    for field in ("control_state", "next_actor", "decision", "permissions"):
+        assert field in payload, (
+            f"step 7 names `{field}` as a top-level field of the "
+            f"`shipgate.agent_control/v1` envelope; the command does not emit it."
+        )
+
+
 def test_cli_fixture_run_ai_generated_refund_pr_writes_verifier_artifacts(tmp_path: Path):
     out = tmp_path / "verify-out"
     result = runner.invoke(

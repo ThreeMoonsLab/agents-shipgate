@@ -1408,6 +1408,84 @@ def test_agent_owned_placeholders_are_not_routed_to_a_human():
     )
 
 
+#: The engine's own words when it drops locations from the routing prose. A
+#: surface that teaches a reader to act on `why` has to say this happens, or it
+#: teaches a partition the payload does not support. Asserted below to be the
+#: engine's string rather than a paraphrase, the same way the ownership phrases
+#: are.
+_ELISION_MARKER = "more in placeholders[]"
+
+
+def test_the_elision_marker_comes_from_the_engine():
+    """The phrase above is what `_placeholder_review_why` actually writes."""
+
+    from agents_shipgate.cli.setup_control import _placeholder_review_why
+
+    crowded = _placeholder_review_why(
+        [
+            {"path": f"agent.prohibited_actions[{index}]", "current": "CHANGE_ME",
+             "line": 10 + index}
+            for index in range(12)
+        ],
+        "shipgate.yaml",
+    )
+    assert _ELISION_MARKER in crowded, (
+        "the engine no longer says "
+        f"{_ELISION_MARKER!r} when it drops locations from the routing prose. "
+        "Every surface warning a reader about that elision has to be re-checked "
+        "— update both together."
+    )
+
+
+#: Naming the bounded prose field is what puts a surface in scope. `actor` is a
+#: turn-level signal and does not elide; `why` is the sentence that does. A
+#: surface enumerating the human-owned fields by name, as the setup prompts and
+#: the runbook do, is not deriving ownership from it and is not in scope.
+_BOUNDED_PROSE_FIELDS = ("next_action.why", "`why`")
+
+
+def _routing_prose_surfaces() -> list[Path]:
+    """Surface files that tell a reader to act on the routing prose itself."""
+
+    return [
+        path
+        for path in _placeholder_surfaces()
+        if "placeholders[]" in (text := path.read_text(encoding="utf-8"))
+        and any(field in text for field in _BOUNDED_PROSE_FIELDS)
+    ]
+
+
+@pytest.mark.parametrize(
+    "path", _routing_prose_surfaces(), ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
+def test_surfaces_say_the_routing_prose_elides(path: Path):
+    """`why` is where to start, not what is yours.
+
+    It is fitted to the envelope's prose budget: seven unresolved declarations
+    produce three named paths and ``and 4 more in placeholders[]``, and the four
+    it dropped are human-owned too. A surface that says "the fields `why` names
+    go to a person, the rest are yours" therefore hands real declarations to the
+    coding agent — the fail-open this document's ownership rule exists to
+    prevent, reintroduced by the sentence that fixed it (#498 review).
+    """
+
+    assert _ELISION_MARKER in path.read_text(encoding="utf-8"), (
+        f"{path.relative_to(REPO_ROOT)} tells a reader to act on "
+        "`control.next_action` without saying that its prose elides locations "
+        f"({_ELISION_MARKER!r}). Absence from that sentence grants a coding "
+        "agent nothing; say so, or stop routing on it."
+    )
+
+
+def test_routing_prose_guard_is_not_vacuous():
+    """Something must be teaching the routing for this rule to have a subject."""
+
+    assert _routing_prose_surfaces(), (
+        "no registered surface names both `control.next_action` and "
+        "`placeholders[]`, so this guard is checking nothing."
+    )
+
+
 # --------------------------------------------------------------------------
 # executable_pin — a ref a reader will actually run.
 # --------------------------------------------------------------------------

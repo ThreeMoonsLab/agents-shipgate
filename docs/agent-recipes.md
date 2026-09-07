@@ -395,12 +395,15 @@ rules before changing code:
   dynamic ADK/MCP toolsets, provide an explicit MCP export, OpenAPI
   spec, or local tool inventory artifact.
 - Resolve the placeholders `init --json` reports before scanning, and
-  read **`control.next_action`** to know which are yours:
-  `placeholders[]` is a location list (`path`, `current`, `line`) and
-  carries no owner. While a human-owned value is unresolved,
-  `control.next_action` returns `actor: "human"` and a `why` naming
-  those exact fields and lines. You own what the repository states
-  (`agent.name`, `project.name`, the `tool_sources[]` rows). Every
+  switch on **`control.next_action.actor`**, which routes the turn
+  rather than individual fields. `placeholders[]` is a location list
+  (`path`, `current`, `line`) and carries no owner. `actor: "human"`
+  means at least one declaration is unresolved and `permissions.edit`
+  is `false`: surface everything and stop. Its `why` is fitted to a
+  prose budget and may end `and N more in placeholders[]`, so absence
+  from it never makes a field yours. `actor: "coding_agent"` means only
+  fields you own are left (`agent.name`, `project.name`, the
+  `tool_sources[]` rows) and names the one to replace. Every
   declaration — purpose, prohibited actions, effect, authority,
   binding, approval, confirmation, idempotency, safeguards, accepted
   debt — must be supplied by a human, because Shipgate never invents a
