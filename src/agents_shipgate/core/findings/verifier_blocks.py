@@ -34,6 +34,16 @@ from agents_shipgate.core.capability_delta import (
     diff_capability_fact_sets,
 )
 from agents_shipgate.core.policy_reason_codes import counts_as_weakened
+from agents_shipgate.core.remote_bindings import (
+    ANCHOR_KIND,
+    LIST_ABSENT,
+    LIST_VALUES,
+    TOOL_FILTER_KIND,
+    axis_label,
+    decode_list_summary,
+    decode_policy_key,
+    is_remote_binding_kind,
+)
 from agents_shipgate.schemas.capability_change import (
     CapabilityChangeBlock,
     CapabilityChangeMember,
@@ -50,7 +60,11 @@ from agents_shipgate.schemas.capability_semantics import (
     capability_semantic_change_sort_key,
 )
 from agents_shipgate.schemas.report import Finding, ReadinessReport
-from agents_shipgate.schemas.surfaces import ActionFact, ActionSurfaceFacts
+from agents_shipgate.schemas.surfaces import (
+    ActionFact,
+    ActionSurfaceFacts,
+    ToolSurfacePolicyDrift,
+)
 
 # ---------------------------------------------------------------------------
 # Shared deterministic helpers
@@ -386,6 +400,16 @@ def build_capability_change(
                     )
                 )
         for d in tsd.policy_drift:
+            if is_remote_binding_kind(d.policy_kind):
+                _extend_remote_binding_members(
+                    d,
+                    factory,
+                    added=added,
+                    removed=removed,
+                    broadened=broadened,
+                    narrowed=narrowed,
+                )
+                continue
             # Policy drift on a tool requirement — direction is opaque from
             # the change-detection hashes, so surface it as broadened.
             broadened.append(
@@ -406,6 +430,203 @@ def build_capability_change(
         broadened=_dedup_members(broadened),
         narrowed=_dedup_members(narrowed),
     )
+
+
+#: Prose that says, in the reviewer's own output, exactly what a changed
+#: endpoint or credential reference does and does not establish. #538's
+#: headline requirement: the name ``ADMIN_KEY`` proves no privilege level, and
+#: nothing here may read one into it.
+_REMOTE_BINDING_DIRECTION_NOTE = (
+    "direction of change is not established: a host name or an environment "
+    "variable name proves no privilege level"
+)
+
+
+def _extend_remote_binding_members(
+    drift: ToolSurfacePolicyDrift,
+    factory: _MemberFactory,
+    *,
+    added: list[CapabilityChangeMember],
+    removed: list[CapabilityChangeMember],
+    broadened: list[CapabilityChangeMember],
+    narrowed: list[CapabilityChangeMember],
+) -> None:
+    """Project one carried remote-binding axis into capability members.
+
+    A remote binding is the agent's authority whether or not the leaves behind
+    it were enumerable, so it has to reach the reviewer as a capability change
+    rather than as anonymous policy drift (#538). Three rules:
+
+    * ``tool`` stays empty. No leaf tool is claimed to exist — inventing one
+      would be exactly the synthesized remote tool this must not produce.
+    * The **endpoint** axis is the binding's presence anchor: it is emitted
+      for every binding, so a binding appearing or disappearing is one
+      ``added`` / ``removed`` member rather than one per axis, and the other
+      axes' membership rows are dropped as restatements of it.
+    * Direction is claimed only where it is established. A widened or narrowed
+      **tool filter** is a real direction; a changed endpoint, credential
+      reference or transport is not, so it takes the block's documented
+      opaque-direction bucket (``broadened``, ``medium``) with a rationale
+      that says so in words.
+    """
+
+    agent, _source_id, slot = decode_policy_key(drift.key)
+    axis = axis_label(drift.policy_kind)
+    # The slot is always part of the subject, including the ``#n`` ordinal
+    # form. It reads slightly heavier for an agent with one binding, and it is
+    # what keeps two *inline* bindings of one agent apart: the member id is
+    # hashed from this string, so dropping the ordinal collapsed both bindings
+    # into one member and silently discarded one binding's evidence.
+    binding_subject = " ".join(
+        part for part in (agent, "-> MCP binding", slot) if part
+    )
+    axis_subject = f"{binding_subject} {axis}"
+
+    if drift.kind in {"added", "removed"}:
+        if drift.policy_kind != ANCHOR_KIND:
+            # Every axis moves together when the binding itself appears or
+            # disappears; the anchor already says it once.
+            return
+        bucket = added if drift.kind == "added" else removed
+        bucket.append(
+            factory.make(
+                drift.kind,
+                "scope",
+                "",
+                scope=binding_subject,
+                before_scope=drift.before_summary,
+                after_scope=drift.after_summary,
+                rationale=(
+                    f"agent {agent!r} gained a remote MCP binding"
+                    if drift.kind == "added"
+                    else f"agent {agent!r} no longer declares this remote MCP binding"
+                ),
+            )
+        )
+        return
+
+    if drift.policy_kind == TOOL_FILTER_KIND:
+        before_kind, before = decode_list_summary(drift.before_summary)
+        after_kind, after = decode_list_summary(drift.after_summary)
+        members = _filter_direction_members(
+            factory,
+            drift,
+            axis_subject,
+            before_kind=before_kind,
+            before=before,
+            after_kind=after_kind,
+            after=after,
+        )
+        for direction, member in members:
+            (broadened if direction == "broadened" else narrowed).append(member)
+        if members:
+            return
+        # Nothing above established a direction: the filter's *evidence* moved
+        # — a literal list became unreadable, or the reader's certainty
+        # changed. Not a widening and not a narrowing.
+        broadened.append(
+            factory.make(
+                "broadened",
+                "scope",
+                "",
+                scope=axis_subject,
+                before_scope=drift.before_summary,
+                after_scope=drift.after_summary,
+                confidence="medium",
+                rationale=f"MCP tool filter evidence changed; {_REMOTE_BINDING_DIRECTION_NOTE}",
+            )
+        )
+        return
+
+    broadened.append(
+        factory.make(
+            "broadened",
+            "scope",
+            "",
+            scope=axis_subject,
+            before_scope=drift.before_summary,
+            after_scope=drift.after_summary,
+            confidence="medium",
+            rationale=f"MCP {axis} changed; {_REMOTE_BINDING_DIRECTION_NOTE}",
+        )
+    )
+
+
+def _filter_direction_members(
+    factory: _MemberFactory,
+    drift: ToolSurfacePolicyDrift,
+    axis_subject: str,
+    *,
+    before_kind: str,
+    before: list[str],
+    after_kind: str,
+    after: list[str],
+) -> list[tuple[str, CapabilityChangeMember]]:
+    """Members for a tool-filter move whose direction *is* established.
+
+    Three comparable transitions, and nothing else:
+
+    * both sides are value lists — the set difference is the direction;
+    * an absent filter became one — every tool the endpoint advertises was
+      reachable and now only the listed ones are, so the binding narrowed;
+    * a filter was removed — the reverse, and the more serious of the two.
+
+    A side the reader could not establish yields nothing here, so it falls
+    through to the caller's opaque-direction bucket rather than being compared
+    as if it were an empty set.
+    """
+
+    def member(direction: str, rationale: str) -> tuple[str, CapabilityChangeMember]:
+        return direction, factory.make(
+            direction,
+            "scope",
+            "",
+            scope=axis_subject,
+            before_scope=drift.before_summary,
+            after_scope=drift.after_summary,
+            rationale=rationale,
+        )
+
+    if before_kind == LIST_VALUES and after_kind == LIST_VALUES:
+        gained = sorted(set(after) - set(before))
+        lost = sorted(set(before) - set(after))
+        members: list[tuple[str, CapabilityChangeMember]] = []
+        if gained:
+            members.append(
+                member(
+                    "broadened",
+                    "MCP tool filter widened: "
+                    + ", ".join(gained)
+                    + " newly reachable through this binding",
+                )
+            )
+        if lost:
+            members.append(
+                member(
+                    "narrowed",
+                    "MCP tool filter narrowed: "
+                    + ", ".join(lost)
+                    + " no longer reachable through this binding",
+                )
+            )
+        return members
+    if before_kind == LIST_ABSENT and after_kind == LIST_VALUES:
+        return [
+            member(
+                "narrowed",
+                "MCP tool filter added: this binding is now limited to "
+                + ", ".join(after),
+            )
+        ]
+    if before_kind == LIST_VALUES and after_kind == LIST_ABSENT:
+        return [
+            member(
+                "broadened",
+                "MCP tool filter removed: every tool this endpoint advertises "
+                "is now reachable through this binding",
+            )
+        ]
+    return []
 
 
 def _extend_semantic_members(

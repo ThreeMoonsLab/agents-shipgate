@@ -394,6 +394,59 @@ def looks_like_secret_value(value: str) -> bool:
     return (has_alpha or has_digit) and has_secret_alphabet
 
 
+def redact_url_credentials(url: str) -> tuple[str, bool]:
+    """Strip credential material a URL carries in userinfo or its query.
+
+    ``https://user:pass@host/mcp?api_key=abc`` is a literal secret in source
+    that the generic patterns do not catch: ``SECRET_PATTERNS``'s
+    ``database_url`` rule only covers database schemes, and
+    ``LABELED_SECRET_PATTERN`` only fires on values long enough to look like a
+    key. A remote endpoint is published verbatim to reviewers, so it is
+    normalized here — at the reader, before the value reaches any artifact —
+    rather than relying on a downstream pattern to notice.
+
+    Returns the normalized URL and whether anything was withheld. Callers
+    record the second value as a limitation: a change confined to redacted
+    bytes cannot be named, and that has to be visible rather than silent.
+
+    Both markers use ``sensitive_field``, one of ``KNOWN_MARKER_KINDS``, so the
+    later output-redaction pass recognizes an already-redacted value instead of
+    re-processing it.
+    """
+    marker = _marker("sensitive_field")
+    redacted = url
+    changed = False
+    scheme, sep, rest = redacted.partition("://")
+    if sep:
+        # The authority ends at the first ``/``, ``?`` or ``#`` — all three,
+        # because a URL with a query and no path puts the query inside what a
+        # ``/`` split would call the authority, and an ``@`` in a query value
+        # (``?to=a@b.com``) would then be read as userinfo and the rest of the
+        # URL thrown away.
+        cut = min(
+            (index for index in (rest.find(c) for c in "/?#") if index != -1),
+            default=len(rest),
+        )
+        authority, tail = rest[:cut], rest[cut:]
+        if "@" in authority:
+            _, _, host = authority.rpartition("@")
+            authority = f"{marker}@{host}"
+            changed = True
+        redacted = f"{scheme}{sep}{authority}{tail}"
+    head, question, query = redacted.partition("?")
+    if question:
+        parts: list[str] = []
+        for pair in query.split("&"):
+            key, equals, _value = pair.partition("=")
+            if equals and _is_sensitive_key(key):
+                parts.append(f"{key}={marker}")
+                changed = True
+            else:
+                parts.append(pair)
+        redacted = f"{head}{question}{'&'.join(parts)}"
+    return redacted, changed
+
+
 def _redact_labeled_secret(
     value: str,
     *,
@@ -415,10 +468,20 @@ def _redact_labeled_secret(
     return LABELED_SECRET_PATTERN.sub(replace, value)
 
 
-def _is_sensitive_key(value: object) -> bool:
+def is_sensitive_key(value: object) -> bool:
+    """Whether a key names credential material under the shared vocabulary.
+
+    Public so a reader that has to decide *before* writing an artifact — a
+    connection header, a URL query parameter — asks the same question the
+    output-redaction pass asks, instead of keeping a second list that drifts.
+    """
     if not isinstance(value, str):
         return False
     return _normalized_key(value) in SENSITIVE_VALUE_KEYS
+
+
+def _is_sensitive_key(value: object) -> bool:
+    return is_sensitive_key(value)
 
 
 def _normalized_key(value: str) -> str:

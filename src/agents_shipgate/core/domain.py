@@ -568,6 +568,92 @@ class ToolkitScopeBound(BaseModel):
     config_path: str | None = None
 
 
+#: How much a static reader established about one argument of a remote
+#: binding. Every axis of :class:`AgentRemoteBinding` carries one of these
+#: beside its value, so "nothing was read" and "nothing is there" can never
+#: collapse into the same claim.
+#:
+#: - ``"literal"``                — a literal value was read from source.
+#: - ``"environment_reference"``  — one or more ``os.environ`` / ``os.getenv``
+#:   *names* were read. The name, never a value: nothing reads the process
+#:   environment and a name establishes no privilege level.
+#: - ``"redacted"``               — a value was read and is deliberately
+#:   withheld (credential material written literally into source or into a
+#:   URL). See the module note on why the withheld bytes are also excluded
+#:   from the comparison hash.
+#: - ``"unresolved"``             — the argument is present and is not
+#:   statically readable (a dynamic expression, a shadowed or rebound name).
+#: - ``"absent"``                 — the argument is not present at all.
+#: - ``"not_read"``               — this adapter path does not read the
+#:   argument. Distinct from ``"absent"``: it is a statement about the
+#:   reader, so a coverage gap stays visible instead of reading as a
+#:   connection that carries nothing.
+RemoteBindingStatus = Literal[
+    "literal",
+    "environment_reference",
+    "redacted",
+    "unresolved",
+    "absent",
+    "not_read",
+]
+
+
+class AgentRemoteBinding(BaseModel):
+    """One agent -> remote tool-surface binding, read statically.
+
+    A remote binding is a capability in its own right, independent of whether
+    the leaves behind it were enumerated: *this agent will call whatever
+    ``<endpoint>`` advertises, under ``<credential reference>``, restricted to
+    ``<filter>``*. The three are separate axes on purpose — supplying a leaf
+    inventory completes a different claim and must never clear a change to any
+    of them (#538).
+
+    Identity is ``agent`` + ``source_id`` + ``slot`` and nothing else — see
+    ``core.remote_bindings.policy_key_for`` for why each component is there.
+    ``source_ref`` carries the file and line for reviewer evidence and is
+    deliberately excluded from every key and hash, so line movement,
+    reformatting and comments produce no delta.
+
+    Nothing here is executed, imported, connected to, or looked up in the
+    process environment.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    agent: str
+    source_id: str
+    #: Stable discriminator between several bindings of one agent: the
+    #: module-level variable the toolset was assigned to, else ``"#<n>"`` for
+    #: the n-th inline construction in that agent's tool list. Never a line
+    #: number.
+    slot: str
+    provider: str
+    transport: str | None = None
+    transport_status: RemoteBindingStatus = "not_read"
+    #: The literal endpoint, already redacted. Never carries userinfo or a
+    #: sensitive query value.
+    endpoint: str | None = None
+    endpoint_status: RemoteBindingStatus = "not_read"
+    #: The environment variable *name* the endpoint is read from, when the
+    #: endpoint is an environment reference.
+    endpoint_env_ref: str | None = None
+    #: ``"<where>=<ENV_NAME>"`` entries, sorted. ``where`` names the argument
+    #: the reference was found in (``headers.Authorization``, ``env.API_KEY``,
+    #: ``url``), so a reviewer can open the line.
+    credential_refs: list[str] = Field(default_factory=list)
+    credential_status: RemoteBindingStatus = "not_read"
+    tool_filter: list[str] = Field(default_factory=list)
+    filter_status: RemoteBindingStatus = "not_read"
+    #: Leaf coverage for this binding, kept out of every connection axis: a
+    #: supplied inventory supplements the binding and cannot conceal a change
+    #: to it.
+    inventory_path: str | None = None
+    #: Machine reason codes for what this reader could not establish.
+    limitations: list[str] = Field(default_factory=list)
+    #: ``file:line`` — reviewer evidence only, never identity.
+    source_ref: str | None = None
+
+
 class AgentBindingObservation(BaseModel):
     """One framework parser's normalized, agent-level binding observation."""
 
@@ -641,6 +727,12 @@ class LoadedToolSource(BaseModel):
     # toolkits found in this source (e.g. ``stripe_agent_toolkit``). Empty
     # for sources that declare no recognized agent-toolkit constructor.
     toolkit_bounds: list[ToolkitScopeBound] = Field(default_factory=list)
+    # Agent -> remote tool-surface bindings read from this source (#538).
+    # Carried beside ``toolkit_bounds`` because it answers the same shape of
+    # question — what did the constructor bound, when the leaves behind it are
+    # not enumerable — for a remote endpoint rather than a local factory.
+    # Empty for every source that declares no recognized remote binding.
+    remote_bindings: list[AgentRemoteBinding] = Field(default_factory=list)
     # Framework-owned observations about Agent(...) wiring. These are kept
     # separate from Tool.annotations so catalog-controlled metadata can never
     # become authority-bearing binding evidence.
