@@ -236,7 +236,7 @@ def _redact_value(
         updates: dict[str, Any] = {}
         for field_name in type(value).model_fields:
             child_force_kind = (
-                "sensitive_field" if _is_sensitive_key(field_name) else force_kind
+                "sensitive_field" if is_sensitive_key(field_name) else force_kind
             )
             updates[field_name] = _redact_value(
                 getattr(value, field_name),
@@ -259,7 +259,7 @@ def _redact_value(
             )
             child_path = f"{path}.{_path_key(key)}"
             child_force_kind = (
-                "sensitive_field" if _is_sensitive_key(raw_key) else force_kind
+                "sensitive_field" if is_sensitive_key(raw_key) else force_kind
             )
             redacted[key] = _redact_value(
                 raw_item,
@@ -438,7 +438,7 @@ def redact_url_credentials(url: str) -> tuple[str, bool]:
         parts: list[str] = []
         for pair in query.split("&"):
             key, equals, _value = pair.partition("=")
-            if equals and _is_sensitive_key(key):
+            if equals and is_sensitive_key(key):
                 parts.append(f"{key}={marker}")
                 changed = True
             else:
@@ -478,10 +478,6 @@ def is_sensitive_key(value: object) -> bool:
     if not isinstance(value, str):
         return False
     return _normalized_key(value) in SENSITIVE_VALUE_KEYS
-
-
-def _is_sensitive_key(value: object) -> bool:
-    return is_sensitive_key(value)
 
 
 def _normalized_key(value: str) -> str:
