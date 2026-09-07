@@ -76,7 +76,7 @@ Where an input shows more than one answer for a shape, the table shows the best 
 
 ### MCP server source
 
-*Configured as a `tool_sources[]` entry of type `mcp_server_source`.* The TypeScript or Go source of an MCP server that does not commit an export, through a built-in registry of registration idioms.
+*Configured as a `tool_sources[]` entry of type `mcp_server_source`.* The TypeScript, Go or Python source of an MCP server that does not commit an export, through a built-in registry of registration idioms.
 
 **Can a verdict rest on it?**
 
@@ -85,14 +85,16 @@ Where an input shows more than one answer for a shape, the table shows the best 
 **Getting to `proven` here:** no route on this input reaches `proven`. Publish the actions through an input that does, or accept that a verdict cannot rest on this surface alone.
 
 <details>
-<summary>Every route this input has, in full (4)</summary>
+<summary>Every route this input has, in full (6)</summary>
 
 | Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps | Raises |
 | --- | --- | --- | --- | --- | --- | --- |
 | `export_artifact` | A committed export is the server's own contract and is read by the MCP tool-export input at `high`, which stays the better route wherever one exists. | — | — | `not_applicable` | — | — |
-| `literal_registration` | A tool name written as a string literal at a registration site — `static toolName = "…"`, `.registerTool("…"`, `MustTool("…"`, `NewTool("…"`, `Tool{Name: "…"}` — plus the sibling operation-class literal where the idiom defines one. | `mcp_server_source` | `medium` | `low_confidence` | `low_confidence_tool`, `unattested_surface` | — |
+| `literal_registration — literal name at a registration site` | A tool name written as a string literal at a registration site — `static toolName = "…"`, `.registerTool("…"`, `MustTool("…"`, `NewTool("…"`, `Tool{Name: "…"}` — plus the sibling operation-class literal where the idiom defines one. | `mcp_server_source` | `medium` | `low_confidence` | `low_confidence_tool`, `unattested_surface` | — |
+| `literal_registration — FastMCP decorator` | A `@mcp.tool` decorator on a Python function, where `mcp` is followed back to a `FastMCP(...)` construction — in the same module or in one this walk also read. The name is the `name=` literal or, where the framework's own default applies, the function's; the description is the `description=` literal or the docstring; the input schema is the annotated signature. | `mcp_server_source` | `medium` | `low_confidence` | `low_confidence_tool`, `unattested_surface` | — |
 | `factory` | A helper that registers a table of tools contributes nothing on its own: resolving what it registers would mean evaluating it. Any registration site inside the helper is read on its own terms. | — | — | `not_extracted` | — | — |
-| `dynamic_construction` | A registration whose name is a variable, a concatenation, or a template substitution names no tool this reader can check. It enters no catalog and is recorded as an unenumerated subject in the exclusion ledger, which holds its file's surface at `partial`. | — | — | `not_extracted` | — | — |
+| `dynamic_construction — decorator on an object this reader cannot follow` | A `.tool` decorator whose object does not resolve to a `FastMCP(...)` construction — `@self.mcp.tool` on a server handed in as an argument is the measured shape — registers something this reader can neither name nor confirm is a tool at all. It enters no catalog and is recorded as an unenumerated subject in the exclusion ledger. | — | — | `not_extracted` | — | — |
+| `dynamic_construction — name built at runtime` | A registration whose name is a variable, a concatenation, or a template substitution names no tool this reader can check. It enters no catalog and is recorded as an unenumerated subject in the exclusion ledger, which holds its file's surface at `partial`. | — | — | `not_extracted` | — | — |
 
 </details>
 

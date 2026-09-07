@@ -10,7 +10,7 @@ The invariant, in both halves:
     the engine's answer, or say in the registry what it does not answer.
 
 `#485` is why this exists. After `#431` taught the CLI to read an MCP server's
-tool surface out of TypeScript or Go source, `tools/shipgate-detect.py` — the
+tool surface out of TypeScript, Go or Python source, `tools/shipgate-detect.py` — the
 documented zero-install front door — went on answering ``is_agent_project:
 false`` for the vendor MCP servers the CLI now accepts, and CI stayed green: the
 existing parity test compares the two on ``samples/``, and no sample contained
