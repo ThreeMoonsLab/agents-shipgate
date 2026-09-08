@@ -12,10 +12,11 @@ from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
     OpenAIApiArtifacts,
 )
-from agents_shipgate.core.domain import Tool, ToolkitScopeBound
+from agents_shipgate.core.domain import AgentRemoteBinding, Tool, ToolkitScopeBound
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.findings.identity import _canonicalize_for_fingerprint
 from agents_shipgate.core.heuristics import is_broad_scope
+from agents_shipgate.core.remote_bindings import remote_binding_facts
 from agents_shipgate.core.risk_hints import HIGH_RISK_TAGS, risk_tags
 from agents_shipgate.core.static_inputs import read_static_input_text
 from agents_shipgate.core.tool_identity import ToolSelectorIndex
@@ -89,38 +90,57 @@ def build_tool_surface_facts(
     api_artifacts: OpenAIApiArtifacts | None,
     anthropic_artifacts: AnthropicArtifacts | None,
     toolkit_bounds: list[ToolkitScopeBound] | tuple[ToolkitScopeBound, ...] = (),
+    remote_bindings: list[AgentRemoteBinding] | tuple[AgentRemoteBinding, ...] = (),
 ) -> ToolSurfaceFacts:
     del findings  # Reserved for future evidence projections.
     return ToolSurfaceFacts(
         tools=_tool_facts(tools),
         scopes=_scope_facts(manifest, tools),
         controls=_control_facts(manifest, tools, api_artifacts, anthropic_artifacts),
-        policies=_policy_facts_with_toolkit_bounds(
-            manifest, api_artifacts, anthropic_artifacts, toolkit_bounds
+        policies=_policy_facts_with_carried_bounds(
+            manifest,
+            api_artifacts,
+            anthropic_artifacts,
+            toolkit_bounds,
+            remote_bindings,
         ),
     )
 
 
-def _policy_facts_with_toolkit_bounds(
+def _policy_facts_with_carried_bounds(
     manifest: AgentsShipgateManifest,
     api_artifacts: OpenAIApiArtifacts | None,
     anthropic_artifacts: AnthropicArtifacts | None,
     toolkit_bounds: list[ToolkitScopeBound] | tuple[ToolkitScopeBound, ...],
+    remote_bindings: list[AgentRemoteBinding] | tuple[AgentRemoteBinding, ...] = (),
 ) -> list[ToolSurfacePolicyFact]:
-    """Manifest/artifact policy facts plus carried toolkit scope bounds.
+    """Manifest/artifact policy facts plus the carried non-manifest bounds.
 
-    A dynamically-loaded toolkit's least-privilege allowlist rides as a
-    ``toolkit_scope_bound`` policy fact (see ``core.toolkit_scope``) so the
-    base report carries it for the capability-scope diff. Merged into the
-    policy fact list and re-sorted by ``(kind, key)`` for byte-stable
-    output; the gentle ``policy_drift`` diff path then reads
-    bound-vs-unbound as a broadening without misclassifying it as a scope
-    *grant* removal.
+    Two surfaces ride here because both answer a question the base side can
+    only be asked through the serialized base ``report.json``, and
+    ``ToolSurfacePolicyFact.kind`` is a free string, so neither needs a
+    ``report_schema_version`` bump:
+
+    * A dynamically-loaded toolkit's least-privilege allowlist rides as a
+      ``toolkit_scope_bound`` fact (see ``core.toolkit_scope``). The gentle
+      ``policy_drift`` diff path then reads bound-vs-unbound as a broadening
+      without misclassifying it as a scope *grant* removal.
+    * An agent's remote binding rides as four ``remote_binding.*`` facts, one
+      per axis (see ``core.remote_bindings``), so an endpoint-only,
+      credential-reference-only or filter-only change is its own delta and a
+      supplied leaf inventory cannot conceal any of them (#538).
+
+    Merged into the policy fact list and re-sorted by ``(kind, key)`` for
+    byte-stable output.
     """
     facts = _policy_facts(manifest, api_artifacts, anthropic_artifacts)
-    if not toolkit_bounds:
+    if not toolkit_bounds and not remote_bindings:
         return facts
-    merged = [*facts, *toolkit_bound_facts(list(toolkit_bounds))]
+    merged = [
+        *facts,
+        *toolkit_bound_facts(list(toolkit_bounds)),
+        *remote_binding_facts(list(remote_bindings)),
+    ]
     return sorted(merged, key=lambda item: (item.kind, item.key))
 
 

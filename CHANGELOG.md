@@ -2,6 +2,76 @@
 
 ## Unreleased
 
+- **A changed MCP endpoint or credential reference now reaches the reviewer.**
+  (#538) An ADK agent that mounts a remote MCP server declares its authority in
+  the constructor: *this agent will call whatever `https://…/mcp` advertises,
+  under `<ENV_VAR>`, restricted to `<filter>`*. The reader discarded all of it.
+  Two workspaces differing **only** in the endpoint literal and the
+  `os.environ[...]` key — same lines, same filter — produced byte-identical
+  reports: empty `capability_facts`, empty `tool_surface_facts`, and a finding
+  carrying the toolset kind, the source line and one agent name. Reproduced on
+  `20968551`; both verdicts were `insufficient_evidence` and neither named the
+  change.
+
+  This is lost evidence, not a demonstrated unsafe pass, and the fix is
+  scrupulous about the difference. `ADMIN_KEY` proves no privilege level, and
+  nothing in the new output claims it does: an endpoint or credential-reference
+  change is projected with the block's documented opaque-direction bucket and a
+  rationale that says, in the reviewer's own output, that the direction is *not*
+  established. The one axis where a direction **is** established is the tool
+  filter — values gained, values lost, a filter added where there was none, a
+  filter removed entirely — and only there is one claimed.
+
+  The binding is a claim of its own, separate from leaf coverage. Each one rides
+  base-to-head as four independent per-axis rows in `tool_surface_facts.policies`
+  — the carriage `core/toolkit_scope.py` already uses, so there is **no report
+  schema bump, no new check id and no new committed inventory or command** —
+  and `inventory_path` is deliberately not one of the four. Supplying the
+  reviewed inventory the scan asks for therefore *cannot* clear an endpoint,
+  credential-reference or filter delta; it answers a different question.
+
+  Identity is `<agent>:<slot>` and excludes the source line, so moving,
+  reflowing or commenting the call produces no delta at all, while two agents on
+  one endpoint — and one toolset shared by two agents — keep distinct
+  attribution. What could not be read says so per binding: a shadowed
+  constructor, a rebound `connection_params` variable, a dynamic URL, a callable
+  filter and an unreadable header each record a limitation code, and only the
+  claim the doubt actually reaches is dropped. Credentials written literally
+  into source — URL userinfo, a sensitive query value, a hardcoded header — are
+  redacted at the reader before they reach any artifact and are never hashed, so
+  a change confined to those bytes is *not* named; that limit is published
+  rather than implied. Nothing is imported, constructed, connected to or looked
+  up in the environment: every fixture carries a module-level
+  `raise RuntimeError("must never execute")`.
+
+  `release_decision.decision` remains the only gate, the release enum and every
+  qualification threshold are untouched, and the same workspace that was
+  `insufficient_evidence` before still is — with the change named. The design,
+  and the limits it ships with, are written up in
+  [`docs/engineering/remote-binding-evidence.md`](docs/engineering/remote-binding-evidence.md).
+
+  Review found five defects, and three of them were the same mistake: reasoning
+  about a framework's semantics from the shape of the data instead of from the
+  framework. **`tool_filter=[]` is not a filter of nothing, it is no filter** —
+  ADK's `_is_tool_selected` returns `True` for any falsy filter, so an empty
+  list exposes every advertised tool, and comparing it as the empty *set*
+  reported the widest state as the narrowest. **A stdio connection does not
+  carry `env` inline** — `StdioConnectionParams` nests a `StdioServerParameters`
+  under `server_params`, so reading only the outer call answered "this binding
+  has no credential" about one that plainly did. And **a URL query key is
+  classified after decoding, against a credential-*name* rule rather than a
+  fixed list**, because `api%5Fkey` is `api_key` to every server that reads it
+  and `access_token` was in no vocabulary the redaction pass held.
+
+  Two more were silent losses rather than wrong answers. A capability member's
+  id is hashed from its subject, and a subject without the configured source id
+  merged two same-named agents from different sources into one member —
+  deleting one source's endpoint change. And a hardcoded credential added
+  beside an existing environment reference was recorded only as a limitation,
+  which the carried summary and hash never saw, so a *credential being added*
+  produced no delta; the credential axis now lists every entry, with
+  `<literal credential withheld>` in place of a value it will not publish.
+
 - **Python MCP servers get the route the survey said they needed most.**
   (#484) #431 shipped a built-in registry of tool-registration idioms covering
   TypeScript and Go, and its own 30-server survey named what it left out:

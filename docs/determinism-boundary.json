@@ -575,7 +575,7 @@
           "raises": [
             "SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE"
           ],
-          "reads": "A toolset or wrapper call whose arguments do not name a file in the workspace records `dynamic_toolset`. The actions already read stay in the catalog; the whole module drops to `medium`, because a tool set this file could not prove is a fact about the file, not about the tool visited first.",
+          "reads": "A toolset or wrapper call whose arguments do not name a file in the workspace records `dynamic_toolset`. The actions already read stay in the catalog; the whole module drops to `medium`, because a tool set this file could not prove is a fact about the file, not about the tool visited first. An unenumerable `McpToolset` still has its *connection* read: the literal endpoint, the `os.environ` names its credentials are read from, the transport and the literal `tool_filter` are preserved and compared base-vs-head, so a changed endpoint or credential reference is named to a reviewer even while the tools behind it stay unproven.",
           "shape": "factory",
           "status": "extracted",
           "surface": "partial",

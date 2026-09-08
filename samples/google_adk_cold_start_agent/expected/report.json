@@ -1133,7 +1133,32 @@
       }
     ],
     "controls": [],
-    "policies": []
+    "policies": [
+      {
+        "kind": "remote_binding.credential_refs",
+        "key": "adk_ops_agent:adk_ops:ops_mcp_tools",
+        "value_hash": "f25c96cc3bae2383",
+        "summary": "(absent)"
+      },
+      {
+        "kind": "remote_binding.endpoint",
+        "key": "adk_ops_agent:adk_ops:ops_mcp_tools",
+        "value_hash": "917123ed0a2c4413",
+        "summary": "(absent)"
+      },
+      {
+        "kind": "remote_binding.tool_filter",
+        "key": "adk_ops_agent:adk_ops:ops_mcp_tools",
+        "value_hash": "eb6e1813397e10ae",
+        "summary": "ops.export_case_bundle, ops.queue_backfill, support.get_update_history"
+      },
+      {
+        "kind": "remote_binding.transport",
+        "key": "adk_ops_agent:adk_ops:ops_mcp_tools",
+        "value_hash": "917123ed0a2c4413",
+        "summary": "(absent)"
+      }
+    ]
   },
   "tool_surface_diff": {
     "enabled": false,

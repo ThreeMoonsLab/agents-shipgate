@@ -180,6 +180,14 @@ def _build_tools_and_agent(
     toolkit_bounds = [
         bound for loaded in inputs.loaded_sources for bound in loaded.toolkit_bounds
     ]
+    # Same aggregation for agent -> remote bindings: the connection an agent
+    # mounts is comparable base-vs-head whether or not the leaves behind it
+    # were enumerable (#538).
+    remote_bindings = [
+        binding
+        for loaded in inputs.loaded_sources
+        for binding in loaded.remote_bindings
+    ]
     return _ToolsAndAgent(
         tools=tools,
         tool_catalog=tool_catalog,
@@ -187,4 +195,5 @@ def _build_tools_and_agent(
         binding_graph=binding_graph,
         warnings=warnings,
         toolkit_bounds=toolkit_bounds,
+        remote_bindings=remote_bindings,
     )
