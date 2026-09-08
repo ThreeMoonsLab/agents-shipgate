@@ -52,83 +52,89 @@ The next work turns existing capability evidence into a workflow a team keeps.
 The sequence below is a roughly 90-day product focus, not a promise to bypass
 release qualification or to complete every open issue in that window.
 
-### Now — remove first-contact failures and observe first value
+### Now — build from the completed repairs and measure the remaining failure
 
-1. **Make the documented entry paths work.** P0
-   [#506](https://github.com/ThreeMoonsLab/agents-shipgate/issues/506) fixes
-   generated CI/install pins that name unpublished builds; P0
-   [#485](https://github.com/ThreeMoonsLab/agents-shipgate/issues/485) fixes the
-   zero-install detector rejecting MCP source the installed CLI already reads.
-   [#497](https://github.com/ThreeMoonsLab/agents-shipgate/issues/497) makes
-   release/channel/contract and detector parity a continuing invariant.
-   [#498](https://github.com/ThreeMoonsLab/agents-shipgate/issues/498) provides a
-   short human path to one understandable review; neither a new documentation
-   host nor schema archival blocks it. The observed scoped-root defect
-   [#398](https://github.com/ThreeMoonsLab/agents-shipgate/issues/398) and measured
-   FastMCP gap [#484](https://github.com/ThreeMoonsLab/agents-shipgate/issues/484)
-   follow the already-supported entry repairs, without expanding into a general
-   adapter campaign.
+1. **Use the repaired entry paths; keep distribution claims exact.**
+   [#506](https://github.com/ThreeMoonsLab/agents-shipgate/issues/506),
+   [#485](https://github.com/ThreeMoonsLab/agents-shipgate/issues/485),
+   [#497](https://github.com/ThreeMoonsLab/agents-shipgate/issues/497),
+   [#498](https://github.com/ThreeMoonsLab/agents-shipgate/issues/498),
+   [#398](https://github.com/ThreeMoonsLab/agents-shipgate/issues/398) and
+   [#484](https://github.com/ThreeMoonsLab/agents-shipgate/issues/484) are complete
+   on `main`. The next bounded reader repairs are also implemented:
+   [#538](https://github.com/ThreeMoonsLab/agents-shipgate/issues/538) preserves
+   known ADK connection changes; [#539](https://github.com/ThreeMoonsLab/agents-shipgate/issues/539)
+   corrects FastMCP signature evidence; [#533](https://github.com/ThreeMoonsLab/agents-shipgate/issues/533)
+   preserves reviewed identity during adoption. These fixes do not enumerate
+   remote tools, invent deployment authority or qualify a new release.
 
-2. **Measure a useful review and the next eligible change.** P1
-   [#521](https://github.com/ThreeMoonsLab/agents-shipgate/issues/521) extends the
-   [existing pilot](docs/design-partner-verifier-pilot.md), using consenting
-   external repositories and existing feedback artifacts. Record installation
-   attempts, maintainer assistance, reviewer-understood first value, an actual
-   decision, and use on a second eligible change. Ten minutes to first value is
-   an experiment target. Failed attempts and repositories with no second change
-   remain visible. [#475](https://github.com/ThreeMoonsLab/agents-shipgate/issues/475)
-   records public consenting adopters separately, in
-   [ADOPTERS.md](ADOPTERS.md) — opt-in, one row per adopter, with an
-   eight-rule claims policy and a dated external count published in the file
-   itself rather than restated here; dogfooding, stars and downloads do not
-   prove external repeat use. Pilot preparation need not wait for the
-   historical-corpus outreach in
-   [#511](https://github.com/ThreeMoonsLab/agents-shipgate/issues/511). The
-   counts, the dated enrollment shortfall and the standing continue/narrow/stop
-   record are published in
-   [docs/design-partner-pilot-results.md](docs/design-partner-pilot-results.md);
-   every external denominator there is currently zero, and the reason is that
-   the channel to invite on was an unmade decision rather than a recruiting
-   gap. The released build cannot show a host-boundary change; the unqualified
-   preview can. That choice is now recorded.
+2. **Measure outcomes before treating the repairs as adoption gains.**
+   [#312](https://github.com/ThreeMoonsLab/agents-shipgate/issues/312) compares
+   the fixed W27 history after the behavior changes: 19 PRs across five
+   repositories, the same SHAs and labels, and unchanged 1.0 safety-catch bars.
+   The [W37 result](benchmark/miner/README.md#2026-w37-re-eval--the-fixed-cold-start-workflow-no-longer-reaches-verify)
+   records **0/19 verifier results**, `must_block_caught` **0/2** and
+   `needs_human_caught` **1/3** with legacy scan fallback. Both required 1.0
+   bars fail. [#563](https://github.com/ThreeMoonsLab/agents-shipgate/issues/563)
+   must establish reviewed scope; [#564](https://github.com/ThreeMoonsLab/agents-shipgate/issues/564)
+   must represent new/renamed project inputs at base. These deferred repairs
+   can proceed in parallel, then the same SHAs and labels must be remeasured.
+   The measurement obligation is complete; the release regression is open.
+   No unsafe auto-pass was observed. A lower false-alarm rate caused by fewer
+   answers is not an improvement.
+   The delivered [#521](https://github.com/ThreeMoonsLab/agents-shipgate/issues/521)
+   pilot runbook measures a different question: whether a consenting external
+   reviewer understands and acts on the result, then uses it on the next
+   eligible change. Its [results ledger](docs/design-partner-pilot-results.md)
+   still records zero external attempts and zero repeat-use observations.
+   [ADOPTERS.md](ADOPTERS.md) remains a separate opt-in registry. Do not infer
+   external value from these engineering PRs, fixture runs or a closed pilot
+   implementation issue.
 
 ### Next — complete the review and make its claims trustworthy
 
-3. **Close one authenticated human decision loop.**
-   [#338](https://github.com/ThreeMoonsLab/agents-shipgate/issues/338) now has one
-   remaining workflow: [#504](https://github.com/ThreeMoonsLab/agents-shipgate/issues/504)
-   specifies a bounded, eligible review-required request; then
-   [#337](https://github.com/ThreeMoonsLab/agents-shipgate/issues/337) delivers it
-   through existing GitHub checks/comments. Name the change, evidence, actor,
-   decision and exact continuation; bind the decision to the request, head,
-   policy and review set, and retain it after merge. This does not wait for
-   organization-wide adoption. Recording acceptance does not clear blocked,
-   critical, gate-governing or incomplete-input results. The current push-only
-   authorization overlay does not grant merge authority. Host-session receipts
-   [#293](https://github.com/ThreeMoonsLab/agents-shipgate/issues/293) remain
-   independently blocked on a host willing to attest.
+3. **Finish the authenticated human decision loop from its delivered pieces.**
+   [#536](https://github.com/ThreeMoonsLab/agents-shipgate/issues/536) publishes
+   a bounded, content-bound request; [#537](https://github.com/ThreeMoonsLab/agents-shipgate/issues/537)
+   validates an externally signed decision against complete current evidence
+   and an external reviewer/key trust policy. [PR #556](https://github.com/ThreeMoonsLab/agents-shipgate/pull/556)
+   presents the question in existing GitHub output and retains a workflow
+   summary when comment publication is refused. These complete the request,
+   evaluation and presentation slices, not [#337](https://github.com/ThreeMoonsLab/agents-shipgate/issues/337)
+   or its parent [#504](https://github.com/ThreeMoonsLab/agents-shipgate/issues/504).
+   First resolve [#555](https://github.com/ThreeMoonsLab/agents-shipgate/issues/555):
+   a coding agent can post a GitHub review that appears as a `User`, so a
+   review event alone cannot prove an independent human decision. Establish
+   the independent signer boundary before acquisition, persistence and
+   continuation in #337. Accepted decisions still do not grant merge authority
+   or clear blocked, critical, gate-governing or incomplete-evidence results.
+   [#293](https://github.com/ThreeMoonsLab/agents-shipgate/issues/293) independently
+   needs a host willing to attest a session.
 
-4. **Answer the changed-capability question without manufacturing certainty.**
-   [#518](https://github.com/ThreeMoonsLab/agents-shipgate/issues/518) coordinates
-   diff attribution [#515](https://github.com/ThreeMoonsLab/agents-shipgate/issues/515),
-   removal of unsupported prose-weakening judgments
-   [#516](https://github.com/ThreeMoonsLab/agents-shipgate/issues/516), and the
-   reader/coverage distinction
-   [#520](https://github.com/ThreeMoonsLab/agents-shipgate/issues/520).
-   Diff scope retains relevant dependency evidence; it is not a changed-files-only
-   shortcut. Prose exclusions retain structured permissions, MCP and executable
-   hooks in the same directories. A remote binding can be named without claiming
-   its downstream tools were enumerated. Shipped verdicts, deprecation rules and
-   missing-input protections remain in force until their owning changes land.
-   [#440](https://github.com/ThreeMoonsLab/agents-shipgate/issues/440) finishes the
-   reader-facing work through error attribution
-   [#328](https://github.com/ThreeMoonsLab/agents-shipgate/issues/328), provisional
-   versus proven claims [#357](https://github.com/ThreeMoonsLab/agents-shipgate/issues/357),
-   and #520's concrete recovery path. Reuse existing projections and safe
-   mechanical fixes; no extra summary or invented semantic declaration.
-   [#312](https://github.com/ThreeMoonsLab/agents-shipgate/issues/312) remeasures
-   fixed real-history cases, reporting usable outcomes and coverage failures
-   alongside the unchanged hard safety bars.
+4. **Separate delivered evidence from the remaining claims.**
+   [#518](https://github.com/ThreeMoonsLab/agents-shipgate/issues/518) remains
+   the coordinating principle, with these concrete implementation boundaries:
+
+   | Existing issue | Delivered slice | Next dependency; completion condition |
+   |---|---|---|
+   | [#515](https://github.com/ThreeMoonsLab/agents-shipgate/issues/515) | [PR #558](https://github.com/ThreeMoonsLab/agents-shipgate/pull/558) compares retained finding evidence and discloses missing support; fingerprint matches no longer imply causality in prose. | [#557](https://github.com/ThreeMoonsLab/agents-shipgate/issues/557) must prove relevant dependency coverage before a standing finding can be excluded from the default gate. |
+   | [#516](https://github.com/ThreeMoonsLab/agents-shipgate/issues/516) | [PR #549](https://github.com/ThreeMoonsLab/agents-shipgate/pull/549) deprecates the path-only instruction-weakening finding while preserving its catalog compatibility. | [#545](https://github.com/ThreeMoonsLab/agents-shipgate/issues/545) covers remaining generic/prose heuristics. Structured permissions and executable hooks stay protected. |
+   | [#328](https://github.com/ThreeMoonsLab/agents-shipgate/issues/328) | [PR #546](https://github.com/ThreeMoonsLab/agents-shipgate/pull/546) reports internal generator defects as product errors and preserves atomic setup writes. | [#543](https://github.com/ThreeMoonsLab/agents-shipgate/issues/543), [#547](https://github.com/ThreeMoonsLab/agents-shipgate/issues/547) and [#561](https://github.com/ThreeMoonsLab/agents-shipgate/issues/561) retain unresolved identity/input reasons and establish truthful recovery ownership. |
+   | [#357](https://github.com/ThreeMoonsLab/agents-shipgate/issues/357) | [PR #560](https://github.com/ThreeMoonsLab/agents-shipgate/pull/560) distinguishes provisional effects, structural evidence and reviewed declarations across existing summaries. | Complete; other identity, binding and authority gaps remain visible. |
+   | [#520](https://github.com/ThreeMoonsLab/agents-shipgate/issues/520) | #519 migrated the approved label/policy model; #538 names ADK connection changes; [PR #562](https://github.com/ThreeMoonsLab/agents-shipgate/pull/562) records per-profile actual-IE misses, unscored cases and expected-IE applicability. | #561 must distinguish product repair from supplied input using evidence. #509/#456 still own the corpus and signed qualification. |
+
+   **Order and parallel work.** The request → decision evaluator → PR
+   presentation chain has landed. Remaining chains are #555 → #337 → #504,
+   #557 → #515, and #545 → #516. They can proceed independently; #561 can
+   progress alongside them using the existing report evidence. The current
+   implementation pass files these newly discovered gaps for later work rather
+   than silently expanding each PR. Generic receipt-closure work
+   [#552](https://github.com/ThreeMoonsLab/agents-shipgate/issues/552), discovery
+   parity [#553](https://github.com/ThreeMoonsLab/agents-shipgate/issues/553),
+   the intermittent reason mismatch [#548](https://github.com/ThreeMoonsLab/agents-shipgate/issues/548)
+   and the documented temporary-path recovery [#550](https://github.com/ThreeMoonsLab/agents-shipgate/issues/550)
+   remain separately tracked. None authorizes weakening a gate or inventing a
+   declaration to finish the queue.
 
 ### Later — expand only from observed repeat use
 
@@ -145,18 +151,27 @@ release qualification or to complete every open issue in that window.
 
 ### Release evidence remains a separate obligation
 
-The existing v0.16.0 qualification chain remains
-[#508](https://github.com/ThreeMoonsLab/agents-shipgate/issues/508) (freeze labels)
-→ [#509](https://github.com/ThreeMoonsLab/agents-shipgate/issues/509) (tree/wheel-bound
-receipts and signed qualification), plus the negative release rehearsal
-[#510](https://github.com/ThreeMoonsLab/agents-shipgate/issues/510), under
-[#456](https://github.com/ThreeMoonsLab/agents-shipgate/issues/456). #520's labeling
-work must be reconciled through the approved policy process; this roadmap does
-not change a corpus threshold, waive a receipt or promote an unqualified preview.
-#511 remains non-gating participant validation; the larger corpus
-[#512](https://github.com/ThreeMoonsLab/agents-shipgate/issues/512) remains the
-separate 1.0 obligation. These dependencies do not prevent learning from an
-explicitly identified advisory preview.
+The approved current policy is the 38-case pre-1.0 / 80-case beta policy
+implemented by [#519](https://github.com/ThreeMoonsLab/agents-shipgate/issues/519).
+The historical 56/100 titles are not the live release bar. #508's labeling work
+is complete; the selected inventory and candidate receipts remain
+[#509](https://github.com/ThreeMoonsLab/agents-shipgate/issues/509) under
+[#456](https://github.com/ThreeMoonsLab/agents-shipgate/issues/456).
+
+Before final candidate scoring, repair
+[#559](https://github.com/ThreeMoonsLab/agents-shipgate/issues/559): hash and parse
+the same artifact bytes. That work can run alongside the review, attribution
+and #563/#564 historical-workflow repairs. Resolve the failed catch bars
+without relabeling, then freeze the candidate tree and wheel, collect matching
+receipts, score against the unchanged approved policy, sign the result, and
+complete the
+negative release rehearsal [#510](https://github.com/ThreeMoonsLab/agents-shipgate/issues/510).
+A source implementation or the #312 historical comparison is not signed
+qualification. An explicit catch-rate regression remains a release blocker.
+[#511](https://github.com/ThreeMoonsLab/agents-shipgate/issues/511) is non-gating
+participant validation; [#512](https://github.com/ThreeMoonsLab/agents-shipgate/issues/512)
+is the separate production corpus obligation under the current policy. These
+chains do not prevent learning from an explicitly identified advisory preview.
 
 ### Build on what already exists
 
@@ -234,6 +249,7 @@ tool call, MCP connection, or network access. Callbacks, plugins, and guardrail
 declarations are static evidence, not proof of runtime enforcement. A known
 dynamic or remote binding does not prove its downstream tool inventory or side
 effects. Missing coverage remains explicit and never becomes a safe result by
-omission. #520 owns the proposed coverage/ground-truth distinction; until its
-engine work lands, the existing warning and `insufficient_evidence` behavior
-remains the implementation contract.
+omission. #520 records actual coverage misses without removing the shipped
+`insufficient_evidence` verdict or reducing an applicable safety threshold.
+Knowing a remote connection still does not establish its downstream effects
+or deployed authority.
