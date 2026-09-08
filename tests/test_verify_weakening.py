@@ -567,11 +567,12 @@ def test_ci_gate_no_verification_emits_nothing():
 # --- SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED -------------------------------
 
 
-def test_agent_instructions_weakened_on_change():
-    findings = verify_agent_instructions.run(_context(changed_files=["AGENTS.md"]))
-    assert len(findings) == 1
-    assert findings[0].check_id == "SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED"
-    assert findings[0].severity == "medium"
+@pytest.mark.parametrize("path", [
+    "AGENTS.md", "agents.md", "CLAUDE.md", ".claude/README.md",
+    ".codex/README.md", ".cursor/rules/style.mdc", ".agents/skills/probe/SKILL.md",
+])
+def test_deprecated_instruction_check_never_asserts_prose_weakening(path):
+    assert verify_agent_instructions.run(_context(changed_files=[path])) == []
 
 
 def test_agent_instructions_unrelated_file_emits_nothing():
@@ -661,10 +662,10 @@ def test_trigger_catalog_drift_sees_case_variant_catalog_paths(path):
     assert findings[0].check_id == "SHIP-VERIFY-TRIGGER-CATALOG-DRIFT"
 
 
-def test_agent_instructions_weakened_sees_case_variant_paths():
-    findings = verify_agent_instructions.run(_context(changed_files=["agents.md"]))
-    assert len(findings) == 1, (
-        "`agents.md` resolves to AGENTS.md on a case-insensitive filesystem "
-        f"and is a Tier A trust root; got {findings!r}."
-    )
-    assert findings[0].check_id == "SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED"
+def test_deprecated_instruction_id_stays_in_the_published_catalog():
+    from agents_shipgate.checks.registry import CHECK_METADATA
+
+    metadata = next(item for item in CHECK_METADATA if item.id == verify_agent_instructions.CHECK_ID)
+    assert "Deprecated" in metadata.description
+    assert metadata.default_severity == "medium"
+    assert metadata.floor_severity == "medium"
