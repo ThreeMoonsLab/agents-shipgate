@@ -3062,6 +3062,7 @@ def _python_annotation_members(
     scope: ast.AST,
     *,
     depth: int = 0,
+    keep_null: bool = False,
 ) -> list[ast.expr] | None:
     """The types an annotation names, with its wrappers reduced away.
 
@@ -3074,36 +3075,34 @@ def _python_annotation_members(
         return None
     if isinstance(node, ast.Constant):
         if node.value is None:
-            return []
+            return [node] if keep_null else []
         if isinstance(node.value, str):
             parsed = _parse_python_expression(node.value)
             if parsed is None:
                 return None
             return _python_annotation_members(
-                parsed, module, scope, depth=depth + 1
+                parsed, module, scope, depth=depth + 1, keep_null=keep_null
             )
         return [node]
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
         return _python_annotation_union(
-            [node.left, node.right], module, scope, depth=depth
+            [node.left, node.right], module, scope, depth=depth, keep_null=keep_null
         )
     if isinstance(node, ast.Subscript):
         symbol = _python_annotation_symbol(node.value, module, scope)
         if symbol in _PYTHON_ANNOTATION_WRAPPERS:
-            elements = (
-                list(node.slice.elts)
-                if isinstance(node.slice, ast.Tuple)
-                else [node.slice]
-            )
+            elements = list(node.slice.elts) if isinstance(node.slice, ast.Tuple) else [node.slice]
             if not elements:
                 return None
             if symbol == "Annotated":
                 # Everything after the first element is metadata, not a type.
                 return _python_annotation_members(
-                    elements[0], module, scope, depth=depth + 1
+                    elements[0], module, scope, depth=depth + 1, keep_null=keep_null
                 )
+            if symbol == "Optional" and keep_null:
+                elements.append(ast.Constant(value=None))
             return _python_annotation_union(
-                elements, module, scope, depth=depth
+                elements, module, scope, depth=depth, keep_null=keep_null
             )
     return [node]
 
@@ -3114,11 +3113,12 @@ def _python_annotation_union(
     scope: ast.AST,
     *,
     depth: int,
+    keep_null: bool = False,
 ) -> list[ast.expr] | None:
     members: list[ast.expr] = []
     for element in elements:
         reduced = _python_annotation_members(
-            element, module, scope, depth=depth + 1
+            element, module, scope, depth=depth + 1, keep_null=keep_null
         )
         if reduced is None:
             return None
@@ -3177,16 +3177,11 @@ def _python_class_identity(
             # ``import a.b`` binds a module, and a module is not a class.
             return "unresolved"
         if imported.level:
-            # A relative import names a module of *this repository*, which is
-            # not the installed framework — but only once the walk has found
-            # it. An import pointing outside the scanned tree is one this
-            # reader cannot place at all.
-            return (
-                "caller_supplied"
-                if index.resolve(module_path, imported.module, imported.level)
-                is not None
-                else "unresolved"
-            )
+            # Finding the module does not establish the class it exports: it
+            # may re-export the framework Context or subclass it. This index
+            # carries server names, not annotation provenance. Until that
+            # evidence is read, preserve the injection question (#541 review).
+            return "unresolved"
         return (
             "framework_injected"
             if _is_python_context_symbol(imported.module, imported.symbol)
@@ -3202,9 +3197,7 @@ def _python_class_identity(
         identity: ContextInjection = "caller_supplied"
         for base in binding.bases:
             head = base.value if isinstance(base, ast.Subscript) else base
-            resolved_base = _python_class_identity(
-                head, module, index, module_path, base, seen
-            )
+            resolved_base = _python_class_identity(head, module, index, module_path, base, seen)
             if resolved_base == "framework_injected":
                 return "framework_injected"
             if resolved_base == "unresolved":
@@ -3232,26 +3225,22 @@ def _python_json_type(
     published ``{"type": "string"}`` for ``int | None``, for a Pydantic model
     and for ``typing.List[str]`` alike (#539).
 
-    An optional is the type it wraps. Our property schema carries one type, and
-    the framework's own spelling for "this input may be omitted" is exactly
-    ``T | None`` — so naming ``T`` is the same *kind* the source names, while
-    ``string`` for an integer is a different one. A union of several types
-    denotes one only when every arm agrees.
+    Nullability is not omission: ``T | None`` accepts null whether or not the
+    parameter has a default. Our projection carries one type, so a nullable
+    union must remain unrepresentable rather than silently excluding null.
+    A union denotes one type only when every arm agrees.
     """
 
     if node is None or depth > _MAX_ANNOTATION_DEPTH:
         return None
-    members = _python_annotation_members(node, module, scope, depth=depth)
+    members = _python_annotation_members(node, module, scope, depth=depth, keep_null=True)
     if members is None:
         return None
     if not members:
         # The annotation names ``None`` and nothing else — a tool that returns
         # nothing, which is a type and not an absence.
         return "null"
-    denoted = {
-        _python_member_json_type(member, module, scope, depth=depth)
-        for member in members
-    }
+    denoted = {_python_member_json_type(member, module, scope, depth=depth) for member in members}
     return denoted.pop() if len(denoted) == 1 else None
 
 
@@ -3260,11 +3249,11 @@ def _python_member_json_type(
 ) -> str | None:
     """One union arm's JSON type, with its wrappers already reduced away."""
 
+    if isinstance(node, ast.Constant) and node.value is None:
+        return "null"
     if isinstance(node, ast.Subscript):
         symbol = _python_annotation_symbol(node.value, module, scope)
-        container = (
-            PYTHON_ANNOTATION_JSON_TYPES.get(symbol) if symbol is not None else None
-        )
+        container = PYTHON_ANNOTATION_JSON_TYPES.get(symbol) if symbol is not None else None
         if container == "array":
             # A container's JSON type does not depend on what it holds:
             # ``list[X]`` is an array for every ``X``, and this projection
@@ -3278,11 +3267,7 @@ def _python_member_json_type(
             # The one part of a mapping that *does* decide the published type
             # is its key. ``{"type": "object"}`` says the members are named by
             # strings, which ``dict[int, str]`` does not.
-            elements = (
-                list(node.slice.elts)
-                if isinstance(node.slice, ast.Tuple)
-                else [node.slice]
-            )
+            elements = list(node.slice.elts) if isinstance(node.slice, ast.Tuple) else [node.slice]
             if len(elements) != 2:
                 return None
             key = _python_json_type(elements[0], module, scope, depth=depth + 1)

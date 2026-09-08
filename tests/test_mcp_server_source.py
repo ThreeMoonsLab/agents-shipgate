@@ -1416,6 +1416,56 @@ def test_an_unresolved_context_identity_keeps_the_parameter_and_says_so(
     assert tool.source_path == "server.py"
 
 
+@pytest.mark.parametrize(
+    "annotation", ["int | None", "Optional[int]", "Union[int, None]", '"int | None"']
+)
+@pytest.mark.parametrize("default", ["", " = None"])
+def test_nullable_is_not_confused_with_omittable(tmp_path, annotation, default):
+    workspace = tmp_path / "nullable"
+    workspace.mkdir()
+    (workspace / "server.py").write_text(
+        "from mcp.server.fastmcp import FastMCP\n"
+        "from typing import Optional, Union\n"
+        "mcp = FastMCP('s')\n"
+        "@mcp.tool()\n"
+        f"def lookup(limit: {annotation}{default}) -> str:\n"
+        "    return 'ok'\n",
+        encoding="utf-8",
+    )
+    tool = load_mcp_server_source(_source("server.py"), workspace).tools[0]
+    # This projection has one scalar type. It cannot express both number and
+    # null, so keep the input and name the gap rather than excluding null.
+    assert tool.input_schema["properties"]["limit"] == {}
+    assert tool.parameters[0].type is None
+    assert tool.input_schema["required"] == ([] if default else ["limit"])
+    assert tool.extraction["surface"] == SURFACE_PARTIAL
+    assert (
+        mcp_server_source.SURFACE_GAP_UNREPRESENTABLE_ANNOTATION in tool.extraction["surface_gaps"]
+    )
+
+
+def test_a_local_context_reexport_does_not_establish_caller_ownership(tmp_path):
+    workspace = tmp_path / "reexport"
+    workspace.mkdir()
+    (workspace / "models.py").write_text(
+        "from mcp.server.fastmcp import Context\n", encoding="utf-8"
+    )
+    (workspace / "server.py").write_text(
+        "from mcp.server.fastmcp import FastMCP\n"
+        "from .models import Context\n"
+        "mcp = FastMCP('s')\n"
+        "@mcp.tool()\n"
+        "def lookup(ctx: Context) -> str:\n"
+        "    return 'ok'\n",
+        encoding="utf-8",
+    )
+    tool = load_mcp_server_source(_source("."), workspace).tools[0]
+    assert [p.name for p in tool.parameters] == ["ctx"]
+    assert tool.extraction["surface"] == SURFACE_PARTIAL
+    assert mcp_server_source.SURFACE_GAP_UNRESOLVED_CONTEXT in tool.extraction["surface_gaps"]
+
+
+
 def test_a_signature_publishes_the_type_the_annotation_denotes(tmp_path):
     """Never the emitter's fallback, which was `string` for everything else.
 
@@ -1425,17 +1475,15 @@ def test_a_signature_publishes_the_type_the_annotation_denotes(tmp_path):
     presented as read evidence, on a route that reports `enumerated`.
     """
 
-    workspace = _corpus_workspace(
-        tmp_path, "python_annotation_kinds", name="kinds"
-    )
+    workspace = _corpus_workspace(tmp_path, "python_annotation_kinds", name="kinds")
     tool = load_mcp_server_source(_source("server.py"), workspace).tools[0]
     types = {p.name: p.type for p in tool.parameters}
 
     assert types == {
-        # An optional is the type it wraps: our property carries one type, and
-        # naming `number` is the kind the source names.
-        "limit": "number",
-        "page": "number",
+        # Null remains an alternative even when a default makes the input
+        # omittable. A one-type projection cannot faithfully represent both.
+        "limit": None,
+        "page": None,
         "names": "array",
         "labels": "object",
         # `Annotated[T, ...]` is `T` plus metadata, and it is the spelling
@@ -1446,7 +1494,7 @@ def test_a_signature_publishes_the_type_the_annotation_denotes(tmp_path):
         "untyped": None,
         "opaque": None,
     }
-    assert tool.input_schema["properties"]["limit"] == {"type": "number"}
+    assert tool.input_schema["properties"]["limit"] == {}
     assert tool.input_schema["properties"]["untyped"] == {}
     assert tool.extraction["surface_gaps"] == [
         mcp_server_source.SURFACE_GAP_UNREPRESENTABLE_ANNOTATION,
@@ -1588,22 +1636,15 @@ def test_a_class_imported_from_another_package_is_a_caller_input(tmp_path):
     )
 
 
-def test_a_relative_import_this_walk_resolves_is_a_caller_input(tmp_path):
-    """A module inside the scanned tree is this repository's, not the SDK's.
 
-    The counterpart to the unresolved case: the same relative spelling, with
-    the module it names present in the walk. This is the shape every
-    multi-module server writes for its own request/response models, so an
-    answer of "unresolved" here would put a signature gap on most of the
-    population for a question the walk can settle.
-    """
+
+def test_a_relative_import_needs_class_provenance_even_when_its_file_exists(tmp_path):
+    """The server index locates modules, not the class identity they export."""
 
     workspace = tmp_path / "relative"
     package = workspace / "src"
     package.mkdir(parents=True)
-    (package / "models.py").write_text(
-        "class Context:\n    pass\n", encoding="utf-8"
-    )
+    (package / "models.py").write_text("class Context:\n    pass\n", encoding="utf-8")
     (package / "server.py").write_text(
         "from fastmcp import FastMCP\n"
         "\n"
@@ -1620,10 +1661,8 @@ def test_a_relative_import_this_walk_resolves_is_a_caller_input(tmp_path):
     tool = load_mcp_server_source(_source("src"), workspace).tools[0]
 
     assert [p.name for p in tool.parameters] == ["context"]
-    assert (
-        mcp_server_source.SURFACE_GAP_UNRESOLVED_CONTEXT
-        not in tool.extraction["surface_gaps"]
-    )
+    assert mcp_server_source.SURFACE_GAP_UNRESOLVED_CONTEXT in tool.extraction["surface_gaps"]
+
 
 
 def test_an_unreadable_return_annotation_is_not_a_string_output_schema(tmp_path):

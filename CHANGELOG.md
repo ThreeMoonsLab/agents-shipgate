@@ -20,7 +20,7 @@
   name, and one addition: the base list, because the SDK injects any *subclass*
   of its context. Qualified spellings, `import ... as` aliases, forward
   references and same-name application classes are all resolved; a name two
-  statements bind and a relative import outside the walk are not, and those
+  statements bind and relative imports without class provenance are not, and those
   keep the parameter with `unresolved_context_identity` recorded against the
   tool rather than picking a direction silently.
 
@@ -28,19 +28,18 @@
   read from the annotation's tree. The shared string-matching emitter answers
   `string` for everything it does not recognise, so `int | None`,
   `Annotated[int, Field(ge=1)]`, `typing.List[str]` and a Pydantic model all
-  shipped as concrete string schemas on `enumerated` evidence. Optionals,
-  containers and the `Annotated` spelling FastMCP's own documentation uses are
-  represented properly; anything else publishes **no** type — an empty property
+  shipped as concrete string schemas on `enumerated` evidence. Containers and
+  the underlying type in an `Annotated` spelling are projected where known;
+  nullable unions remain partial because this one-type projection cannot
+  express both a value and null. Anything unrepresentable publishes **no** type — an empty property
   schema, `untyped_parameter` or `unrepresentable_annotation` in the tool's
   `surface_gaps`, and `partial` for that tool's surface. The return annotation
   is read by the same rule, because `output_schema` came from the same
   fallback. A container's kind does not depend on what it holds —
   `Dict[str, Any]` is an object, and this projection publishes no element
   schema for any annotation, a bare `list` included — but a mapping's *key*
-  does, so `dict[int, str]` is refused. Measured on `redis/mcp-redis`: all 53
-  tools still named, 14 held at `partial`, and every annotation still
-  unreadable there is a union of genuinely different JSON kinds;
-  `chroma-core/chroma-mcp` reads 13 of 13 with no gap at all.
+  does, so `dict[int, str]` is refused. The broader SDK whole-signature and
+  generic-context injection boundary is tracked separately in #542.
 
   Nothing about the route changes: the tool keeps its name, its file and line,
   the `medium` ceiling and the exclusion ledger it already had, and a partial
