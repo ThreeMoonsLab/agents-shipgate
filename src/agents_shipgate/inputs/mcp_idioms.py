@@ -480,6 +480,11 @@ class RegistrationSite:
     #: The return annotation, rendered back to source. ``None`` when the
     #: function is unannotated or the idiom reads no signature.
     returns: str | None = None
+    #: The JSON Schema type that return annotation denotes. ``None`` both when
+    #: there is no annotation and when there is one this reader cannot
+    #: represent — the two are told apart by ``returns``, and only the second
+    #: is a gap.
+    returns_json_type: str | None = None
     #: Whether *this site alone* is evidence that the repository is an MCP
     #: server, independently of whether its name could be read.
     #:
@@ -516,6 +521,11 @@ class SignatureParameter:
     annotation: str | None = None
     required: bool = True
     injection: ContextInjection = "caller_supplied"
+    #: The JSON Schema type the annotation denotes, or ``None`` when it denotes
+    #: none this reader can name — which includes having no annotation at all.
+    #: ``None`` is a statement that the type was **not read**, and a catalog
+    #: publishes no type for it rather than the emitter's ``"string"`` guess.
+    json_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -2371,6 +2381,11 @@ def _python_site(
             None if wrapped else _python_signature(node, module, index, module_path)
         ),
         returns=None if wrapped else _python_annotation(node.returns),
+        returns_json_type=(
+            None
+            if wrapped or node.returns is None
+            else _python_json_type(node.returns, module, node.returns)
+        ),
         proves_server=True,
     )
 
@@ -2456,6 +2471,13 @@ def _python_signature(
             required=default is None,
             injection=_python_context_injection(
                 argument.annotation, module, index, module_path
+            ),
+            json_type=(
+                None
+                if argument.annotation is None
+                else _python_json_type(
+                    argument.annotation, module, argument.annotation
+                )
             ),
         )
 
@@ -2759,6 +2781,100 @@ def _python_class_identity(
     # A ``def``, a parameter, an assignment: whatever the name refers to, this
     # reader did not read a class definition for it.
     return "unresolved"
+
+
+def _python_json_type(
+    node: ast.expr | None,
+    module: _PythonModule,
+    scope: ast.AST,
+    *,
+    depth: int = 0,
+) -> str | None:
+    """The JSON Schema type this annotation denotes, or ``None`` for none.
+
+    Read from the annotation **tree**, so a spelling this reader does not
+    understand answers ``None`` instead of quietly becoming a scalar. That is
+    the whole point of computing it here rather than string-matching the
+    rendered text: :func:`~agents_shipgate.inputs.python_static.json_schema_type`
+    falls back to ``"string"`` for everything it does not recognise, which
+    published ``{"type": "string"}`` for ``int | None``, for a Pydantic model
+    and for ``typing.List[str]`` alike (#539).
+
+    An optional is the type it wraps. Our property schema carries one type, and
+    the framework's own spelling for "this input may be omitted" is exactly
+    ``T | None`` — so naming ``T`` is the same *kind* the source names, while
+    ``string`` for an integer is a different one. A union of several types
+    denotes one only when every arm agrees.
+    """
+
+    if node is None or depth > _MAX_ANNOTATION_DEPTH:
+        return None
+    members = _python_annotation_members(node, module, scope, depth=depth)
+    if members is None:
+        return None
+    if not members:
+        # The annotation names ``None`` and nothing else — a tool that returns
+        # nothing, which is a type and not an absence.
+        return "null"
+    denoted = {
+        _python_member_json_type(member, module, scope, depth=depth)
+        for member in members
+    }
+    return denoted.pop() if len(denoted) == 1 else None
+
+
+def _python_member_json_type(
+    node: ast.expr, module: _PythonModule, scope: ast.AST, *, depth: int
+) -> str | None:
+    """One union arm's JSON type, with its wrappers already reduced away."""
+
+    if isinstance(node, ast.Subscript):
+        symbol = _python_annotation_symbol(node.value, module, scope)
+        container = (
+            PYTHON_ANNOTATION_JSON_TYPES.get(symbol) if symbol is not None else None
+        )
+        elements = (
+            list(node.slice.elts)
+            if isinstance(node.slice, ast.Tuple)
+            else [node.slice]
+        )
+        if container == "array":
+            # Every element type has to be one this reader can name. A
+            # container whose contents it cannot read is not a container it
+            # read: ``{"type": "array"}`` invites the reader to think the
+            # element schema was among the evidence.
+            return (
+                "array"
+                if all(
+                    _python_json_type(element, module, scope, depth=depth + 1)
+                    is not None
+                    for element in elements
+                    if not _is_python_ellipsis(element)
+                )
+                else None
+            )
+        if container == "object":
+            if len(elements) != 2:
+                return None
+            key, value = elements
+            if _python_json_type(key, module, scope, depth=depth + 1) != "string":
+                # A JSON object's members are named by strings.
+                return None
+            return (
+                "object"
+                if _python_json_type(value, module, scope, depth=depth + 1)
+                is not None
+                else None
+            )
+        return None
+    symbol = _python_annotation_symbol(node, module, scope)
+    return PYTHON_ANNOTATION_JSON_TYPES.get(symbol) if symbol is not None else None
+
+
+def _is_python_ellipsis(node: ast.expr) -> bool:
+    """``...`` in ``tuple[int, ...]``: an arity, not a type."""
+
+    return isinstance(node, ast.Constant) and node.value is Ellipsis
 
 
 def _python_context_injection(

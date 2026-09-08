@@ -1312,7 +1312,15 @@ def test_an_application_model_named_context_stays_a_required_input(tmp_path):
     assert [p.name for p in tool.parameters] == ["context"]
     assert tool.input_schema["required"] == ["context"]
     assert tool.function_signature == "update(context) -> str"
-    assert tool.extraction["surface"] == SURFACE_ENUMERATED
+    # The model itself is a type this reader cannot represent, so the property
+    # asserts nothing rather than asserting `string`, and the tool names the
+    # question that was left open.
+    assert tool.input_schema["properties"] == {"context": {}}
+    assert tool.parameters[0].type is None
+    assert tool.extraction["surface"] == SURFACE_PARTIAL
+    assert tool.extraction["surface_gaps"] == [
+        mcp_server_source.SURFACE_GAP_UNREPRESENTABLE_ANNOTATION
+    ]
 
 
 def test_an_aliased_framework_context_is_not_a_caller_input(tmp_path):
@@ -1388,13 +1396,152 @@ def test_an_unresolved_context_identity_keeps_the_parameter_and_says_so(
     assert [p.name for p in tool.parameters] == ["ctx"]
     assert tool.function_signature == f"{tool.name}(ctx) -> str"
     assert tool.extraction["surface"] == SURFACE_PARTIAL
-    assert tool.extraction["surface_gaps"] == [
+    assert (
         mcp_server_source.SURFACE_GAP_UNRESOLVED_CONTEXT
-    ]
+        in tool.extraction["surface_gaps"]
+    )
     # A partial signature is not a weaker route: the tool keeps its name, its
     # registration site and the ceiling the route reaches.
     assert tool.extraction_confidence == mcp_server_source.EXTRACTION_CONFIDENCE
     assert tool.source_path == "server.py"
+
+
+def test_a_signature_publishes_the_type_the_annotation_denotes(tmp_path):
+    """Never the emitter's fallback, which was `string` for everything else.
+
+    `json_schema_type` reads the *rendered* annotation and answers `string`
+    for anything it does not recognise, so `int | None`, `Annotated[int, ...]`
+    and a Pydantic model all shipped as concrete string schemas — a guess
+    presented as read evidence, on a route that reports `enumerated`.
+    """
+
+    workspace = _corpus_workspace(
+        tmp_path, "python_annotation_kinds", name="kinds"
+    )
+    tool = load_mcp_server_source(_source("server.py"), workspace).tools[0]
+    types = {p.name: p.type for p in tool.parameters}
+
+    assert types == {
+        # An optional is the type it wraps: our property carries one type, and
+        # naming `number` is the kind the source names.
+        "limit": "number",
+        "page": "number",
+        "names": "array",
+        "labels": "object",
+        # `Annotated[T, ...]` is `T` plus metadata, and it is the spelling
+        # FastMCP's own documentation uses for every constrained parameter.
+        "query": "number",
+        # No annotation, and an element type this reader cannot name: both
+        # publish no type rather than a fabricated one.
+        "untyped": None,
+        "opaque": None,
+    }
+    assert tool.input_schema["properties"]["limit"] == {"type": "number"}
+    assert tool.input_schema["properties"]["untyped"] == {}
+    assert tool.extraction["surface_gaps"] == [
+        mcp_server_source.SURFACE_GAP_UNREPRESENTABLE_ANNOTATION,
+        mcp_server_source.SURFACE_GAP_UNTYPED_PARAMETER,
+    ]
+    # Every published surface describes the same evidence: a parameter is in
+    # the inventory, in the schema and in the signature, or in none of them.
+    assert sorted(tool.input_schema["properties"]) == sorted(types)
+    assert tool.function_signature == (
+        "shaped(limit, names, labels, page, query, untyped, opaque) -> str"
+    )
+
+
+def test_an_unreadable_return_annotation_is_not_a_string_output_schema(tmp_path):
+    """`output_schema` is built from the same fallback, so it has the same gap.
+
+    An *absent* return annotation is an honest omission — the schema stays
+    `{}` — while an unrepresentable one is a claim nobody made.
+    """
+
+    workspace = tmp_path / "returns"
+    workspace.mkdir()
+    (workspace / "server.py").write_text(
+        "from fastmcp import FastMCP\n"
+        "\n"
+        "from .models import Report\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def modelled() -> Report:\n"
+        "    pass\n"
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def counted() -> int:\n"
+        "    pass\n"
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def silent():\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    by_name = {
+        tool.name: tool
+        for tool in load_mcp_server_source(_source("server.py"), workspace).tools
+    }
+
+    assert by_name["modelled"].output_schema == {}
+    assert by_name["modelled"].extraction["surface_gaps"] == [
+        mcp_server_source.SURFACE_GAP_UNREPRESENTABLE_ANNOTATION
+    ]
+    assert by_name["counted"].output_schema == {"type": "number"}
+    assert "surface_gaps" not in by_name["counted"].extraction
+    # No annotation is not a gap: `{}` already says nothing was read.
+    assert by_name["silent"].output_schema == {}
+    assert "surface_gaps" not in by_name["silent"].extraction
+
+
+def test_a_partial_signature_keeps_the_tool_and_the_route(tmp_path):
+    """Partial evidence about one interface is not a weaker enumeration.
+
+    The acceptance question #539 asks of every gap this input can record: does
+    naming it cost the adopter the route? It must not — the tool keeps its
+    name, its registration site and the ceiling the route reaches, and the
+    gap is accounted for as an evidence gap rather than as a missing tool.
+    """
+
+    workspace = _corpus_workspace(
+        tmp_path, "python_application_model_named_context", name="route"
+    )
+    loaded = load_mcp_server_source(_source("server.py"), workspace)
+    tool = loaded.tools[0]
+
+    assert [t.name for t in loaded.tools] == ["update"]
+    assert (tool.source_path, tool.source_start_line) == ("server.py", 12)
+    assert tool.extraction_confidence == mcp_server_source.EXTRACTION_CONFIDENCE
+    assert tool.extraction["confidence"] == mcp_server_source.EXTRACTION_CONFIDENCE
+    # A per-tool signature gap is not a registration this reader failed to
+    # read, so nothing enters the omission ledger for it.
+    assert loaded.omissions == []
+    assert loaded.warnings == []
+
+
+def test_the_interface_gap_vocabulary_is_the_one_google_adk_established():
+    """One spelling per fact, across the adapters that record the same one.
+
+    `Unresolved: unrepresentable_annotation` is rendered into an adopter's
+    evidence gap without naming the adapter that wrote it, so two adapters
+    spelling the same fact differently would publish two vocabularies for one
+    question.
+    """
+
+    from agents_shipgate.inputs import google_adk
+
+    assert (
+        mcp_server_source.SURFACE_GAP_UNTYPED_PARAMETER
+        == google_adk.SURFACE_GAP_UNTYPED_PARAMETER
+    )
+    assert (
+        mcp_server_source.SURFACE_GAP_UNREPRESENTABLE_ANNOTATION
+        == google_adk.SURFACE_GAP_UNREPRESENTABLE_ANNOTATION
+    )
 
 
 def test_a_decorator_below_the_registration_withholds_the_name(tmp_path):

@@ -21,6 +21,18 @@ does not lift the ceiling: a signature is what the author wrote, not what the
 server publishes, and the ``medium`` bound is about the route, not about how
 much of it was read.
 
+Reading a signature is two questions, and #539 is what happens when either is
+answered by looking at the *spelling*. Which parameters the caller supplies is
+decided by the framework's own injection rule, which resolves the annotation to
+a class — so the reader resolves it too, against the module's bindings, and
+publishes the parameter with the question named wherever that does not settle
+it. What type a parameter has is whatever the annotation denotes — read from
+its tree, never from a string match that answers ``string`` for everything it
+does not recognise. Where neither can be established the parameter stays
+visible and the tool's ``surface_gaps`` say which of the two is open: this
+input's failure modes are a real input erased and an invented caller
+requirement, and both are worse than an admitted gap.
+
 Where a repository publishes a committed export, that export stays the better
 route: it is the server's own contract published in the shape a client
 receives it, and it is ``high`` confidence against this input's ``medium``.
@@ -71,7 +83,6 @@ from agents_shipgate.inputs.mcp_idioms import (
     scan_source,
 )
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
-from agents_shipgate.inputs.python_static import json_schema_type
 from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
     ToolSourceConfig,
@@ -417,7 +428,9 @@ def _tool_from_site(
         source_start_column=site.column,
         input_schema=_signature_input_schema(parameters, site),
         output_schema=(
-            {"type": json_schema_type(site.returns)} if site.returns else {}
+            {"type": site.returns_json_type}
+            if site.returns_json_type is not None
+            else {}
         ),
         parameters=parameters,
         function_signature=_signature_text(site, parameters),
@@ -438,6 +451,21 @@ def _tool_from_site(
 #: framework does". The parameter stays in the inventory, visible, and the
 #: tool says which question it could not answer (#539).
 SURFACE_GAP_UNRESOLVED_CONTEXT = "unresolved_context_identity"
+
+#: A parameter carrying no annotation at all. The type it publishes would be
+#: the emitter's fallback rather than anything the source said.
+SURFACE_GAP_UNTYPED_PARAMETER = "untyped_parameter"
+
+#: An annotation is present and this reader cannot represent what it denotes —
+#: a Pydantic model, a ``Literal``, a container whose elements it cannot name.
+#: The same guess as an absent annotation with better manners, which is why
+#: it is a gap rather than a schema.
+#:
+#: Both spellings are the vocabulary ``google_adk`` established for the same
+#: two facts, and ``tests/test_mcp_server_source.py`` pins them equal: a
+#: reviewer reading ``Unresolved: unrepresentable_annotation`` must not have to
+#: know which adapter wrote it.
+SURFACE_GAP_UNREPRESENTABLE_ANNOTATION = "unrepresentable_annotation"
 
 
 def _signature_parameters(site: RegistrationSite) -> list[ToolParameter]:
@@ -463,7 +491,10 @@ def _signature_parameters(site: RegistrationSite) -> list[ToolParameter]:
     return [
         ToolParameter(
             name=parameter.name,
-            type=json_schema_type(parameter.annotation),
+            # The type the annotation *denotes*, never the emitter's fallback.
+            # ``None`` says the type was not read, which is the honest answer
+            # and a different one from ``string``.
+            type=parameter.json_type,
             required=parameter.required,
         )
         for parameter in site.parameters
@@ -481,13 +512,23 @@ def _signature_gaps(site: RegistrationSite) -> list[str]:
 
     if site.parameters is None:
         return []
-    return sorted(
-        {
-            SURFACE_GAP_UNRESOLVED_CONTEXT
-            for parameter in site.parameters
-            if parameter.injection == "unresolved"
-        }
-    )
+    gaps: set[str] = set()
+    for parameter in site.parameters:
+        if parameter.injection == "framework_injected":
+            # Not published, so nothing about its type is claimed either.
+            continue
+        if parameter.injection == "unresolved":
+            gaps.add(SURFACE_GAP_UNRESOLVED_CONTEXT)
+        if parameter.annotation is None:
+            gaps.add(SURFACE_GAP_UNTYPED_PARAMETER)
+        elif parameter.json_type is None:
+            gaps.add(SURFACE_GAP_UNREPRESENTABLE_ANNOTATION)
+    # ``output_schema`` is built from the return annotation by the same rule,
+    # so an unreadable one is the same gap. An *absent* return annotation is an
+    # honest omission — the schema stays ``{}`` — and is not one.
+    if site.returns is not None and site.returns_json_type is None:
+        gaps.add(SURFACE_GAP_UNREPRESENTABLE_ANNOTATION)
+    return sorted(gaps)
 
 
 def _signature_input_schema(
@@ -507,7 +548,14 @@ def _signature_input_schema(
     return {
         "type": "object",
         "properties": {
-            parameter.name: {"type": parameter.type} for parameter in parameters
+            # An empty property schema is the JSON Schema for "any value", and
+            # it is what this reader knows about a type it could not read. The
+            # tool's ``surface_gaps`` say which question was left open; the
+            # schema does not answer it with a guess.
+            parameter.name: (
+                {"type": parameter.type} if parameter.type is not None else {}
+            )
+            for parameter in parameters
         },
         "required": [
             parameter.name for parameter in parameters if parameter.required
@@ -632,7 +680,11 @@ class MCPServerSourceAdapter:
                     "`name=` literal or, where the framework's own default "
                     "applies, the function's; the description is the "
                     "`description=` literal or the docstring; the input schema "
-                    "is the annotated signature."
+                    "is the annotated signature, minus the request context the "
+                    "framework injects. A parameter whose annotation this "
+                    "reader cannot resolve to a type, or place as injected or "
+                    "caller-supplied, stays in the schema with that question "
+                    "named and holds the tool at `partial`."
                 ),
                 emits=(SOURCE_TYPE,),
                 ceiling=EXTRACTION_CONFIDENCE,
