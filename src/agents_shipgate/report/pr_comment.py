@@ -928,8 +928,9 @@ def _diff_lines(report: ReadinessReport) -> list[str]:
             f"-{summary.tools_removed}, {summary.tools_changed} changed"
         )
         lines.append(
-            f"Findings: {summary.new_findings} new, "
-            f"{summary.resolved_findings} resolved, {summary.accepted_debt} accepted debt"
+            f"Finding identities: {summary.new_findings} added, "
+            f"{summary.resolved_findings} absent, {summary.accepted_debt} accepted debt. "
+            "Identity differences do not attribute a finding to this change; inspect the evidence comparison notes in report.json."
         )
     elif tool_diff.notes:
         lines.append(f"Tool-surface diff: {_escape(tool_diff.notes[0])}")

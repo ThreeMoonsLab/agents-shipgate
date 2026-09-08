@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Retain base finding evidence for the existing fingerprint comparison and
+  expose changed predicate support, sources, subjects and release contribution.
+  Reports distinguish identity matches from change attribution and disclose
+  missing support or ambiguous matches. The gate and legacy JSON buckets are
+  unchanged; #515's default diff scope awaits dependency-coverage proof (#557).
+
 - Show the bounded human review question at the start of existing PR comments
   and Check Run summaries, with source links, actor, outcomes, coverage limits
   and exact omitted-question counts. PR publication permission/context refusals

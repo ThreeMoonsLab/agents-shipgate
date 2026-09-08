@@ -816,9 +816,9 @@ def _append_tool_surface_diff(lines: list[str], report: ReadinessReport) -> None
             or diff.summary.accepted_debt
         ):
             lines.append(
-                "- Finding deltas: "
-                f"{diff.summary.new_findings} new, "
-                f"{diff.summary.resolved_findings} resolved, "
+                "- Finding identities: "
+                f"{diff.summary.new_findings} added, "
+                f"{diff.summary.resolved_findings} absent, "
                 f"{diff.summary.accepted_debt} accepted debt"
             )
         lines.append("")
@@ -845,10 +845,10 @@ def _append_tool_surface_diff(lines: list[str], report: ReadinessReport) -> None
                 f"{summary.policy_drift_items} policy drift item(s)"
             ),
             (
-                "- Findings: "
-                f"{summary.new_findings} new, "
-                f"{summary.resolved_findings} resolved, "
-                f"{summary.unchanged_findings} unchanged, "
+                "- Finding identities: "
+                f"{summary.new_findings} added, "
+                f"{summary.resolved_findings} absent, "
+                f"{summary.unchanged_findings} matched, "
                 f"{summary.accepted_debt} accepted debt"
             ),
             "",
@@ -889,6 +889,8 @@ def _append_tool_surface_diff(lines: list[str], report: ReadinessReport) -> None
     )
     if diff.notes:
         _append_diff_values(lines, "Notes", diff.notes[:3])
+        if len(diff.notes) > 3:
+            lines.append(f"{len(diff.notes) - 3} more comparison notes in report.json; inspect both reports before attributing a finding to the change.")
 
 
 def _append_action_surface_diff(lines: list[str], report: ReadinessReport) -> None:

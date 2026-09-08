@@ -143,6 +143,27 @@ load in older package versions.
 `release_decision.baseline_delta`; `--diff-from` drives `tool_surface_diff` and
 `action_surface_diff`.
 
+Finding delta buckets compare **identity**, not whether the PR caused a risk.
+`new_findings` means an identity was absent from the reference;
+`resolved_findings` means it is absent from the head; `unchanged_findings` means
+the identity matched. None proves introduction, remediation or unchanged
+authority. `accepted_debt` keeps its existing reviewed-baseline meaning.
+
+The current implementation retains full base report findings and compares
+their predicate support, source references, capability subjects and release
+contribution with matching head findings. `tool_surface_diff.notes` names
+changed evidence and base/head locations, unavailable support and ambiguous
+identities. The legacy buckets and gate are unchanged. A baseline or older
+reference without full finding evidence cannot establish that comparison;
+regenerate a base report to inspect it. Equal predicate support still does not
+establish complete shared-helper, binding or configuration dependency coverage.
+
+The Markdown summary calls these **finding identities** and discloses omitted
+comparison notes; all notes remain in `report.json`. Inspect both full reports
+before attributing a finding to the change. #515's default diff scope remains
+open on dependency-proof prerequisite #557; this comparison does not exclude
+standing findings from the release decision.
+
 Scope deltas distinguish tool-required scopes from manifest-declared scopes.
 If the same literal scope moves between those kinds, the diff reports one
 removed scope and one added scope so the JSON preserves the source of the

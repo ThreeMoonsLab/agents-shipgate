@@ -464,8 +464,8 @@ def _render_tool_surface_diff(section: ToolSurfaceDiffSection) -> str:
         f"{summary.tools_changed} changed</li>"
     )
     parts.append(
-        f"<li>Evidence gaps: {summary.new_findings} new finding(s), "
-        f"{summary.resolved_findings} resolved, "
+        f"<li>Finding identities: {summary.new_findings} added, "
+        f"{summary.resolved_findings} absent, "
         f"{summary.accepted_debt} accepted debt</li>"
     )
     parts.append(
@@ -479,6 +479,12 @@ def _render_tool_surface_diff(section: ToolSurfaceDiffSection) -> str:
         for item in section.highlights:
             parts.append(f"<li>{escape(item)}</li>")
         parts.append("</ul>")
+    if section.notes:
+        parts.append("<h3>Comparison limits</h3><ul>")
+        parts.extend(f"<li>{escape(note)}</li>" for note in section.notes[:3])
+        parts.append("</ul>")
+        if len(section.notes) > 3:
+            parts.append(f"<p>{len(section.notes) - 3} more notes in packet.json; inspect both reports before attributing a finding to the change.</p>")
     return "".join(parts)
 
 
