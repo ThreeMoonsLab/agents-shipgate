@@ -763,11 +763,15 @@ class SafetyQualificationResultV1(BaseModel):
             declared in LEGACY_QUALIFICATION_ENVELOPES
             or declared == "shipgate.safety_qualification/v5"
         ):
+            intervals = data.get("intervals")
+            # Leave malformed containers to typed validation. A before-hook
+            # must not turn invalid input into an uncaught TypeError.
+            intervals = intervals if isinstance(intervals, (list, tuple)) else ()
             if "coverage_misses" in data or any(
                 "applicability" in item
                 if isinstance(item, dict)
                 else getattr(item, "applicability", None) is not None
-                for item in data.get("intervals", [])
+                for item in intervals
             ):
                 raise ValueError("coverage diagnostics and applicability require the v6 envelope")
         if declared not in LEGACY_QUALIFICATION_ENVELOPES:

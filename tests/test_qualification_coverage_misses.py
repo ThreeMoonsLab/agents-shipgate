@@ -140,6 +140,14 @@ def test_v6_diagnostics_cannot_be_absent(tmp_path, missing):
         SafetyQualificationResultV1.model_validate(payload)
 
 
+@pytest.mark.parametrize("intervals", [None, 3, {"metric": "wrong shape"}])
+def test_old_envelope_malformed_metrics_raise_validation_error(intervals):
+    with pytest.raises(ValidationError):
+        SafetyQualificationResultV1.model_validate({
+            "schema_version": "shipgate.safety_qualification/v5", "intervals": intervals,
+        })
+
+
 def test_zero_denominator_does_not_disable_a_positive_floor(tmp_path):
     paths = _fixture(
         tmp_path,
