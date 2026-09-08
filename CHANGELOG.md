@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Test- and template-only agent names require review.** (#533) Discovery
+  keeps these names visible with their source and rationale, but `init` no
+  longer asserts them as the product's reviewed identity. A name also declared
+  in product code remains eligible under the existing quality and scope rules.
+  Installed and standalone detectors apply the same declaration-site floor;
+  tool discovery remains available and unresolved names use the existing
+  `CHANGE_ME` placeholder. The later identity-specific recovery question is
+  tracked separately in #543; existing purpose/permission review remains.
+
 - **The FastMCP signature projection now resolves the injected `Context`, and
   says so when it cannot read a type.** (#539) #535 made Python MCP servers
   discoverable and read their signatures. Two of the facts it published about

@@ -1229,8 +1229,8 @@ def test_conflicting_import_roots_leave_the_name_unresolved(tmp_path: Path) -> N
 def test_one_character_literal_never_becomes_the_agent_name(tmp_path: Path) -> None:
     """#320, in the shape usestrix/strix reported it: every ``Agent(name=…)``
     literal in the repository lives in a test, and the one the walk reaches
-    first is a single character. ``t`` must be unselectable, and the name the
-    project name independently corroborates must win."""
+    first is a single character. Neither name declares the product: project
+    name corroboration cannot make a test-only identity selectable (#533)."""
     project = tmp_path / "strix"
     tests_dir = project / "tests"
     tests_dir.mkdir(parents=True)
@@ -1252,8 +1252,9 @@ def test_one_character_literal_never_becomes_the_agent_name(tmp_path: Path) -> N
     assert any("context-poor" in reason for reason in by_value["t"].rationale)
 
     selected = select_agent_name(result.agent_name_candidates)
-    assert selected is not None and selected.value == "Strix"
-    assert any("corroborated" in reason for reason in selected.rationale)
+    assert selected is None
+    assert by_value["Strix"].selectable is False
+    assert any("corroborated" in reason for reason in by_value["Strix"].rationale)
 
 
 def test_generic_placeholder_name_fails_closed_to_change_me(tmp_path: Path) -> None:
@@ -1276,7 +1277,7 @@ def test_generic_placeholder_name_fails_closed_to_change_me(tmp_path: Path) -> N
 
 def test_test_declared_name_ranks_below_product_declared_name(tmp_path: Path) -> None:
     """A name that only a test declares is a fixture name. It stays a
-    candidate — often it is the real one — but product code outranks it."""
+    visible candidate, but without a product declaration it is not selectable."""
     project = tmp_path / "svc"
     (project / "tests").mkdir(parents=True)
     (project / "service.py").write_text(

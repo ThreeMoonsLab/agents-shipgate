@@ -2181,7 +2181,8 @@ def _rank_agent_name_candidates(
     - **Origin.** Product code outranks test code.
     - **Corroboration.** A name the project name independently agrees with
       is two sources, not one.
-    - **Quality floor.** A value too short or too generic to be an identity
+    - **Quality floor.** A value too short, too generic, or declared only in
+      non-product code cannot establish the reviewed product's identity. It
       is ranked last and made unselectable, so ``init`` writes CHANGE_ME and
       asks for review rather than asserting something unreliable.
 
@@ -2247,6 +2248,7 @@ def _rank_agent_name_candidates(
     # candidate points at.
     declared_in: dict[str, list[Path]] = {}
     best_project: dict[str, Path] = {}
+    product_declared: set[str] = set()
     order = 0
     for fact in facts:
         if not fact.agent_names:
@@ -2263,6 +2265,8 @@ def _rank_agent_name_candidates(
             if resolved is None:
                 continue
             value, provenance, detail = resolved
+            if _non_product_origin(evidence.rel_path) is None:
+                product_declared.add(value)
             ranked = _score_agent_name(
                 value=value,
                 role=evidence.role,
@@ -2283,6 +2287,14 @@ def _rank_agent_name_candidates(
                 best_project[value] = project
 
     for value, ranked in best.items():
+        # Selection is a claim about the product, not the highest score left
+        # in the list. Inspect every declaration site before applying this
+        # floor so a product/test shared name remains eligible (#533).
+        if value not in product_declared:
+            ranked.selectable = False
+            ranked.rationale.append(
+                "rejected: declared only in non-product code, not a reviewed product identity"
+            )
         # The candidate's own project first when it is blocked, so the
         # sentence names the project every other field already points at;
         # declaration order decides the rest.

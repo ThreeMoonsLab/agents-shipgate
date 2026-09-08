@@ -994,6 +994,25 @@ def _write_ranking_probe(root: Path) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "non_product", ["tests/test_agent.py", "skills/recipe/resources/templates/app/agent.py"]
+)
+@pytest.mark.parametrize("product", [None, "a_agent.py", "z_agent.py"])
+def test_non_product_identity_floor_matches_cli(script_module, tmp_path, non_product, product):
+    source = "from google.adk.agents import LlmAgent\nworker = LlmAgent(name='SharedAgent')\n"
+    target = tmp_path / non_product
+    target.parent.mkdir(parents=True)
+    target.write_text(source, encoding="utf-8")
+    if product:
+        (tmp_path / product).write_text(source, encoding="utf-8")
+    script = script_module.detect(tmp_path)
+    installed = detect_workspace(tmp_path.resolve()).model_dump(mode="json")
+    assert script["agent_name_candidates"] == installed["agent_name_candidates"]
+    candidate = next(c for c in script["agent_name_candidates"] if c["value"] == "SharedAgent")
+    assert candidate["selectable"] is (product is not None)
+    assert script["is_agent_project"] is True
+
+
 def test_script_agent_name_ranking_matches_cli(script_module, tmp_path):
     """Samples all carry a single unambiguous name literal, so they cannot
     catch a ranking divergence. This workspace can: it has a hierarchy, a
@@ -1161,11 +1180,11 @@ def test_script_scopes_an_unreadable_root_like_the_cli(script_module, tmp_path, 
         "monorepo": {"CleanRoot"},
         "weak_markers": {"OneRoot"},
         "shared_name": set(),
-        "eval_test_file": {"RagRoot", "inner"},
-        "scaffolding_template": {"RealRoot", "inner"},
-        "readable_template": {"ProductHelper", "TemplateRoot"},
+        "eval_test_file": {"RagRoot"},
+        "scaffolding_template": {"RealRoot"},
+        "readable_template": {"ProductHelper"},
         "bare_templates": set(),
-        "case_folded_template": {"RealRoot", "inner"},
+        "case_folded_template": {"RealRoot"},
         "two_unreadable_roots": set(),
         "non_agent_strong_marker": set(),
         "non_agent_weak_marker": set(),
