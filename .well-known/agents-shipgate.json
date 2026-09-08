@@ -328,6 +328,8 @@
     "preflight",
     "capability_lock",
     "capability_lock_diff",
+    "capability_payload",
+    "capability_delta_attestation",
     "capability_standard",
     "attestation",
     "registry",
