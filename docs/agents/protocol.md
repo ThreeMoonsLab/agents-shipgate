@@ -29,6 +29,10 @@ exact question, full scope and postcondition of the supported human route.
 It is unsigned and grants no merge or completion authority. The current
 `control.next_action` remains the continuation; do not populate
 `HumanControlAction.expects` or treat prose acceptance as verified evidence.
+The [host-neutral decision evaluator](../human-review-decision.md) checks an
+externally signed decision against current evidence and trusted eligibility.
+Its separate `applicable` result grants no authority and changes no control
+artifact. Coding agents cannot supply their own reviewer identity or key trust.
 
 ## Command
 

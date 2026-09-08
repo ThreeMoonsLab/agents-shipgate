@@ -58,6 +58,11 @@ from agents_shipgate.schemas.human_authorization import (
     HUMAN_AUTHORIZATION_TRUST_POLICY_ACCOUNT_PATH,
     HUMAN_AUTHORIZATION_TRUST_POLICY_SCHEMA_VERSION,
 )
+from agents_shipgate.schemas.human_review_decision import (
+    HUMAN_REVIEW_DECISION_SCHEMA_PATH,
+    HUMAN_REVIEW_DECISION_SCHEMA_VERSION,
+    HUMAN_REVIEW_EVALUATION_SCHEMA_VERSION,
+)
 from agents_shipgate.schemas.human_review_request import (
     HUMAN_REVIEW_REQUEST_SCHEMA_PATH,
     HUMAN_REVIEW_REQUEST_SCHEMA_VERSION,
@@ -158,7 +163,9 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21 for the sixth time.
 # v30 publishes a separately bound human review question (#536). No shared
 # control type or historical grammar changes; the control floor stays at 21.
-CONTRACT_VERSION: Literal["30"] = "30"
+# v31 advertises the separate, host-neutral decision evaluator. It does not
+# add a CLI command, widen operational control or create a trust context.
+CONTRACT_VERSION: Literal["31"] = "31"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"
@@ -255,6 +262,8 @@ EXTERNAL_INTEGRATION_SURFACES: tuple[str, ...] = (
     "verification_receipt",
     "human_authorization",
     "human_review_request",
+    "human_review_decision",
+    "human_review_evaluation",
     "host_grants_inventory",
     "host_grants_baseline",
     "host_grants_drift",
@@ -554,6 +563,9 @@ class ContractPayload(BaseModel):
     human_review_request_schema_version: str
     human_review_request_schema_path: str
     human_review_request_artifact: str
+    human_review_decision_schema_version: str
+    human_review_evaluation_schema_version: str
+    human_review_decision_schema_path: str
     agent_handoff_schema_version: str
     agent_handoff_schema_path: str
     agent_handoff_artifact: str
@@ -648,6 +660,9 @@ def build_contract_payload() -> ContractPayload:
         human_review_request_schema_version=HUMAN_REVIEW_REQUEST_SCHEMA_VERSION,
         human_review_request_schema_path=HUMAN_REVIEW_REQUEST_SCHEMA_PATH,
         human_review_request_artifact=ARTIFACTS["human_review_request"],
+        human_review_decision_schema_version=HUMAN_REVIEW_DECISION_SCHEMA_VERSION,
+        human_review_evaluation_schema_version=HUMAN_REVIEW_EVALUATION_SCHEMA_VERSION,
+        human_review_decision_schema_path=HUMAN_REVIEW_DECISION_SCHEMA_PATH,
         agent_handoff_schema_version=AGENT_HANDOFF_SCHEMA_VERSION,
         agent_handoff_schema_path=AGENT_HANDOFF_SCHEMA_PATH,
         agent_handoff_artifact=ARTIFACTS["agent_handoff"],

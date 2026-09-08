@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Evaluate externally signed decisions on the bounded human review request
+  without rewriting static evidence or granting authority. Full current scope,
+  external host key trust, reviewer eligibility and expiry are checked;
+  acceptance, rejection and dispute remain separate from the release gate.
+  The host-neutral API returns separate evaluation evidence; GitHub acquisition
+  and persistence remain #337 (runtime contract 31, control floor 21; #537).
+
 - Publish an unsigned, content-bound human review request for one complete-evidence
   documentation-quality class. Reviewers get an exact question, scope and
   postcondition; existing gates and permissions remain unchanged. The new

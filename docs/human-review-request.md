@@ -52,10 +52,10 @@ The machine values are `record_acceptance_preserve_gate`,
 `record_rejection_preserve_gate` and `record_dispute_preserve_gate`.
 `remaining_obligations` is `existing_release_gate_and_control`;
 `grants_merge_authority` and `grants_completion_authority` are always false.
-Until the decision evaluator in [#537](https://github.com/ThreeMoonsLab/agents-shipgate/issues/537)
-lands, there is no decision-ingestion command. Continue by presenting the
-request to a human and following current `control.next_action`; prose
-acknowledgement never clears it. GitHub authentication and acquisition belong
+The [read-only decision evaluator](human-review-decision.md) returns separate
+applicability evidence for a trusted integration. There is no decision-ingestion
+CLI. Continue by presenting the request to a human and following current
+`control.next_action`; prose acknowledgement never clears it. GitHub authentication and acquisition belong
 to [#337](https://github.com/ThreeMoonsLab/agents-shipgate/issues/337).
 
 ## Identity and verification
@@ -88,8 +88,9 @@ that the current verifier produced it.
 
 ## Static artifact boundary
 
-The future decision evaluator consumes validated artifacts and writes separate
-external decision/evaluation evidence. It must preserve the bytes of the
+The decision evaluator consumes validated artifacts and returns separate
+external evaluation evidence for the integration to persist alongside the
+signed decision. It writes no files and preserves the bytes of the
 current static set: `report.json`, `report.md`, `report.sarif`; `packet.json`,
 `packet.md`, `packet.html` when emitted; capability locks and their diff;
 `capability-delta-attestation.json`; `verification-plan.json`,
