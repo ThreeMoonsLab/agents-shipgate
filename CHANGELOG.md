@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Deprecated the path-only instruction-weakening check.** (#516)
+  `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` remains registered for compatibility
+  but emits no new findings. Structured permission, MCP and hook
+  readers and the skill-command mention heuristic remain active. Generic trust-root and local instruction routes are
+  unchanged; #545 tracks their remaining prose-only review boundary.
+
 - **Test- and template-only agent names require review.** (#533) Discovery
   keeps these names visible with their source and rationale, but `init` no
   longer asserts them as the product's reviewed identity. A name also declared

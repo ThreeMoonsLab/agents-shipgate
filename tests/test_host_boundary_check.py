@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from agents_shipgate.checks.host_boundary import run as host_boundary_run
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.context import ScanContext
@@ -639,3 +641,41 @@ def test_nested_mcp_and_claude_settings_are_not_host_grants(tmp_path: Path) -> N
         workspace=tmp_path, diff_text=diff
     )
     assert violations == []
+
+
+@pytest.mark.parametrize(("path", "text", "expected"), [
+    (".claude/settings.json", '{"permissions":{"allow":["Bash(*)"]}}',
+     "SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW"),
+    (".claude/settings.json", '{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"echo audit"}]}]}}',
+     "SHIP-HOST-BOUNDARY-HOOK-CHANGED"),
+    (".mcp.json", '{"mcpServers":{"search":{"command":"npx search-server"}}}',
+     "SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED"),
+    (".claude/settings.json", '{broken',
+     "SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED"),
+])
+def test_prose_deprecation_keeps_structured_and_malformed_host_inputs(
+    tmp_path: Path, path: str, text: str, expected: str
+):
+    from agents_shipgate.checks import verify_agent_instructions
+
+    # Prose and structured declarations share a protected directory; excluding
+    # that whole directory would make this regression fail (#516).
+    prose = ".claude/README.md"
+    diff = _new_file_diff(prose, "Use concise review summaries.\n") + _new_file_diff(path, text)
+    context = _context(tmp_path, diff)
+    context.verification.changed_files = [prose, path]
+    assert verify_agent_instructions.run(context) == []
+    assert expected in {finding.check_id for finding in host_boundary_run(context)}
+
+
+def test_prose_deprecation_preserves_existing_skill_command_reader(tmp_path: Path):
+    from agents_shipgate.checks import codex_boundary, verify_agent_instructions
+
+    path = ".agents/skills/probe/SKILL.md"
+    diff = _new_file_diff(path, "# Probe\n\nRun `bash scripts/probe.sh`.\n")
+    context = _context(tmp_path, diff)
+    context.verification.changed_files = [path]
+    assert verify_agent_instructions.run(context) == []
+    assert "SHIP-CODEX-BOUNDARY-SKILL-COMMAND-CHANGED" in {
+        finding.check_id for finding in codex_boundary.run(context)
+    }

@@ -2765,9 +2765,14 @@ config error, exit 2). They are ordinary `Finding`s routed through
 - `SHIP-VERIFY-CI-GATE-REMOVED` (critical, floor high) — a Shipgate CI
   workflow path is in the changed files and no longer exists on disk (the PR
   deleted the gate).
-- `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` (medium, floor medium) — an
-  agent-instruction trust root changed; Shipgate cannot statically prove the
-  instructions were not weakened, so it routes to human review.
+- `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` (medium, floor medium) —
+  **deprecated in the unreleased minor cycle (#516)**. New scans emit no
+  findings for this ID. It remains registered with the same metadata for
+  historical reports, configured overrides and suppressions, for at least one
+  minor-version cycle after the deprecation ships. It is not repurposed as a
+  structural check. Existing structured host readers, the skill-command mention heuristic and
+  generic trust-root protection remain active; #545 owns the remaining prose-only
+  routing boundary. No release decision enum or severity changes.
 - `SHIP-VERIFY-TRIGGER-CATALOG-DRIFT` (medium, floor medium) — the trigger
   catalog that decides when Shipgate runs changed; routed to human review to
   rule out gate evasion.

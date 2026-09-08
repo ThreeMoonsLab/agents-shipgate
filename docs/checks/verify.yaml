@@ -145,19 +145,19 @@ checks:
   floor_severity: medium
   mvp_tier: lifecycle
   requires_human_review: true
-  description: The PR edits agent-instruction trust roots (AGENTS.md, CLAUDE.md,
-    .cursor/rules, skills, etc.) and Shipgate cannot statically prove the
-    instructions were not weakened.
-  rationale: Prompts are not controls (Principle 3); a static tool cannot judge
-    whether instruction text was weakened, so any change is routed to human review
-    rather than silently trusted.
-  fires_when: A VerificationContext is present and a changed file matches an
-    agent-instruction trust-root glob.
+  description: Deprecated in the unreleased minor cycle; retained for historical
+    reports and configuration. New runs emit no findings for this ID.
+  rationale: Changed-file membership cannot establish that natural-language
+    instructions weakened a control. Structured permission and execution readers
+    remain active; the generic trust-root route is unchanged (follow-up 545).
+  fires_when: Never on current scans. Historical findings retain their original
+    meaning and metadata; the published ID is not removed or repurposed.
   evidence_fields:
   - kind
   - changed_instruction_files
-  recommendation: A human must review the agent-instruction change and confirm no
-    gate-protecting instruction was removed or softened.
+  recommendation: This is a historical instruction-text finding. Re-run the
+    current verifier for structural findings and remaining review obligations;
+    deprecation of this ID does not itself authorize merge or completion.
 - id: SHIP-VERIFY-TRIGGER-CATALOG-DRIFT
   default_severity: medium
   floor_severity: medium

@@ -3027,7 +3027,7 @@ baseline summary and do not fail CI.
 | `SHIP-VERIFY-POLICY-BASE-ABSENT` | medium | A policy or manifest trust root changed and no base policy could be compared — no base report, a first adoption, or a control pack this build cannot resolve; routed to human review without a weakening claim. |
 | `SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED` | high | The PR broadens what the gate forgives — a new suppression, a widened waiver scope, or a larger accepted-debt baseline — versus the base. |
 | `SHIP-VERIFY-CI-GATE-REMOVED` | critical | The PR deletes the Shipgate CI workflow from an opted-in repo, which would stop the release gate from running. |
-| `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` | medium | The PR edits agent-instruction trust roots and weakening cannot be statically disproven; routed to human review. |
+| `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` | medium | Deprecated; retained for compatibility, with no findings emitted by current scans. |
 | `SHIP-VERIFY-TRIGGER-CATALOG-DRIFT` | medium | The PR changes the trigger catalog that decides when Shipgate runs; routed to human review to rule out gate evasion. |
 | `SHIP-VERIFY-CAPABILITY-SCOPE-BROADENED` | critical | The PR removes or broadens a dynamically-loaded toolkit's least-privilege configuration bound (e.g. a `stripe_agent_toolkit` allowlist), silently expanding the toolkit surface; blocks rather than degrading to insufficient_evidence. |
 | `SHIP-CAP-CONFIG-BINDING-REMOVED` | high | The PR removes the config binding from a dynamic toolkit factory present on both sides of the diff, so the toolkit may fall back to its everything-enabled defaults; routed to human review instead of silent insufficient_evidence parity. |
@@ -3918,13 +3918,16 @@ weakening signal in the family.
 
 ### SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED
 
-Tier B: agent-instruction files (`AGENTS.md`, `CLAUDE.md`, `.claude/`,
-`.cursor/rules/`, `.agents/skills/`, `.codex/`, `SKILL.md`) tell coding
-agents how to behave around the gate. Shipgate is static and makes no NLP
-judgement, so it cannot prove semantic weakening from text — per Principle
-3 ("prompts are not controls"), any verify-mode change to these trust
-roots is routed to human review at `medium`. Deterministic on changed-file
-membership; the human confirms no gate-protecting instruction was removed.
+Deprecated in the unreleased minor cycle (#516). The registered ID, severity
+metadata and historical report compatibility remain for at least one minor
+version cycle. Current scans emit no findings for this ID: a path change does
+not establish that natural-language instructions weakened a control.
+
+Existing structured permission, MCP and hook readers, plus the skill-command
+mention heuristic, remain active, including mixed prose/executable surfaces. No replacement semantic
+check is added. `SHIP-VERIFY-TRUST-ROOT-TOUCHED` and the existing local instruction
+requirement route are unchanged; #545 tracks their remaining prose-only review
+boundary. Disappearance of this one finding is not a passing verifier result.
 
 ### SHIP-VERIFY-TRIGGER-CATALOG-DRIFT
 
