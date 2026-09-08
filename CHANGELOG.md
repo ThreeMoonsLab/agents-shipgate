@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Label conservative action-effect projections separately from their static
+  evidence in CLI, report, PR and packet summaries. Inferred/default/unknown
+  effects remain visible as provisional risks, with current pass eligibility;
+  declared and structural evidence are distinct. No gate or evidence is
+  upgraded by the presentation (#357).
+
 - Retain base finding evidence for the existing fingerprint comparison and
   expose changed predicate support, sources, subjects and release contribution.
   Reports distinguish identity matches from change attribution and disclose

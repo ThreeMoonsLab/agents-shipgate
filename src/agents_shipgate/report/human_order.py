@@ -43,6 +43,15 @@ class HumanArtifactContext:
 
 
 _SURFACE_WRITE_ACTION_LIMIT = 8
+_EFFECT_EVIDENCE_LABELS = {
+    "declared": "reviewed declaration",
+    "structural": "structural evidence",
+    "inferred": "provisional: inference",
+    "protocol_default": "provisional: protocol default",
+    "unknown": "provisional: unknown effect",
+    "conflicting": "conflicting effect evidence",
+    "unavailable": "provisional: evidence unavailable",
+}
 
 
 @dataclass(frozen=True)
@@ -50,7 +59,8 @@ class SurfaceLead:
     tool_count: int
     source_count: int
     effect_counts: tuple[tuple[str, int], ...]
-    write_actions: tuple[tuple[str, str], ...]
+    write_actions: tuple[tuple[str, str, str, bool], ...]
+    effect_evidence_counts: tuple[tuple[str, int], ...]
     source_unit: Literal["source", "source type"] = "source"
 
     def text_lines(self) -> list[str]:
@@ -60,13 +70,25 @@ class SurfaceLead:
             effects = ", ".join(
                 f"{count} {effect_phrase(effect)}" for effect, count in self.effect_counts
             )
-            lines.append(f"Effects: {effects}.")
+            lines.append(f"Conservative effect projections: {effects}.")
         else:
-            lines.append("Effects: no root-reachable action effects were classified.")
+            lines.append("Conservative effect projections: no root-reachable action effects were classified.")
+        if self.effect_evidence_counts:
+            evidence = ", ".join(
+                f"{count} {_EFFECT_EVIDENCE_LABELS.get(status, _EFFECT_EVIDENCE_LABELS['unavailable'])}"
+                for status, count in self.effect_evidence_counts
+            )
+            lines.append(f"Effect evidence: {evidence}.")
+            lines.append(
+                "Provisional signals still require attention; they do not satisfy effect evidence. "
+                "Static evidence does not prove runtime behavior."
+            )
         if self.write_actions:
             actions = ", ".join(
-                f"{display_literal(name)} ({effect_phrase(effect)})"
-                for name, effect in self.write_actions[:_SURFACE_WRITE_ACTION_LIMIT]
+                f"{display_literal(name)} ({effect_phrase(effect)}) "
+                f"[{_EFFECT_EVIDENCE_LABELS.get(status, _EFFECT_EVIDENCE_LABELS['unavailable'])}"
+                f"{'; not pass-eligible' if not eligible else ''}]"
+                for name, effect, status, eligible in self.write_actions[:_SURFACE_WRITE_ACTION_LIMIT]
             )
             hidden = len(self.write_actions) - _SURFACE_WRITE_ACTION_LIMIT
             if hidden > 0:
@@ -74,6 +96,11 @@ class SurfaceLead:
             lines.append(f"Write/destructive actions: {actions}.")
         else:
             lines.append("Write/destructive actions: none.")
+        if self.effect_evidence_counts:
+            lines.append(
+                "Effect evidence alone does not clear identity, binding or authority gaps. "
+                "Follow the named evidence requests; a patch or inventory suggestion alone does not prove behavior or finish a human review."
+            )
         return lines
 
 
@@ -287,6 +314,10 @@ def surface_lead(report: ReadinessReport) -> SurfaceLead:
         source_unit = "source type"
 
     counts = Counter(action.effect for action in report.action_surface_facts.actions)
+    evidence_counts = Counter(
+        action.semantic_assessment.effect.status if action.semantic_assessment else "unavailable"
+        for action in report.action_surface_facts.actions
+    )
     effect_counts = tuple(
         sorted(
             counts.items(),
@@ -299,7 +330,9 @@ def surface_lead(report: ReadinessReport) -> SurfaceLead:
     write_actions = tuple(
         sorted(
             {
-                (action.tool_name, action.effect)
+                (action.tool_name, action.effect,
+                 action.semantic_assessment.effect.status if action.semantic_assessment else "unavailable",
+                 action.semantic_assessment.pass_eligible if action.semantic_assessment else False)
                 for action in report.action_surface_facts.actions
                 if action.effect in {"write", "financial_write", "destructive"}
             },
@@ -307,6 +340,8 @@ def surface_lead(report: ReadinessReport) -> SurfaceLead:
                 -ACTION_EFFECT_RANK.get(item[1], 99),
                 item[0],
                 item[1],
+                item[2],
+                item[3],
             ),
         )
     )
@@ -316,6 +351,7 @@ def surface_lead(report: ReadinessReport) -> SurfaceLead:
         source_unit=source_unit,
         effect_counts=effect_counts,
         write_actions=write_actions,
+        effect_evidence_counts=tuple(sorted(evidence_counts.items())),
     )
 
 
