@@ -6,6 +6,7 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import unquote_plus
 
 from pydantic import BaseModel
 
@@ -147,6 +148,48 @@ SENSITIVE_VALUE_KEYS = {
     "secret",
     "token",
 }
+
+
+#: Field-name endings that make a key credential-bearing whatever its prefix.
+#: ``access_token`` and ``x-api-key`` are ordinary spellings that no exact
+#: vocabulary can enumerate, and a URL query or a request header is exactly
+#: where they appear (PR #540 review). Matched against the same normalized
+#: form :func:`is_sensitive_key` uses, so ``X-Access-Token`` and
+#: ``access%5Ftoken`` both land on ``accesstoken``.
+#:
+#: Deliberately *not* a bare ``key``: ``sort_key`` and ``partition_key`` are
+#: ordinary parameters, and claiming a credential where there is none is its
+#: own false statement.
+CREDENTIAL_KEY_SUFFIXES: tuple[str, ...] = (
+    "apikey",
+    "authorization",
+    "credential",
+    "credentials",
+    "passwd",
+    "password",
+    "pwd",
+    "secret",
+    "signature",
+    "token",
+)
+
+
+def is_credential_key(value: object) -> bool:
+    """Whether a *field name* names credential material.
+
+    Wider than :func:`is_sensitive_key`, and used where a reader has to decide
+    before writing an artifact — a URL query parameter, a connection header.
+    The exact vocabulary answers first; the suffix rule catches the compound
+    spellings it cannot enumerate. Over-matching here costs a redacted value
+    that did not need it, which is the safe direction; under-matching publishes
+    a credential.
+    """
+    if not isinstance(value, str):
+        return False
+    normalized = _normalized_key(value)
+    if normalized in SENSITIVE_VALUE_KEYS:
+        return True
+    return normalized.endswith(CREDENTIAL_KEY_SUFFIXES)
 
 
 @dataclass
@@ -438,7 +481,10 @@ def redact_url_credentials(url: str) -> tuple[str, bool]:
         parts: list[str] = []
         for pair in query.split("&"):
             key, equals, _value = pair.partition("=")
-            if equals and is_sensitive_key(key):
+            # Classify the *decoded* name. ``api%5Fkey`` is ``api_key`` to
+            # every server that reads it, and matching the raw spelling let it
+            # through untouched (PR #540 review).
+            if equals and is_credential_key(unquote_plus(key)):
                 parts.append(f"{key}={marker}")
                 changed = True
             else:

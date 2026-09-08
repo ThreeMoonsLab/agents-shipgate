@@ -94,13 +94,14 @@ _ABSENT = "(absent)"
 _NOT_READ = "(not read)"
 _REDACTED = "(literal credential — withheld)"
 _ENV_PREFIX = "(environment reference: "
-#: A list argument that *is* present and lists nothing. Distinct from
-#: ``_ABSENT`` and not optional: ``tool_filter=[]`` bounds a binding to no
-#: tools at all — the narrowest state there is — while an absent filter leaves
-#: every tool the endpoint advertises reachable, the widest. Rendering both as
-#: "(absent)" made the narrowest state read as the widest and inverted the
-#: direction of the change.
-_EMPTY = "(empty — no values listed)"
+#: A list argument that *is* present and lists nothing. Kept distinct from
+#: ``_ABSENT`` so the change from one spelling to the other is still *named* —
+#: they are different source text. What it does **not** decide is direction:
+#: whether an empty list bounds anything is the consuming framework's
+#: semantics, and the projection settles it. ADK's ``_is_tool_selected``
+#: returns ``True`` for any falsy ``tool_filter``, so an empty list is no
+#: filter at all (PR #540 review).
+_EMPTY = "(empty list)"
 
 #: How a decoded list-valued summary reads back. ``values`` is a real value
 #: list; ``absent`` is the argument not being there, which for a tool filter is
@@ -206,8 +207,8 @@ def decode_list_summary(summary: str | None) -> tuple[str, list[str]]:
     if summary == _ABSENT:
         return LIST_ABSENT, []
     if summary == _EMPTY or summary == "":
-        # Present and listing nothing. Comparable as a set — and as the
-        # *narrowest* set, which is why it is not folded into "absent".
+        # Present and listing nothing. Comparable as a set; whether the empty
+        # set *bounds* anything is a framework question the caller answers.
         return LIST_VALUES, []
     if summary in {_UNRESOLVED, _NOT_READ, _REDACTED} or summary.startswith(
         _ENV_PREFIX

@@ -37,6 +37,7 @@ from agents_shipgate.core.policy_reason_codes import counts_as_weakened
 from agents_shipgate.core.remote_bindings import (
     ANCHOR_KIND,
     LIST_ABSENT,
+    LIST_OPAQUE,
     LIST_VALUES,
     TOOL_FILTER_KIND,
     axis_label,
@@ -470,15 +471,19 @@ def _extend_remote_binding_members(
       that says so in words.
     """
 
-    agent, _source_id, slot = decode_policy_key(drift.key)
+    agent, source_id, slot = decode_policy_key(drift.key)
     axis = axis_label(drift.policy_kind)
-    # The slot is always part of the subject, including the ``#n`` ordinal
-    # form. It reads slightly heavier for an agent with one binding, and it is
-    # what keeps two *inline* bindings of one agent apart: the member id is
-    # hashed from this string, so dropping the ordinal collapsed both bindings
-    # into one member and silently discarded one binding's evidence.
+    # The subject carries the binding's *whole* identity, because the member id
+    # is hashed from it and a member id collision is silent data loss — one
+    # binding's evidence disappears in ``_dedup_members``. Two ways that
+    # happened: dropping the ``#n`` ordinal merged two inline bindings of one
+    # agent, and dropping the source id merged same-named agents declared by
+    # two configured sources (PR #540 review). The source is spelled in
+    # brackets beside the agent — the same form the release-decision reason
+    # text uses — so it stays a `tool_sources[].id` an adopter can open.
+    named_agent = f"{agent} [{source_id}]" if agent and source_id else agent
     binding_subject = " ".join(
-        part for part in (agent, "-> MCP binding", slot) if part
+        part for part in (named_agent, "-> MCP binding", slot) if part
     )
     axis_subject = f"{binding_subject} {axis}"
 
@@ -517,13 +522,13 @@ def _extend_remote_binding_members(
             after_kind=after_kind,
             after=after,
         )
-        for direction, member in members:
-            (broadened if direction == "broadened" else narrowed).append(member)
-        if members:
+        if members is not None:
+            for direction, member in members:
+                (broadened if direction == "broadened" else narrowed).append(member)
             return
-        # Nothing above established a direction: the filter's *evidence* moved
-        # — a literal list became unreadable, or the reader's certainty
-        # changed. Not a widening and not a narrowing.
+        # One side is not comparable: the filter's *evidence* moved — a literal
+        # list became unreadable, or the reader's certainty changed. Not a
+        # widening and not a narrowing.
         broadened.append(
             factory.make(
                 "broadened",
@@ -552,6 +557,20 @@ def _extend_remote_binding_members(
     )
 
 
+def _filter_is_unbounded(kind: str, values: list[str]) -> bool:
+    """Whether a decoded filter side bounds the binding to anything.
+
+    An absent ``tool_filter`` bounds nothing. **So does an empty list**: ADK's
+    ``BaseToolset._is_tool_selected`` returns ``True`` for any falsy filter
+    (adk-python 2.8.0, ``base_toolset.py``), and ``McpToolset.get_tools`` uses
+    that predicate — so ``tool_filter=[]`` exposes every advertised tool rather
+    than none. Comparing it as the empty *set* reported the widest state as the
+    narrowest and inverted the direction (PR #540 review).
+    """
+
+    return kind == LIST_ABSENT or (kind == LIST_VALUES and not values)
+
+
 def _filter_direction_members(
     factory: _MemberFactory,
     drift: ToolSurfacePolicyDrift,
@@ -561,19 +580,15 @@ def _filter_direction_members(
     before: list[str],
     after_kind: str,
     after: list[str],
-) -> list[tuple[str, CapabilityChangeMember]]:
+) -> list[tuple[str, CapabilityChangeMember]] | None:
     """Members for a tool-filter move whose direction *is* established.
 
-    Three comparable transitions, and nothing else:
-
-    * both sides are value lists — the set difference is the direction;
-    * an absent filter became one — every tool the endpoint advertises was
-      reachable and now only the listed ones are, so the binding narrowed;
-    * a filter was removed — the reverse, and the more serious of the two.
-
-    A side the reader could not establish yields nothing here, so it falls
-    through to the caller's opaque-direction bucket rather than being compared
-    as if it were an empty set.
+    ``None`` means "not comparable" — a side the reader could not establish —
+    and falls through to the caller's opaque-direction bucket rather than being
+    compared as if it were an empty set. An empty list means the caller has its
+    answer and there is no capability difference to report: both sides bound
+    the binding to nothing, so the *spelling* changed and the capability did
+    not.
     """
 
     def member(direction: str, rationale: str) -> tuple[str, CapabilityChangeMember]:
@@ -587,30 +602,15 @@ def _filter_direction_members(
             rationale=rationale,
         )
 
-    if before_kind == LIST_VALUES and after_kind == LIST_VALUES:
-        gained = sorted(set(after) - set(before))
-        lost = sorted(set(before) - set(after))
-        members: list[tuple[str, CapabilityChangeMember]] = []
-        if gained:
-            members.append(
-                member(
-                    "broadened",
-                    "MCP tool filter widened: "
-                    + ", ".join(gained)
-                    + " newly reachable through this binding",
-                )
-            )
-        if lost:
-            members.append(
-                member(
-                    "narrowed",
-                    "MCP tool filter narrowed: "
-                    + ", ".join(lost)
-                    + " no longer reachable through this binding",
-                )
-            )
-        return members
-    if before_kind == LIST_ABSENT and after_kind == LIST_VALUES:
+    if before_kind == LIST_OPAQUE or after_kind == LIST_OPAQUE:
+        return None
+    before_unbounded = _filter_is_unbounded(before_kind, before)
+    after_unbounded = _filter_is_unbounded(after_kind, after)
+    if before_unbounded and after_unbounded:
+        # ``tool_filter=[]`` and no ``tool_filter`` at all are different source
+        # text and the same authority. The drift row still records the edit.
+        return []
+    if before_unbounded:
         return [
             member(
                 "narrowed",
@@ -618,7 +618,7 @@ def _filter_direction_members(
                 + ", ".join(after),
             )
         ]
-    if before_kind == LIST_VALUES and after_kind == LIST_ABSENT:
+    if after_unbounded:
         return [
             member(
                 "broadened",
@@ -626,7 +626,28 @@ def _filter_direction_members(
                 "is now reachable through this binding",
             )
         ]
-    return []
+    gained = sorted(set(after) - set(before))
+    lost = sorted(set(before) - set(after))
+    members: list[tuple[str, CapabilityChangeMember]] = []
+    if gained:
+        members.append(
+            member(
+                "broadened",
+                "MCP tool filter widened: "
+                + ", ".join(gained)
+                + " newly reachable through this binding",
+            )
+        )
+    if lost:
+        members.append(
+            member(
+                "narrowed",
+                "MCP tool filter narrowed: "
+                + ", ".join(lost)
+                + " no longer reachable through this binding",
+            )
+        )
+    return members
 
 
 def _extend_semantic_members(

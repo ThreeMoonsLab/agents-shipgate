@@ -50,6 +50,28 @@
   and the limits it ships with, are written up in
   [`docs/engineering/remote-binding-evidence.md`](docs/engineering/remote-binding-evidence.md).
 
+  Review found five defects, and three of them were the same mistake: reasoning
+  about a framework's semantics from the shape of the data instead of from the
+  framework. **`tool_filter=[]` is not a filter of nothing, it is no filter** —
+  ADK's `_is_tool_selected` returns `True` for any falsy filter, so an empty
+  list exposes every advertised tool, and comparing it as the empty *set*
+  reported the widest state as the narrowest. **A stdio connection does not
+  carry `env` inline** — `StdioConnectionParams` nests a `StdioServerParameters`
+  under `server_params`, so reading only the outer call answered "this binding
+  has no credential" about one that plainly did. And **a URL query key is
+  classified after decoding, against a credential-*name* rule rather than a
+  fixed list**, because `api%5Fkey` is `api_key` to every server that reads it
+  and `access_token` was in no vocabulary the redaction pass held.
+
+  Two more were silent losses rather than wrong answers. A capability member's
+  id is hashed from its subject, and a subject without the configured source id
+  merged two same-named agents from different sources into one member —
+  deleting one source's endpoint change. And a hardcoded credential added
+  beside an existing environment reference was recorded only as a limitation,
+  which the carried summary and hash never saw, so a *credential being added*
+  produced no delta; the credential axis now lists every entry, with
+  `<literal credential withheld>` in place of a value it will not publish.
+
 - **Python MCP servers get the route the survey said they needed most.**
   (#484) #431 shipped a built-in registry of tool-registration idioms covering
   TypeScript and Go, and its own 30-server survey named what it left out:

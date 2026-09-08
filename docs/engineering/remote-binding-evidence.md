@@ -62,8 +62,16 @@ of reading as a connection that carries nothing).
 | --- | --- |
 | `transport` | the connection-params constructor, matched on its final dotted segment |
 | `endpoint` | a literal URL, or the *name* of the `os.environ` / `os.getenv` key it is read from |
-| `credential_refs` | `"<where>=<ENV_NAME>"` for each environment reference in `headers=` / `env=` |
+| `credential_refs` | one `"<where>=<what>"` entry per credential-bearing key in `headers=` / `env=` — including `StdioConnectionParams`' nested `server_params` |
 | `tool_filter` | the literal filter list |
+
+The credential axis lists **every** entry, not only the environment
+references: a value that was read and withheld renders as
+`<literal credential withheld>` and one that could not be read as
+`<not statically readable>`. Recording those only as limitations left the
+carried summary and hash unchanged, so adding a hardcoded credential beside an
+existing reference produced no delta at all. The markers carry presence and
+completeness without carrying a byte of the value.
 
 Per-binding limitation codes (`shadowed_connection_constructor`,
 `rebound_connection_reference`, `dynamic_endpoint_expression`,
@@ -96,10 +104,15 @@ two agents produces one fact per binding agent. The configured source id is
 part of it because two sources may each declare an agent of the same name, and
 a two-component key silently dropped one of their bindings.
 
-The **capability member's subject** repeats agent and slot for the same reason
-the key does: the member id is hashed from that string, so a subject that
-omitted the `#<n>` ordinal collapsed two inline bindings of one agent into a
-single member and discarded one binding's evidence.
+The **capability member's subject** repeats the *whole* identity for the same
+reason the key carries it: the member id is hashed from that string, so a
+subject missing any component collapses two bindings into one member and
+discards one binding's evidence in `_dedup_members`. Two ways that happened —
+dropping the `#<n>` ordinal merged two inline bindings of one agent, and
+dropping the source id merged same-named agents declared by two configured
+sources. The source is spelled `agent [source_id]`, the same form the
+release-decision reason text uses, so it stays a `tool_sources[].id` an adopter
+can open.
 
 ### 3. Project (`core/findings/verifier_blocks.py`)
 
@@ -113,15 +126,19 @@ produce.
 | the endpoint row appears / disappears | `added` / `removed` | the agent gained or lost a remote binding; the endpoint row is the presence anchor, so this is one member rather than one per axis |
 | endpoint, credential reference or transport changed | `broadened`, confidence `medium` | the block's documented opaque-direction bucket; the rationale says in words that the direction is not established and that a host or variable name proves no privilege level |
 | filter values gained / lost | `broadened` / `narrowed` | set membership, the one axis where the direction *is* established |
-| a filter was added where there was none | `narrowed` | no filter is the widest state; the binding is now bounded |
+| a filter was added where there was none | `narrowed` | an unbounded binding is now bounded |
 | a filter was removed | `broadened` | every tool the endpoint advertises is reachable again |
+| both sides unbounded | *no member* | the source text moved and the authority did not |
 | either side of a filter is `unresolved` | `broadened`, confidence `medium` | membership cannot be compared across it, so no direction is claimed |
 
-`tool_filter=[]` is *not* an absent filter and is not encoded as one: it
-bounds the binding to no tools at all — the narrowest state there is —
-while an absent filter leaves everything the endpoint advertises reachable,
-the widest. The two carry different sentinels so the direction cannot
-invert.
+**An empty `tool_filter` is not a filter of nothing — it is no filter.** ADK's
+`BaseToolset._is_tool_selected` returns `True` for any falsy filter
+(adk-python 2.8.0, `base_toolset.py`), and `McpToolset.get_tools` uses that
+predicate, so `tool_filter=[]` exposes every advertised tool. The carriage
+still renders it distinctly from an absent argument — they are different
+source text and the edit is still named — but the projection treats both as
+unbounded, because whether an empty list *bounds* anything is the consuming
+framework's semantics and not a set-theory question.
 
 ## Secrets
 
@@ -132,6 +149,17 @@ covers only database schemes and `LABELED_SECRET_PATTERN` only fires on values
 long enough to look like a key. A literal value under a credential-bearing
 header key is reported as present and withheld (`credential_status: redacted`),
 never published.
+
+Query keys are classified **after** percent-decoding, because `api%5Fkey` is
+`api_key` to every server that reads it, and against
+`privacy.is_credential_key` rather than the exact `SENSITIVE_VALUE_KEYS`
+vocabulary, because `access_token` and `x-api-key` are ordinary spellings no
+fixed list enumerates. That predicate is the exact vocabulary plus a suffix
+rule (`…token`, `…secret`, `…password`, `…apikey`, `…signature`, …), and it
+deliberately excludes a bare `key` so `sort_key` and `partition_key` stay
+ordinary parameters — claiming a credential where there is none is its own
+false statement. The same predicate classifies connection header and `env`
+keys.
 
 `value_hash` is computed over the *published* value, so a withheld secret is
 never hashed either. The consequence is stated rather than hidden: **a change
@@ -146,6 +174,11 @@ change comparable.
 - **The Python constructor only.** An ADK YAML agent config records the binding
   with `not_read` statuses and a `connection_not_read_from_agent_config`
   limitation; it reads a literal `connection_params.url` and nothing else.
+- **Nested parameters are resolved one level, and only for a recognized
+  constructor.** `StdioConnectionParams(server_params=StdioServerParameters(…))`
+  is read; `server_params=build_params()` reports `unresolved` with an
+  `unresolved_nested_server_params` limitation rather than the false `absent`
+  that reading only the outer call produced.
 - **A renamed slot is a replacement, not a rename.** The diff is a set
   comparison on `(kind, key)`, so renaming the toolset variable reports the old
   binding removed and the new one added. Both members carry their own endpoint,

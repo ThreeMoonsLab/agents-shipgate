@@ -151,18 +151,18 @@ def test_endpoint_and_credential_change_reach_the_capability_delta(tmp_path):
     report = _compare(tmp_path, BASE_AGENT, head_source)
 
     by_scope = {member.scope: member for member in _remote_members(report)}
-    endpoint = by_scope["search_agent -> MCP binding #1 endpoint"]
+    endpoint = by_scope["search_agent [adk_search] -> MCP binding #1 endpoint"]
     assert endpoint.before_scope == "https://readonly.example/mcp"
     assert endpoint.after_scope == "https://admin.example/mcp"
 
-    credential = by_scope["search_agent -> MCP binding #1 credential reference"]
+    credential = by_scope["search_agent [adk_search] -> MCP binding #1 credential reference"]
     assert credential.before_scope == "headers.Authorization=READ_KEY"
     assert credential.after_scope == "headers.Authorization=ADMIN_KEY"
 
     # Two axes changed, and only those two.
     assert set(by_scope) == {
-        "search_agent -> MCP binding #1 endpoint",
-        "search_agent -> MCP binding #1 credential reference",
+        "search_agent [adk_search] -> MCP binding #1 endpoint",
+        "search_agent [adk_search] -> MCP binding #1 credential reference",
     }
 
 
@@ -194,7 +194,7 @@ def test_endpoint_only_change_leaves_the_other_axes_alone(tmp_path):
     report = _compare(tmp_path, BASE_AGENT, head_source)
 
     scopes = {member.scope for member in _remote_members(report)}
-    assert scopes == {"search_agent -> MCP binding #1 endpoint"}
+    assert scopes == {"search_agent [adk_search] -> MCP binding #1 endpoint"}
 
 
 def test_credential_reference_only_change_is_named(tmp_path):
@@ -203,7 +203,7 @@ def test_credential_reference_only_change_is_named(tmp_path):
 
     members = _remote_members(report)
     assert [member.scope for member in members] == [
-        "search_agent -> MCP binding #1 credential reference"
+        "search_agent [adk_search] -> MCP binding #1 credential reference"
     ]
     assert members[0].after_scope == "headers.Authorization=ADMIN_KEY"
 
@@ -221,7 +221,7 @@ def test_filter_expansion_is_a_broadening_and_names_what_was_gained(tmp_path):
     assert change is not None
     broadened = [m for m in change.broadened if "MCP binding" in (m.scope or "")]
     assert len(broadened) == 1
-    assert broadened[0].scope == "search_agent -> MCP binding #1 tool filter"
+    assert broadened[0].scope == "search_agent [adk_search] -> MCP binding #1 tool filter"
     assert "delete_index" in broadened[0].rationale
     assert broadened[0].confidence == "high"
     assert not [m for m in change.narrowed if "MCP binding" in (m.scope or "")]
@@ -374,8 +374,8 @@ def test_renaming_the_toolset_variable_shows_as_a_replacement_not_a_silence(
     assert change is not None
     removed = [m for m in change.removed if "MCP binding" in (m.scope or "")]
     added = [m for m in change.added if "MCP binding" in (m.scope or "")]
-    assert [m.scope for m in removed] == ["search_agent -> MCP binding search_tools"]
-    assert [m.scope for m in added] == ["search_agent -> MCP binding knowledge_tools"]
+    assert [m.scope for m in removed] == ["search_agent [adk_search] -> MCP binding search_tools"]
+    assert [m.scope for m in added] == ["search_agent [adk_search] -> MCP binding knowledge_tools"]
     assert removed[0].before_scope == "https://readonly.example/mcp"
     assert added[0].after_scope == "https://admin.example/mcp"
 
@@ -435,7 +435,7 @@ def test_two_agents_on_one_endpoint_keep_distinct_attribution(tmp_path):
     report = _compare(tmp_path, TWO_AGENTS, head_source)
 
     scopes = {member.scope for member in _remote_members(report)}
-    assert scopes == {"beta -> MCP binding #1 endpoint"}
+    assert scopes == {"beta [adk_search] -> MCP binding #1 endpoint"}
 
 
 SHARED_TOOLSET = '''
@@ -482,7 +482,7 @@ def test_one_agent_dropping_a_shared_toolset_is_removed_for_that_agent_only(
     assert change is not None
     removed = [m for m in change.removed if "MCP binding" in (m.scope or "")]
     # One member for the whole binding, not one per axis.
-    assert [m.scope for m in removed] == ["beta -> MCP binding shared_tools"]
+    assert [m.scope for m in removed] == ["beta [adk_search] -> MCP binding shared_tools"]
     assert "beta" in removed[0].rationale
 
 
@@ -529,8 +529,8 @@ def test_two_inline_bindings_on_one_agent_do_not_collapse(tmp_path):
         m for m in _remote_members(report) if (m.scope or "").endswith("endpoint")
     ]
     assert {m.scope for m in endpoint_members} == {
-        "search_agent -> MCP binding #1 endpoint",
-        "search_agent -> MCP binding #2 endpoint",
+        "search_agent [adk_search] -> MCP binding #1 endpoint",
+        "search_agent [adk_search] -> MCP binding #2 endpoint",
     }
     assert {m.before_scope for m in endpoint_members} == {
         "https://first.example/mcp",
@@ -561,7 +561,7 @@ search_agent = LlmAgent(name="search_agent", tools=[FunctionTool(func=lookup)])
     change = report.capability_change
     assert change is not None
     added = [m for m in change.added if "MCP binding" in (m.scope or "")]
-    assert [m.scope for m in added] == ["search_agent -> MCP binding #1"]
+    assert [m.scope for m in added] == ["search_agent [adk_search] -> MCP binding #1"]
     assert added[0].after_scope == "https://readonly.example/mcp"
     assert "gained a remote MCP binding" in added[0].rationale
 
@@ -756,7 +756,7 @@ def test_supplying_leaf_inventory_cannot_clear_the_endpoint_delta(tmp_path):
     assert any(tool["name"] == "search" for tool in report.tool_catalog)
     # ...and the endpoint change is still named.
     scopes = {member.scope for member in _remote_members(report)}
-    assert "search_agent -> MCP binding #1 endpoint" in scopes
+    assert "search_agent [adk_search] -> MCP binding #1 endpoint" in scopes
 
 
 # --- redaction --------------------------------------------------------------
@@ -801,7 +801,11 @@ def test_literal_credentials_are_withheld_and_the_gap_is_named(tmp_path):
 
     evidence = _finding_evidence(report, "SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE")
     assert evidence["credential_status"] == "redacted"
-    assert "credential_refs" not in evidence
+    # The header *name* is published so the credential is locatable and
+    # comparable; the value is a marker, never a byte of the secret.
+    assert evidence["credential_refs"] == [
+        "headers.Authorization=<literal credential withheld>"
+    ]
     assert set(evidence["limitations"]) == {
         "endpoint_credentials_redacted",
         "literal_credential_value",
@@ -842,6 +846,213 @@ def test_the_release_verdict_and_finding_set_do_not_move(tmp_path):
     assert head_report.release_decision.decision == "insufficient_evidence"
     assert {f.check_id for f in base_report.findings} == {
         f.check_id for f in head_report.findings
+    }
+
+
+# --- review findings, PR #540 -----------------------------------------------
+
+
+STDIO_NESTED = '''
+import os
+
+from google.adk.agents import LlmAgent
+from google.adk.tools.mcp_tool import McpToolset, StdioConnectionParams
+from mcp import StdioServerParameters
+
+raise RuntimeError("must never execute")
+
+search_agent = LlmAgent(
+    name="search_agent",
+    tools=[
+        McpToolset(
+            connection_params=StdioConnectionParams(
+                server_params=StdioServerParameters(
+                    command="npx",
+                    args=["server"],
+                    env={"API_KEY": os.environ["READ_KEY"]},
+                ),
+            ),
+        )
+    ],
+)
+'''
+
+
+def test_stdio_credentials_are_read_from_the_nested_server_params(tmp_path):
+    """ADK nests stdio's ``env`` under ``server_params``.
+
+    Reading only the outer call reported ``credential_status: "absent"`` — a
+    false claim of absence — and a changed credential reference then produced
+    no delta at all (PR #540 review).
+    """
+
+    project = _write(tmp_path / "stdio", STDIO_NESTED)
+    report = _scan(project)
+
+    evidence = _finding_evidence(report, "SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE")
+    assert evidence["credential_status"] == "environment_reference"
+    assert evidence["credential_refs"] == ["server_params.env.API_KEY=READ_KEY"]
+
+
+def test_a_changed_nested_stdio_credential_reference_is_named(tmp_path):
+    head_source = STDIO_NESTED.replace("READ_KEY", "ADMIN_KEY")
+    report = _compare(tmp_path, STDIO_NESTED, head_source)
+
+    members = [
+        m for m in _remote_members(report) if (m.scope or "").endswith("credential reference")
+    ]
+    assert len(members) == 1
+    assert members[0].before_scope == "server_params.env.API_KEY=READ_KEY"
+    assert members[0].after_scope == "server_params.env.API_KEY=ADMIN_KEY"
+
+
+def test_unreadable_nested_server_params_are_unresolved_not_absent(tmp_path):
+    source = STDIO_NESTED.replace(
+        """                server_params=StdioServerParameters(
+                    command="npx",
+                    args=["server"],
+                    env={"API_KEY": os.environ["READ_KEY"]},
+                ),""",
+        "                server_params=build_params(),",
+    )
+    assert "build_params()" in source
+    project = _write(tmp_path / "stdio_dynamic", source)
+    report = _scan(project)
+
+    evidence = _finding_evidence(report, "SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE")
+    assert evidence["credential_status"] == "unresolved"
+    assert "unresolved_nested_server_params" in evidence["limitations"]
+
+
+def test_adding_a_hardcoded_credential_beside_a_reference_is_a_delta(tmp_path):
+    """A credential being *added*, not a rotation of already-withheld bytes.
+
+    The literal was recorded only as a limitation, which the carried summary
+    and hash never saw, so the head read as unchanged (PR #540 review).
+    """
+
+    head_source = BASE_AGENT.replace(
+        '{"Authorization": os.environ["READ_KEY"]}',
+        '{"Authorization": os.environ["READ_KEY"], "api_key": "demo-password"}',
+    )
+    assert head_source != BASE_AGENT
+    report = _compare(tmp_path, BASE_AGENT, head_source)
+
+    members = [
+        m for m in _remote_members(report) if (m.scope or "").endswith("credential reference")
+    ]
+    assert len(members) == 1
+    assert members[0].before_scope == "headers.Authorization=READ_KEY"
+    assert members[0].after_scope == (
+        "headers.Authorization=READ_KEY, headers.api_key=<literal credential withheld>"
+    )
+    assert "demo-password" not in json.dumps(report.model_dump(mode="json"))
+
+
+ENCODED_QUERY_SECRET = '''
+from google.adk.agents import LlmAgent
+from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams
+
+raise RuntimeError("must never execute")
+
+search_agent = LlmAgent(
+    name="search_agent",
+    tools=[
+        McpToolset(
+            connection_params=StreamableHTTPConnectionParams(
+                url="https://host.example/mcp?api%5Fkey=demo-password&access_token=demo-password&page=1",
+            ),
+        )
+    ],
+)
+'''
+
+
+def test_encoded_and_oauth_query_credentials_are_redacted(tmp_path):
+    """``api%5Fkey`` decodes to ``api_key``, and ``access_token`` is one too.
+
+    Matching the raw spelling let the first through, and the exact
+    sensitive-key vocabulary had never held the second (PR #540 review).
+    """
+
+    project = _write(tmp_path / "query", ENCODED_QUERY_SECRET)
+    report = _scan(project)
+
+    body = json.dumps(report.model_dump(mode="json"))
+    assert "demo-password" not in body
+    assert "page=1" in body
+
+    evidence = _finding_evidence(report, "SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE")
+    assert "demo-password" not in evidence["endpoint"]
+    assert "endpoint_credentials_redacted" in evidence["limitations"]
+
+
+TWO_SOURCE_MANIFEST = """
+version: "0.1"
+project:
+  name: adk-remote-binding
+agent:
+  name: search-agent
+  declared_purpose:
+    - search a remote knowledge base
+environment:
+  target: production_like
+tool_sources:
+  - id: adk_search
+    type: google_adk
+    path: agent.py
+  - id: adk_other
+    type: google_adk
+    path: other.py
+"""
+
+
+def _write_two_sources(root, first: str, second: str):
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "agent.py").write_text(first, encoding="utf-8")
+    (root / "other.py").write_text(second, encoding="utf-8")
+    (root / "shipgate.yaml").write_text(TWO_SOURCE_MANIFEST, encoding="utf-8")
+    return root
+
+
+def test_two_sources_with_the_same_agent_name_keep_both_capability_members(
+    tmp_path,
+):
+    """The member id is hashed from the subject, so the subject needs the source.
+
+    Two configured ADK files each declaring ``search_agent`` at inline slot
+    ``#1`` produced two policy-drift rows and, after member deduplication, one
+    member — one source's endpoint change disappeared (PR #540 review).
+    """
+
+    other = BASE_AGENT.replace(
+        "https://readonly.example/mcp", "https://other-readonly.example/mcp"
+    )
+    base = _write_two_sources(tmp_path / "base", BASE_AGENT, other)
+    _scan(base)
+    head = _write_two_sources(
+        tmp_path / "head",
+        BASE_AGENT.replace("https://readonly.example/mcp", "https://admin.example/mcp"),
+        other.replace(
+            "https://other-readonly.example/mcp", "https://other-admin.example/mcp"
+        ),
+    )
+    report = _scan(head, base_report=base / "reports" / "report.json")
+
+    endpoints = {
+        m.scope: (m.before_scope, m.after_scope)
+        for m in _remote_members(report)
+        if (m.scope or "").endswith("endpoint")
+    }
+    assert endpoints == {
+        "search_agent [adk_search] -> MCP binding #1 endpoint": (
+            "https://readonly.example/mcp",
+            "https://admin.example/mcp",
+        ),
+        "search_agent [adk_other] -> MCP binding #1 endpoint": (
+            "https://other-readonly.example/mcp",
+            "https://other-admin.example/mcp",
+        ),
     }
 
 
@@ -925,20 +1136,46 @@ def test_an_empty_value_list_is_not_an_absent_argument():
     assert decode_list_summary("read") == (LIST_VALUES, ["read"])
 
 
-def test_an_empty_filter_is_a_narrowing_not_a_widening(tmp_path):
-    """The end-to-end shape of the same claim."""
+def test_an_empty_filter_is_a_widening_because_adk_ignores_it(tmp_path):
+    """``tool_filter=[]`` is no filter at all, not a filter of nothing.
 
-    head_source = BASE_AGENT.replace(
-        'tool_filter=["search"]', "tool_filter=[]"
-    )
+    ADK's ``BaseToolset._is_tool_selected`` returns ``True`` for any falsy
+    filter (adk-python 2.8.0), and ``McpToolset.get_tools`` uses that
+    predicate, so an empty list exposes every advertised tool. Comparing it as
+    the empty *set* reported the widest state as the narrowest (PR #540
+    review).
+    """
+
+    head_source = BASE_AGENT.replace('tool_filter=["search"]', "tool_filter=[]")
     report = _compare(tmp_path, BASE_AGENT, head_source)
 
     change = report.capability_change
     assert change is not None
-    narrowed = [m for m in change.narrowed if (m.scope or "").endswith("tool filter")]
-    assert len(narrowed) == 1
-    assert "search no longer reachable" in narrowed[0].rationale
-    assert not [m for m in change.broadened if (m.scope or "").endswith("tool filter")]
+    broadened = [m for m in change.broadened if (m.scope or "").endswith("tool filter")]
+    assert len(broadened) == 1
+    assert "every tool this endpoint advertises" in broadened[0].rationale
+    assert not [m for m in change.narrowed if (m.scope or "").endswith("tool filter")]
+
+
+def test_adding_an_empty_filter_where_there_was_none_is_no_capability_change(
+    tmp_path,
+):
+    """Different source text, identical authority.
+
+    The policy-drift row still records the edit; the capability block reports
+    nothing, because nothing about what the agent may call moved.
+    """
+
+    base_source = BASE_AGENT.replace('            tool_filter=["search"],\n', "")
+    head_source = BASE_AGENT.replace('tool_filter=["search"]', "tool_filter=[]")
+    report = _compare(tmp_path, base_source, head_source)
+
+    assert [
+        drift
+        for drift in report.tool_surface_diff.policy_drift
+        if drift.policy_kind == TOOL_FILTER_KIND
+    ]
+    assert not [m for m in _remote_members(report) if (m.scope or "").endswith("tool filter")]
 
 
 def test_every_axis_gets_exactly_one_row_per_binding(tmp_path):

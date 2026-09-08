@@ -23,7 +23,7 @@ from agents_shipgate.core.domain import (
     ToolParameter,
 )
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.core.privacy import is_sensitive_key, redact_url_credentials
+from agents_shipgate.core.privacy import is_credential_key, redact_url_credentials
 from agents_shipgate.core.source_warnings import adk_unresolved_tool_warning
 from agents_shipgate.inputs.common import (
     load_structured_file,
@@ -84,8 +84,23 @@ MCP_CONNECTION_TRANSPORTS = {
     "StdioServerParameters": "stdio",
 }
 #: Constructor arguments that carry credential material. ``headers`` is the
-#: HTTP transports' spelling; ``env`` is stdio's.
+#: HTTP transports' spelling; ``env`` is stdio's — on ``StdioServerParameters``,
+#: which ``StdioConnectionParams`` holds under ``server_params`` rather than
+#: inline, so the nested call has to be resolved before this reads anything
+#: (ADK 2.8.0 ``mcp_session_manager.StdioConnectionParams``; PR #540 review).
 MCP_CREDENTIAL_ARG_NAMES = ("headers", "env")
+#: The argument a stdio connection nests its server parameters under.
+MCP_NESTED_PARAMS_ARG = "server_params"
+
+#: Rendered in place of a credential value the reader read and will not
+#: publish, and of one it could not read. Both keep the credential axis
+#: *comparable*: adding a hardcoded credential beside an existing environment
+#: reference changes this list, so it changes the carried summary and hash
+#: rather than showing up only as a limitation the hash never saw (PR #540
+#: review). Neither uses parentheses, so a one-entry list can never be mistaken
+#: for a whole-summary status sentinel.
+CREDENTIAL_WITHHELD_MARKER = "<literal credential withheld>"
+CREDENTIAL_UNREADABLE_MARKER = "<not statically readable>"
 #: ``os.environ`` / ``os.getenv`` spellings, after import-alias resolution.
 _ENVIRON_MAPPING_NAMES = {"os.environ", "os.environb"}
 _ENVIRON_GETTER_NAMES = {"os.getenv", "os.environ.get", "os.environb.get"}
@@ -102,6 +117,7 @@ LIMIT_DYNAMIC_ENDPOINT_EXPRESSION = "dynamic_endpoint_expression"
 LIMIT_ENDPOINT_CREDENTIALS_REDACTED = "endpoint_credentials_redacted"
 LIMIT_LITERAL_CREDENTIAL_VALUE = "literal_credential_value"
 LIMIT_DYNAMIC_CREDENTIAL_EXPRESSION = "dynamic_credential_expression"
+LIMIT_UNRESOLVED_NESTED_PARAMS = "unresolved_nested_server_params"
 LIMIT_DYNAMIC_TOOL_FILTER = "dynamic_tool_filter"
 LIMIT_CONNECTION_NOT_READ_FROM_CONFIG = "connection_not_read_from_agent_config"
 
@@ -1765,8 +1781,8 @@ class _PythonAdkExtractor:
         endpoint, endpoint_env_ref, endpoint_status = _read_endpoint(
             expr, self.aliases, limitations
         )
-        credential_refs, credential_status = _read_credential_refs(
-            expr, self.aliases, limitations
+        credential_refs, credential_status = self._read_connection_credentials(
+            expr, limitations
         )
         return GoogleAdkToolsetConnection(
             transport=transport,
@@ -1779,6 +1795,62 @@ class _PythonAdkExtractor:
             credential_status=credential_status,
             limitations=sorted(set(limitations)),
         )
+
+    def _read_connection_credentials(
+        self,
+        call: ast.Call,
+        limitations: list[str],
+    ) -> tuple[list[str], RemoteBindingStatus]:
+        """Credential entries of one connection, including its nested params.
+
+        A stdio connection does not carry ``env`` inline: ADK's
+        ``StdioConnectionParams`` holds a ``StdioServerParameters`` under
+        ``server_params``, and reading only the outer call reported
+        ``credential_status: "absent"`` for a binding that plainly had one —
+        a false claim of absence, and one that made a changed credential
+        reference produce no delta at all (PR #540 review).
+
+        The nested call is resolved the same way the outer one is: inline, or
+        through a module-level name the module binds exactly once. Anything
+        else reports ``unresolved`` with a limitation, never ``absent``.
+        """
+
+        entries, status = _read_credential_refs(call, self.aliases, limitations)
+        nested = _kwarg(call, MCP_NESTED_PARAMS_ARG)
+        if nested is None:
+            return entries, status
+        if isinstance(nested, ast.Name):
+            resolved = self.connection_assignments.get(nested.id)
+            if resolved is None or not self._name_is_proven(nested.id):
+                limitations.append(LIMIT_UNRESOLVED_NESTED_PARAMS)
+                return _merge_credentials(
+                    entries,
+                    status,
+                    [f"{MCP_NESTED_PARAMS_ARG}={CREDENTIAL_UNREADABLE_MARKER}"],
+                    "unresolved",
+                )
+            nested = resolved
+        if not isinstance(nested, ast.Call) or not _is_connection_params_call(
+            nested, self.aliases
+        ):
+            # An unrecognised call is not a server-parameters object this
+            # reader knows the shape of. Reading its ``env`` anyway would be a
+            # guess, and returning "absent" would be the same false claim one
+            # level down from the one this method exists to fix.
+            limitations.append(LIMIT_UNRESOLVED_NESTED_PARAMS)
+            return _merge_credentials(
+                entries,
+                status,
+                [f"{MCP_NESTED_PARAMS_ARG}={CREDENTIAL_UNREADABLE_MARKER}"],
+                "unresolved",
+            )
+        nested_entries, nested_status = _read_credential_refs(
+            nested,
+            self.aliases,
+            limitations,
+            prefix=f"{MCP_NESTED_PARAMS_ARG}.",
+        )
+        return _merge_credentials(entries, status, nested_entries, nested_status)
 
     def _extract_mcp_toolset(self, call: ast.Call, agent_name: str) -> list[LoadedToolSource]:
         filter_values = _string_list(_kwarg_literal(call, "tool_filter"))
@@ -2262,13 +2334,22 @@ def _read_credential_refs(
     call: ast.Call,
     aliases: dict[str, str],
     limitations: list[str],
+    *,
+    prefix: str = "",
 ) -> tuple[list[str], RemoteBindingStatus]:
-    """Environment-variable references the connection's credential args carry.
+    """What the connection's credential-bearing arguments carry.
 
-    Returns ``("<where>=<NAME>"`` entries, status). ``where`` names the
-    argument the reference sits in so a reviewer can open the line. A literal
-    value under a sensitive key is credential material: it is counted as
-    present and *withheld*, never published.
+    Returns ``("<where>=<what>"`` entries, status). ``where`` names the
+    argument the entry sits in so a reviewer can open the line; ``what`` is the
+    environment variable *name*, or a marker for a value that was read and
+    withheld, or one that could not be read at all.
+
+    Every entry is listed, not only the references. A hardcoded credential
+    added beside an existing environment reference is a credential being
+    *added*, and recording it only as a limitation left the carried summary and
+    hash unchanged, so the delta never appeared (PR #540 review). The markers
+    carry presence and completeness without carrying a single byte of the
+    value.
     """
 
     refs: list[str] = []
@@ -2278,34 +2359,79 @@ def _read_credential_refs(
         expr = _kwarg(call, arg_name)
         if expr is None:
             continue
+        where = f"{prefix}{arg_name}"
         items = _dict_items(expr)
         if items is None:
             unresolved = True
             limitations.append(LIMIT_DYNAMIC_CREDENTIAL_EXPRESSION)
+            refs.append(f"{where}={CREDENTIAL_UNREADABLE_MARKER}")
             continue
         for key, value in items:
             env_ref = _environment_reference(value, aliases)
             if env_ref:
-                refs.append(f"{arg_name}.{key}={env_ref}")
+                refs.append(f"{where}.{key}={env_ref}")
                 continue
             if isinstance(value, ast.Constant) and isinstance(value.value, str):
                 # A literal under a non-credential header (``X-Client:
                 # "shipgate"``) is ordinary metadata, not a secret.
-                if is_sensitive_key(key):
+                if is_credential_key(key):
                     literal_credential = True
                     limitations.append(LIMIT_LITERAL_CREDENTIAL_VALUE)
+                    refs.append(f"{where}.{key}={CREDENTIAL_WITHHELD_MARKER}")
                 continue
             unresolved = True
             limitations.append(LIMIT_DYNAMIC_CREDENTIAL_EXPRESSION)
-    if refs:
-        return sorted(set(refs)), "environment_reference"
-    if literal_credential:
+            refs.append(f"{where}.{key}={CREDENTIAL_UNREADABLE_MARKER}")
+    entries = sorted(set(refs))
+    if not entries:
+        return [], "absent"
+    if literal_credential and not _has_environment_entry(entries):
         # Present, read, and deliberately withheld. The status is what makes
         # the hardcoded credential visible without publishing it.
-        return [], "redacted"
-    if unresolved:
-        return [], "unresolved"
-    return [], "absent"
+        return entries, "redacted"
+    if unresolved and not _has_environment_entry(entries):
+        return entries, "unresolved"
+    return entries, "environment_reference"
+
+
+def _is_connection_params_call(call: ast.Call, aliases: dict[str, str]) -> bool:
+    """Whether ``call`` constructs a recognized ADK connection-params object."""
+
+    name = _qualified_name(call.func, aliases) or ""
+    return name.rsplit(".", 1)[-1] in MCP_CONNECTION_TRANSPORTS
+
+
+def _merge_credentials(
+    outer: list[str],
+    outer_status: RemoteBindingStatus,
+    nested: list[str],
+    nested_status: RemoteBindingStatus,
+) -> tuple[list[str], RemoteBindingStatus]:
+    """Combine an outer connection's credential entries with its nested ones.
+
+    The status is the strongest claim either side supports: an established
+    environment reference anywhere wins, then a withheld literal, then
+    something unreadable. ``absent`` survives only when *both* sides are.
+    """
+
+    entries = sorted(set(outer) | set(nested))
+    if not entries:
+        return [], "absent"
+    statuses = {outer_status, nested_status}
+    for candidate in ("environment_reference", "redacted", "unresolved"):
+        if candidate in statuses:
+            return entries, candidate  # type: ignore[return-value]
+    return entries, "absent"
+
+
+def _has_environment_entry(entries: list[str]) -> bool:
+    """Whether any entry names an environment variable rather than a marker."""
+
+    return any(
+        not entry.endswith(CREDENTIAL_WITHHELD_MARKER)
+        and not entry.endswith(CREDENTIAL_UNREADABLE_MARKER)
+        for entry in entries
+    )
 
 
 def _read_endpoint(
