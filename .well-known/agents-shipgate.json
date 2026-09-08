@@ -211,7 +211,7 @@
   "agent_handoff_schema_version": "shipgate.agent_handoff/v8",
   "agent_handoff_schema_path": "docs/agent-handoff-schema.v8.json",
   "agent_handoff_artifact": "agents-shipgate-reports/agent-handoff.json",
-  "contract_version": "29",
+  "contract_version": "30",
   "minimum_control_contract_version": "21",
   "local_agent_contract_schema_version": "10",
   "inputs": [
@@ -287,7 +287,8 @@
     "org_status": "agents-shipgate-reports/org-status.json",
     "registry": ".agents-shipgate/registry.jsonl",
     "scenario": "scenario.json",
-    "governance_benchmark_result": "benchmark/agent-pr-governance/results/result.json"
+    "governance_benchmark_result": "benchmark/agent-pr-governance/results/result.json",
+    "human_review_request": "agents-shipgate-reports/human-review-request.json"
   },
   "capability_lock_schema_version": "0.8",
   "capability_lock_diff_schema_version": "0.9",
@@ -342,7 +343,8 @@
     "host_grants_drift",
     "agent_boundary_result",
     "governance_benchmark_catalog",
-    "governance_benchmark_result"
+    "governance_benchmark_result",
+    "human_review_request"
   ],
   "agent_interface_operations": [
     "verify_pr",
@@ -519,7 +521,8 @@
     "host_grants_drift": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/host-grants-drift-schema.v0.2.json",
     "scenario": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/scenario-schema.v0.1.json",
     "checks_catalog": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json",
-    "determinism_boundary": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/determinism-boundary.json"
+    "determinism_boundary": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/determinism-boundary.json",
+    "human_review_request": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/human-review-request-schema.v1.json"
   },
   "agent_instructions": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/AGENTS.md",
   "agent_contract": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-contract-current.md",
@@ -570,5 +573,8 @@
     "20": "gate_failure (strict-mode scan/verify; or opt-in governance gates: baseline status --require-owner/--require-expiry/--max-age-days, audit --host --drift --fail-on-drift)"
   },
   "agent_mode_env_var": "AGENTS_SHIPGATE_AGENT_MODE",
-  "plugin_opt_in_env_var": "AGENTS_SHIPGATE_ENABLE_PLUGINS"
+  "plugin_opt_in_env_var": "AGENTS_SHIPGATE_ENABLE_PLUGINS",
+  "human_review_request_schema_version": "shipgate.human_review_request/v1",
+  "human_review_request_schema_path": "docs/human-review-request-schema.v1.json",
+  "human_review_request_artifact": "agents-shipgate-reports/human-review-request.json"
 }

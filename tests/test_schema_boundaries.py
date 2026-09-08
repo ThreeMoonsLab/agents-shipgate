@@ -429,6 +429,9 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
             "~/.config/agents-shipgate/human-authorization-trust-policy.json"
         ),
         human_authorization_schema_path="docs/human-authorization-schema.v1.json",
+        human_review_request_schema_version="shipgate.human_review_request/v1",
+        human_review_request_schema_path="docs/human-review-request-schema.v1.json",
+        human_review_request_artifact="agents-shipgate-reports/human-review-request.json",
         agent_handoff_schema_version="shipgate.agent_handoff/v2",
         agent_handoff_schema_path="docs/agent-handoff-schema.v2.json",
         agent_handoff_artifact="agents-shipgate-reports/agent-handoff.json",
@@ -530,6 +533,9 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
             "~/.config/agents-shipgate/human-authorization-trust-policy.json"
         ),
         "human_authorization_schema_path": "docs/human-authorization-schema.v1.json",
+        "human_review_request_schema_version": "shipgate.human_review_request/v1",
+        "human_review_request_schema_path": "docs/human-review-request-schema.v1.json",
+        "human_review_request_artifact": "agents-shipgate-reports/human-review-request.json",
         "agent_handoff_schema_version": "shipgate.agent_handoff/v2",
         "agent_handoff_schema_path": "docs/agent-handoff-schema.v2.json",
         "agent_handoff_artifact": "agents-shipgate-reports/agent-handoff.json",
