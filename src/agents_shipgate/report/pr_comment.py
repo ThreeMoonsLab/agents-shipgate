@@ -21,7 +21,9 @@ from agents_shipgate.report.human_order import (
     should_render_surface_first,
     surface_lead,
 )
+from agents_shipgate.report.human_review import human_review_lines
 from agents_shipgate.schemas.capabilities import CapabilityLockDiffV1
+from agents_shipgate.schemas.human_review_request import HumanReviewRequestV1
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verifier import (
     VerifierArtifact,
@@ -72,18 +74,32 @@ def render_pr_comment(
     style: str = "capability-review",
     capability_lock_diff: CapabilityLockDiffV1 | None = None,
     human_context: HumanArtifactContext | None = None,
+    human_review_request: HumanReviewRequestV1 | None = None,
 ) -> str:
+    # The producer decides eligibility; this projection only accepts the same
+    # current request identity, never a request retained from an earlier run.
+    request = human_review_request
+    if request is not None and (
+        request.verification_request_id != verifier.request_id
+        or request.decision_id != verifier.decision_id
+        or request.input_set_id != verifier.input_set_id
+        or request.head_tree_sha != verifier.head_tree_sha
+        or verifier.decision != "review_required"
+    ):
+        request = None
     if style == "findings":
         return _render_findings_comment(
             verifier,
             report=report,
             human_context=human_context,
+            human_review_request=request,
         )
     return _render_capability_review_comment(
         verifier,
         report=report,
         capability_lock_diff=capability_lock_diff,
         human_context=human_context,
+        human_review_request=request,
     )
 
 
@@ -93,10 +109,12 @@ def _render_capability_review_comment(
     report: ReadinessReport | None,
     capability_lock_diff: CapabilityLockDiffV1 | None,
     human_context: HumanArtifactContext | None,
+    human_review_request: HumanReviewRequestV1 | None,
 ) -> str:
     prose_lines = [
         STICKY_MARKER,
         "## Agents Shipgate",
+        *(human_review_lines(human_review_request) if human_review_request else []),
         *_human_summary_lines(
             verifier,
             report=report,
@@ -573,6 +591,7 @@ def _render_findings_comment(
     *,
     report: ReadinessReport | None,
     human_context: HumanArtifactContext | None,
+    human_review_request: HumanReviewRequestV1 | None,
 ) -> str:
     surface_first = bool(
         report is not None and should_render_surface_first(report, context=human_context)
@@ -594,6 +613,8 @@ def _render_findings_comment(
         else f"## Agents Shipgate result: {verifier.merge_verdict}"
     )
     lines = [STICKY_MARKER, title]
+    if human_review_request is not None:
+        lines.extend(human_review_lines(human_review_request))
     if surface_first and report is not None:
         lines.extend(
             [

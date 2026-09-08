@@ -562,27 +562,40 @@ runs:
           // Upsert via sticky marker so re-runs update the existing comment instead of spamming the PR.
           // Paginate the lookup — single-page (per_page=100) misses the marker on PRs with >100
           // earlier comments before Shipgate's first run, which would silently regress to append-only.
-          const allComments = await github.paginate(github.rest.issues.listComments, {
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: context.issue.number,
-            per_page: 100,
-          });
-          const prior = allComments.find((c) => c.body && c.body.startsWith(STICKY));
-          if (prior) {
-            await github.rest.issues.updateComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              comment_id: prior.id,
-              body,
-            });
-          } else {
-            await github.rest.issues.createComment({
+          try {
+            const allComments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body,
+              per_page: 100,
             });
+            const prior = allComments.find((c) => c.body && c.body.startsWith(STICKY));
+            if (prior) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: prior.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+          } catch (error) {
+            const headers = error.response?.headers || {};
+            const rateLimited = headers['x-ratelimit-remaining'] === '0' ||
+              headers['retry-after'] !== undefined || /rate limit/i.test(error.message || '');
+            if (![403, 404].includes(error.status) || rateLimited) throw error;
+            const limitation = 'PR comment publication is unavailable with this token or PR context. ' +
+              'Read the review below in the workflow summary. No authenticated decision is recorded; ' +
+              'the verifier gate and current control still apply.';
+            core.warning(limitation);
+            await core.summary.addHeading('Agents Shipgate: PR publication unavailable', 2)
+              .addRaw(limitation, true).addRaw(body, true).write();
           }
 
     - name: Build Agents Shipgate check-run payload

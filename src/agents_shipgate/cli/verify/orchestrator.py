@@ -4484,6 +4484,7 @@ def _write_artifacts(
             style=pr_comment_style,
             capability_lock_diff=capability_lock_diff,
             human_context=human_context,
+            human_review_request=review_request,
         ),
         encoding="utf-8",
     )
