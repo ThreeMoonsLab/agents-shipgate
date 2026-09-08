@@ -4003,19 +4003,28 @@ def _evaluate_authorization_overlay(
             ),
             None,
         )
+    # Fixed prerequisite names expose where context construction stopped,
+    # without publishing exception text or fragments of an external grant.
+    context_failure = "authorization_context_report_missing"
     try:
         if report is None:
             raise ValueError("authorization requires a release report")
+        context_failure = "authorization_context_runtime_validation_failed"
         ensure_authorization_runtime_is_external(workspace)
+        context_failure = "authorization_context_replace_refs_inspection_failed"
         if active_replace_refs(workspace):
+            context_failure = "authorization_context_replace_refs_present"
             raise ValueError("authorization rejects repositories with Git replace refs")
+        context_failure = "authorization_context_grant_load_failed"
         grant = _load_external_human_authorization(
             authorization_path,
             workspace=workspace,
         )
+        context_failure = "authorization_context_review_set_failed"
         review_items = authorization_review_items(report.release_decision.model_dump(mode="json"))
         git = plan.subject.git
         if git.snapshot_kind != "committed_tree" or git.worktree_overlay_sha256 is not None:
+            context_failure = "authorization_context_subject_not_committed"
             raise ValueError("authorization requires a committed Git subject")
         if not (
             git.base_commit_sha
@@ -4024,11 +4033,14 @@ def _evaluate_authorization_overlay(
             and git.head_tree_sha
             and git.source_head_commit_sha
         ):
+            context_failure = "authorization_context_subject_identity_incomplete"
             raise ValueError("authorization requires complete committed PR tree identity")
         signed_source = grant.statement.request
         if signed_source.source_engine_requirement_id != plan.engine.engine_requirement_id:
+            context_failure = "authorization_context_source_engine_mismatch"
             raise ValueError("authorization source engine differs from the current engine")
         if signed_source.source_executor_id != verifier.executor_id:
+            context_failure = "authorization_context_source_executor_mismatch"
             raise ValueError("authorization source executor differs from the current executor")
         # These two IDs are signer-authenticated provenance labels. Unlike the
         # engine, executor, request, subject, decision, tree, review-set, and
@@ -4036,6 +4048,7 @@ def _evaluate_authorization_overlay(
         # set are not transported into this second verification pass. Copying
         # them preserves the exact signed request; it is not an independent
         # provenance check by this verifier.
+        context_failure = "authorization_context_request_build_failed"
         expected_request = build_human_authorization_request(
             repository_id=git.repository_id,
             source_receipt_id=signed_source.source_receipt_id,
@@ -4054,7 +4067,10 @@ def _evaluate_authorization_overlay(
             operation=grant.statement.request.operation,
         )
     except (OSError, ValueError, json.JSONDecodeError):
-        return AuthorizationEvaluationV1.rejected("authorization_context_invalid"), None
+        return (
+            AuthorizationEvaluationV1.rejected("authorization_context_invalid", context_failure),
+            None,
+        )
 
     evaluation = evaluate_human_authorization(
         grant,

@@ -697,9 +697,60 @@ def test_plugin_enabled_verification_never_exposes_authorized_command(
     ]
 
 
+_CONTEXT_FAILURES = (
+    "report_missing", "runtime_validation_failed", "replace_refs_inspection_failed",
+    "replace_refs_present", "grant_load_failed", "review_set_failed",
+    "subject_not_committed", "subject_identity_incomplete", "source_engine_mismatch",
+    "source_executor_mismatch", "request_build_failed",
+)
+
+
+def _inject_context_failure(
+    failure: str, *, monkeypatch: pytest.MonkeyPatch, secret: str,
+) -> None:
+    """Fail one overlay prerequisite, leaving the actual verifier plan intact."""
+    original = orchestrator._evaluate_authorization_overlay
+
+    def evaluate(**kwargs):
+        with monkeypatch.context() as scoped:
+            def unavailable(*args, **kwargs):
+                error = (
+                    OSError if failure in {"runtime_validation_failed", "replace_refs_inspection_failed"}
+                    else ValueError
+                )
+                raise error(f"private context: {secret}")
+
+            operations = {
+                "runtime_validation_failed": "ensure_authorization_runtime_is_external",
+                "replace_refs_inspection_failed": "active_replace_refs",
+                "review_set_failed": "authorization_review_items",
+                "request_build_failed": "build_human_authorization_request",
+            }
+            if failure in operations:
+                scoped.setattr(orchestrator, operations[failure], unavailable)
+            elif failure == "replace_refs_present":
+                scoped.setattr(orchestrator, "active_replace_refs", lambda _: True)
+            elif failure == "report_missing":
+                kwargs["report"] = None
+            elif failure in {"subject_not_committed", "subject_identity_incomplete"}:
+                plan = kwargs["plan"]
+                update = (
+                    {"snapshot_kind": "worktree_overlay"}
+                    if failure == "subject_not_committed" else {"base_tree_sha": None}
+                )
+                # Model an incomplete prerequisite only at this evaluation
+                # boundary; the real run/receipt retains its committed plan.
+                git = plan.subject.git.model_copy(update=update)
+                subject = plan.subject.model_copy(update={"git": git})
+                kwargs["plan"] = plan.model_copy(update={"subject": subject})
+            return original(**kwargs)
+
+    monkeypatch.setattr(orchestrator, "_evaluate_authorization_overlay", evaluate)
+
+
 @pytest.mark.parametrize(
     "failure",
-    ["tampered", "expired", "wrong_tree", "missing_trust"],
+    ["tampered", "expired", "wrong_tree", "missing_trust", *_CONTEXT_FAILURES],
 )
 def test_invalid_authorization_keeps_human_stop_and_receipt_valid(
     tmp_path: Path,
@@ -707,11 +758,15 @@ def test_invalid_authorization_keeps_human_stop_and_receipt_valid(
     failure: str,
 ) -> None:
     repo = _committed_review_repo(tmp_path)
+    # Establish the external-runtime fixture before either pass. This makes
+    # prerequisites explicit; it is not a claimed fix for the #548 flake.
+    _install_protected_test_broker_runtime(tmp_path, monkeypatch)
     initial, report, exit_code = _verify(repo)
     assert exit_code == 0
     assert report is not None
     assert initial.control.state == "review_publishable"
     _validated_receipt(repo / "agents-shipgate-reports")
+    first_engine = _load_json(repo / "agents-shipgate-reports" / "verification-plan.json")["engine"]
 
     request = _request_from_first_verification(repo)
     now = datetime.now(UTC)
@@ -725,19 +780,25 @@ def test_invalid_authorization_keeps_human_stop_and_receipt_valid(
         )
 
     grant_request = request
-    if failure == "wrong_tree":
+    if failure in {"wrong_tree", "source_engine_mismatch", "source_executor_mismatch"}:
         grant_request = build_human_authorization_request(
             repository_id=request.repository_id,
             source_receipt_id=request.source_receipt_id,
             source_artifact_set_id=request.source_artifact_set_id,
-            source_engine_requirement_id=request.source_engine_requirement_id,
-            source_executor_id=request.source_executor_id,
+            source_engine_requirement_id=(
+                "sha256:" + "e" * 64 if failure == "source_engine_mismatch"
+                else request.source_engine_requirement_id
+            ),
+            source_executor_id=(
+                "sha256:" + "d" * 64 if failure == "source_executor_mismatch"
+                else request.source_executor_id
+            ),
             verification_request_id=request.verification_request_id,
             subject_id=request.subject_id,
             decision_id=request.decision_id,
             base_commit_sha=request.base_commit_sha,
             merge_base_sha=request.merge_base_sha,
-            base_tree_sha="f" * 40,
+            base_tree_sha="f" * 40 if failure == "wrong_tree" else request.base_tree_sha,
             head_tree_sha=request.head_tree_sha,
             source_head_commit_sha=request.source_head_commit_sha,
             review_items=request.review_items,
@@ -775,12 +836,28 @@ def test_invalid_authorization_keeps_human_stop_and_receipt_valid(
         "default_human_authorization_trust_policy_path",
         lambda: trust_path,
     )
-    _install_protected_test_broker_runtime(tmp_path, monkeypatch)
+    secret = "ghp_" + "S" * 36
+    if failure == "grant_load_failed":
+        grant_path.write_text('{"credential": "' + secret + '"', encoding="utf-8")
+    if failure in _CONTEXT_FAILURES:
+        _inject_context_failure(failure, monkeypatch=monkeypatch, secret=secret)
 
     rejected, rejected_report, rejected_exit = _verify(
         repo,
         authorization=grant_path,
     )
+
+    second_engine = _load_json(repo / "agents-shipgate-reports" / "verification-plan.json")["engine"]
+    assert isinstance(first_engine, dict) and isinstance(second_engine, dict)
+    changed_identity_fields = sorted(
+        key for key in first_engine.keys() | second_engine.keys()
+        if first_engine.get(key) != second_engine.get(key)
+    )
+    if initial.executor_id != rejected.executor_id:
+        changed_identity_fields.append("executor_id")
+    # A context rejection is not an acceptable substitute for missing trust.
+    # If the fixture's engine moves, name the differing fields, not their data.
+    assert not changed_identity_fields, f"Fixture runtime changed: {changed_identity_fields}"
 
     assert rejected_exit == exit_code
     assert rejected_report is not None
@@ -796,8 +873,14 @@ def test_invalid_authorization_keeps_human_stop_and_receipt_valid(
             "authorization_request_mismatch",
         },
         "missing_trust": {"trust_policy_unavailable"},
+        **{
+            kind: {"authorization_context_invalid", f"authorization_context_{kind}"}
+            for kind in _CONTEXT_FAILURES
+        },
     }
     assert expected_reasons[failure] <= set(rejected.authorization.reason_codes)
+    if failure in _CONTEXT_FAILURES:
+        assert set(rejected.authorization.reason_codes) == expected_reasons[failure]
     # Every other case must be rejected for its own reason, never because the
     # fixture grant aged out while the test ran.
     if failure != "expired":
@@ -822,3 +905,5 @@ def test_invalid_authorization_keeps_human_stop_and_receipt_valid(
     assert not (out / "human-authorization.json").exists()
     receipt = _validated_receipt(out)
     assert "human_authorization_json" not in receipt.artifact_manifest.artifacts
+    for artifact in receipt.artifact_manifest.artifacts.values():
+        assert secret.encode() not in (out / artifact.path).read_bytes()
