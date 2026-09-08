@@ -210,3 +210,4 @@ class _SanitizedSurfaces:
     # load order. Carried separately from ``source_warnings`` because only
     # these are proven omissions — see ``core.surface_exclusions``.
     source_omissions: list[Any]
+    source_recovery_evidence: list[Any]

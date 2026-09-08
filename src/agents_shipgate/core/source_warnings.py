@@ -54,14 +54,19 @@ from __future__ import annotations
 import ast
 import hashlib
 from collections.abc import Callable, Collection, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING
 
 from agents_shipgate.core.evidence_actions import (
     _ESCAPE_PATTERN,
     _WHITESPACE_RUN,
+    display_literal,
     has_visible_content,
     one_line,
 )
+
+if TYPE_CHECKING:
+    from agents_shipgate.schemas.report import EvidenceGap
 
 
 # A warning made only of controls and invisible code points renders as
@@ -368,7 +373,9 @@ class SourceWarningGroup:
         return visible_skeleton(self.message)
 
 
-def group_source_warnings(warnings: Sequence[str]) -> list[SourceWarningGroup]:
+def group_source_warnings(
+    warnings: Sequence[str], *, evidence_gaps: Sequence[EvidenceGap] = (),
+) -> list[SourceWarningGroup]:
     """Fold the rows of a known mechanism; leave everything else alone.
 
     Order is stable: groups appear in first-warning order, and subjects
@@ -427,7 +434,23 @@ def group_source_warnings(warnings: Sequence[str]) -> list[SourceWarningGroup]:
                 warnings=raw,
             )
         )
-    return groups
+    # Recovery is already a typed, source-joined loader fact. Never infer it
+    # from the prose decoder above or from declaration authorship. Attach it
+    # to the existing warning line; counts and raw warning bytes stay intact.
+    remedies: dict[str, list[str]] = {}
+    for gap in evidence_gaps:
+        if gap.kind == "source_warning" and gap.recovery is not None:
+            remedy = one_line(gap.next_action.expects)
+            if gap.source_ref:
+                remedy += f" Source: {display_literal(gap.source_ref)}."
+            remedies.setdefault(gap.subject, []).append(remedy)
+    return [
+        replace(group, message=" ".join([
+            group.message,
+            *dict.fromkeys(text for warning in group.warnings for text in remedies.get(warning, ())),
+        ]))
+        for group in groups
+    ]
 
 
 @dataclass(frozen=True)

@@ -187,6 +187,10 @@ def test_runtime_and_discovery_name_the_same_request_contract():
 # The schema identifiers below are already published. #536 must not silently
 # widen any of them when adding a postcondition to a new, separate artifact.
 # Successor grammars get successor filenames; historical bytes stay readable.
+# #561 adds only explanatory metadata to the existing open EvidenceGap. Its
+# two additive nodes are checked separately below, then removed to compare
+# the entire preceding grammar against its ORIGINAL digest. No control field,
+# constraint, or other schema content is exempted from the freeze.
 FROZEN_CONTROL_SCHEMAS = {
     "verifier-schema.v0.16.json": "cfa834d9bf047d3e39ffed531f19fbd7ed2cd6e82353789dddb7a458dfae408a",
     "agent-handoff-schema.v8.json": "036dc757914a297b34ebb9b7ca10c21869c5c91820fa7f07bda415c1effe30c3",
@@ -201,8 +205,21 @@ FROZEN_CONTROL_SCHEMAS = {
 @pytest.mark.parametrize("filename,digest", FROZEN_CONTROL_SCHEMAS.items())
 def test_review_postcondition_does_not_widen_a_published_control_grammar(filename, digest):
     raw = (Path("docs") / filename).read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == digest
     schema = json.loads(raw)
+    if filename == "verifier-schema.v0.16.json":
+        original = copy.deepcopy(schema)
+        gap = original["$defs"]["EvidenceGap"]
+        assert gap.get("additionalProperties", True) is True
+        assert "recovery" not in gap.get("required", [])
+        assert gap["properties"].pop("recovery") == {
+            "anyOf": [{"$ref": "#/$defs/CoverageRecovery"}, {"type": "null"}],
+            "default": None,
+        }
+        from agents_shipgate.schemas.coverage_recovery import CoverageRecovery
+
+        assert original["$defs"].pop("CoverageRecovery") == CoverageRecovery.model_json_schema()
+        raw = (json.dumps(original, indent=2, sort_keys=True) + "\n").encode()
+    assert hashlib.sha256(raw).hexdigest() == digest
     action = {"actor": "human", "kind": "review", "command": None,
               "expects": None, "why": "Review the exact scope"}
     action_schema = {"$ref": "#/$defs/HumanControlAction", "$defs": schema["$defs"]}

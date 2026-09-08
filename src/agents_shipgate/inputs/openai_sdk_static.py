@@ -24,6 +24,7 @@ from agents_shipgate.inputs.python_static import (
     function_signature,
     parse_python_file,
 )
+from agents_shipgate.schemas.coverage_recovery import CoverageRecovery, SourceRecoveryEvidence
 from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
     ToolSourceConfig,
@@ -46,10 +47,17 @@ def load_openai_sdk_static_tools(
         )
     path = resolve_input_path(base_dir, entrypoint)
     if not path.exists():
+        warning = f"OpenAI Agents SDK entrypoint not found: {path}"
+        ref = display_path(path, base_dir)
         return LoadedToolSource(
             source_id=source.id,
             source_type="openai_agents_sdk",
-            warnings=[f"OpenAI Agents SDK entrypoint not found: {path}"],
+            warnings=[warning],
+            recovery_evidence=[SourceRecoveryEvidence(
+                warning=warning, source_id=source.id, source_type="openai_agents_sdk",
+                source_ref=ref, path=ref,
+                recovery=CoverageRecovery(kind="input_unavailable", reason="sdk_entrypoint_not_found"),
+            )],
         )
     if path.is_dir():
         python_files = sorted(path.glob("*.py"))
@@ -68,7 +76,7 @@ def load_openai_sdk_static_tools(
         raise InputParseError(
             f"OpenAI Agents SDK source must be a Python file or directory: {path}"
         )
-    binding_warnings, binding_observations = _extract_agent_bindings(
+    binding_warnings, binding_observations, recovery_evidence = _extract_agent_bindings(
         tools, python_files, source, base_dir
     )
     return LoadedToolSource(
@@ -78,6 +86,7 @@ def load_openai_sdk_static_tools(
         toolkit_bounds=toolkit_bounds,
         binding_observations=binding_observations,
         warnings=[*_toolkit_binding_warnings(toolkit_bounds), *binding_warnings],
+        recovery_evidence=recovery_evidence,
     )
 
 
@@ -134,7 +143,7 @@ def _extract_agent_bindings(
     paths: list[Path],
     source: ToolSourceConfig,
     base_dir: Path,
-) -> tuple[list[str], list[AgentBindingObservation]]:
+) -> tuple[list[str], list[AgentBindingObservation], list[SourceRecoveryEvidence]]:
     """Extract exact, local-only ``Agent(..., tools=[...])`` wiring.
 
     This intentionally resolves only literal lists, names bound to literal
@@ -144,6 +153,7 @@ def _extract_agent_bindings(
 
     warnings: list[str] = []
     observations: list[AgentBindingObservation] = []
+    recovery_evidence: list[SourceRecoveryEvidence] = []
     tool_by_name = {tool.name: tool for tool in tools}
     tool_by_name.update(
         {
@@ -185,6 +195,18 @@ def _extract_agent_bindings(
                 )
                 warnings.append(reason)
                 issues.append(reason)
+                literal_concat = _literal_tool_list_concatenation(tools_expr)
+                recovery_evidence.append(SourceRecoveryEvidence(
+                    warning=reason, source_id=source.id, source_type="openai_agents_sdk",
+                    source_ref=pointer, path=source_ref,
+                    recovery=CoverageRecovery(
+                        kind="reader_limitation" if literal_concat else "unresolved",
+                        reason=(
+                            "sdk_literal_tool_list_concatenation_unsupported" if literal_concat
+                            else "sdk_tools_expression_unresolved"
+                        ),
+                    ),
+                ))
                 tools_complete = False
                 names = []
             else:
@@ -224,7 +246,23 @@ def _extract_agent_bindings(
                     issues=issues,
                 )
             )
-    return list(dict.fromkeys(warnings)), observations
+    return list(dict.fromkeys(warnings)), observations, recovery_evidence
+
+
+def _literal_tool_list_concatenation(value: ast.AST | None) -> bool:
+    """One proven reader limitation, never a claim about deployed wiring.
+
+    Python defines addition of two literal lists, but this reader's name-list
+    resolver has no BinOp branch. Calls, unpacking and other expressions do
+    not prove a product-owned repair and deliberately remain unresolved.
+    """
+    return (
+        isinstance(value, ast.BinOp)
+        and isinstance(value.op, ast.Add)
+        and isinstance(value.left, ast.List)
+        and isinstance(value.right, ast.List)
+        and all(isinstance(item, ast.Name) for item in [*value.left.elts, *value.right.elts])
+    )
 
 
 def _assignment_target(node: ast.Assign | ast.AnnAssign) -> str | None:

@@ -15,6 +15,16 @@ for reproducible CI.
 
 ## Qualification coverage diagnostics (v6, #520)
 
+`EvidenceGap.recovery` is optional explanatory metadata (#561) on the existing
+open gap object. `kind` distinguishes `input_unavailable`, `reader_limitation`
+and `unresolved`; `reason` records the loader's typed evidence. Current SDK
+coverage and its limits are documented in [source recovery evidence](docs/qualification-coverage.md#source-recovery-evidence).
+An absent field remains absent when older rows are read. Report v0.43,
+packet v0.18, verifier v0.16 and qualification v6 retain their versions;
+decision-bearing action kinds, declaration authorship and control permissions
+are unchanged. This classification never supplies missing evidence or makes an
+actual IE count as a successful qualification outcome.
+
 `shipgate.safety_qualification` advances v5 → v6 to add `coverage_misses[]`
 and `intervals[].applicability` to the existing result. Both are required on
 v6; the reader checks their counts, cases and applicability against recorded

@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from agents_shipgate.core.declaration_questions import progress_sentence
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
+from agents_shipgate.core.evidence_actions import display_literal
 from agents_shipgate.core.findings.subject_rollup import (
     roll_up_findings,
     top_findings_block,
@@ -206,6 +207,7 @@ def _human_summary_lines(
     assert review is not None
     lines.append(f"- Release gate: `{decision.decision}`")
     lines.append(f"- Reason: {_bounded_prose(decision.reason)}")
+    lines.extend(_coverage_recovery_lines(report))
     if not surface_first:
         lines.extend(capability_lines)
     if capability_lock_diff is not None:
@@ -254,6 +256,31 @@ def _human_summary_lines(
             lines.extend(_policy_change_lines(review))
     lines.extend(_trigger_and_base_summary(verifier))
     lines.extend(_artifact_summary_lines(verifier))
+    return lines
+
+
+def _coverage_recovery_lines(report: ReadinessReport | None) -> list[str]:
+    """Keep typed source remedies visible when the bulky fix task is omitted.
+
+    The existing comment budget can replace fix_task with an artifact pointer.
+    A reader should still see why the source needs input or a reader repair.
+    This is bounded explanatory prose; the preserved control block is authority.
+    """
+    if report is None or report.release_decision is None:
+        return []
+    gaps = [
+        gap for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "source_warning" and gap.recovery is not None
+    ]
+    lines = []
+    for gap in gaps[:3]:
+        location = (
+            f" Source: {_bounded_identity_code(display_literal(gap.source_ref))}."
+            if gap.source_ref else ""
+        )
+        lines.append(f"- Source recovery: {_bounded_prose(gap.next_action.expects)}{location}")
+    if len(gaps) > 3:
+        lines.append(f"- {len(gaps) - 3} more source recoveries; see report.json evidence gaps.")
     return lines
 
 
@@ -631,6 +658,7 @@ def _render_findings_comment(
             include_release_gate=report is None or not surface_first,
         )
     )
+    lines.extend(_coverage_recovery_lines(report))
     if not surface_first:
         # Keep the exact grouped disclosure ahead of repository-controlled
         # prose. The final row-aware bound may omit later context, but it must

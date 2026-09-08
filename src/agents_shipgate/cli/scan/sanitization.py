@@ -15,7 +15,7 @@ from agents_shipgate.core.baseline import (
     baseline_resolved_fingerprints,
     verify_baseline,
 )
-from agents_shipgate.core.domain import Agent, SourceSurfaceOmission
+from agents_shipgate.core.domain import Agent, LoadedToolSource, SourceSurfaceOmission
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.findings.identity import assign_finding_ids
 from agents_shipgate.core.findings.remediation import annotate_remediation
@@ -37,6 +37,7 @@ from agents_shipgate.core.lenses.tool_surface import (
     enrich_tool_surface_diff_with_source,
 )
 from agents_shipgate.core.privacy import (
+    RedactionStats,
     build_privacy_audit,
     redact_data,
     sanitize_findings,
@@ -44,6 +45,7 @@ from agents_shipgate.core.privacy import (
     sanitize_tools,
 )
 from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, BindingSurfaceDiff
+from agents_shipgate.schemas.coverage_recovery import CoverageRecovery, SourceRecoveryEvidence
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.report import (
     BaselineSummary,
@@ -399,6 +401,7 @@ def _sanitize_for_output(
         toolkit_bounds=decision.context.toolkit_bounds,
         remote_bindings=decision.context.remote_bindings,
     )
+    source_recovery_evidence = _sanitize_source_recovery_evidence(inputs.loaded_sources, privacy_stats)
     privacy_audit = build_privacy_audit(
         privacy_stats,
         output_surfaces=plan.output_surfaces,
@@ -475,7 +478,46 @@ def _sanitize_for_output(
             for loaded in inputs.loaded_sources
             for omission in loaded.omissions
         ],
+        source_recovery_evidence=source_recovery_evidence,
     )
+
+
+def _sanitize_source_recovery_evidence(
+    loaded_sources: list[LoadedToolSource], privacy_stats: RedactionStats,
+) -> list[SourceRecoveryEvidence]:
+    """Join within the original source, then detect public identity collisions.
+
+    Even a warning without a typed repair owns its origin. Redacting it to the
+    same text as a classified warning must not borrow that warning's owner.
+    """
+    public_origins: dict[str, set[tuple[int, str]]] = {}
+    for index, loaded in enumerate(loaded_sources):
+        for warning in loaded.warnings:
+            public = redact_data(warning)
+            public_origins.setdefault(public, set()).add((index, warning))
+    facts = []
+    for loaded in loaded_sources:
+        for fact in loaded.recovery_evidence:
+            if (
+                fact.warning not in loaded.warnings
+                or fact.source_id != loaded.source_id
+                or fact.source_type != loaded.source_type
+            ):
+                # A record that does not name its own source/warning proves
+                # no association. It cannot classify somebody else's gap.
+                continue
+            public = sanitize_model(
+                fact, SourceRecoveryEvidence, stats=privacy_stats,
+                path="source_recovery_evidence[]",
+            )
+            if len(public_origins.get(public.warning, ())) != 1:
+                public = public.model_copy(update={
+                    "recovery": CoverageRecovery(
+                        kind="unresolved", reason="ambiguous_warning_identity"
+                    ),
+                })
+            facts.append(public)
+    return facts
 
 
 def _indeterminate_override_positions(

@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.schemas.common import Confidence, ProvenanceKind, parse_confidence
+from agents_shipgate.schemas.coverage_recovery import SourceRecoveryEvidence
 from agents_shipgate.schemas.surfaces import ActionEffect
 
 SemanticDimension = Literal["identity", "binding", "effect", "authority"]
@@ -719,6 +720,10 @@ class LoadedToolSource(BaseModel):
     configured_source_id: str | None = None
     tools: list[Tool] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    # Explanatory loader evidence, separate from actual surface omissions.
+    recovery_evidence: list[SourceRecoveryEvidence] = Field(
+        default_factory=list, exclude_if=lambda value: not value
+    )
     # Entries this source dropped. Empty for every adapter that has not been
     # taught to record them, which is why the exclusion ledger reports what it
     # can prove rather than guessing from `warnings`.

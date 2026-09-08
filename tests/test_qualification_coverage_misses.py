@@ -47,6 +47,33 @@ def test_actual_ie_keeps_named_gaps_and_unclassified_cases(tmp_path):
     assert (metric.numerator, metric.denominator, metric.passed) == (0, 1, False)
 
 
+@pytest.mark.parametrize("expression,expected", [
+    (None, "input_unavailable"),
+    ("[read_tool] + [other_tool]", "reader_limitation"),
+    ("get_tools()", "unresolved"),
+])
+def test_real_sdk_recovery_survives_qualification_without_relabeling(tmp_path, expression, expected):
+    from test_coverage_recovery import _project, _scan
+
+    report = _scan(_project(tmp_path / "project", expression), tmp_path / "reports")
+    gap = next(g for g in report.release_decision.evidence_coverage.evidence_gaps if g.recovery)
+    paths = _fixture(
+        tmp_path,
+        actual_overrides={"case-review_required": "insufficient_evidence"},
+        evidence_gaps={"case-review_required": [gap.model_dump(mode="json")]},
+    )
+    result = _run(paths)
+    miss = next(c for c in result.coverage_misses[0].cases if c.case_id == "case-review_required")
+    assert miss.evidence_gaps[0] == gap
+    assert miss.evidence_gaps[0].recovery.kind == expected
+    assert miss.evidence_gaps[0].next_action.authorable_by == "human"
+    assert result.schema_version == "shipgate.safety_qualification/v6"
+    assert result.qualified is False
+    metric = next(x for x in result.intervals if x.name == "review_exact_rate")
+    assert (metric.numerator, metric.denominator, metric.passed) == (0, 1, False)
+    assert SafetyQualificationResultV1.model_validate(result.model_dump(mode="json")) == result
+
+
 def test_missing_receipt_is_unscored_not_a_zero_miss(tmp_path):
     paths = _fixture(tmp_path)
     index = json.loads(paths[2].read_text())
