@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+- **The FastMCP signature projection now resolves the injected `Context`, and
+  says so when it cannot read a type.** (#539) #535 made Python MCP servers
+  discoverable and read their signatures. Two of the facts it published about
+  those signatures could be wrong, and both were reproduced through the
+  production loader: an application model named `Context` was **erased** — the
+  catalog published `update() -> str` for a tool whose one required input is a
+  model carrying `account_id` — and `from mcp.server.fastmcp import Context as
+  RequestContext` was **not recognised**, so the value the framework supplies
+  became a required `string` the caller is asked for. Both came from the same
+  cause: the request context was matched on the last token of the annotation's
+  spelling, while the SDK matches on the resolved class.
+
+  The reader now answers with the module's own import and class table — the
+  machinery that already follows `@mcp.tool` back to a `FastMCP(...)`
+  construction, with the same prefix rule, the same refusal on a doubly-bound
+  name, and one addition: the base list, because the SDK injects any *subclass*
+  of its context. Qualified spellings, `import ... as` aliases, forward
+  references and same-name application classes are all resolved; a name two
+  statements bind and relative imports without class provenance are not, and those
+  keep the parameter with `unresolved_context_identity` recorded against the
+  tool rather than picking a direction silently.
+
+  Separately, a parameter's type is now whatever its annotation **denotes**,
+  read from the annotation's tree. The shared string-matching emitter answers
+  `string` for everything it does not recognise, so `int | None`,
+  `Annotated[int, Field(ge=1)]`, `typing.List[str]` and a Pydantic model all
+  shipped as concrete string schemas on `enumerated` evidence. Containers and
+  the underlying type in an `Annotated` spelling are projected where known;
+  nullable unions remain partial because this one-type projection cannot
+  express both a value and null. Anything unrepresentable publishes **no** type — an empty property
+  schema, `untyped_parameter` or `unrepresentable_annotation` in the tool's
+  `surface_gaps`, and `partial` for that tool's surface. The return annotation
+  is read by the same rule, because `output_schema` came from the same
+  fallback. A container's kind does not depend on what it holds —
+  `Dict[str, Any]` is an object, and this projection publishes no element
+  schema for any annotation, a bare `list` included — but a mapping's *key*
+  does, so `dict[int, str]` is refused. The broader SDK whole-signature and
+  generic-context injection boundary is tracked separately in #542.
+
+  Nothing about the route changes: the tool keeps its name, its file and line,
+  the `medium` ceiling and the exclusion ledger it already had, and a partial
+  signature closes no effect, authority or binding declaration. Both readers
+  move together — `tools/shipgate-detect.py` carries the same resolution and
+  the shared corpus compares it field by field — and the detector's published
+  verdict, frameworks and evidence are unchanged, so `script_version` stays
+  `0.6.0`.
+
 - **A changed MCP endpoint or credential reference now reaches the reviewer.**
   (#538) An ADK agent that mounts a remote MCP server declares its authority in
   the constructor: *this agent will call whatever `https://…/mcp` advertises,

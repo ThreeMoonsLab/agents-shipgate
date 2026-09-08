@@ -1641,11 +1641,28 @@ def _site_fields(site: Any) -> dict[str, Any]:
             None
             if site.parameters is None
             else [
-                (parameter.name, parameter.annotation, parameter.required)
+                (
+                    parameter.name,
+                    parameter.annotation,
+                    parameter.required,
+                    # Which parameters the framework injects decides the
+                    # published input schema in both directions — a lost real
+                    # input, or an invented caller requirement (#539) — and it
+                    # is resolved from the module's own bindings, so a port
+                    # that carried the dataclass default would agree on every
+                    # name and disagree about every signature.
+                    parameter.injection,
+                    # And what type that parameter publishes: the two readers
+                    # resolve the annotation tree against the same binding
+                    # table, so a spelling one represents and the other does
+                    # not is a disagreement about the published schema.
+                    parameter.json_type,
+                )
                 for parameter in site.parameters
             ]
         ),
         "returns": site.returns,
+        "returns_json_type": site.returns_json_type,
         "proves_server": site.proves_server,
     }
 

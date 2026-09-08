@@ -1709,6 +1709,248 @@ REGRESSIONS: dict[str, SourceCase] = {
         "def described() -> None:\n"
         '    """What the author wrote for a reader."""\n',
     ),
+    # --- Which parameters the framework injects (#539) ----------------------
+    #
+    # The SDK resolves the annotation and checks class identity; a reader
+    # matching the last token of the spelling answers wrongly in *both*
+    # directions, so each shape below is paired with the one that looks
+    # identical and must come back the other way.
+    "python_application_model_named_context": SourceCase(
+        "python_application_model_named_context",
+        "python",
+        "from mcp.server.fastmcp import FastMCP\n"
+        "from pydantic import BaseModel\n"
+        "\n"
+        "\n"
+        "class Context(BaseModel):\n"
+        "    account_id: str\n"
+        "\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def update(context: Context) -> str:\n"
+        '    return "ok"\n',
+    ),
+    "python_framework_context_under_an_alias": SourceCase(
+        "python_framework_context_under_an_alias",
+        "python",
+        "from mcp.server.fastmcp import Context as RequestContext, FastMCP\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def lookup(query: str, ctx: RequestContext) -> str:\n"
+        '    return "ok"\n',
+    ),
+    "python_framework_context_qualified": SourceCase(
+        "python_framework_context_qualified",
+        "python",
+        "import mcp.server.fastmcp\n"
+        "from mcp.server.fastmcp import FastMCP\n"
+        "\n"
+        'mcp_server = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp_server.tool()\n"
+        "def qualified(ctx: mcp.server.fastmcp.Context, query: str) -> str:\n"
+        '    return "ok"\n',
+    ),
+    "python_context_subclass_is_still_injected": SourceCase(
+        "python_context_subclass_is_still_injected",
+        "python",
+        "from mcp.server.fastmcp import Context, FastMCP\n"
+        "\n"
+        "\n"
+        "class Reporting(Context):\n"
+        "    pass\n"
+        "\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def report(progress: Reporting, query: str) -> str:\n"
+        '    return "ok"\n',
+    ),
+    "python_context_name_rebound_after_import": SourceCase(
+        "python_context_name_rebound_after_import",
+        "python",
+        "from fastmcp import Context, FastMCP\n"
+        "\n"
+        "Context = object\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def rebound(ctx: Context) -> str:\n"
+        '    return "ok"\n',
+    ),
+    "python_context_from_an_unresolved_import": SourceCase(
+        "python_context_from_an_unresolved_import",
+        "python",
+        "from fastmcp import FastMCP\n"
+        "\n"
+        "from .runtime import Context\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def relative(ctx: Context) -> str:\n"
+        '    return "ok"\n',
+    ),
+    "python_context_forward_reference": SourceCase(
+        "python_context_forward_reference",
+        "python",
+        "from mcp.server.mcpserver import Context, MCPServer\n"
+        "\n"
+        'mcp = MCPServer("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        'def quoted(ctx: "Context", query: str) -> str:\n'
+        '    return "ok"\n',
+    ),
+    "python_context_from_another_package": SourceCase(
+        "python_context_from_another_package",
+        "python",
+        "from fastmcp import FastMCP\n"
+        "from acme.models import Context\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def imported(context: Context) -> str:\n"
+        '    return "ok"\n',
+    ),
+    "python_context_from_the_defining_module": SourceCase(
+        "python_context_from_the_defining_module",
+        "python",
+        "from mcp.server.fastmcp import FastMCP\n"
+        "from mcp.server.fastmcp.server import Context\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def deep(ctx: Context, query: str) -> str:\n"
+        '    return "ok"\n',
+    ),
+    # A spelling means what it looks like only while the module has not taken
+    # the name for something else. `from domain import Account as str` is the
+    # #400 shape, and a name two statements bind is unknowable rather than
+    # canonical — the direction that publishes a type nobody wrote.
+    "python_rebound_builtin_and_typing_spellings": SourceCase(
+        "python_rebound_builtin_and_typing_spellings",
+        "python",
+        "from acme import Account as str, Optional\n"
+        "\n"
+        "from fastmcp import FastMCP\n"
+        "\n"
+        "int = Account\n"
+        "int = Account\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def shadowed(name: str, count: int, page: Optional[int]) -> bool:\n"
+        "    return True\n",
+    ),
+    # A union denotes one type only when every arm agrees on it.
+    # `class A(B)` beside `class B(A)` raises at import time and parses fine,
+    # so a reader that followed the bases without a cycle guard would not
+    # return at all.
+    "python_mutually_based_classes": SourceCase(
+        "python_mutually_based_classes",
+        "python",
+        "from fastmcp import FastMCP\n"
+        "\n"
+        "\n"
+        "class Looping(Cycled):\n"
+        "    pass\n"
+        "\n"
+        "\n"
+        "class Cycled(Looping):\n"
+        "    pass\n"
+        "\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def cyclic(payload: Looping) -> str:\n"
+        '    return "ok"\n',
+    ),
+    "python_union_arms": SourceCase(
+        "python_union_arms",
+        "python",
+        "from fastmcp import FastMCP\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def measured(size: int | float, mixed: str | int) -> str:\n"
+        '    return "ok"\n',
+    ),
+    "python_annotation_kinds": SourceCase(
+        "python_annotation_kinds",
+        "python",
+        "from typing import Annotated, Optional\n"
+        "\n"
+        "from fastmcp import FastMCP\n"
+        "from pydantic import Field\n"
+        "\n"
+        "\n"
+        "class Report:\n"
+        "    pass\n"
+        "\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def shaped(\n"
+        "    limit: int | None = None,\n"
+        "    names: list[str] = (),\n"
+        "    labels: dict[str, str] = {},\n"
+        "    page: Optional[int] = None,\n"
+        '    query: Annotated[int, Field(ge=1)] = 1,\n'
+        "    untyped=None,\n"
+        "    opaque: Report = None,\n"
+        ") -> str:\n"
+        '    return "ok"\n',
+    ),
+    # A container's JSON type does not depend on what it holds, but a
+    # mapping's *key* decides whether it is a JSON object at all — and a
+    # builtin outside the published-type table is still a builtin, which is
+    # what settles that it is not the framework's request context.
+    "python_container_annotation_kinds": SourceCase(
+        "python_container_annotation_kinds",
+        "python",
+        "from typing import Any, Dict\n"
+        "\n"
+        "from fastmcp import FastMCP\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def held(\n"
+        "    payload: Dict[str, Any],\n"
+        "    opaque: list[Any],\n"
+        "    keyed: dict[int, str],\n"
+        "    raw: bytes,\n"
+        "    unbound: List[str],\n"
+        ") -> str:\n"
+        '    return "ok"\n',
+    ),
 }
 
 
