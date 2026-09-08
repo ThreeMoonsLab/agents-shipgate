@@ -16,7 +16,7 @@ import re
 import stat
 import sys
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
@@ -33,6 +33,11 @@ from agents_shipgate.core.host_boundary import (
     _string_entries,
     _transport_hint,
     _trigger_names,
+)
+from agents_shipgate.core.host_input_failure import (
+    HostInputFailure,
+    HostInventoryReadError,
+    safe_failure_text,
 )
 from agents_shipgate.core.privacy import SENSITIVE_VALUE_KEYS
 from agents_shipgate.core.trust_roots import (
@@ -113,6 +118,20 @@ class HostStaticParseCache:
     )
     _resource_bound_error: str | None = field(default=None, init=False, repr=False)
     _finished: bool = field(default=False, init=False, repr=False)
+    _read_failures: dict[tuple[str, str], HostInputFailure] = field(
+        default_factory=dict, init=False, repr=False,
+    )
+    input_failures: dict[str, HostInputFailure] = field(default_factory=dict, init=False)
+    terminal_failure: HostInputFailure | None = field(default=None, init=False)
+
+    @property
+    def configured_limits(self) -> tuple[tuple[str, int], ...]:
+        return (
+            ("aggregate_entries", self.max_entries),
+            ("aggregate_bytes", self.max_total_bytes),
+            ("repository_entries", MAX_HOST_REPOSITORY_ENTRIES),
+            ("per_file_bytes", MAX_HOST_CONFIG_BYTES),
+        )
 
     def __post_init__(self) -> None:
         self._budget = IdentityReadBudget(
@@ -135,24 +154,47 @@ class HostStaticParseCache:
                 self._reads[key] = (None, self._resource_bound_error)
             else:
                 try:
-                    self._reads[key] = _safe_read(
+                    text, error, failure = _safe_read(
                         path,
                         containment_root=containment_root,
                         reader=self.reader_for(containment_root),
+                        limits=self.configured_limits,
                     )
-                except IdentityReadBudgetExceeded as exc:
-                    self._resource_bound_error = (
-                        "static host-boundary inventory exceeded its aggregate "
-                        f"resource bound ({exc})"
+                    self._reads[key] = (text, error)
+                    if failure is not None:
+                        self._read_failures[key] = failure
+                except IdentityReadBudgetExceeded:
+                    self.terminal_failure = HostInputFailure(
+                        reason="resource_bound_exceeded", phase="source_read",
+                        source=str(path), limits=self.configured_limits,
                     )
+                    self._read_failures[key] = self.terminal_failure
+                    self._resource_bound_error = self.terminal_failure.summary()
                     self._reads[key] = (None, self._resource_bound_error)
                 except (OSError, NotImplementedError, ValueError):
-                    self._reads[key] = (
-                        None,
-                        "symbolic links or filesystem aliases in configuration "
-                        "paths are not followed",
+                    failure = HostInputFailure(
+                        reason="input_unreadable", phase="source_read",
+                        source=str(path), limits=self.configured_limits,
                     )
+                    self._read_failures[key] = failure
+                    self._reads[key] = (None, failure.summary())
         return self._reads[key]
+
+    def read_issue(
+        self, *, path: Path, containment_root: Path, source: str,
+        host: str, kind: str, message: str,
+    ) -> dict[str, Any]:
+        """Bind the exact read's facts to its generated inventory issue identity."""
+        failure = self._read_failures.get(self._key(path, containment_root))
+        if failure is not None:
+            failure = replace(failure, source=source)
+            message = failure.summary() + " " + failure.recovery()
+        issue = _inventory_issue(
+            kind=kind, host=host, source=source, message=message, blocking=True,
+        )
+        if failure is not None:
+            self.input_failures[issue["issue_id"]] = failure
+        return issue
 
     @property
     def resource_bound_error(self) -> str | None:
@@ -168,10 +210,17 @@ class HostStaticParseCache:
         for key in sorted(self._sessions):
             try:
                 self._sessions[key].finish()
-            except IdentityReadBudgetExceeded as exc:
-                self._resource_bound_error = (
-                    "static host-boundary inventory exceeded its aggregate "
-                    f"resource bound ({exc})"
+            except IdentityReadBudgetExceeded:
+                self.terminal_failure = HostInputFailure(
+                    reason="resource_bound_exceeded", phase="snapshot_validation",
+                    source=key, limits=self.configured_limits,
+                )
+                self._resource_bound_error = self.terminal_failure.summary()
+                raise
+            except (OSError, NotImplementedError, ValueError):
+                self.terminal_failure = HostInputFailure(
+                    reason="snapshot_validation_failed", phase="snapshot_validation",
+                    source=key,
                 )
                 raise
         self._finished = True
@@ -229,6 +278,7 @@ class HostBoundarySnapshot:
 
     inventory: dict[str, Any]
     cache: HostStaticParseCache
+    input_failures: dict[str, HostInputFailure] = field(default_factory=dict)
 
 
 def _canonical(value: Any) -> str:
@@ -343,6 +393,8 @@ def _display_path(path: Path, *, root: Path, home: Path) -> str:
 def _inventory_issue(
     *, kind: str, host: str, source: str, message: str, blocking: bool
 ) -> dict[str, Any]:
+    source = safe_failure_text(source)
+    message = safe_failure_text(message)
     return {
         "issue_id": _stable_id("host_issue", kind, host, source, message),
         "kind": kind,
@@ -388,13 +440,17 @@ def _safe_read(
     *,
     containment_root: Path,
     reader: IdentityBoundReadSession | None = None,
-) -> tuple[str | None, str | None]:
+    limits: tuple[tuple[str, int], ...] = (),
+) -> tuple[str | None, str | None, HostInputFailure | None]:
     lexical_root = Path(os.path.abspath(os.path.normpath(os.fspath(containment_root))))
     lexical_path = Path(os.path.abspath(os.path.normpath(os.fspath(path))))
     try:
         relative = lexical_path.relative_to(lexical_root)
     except ValueError:
-        return None, "path is outside the allowlisted static configuration root"
+        failure = HostInputFailure(
+            reason="input_unreadable", phase="source_read", source=str(path),
+        )
+        return None, failure.summary(), failure
     owns_reader = reader is None
     if reader is None:
         reader = IdentityBoundReadSession(
@@ -409,25 +465,24 @@ def _safe_read(
     except IdentityReadBudgetExceeded:
         if not owns_reader:
             raise
-        return None, "static host-boundary read exceeded its aggregate resource bound"
-    except (OSError, NotImplementedError, ValueError) as exc:
-        message = str(exc)
-        if "singly-linked regular file" in message:
-            return None, "configuration path is not one singly-linked regular file"
-        if "file exceeds" in message:
-            return None, f"file exceeds the {MAX_HOST_CONFIG_BYTES}-byte static audit limit"
-        if "changed" in message:
-            return None, "configuration path changed identity while it was read"
-        if isinstance(exc, (OSError, NotImplementedError)):
-            return None, f"file could not be read as UTF-8 ({exc.__class__.__name__})"
-        return None, (
-            "symbolic links or filesystem aliases in configuration paths are "
-            "not followed"
+        failure = HostInputFailure(
+            reason="resource_bound_exceeded", phase="source_read",
+            source=str(path), limits=limits,
         )
+        return None, failure.summary(), failure
+    except (OSError, NotImplementedError, ValueError):
+        failure = HostInputFailure(
+            reason="input_unreadable", phase="source_read",
+            source=str(path), limits=limits,
+        )
+        return None, failure.summary(), failure
     try:
-        return raw.decode("utf-8", errors="strict"), None
+        return raw.decode("utf-8", errors="strict"), None, None
     except UnicodeDecodeError:
-        return None, "file could not be read as UTF-8 (UnicodeDecodeError)"
+        failure = HostInputFailure(
+            reason="input_unreadable", phase="utf8_decode", source=str(path),
+        )
+        return None, failure.summary(), failure
 
 
 def _load_structured(
@@ -440,12 +495,12 @@ def _load_structured(
     )
     if error_kind is not None:
         assert error_message is not None
-        issues.append(_inventory_issue(
+        issues.append(cache.read_issue(
+            path=path, containment_root=containment_root,
             kind=error_kind,
             host=host,
             source=source,
             message=error_message,
-            blocking=True,
         ))
         artifacts.append(_artifact(host=host, scope=scope, source=source, kind=kind, status="failed"))
         return None
@@ -816,7 +871,10 @@ def _collect_file(
     if kind == "instructions":
         text, error = cache.read(path, containment_root=containment_root)
         if error:
-            issues.append(_inventory_issue(kind="unreadable", host=host, source=source, message=error, blocking=True))
+            issues.append(cache.read_issue(
+                path=path, containment_root=containment_root,
+                kind="unreadable", host=host, source=source, message=error,
+            ))
             artifacts.append(_artifact(host=host, scope=scope, source=source, kind=kind, status="failed"))
             return
         assert text is not None
@@ -915,6 +973,7 @@ def _repository_paths(
     root: Path,
     *,
     reader: IdentityBoundReadSession,
+    limits: tuple[tuple[str, int], ...] = (),
 ) -> tuple[list[tuple[Path, str, str, str]], int]:
     """Enumerate repository sources exclusively from the boundary registry."""
 
@@ -933,15 +992,15 @@ def _repository_paths(
                 max_entries=MAX_HOST_REPOSITORY_ENTRIES - visited,
             )
         except IdentityReadBudgetExceeded as exc:
-            raise RuntimeError(
-                "repository host-boundary inventory exceeded its static "
-                "filesystem-entry bound"
-            ) from exc
+            raise HostInventoryReadError(HostInputFailure(
+                reason="resource_bound_exceeded", phase="inventory_enumeration",
+                source=relative_directory.as_posix(), limits=limits,
+            )) from exc
         except (OSError, NotImplementedError, ValueError) as exc:
-            raise RuntimeError(
-                "repository host-boundary inventory could not inspect the "
-                "workspace safely"
-            ) from exc
+            raise HostInventoryReadError(HostInputFailure(
+                reason="input_unreadable", phase="inventory_enumeration",
+                source=relative_directory.as_posix(),
+            )) from exc
         visited += len(names)
         child_directories: list[Path] = []
         for name in names:
@@ -959,10 +1018,10 @@ def _repository_paths(
                         child_directories.append(Path(relative))
                     continue
             except (OSError, ValueError) as exc:
-                raise RuntimeError(
-                    "repository host-boundary inventory could not inspect a "
-                    "workspace entry safely"
-                ) from exc
+                raise HostInventoryReadError(HostInputFailure(
+                    reason="input_unreadable", phase="entry_inspection",
+                    source=relative,
+                )) from exc
             candidates.append((candidate, relative))
         pending.extend(reversed(child_directories))
 
@@ -1054,9 +1113,10 @@ def _collect_claude_project_state(
     data, error_kind, error = cache.parse(path, containment_root=home)
     if error_kind is not None:
         assert error is not None
-        issues.append(_inventory_issue(
+        issues.append(cache.read_issue(
+            path=path, containment_root=home,
             kind=error_kind, host="claude-code", source=source,
-            message=error, blocking=True,
+            message=error,
         ))
         artifacts.append(_artifact(
             host="claude-code", scope="local_static", source=source,
@@ -1183,16 +1243,28 @@ def build_host_boundary_snapshot(
     grants: list[dict[str, Any]] = []
     issues: list[dict[str, Any]] = []
 
-    resource_bound_error: str | None = None
-    identity_snapshot_error: str | None = None
+    inventory_failures: list[HostInputFailure] = []
     try:
         repository_paths, _inventory_entries = _repository_paths(
             root,
             reader=cache.reader_for(root),
+            limits=cache.configured_limits,
         )
-    except (RuntimeError, IdentityReadBudgetExceeded) as exc:
+    except HostInventoryReadError as exc:
         repository_paths = []
-        resource_bound_error = str(exc)
+        inventory_failures.append(exc.failure)
+    except IdentityReadBudgetExceeded:
+        repository_paths = []
+        inventory_failures.append(HostInputFailure(
+            reason="resource_bound_exceeded", phase="inventory_enumeration",
+            source="<repository>", limits=cache.configured_limits,
+        ))
+    except (OSError, NotImplementedError, ValueError):
+        repository_paths = []
+        inventory_failures.append(HostInputFailure(
+            reason="input_unreadable", phase="inventory_enumeration",
+            source="<repository>",
+        ))
     for path, source, host, kind in repository_paths:
         _collect_file(
             path=path, source=source, host=host, scope="repository", kind=kind,
@@ -1228,48 +1300,43 @@ def build_host_boundary_snapshot(
 
     try:
         cache.finish()
-    except IdentityReadBudgetExceeded as exc:
-        resource_bound_error = cache.resource_bound_error or str(exc)
-    except (OSError, NotImplementedError, ValueError) as exc:
-        identity_snapshot_error = (
-            "static host-boundary inventory changed identity while its bounded "
-            f"snapshot was captured ({exc})"
-        )
-    if cache.resource_bound_error is not None:
-        resource_bound_error = cache.resource_bound_error
-    if resource_bound_error is not None:
-        # Aggregate exhaustion can prevent the final identity pass. Do not
-        # retain a partially validated projection as diagnostic grant data.
-        artifacts.clear()
-        grants.clear()
-        for host in ("codex", "claude-code", "cursor", "vscode", "github"):
-            issues.append(
-                _inventory_issue(
-                    kind="unreadable",
-                    host=host,
-                    source="<repository>",
-                    message=resource_bound_error,
-                    blocking=True,
-                )
-            )
-    if identity_snapshot_error is not None:
+    except IdentityReadBudgetExceeded:
+        inventory_failures.append(cache.terminal_failure or HostInputFailure(
+            reason="resource_bound_exceeded", phase="snapshot_validation",
+            source="<repository>", limits=cache.configured_limits,
+        ))
+    except (OSError, NotImplementedError, ValueError):
+        inventory_failures.append(cache.terminal_failure or HostInputFailure(
+            reason="snapshot_validation_failed", phase="snapshot_validation",
+            source="<repository>",
+        ))
+    if inventory_failures:
         # No parsed projection is trustworthy when the final exact-name pass
-        # cannot bind it to the entries that were opened.
+        # or complete inventory cannot bind it to the entries that were opened.
         artifacts.clear()
         grants.clear()
-        for host in ("codex", "claude-code", "cursor", "vscode", "github"):
-            issues.append(
-                _inventory_issue(
-                    kind="unreadable",
-                    host=host,
-                    source="<repository>",
-                    message=identity_snapshot_error,
-                    blocking=True,
+        for failure in dict.fromkeys(inventory_failures):
+            # Use lexical spelling: a second resolve/read would inspect a
+            # different generation and could misattribute the original failure.
+            if Path(failure.source).is_absolute():
+                try:
+                    source = Path(failure.source).relative_to(root).as_posix()
+                except ValueError:
+                    source = failure.source
+                failure = replace(failure, source=source)
+            for host in ("codex", "claude-code", "cursor", "vscode", "github"):
+                issue = _inventory_issue(
+                    kind="unreadable", host=host, source=failure.source,
+                    message=failure.summary() + " " + failure.recovery(), blocking=True,
                 )
-            )
+                issues.append(issue)
+                cache.input_failures[issue["issue_id"]] = failure
 
     artifacts.sort(key=lambda item: (item["host"], item["scope"], item["path"], item["kind"]))
     grants.sort(key=lambda item: item["grant_id"])
+    # A resource failure may first name a source and then invalidate all hosts.
+    # Keep one copy of that same source/host obligation in the inventory too.
+    issues = list({item["issue_id"]: item for item in issues}.values())
     issues.sort(key=lambda item: item["issue_id"])
     payload = {
         "host_grants_inventory_schema_version": HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
@@ -1284,7 +1351,9 @@ def build_host_boundary_snapshot(
         "runtime_session_verified": False,
     }
     inventory = HostGrantsInventoryV2.model_validate(payload).model_dump(mode="json")
-    return HostBoundarySnapshot(inventory=inventory, cache=cache)
+    return HostBoundarySnapshot(
+        inventory=inventory, cache=cache, input_failures=dict(cache.input_failures),
+    )
 
 
 def host_audit_inventory(

@@ -719,7 +719,7 @@ def test_host_inventory_rejects_protected_addition_after_discovery(
     assert inventory["grants"] == []
     assert any(
         issue["kind"] == "unreadable"
-        and "changed identity" in issue["message"]
+        and "could not confirm a coherent read" in issue["message"]
         and issue["blocking"]
         for issue in inventory["issues"]
     )
