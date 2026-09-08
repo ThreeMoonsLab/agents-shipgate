@@ -1531,6 +1531,26 @@ def test_a_spelling_means_what_it_looks_like_only_while_nothing_rebinds_it(
     ]
 
 
+def test_mutually_based_classes_terminate_as_unresolved(tmp_path):
+    """A base cycle is an answer this reader does not have, not a hang.
+
+    `class A(B)` beside `class B(A)` raises at import time — but it parses,
+    and this reader reads source rather than running it, so following the
+    bases without a cycle guard would not return.
+    """
+
+    workspace = _corpus_workspace(
+        tmp_path, "python_mutually_based_classes", name="cycle"
+    )
+    tool = load_mcp_server_source(_source("server.py"), workspace).tools[0]
+
+    assert [p.name for p in tool.parameters] == ["payload"]
+    assert (
+        mcp_server_source.SURFACE_GAP_UNRESOLVED_CONTEXT
+        in tool.extraction["surface_gaps"]
+    )
+
+
 def test_a_union_denotes_a_type_only_when_its_arms_agree(tmp_path):
     """`int | float` is a number; `str | int` is not one type."""
 

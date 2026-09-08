@@ -1863,6 +1863,30 @@ REGRESSIONS: dict[str, SourceCase] = {
         "    return True\n",
     ),
     # A union denotes one type only when every arm agrees on it.
+    # `class A(B)` beside `class B(A)` raises at import time and parses fine,
+    # so a reader that followed the bases without a cycle guard would not
+    # return at all.
+    "python_mutually_based_classes": SourceCase(
+        "python_mutually_based_classes",
+        "python",
+        "from fastmcp import FastMCP\n"
+        "\n"
+        "\n"
+        "class Looping(Cycled):\n"
+        "    pass\n"
+        "\n"
+        "\n"
+        "class Cycled(Looping):\n"
+        "    pass\n"
+        "\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def cyclic(payload: Looping) -> str:\n"
+        '    return "ok"\n',
+    ),
     "python_union_arms": SourceCase(
         "python_union_arms",
         "python",

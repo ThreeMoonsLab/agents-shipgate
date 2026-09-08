@@ -3041,8 +3041,9 @@ def _python_annotation_symbol(
     if not isinstance(node, ast.Name):
         return None
     if module.binds_name(node.id, scope):
-        # Bound, so it is the builtin only if an import into ``typing`` is what
-        # binds it — which is the one way the aliased spellings arrive.
+        # Bound, so the spelling is no longer the builtin. It can still be a
+        # ``typing`` alias, which is the one way ``List`` and ``Optional``
+        # ever arrive, and only that.
         imported = module.import_of(node.id, scope)
         if (
             imported is None
@@ -3192,7 +3193,10 @@ def _python_class_identity(
             else "caller_supplied"
         )
     if isinstance(binding, ast.ClassDef):
-        if id(binding) in seen:  # pragma: no cover - a class cannot be its own base
+        if id(binding) in seen:
+            # Mutual bases. ``class A(B)`` beside ``class B(A)`` raises at
+            # import time, but it parses, and a reader that followed it would
+            # not return — so the cycle is an answer this reader does not have.
             return "unresolved"
         seen = seen | {id(binding)}
         identity: ContextInjection = "caller_supplied"
