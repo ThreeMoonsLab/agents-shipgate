@@ -15,6 +15,7 @@ from agents_shipgate.cli.agent_mode import (
     emit_agent_mode_error_routing as _emit_agent_mode_error_routing,
 )
 from agents_shipgate.cli.diagnostics import diagnose_doctor, top_next_actions
+from agents_shipgate.cli.discovery.identity_recovery import discover_agent_name
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
 from agents_shipgate.cli.scan.inspect import (
     MANIFEST_SNAPSHOT_KEY,
@@ -136,6 +137,11 @@ def _doctor_failure_routing(
         # and the reason already names the defect.
         text = ""
     placeholders = collect_placeholders(text)
+    name_recovery = (
+        discover_agent_name(path, placeholders)
+        if not any(diag.severity == "block" for diag in diagnostics)
+        else None
+    )
     recheck = recheck_command or render_command(
         ["doctor", "--config", str(path.resolve()), "--json"]
     )
@@ -157,6 +163,7 @@ def _doctor_failure_routing(
         manifest_bytes=manifest_bytes,
         manifest_display_path=str(path),
         recheck_command=recheck,
+        name_recovery=name_recovery,
     )
 
 
@@ -356,11 +363,13 @@ def register(app: typer.Typer) -> None:
             # same input language.
             manifest_text = decode_manifest(manifest_bytes, path)
             placeholders = collect_placeholders(manifest_text)
+            name_recovery = discover_agent_name(path, placeholders)
             diagnostics = diagnose_doctor(
                 payload,
                 manifest_path=path,
                 manifest_text=manifest_text,
                 placeholders=placeholders,
+                name_recovery=name_recovery,
             )
             manifest_workspace = (workspace or path.parent).resolve()
             routing = setup_control_envelope(
@@ -394,11 +403,13 @@ def register(app: typer.Typer) -> None:
                         # rather than for most of it.
                         payload.get("adoption"),
                         placeholders,
+                        name_recovery.identity_facts if name_recovery else None,
                     ),
                 ),
                 reason=_doctor_reason(payload, path),
                 diagnostics=diagnostics,
                 placeholders=placeholders,
+                name_recovery=name_recovery,
                 manifest_display_path=str(path),
                 advance=_doctor_advance(path, workspace=manifest_workspace),
                 advance_kind="verify",

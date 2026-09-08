@@ -394,6 +394,24 @@ to be corrected later — it is a declaration nobody made, and Shipgate treats i
 as evidence. Every other placeholder (a tool-source path, a project name) is
 ordinary repository reading and stays coding-agent work.
 
+`agent.name` has one contextual exception (#543). When fresh discovery has
+resolved the manifest scope, read the complete Python inventory and found names
+only in test/template code, `init` and `doctor` ask a person to choose the product
+identity or supply product code that establishes it. The route names the field
+and line even after purpose has been supplied; an arbitrary nonempty replacement
+is not evidence. Doctor's placeholder diagnostic carries the same review route.
+A selectable product declaration remains a coding-agent edit and names its
+source file. No setup permission changes.
+
+Init reuses its current discovery result; doctor recomputes only for an actual
+unresolved `agent.name`, under that manifest's directory rather than a wider
+workspace or sibling project. The recovery facts participate in `input_id`;
+saved discovery JSON is never a routing input. Capped, ambiguous or partly
+unparsed discovery cannot establish test/template-only evidence. Broader
+unresolved-name recovery remains unchanged, and doctor does not offer a
+higher-cap retry it has no flag to consume. These facts describe the current
+invocation; they do not provide a verifier snapshot or release authority.
+
 Matching is on every segment, not the leaf, because `collect_placeholders` names
 a list item by its own text: a `CHANGE_ME` under `declared_purpose: [...]` is
 reported as `agent.declared_purpose.CHANGE_ME`.

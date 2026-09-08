@@ -37,6 +37,7 @@ from agents_shipgate.cli.discovery.gitignore_block import (
     GitignoreOutcomeStatus,
     ensure_reports_gitignore,
 )
+from agents_shipgate.cli.discovery.identity_recovery import classify_agent_name, needs_agent_name
 from agents_shipgate.cli.discovery.local_contract import LOCAL_CONTRACT_RELATIVE_PATH
 from agents_shipgate.cli.discovery.local_review import (
     LocalReviewExcludeOutcome,
@@ -1965,6 +1966,11 @@ def register(app: typer.Typer) -> None:
         control_placeholders, control_manifest_bytes, manifest_defect = _manifest_placeholders(
             target, template=template, placeholders=placeholders, write=write
         )
+        name_recovery = (
+            classify_agent_name(detect_result)
+            if not minimal and needs_agent_name(control_placeholders)
+            else None
+        )
         # One read of the pack the manifest on disk carries, shared by the route
         # and by the `control_pack` block of the payload. Reading it twice would
         # let a route be selected against one answer and reported beside
@@ -2037,6 +2043,7 @@ def register(app: typer.Typer) -> None:
                     manifest_exit,
                     agent_instructions_exit,
                     control_placeholders,
+                    name_recovery.identity_facts if name_recovery else None,
                     manifest_defect,
                     advance_decision,
                     # Not carried by the action, and between them they decide
@@ -2090,22 +2097,27 @@ def register(app: typer.Typer) -> None:
             advance_alternatives=scope_actions[1:],
             recheck_command=_doctor_command(target),
             placeholders=control_placeholders,
+            name_recovery=name_recovery,
             manifest_display_path=str(target),
             human_review_suffix=(
-                "A human must decide whether to keep this setup provisional "
-                "or adopt it durably. If approved, use `"
-                + render_command(
-                    [
-                        "init",
-                        "--workspace",
-                        str(workspace_resolved),
-                        "--write",
-                        "--json",
-                    ]
+                "A human must also decide whether to adopt this provisional setup durably."
+                if local_review and not scope_refused and name_recovery and name_recovery.human_reason
+                else (
+                    "A human must decide whether to keep this setup provisional "
+                    "or adopt it durably. If approved, use `"
+                    + render_command(
+                        [
+                            "init",
+                            "--workspace",
+                            str(workspace_resolved),
+                            "--write",
+                            "--json",
+                        ]
+                    )
+                    + "`."
+                    if local_review and not scope_refused
+                    else None
                 )
-                + "`."
-                if local_review and not scope_refused
-                else None
             ),
             exit_code=max(manifest_exit, agent_instructions_exit) or None,
         )
