@@ -15,7 +15,7 @@ strategy needs at once:
    real repos is the headline extraction-coverage KPI; this measures it
    instead of assuming it.
 
-## What one row records (schema v0.1)
+## What one row records (schema v0.3)
 
 Per PR (`base = merge_commit^1`, `head = merge_commit` — the PR's net
 mainline change, correct for both squash and merge):
@@ -30,13 +30,41 @@ mainline change, correct for both squash and merge):
 | **Receipt (v0.2)** | `verify_verdict, verify_decision, verify_can_merge, verify_trust_root_touched, verify_policy_weakened, verify_cap_added/modified/removed` | Real `verify --base <base'> --head <head''>` with the cold-start manifest committed onto **both** sides; `head''` is re-parented onto `base'` (`commit-tree`) so the three-dot diff is exactly the PR's delta and the injected manifest cannot fire the trust-root signal. Diff-aware `SHIP-VERIFY-*` checks and new-findings gating apply — these columns are the per-PR verdict; the scan columns above remain the cold-start whole-surface state. |
 | Lifecycle | `status` (`evaluated \| trigger_skip \| init_skip \| scan_failed \| error`), `notes` | — |
 
+`verify_input_obligation` (v0.3) is either `null` or a typed
+`kind: unsupported_input` object. It retains the original base/head SHAs,
+selected head scope, a reason and exact Git-observed rename pairs, plus the
+required input action. JSONL carries the object directly; CSV carries JSON in
+that cell. Older rows remain readable with no invented obligation.
+
+For a miner-injected manifest, the original base scope must be a readable Git
+tree before any manifest is copied or committed. A Git-proven absent path
+reports `scoped_base_absent`; incoming Git rename pairs report
+`scoped_base_rename_candidates`. Partial or multiple renames remain observed
+file pairs, not a claim that the directories are the same agent. An unreadable
+comparison reports `scoped_comparison_unreadable`; a file where the directory would
+be reports `scoped_base_not_directory`. None supplies a verifier verdict or a
+capability count. An unrelated deleted directory cannot be chosen as the base
+without actual incoming rename evidence.
+
+Real PR-added manifests still use the existing terminal verifier path and
+keep their trust-root change visible. Its `base_status: missing_manifest`
+means there was no manifest at that base path, not that an empty agent surface
+was evaluated. Likewise `--diff-from` can provide a prior report but does not
+establish the normal successful base scan and subject binding. The independent
+base/head scoped-input contract is tracked in
+[#580](https://github.com/ThreeMoonsLab/agents-shipgate/issues/580).
+Typed obligations make missing answers actionable; they do not satisfy
+[#563](https://github.com/ThreeMoonsLab/agents-shipgate/issues/563)'s fixed-history
+catch bars or turn scan fallback into PR verification. All original history
+and labels below remain unchanged.
+
 `evaluated` means the head scan produced a release decision. When the
 repo-root cold start fails (monorepos), the evaluator retries once at the
 deepest common directory of the changed files (`notes: retry_at:<dir>`) —
 the stripe/ai PR #232 pattern, where the agent lives under `tools/python`.
 
-**Privacy rule:** rows carry public PR metadata, verdicts, check IDs, and
-counts only — never diff text, code excerpts, or report evidence. Same
+**Privacy rule:** rows carry public PR metadata, verdicts, check IDs, counts
+and repository-relative input paths — never diff text, code excerpts, or report evidence. Same
 convention as the adoption-harness CSVs.
 
 ## Run it
