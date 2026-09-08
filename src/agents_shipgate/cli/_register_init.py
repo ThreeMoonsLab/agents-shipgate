@@ -37,7 +37,11 @@ from agents_shipgate.cli.discovery.gitignore_block import (
     GitignoreOutcomeStatus,
     ensure_reports_gitignore,
 )
-from agents_shipgate.cli.discovery.identity_recovery import classify_agent_name, needs_agent_name
+from agents_shipgate.cli.discovery.identity_recovery import (
+    classify_agent_name,
+    discover_agent_name,
+    needs_agent_name,
+)
 from agents_shipgate.cli.discovery.local_contract import LOCAL_CONTRACT_RELATIVE_PATH
 from agents_shipgate.cli.discovery.local_review import (
     LocalReviewExcludeOutcome,
@@ -1967,8 +1971,12 @@ def register(app: typer.Typer) -> None:
             target, template=template, placeholders=placeholders, write=write
         )
         name_recovery = (
-            classify_agent_name(detect_result)
-            if not minimal and needs_agent_name(control_placeholders)
+            (
+                classify_agent_name(detect_result)
+                if target.resolve().parent == workspace_resolved
+                else discover_agent_name(target, control_placeholders)
+            )
+            if not minimal and not manifest_defect and needs_agent_name(control_placeholders)
             else None
         )
         # One read of the pack the manifest on disk carries, shared by the route

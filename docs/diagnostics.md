@@ -403,9 +403,13 @@ is not evidence. Doctor's placeholder diagnostic carries the same review route.
 A selectable product declaration remains a coding-agent edit and names its
 source file. No setup permission changes.
 
-Init reuses its current discovery result; doctor recomputes only for an actual
-unresolved `agent.name`, under that manifest's directory rather than a wider
-workspace or sibling project. The recovery facts participate in `input_id`;
+Init reuses its current discovery result when its workspace is the loaded
+manifest's directory; an existing manifest reached through a link to another
+directory gets fresh discovery at the resolved target. Doctor also recomputes
+there, only for an actual unresolved `agent.name`, rather than using a wider
+workspace or a sibling project. Edit locations retain the caller's manifest
+spelling; product-name guidance names the actual source file. The recovery
+facts participate in `input_id`;
 saved discovery JSON is never a routing input. Capped, ambiguous or partly
 unparsed discovery cannot establish test/template-only evidence. Broader
 unresolved-name recovery remains unchanged, and doctor does not offer a

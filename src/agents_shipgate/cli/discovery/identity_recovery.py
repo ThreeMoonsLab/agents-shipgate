@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
 
@@ -91,6 +91,14 @@ def discover_agent_name(
     if not needs_agent_name(placeholders):
         return None
     try:
-        return classify_agent_name(detect_workspace(manifest_path.parent.resolve()))
+        # Source inspection resolves the manifest itself before choosing its
+        # directory. A link's parent can contain an unrelated product or tests.
+        root = manifest_path.resolve().parent
+        recovery = classify_agent_name(detect_workspace(root))
+        return replace(
+            recovery,
+            facts={**recovery.facts, "workspace": str(root)},
+            product_path=str(root / recovery.product_path) if recovery.product_path else None,
+        )
     except DiscoveryError:
         return AgentNameRecovery("unresolved", {"discovery_failed": True})

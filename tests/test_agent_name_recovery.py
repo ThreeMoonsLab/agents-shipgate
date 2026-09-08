@@ -276,3 +276,51 @@ def test_init_refused_scope_outranks_name_obligation(tmp_path):
     assert payload["manifest_status"] == "refused_unresolved_scope"
     assert "test/template" not in payload["next_actions"][0]["why"]
     assert not any(payload["control"]["permissions"].values())
+
+
+@pytest.mark.parametrize("product_at_target", [True, False])
+@pytest.mark.parametrize("command", ["doctor", "init"])
+def test_linked_manifest_recovers_from_loaded_project_not_link_directory(
+    tmp_path, product_at_target, command,
+):
+    actual, alias = tmp_path / "actual", tmp_path / "alias"
+    actual_source = "agent.py" if product_at_target else NON_PRODUCT_PATHS[0]
+    alias_source = NON_PRODUCT_PATHS[0] if product_at_target else "agent.py"
+    _agent(actual, actual_source, "ActualAssistant")
+    _agent(alias, alias_source, "UnrelatedAssistant")
+    target = _manifest(actual)
+    link = alias / "shipgate.yaml"
+    link.symlink_to(target)
+    if command == "doctor":
+        payload = _doctor(link)
+    else:
+        result = runner.invoke(app, ["init", "--workspace", str(alias), "--write", "--json"])
+        assert result.exit_code == 2, result.output
+        payload = json.loads(result.stdout)
+    if product_at_target:
+        assert payload["control"]["control_state"] == "agent_action_required"
+        if command == "doctor":
+            action = payload["next_actions"][0]
+            assert str(actual / "agent.py") in action["why"]
+            assert str(alias / "agent.py") not in action["why"]
+            assert action["path"].startswith(str(link))
+    else:
+        _human_identity(payload)
+    assert not any(payload["control"]["permissions"].values())
+    assert link.is_symlink()
+    assert yaml.safe_load(target.read_text())["agent"]["name"] == "CHANGE_ME"
+
+
+def test_linked_manifest_source_failure_keeps_actual_identity_obligation(tmp_path, monkeypatch):
+    actual, alias = tmp_path / "actual", tmp_path / "alias"
+    _agent(actual, NON_PRODUCT_PATHS[0])
+    _agent(alias, "agent.py", "UnrelatedAssistant")
+    target = _manifest(actual)
+    (actual / "mcp.tools.json").write_text("not JSON")
+    link = alias / "shipgate.yaml"
+    link.symlink_to(target)
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    result = runner.invoke(app, ["doctor", "--config", str(link), "--json"])
+    assert result.exit_code == 3, result.output
+    error = json.loads(next(line for line in result.stderr.splitlines() if line.startswith("{")))
+    _human_identity(error)

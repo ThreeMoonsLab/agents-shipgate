@@ -924,7 +924,7 @@ def diagnose_doctor(
                         path=target,
                         why=(
                             f"Read the product agent name in {name_recovery.product_path} "
-                            f"relative to {manifest_path.parent} and replace CHANGE_ME "
+                            "and replace CHANGE_ME "
                             "at field 'agent.name'."
                         ),
                         expects="agent.name matches the supported product declaration.",
