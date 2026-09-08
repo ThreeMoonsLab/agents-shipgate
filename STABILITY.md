@@ -13,6 +13,24 @@ for reproducible CI.
 
 ---
 
+<a id="migration-note-unreleased-human-review-request"></a>
+
+## Migration Note: 0.16.0 — a review question gets a checkable postcondition
+
+Runtime contract `29 → 30`; `minimum_control_contract_version` stays at 21.
+The new standalone `shipgate.human_review_request/v1` artifact binds one
+complete-evidence documentation-quality question to the existing verification
+identity and full review scope. It does not change `HumanControlAction.expects`,
+the shared action union, or any existing durable schema. The verifier's
+extensible artifact map and terminal receipt bind the new optional file.
+
+See [the request contract](docs/human-review-request.md) for the seven-surface
+compatibility matrix, actor eligibility, accepted/rejected/disputed meanings,
+and exact static-artifact boundary. A request grants no authority; until an
+external authenticated decision is evaluated, existing human-owned control
+remains in force. Existing signed push authorization remains push-only.
+
+
 <a id="migration-note-unreleased-declaration-review"></a>
 
 ## Migration Note: 0.16.0 — changed declarations become reviewer evidence

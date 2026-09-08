@@ -145,6 +145,11 @@ _VOCABULARY = ("test_surface_enumerations_match_the_engine_vocabulary",)
 
 SURFACES: tuple[Surface, ...] = (
     Surface(
+        "human_review_request",
+        ("docs/human-review-request.md",),
+        {"release_decision_vocabulary": _VOCABULARY},
+    ),
+    Surface(
         "github_action",
         ("action.yml", "scripts/github_action_outputs.py"),
         {

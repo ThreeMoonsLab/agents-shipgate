@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Publish an unsigned, content-bound human review request for one complete-evidence
+  documentation-quality class. Reviewers get an exact question, scope and
+  postcondition; existing gates and permissions remain unchanged. The new
+  standalone schema keeps the shared control union and persisted grammars frozen
+  (runtime contract 30, minimum control contract 21; #536).
+
 - **Deprecated the path-only instruction-weakening check.** (#516)
   `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` remains registered for compatibility
   but emits no new findings. Structured permission, MCP and hook

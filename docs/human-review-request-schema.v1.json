@@ -1,0 +1,301 @@
+{
+  "$defs": {
+    "HumanAuthorizationReviewItemV1": {
+      "additionalProperties": false,
+      "description": "One complete reviewer obligation included in the signed review set.",
+      "properties": {
+        "check_id": {
+          "minLength": 1,
+          "title": "Check Id",
+          "type": "string"
+        },
+        "fingerprint": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fingerprint"
+        },
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Paths",
+          "type": "array"
+        },
+        "review_item_id": {
+          "minLength": 1,
+          "title": "Review Item Id",
+          "type": "string"
+        },
+        "support_hash": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Support Hash"
+        }
+      },
+      "required": [
+        "review_item_id",
+        "check_id"
+      ],
+      "title": "HumanAuthorizationReviewItemV1",
+      "type": "object"
+    },
+    "HumanReviewPostconditionV1": {
+      "additionalProperties": false,
+      "description": "Recording a decision satisfies this question, not the release gate.",
+      "properties": {
+        "accepted": {
+          "const": "record_acceptance_preserve_gate",
+          "default": "record_acceptance_preserve_gate",
+          "title": "Accepted",
+          "type": "string"
+        },
+        "authenticated_human_required": {
+          "const": true,
+          "default": true,
+          "title": "Authenticated Human Required",
+          "type": "boolean"
+        },
+        "author_and_bot_excluded": {
+          "const": true,
+          "default": true,
+          "title": "Author And Bot Excluded",
+          "type": "boolean"
+        },
+        "complete_review_set_required": {
+          "const": true,
+          "default": true,
+          "title": "Complete Review Set Required",
+          "type": "boolean"
+        },
+        "current_request_required": {
+          "const": true,
+          "default": true,
+          "title": "Current Request Required",
+          "type": "boolean"
+        },
+        "disputed": {
+          "const": "record_dispute_preserve_gate",
+          "default": "record_dispute_preserve_gate",
+          "title": "Disputed",
+          "type": "string"
+        },
+        "grants_completion_authority": {
+          "const": false,
+          "default": false,
+          "title": "Grants Completion Authority",
+          "type": "boolean"
+        },
+        "grants_merge_authority": {
+          "const": false,
+          "default": false,
+          "title": "Grants Merge Authority",
+          "type": "boolean"
+        },
+        "kind": {
+          "const": "authenticated_current_full_scope_decision",
+          "default": "authenticated_current_full_scope_decision",
+          "title": "Kind",
+          "type": "string"
+        },
+        "rejected": {
+          "const": "record_rejection_preserve_gate",
+          "default": "record_rejection_preserve_gate",
+          "title": "Rejected",
+          "type": "string"
+        },
+        "remaining_obligations": {
+          "const": "existing_release_gate_and_control",
+          "default": "existing_release_gate_and_control",
+          "title": "Remaining Obligations",
+          "type": "string"
+        },
+        "review_instance_binding_required": {
+          "const": true,
+          "default": true,
+          "title": "Review Instance Binding Required",
+          "type": "boolean"
+        },
+        "trusted_eligibility_required": {
+          "const": true,
+          "default": true,
+          "title": "Trusted Eligibility Required",
+          "type": "boolean"
+        },
+        "unexpired_decision_required": {
+          "const": true,
+          "default": true,
+          "title": "Unexpired Decision Required",
+          "type": "boolean"
+        }
+      },
+      "title": "HumanReviewPostconditionV1",
+      "type": "object"
+    },
+    "HumanReviewQuestionV1": {
+      "additionalProperties": false,
+      "properties": {
+        "question": {
+          "maxLength": 1200,
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f\\x7f]+$",
+          "title": "Question",
+          "type": "string"
+        },
+        "review_item_id": {
+          "minLength": 1,
+          "title": "Review Item Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "review_item_id",
+        "question"
+      ],
+      "title": "HumanReviewQuestionV1",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/human-review-request-schema.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Unsigned complete-evidence review question; never an authorization. Content identities and full-scope relations also require model validation.",
+  "properties": {
+    "base_commit_sha": {
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      "title": "Base Commit Sha",
+      "type": "string"
+    },
+    "base_tree_sha": {
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      "title": "Base Tree Sha",
+      "type": "string"
+    },
+    "decision": {
+      "const": "review_required",
+      "default": "review_required",
+      "title": "Decision",
+      "type": "string"
+    },
+    "decision_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Decision Id",
+      "type": "string"
+    },
+    "engine_requirement_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Engine Requirement Id",
+      "type": "string"
+    },
+    "head_tree_sha": {
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      "title": "Head Tree Sha",
+      "type": "string"
+    },
+    "input_set_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Input Set Id",
+      "type": "string"
+    },
+    "merge_base_sha": {
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      "title": "Merge Base Sha",
+      "type": "string"
+    },
+    "postcondition": {
+      "$ref": "#/$defs/HumanReviewPostconditionV1"
+    },
+    "questions": {
+      "items": {
+        "$ref": "#/$defs/HumanReviewQuestionV1"
+      },
+      "minItems": 1,
+      "title": "Questions",
+      "type": "array"
+    },
+    "repository_id": {
+      "minLength": 1,
+      "title": "Repository Id",
+      "type": "string"
+    },
+    "request_class": {
+      "const": "documentation_quality_complete_evidence",
+      "default": "documentation_quality_complete_evidence",
+      "title": "Request Class",
+      "type": "string"
+    },
+    "review_items": {
+      "items": {
+        "$ref": "#/$defs/HumanAuthorizationReviewItemV1"
+      },
+      "minItems": 1,
+      "title": "Review Items",
+      "type": "array"
+    },
+    "review_request_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Review Request Id",
+      "type": "string"
+    },
+    "review_set_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Review Set Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "shipgate.human_review_request/v1",
+      "default": "shipgate.human_review_request/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_head_commit_sha": {
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      "title": "Source Head Commit Sha",
+      "type": "string"
+    },
+    "subject_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Subject Id",
+      "type": "string"
+    },
+    "verification_request_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Verification Request Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "review_request_id",
+    "repository_id",
+    "verification_request_id",
+    "subject_id",
+    "input_set_id",
+    "engine_requirement_id",
+    "decision_id",
+    "base_commit_sha",
+    "merge_base_sha",
+    "base_tree_sha",
+    "head_tree_sha",
+    "source_head_commit_sha",
+    "review_set_id",
+    "review_items",
+    "questions"
+  ],
+  "title": "HumanReviewRequestV1",
+  "type": "object"
+}

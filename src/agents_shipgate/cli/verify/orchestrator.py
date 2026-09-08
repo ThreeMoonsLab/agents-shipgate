@@ -68,6 +68,7 @@ from agents_shipgate.core.human_authorization import (
     default_human_authorization_trust_policy_path,
     evaluate_human_authorization,
 )
+from agents_shipgate.core.human_review_request import project_human_review_request
 from agents_shipgate.core.manifest_provenance import (
     LOCAL_REVIEW_MANIFEST_NAME,
     ManifestProvenance,
@@ -140,6 +141,7 @@ from agents_shipgate.schemas.human_authorization import (
     authorization_review_items,
     build_human_authorization_request,
 )
+from agents_shipgate.schemas.human_review_request import HUMAN_REVIEW_REQUEST_FILENAME
 from agents_shipgate.schemas.report import (
     ReadinessReport,
     ReleaseDecision,
@@ -3897,6 +3899,7 @@ def _remove_scan_artifacts(out_dir: Path) -> None:
         "capability-lock-diff.json",
         "capability-lock-diff.md",
         CAPABILITY_DELTA_ATTESTATION_FILENAME,
+        HUMAN_REVIEW_REQUEST_FILENAME,
         # Remediation instructions must not outlive the report they describe:
         # an early verifier reset would otherwise clear report.json and leave a
         # scaffold behind asking for declarations nothing is measuring.
@@ -4128,6 +4131,10 @@ def _write_artifacts(
     evaluation_date: str | None = None,
 ) -> None:
     verifier_path.parent.mkdir(parents=True, exist_ok=True)
+    # An optional question must not outlive the run that could offer it.
+    review_request_path = verifier_path.with_name(HUMAN_REVIEW_REQUEST_FILENAME)
+    review_request_path.unlink(missing_ok=True)
+    verifier.artifacts.pop("human_review_request_json", None)
     portable_diff_from_path: Path | None = None
     if diff_from_path is not None and diff_from_path.is_file():
         portable_diff_from_path = verifier_path.with_name(
@@ -4396,6 +4403,15 @@ def _write_artifacts(
     verifier.engine_requirement_id = plan.engine.engine_requirement_id
     verifier.executor_id = executor.executor_id
     verifier.decision_id = decision_id
+    review_request = project_human_review_request(verifier=verifier, report=report, plan=plan)
+    if review_request is not None:
+        review_request_path.write_text(
+            json.dumps(review_request.model_dump(mode="json"), indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        verifier.artifacts["human_review_request_json"] = _display_path(
+            review_request_path.resolve(), git_root
+        )
     _write_capability_delta_attestation(
         verifier=verifier,
         plan=plan,

@@ -64,15 +64,14 @@ allow list from `Bash(npm test)` / `Read(src/**)` to `Bash(*)` / `Read(**)` /
 capability-change class this pilot exists to observe.
 
 **Published build measured: `0.15.0`.** Preview measured:
-`0.16.0+preview.20260903.gb61aca7`. Source tree: `0.16.0`, at the merge of
-[#506](https://github.com/ThreeMoonsLab/agents-shipgate/issues/506),
-[#485](https://github.com/ThreeMoonsLab/agents-shipgate/issues/485) and
-[#497](https://github.com/ThreeMoonsLab/agents-shipgate/issues/497). Every
-finding below is a claim about those three builds on this date.
+`0.16.0+preview.20260903.gb61aca7`. Source tree: `0.16.0`, rechecked on 2026-09-08 while
+implementing #536, based on `65dd25c8` with runtime contract 30. The source-tree
+column below was rerun; the released and preview columns retain their earlier
+measurement and were not relabeled as new runs.
 
 | | Released `v0.15.0` (`pipx install`) | Preview `0.16.0+preview.20260903` (`gh release download`) | Source tree |
 | --- | --- | --- | --- |
-| Runtime contract | 10 | 29 | 29 |
+| Runtime contract | 10 | 29 | 30 |
 | Host-grant inventory schema | 0.1 | 0.2 | 0.2 |
 | `check` on the fixture | `warn` / `none`, **0 violations** | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** |
 | Coverage limit visible (`host_coverage`, `excluded_scopes`) | no | yes | yes |
@@ -80,6 +79,13 @@ finding below is a claim about those three builds on this date.
 | `init` then `verify` on this Route H repo | exit 3 | exit 2 | exit 2 |
 | `audit --host --save-baseline` → `--drift` | works, all 4 expansion signals | works | works |
 | Qualification | qualified release | **none** — no adjudicated corpus, nothing signed | not a distributed build |
+
+The source rerun reproduced four boundary violations (`block` / `critical`),
+visible coverage, the released Action pin, and the Route A exit-2 placeholder
+refusal. Baseline/drift reproduced all four expansion signals with a canonical
+non-symlink temporary path. The documented `/tmp/` recovery path itself fails
+on macOS; that newly observed documentation problem is deferred as #550.
+No reviewer, retention or qualification result is inferred from this rerun.
 
 Four things follow, and each one is a fact about a build rather than a
 judgement about a partner.
