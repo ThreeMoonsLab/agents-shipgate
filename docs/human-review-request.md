@@ -58,6 +58,36 @@ CLI. Continue by presenting the request to a human and following current
 `control.next_action`; prose acknowledgement never clears it. GitHub authentication and acquisition belong
 to [#337](https://github.com/ThreeMoonsLab/agents-shipgate/issues/337).
 
+## PR and check presentation
+
+On current `main`, a verifier that produces this request also puts the question
+near the start of both PR comment styles. The existing GitHub Check Run summary
+uses the same comment. A reviewer sees the concern, medium severity, actor,
+accept/reject/dispute meanings and coverage boundary without opening a job log.
+GitHub.com source files link to the exact reviewed commit; local and other
+repository locators retain file paths instead of guessed web URLs.
+
+The display is bounded and states how many questions are omitted. Read the full
+request before deciding a partial or abbreviated list. The file remains in the
+report directory and, when artifact upload is enabled, in the uploaded report.
+If `upload_artifact: false` leaves the full request unavailable, reproduce the
+verification locally to read it; the displayed prefix is not the complete scope.
+Older builds that do not emit a review request retain their existing comment.
+
+The supported review location today is the PR's Conversation for discussion.
+The Action explicitly says **no authenticated decision is recorded**. Ordinary
+comments/approvals do not clear control, and an acceptance sentence is not a
+signature. The independent GitHub signer/identity boundary remains
+[#555](https://github.com/ThreeMoonsLab/agents-shipgate/issues/555); the broader
+authenticated workflow in #337 remains open.
+
+When PR publication receives a permission/context refusal (403/404), the Action
+places the same review in the workflow summary with a visible limitation. Forks
+and minimal tokens can therefore read the question without pretending that a PR
+comment was published. Authentication errors, rate limits and server failures
+still fail visibly. The merge-verdict policy and original verifier exit-code
+steps continue to run; publication fallback grants no authority.
+
 ## Identity and verification
 
 The request reuses the existing verification graph:

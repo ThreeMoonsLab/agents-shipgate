@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Show the bounded human review question at the start of existing PR comments
+  and Check Run summaries, with source links, actor, outcomes, coverage limits
+  and exact omitted-question counts. PR publication permission/context refusals
+  retain the review in the workflow summary without changing the gate. This is
+  #337's presentation slice; authenticated decision recording remains open under
+  the independent signer pilot #555.
+
 - Evaluate externally signed decisions on the bounded human review request
   without rewriting static evidence or granting authority. Full current scope,
   external host key trust, reviewer eligibility and expiry are checked;
