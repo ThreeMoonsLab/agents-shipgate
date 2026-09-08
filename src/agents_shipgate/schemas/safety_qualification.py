@@ -338,7 +338,7 @@ class SafetyStratumRequirementV1(BaseModel):
 
 
 class SafetyQualificationRequirementsV1(BaseModel):
-    """Qualification thresholds. The CLI always uses the production defaults."""
+    """Qualification thresholds for the named policy selected by wheel version."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -456,15 +456,14 @@ def pre_release_safety_requirements() -> SafetyQualificationRequirementsV1:
 
     Recorded by Pengfei Hu on 2026-08-29 under
     ``docs/release-evidence-policy-decision.md`` (issue #341, Route 2). It
-    governs ``0.x`` tags only; ``1.0`` and later still require the 100-case
+    governs ``0.x`` tags only; ``1.0`` and later still require the 80-case
     production policy, and this constructor is never selected for them.
 
-    Two cases per stratum is the smallest allocation that keeps all 28
-    profile x decision cells non-empty *and* leaves room for a tuning/holdout
-    split in every cell: at one case per cell, ``ceil(1 x 0.20) = 1`` forces
-    that case to be holdout. Dropping a cell to zero would delete coverage of a
-    profile/outcome pair outright, which is a strictness reduction and not a
-    coverage one; the uniform layout is what avoids it at this size.
+    Amendment 3 keeps 21 profile x decision cells: two cases in 17 cells and
+    one case in four approved blocked cells, for 38 total. No cell expects
+    ``insufficient_evidence``. At one case per cell, ``ceil(1 x 0.20) = 1``
+    requires that case to be holdout; a zero-count cell would delete coverage
+    of a profile/outcome pair outright.
 
     What is *enforced* is the holdout floor, not a one-of-each split. A corpus
     that marks more cases holdout is accepted: holdout evidence was never tuned
@@ -535,8 +534,8 @@ def pre_release_safety_requirements() -> SafetyQualificationRequirementsV1:
         minimum_blocked_exact=10,
         minimum_review_exact=14,
         # No corpus case is targeted at `insufficient_evidence`, so there is
-        # no floor to meet. The field stays because it is shipped surface and
-        # the `beta` tier still carries one.
+        # no floor to meet. The field stays for shipped-schema compatibility;
+        # both named policies require zero expected-IE cases.
         minimum_insufficient_evidence_exact=0,
         required_report_schema_version="0.43",
     )
@@ -830,7 +829,7 @@ class SafetyQualificationResultV1(BaseModel):
 
     @model_validator(mode="after")
     def _production_claim_matches_the_tier(self) -> SafetyQualificationResultV1:
-        """``production_qualified`` means the 100-case bar, in every artifact.
+        """``production_qualified`` means the approved beta bar, in every artifact.
 
         Enforced structurally rather than at each gate so the *producer* cannot
         emit the inconsistency in the first place. A pre-1.0 artifact asserting

@@ -4,7 +4,7 @@
 condition 5 runs the labeling protocol on **five non-corpus cases before any
 corpus label exists**, so that ambiguities in
 [`benchmark/miner/LABELING.md`](../miner/LABELING.md) are found and fixed
-while fixing them costs five relabels rather than fifty-six. This file names
+while fixing them costs a calibration round rather than a full corpus. This file names
 the five cases and why each is here. It records **no label and no verdict**
 for any of them, and it must never: a calibration case's labels are working
 material for sharpening the guide, and the adjudication notes that come out of

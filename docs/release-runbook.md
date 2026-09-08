@@ -109,9 +109,14 @@ applies** — nothing in the artifact does:
 
 | Version | Accepted qualification | Cases |
 |---|---|---|
-| `0.x` (epoch 0, major 0) | `pre_1_0`, or the stronger `beta` | 56, or 100 |
-| `1.0` and later | `beta` only | 100 |
-| unparsable | `beta` only | 100 |
+| `0.x` (epoch 0, major 0) | `pre_1_0`, or the stronger `beta` | 38, or 80 |
+| `1.0` and later | `beta` only | 80 |
+| unparsable | `beta` only | 80 |
+
+Both policies have 21 strata and no expected `insufficient_evidence` class.
+The [current policy table](../benchmark/safety-qualification/README.md#current-policy-contract)
+records exact outcomes, 16/32 qualifying-origin floors, holdout and human-label
+requirements. It is checked against the typed policy and the stdlib gate.
 
 The `pre_1_0` policy was approved for issue #341 and is recorded, with its
 thresholds and rationale, in
@@ -126,7 +131,7 @@ Both gates apply the rule independently — the exhaustive
 standard-library `scripts/verify_qualification_binding.py` in the sealing job.
 The sealing gate cannot import the project, so it *restates* each tier's
 strata, exact-match floors, per-stratum holdout, and origin and κ floors, and
-re-derives them from the raw cases; a case count alone would let 56 identical
+re-derives them from the raw cases; a case count alone would let 38 identical
 rows through. An artifact naming a tier the version does not admit is rejected
 by both, and is then measured against the *production* policy, so a bad tier
 can never shrink what is checked.
@@ -626,8 +631,9 @@ vouches for it, in a single step with no diff to review. Source-to-wheel
 binding does not compensate: that attack reuses the legitimate wheel and forges
 only the safety claims about it.
 
-Both ship as `CHANGE_ME` until the promotion flow exists. The release **fails
-closed** while either is unset rather than defaulting to something permissive.
+The signer identity remains `CHANGE_ME`; the OIDC issuer is already
+`https://token.actions.githubusercontent.com`. The release **fails closed**
+while either value is unset rather than defaulting to something permissive.
 Changing either is a trust-root change and is reviewed as one.
 
 ### Artifact locations — repository variables

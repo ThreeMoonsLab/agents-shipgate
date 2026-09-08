@@ -611,7 +611,7 @@ def select_release_requirements(
 
     ``auto`` applies the rule a human approved for issue #341 rather than
     inferring one: ``0.x`` builds are governed by the pre-1.0 policy, anything
-    else by the 100-case production policy. The release verifiers re-derive the
+    else by the 80-case production policy. The release verifiers re-derive the
     same rule from the tag independently, so this choice is never trusted.
 
     ``production`` is always available -- opting *up* to more evidence than the
@@ -1043,7 +1043,7 @@ def _parser() -> argparse.ArgumentParser:
         help=(
             "Which named release policy to score against. 'auto' (default) "
             "selects the pre-1.0 policy for a 0.x wheel and the production "
-            "policy otherwise; 'production' always scores the 100-case bar; "
+            "policy otherwise; 'production' always scores the 80-case bar; "
             "'pre-1.0' is refused for a 1.0-or-later wheel"
         ),
     )
