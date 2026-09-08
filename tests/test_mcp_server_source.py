@@ -20,6 +20,7 @@ from agents_shipgate.cli.discovery.mcp_source import discover_mcp_server_source
 from agents_shipgate.cli.discovery.signals import detect_workspace
 from agents_shipgate.core.domain import SURFACE_ENUMERATED, SURFACE_PARTIAL
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.lenses.action_surface import build_action
 from agents_shipgate.core.semantic_assessment import (
     AST_ONLY_SOURCE_TYPES,
     MCP_SOURCE_TYPES,
@@ -35,7 +36,11 @@ from agents_shipgate.inputs.mcp_server_source import (
     load_mcp_server_source,
 )
 from agents_shipgate.inputs.protocol import REGISTRY
-from agents_shipgate.schemas.manifest import BUILTIN_TOOL_SOURCE_TYPES, ToolSourceConfig
+from agents_shipgate.schemas.manifest import (
+    BUILTIN_TOOL_SOURCE_TYPES,
+    AgentsShipgateManifest,
+    ToolSourceConfig,
+)
 from tests.mcp_idiom_corpus import REGRESSIONS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -1679,6 +1684,42 @@ def test_a_partial_signature_keeps_the_tool_and_the_route(tmp_path):
     assert surface_is_complete(tool) is False
     assert extraction_is_complete(tool) is False
     assert tool.risk_hints == []
+
+
+def test_the_action_projection_names_the_same_inputs_as_the_schema(tmp_path):
+    """One set of evidence, four surfaces.
+
+    `input_fields` and `required_input_fields` on the published action are
+    derived from `tool.parameters`, so a parameter erased from the inventory
+    is erased from the action a reviewer reads and from the diff that would
+    have flagged its arrival. That is the downstream half of #539's first
+    reproduction, and it is asserted through the projection rather than
+    inferred from the loader.
+    """
+
+    workspace = _corpus_workspace(
+        tmp_path, "python_application_model_named_context", name="projection"
+    )
+    tool = load_mcp_server_source(_source("server.py"), workspace).tools[0]
+    manifest = AgentsShipgateManifest.model_validate(
+        {
+            "version": "0.1",
+            "project": {"name": "mcp-server-source-projection"},
+            "agent": {"name": "agent", "declared_purpose": ["read a signature"]},
+            "environment": {"target": "production_like"},
+            "tool_sources": [
+                {"id": "server", "type": SOURCE_TYPE, "path": "server.py"}
+            ],
+        }
+    )
+    action = build_action(
+        manifest, agent_id="agent", tool=tool, declaration=None
+    )
+
+    assert action.input_fields == ["context"]
+    assert action.required_input_fields == ["context"]
+    assert sorted(tool.input_schema["properties"]) == action.input_fields
+    assert [p.name for p in tool.parameters] == action.input_fields
 
 
 def test_the_interface_gap_vocabulary_is_the_one_google_adk_established():
