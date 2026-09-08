@@ -1054,9 +1054,38 @@ def _absent_overlay_entry() -> dict[str, Any]:
 
 
 def _overlay_entry(lexical: Path, candidate: Path, snapshot: Any) -> dict[str, Any]:
+    """Keep entry metadata and its digest in one unchanged live observation."""
+
+    before = _overlay_entry_stat(lexical)
+    entry = _overlay_entry_data(lexical, candidate, snapshot, before)
+    after = _overlay_entry_stat(lexical)
+    if _overlay_stat_identity(before) != _overlay_stat_identity(after):
+        raise ValueError(f"worktree entry changed while its identity was read: {lexical}")
+    return entry
+
+
+def _overlay_entry_stat(path: Path) -> os.stat_result | None:
     try:
-        info = os.lstat(lexical)
+        return os.lstat(path)
     except OSError:
+        return None
+
+
+def _overlay_stat_identity(info: os.stat_result | None) -> tuple[int, ...] | None:
+    if info is None:
+        return None
+    # These fields detect drift during the read; they are not persisted in the
+    # normalized overlay, whose identity still excludes timestamps and umask.
+    return (
+        info.st_dev, info.st_ino, info.st_mode, info.st_size,
+        info.st_mtime_ns, info.st_ctime_ns,
+    )
+
+
+def _overlay_entry_data(
+    lexical: Path, candidate: Path, snapshot: Any, info: os.stat_result | None
+) -> dict[str, Any]:
+    if info is None:
         return _absent_overlay_entry()
     if stat.S_ISLNK(info.st_mode):
         # Hash the link target, never what it points at. Following it here is
