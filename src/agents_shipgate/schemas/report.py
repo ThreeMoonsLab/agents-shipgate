@@ -32,6 +32,7 @@ from agents_shipgate.schemas.common import (
     Severity,
     SourceReference,
 )
+from agents_shipgate.schemas.coverage_recovery import CoverageRecovery
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.exclusions import SurfaceExclusionLedger
 from agents_shipgate.schemas.patches import (
@@ -727,6 +728,11 @@ class EvidenceGap(BaseModel):
     policy_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
     why: str
     next_action: EvidenceGapAction
+    # Optional, non-gating explanation from typed loader evidence (#561).
+    # Old reports omit it, meaning unclassified rather than a known owner.
+    recovery: CoverageRecovery | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="after")
     def _a_human_only_question_is_never_drafted(self) -> EvidenceGap:

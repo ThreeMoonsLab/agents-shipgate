@@ -3239,6 +3239,30 @@
       "title": "ContributionRule",
       "type": "object"
     },
+    "CoverageRecovery": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "input_unavailable",
+            "reader_limitation",
+            "unresolved"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "reason"
+      ],
+      "title": "CoverageRecovery",
+      "type": "object"
+    },
     "DeclarationQuestionCoverage": {
       "additionalProperties": false,
       "description": "v0.37: how much of the per-action declaration work is done.\n\nA gap count names a symptom and has no finish line. This is the same facts\nas a task with an end: how many questions this repository was ever asked,\nhow many a reviewed declaration has answered, and how many remain.\n\nThe denominator counts only what both halves can be measured on \u2014 the\n``effect`` and ``authority`` a reviewed declaration answers. An action\nwhose effect the scan established by itself was never asked about and is\nnot counted; an inventory or an ``agent_bindings`` declaration is a human\nanswer too but has no counterfactual to score against, so it is excluded\nrather than guessed at. See\n``agents_shipgate.core.declaration_questions``.\n\nv0.38: the unit is one blank a reviewer fills, so actions answered by the\nsame manifest block are one question. An authority every action of a source\nshares is answered once in that source's ``tool_sources[].authority``\nblock; ``open_questions[].answer_path`` names the block, and\n``subject_kind`` says which id space ``subject_id`` is in.\n\n``total == answered + open`` always. ``open_by_dimension`` sums to\n``open``: a question belongs to exactly one dimension.",
@@ -4085,6 +4109,17 @@
           ],
           "default": null,
           "title": "Policy Id"
+        },
+        "recovery": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CoverageRecovery"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "source_ref": {
           "anyOf": [

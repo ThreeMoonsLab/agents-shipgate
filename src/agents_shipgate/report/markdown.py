@@ -668,7 +668,10 @@ def _append_source_warnings(lines: list[str], report: ReadinessReport) -> None:
     # Grouped by mechanism: six warnings that differ only in the symbol they
     # name are one thing to fix, and listing them six times buries it. The
     # JSON keeps every warning — the count gates (#362).
-    groups = group_source_warnings(report.source_warnings)
+    groups = group_source_warnings(
+        report.source_warnings,
+        evidence_gaps=report.release_decision.evidence_coverage.evidence_gaps if report.release_decision else (),
+    )
     lines.extend(["## Source Warnings", ""])
     for group in groups:
         suffix = f" ({group.count} warnings)" if group.count > 1 else ""

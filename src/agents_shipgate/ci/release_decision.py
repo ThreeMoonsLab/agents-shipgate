@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections import Counter, defaultdict
 from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass
@@ -64,6 +65,7 @@ from agents_shipgate.schemas.bindings import (
     AgentBindingNode,
 )
 from agents_shipgate.schemas.common import Severity
+from agents_shipgate.schemas.coverage_recovery import CoverageRecovery, SourceRecoveryEvidence
 from agents_shipgate.schemas.report import (
     AGENT_AUTHORABLE_GAP_ACTION_KINDS,
     HUMAN_ONLY_GAP_KINDS,
@@ -170,6 +172,7 @@ def build_release_decision(
     fail_on: list[Severity] | None,
     new_findings_only: bool,
     tool_catalog: Sequence[Tool] | None = None,
+    source_recovery_evidence: Sequence[SourceRecoveryEvidence] | None = None,
 ) -> ReleaseDecision:
     """Compute the release decision.
 
@@ -347,7 +350,7 @@ def build_release_decision(
             *binding_gaps,
             *semantic_gaps,
             *report.policy_evidence_gaps,
-            *_evidence_gaps(report, tools),
+            *_evidence_gaps(report, tools, source_recovery_evidence=source_recovery_evidence),
         ],
         semantic_coverage=semantic_coverage,
         identity_coverage=identity_coverage,
@@ -2451,7 +2454,12 @@ def _surface_gap_note(tool: Tool) -> str:
     return f" Unresolved: {', '.join(reasons)}."
 
 
-def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceGap]:
+def _evidence_gaps(
+    report: ReadinessReport,
+    tools: list[Tool],
+    *,
+    source_recovery_evidence: Sequence[SourceRecoveryEvidence] | None = None,
+) -> list[EvidenceGap]:
     """v0.26: one actionable row per measurable evidence gap.
 
     Deterministic projection of the same inputs the counts use:
@@ -2584,6 +2592,10 @@ def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceG
                 ),
             )
         )
+    warning_counts = Counter(report.source_warnings)
+    recovery_by_warning: dict[str, list[SourceRecoveryEvidence]] = defaultdict(list)
+    for fact in source_recovery_evidence or ():
+        recovery_by_warning[fact.warning].append(fact)
     for warning in report.source_warnings:
         if (
             "predates report schema" in warning
@@ -2617,15 +2629,65 @@ def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceG
                     "stops warning, then rerun the scan."
                 ),
             )
-        gaps.append(
-            EvidenceGap(
-                kind="source_warning",
-                subject=warning,
-                why="A source loader degraded while reading declared inputs.",
-                next_action=action,
-            )
+        gap = EvidenceGap(
+            kind="source_warning",
+            subject=warning,
+            why="A source loader degraded while reading declared inputs.",
+            next_action=action,
         )
+        gaps.append(_with_source_recovery(
+            gap,
+            recovery_by_warning.get(warning, []),
+            warning_is_unique=warning_counts[warning] == 1,
+        ))
     return gaps
+
+
+def _with_source_recovery(
+    gap: EvidenceGap,
+    facts: list[SourceRecoveryEvidence],
+    *,
+    warning_is_unique: bool,
+) -> EvidenceGap:
+    """Explain a loader fact without changing any decision-bearing action kind.
+
+    `provide_source` is itself an IE threshold input. The existing action kind
+    and declaration permissions therefore stay exactly as they were; recovery
+    is an independent optional explanation, not another operational route.
+    """
+    if not facts:
+        return gap
+    if (
+        len(facts) != 1
+        or not warning_is_unique
+        or facts[0].recovery.reason == "ambiguous_warning_identity"
+    ):
+        return gap.model_copy(update={
+            "recovery": CoverageRecovery(kind="unresolved", reason="ambiguous_warning_identity"),
+            "next_action": gap.next_action.model_copy(update={
+                "path": None,
+                "why": "More than one input corresponds to this public warning.",
+                "expects": "Review the original inputs to identify the failing source before assigning a repair owner.",
+            }),
+        })
+    fact = facts[0]
+    if fact.recovery.kind == "input_unavailable":
+        why = "The configured OpenAI Agents SDK entrypoint was not found."
+        expects = "Restore the existing entrypoint, then rerun the scan. No declaration replaces the missing file."
+    elif fact.recovery.kind == "reader_limitation":
+        why = "The OpenAI Agents SDK binding reader does not support this literal tool-list concatenation."
+        expects = "Agents Shipgate needs a reader repair for literal tool-list concatenation; retain the source as a reproducer and rerun after the reader supports it."
+    else:
+        why = "The SDK tools expression could not be resolved; the evidence does not establish a repair owner."
+        expects = "Review the tools expression and establish its required static input or reader limitation before choosing a remedy."
+    return gap.model_copy(update={
+        "source_type": fact.source_type,
+        "source_ref": fact.source_ref,
+        "recovery": fact.recovery,
+        "next_action": gap.next_action.model_copy(update={
+            "path": fact.path, "why": why, "expects": expects,
+        }),
+    })
 
 
 # Symbols quoted in a gap's reason before it stops being a sentence.

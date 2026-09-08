@@ -554,7 +554,9 @@ def _print_cli_summary(
     # Grouped by mechanism: six warnings that differ only in the symbol they
     # name are one thing to fix. The raw count is what gates, so both numbers
     # are printed and report.json keeps every warning (#362).
-    warning_groups = group_source_warnings(report.source_warnings)
+    evidence_gaps = report.release_decision.evidence_coverage.evidence_gaps if report.release_decision else ()
+    recoveries = {gap.subject for gap in evidence_gaps if gap.recovery is not None}
+    warning_groups = group_source_warnings(report.source_warnings, evidence_gaps=evidence_gaps)
     if verbose:
         typer.echo(f"Tool count: {report.tool_surface.total_tools}")
         distinct = ""
@@ -578,10 +580,12 @@ def _print_cli_summary(
     typer.echo("Reports:")
     for path in report.generated_reports.values():
         typer.echo(f"- {path}")
-    if verbose and report.source_warnings:
+    if report.source_warnings and (verbose or recoveries):
         typer.echo("")
         typer.echo("Source warnings:")
         for group in warning_groups:
+            if not verbose and not recoveries.intersection(group.warnings):
+                continue
             suffix = f" ({group.count} warnings)" if group.count > 1 else ""
             typer.echo(f"- {group.message}{suffix}")
     typer.echo("")
