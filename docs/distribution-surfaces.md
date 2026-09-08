@@ -147,6 +147,13 @@ tag, which is the normal state between releases. A surface may name the source
 build only when it also says which channel that is; naming it as though it were
 published was the `rendered-prompt-unpublished-pin` gap, closed by #506.
 
+The main-tree `.well-known/agents-shipgate.json` integration enumeration is
+checked against `contract --json` from the same source build, including missing
+and unsupported entries. The site's discovery copy stays pinned to its released
+tag and is compared only with that tag's contract, never with unreleased main.
+An enumeration entry describes an existing integration format; it does not
+add a CLI command or confer release authority.
+
 Where a surface demonstrates a capability no published release carries, the
 honest output is neither an unresolvable pin nor silence: it is to say so. #506
 renders that sentence into the adoption prompts beside the pin, and the

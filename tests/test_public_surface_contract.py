@@ -773,6 +773,25 @@ def test_the_prose_that_states_the_current_report_schema_states_the_current_one(
     )
 
 
+def test_discovery_integration_surfaces_match_the_same_build_runtime():
+    """Main-tree discovery names exactly what this source contract supports.
+
+    The site's released copy belongs to its tag; it is intentionally not an
+    input to this same-build comparison. Ordering is presentation, not a
+    second capability or compatibility promise.
+    """
+    published = json.loads(_read(".well-known/agents-shipgate.json"))
+    runtime = build_contract_payload().external_integration_surfaces
+    discovered = published["external_integration_surfaces"]
+    assert len(discovered) == len(set(discovered)), "duplicate discovery integration surfaces"
+    missing = sorted(set(runtime) - set(discovered))
+    unexpected = sorted(set(discovered) - set(runtime))
+    assert not missing and not unexpected, (
+        "same-build external_integration_surfaces drift: "
+        f"missing from discovery={missing}; not supported by runtime={unexpected}"
+    )
+
+
 def test_runtime_and_published_versions_propagate_to_metadata_surfaces():
     """Keep the in-tree runtime and latest published tag distinct.
 
