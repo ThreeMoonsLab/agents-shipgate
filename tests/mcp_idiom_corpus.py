@@ -1709,6 +1709,135 @@ REGRESSIONS: dict[str, SourceCase] = {
         "def described() -> None:\n"
         '    """What the author wrote for a reader."""\n',
     ),
+    # --- Which parameters the framework injects (#539) ----------------------
+    #
+    # The SDK resolves the annotation and checks class identity; a reader
+    # matching the last token of the spelling answers wrongly in *both*
+    # directions, so each shape below is paired with the one that looks
+    # identical and must come back the other way.
+    "python_application_model_named_context": SourceCase(
+        "python_application_model_named_context",
+        "python",
+        "from mcp.server.fastmcp import FastMCP\n"
+        "from pydantic import BaseModel\n"
+        "\n"
+        "\n"
+        "class Context(BaseModel):\n"
+        "    account_id: str\n"
+        "\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def update(context: Context) -> str:\n"
+        '    return "ok"\n',
+    ),
+    "python_framework_context_under_an_alias": SourceCase(
+        "python_framework_context_under_an_alias",
+        "python",
+        "from mcp.server.fastmcp import Context as RequestContext, FastMCP\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def lookup(query: str, ctx: RequestContext) -> str:\n"
+        '    return "ok"\n',
+    ),
+    "python_framework_context_qualified": SourceCase(
+        "python_framework_context_qualified",
+        "python",
+        "import mcp.server.fastmcp\n"
+        "from mcp.server.fastmcp import FastMCP\n"
+        "\n"
+        'mcp_server = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp_server.tool()\n"
+        "def qualified(ctx: mcp.server.fastmcp.Context, query: str) -> str:\n"
+        '    return "ok"\n',
+    ),
+    "python_context_subclass_is_still_injected": SourceCase(
+        "python_context_subclass_is_still_injected",
+        "python",
+        "from mcp.server.fastmcp import Context, FastMCP\n"
+        "\n"
+        "\n"
+        "class Reporting(Context):\n"
+        "    pass\n"
+        "\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def report(progress: Reporting, query: str) -> str:\n"
+        '    return "ok"\n',
+    ),
+    "python_context_name_rebound_after_import": SourceCase(
+        "python_context_name_rebound_after_import",
+        "python",
+        "from fastmcp import Context, FastMCP\n"
+        "\n"
+        "Context = object\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def rebound(ctx: Context) -> str:\n"
+        '    return "ok"\n',
+    ),
+    "python_context_from_an_unresolved_import": SourceCase(
+        "python_context_from_an_unresolved_import",
+        "python",
+        "from fastmcp import FastMCP\n"
+        "\n"
+        "from .runtime import Context\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def relative(ctx: Context) -> str:\n"
+        '    return "ok"\n',
+    ),
+    "python_context_forward_reference": SourceCase(
+        "python_context_forward_reference",
+        "python",
+        "from mcp.server.mcpserver import Context, MCPServer\n"
+        "\n"
+        'mcp = MCPServer("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        'def quoted(ctx: "Context", query: str) -> str:\n'
+        '    return "ok"\n',
+    ),
+    "python_annotation_kinds": SourceCase(
+        "python_annotation_kinds",
+        "python",
+        "from typing import Annotated, Optional\n"
+        "\n"
+        "from fastmcp import FastMCP\n"
+        "from pydantic import Field\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def shaped(\n"
+        "    limit: int | None = None,\n"
+        "    names: list[str] = (),\n"
+        "    labels: dict[str, str] = {},\n"
+        "    page: Optional[int] = None,\n"
+        '    query: Annotated[int, Field(ge=1)] = 1,\n'
+        "    untyped=None,\n"
+        "    opaque: set[object] = (),\n"
+        ") -> str:\n"
+        '    return "ok"\n',
+    ),
 }
 
 

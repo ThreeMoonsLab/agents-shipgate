@@ -66,7 +66,6 @@ from agents_shipgate.inputs.mcp_idioms import (
     OMISSION_REASONS,
     PythonServerIndex,
     RegistrationSite,
-    SignatureParameter,
     is_scannable_path,
     language_for_path,
     scan_source,
@@ -390,15 +389,21 @@ def _tool_from_site(
     surface_gaps: list[str],
 ) -> Tool:
     assert site.name is not None
+    # A signature this reader could not fully resolve is this tool's own gap,
+    # not its file's: the file still enumerated every registration it holds.
+    # It joins the file's reasons in one list because ``surface`` is one claim
+    # per tool, and a tool whose interface is partly unread has not had its
+    # surface established whatever the rest of the file managed.
+    gaps = sorted(set(surface_gaps) | set(_signature_gaps(site)))
     extraction: dict[str, object] = {
         "method": EXTRACTION_METHOD,
         "confidence": EXTRACTION_CONFIDENCE,
         "idiom": site.idiom,
         "registry_version": IDIOM_REGISTRY_VERSION,
-        "surface": surface,
+        "surface": SURFACE_PARTIAL if gaps else surface,
     }
-    if surface_gaps:
-        extraction["surface_gaps"] = surface_gaps
+    if gaps:
+        extraction["surface_gaps"] = gaps
     parameters = _signature_parameters(site)
     return Tool(
         id=stable_tool_id(site.name),
@@ -422,58 +427,35 @@ def _tool_from_site(
     )
 
 
-#: Annotations naming the framework's request context. A tool declares one to
-#: reach logging and progress reporting, and the server strips it from the
-#: schema it publishes — so a catalog that kept it would publish a required
-#: argument no caller can supply.
+#: ``Tool.extraction["surface_gaps"]`` reasons this input records about **one
+#: tool's own interface**, as opposed to which tools the file registers.
 #:
-#: Matched on the **annotation only**, because that is what the framework
-#: matches on. The name-based ``SKIPPED_TOOL_PARAMETERS`` this input shared
-#: with the other Python adapters is wrong here: it holds ``config``,
-#: ``context`` and ``runtime``, which are ordinary user-supplied inputs to an
-#: MCP tool, and dropping them published an empty schema for
-#: ``configure(config, context, runtime)`` — hiding a real parameter inventory
-#: from every schema and policy consumer downstream. ``self`` is not special
-#: either: a decorated method registers the plain function, and the server puts
-#: ``self`` in the schema, so this reader says what the server says.
-_CONTEXT_ANNOTATIONS: frozenset[str] = frozenset({"Context"})
-
-
-def _context_annotation(annotation: str | None) -> str:
-    """The bare class name an annotation is written as.
-
-    Written as, never resolved: following ``Context`` to an import would mean
-    reading another module's namespace, and this input reads a signature.
-    """
-
-    # A forward reference is a string literal in the source and comes back from
-    # the reader with its quotes, because the reader renders the annotation
-    # rather than resolving it.
-    text = (annotation or "").strip().strip("'\"").strip()
-    # `Context | None`, the spelling a tool uses when the context is injected
-    # only in some transports.
-    text = text.split("|", 1)[0].strip()
-    if text.startswith(("Optional[", "typing.Optional[")):
-        text = text.split("[", 1)[1].rsplit("]", 1)[0].strip()
-    # `Context[ServerSession, None]` — the parameterised spelling the SDK's own
-    # examples use. Taking the head keeps `list[Context]`, which is a list.
-    text = text.split("[", 1)[0].strip()
-    return text.rsplit(".", 1)[-1]
-
-
-def _is_context_parameter(parameter: SignatureParameter) -> bool:
-    return _context_annotation(parameter.annotation) in _CONTEXT_ANNOTATIONS
+#: The framework decides whether it injects a parameter by resolving the
+#: annotation to a class and checking identity against its own request context.
+#: Where the module does not settle that — a relative import pointing outside
+#: the walk, a name two statements bind, a base class this reader cannot
+#: place — the honest answer is neither "the caller supplies it" nor "the
+#: framework does". The parameter stays in the inventory, visible, and the
+#: tool says which question it could not answer (#539).
+SURFACE_GAP_UNRESOLVED_CONTEXT = "unresolved_context_identity"
 
 
 def _signature_parameters(site: RegistrationSite) -> list[ToolParameter]:
     """The registered tool's parameters, for an idiom that reads a signature.
 
-    The exclusions are applied here rather than in the reader because they are
-    *framework* facts, not syntactic ones: the server drops the request context
-    from the schema it publishes, and every other Python input in this package
-    drops the same conventional parameter names. Keeping the reader purely
-    syntactic is what lets the zero-install detector mirror it without carrying
-    the catalog's vocabulary too.
+    One exclusion, and only where the reader **established** it: the server
+    strips its own request context from the schema it publishes, so a catalog
+    that kept it would publish a required argument no caller can supply.
+
+    Matching that on the annotation's spelling is what #539 reproduced in both
+    directions — an application model named ``Context`` disappeared from a tool
+    presented as taking no arguments, and an aliased framework context became a
+    required string. The name-based ``SKIPPED_TOOL_PARAMETERS`` the other
+    Python adapters share is wrong here for the same reason and one step
+    further out: it holds ``config``, ``context`` and ``runtime``, which are
+    ordinary user-supplied inputs to an MCP tool. ``self`` is not special
+    either — a decorated method registers the plain function, and the server
+    puts ``self`` in the schema, so this reader says what the server says.
     """
 
     if site.parameters is None:
@@ -485,8 +467,27 @@ def _signature_parameters(site: RegistrationSite) -> list[ToolParameter]:
             required=parameter.required,
         )
         for parameter in site.parameters
-        if not _is_context_parameter(parameter)
+        if parameter.injection != "framework_injected"
     ]
+
+
+def _signature_gaps(site: RegistrationSite) -> list[str]:
+    """Reasons this tool's own signature was not fully read.
+
+    Separate from the file's reasons, which answer "which tools exist": a file
+    can enumerate every registration it holds and still carry one function
+    whose interface the source does not give up.
+    """
+
+    if site.parameters is None:
+        return []
+    return sorted(
+        {
+            SURFACE_GAP_UNRESOLVED_CONTEXT
+            for parameter in site.parameters
+            if parameter.injection == "unresolved"
+        }
+    )
 
 
 def _signature_input_schema(

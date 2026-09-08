@@ -34,6 +34,7 @@ from agents_shipgate.inputs.mcp_server_source import (
 )
 from agents_shipgate.inputs.protocol import REGISTRY
 from agents_shipgate.schemas.manifest import BUILTIN_TOOL_SOURCE_TYPES, ToolSourceConfig
+from tests.mcp_idiom_corpus import REGRESSIONS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -1276,6 +1277,124 @@ def test_a_conventional_parameter_name_is_still_a_tool_input(tmp_path):
     ]
     # Only the annotated context is injected. `list[Context]` is a list.
     assert [p.name for p in by_name["search"].parameters] == ["query", "holder"]
+
+
+def _corpus_workspace(tmp_path, case_name: str, *, name: str) -> Path:
+    """One shared-corpus Python case written where the loader can read it.
+
+    Through the production loader, not `scan_source`: #539's two counterexamples
+    were both reproduced end to end, and the fact they are about — what the
+    catalog publishes as this tool's inputs — is only visible there.
+    """
+
+    workspace = tmp_path / name
+    workspace.mkdir()
+    (workspace / "server.py").write_text(
+        REGRESSIONS[case_name].text, encoding="utf-8"
+    )
+    return workspace
+
+
+def test_an_application_model_named_context_stays_a_required_input(tmp_path):
+    """The framework injects on the annotation's *binding*, not its spelling.
+
+    `class Context(BaseModel)` is the caller's own model. Matching the last
+    token of the annotation deleted it, and the catalog published
+    `update() -> str` — a tool presented as taking no arguments, with
+    `context.account_id` behind it, on `enumerated` evidence and no warning.
+    """
+
+    workspace = _corpus_workspace(
+        tmp_path, "python_application_model_named_context", name="app_model"
+    )
+    tool = load_mcp_server_source(_source("server.py"), workspace).tools[0]
+
+    assert [p.name for p in tool.parameters] == ["context"]
+    assert tool.input_schema["required"] == ["context"]
+    assert tool.function_signature == "update(context) -> str"
+    assert tool.extraction["surface"] == SURFACE_ENUMERATED
+
+
+def test_an_aliased_framework_context_is_not_a_caller_input(tmp_path):
+    """`Context as RequestContext` is the same class under another name.
+
+    The opposite direction of the same defect: a spelling match found no
+    `Context`, so the injected request context became a required string the
+    caller is asked to supply.
+    """
+
+    workspace = _corpus_workspace(
+        tmp_path, "python_framework_context_under_an_alias", name="alias"
+    )
+    tool = load_mcp_server_source(_source("server.py"), workspace).tools[0]
+
+    assert [p.name for p in tool.parameters] == ["query"]
+    assert tool.input_schema["required"] == ["query"]
+    assert tool.function_signature == "lookup(query) -> str"
+    assert tool.extraction["surface"] == SURFACE_ENUMERATED
+
+
+@pytest.mark.parametrize(
+    ("case", "expected"),
+    [
+        # A dotted spelling resolved through `import mcp.server.fastmcp`.
+        ("python_framework_context_qualified", ["query"]),
+        # The SDK injects any *subclass* of its context, so a class written
+        # here is a caller input only once its bases say so.
+        ("python_context_subclass_is_still_injected", ["query"]),
+        # A forward reference is source the interpreter parses later, and its
+        # names resolve in the scope the annotation was written in.
+        ("python_context_forward_reference", ["query"]),
+    ],
+)
+def test_an_established_framework_context_is_excluded_however_spelled(
+    tmp_path, case, expected
+):
+    workspace = _corpus_workspace(tmp_path, case, name=case)
+    loaded = load_mcp_server_source(_source("server.py"), workspace)
+    tool = loaded.tools[0]
+
+    assert [p.name for p in tool.parameters] == expected
+    # Established, so nothing about this signature is left open.
+    assert tool.extraction["surface"] == SURFACE_ENUMERATED
+    assert "surface_gaps" not in tool.extraction
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        # Two statements bind the name, so which one the annotation means is a
+        # guess about which ran.
+        "python_context_name_rebound_after_import",
+        # A relative import naming a module outside the walk.
+        "python_context_from_an_unresolved_import",
+    ],
+)
+def test_an_unresolved_context_identity_keeps_the_parameter_and_says_so(
+    tmp_path, case
+):
+    """Neither erased nor asserted to be a caller input.
+
+    The two failure directions this input can take are "a required input
+    disappeared" and "a framework-supplied value became a caller requirement".
+    Where the module does not settle which one applies, the honest answer is
+    to publish the parameter and name the question that was not answered —
+    never to pick one silently.
+    """
+
+    workspace = _corpus_workspace(tmp_path, case, name=case)
+    tool = load_mcp_server_source(_source("server.py"), workspace).tools[0]
+
+    assert [p.name for p in tool.parameters] == ["ctx"]
+    assert tool.function_signature == f"{tool.name}(ctx) -> str"
+    assert tool.extraction["surface"] == SURFACE_PARTIAL
+    assert tool.extraction["surface_gaps"] == [
+        mcp_server_source.SURFACE_GAP_UNRESOLVED_CONTEXT
+    ]
+    # A partial signature is not a weaker route: the tool keeps its name, its
+    # registration site and the ceiling the route reaches.
+    assert tool.extraction_confidence == mcp_server_source.EXTRACTION_CONFIDENCE
+    assert tool.source_path == "server.py"
 
 
 def test_a_decorator_below_the_registration_withholds_the_name(tmp_path):

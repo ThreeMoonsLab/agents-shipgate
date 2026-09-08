@@ -153,6 +153,36 @@ PYTHON_SERVER_CONSTRUCTORS: tuple[tuple[str, str], ...] = (
     ("mcp.server.mcpserver", "MCPServer"),
 )
 
+#: The modules whose ``Context`` the framework *injects* rather than taking
+#: from the caller, **derived from the table above** for the same reason the
+#: prefilter is: the request context ships beside the server class, so a
+#: hand-written module list would go stale on exactly the rename that already
+#: hid 229 tools (#484).
+#:
+#: Matched as a prefix, like :func:`_is_python_server_constructor`, because the
+#: class is re-exported from the package the servers import
+#: (``mcp.server.fastmcp``) and defined one level further down
+#: (``mcp.server.fastmcp.server``).
+PYTHON_CONTEXT_MODULES: tuple[str, ...] = tuple(
+    sorted({module for module, _symbol in PYTHON_SERVER_CONSTRUCTORS})
+)
+
+#: The class name the framework injects on. One symbol, not a set: the SDK's
+#: injection reader resolves the annotation and checks identity against this
+#: one class, so anything else is a caller input however it is spelled.
+PYTHON_CONTEXT_SYMBOL = "Context"
+
+#: Whether the framework supplies a parameter or the caller does.
+#:
+#: Three values, not two, because "not established" is a different answer from
+#: "established as a caller input" and the two must not be published as one.
+#: The SDK identifies its request context by **resolving the annotation and
+#: checking class identity**, so a reader matching the annotation's *spelling*
+#: answers this question wrongly in both directions: it erases an application
+#: model that happens to be named ``Context``, and it invents a required
+#: caller argument out of an aliased framework one (#539).
+ContextInjection = Literal["caller_supplied", "framework_injected", "unresolved"]
+
 #: The cheap gate for the index pass, the same idea as :data:`PREFILTER_TOKEN`
 #: and *derived from the table above*, because the two must not drift: a
 #: hand-written ``"fastmcp"`` skipped every module built on the SDK's v2 class,
@@ -471,12 +501,21 @@ class SignatureParameter:
 
     ``annotation`` is the annotation rendered back to source, never a resolved
     type: resolving one means following imports into libraries this reader does
-    not read. The caller maps it to a JSON Schema type.
+    not read.
+
+    ``injection`` is the one thing about the annotation that *is* resolved,
+    because the framework resolves it too: the SDK injects its request context
+    on the annotation's **binding**, not on its spelling, so the reader answers
+    with the module's own import and class table rather than with the last
+    token of the text (#539). It stays inside the module — an import is
+    followed to the package it names, a class to the bases written beside it —
+    and answers ``"unresolved"`` wherever that is not enough.
     """
 
     name: str
     annotation: str | None = None
     required: bool = True
+    injection: ContextInjection = "caller_supplied"
 
 
 @dataclass(frozen=True)
@@ -1857,6 +1896,23 @@ class _PythonModule:
             return (bound[0], scope) if len(bound) == 1 else None
         return None
 
+    def binds_name(self, name: str, node: ast.AST) -> bool:
+        """Whether any scope in effect at ``node`` binds ``name`` at all.
+
+        Stricter than :meth:`binding_of`, which answers ``None`` both for a
+        name nothing binds and for one two statements bind. A builtin spelling
+        is the builtin only while the module binds nothing of that name, and
+        conflating the two would read ``str`` as the builtin in a module that
+        rebinds it twice — the fail-open direction (#400 review, #539).
+        """
+
+        if self.star_import:
+            return True
+        return any(
+            (id(scope), name) in self._bindings
+            for scope in self._scope_chain(node)
+        )
+
     def import_of(self, name: str, node: ast.AST) -> _ImportBinding | None:
         """``name``'s import binding at ``node``, when an import is what binds it."""
 
@@ -2149,7 +2205,14 @@ def _python_sites(
                 offsets = _PythonOffsets(text)
             sites.append(
                 _python_site(
-                    node, decorator, offsets, proven=proven, wrapped=wrapped
+                    node,
+                    decorator,
+                    offsets,
+                    module,
+                    index,
+                    module_path,
+                    proven=proven,
+                    wrapped=wrapped,
                 )
             )
     sites.sort(key=lambda site: (site.line, site.column))
@@ -2264,6 +2327,9 @@ def _python_site(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     decorator: ast.expr,
     offsets: _PythonOffsets,
+    module: _PythonModule,
+    index: PythonServerIndex,
+    module_path: str | None,
     *,
     proven: bool,
     wrapped: bool,
@@ -2301,7 +2367,9 @@ def _python_site(
         # Withheld with the name: the schema comes from the same object, so a
         # signature published beside an unreadable name would be a parameter
         # list for a function the server may not have registered.
-        parameters=None if wrapped else _python_signature(node),
+        parameters=(
+            None if wrapped else _python_signature(node, module, index, module_path)
+        ),
         returns=None if wrapped else _python_annotation(node.returns),
         proves_server=True,
     )
@@ -2375,7 +2443,22 @@ def _python_string(node: ast.expr) -> str | None:
 
 def _python_signature(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
+    module: _PythonModule,
+    index: PythonServerIndex,
+    module_path: str | None,
 ) -> tuple[SignatureParameter, ...]:
+    def _parameter(
+        argument: ast.arg, default: ast.expr | None
+    ) -> SignatureParameter:
+        return SignatureParameter(
+            name=argument.arg,
+            annotation=_python_annotation(argument.annotation),
+            required=default is None,
+            injection=_python_context_injection(
+                argument.annotation, module, index, module_path
+            ),
+        )
+
     arguments = node.args
     positional = [*arguments.posonlyargs, *arguments.args]
     defaults: list[ast.expr | None] = [None] * (
@@ -2383,19 +2466,11 @@ def _python_signature(
     )
     defaults.extend(arguments.defaults)
     parameters = [
-        SignatureParameter(
-            name=argument.arg,
-            annotation=_python_annotation(argument.annotation),
-            required=default is None,
-        )
+        _parameter(argument, default)
         for argument, default in zip(positional, defaults, strict=True)
     ]
     parameters.extend(
-        SignatureParameter(
-            name=argument.arg,
-            annotation=_python_annotation(argument.annotation),
-            required=default is None,
-        )
+        _parameter(argument, default)
         for argument, default in zip(
             arguments.kwonlyargs, arguments.kw_defaults, strict=True
         )
@@ -2413,6 +2488,310 @@ def _python_annotation(node: ast.expr | None) -> str | None:
         return ast.unparse(node)
     except (AttributeError, ValueError, RecursionError):  # pragma: no cover
         return None
+
+
+# -- Annotation identity ----------------------------------------------------
+#
+# The framework decides what to inject by *resolving* an annotation, so this
+# reader has to as well. Everything below stays inside the module it is
+# reading: an import is followed to the dotted package it names, a class to
+# the bases written beside it, a forward reference to the expression its quotes
+# hold. Nothing is imported and nothing is executed, and the answer is
+# ``"unresolved"`` wherever the module does not settle it (#539).
+
+#: Modules whose ``Optional``/``Union``/``Annotated``/``List``/… spellings mean
+#: what they look like. ``typing_extensions`` re-exports the same objects.
+_PYTHON_TYPING_MODULES: frozenset[str] = frozenset(
+    {"typing", "typing_extensions"}
+)
+
+#: Spellings this reader recognises as naming a type, mapped to the JSON Schema
+#: type a catalog publishes for them. The keys answer a question on their own —
+#: a name that canonically means ``str`` or ``list`` is not the framework's
+#: request context, whatever the parameter is called — and the values are what
+#: the schema projection reads.
+#:
+#: Builtin spellings are canonical only while the module binds nothing of that
+#: name; the ``typing`` aliases only when an import into :data:`
+#: _PYTHON_TYPING_MODULES` is what binds them. ``from domain import Account as
+#: str`` is the shape that rule exists for (#400 review).
+PYTHON_ANNOTATION_JSON_TYPES: dict[str, str] = {
+    "str": "string",
+    "int": "number",
+    "float": "number",
+    "bool": "boolean",
+    "list": "array",
+    "List": "array",
+    "set": "array",
+    "Set": "array",
+    "frozenset": "array",
+    "FrozenSet": "array",
+    "tuple": "array",
+    "Tuple": "array",
+    "dict": "object",
+    "Dict": "object",
+}
+
+#: ``typing`` spellings that wrap a type without being one. Reduced away before
+#: anything is asked about the annotation, because ``Annotated[int, Field(...)]``
+#: and ``int`` denote the same type and FastMCP's own documentation writes the
+#: first for every constrained parameter.
+_PYTHON_ANNOTATION_WRAPPERS: frozenset[str] = frozenset(
+    {"Annotated", "Optional", "Union"}
+)
+
+#: How deep an annotation is reduced before this reader gives up. A bound, not
+#: a decision: past it the answer is ``"unresolved"``/unrepresentable, which is
+#: what an annotation nobody can read should produce anyway.
+_MAX_ANNOTATION_DEPTH = 8
+
+
+def _is_python_context_symbol(module: str, symbol: str) -> bool:
+    """Whether ``module.symbol`` names the request context the server injects."""
+
+    return symbol == PYTHON_CONTEXT_SYMBOL and any(
+        module == known or module.startswith(f"{known}.")
+        for known in PYTHON_CONTEXT_MODULES
+    )
+
+
+def _parse_python_expression(text: str) -> ast.expr | None:
+    """A forward reference's own expression, or ``None``.
+
+    A string annotation is source the interpreter parses later, so parsing it
+    is reading the module rather than evaluating it. Names inside it resolve in
+    the scope the annotation was *written* in, which is why every resolver
+    below takes the original annotation node as its scope anchor rather than
+    the node this returns.
+    """
+
+    try:
+        parsed = ast.parse(text.strip(), mode="eval")
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return None
+    return parsed.body
+
+
+def _python_annotation_symbol(
+    node: ast.expr, module: _PythonModule, scope: ast.AST
+) -> str | None:
+    """The builtin or ``typing`` name ``node`` canonically refers to."""
+
+    if isinstance(node, ast.Attribute):
+        dotted = _python_dotted_name(node)
+        if dotted is None:
+            return None
+        head, _, attribute = dotted.rpartition(".")
+        root, _, rest = head.partition(".")
+        named = module.module_named(root, scope)
+        if named is None:
+            return None
+        full = f"{named}.{rest}" if rest else named
+        return attribute if full in _PYTHON_TYPING_MODULES else None
+    if not isinstance(node, ast.Name):
+        return None
+    if module.binds_name(node.id, scope):
+        # Bound, so it is the builtin only if an import into ``typing`` is what
+        # binds it — which is the one way the aliased spellings arrive.
+        imported = module.import_of(node.id, scope)
+        if (
+            imported is None
+            or imported.level
+            or imported.symbol is None
+            or imported.module not in _PYTHON_TYPING_MODULES
+        ):
+            return None
+        return imported.symbol
+    return node.id if node.id in PYTHON_ANNOTATION_JSON_TYPES else None
+
+
+def _python_annotation_members(
+    node: ast.expr | None,
+    module: _PythonModule,
+    scope: ast.AST,
+    *,
+    depth: int = 0,
+) -> list[ast.expr] | None:
+    """The types an annotation names, with its wrappers reduced away.
+
+    ``None`` means the annotation could not be reduced at all — an unparseable
+    forward reference, or a nesting deeper than this reader follows. An empty
+    list means the annotation names only ``None``.
+    """
+
+    if node is None or depth > _MAX_ANNOTATION_DEPTH:
+        return None
+    if isinstance(node, ast.Constant):
+        if node.value is None:
+            return []
+        if isinstance(node.value, str):
+            parsed = _parse_python_expression(node.value)
+            if parsed is None:
+                return None
+            return _python_annotation_members(
+                parsed, module, scope, depth=depth + 1
+            )
+        return [node]
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return _python_annotation_union(
+            [node.left, node.right], module, scope, depth=depth
+        )
+    if isinstance(node, ast.Subscript):
+        symbol = _python_annotation_symbol(node.value, module, scope)
+        if symbol in _PYTHON_ANNOTATION_WRAPPERS:
+            elements = (
+                list(node.slice.elts)
+                if isinstance(node.slice, ast.Tuple)
+                else [node.slice]
+            )
+            if not elements:
+                return None
+            if symbol == "Annotated":
+                # Everything after the first element is metadata, not a type.
+                return _python_annotation_members(
+                    elements[0], module, scope, depth=depth + 1
+                )
+            return _python_annotation_union(
+                elements, module, scope, depth=depth
+            )
+    return [node]
+
+
+def _python_annotation_union(
+    elements: list[ast.expr],
+    module: _PythonModule,
+    scope: ast.AST,
+    *,
+    depth: int,
+) -> list[ast.expr] | None:
+    members: list[ast.expr] = []
+    for element in elements:
+        reduced = _python_annotation_members(
+            element, module, scope, depth=depth + 1
+        )
+        if reduced is None:
+            return None
+        members.extend(reduced)
+    return members
+
+
+def _python_class_identity(
+    node: ast.expr,
+    module: _PythonModule,
+    index: PythonServerIndex,
+    module_path: str | None,
+    scope: ast.AST,
+    seen: frozenset[int],
+) -> ContextInjection:
+    """Whether the class ``node`` names is the one the framework injects.
+
+    Mirrors :meth:`_PythonModule.is_fastmcp_construction`: the same import
+    table, the same prefix rule, the same refusal to answer where the module
+    binds a name twice. The one thing it adds is the base list, because the
+    SDK injects any **subclass** of its context — so a class written in this
+    module is only a caller input once the bases beside it say so.
+    """
+
+    if isinstance(node, ast.Attribute):
+        dotted = _python_dotted_name(node)
+        if dotted is None:
+            return "unresolved"
+        head, _, attribute = dotted.rpartition(".")
+        root, _, rest = head.partition(".")
+        named = module.module_named(root, scope)
+        if named is None:
+            return "unresolved"
+        full = f"{named}.{rest}" if rest else named
+        return (
+            "framework_injected"
+            if _is_python_context_symbol(full, attribute)
+            else "caller_supplied"
+        )
+    if not isinstance(node, ast.Name):
+        return "unresolved"
+    resolved = module.binding_of(node.id, scope)
+    if resolved is None:
+        # Nothing binds it, or two things do. A builtin spelling is the
+        # builtin in the first case and is never the framework's context;
+        # anything else is a name this reader cannot follow.
+        return (
+            "caller_supplied"
+            if _python_annotation_symbol(node, module, scope) is not None
+            else "unresolved"
+        )
+    binding, _scope = resolved
+    if isinstance(binding, ast.Import | ast.ImportFrom):
+        imported = module.import_of(node.id, scope)
+        if imported is None or imported.symbol is None:
+            # ``import a.b`` binds a module, and a module is not a class.
+            return "unresolved"
+        if imported.level:
+            # A relative import names a module of *this repository*, which is
+            # not the installed framework — but only once the walk has found
+            # it. An import pointing outside the scanned tree is one this
+            # reader cannot place at all.
+            return (
+                "caller_supplied"
+                if index.resolve(module_path, imported.module, imported.level)
+                is not None
+                else "unresolved"
+            )
+        return (
+            "framework_injected"
+            if _is_python_context_symbol(imported.module, imported.symbol)
+            else "caller_supplied"
+        )
+    if isinstance(binding, ast.ClassDef):
+        if id(binding) in seen:  # pragma: no cover - a class cannot be its own base
+            return "unresolved"
+        seen = seen | {id(binding)}
+        identity: ContextInjection = "caller_supplied"
+        for base in binding.bases:
+            head = base.value if isinstance(base, ast.Subscript) else base
+            resolved_base = _python_class_identity(
+                head, module, index, module_path, base, seen
+            )
+            if resolved_base == "framework_injected":
+                return "framework_injected"
+            if resolved_base == "unresolved":
+                identity = "unresolved"
+        return identity
+    # A ``def``, a parameter, an assignment: whatever the name refers to, this
+    # reader did not read a class definition for it.
+    return "unresolved"
+
+
+def _python_context_injection(
+    annotation: ast.expr | None,
+    module: _PythonModule,
+    index: PythonServerIndex,
+    module_path: str | None,
+) -> ContextInjection:
+    """Whether the framework supplies this parameter instead of the caller."""
+
+    if annotation is None:
+        # The SDK identifies the context by resolving a *type hint*; a
+        # parameter without one is never injected, whatever it is named.
+        return "caller_supplied"
+    members = _python_annotation_members(annotation, module, annotation)
+    if members is None:
+        return "unresolved"
+    identities = {
+        _python_class_identity(
+            member.value if isinstance(member, ast.Subscript) else member,
+            module,
+            index,
+            module_path,
+            annotation,
+            frozenset(),
+        )
+        for member in members
+    }
+    if "framework_injected" in identities:
+        return "framework_injected"
+    if "unresolved" in identities:
+        return "unresolved"
+    return "caller_supplied"
 
 
 class _PythonOffsets:
