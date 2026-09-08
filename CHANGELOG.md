@@ -11,6 +11,12 @@
   `CHANGE_ME` placeholder. The later identity-specific recovery question is
   tracked separately in #543; existing purpose/permission review remains.
 
+- **An init generator failure is a product defect, not a request to refill a template.**
+  (#328) Rendering and generated-manifest validation now use the same structured
+  `internal_error` route, with no edit or `--minimal` fallback. Setup writes no
+  manifest, CI workflow or instruction kit on this failure. Genuine malformed
+  user manifests still name the existing file for repair.
+
 - **The FastMCP signature projection now resolves the injected `Context`, and
   says so when it cannot read a type.** (#539) #535 made Python MCP servers
   discoverable and read their signatures. Two of the facts it published about
