@@ -311,6 +311,7 @@ def _fixture(
     actual_overrides: dict[str, str] | None = None,
     disagreement_case: str | None = None,
     cases: list[SafetyCorpusCaseV1] | None = None,
+    evidence_gaps: dict[str, list[dict]] | None = None,
 ) -> tuple[Path, Path, Path, Path]:
     wheel = tmp_path / "agents_shipgate-0.16.0b7-py3-none-any.whl"
     _write_wheel(wheel)
@@ -372,6 +373,7 @@ def _fixture(
                 "runtime_behavior_verified": False,
                 "static_verdict_disclaimer": STATIC_VERDICT_DISCLAIMER,
                 "evidence_coverage": {
+                    "evidence_gaps": (evidence_gaps or {}).get(case.id, []),
                     "level": "complete",
                     "human_review_recommended": actual != "passed",
                     "source_warning_count": 0,
@@ -925,7 +927,10 @@ def test_the_qualification_envelope_advanced_for_the_new_grammar(tmp_path: Path)
     """
 
     payload = _run(_fixture(tmp_path)).model_dump(mode="json")
-    assert payload["schema_version"] == "shipgate.safety_qualification/v5"
+    assert payload["schema_version"] == "shipgate.safety_qualification/v6"
+    payload.pop("coverage_misses")
+    for metric in payload["intervals"]:
+        metric.pop("applicability")
 
     legacy = (
         "shipgate.safety_qualification/v1",
@@ -955,7 +960,7 @@ def test_the_qualification_envelope_advanced_for_the_new_grammar(tmp_path: Path)
 
     for rejected in (
         "shipgate.safety_qualification/v3",
-        "shipgate.safety_qualification/v6",
+        "shipgate.safety_qualification/v7",
         "shipgate.safety_qualification",
     ):
         with pytest.raises(ValidationError):

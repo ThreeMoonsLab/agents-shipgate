@@ -207,7 +207,7 @@ QUALIFICATION_POLICIES: dict[str, QualificationPolicy] = {
 
 # Restated from ``agents_shipgate.schemas.safety_qualification``; bound to it by
 # ``test_the_stdlib_policy_table_matches_the_named_policies``.
-CURRENT_QUALIFICATION_ENVELOPE = "shipgate.safety_qualification/v5"
+CURRENT_QUALIFICATION_ENVELOPE = "shipgate.safety_qualification/v6"
 LEGACY_QUALIFICATION_ENVELOPES = frozenset(
     {
         "shipgate.safety_qualification/v1",
@@ -226,7 +226,7 @@ def qualification_envelope_admits_tier(schema_version: object, tier: object) -> 
     this on raw JSON because it never parses the envelope otherwise.
     """
 
-    if schema_version == CURRENT_QUALIFICATION_ENVELOPE:
+    if schema_version in {CURRENT_QUALIFICATION_ENVELOPE, "shipgate.safety_qualification/v5"}:
         return True
     if schema_version in LEGACY_QUALIFICATION_ENVELOPES:
         return tier in LEGACY_QUALIFICATION_TIERS

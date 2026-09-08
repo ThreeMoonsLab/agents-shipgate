@@ -13,6 +13,25 @@ for reproducible CI.
 
 ---
 
+## Qualification coverage diagnostics (v6, #520)
+
+`shipgate.safety_qualification` advances v5 → v6 to add `coverage_misses[]`
+and `intervals[].applicability` to the existing result. Both are required on
+v6; the reader checks their counts, cases and applicability against recorded
+outcomes and policy. All six legacy metric values and `passed` booleans retain
+their meaning. Expected-IE is explicitly `not_applicable` only when its
+denominator and policy floor are both zero; it is not a coverage success.
+Actual IE still loses the applicable exact-outcome score.
+
+V5 remains readable and retains its envelope on round-trip. Existing v1/v2/v4
+beta/test artifacts normalize to v5 as before; they cannot name `pre_1_0`.
+Old artifacts omit the new fields, which means unrecorded rather than zero.
+The typed reader rejects new fields mislabeled as an older closed grammar.
+V3 remains unsupported. Corpus/receipt-index v4, report v0.43, policy labels,
+thresholds and release permissions are unchanged. See
+[qualification coverage](docs/qualification-coverage.md) for denominators,
+unscored cases and the limits of named gap evidence.
+
 <a id="migration-note-unreleased-human-review-decision"></a>
 
 ## Migration Note: 0.16.0 — external review decisions stay separate from the gate

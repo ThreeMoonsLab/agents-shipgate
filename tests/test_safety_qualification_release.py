@@ -23,7 +23,12 @@ from agents_shipgate.schemas.safety_qualification import (
     production_safety_requirements,
     tier_for_requirements,
 )
-from scripts.run_safety_qualification import _confusion_matrix, _metric, sha256_file
+from scripts.run_safety_qualification import (
+    _confusion_matrix,
+    _coverage_misses,
+    _metric,
+    sha256_file,
+)
 from scripts.verify_safety_qualification_release import (
     main,
     verify_release_qualification,
@@ -129,6 +134,7 @@ def _result(
             denominator=outcome_counts["insufficient_evidence"],
             requirement=f">= {requirements.minimum_insufficient_evidence_exact} cases",
             passed=True,
+            applicability="not_applicable",
         ),
         _metric(
             name="overall_exact_rate",
@@ -136,6 +142,7 @@ def _result(
             denominator=total,
             requirement="reported for audit; outcome-specific thresholds govern",
             passed=True,
+            applicability="diagnostic",
         ),
     ]
     matrices = [_confusion_matrix(cases, profile="all")]
@@ -177,6 +184,7 @@ def _result(
         intervals=metrics,
         cases=cases,
         failures=[],
+        coverage_misses=_coverage_misses(cases, {}),
     )
 
 
@@ -373,9 +381,7 @@ def test_a_pre_1_0_artifact_may_not_claim_a_legacy_envelope(tmp_path: Path) -> N
     wheel, qualification = _fixture(tmp_path, requirements=pre_release_safety_requirements())
     _mutate(
         qualification,
-        lambda payload: payload.__setitem__(
-            "schema_version", "shipgate.safety_qualification/v4"
-        ),
+        lambda payload: _as_v4(payload),
     )
 
     with pytest.raises(ConfigError, match="admits only qualification_tier"):
@@ -388,9 +394,7 @@ def test_a_pre_1_0_artifact_may_not_claim_a_legacy_envelope(tmp_path: Path) -> N
     )
     _mutate(
         qualification,
-        lambda payload: payload.__setitem__(
-            "schema_version", "shipgate.safety_qualification/v4"
-        ),
+        lambda payload: _as_v4(payload),
     )
     assert (
         verify_release_qualification(
@@ -398,6 +402,13 @@ def test_a_pre_1_0_artifact_may_not_claim_a_legacy_envelope(tmp_path: Path) -> N
         ).schema_version
         == "shipgate.safety_qualification/v5"
     )
+
+
+def _as_v4(payload):
+    payload["schema_version"] = "shipgate.safety_qualification/v4"
+    payload.pop("coverage_misses")
+    for metric in payload["intervals"]:
+        metric.pop("applicability")
 
 
 def test_a_production_artifact_still_publishes_a_0_x_tag(tmp_path: Path) -> None:

@@ -26,7 +26,7 @@ from email.parser import BytesParser
 from email.policy import default as email_policy
 from fractions import Fraction
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import ValidationError
@@ -34,9 +34,11 @@ from pydantic import ValidationError
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.schemas.common import ReleaseDecisionStatus
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
-from agents_shipgate.schemas.report import ReadinessReport
+from agents_shipgate.schemas.report import EvidenceGap, ReadinessReport
 from agents_shipgate.schemas.safety_qualification import (
     FrozenSafetyCorpusV1,
+    QualificationCoverageMissCaseV1,
+    QualificationCoverageMissV1,
     QualificationInputDigestV1,
     SafetyConfusionMatrixV1,
     SafetyConfusionRowV1,
@@ -234,7 +236,7 @@ def _evaluate_receipt(
     entry: SafetyReceiptEntryV1,
     wheel_version: str,
     report_schema_version: str,
-) -> tuple[ReleaseDecisionStatus | None, str | None, list[str]]:
+) -> tuple[ReleaseDecisionStatus | None, str | None, list[str], list[EvidenceGap]]:
     errors: list[str] = []
     try:
         receipt_path = _confined_path(index_root, entry.receipt_path)
@@ -390,10 +392,12 @@ def _evaluate_receipt(
             or binding_coverage["pass_eligible"] is not True
         ):
             raise ValueError("passed receipt violates binding-backed pass invariants")
-        return receipt_decision, receipt_hash, []
+        # Keep the same parsed report used for scoring; diagnostics perform no
+        # second artifact read and cannot turn an invalid receipt into evidence.
+        return receipt_decision, receipt_hash, [], report_model.release_decision.evidence_coverage.evidence_gaps
     except (OSError, UnicodeError, json.JSONDecodeError, ValidationError, ValueError) as exc:
         errors.append(str(exc))
-    return None, None, errors
+    return None, None, errors, []
 
 
 def cohen_kappa(cases: Iterable[SafetyCorpusCaseV1]) -> tuple[float, int]:
@@ -439,6 +443,34 @@ def wilson_interval(numerator: int, denominator: int) -> WilsonIntervalV1:
     )
 
 
+def _coverage_misses(
+    case_results: list[SafetyQualificationCaseResultV1],
+    gaps_by_case: dict[str, list[EvidenceGap]],
+) -> list[QualificationCoverageMissV1]:
+    rows = []
+    for profile in sorted({case.profile for case in case_results}):
+        cases = [case for case in case_results if case.profile == profile]
+        misses = [case for case in cases if case.actual_decision == "insufficient_evidence"]
+        rows.append(
+            QualificationCoverageMissV1(
+                profile=profile,
+                count=len(misses),
+                denominator=len(cases),
+                rate=round(len(misses) / len(cases), 6),
+                unscored_case_ids=[case.id for case in cases if case.actual_decision is None],
+                cases=[
+                    QualificationCoverageMissCaseV1(
+                        case_id=case.id,
+                        gap_status="named_gaps" if gaps_by_case.get(case.id) else "unclassified",
+                        evidence_gaps=gaps_by_case.get(case.id, []),
+                    )
+                    for case in misses
+                ],
+            )
+        )
+    return rows
+
+
 def _metric(
     *,
     name: str,
@@ -446,6 +478,7 @@ def _metric(
     denominator: int,
     requirement: str,
     passed: bool,
+    applicability: Literal["applicable", "not_applicable", "diagnostic"] = "applicable",
 ) -> SafetyQualificationMetricV1:
     return SafetyQualificationMetricV1(
         name=name,
@@ -455,6 +488,7 @@ def _metric(
         interval=wilson_interval(numerator, denominator),
         requirement=requirement,
         passed=passed,
+        applicability=applicability,
     )
 
 
@@ -616,6 +650,7 @@ def run_safety_qualification(
         )
 
     case_results: list[SafetyQualificationCaseResultV1] = []
+    gaps_by_case: dict[str, list[EvidenceGap]] = {}
     for case in corpus.cases:
         entry = receipts_by_case.get(case.id)
         if entry is None:
@@ -635,12 +670,13 @@ def run_safety_qualification(
                 )
             )
             continue
-        actual, receipt_sha256, receipt_errors = _evaluate_receipt(
+        actual, receipt_sha256, receipt_errors, evidence_gaps = _evaluate_receipt(
             index_root=receipt_index_path.parent,
             entry=entry,
             wheel_version=wheel_version,
             report_schema_version=active_requirements.required_report_schema_version,
         )
+        gaps_by_case[case.id] = evidence_gaps
         if receipt_errors:
             for error in receipt_errors:
                 _failure(
@@ -811,6 +847,12 @@ def run_safety_qualification(
             denominator=ie_denominator,
             requirement=(f">= {active_requirements.minimum_insufficient_evidence_exact} cases"),
             passed=ie_exact >= active_requirements.minimum_insufficient_evidence_exact,
+            applicability=(
+                "not_applicable"
+                if ie_denominator == 0
+                and active_requirements.minimum_insufficient_evidence_exact == 0
+                else "applicable"
+            ),
         ),
         _metric(
             name="overall_exact_rate",
@@ -818,6 +860,7 @@ def run_safety_qualification(
             denominator=len(case_results),
             requirement="reported for audit; outcome-specific thresholds govern",
             passed=True,
+            applicability="diagnostic",
         ),
     ]
     for metric in metrics:
@@ -905,6 +948,7 @@ def run_safety_qualification(
         intervals=metrics,
         cases=case_results,
         failures=failures,
+        coverage_misses=_coverage_misses(case_results, gaps_by_case),
     )
 
 
