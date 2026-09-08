@@ -4975,6 +4975,7 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
     # other published field of the candidate points at.
     declared_in: dict[str, list[str]] = {}
     best_project: dict[str, str] = {}
+    product_declared: set[str] = set()
     order = 0
     for path, facts in py_facts:
         if not facts["names"]:
@@ -5009,6 +5010,8 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
                     evidence["why"] or "declared as a child of another agent, not the root"
                 )
             origin = _non_product_origin(rel)
+            if origin is None:
+                product_declared.add(value)
             if origin is not None:
                 # Larger than every other signal combined: a fixture or a
                 # scaffolding template that happens to build an App root is
@@ -5067,6 +5070,11 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
                     "static value",
                 )
     for value, ranked in best.items():
+        if value not in product_declared:
+            ranked["selectable"] = False
+            ranked["rationale"].append(
+                "rejected: declared only in non-product code, not a reviewed product identity"
+            )
         # The candidate's own project first when it is blocked, so the
         # sentence names the project every other field already points at.
         blocking = sorted(
