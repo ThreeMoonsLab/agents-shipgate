@@ -2947,6 +2947,41 @@ PYTHON_ANNOTATION_JSON_TYPES: dict[str, str] = {
     "Dict": "object",
 }
 
+#: Builtin names an annotation can be written with, whether or not a JSON type
+#: is published for them.
+#:
+#: A superset of the table above's builtin keys, because the two answer
+#: different questions. This one settles **identity**: none of these is the
+#: framework's request context, so a parameter annotated ``bytes`` is a caller
+#: input even though this reader publishes no type for it. Reading the JSON
+#: table for both reported ``Union[str, bytes, int, float, dict]`` in
+#: ``redis/mcp-redis`` as an *unresolved injection identity* — a question left
+#: open about a builtin.
+#:
+#: The ``typing`` aliases are deliberately absent: an unbound ``List`` is a
+#: ``NameError``, not a builtin, and only an import into
+#: :data:`_PYTHON_TYPING_MODULES` makes that spelling mean anything.
+_PYTHON_BUILTIN_TYPE_NAMES: frozenset[str] = frozenset(
+    {
+        "bool",
+        "bytearray",
+        "bytes",
+        "complex",
+        "dict",
+        "float",
+        "frozenset",
+        "int",
+        "list",
+        "memoryview",
+        "object",
+        "range",
+        "set",
+        "str",
+        "tuple",
+        "type",
+    }
+)
+
 #: ``typing`` spellings that wrap a type without being one. Reduced away before
 #: anything is asked about the annotation, because ``Annotated[int, Field(...)]``
 #: and ``int`` denote the same type and FastMCP's own documentation writes the
@@ -3017,7 +3052,7 @@ def _python_annotation_symbol(
         ):
             return None
         return imported.symbol
-    return node.id if node.id in PYTHON_ANNOTATION_JSON_TYPES else None
+    return node.id if node.id in _PYTHON_BUILTIN_TYPE_NAMES else None
 
 
 def _python_annotation_members(
@@ -3226,48 +3261,31 @@ def _python_member_json_type(
         container = (
             PYTHON_ANNOTATION_JSON_TYPES.get(symbol) if symbol is not None else None
         )
-        elements = (
-            list(node.slice.elts)
-            if isinstance(node.slice, ast.Tuple)
-            else [node.slice]
-        )
         if container == "array":
-            # Every element type has to be one this reader can name. A
-            # container whose contents it cannot read is not a container it
-            # read: ``{"type": "array"}`` invites the reader to think the
-            # element schema was among the evidence.
-            return (
-                "array"
-                if all(
-                    _python_json_type(element, module, scope, depth=depth + 1)
-                    is not None
-                    for element in elements
-                    if not _is_python_ellipsis(element)
-                )
-                else None
-            )
+            # A container's JSON type does not depend on what it holds:
+            # ``list[X]`` is an array for every ``X``, and this projection
+            # publishes no element schema for *any* annotation — a bare
+            # ``list`` included. Requiring the element to be readable would
+            # report a type this reader did read as one it did not, which is
+            # the measured cost: ``Dict[str, Any]`` is the most common return
+            # spelling in ``redis/mcp-redis``.
+            return "array"
         if container == "object":
+            # The one part of a mapping that *does* decide the published type
+            # is its key. ``{"type": "object"}`` says the members are named by
+            # strings, which ``dict[int, str]`` does not.
+            elements = (
+                list(node.slice.elts)
+                if isinstance(node.slice, ast.Tuple)
+                else [node.slice]
+            )
             if len(elements) != 2:
                 return None
-            key, value = elements
-            if _python_json_type(key, module, scope, depth=depth + 1) != "string":
-                # A JSON object's members are named by strings.
-                return None
-            return (
-                "object"
-                if _python_json_type(value, module, scope, depth=depth + 1)
-                is not None
-                else None
-            )
+            key = _python_json_type(elements[0], module, scope, depth=depth + 1)
+            return "object" if key == "string" else None
         return None
     symbol = _python_annotation_symbol(node, module, scope)
     return PYTHON_ANNOTATION_JSON_TYPES.get(symbol) if symbol is not None else None
-
-
-def _is_python_ellipsis(node: ast.expr) -> bool:
-    """``...`` in ``tuple[int, ...]``: an arity, not a type."""
-
-    return isinstance(node, ast.Constant) and node.value is Ellipsis
 
 
 def _python_context_injection(

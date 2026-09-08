@@ -34,7 +34,13 @@
   schema, `untyped_parameter` or `unrepresentable_annotation` in the tool's
   `surface_gaps`, and `partial` for that tool's surface. The return annotation
   is read by the same rule, because `output_schema` came from the same
-  fallback.
+  fallback. A container's kind does not depend on what it holds —
+  `Dict[str, Any]` is an object, and this projection publishes no element
+  schema for any annotation, a bare `list` included — but a mapping's *key*
+  does, so `dict[int, str]` is refused. Measured on `redis/mcp-redis`: all 53
+  tools still named, 14 held at `partial`, and every annotation still
+  unreadable there is a union of genuinely different JSON kinds;
+  `chroma-core/chroma-mcp` reads 13 of 13 with no gap at all.
 
   Nothing about the route changes: the tool keeps its name, its file and line,
   the `medium` ceiling and the exclusion ledger it already had, and a partial

@@ -1815,6 +1815,66 @@ REGRESSIONS: dict[str, SourceCase] = {
         'def quoted(ctx: "Context", query: str) -> str:\n'
         '    return "ok"\n',
     ),
+    "python_context_from_another_package": SourceCase(
+        "python_context_from_another_package",
+        "python",
+        "from fastmcp import FastMCP\n"
+        "from acme.models import Context\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def imported(context: Context) -> str:\n"
+        '    return "ok"\n',
+    ),
+    "python_context_from_the_defining_module": SourceCase(
+        "python_context_from_the_defining_module",
+        "python",
+        "from mcp.server.fastmcp import FastMCP\n"
+        "from mcp.server.fastmcp.server import Context\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def deep(ctx: Context, query: str) -> str:\n"
+        '    return "ok"\n',
+    ),
+    # A spelling means what it looks like only while the module has not taken
+    # the name for something else. `from domain import Account as str` is the
+    # #400 shape, and a name two statements bind is unknowable rather than
+    # canonical — the direction that publishes a type nobody wrote.
+    "python_rebound_builtin_and_typing_spellings": SourceCase(
+        "python_rebound_builtin_and_typing_spellings",
+        "python",
+        "from acme import Account as str, Optional\n"
+        "\n"
+        "from fastmcp import FastMCP\n"
+        "\n"
+        "int = Account\n"
+        "int = Account\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def shadowed(name: str, count: int, page: Optional[int]) -> bool:\n"
+        "    return True\n",
+    ),
+    # A union denotes one type only when every arm agrees on it.
+    "python_union_arms": SourceCase(
+        "python_union_arms",
+        "python",
+        "from fastmcp import FastMCP\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def measured(size: int | float, mixed: str | int) -> str:\n"
+        '    return "ok"\n',
+    ),
     "python_annotation_kinds": SourceCase(
         "python_annotation_kinds",
         "python",
@@ -1822,6 +1882,11 @@ REGRESSIONS: dict[str, SourceCase] = {
         "\n"
         "from fastmcp import FastMCP\n"
         "from pydantic import Field\n"
+        "\n"
+        "\n"
+        "class Report:\n"
+        "    pass\n"
+        "\n"
         "\n"
         'mcp = FastMCP("s")\n'
         "\n"
@@ -1834,7 +1899,31 @@ REGRESSIONS: dict[str, SourceCase] = {
         "    page: Optional[int] = None,\n"
         '    query: Annotated[int, Field(ge=1)] = 1,\n'
         "    untyped=None,\n"
-        "    opaque: set[object] = (),\n"
+        "    opaque: Report = None,\n"
+        ") -> str:\n"
+        '    return "ok"\n',
+    ),
+    # A container's JSON type does not depend on what it holds, but a
+    # mapping's *key* decides whether it is a JSON object at all — and a
+    # builtin outside the published-type table is still a builtin, which is
+    # what settles that it is not the framework's request context.
+    "python_container_annotation_kinds": SourceCase(
+        "python_container_annotation_kinds",
+        "python",
+        "from typing import Any, Dict\n"
+        "\n"
+        "from fastmcp import FastMCP\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def held(\n"
+        "    payload: Dict[str, Any],\n"
+        "    opaque: list[Any],\n"
+        "    keyed: dict[int, str],\n"
+        "    raw: bytes,\n"
+        "    unbound: List[str],\n"
         ") -> str:\n"
         '    return "ok"\n',
     ),

@@ -23,6 +23,8 @@ from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.semantic_assessment import (
     AST_ONLY_SOURCE_TYPES,
     MCP_SOURCE_TYPES,
+    extraction_is_complete,
+    surface_is_complete,
 )
 from agents_shipgate.inputs import mcp_server_source
 from agents_shipgate.inputs.mcp_idioms import DIFF_TOKENS
@@ -1347,6 +1349,9 @@ def test_an_aliased_framework_context_is_not_a_caller_input(tmp_path):
     [
         # A dotted spelling resolved through `import mcp.server.fastmcp`.
         ("python_framework_context_qualified", ["query"]),
+        # The package the servers import re-exports the class; it is defined
+        # one module further down, and both spellings are the same class.
+        ("python_context_from_the_defining_module", ["query"]),
         # The SDK injects any *subclass* of its context, so a class written
         # here is a caller input only once its bases say so.
         ("python_context_subclass_is_still_injected", ["query"]),
@@ -1431,7 +1436,7 @@ def test_a_signature_publishes_the_type_the_annotation_denotes(tmp_path):
         # `Annotated[T, ...]` is `T` plus metadata, and it is the spelling
         # FastMCP's own documentation uses for every constrained parameter.
         "query": "number",
-        # No annotation, and an element type this reader cannot name: both
+        # No annotation, and a class this reader cannot represent: both
         # publish no type rather than a fabricated one.
         "untyped": None,
         "opaque": None,
@@ -1447,6 +1452,152 @@ def test_a_signature_publishes_the_type_the_annotation_denotes(tmp_path):
     assert sorted(tool.input_schema["properties"]) == sorted(types)
     assert tool.function_signature == (
         "shaped(limit, names, labels, page, query, untyped, opaque) -> str"
+    )
+
+
+def test_a_container_names_its_kind_and_a_mapping_needs_string_keys(tmp_path):
+    """What a container holds does not change what kind of value it is.
+
+    This projection publishes no element schema for any annotation — a bare
+    `list` included — so refusing `Dict[str, Any]` would report a type it did
+    read as one it did not. Measured on `redis/mcp-redis`, where that spelling
+    is the most common return: 21 of 53 tools held at `partial`, 14 of them
+    for a container whose kind was never in doubt.
+
+    A mapping's *key* is the exception, because it is the part that decides
+    whether the value is a JSON object at all.
+    """
+
+    workspace = _corpus_workspace(
+        tmp_path, "python_container_annotation_kinds", name="containers"
+    )
+    tool = load_mcp_server_source(_source("server.py"), workspace).tools[0]
+
+    assert {p.name: p.type for p in tool.parameters} == {
+        "payload": "object",
+        "opaque": "array",
+        # Named by integers, so `{"type": "object"}` would be a claim the
+        # annotation does not support.
+        "keyed": None,
+        # A builtin with no JSON type of its own. Its *identity* is still
+        # settled — no builtin is the framework's request context — so it
+        # raises no question about who supplies it.
+        "raw": None,
+        # `List` without the `typing` import is a `NameError`, not an alias.
+        "unbound": None,
+    }
+    # `List[str]` names nothing at all here, so *both* questions about it are
+    # open — what it denotes, and whether the framework supplies it.
+    assert tool.extraction["surface_gaps"] == [
+        mcp_server_source.SURFACE_GAP_UNREPRESENTABLE_ANNOTATION,
+        mcp_server_source.SURFACE_GAP_UNRESOLVED_CONTEXT,
+    ]
+
+
+def test_a_spelling_means_what_it_looks_like_only_while_nothing_rebinds_it(
+    tmp_path,
+):
+    """`from domain import Account as str` describes a model as a string.
+
+    The #400 shape, on this input's own emitter. A builtin is the builtin only
+    while the module binds nothing of that name, and a name *two* statements
+    bind is unknowable rather than canonical — which is the difference between
+    "no binding" and "no single binding", and the direction that publishes a
+    type nobody wrote.
+    """
+
+    workspace = _corpus_workspace(
+        tmp_path, "python_rebound_builtin_and_typing_spellings", name="shadow"
+    )
+    tool = load_mcp_server_source(_source("server.py"), workspace).tools[0]
+
+    assert {p.name: p.type for p in tool.parameters} == {
+        # Rebound by an import from another package.
+        "name": None,
+        # Bound twice, so which binding the annotation means is a guess.
+        "count": None,
+        # `Optional` from somewhere other than `typing` is not the wrapper.
+        "page": None,
+    }
+    assert tool.output_schema == {"type": "boolean"}
+    assert tool.extraction["surface_gaps"] == [
+        mcp_server_source.SURFACE_GAP_UNREPRESENTABLE_ANNOTATION,
+        mcp_server_source.SURFACE_GAP_UNRESOLVED_CONTEXT,
+    ]
+
+
+def test_a_union_denotes_a_type_only_when_its_arms_agree(tmp_path):
+    """`int | float` is a number; `str | int` is not one type."""
+
+    workspace = _corpus_workspace(tmp_path, "python_union_arms", name="unions")
+    tool = load_mcp_server_source(_source("server.py"), workspace).tools[0]
+
+    assert {p.name: p.type for p in tool.parameters} == {
+        "size": "number",
+        "mixed": None,
+    }
+
+
+def test_a_class_imported_from_another_package_is_a_caller_input(tmp_path):
+    """An absolute import outside the framework's own packages settles it.
+
+    The bound is written where it is taken: a class defined in another
+    distribution could subclass the framework's context and be injected too,
+    and reading that would mean reading that distribution. The parameter is
+    published either way — what would differ is one `required` flag, on a
+    shape none of the surveyed servers writes — while treating every imported
+    model as unresolved would put a question mark on the ordinary Pydantic
+    parameter every server has.
+    """
+
+    workspace = _corpus_workspace(
+        tmp_path, "python_context_from_another_package", name="package"
+    )
+    tool = load_mcp_server_source(_source("server.py"), workspace).tools[0]
+
+    assert [p.name for p in tool.parameters] == ["context"]
+    assert tool.input_schema["required"] == ["context"]
+    assert (
+        mcp_server_source.SURFACE_GAP_UNRESOLVED_CONTEXT
+        not in tool.extraction["surface_gaps"]
+    )
+
+
+def test_a_relative_import_this_walk_resolves_is_a_caller_input(tmp_path):
+    """A module inside the scanned tree is this repository's, not the SDK's.
+
+    The counterpart to the unresolved case: the same relative spelling, with
+    the module it names present in the walk. This is the shape every
+    multi-module server writes for its own request/response models, so an
+    answer of "unresolved" here would put a signature gap on most of the
+    population for a question the walk can settle.
+    """
+
+    workspace = tmp_path / "relative"
+    package = workspace / "src"
+    package.mkdir(parents=True)
+    (package / "models.py").write_text(
+        "class Context:\n    pass\n", encoding="utf-8"
+    )
+    (package / "server.py").write_text(
+        "from fastmcp import FastMCP\n"
+        "\n"
+        "from .models import Context\n"
+        "\n"
+        'mcp = FastMCP("s")\n'
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def resolved(context: Context) -> str:\n"
+        '    return "ok"\n',
+        encoding="utf-8",
+    )
+    tool = load_mcp_server_source(_source("src"), workspace).tools[0]
+
+    assert [p.name for p in tool.parameters] == ["context"]
+    assert (
+        mcp_server_source.SURFACE_GAP_UNRESOLVED_CONTEXT
+        not in tool.extraction["surface_gaps"]
     )
 
 
@@ -1521,6 +1672,13 @@ def test_a_partial_signature_keeps_the_tool_and_the_route(tmp_path):
     # read, so nothing enters the omission ledger for it.
     assert loaded.omissions == []
     assert loaded.warnings == []
+    # And it closes nothing: the engine's own two predicates still read this
+    # tool as neither fully enumerated nor attested, so a partial signature
+    # cannot stand in for the effect, authority or binding declaration the
+    # questionnaire asks for.
+    assert surface_is_complete(tool) is False
+    assert extraction_is_complete(tool) is False
+    assert tool.risk_hints == []
 
 
 def test_the_interface_gap_vocabulary_is_the_one_google_adk_established():
