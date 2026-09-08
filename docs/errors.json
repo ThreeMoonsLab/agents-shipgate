@@ -123,9 +123,10 @@
       "additional_fields": [
         "message",
         "next_action",
-        "next_actions"
+        "next_actions",
+        "details"
       ],
-      "recovery_hint": "File an issue at https://github.com/ThreeMoonsLab/agents-shipgate/issues with the message and a minimal reproduction. Re-run with `--verbose` to capture the traceback."
+      "recovery_hint": "File an issue at https://github.com/ThreeMoonsLab/agents-shipgate/issues with the message and a minimal reproduction. Re-run with `--verbose` to capture the traceback. For init generation failures, details.failure is manifest_generation_failed and details.origin is agents_shipgate. The sole route is to report the product defect; it carries no repository edit or fallback command. No manifest, CI workflow or instruction kit is written. --minimal remains an explicit user choice, not a remedy for generated output that failed validation."
     },
     {
       "id": "environment_error",

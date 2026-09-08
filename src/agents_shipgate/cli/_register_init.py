@@ -1516,52 +1516,29 @@ def register(app: typer.Typer) -> None:
                     exit_code=4,
                 )
                 raise typer.Exit(4) from exc
-            rendered = render_auto_manifest(
-                workspace_resolved, detect_result, control_pack=control_pack
-            )
-            template = rendered.text
-            tool_surface_origin = rendered.tool_surface_origin
-            scaffold_summary = rendered.scaffold_summary
-            # Validation gate: refuse to emit a manifest the schema would reject.
+            # Both rendering and validation belong to the product boundary.
+            # A generated document failing our own schema is not malformed
+            # adopter input, and no setup files have been written yet (#328).
             try:
+                rendered = render_auto_manifest(
+                    workspace_resolved, detect_result, control_pack=control_pack
+                )
+                template = rendered.text
+                tool_surface_origin = rendered.tool_surface_origin
+                scaffold_summary = rendered.scaffold_summary
                 _validate_manifest_text(template)
-            except Exception as exc:  # noqa: BLE001 - validation surface
-                message = f"Generated manifest failed validation: {exc}"
+            except Exception as exc:  # noqa: BLE001 - generation boundary
+                message = f"Agents Shipgate defect: manifest generation failed: {exc}"
                 typer.echo(message, err=True)
-                minimal_action = NextAction(
-                    kind="command",
-                    # Through the one recovery builder, like the two early
-                    # validation routes above. A bare `init --minimal` dropped
-                    # the workspace this run was pointed at, the `--write` that
-                    # made it a real run, and the `--json` the caller is
-                    # reading the answer through — so following the fallback
-                    # exactly produced a dry run against the process directory.
-                    # (The console-script spelling was never the problem:
-                    # `NextAction` retargets `command` on construction.)
-                    command=_recovery_command(
-                        workspace=workspace_resolved,
-                        write=write,
-                        local_review=local_review,
-                        json_output=json_output,
-                        setup_flags=_invocation_flags(
-                            minimal=True,
-                            ci=ci,
-                            claude_code=claude_code,
-                            agent_instructions=agent_instructions,
-                            control_pack=control_pack,
-                            allow_unresolved_scope=allow_unresolved_scope,
-                            agent_instructions_kit=agent_instructions_kit,
-                            max_python_files=max_python_files,
-                        ),
-                    ),
+                report_action = NextAction(
+                    kind="review",
                     why=(
-                        "Auto-detected manifest failed schema validation. "
-                        "Fall back to the legacy CHANGE_ME-heavy template."
+                        "Report this Agents Shipgate defect with the failure message "
+                        "and a minimal reproduction at "
+                        "https://github.com/ThreeMoonsLab/agents-shipgate/issues. "
+                        "Do not change the repository to repair generated output."
                     ),
-                    expects=(
-                        "shipgate.yaml renders with placeholder fields "
-                        "you fill in manually."
-                    ),
+                    expects="A product fix that can generate a valid manifest from these inputs.",
                 )
                 _emit_agent_mode_error_routing(
                     "internal_error",
@@ -1570,11 +1547,14 @@ def register(app: typer.Typer) -> None:
                         workspace=workspace_resolved,
                         reason=message,
                         exit_code=4,
-                        action=minimal_action,
-                        action_kind="initialize",
+                        action=report_action,
                     ),
                     message=message,
                     exit_code=4,
+                    details={
+                        "failure": "manifest_generation_failed",
+                        "origin": "agents_shipgate",
+                    },
                 )
                 raise typer.Exit(4) from exc
             placeholders = collect_placeholders(template)
