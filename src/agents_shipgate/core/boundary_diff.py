@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from agents_shipgate.core.host_input_failure import HostInputFailure
 from agents_shipgate.schemas.agent_result_v1 import AgentResultDiagnostic
 
 
@@ -58,6 +59,7 @@ class BoundaryInputIssue:
     code: str
     path: str
     message: str
+    recovery: HostInputFailure | None = None
 
 
 @dataclass(frozen=True)
