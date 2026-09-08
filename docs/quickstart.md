@@ -209,6 +209,11 @@ description, or see [`checks.md`](checks.md) for the catalog.
 
 ### 5. What the run did not establish
 
+On current `main`, capability summaries distinguish conservative effect
+projections from their static evidence. A provisional `write` and unknown
+effect evidence are compatible answers; see [effect projections and
+evidence](effect-evidence.md) for the existing JSON fields and review meaning.
+
 `report.md` carries its own coverage limit, and that limit is part of the
 answer:
 

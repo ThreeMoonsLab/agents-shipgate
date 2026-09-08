@@ -389,6 +389,17 @@ def test_archived_adopted_verify_remains_verdict_first(tmp_path):
     )
     assert adopted_findings_comment.count("Release gate:") == 2
 
+    for style in ("capability-review", "findings"):
+        evidence_comment = render_pr_comment(
+            verifier, report=report, style=style,
+            human_context=HumanArtifactContext(manifest_introduced=True),
+        )
+        assert "Conservative effect projections:" in evidence_comment
+        assert "Effect evidence:" in evidence_comment
+        assert "provisional: unknown effect" in evidence_comment
+        assert "Provisional signals still require attention" in evidence_comment
+        assert len(evidence_comment) <= 6_000
+
     large = report.model_copy(deep=True)
     seed = large.action_surface_facts.actions[0]
     large.action_surface_facts.actions = [
