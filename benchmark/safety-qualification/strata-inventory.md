@@ -1,11 +1,17 @@
 # Cut A — the pre-1.0 strata inventory
 
-[`strata-inventory.csv`](strata-inventory.csv) maps the known candidate pool onto
-the 28 profile × decision cells the `pre_1_0` policy requires, so Cut B could mine
-the empty cells instead of re-finding the full ones. It is the first of the four
-cuts in [#456](https://github.com/ThreeMoonsLab/agents-shipgate/issues/456).
-**Sourcing is complete as of the [close-out](#cut-b--the-close-out-2026-09-02):
-every slot is `pinned`, and the next step is the Cut C calibration round.**
+[`strata-inventory.csv`](strata-inventory.csv) records the pre-1.0 candidate
+pool and its sourcing history. The current policy requires 38 cases across
+21 profile × decision cells, with at least 16 qualifying origins; the
+[current policy contract](README.md#current-policy-contract) is authoritative
+for today's allocation. It is part of
+[#456](https://github.com/ThreeMoonsLab/agents-shipgate/issues/456).
+
+The [2026-09-02 close-out](#cut-b--the-close-out-2026-09-02) below records the
+then-current 28-cell sourcing plan. Later policy and inventory changes leave
+that record historical; it does not establish a frozen corpus or receipts.
+The separate 80-case human-labeled beta track is
+[#512](https://github.com/ThreeMoonsLab/agents-shipgate/issues/512).
 
 **It is a sourcing plan, not evidence.** It contains no label, no verifier
 verdict, and no receipt. Nothing in it can qualify a release, and nothing in it
@@ -63,11 +69,11 @@ column so the bias is visible per row rather than argued in prose, and
 worksheet ever stops exposing verdicts — at which point this disclosure should
 be revisited rather than left standing.
 
-The miner's three-way vocabulary also does not distinguish `review_required`
-from `insufficient_evidence` — `needs_human` covers both — so a `needs_human`
-candidate may be targeted at either cell. **Drawing that line is work for the
-Cut C calibration round**, not for this file; the labeling guide has to answer
-it before 56 labels are produced against it.
+The miner's historical `needs_human` vocabulary covered both `review_required`
+and `insufficient_evidence`. Since Amendment 3, neither qualification policy
+has an expected-IE cell. Follow the current labeling guide and independent
+adjudication; never translate an engine abstention into a ground-truth label
+or automatically relabel the historical inventory to fill today's cells.
 
 ## Exposure, and why it decides the split
 
