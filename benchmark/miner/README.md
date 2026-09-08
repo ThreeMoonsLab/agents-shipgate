@@ -268,7 +268,9 @@ mining history. Original W24–W26 label files are unchanged.
 The [CSV](results/2026-W37-reeval.csv), [JSONL](results/2026-W37-reeval.jsonl)
 and [comparison](results/2026-W37-reeval.comparison.json) preserve all attempts.
 The comparison binds the candidate commit/tree, measurement-driver bytes,
-baseline and label-file hashes. It records command-level counts and routing
+baseline and label-file hashes. The driver digest records the version that
+actually ran; later driver changes must not restamp this historical record.
+It records command-level counts and routing
 without source excerpts, prompts or raw stderr.
 
 | Metric | W27 | W37 candidate | Interpretation |

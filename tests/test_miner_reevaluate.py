@@ -133,9 +133,8 @@ def test_w37_history_keeps_fixed_inputs_and_publishes_failed_bars():
         comparison["baseline_sha256"]
         == hashlib.sha256((results / "2026-W27-reeval.jsonl").read_bytes()).hexdigest()
     )
-    assert (
-        comparison["measurement_driver_sha256"]
-        == hashlib.sha256((root / "benchmark/miner/reevaluate.py").read_bytes()).hexdigest()
-    )
+    # The W37 driver is historical evidence. Future driver improvements must
+    # not force this frozen record to be restamped as if they ran back then.
+    assert comparison["measurement_driver_sha256"] == "5cc5d3f43d72008fbf8d1b2d5dc2708918f756fee5c4bbbc169e8b556403f464"
     for name, digest in comparison["label_file_sha256"].items():
         assert hashlib.sha256((results / name).read_bytes()).hexdigest() == digest
