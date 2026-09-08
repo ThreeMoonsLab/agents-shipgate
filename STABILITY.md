@@ -13,6 +13,25 @@ for reproducible CI.
 
 ---
 
+<a id="migration-note-unreleased-human-review-decision"></a>
+
+## Migration Note: 0.16.0 — external review decisions stay separate from the gate
+
+Runtime contract `30 → 31`; the minimum control contract stays at 21.
+The standalone `shipgate.human_review_decision/v1` and
+`shipgate.human_review_evaluation/v1` schemas describe an externally signed
+decision and its read-only applicability evaluation. They are core integration
+surfaces, not new CLI outputs. Existing durable schema bytes, artifact paths,
+the action union and release/control authority remain unchanged.
+
+The evaluator reconstructs the current request from validated evidence,
+requires external host key trust and trusted reviewer eligibility, and keeps
+accepted/rejected/disputed outcomes separate. It writes no file. A returned
+`applicable` result is neither persistence nor permission; the integration must
+retain it and the signed decision separately and re-evaluate before use.
+See [the decision contract](docs/human-review-decision.md) for the independent
+signature domain, trust boundary and static-artifact guarantee.
+
 <a id="migration-note-unreleased-human-review-request"></a>
 
 ## Migration Note: 0.16.0 — a review question gets a checkable postcondition

@@ -1693,6 +1693,31 @@ def build_human_review_request_schema() -> tuple[Path, str]:
     return DOCS / "human-review-request-schema.v1.json", _canonical_json(schema)
 
 
+
+def build_human_review_decision_schema() -> tuple[Path, str]:
+    """A detached decision and its non-authorizing applicability result (#537)."""
+    from pydantic import TypeAdapter
+
+    from agents_shipgate.schemas.human_review_decision import (
+        HumanReviewDecisionV1,
+        HumanReviewEvaluationV1,
+    )
+
+    schema = TypeAdapter(HumanReviewDecisionV1 | HumanReviewEvaluationV1).json_schema()
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        "main/docs/human-review-decision-schema.v1.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = "Agents Shipgate Human Review Decision Protocol v1"
+    schema["description"] = (
+        "Externally signed review decision and separate applicability result; "
+        "neither grants operation or release authority. Content identity, time "
+        "ordering, signature, current verification and trusted eligibility "
+        "require the evaluator, not JSON Schema alone."
+    )
+    return DOCS / "human-review-decision-schema.v1.json", _canonical_json(schema)
+
 def build_agent_handoff_schema() -> tuple[Path, str]:
     """Generate the current agent-handoff schema."""
 
@@ -2953,6 +2978,7 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("agent_control_envelope", build_agent_control_envelope_schema),
     ("human_authorization", build_human_authorization_schema),
     ("human_review_request", build_human_review_request_schema),
+    ("human_review_decision", build_human_review_decision_schema),
     ("agent_handoff", build_agent_handoff_schema),
     ("agent_result", build_agent_result_schema),
     # codex_boundary_result v2 is a frozen compatibility schema and is not

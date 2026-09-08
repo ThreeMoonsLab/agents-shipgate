@@ -55,6 +55,7 @@ and this document are checked against each other by
 | Surface | Root | Claims | Proven by | Narrower than the CLI in |
 | --- | --- | --- | --- | --- |
 | `human_review_request` | `docs/human-review-request.md` | `release_decision_vocabulary` | `test_surface_enumerations_match_the_engine_vocabulary` | One complete-evidence documentation-quality class only; no authority or decision ingestion. |
+| `human_review_decision` | `docs/human-review-decision.md` | `release_decision_vocabulary` | `test_surface_enumerations_match_the_engine_vocabulary` | Host-neutral read-only evaluator; no GitHub acquisition, persistence or operation authority. |
 | `github_action` | `action.yml`, `scripts/github_action_outputs.py` | `merge_verdict_vocabulary` | `test_action_input_enumerates_engine_merge_verdicts`, `test_action_output_script_shares_the_engine_merge_verdicts` | — |
 | `zero_install_detector` | `tools/shipgate-detect.py` | `agent_project_verdict` | `test_detector_verdict_matches_cli` | Emits no `diagnostics[]` and no `next_actions[]`; evidence strings and framework scores are simplified. See the script's own "Intentional simplifications". |
 | `emitted_ci_workflow` | `src/agents_shipgate/cli/discovery/ci_workflow.py` | `executable_pin` | `tests/test_adopter_pins_resolve.py::test_the_emitted_workflow_pins_the_release_and_not_the_source_tree` | — |

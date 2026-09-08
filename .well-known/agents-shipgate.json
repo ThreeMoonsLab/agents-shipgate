@@ -211,7 +211,7 @@
   "agent_handoff_schema_version": "shipgate.agent_handoff/v8",
   "agent_handoff_schema_path": "docs/agent-handoff-schema.v8.json",
   "agent_handoff_artifact": "agents-shipgate-reports/agent-handoff.json",
-  "contract_version": "30",
+  "contract_version": "31",
   "minimum_control_contract_version": "21",
   "local_agent_contract_schema_version": "10",
   "inputs": [
@@ -344,7 +344,9 @@
     "agent_boundary_result",
     "governance_benchmark_catalog",
     "governance_benchmark_result",
-    "human_review_request"
+    "human_review_request",
+    "human_review_decision",
+    "human_review_evaluation"
   ],
   "agent_interface_operations": [
     "verify_pr",
@@ -522,7 +524,8 @@
     "scenario": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/scenario-schema.v0.1.json",
     "checks_catalog": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json",
     "determinism_boundary": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/determinism-boundary.json",
-    "human_review_request": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/human-review-request-schema.v1.json"
+    "human_review_request": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/human-review-request-schema.v1.json",
+    "human_review_decision": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/human-review-decision-schema.v1.json"
   },
   "agent_instructions": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/AGENTS.md",
   "agent_contract": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-contract-current.md",
@@ -576,5 +579,8 @@
   "plugin_opt_in_env_var": "AGENTS_SHIPGATE_ENABLE_PLUGINS",
   "human_review_request_schema_version": "shipgate.human_review_request/v1",
   "human_review_request_schema_path": "docs/human-review-request-schema.v1.json",
-  "human_review_request_artifact": "agents-shipgate-reports/human-review-request.json"
+  "human_review_request_artifact": "agents-shipgate-reports/human-review-request.json",
+  "human_review_decision_schema_version": "shipgate.human_review_decision/v1",
+  "human_review_evaluation_schema_version": "shipgate.human_review_evaluation/v1",
+  "human_review_decision_schema_path": "docs/human-review-decision-schema.v1.json"
 }

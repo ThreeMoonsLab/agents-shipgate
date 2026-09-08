@@ -1,11 +1,13 @@
 # Current Agent Contract
 
-Runtime contract v30 publishes the standalone
-[`human-review-request.json`](human-review-request.md) for one complete-evidence
-review class. It carries a question, scope and checkable postcondition, with no
-merge or completion authority. The shared control union and all existing
-persisted schema identifiers are unchanged; the minimum control contract stays
-at 21. Authenticated decision evaluation follows separately.
+Runtime contract v31 adds a read-only
+[external review decision evaluator](human-review-decision.md) for the bounded
+[`human-review-request.json`](human-review-request.md) class. It verifies current
+scope, host key trust, reviewer eligibility and expiry and returns separate
+evaluation evidence. It writes no artifact and grants no merge or completion
+authority. The shared control union and all existing persisted schema
+identifiers are unchanged; the minimum control contract stays at 21.
+GitHub acquisition and persistence remain an integration obligation.
 
 The single, current statement of what AI coding agents and CI integrations should read from Agents Shipgate output. When the contract changes, update [STABILITY.md](../STABILITY.md) first, then this file. Other agent-facing surfaces (`AGENTS.md`, `llms.txt`, `.well-known/agents-shipgate.json`, the slash command, the skill, the FAQ) link here instead of restating field lists.
 
@@ -500,7 +502,7 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `30` (minimum control contract: `21`)
+- Runtime contract: `31` (minimum control contract: `21`)
 - Current report schema: `0.43` — [`docs/report-schema.v0.43.json`](report-schema.v0.43.json)
 - Current packet schema: `0.18` — [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)

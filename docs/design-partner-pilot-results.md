@@ -65,13 +65,13 @@ capability-change class this pilot exists to observe.
 
 **Published build measured: `0.15.0`.** Preview measured:
 `0.16.0+preview.20260903.gb61aca7`. Source tree: `0.16.0`, rechecked on 2026-09-08 while
-implementing #536, based on `65dd25c8` with runtime contract 30. The source-tree
+implementing #537, based on `3f88ef18` with runtime contract 31. The source-tree
 column below was rerun; the released and preview columns retain their earlier
 measurement and were not relabeled as new runs.
 
 | | Released `v0.15.0` (`pipx install`) | Preview `0.16.0+preview.20260903` (`gh release download`) | Source tree |
 | --- | --- | --- | --- |
-| Runtime contract | 10 | 29 | 30 |
+| Runtime contract | 10 | 29 | 31 |
 | Host-grant inventory schema | 0.1 | 0.2 | 0.2 |
 | `check` on the fixture | `warn` / `none`, **0 violations** | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** |
 | Coverage limit visible (`host_coverage`, `excluded_scopes`) | no | yes | yes |
