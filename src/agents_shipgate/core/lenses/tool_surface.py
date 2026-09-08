@@ -16,6 +16,7 @@ from agents_shipgate.core.domain import AgentRemoteBinding, Tool, ToolkitScopeBo
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.findings.identity import _canonicalize_for_fingerprint
 from agents_shipgate.core.heuristics import is_broad_scope
+from agents_shipgate.core.lenses.finding_comparison import finding_comparison_notes
 from agents_shipgate.core.remote_bindings import remote_binding_facts
 from agents_shipgate.core.risk_hints import HIGH_RISK_TAGS, risk_tags
 from agents_shipgate.core.static_inputs import read_static_input_text
@@ -81,6 +82,10 @@ class ToolSurfaceDiffReference:
     # report that predates the block.
     effective_policy: EffectivePolicy | None = None
     binding_facts: AgentBindingGraphAssessment | None = None
+    # In-memory only. Legacy finding delta rows deliberately omit evidence;
+    # retaining the full base rows allows a diagnostic comparison without
+    # changing finding fingerprints or inventing dependency completeness.
+    finding_evidence: tuple[Finding, ...] | None = None
 
 
 def build_tool_surface_facts(
@@ -234,7 +239,7 @@ def compute_tool_surface_diff(
             base=diff_base,
             summary=_summary_from_diff_parts(finding_deltas=finding_deltas),
             finding_deltas=finding_deltas,
-            notes=notes,
+            notes=[*notes, *finding_comparison_notes(findings, reference.finding_evidence)] if reference else notes,
         )
 
     tool_changes = _diff_tools(current.tools, base.tools)
@@ -253,7 +258,8 @@ def compute_tool_surface_diff(
         policy_drift=policy_drift,
         finding_deltas=finding_deltas,
     )
-    notes = ["Tool renames are reported as one removed tool plus one added tool."]
+    notes = finding_comparison_notes(findings, reference.finding_evidence if reference else None)
+    notes.append("Tool renames are reported as one removed tool plus one added tool.")
     if reference:
         notes.extend(reference.notes)
     return ToolSurfaceDiff(
@@ -967,6 +973,7 @@ def _reference_from_report_payload(
             for item in (_finding_item(finding) for finding in report.findings)
             if item is not None
         ],
+        finding_evidence=tuple(report.findings),
         notes=tuple(notes),
         action_notes=tuple(action_notes),
         # Present on v0.22+ base reports; None for older bases (the

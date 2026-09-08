@@ -465,9 +465,9 @@ def _append_tool_surface_diff(lines: list[str], section: ToolSurfaceDiffSection)
         f"{summary.tools_changed} changed"
     )
     lines.append(
-        "- Evidence gaps: "
-        f"{summary.new_findings} new finding(s), "
-        f"{summary.resolved_findings} resolved, "
+        "- Finding identities: "
+        f"{summary.new_findings} added, "
+        f"{summary.resolved_findings} absent, "
         f"{summary.accepted_debt} accepted debt"
     )
     lines.append(
@@ -482,6 +482,11 @@ def _append_tool_surface_diff(lines: list[str], section: ToolSurfaceDiffSection)
         lines.append("")
         for item in section.highlights:
             lines.append(f"- {_escape(item)}")
+    if section.notes:
+        lines.extend(["", "### Comparison limits", ""])
+        lines.extend(f"- {_escape(note)}" for note in section.notes[:3])
+        if len(section.notes) > 3:
+            lines.append(f"{len(section.notes) - 3} more notes in packet.json; inspect both reports before attributing a finding to the change.")
     lines.append("")
 
 

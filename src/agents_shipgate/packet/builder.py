@@ -439,7 +439,7 @@ def _build_tool_surface_diff(
         highlights=_tool_surface_diff_highlights(
             diff, _tool_source_index(tools)
         ),
-        notes=list(diff.notes[:3]),
+        notes=list(diff.notes),
     )
 
 
