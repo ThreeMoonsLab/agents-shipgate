@@ -25,6 +25,7 @@ from collections.abc import Iterable
 from email.parser import BytesParser
 from email.policy import default as email_policy
 from fractions import Fraction
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal
 
@@ -32,6 +33,7 @@ import yaml
 from pydantic import ValidationError
 
 from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.verification_identity import read_regular_file_beneath
 from agents_shipgate.schemas.common import ReleaseDecisionStatus
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.report import EvidenceGap, ReadinessReport
@@ -89,6 +91,14 @@ EXPECTED_MERGE_VERDICT = {
     "blocked": "blocked",
 }
 
+# Match the receipt reader's per-artifact bound; wheels have their own bound
+# because they contain the whole distribution. These are input limits, never
+# qualification thresholds.
+MAX_INPUT_BYTES = 64 * 1024 * 1024
+MAX_RECEIPT_BYTES = 4 * 1024 * 1024
+MAX_WHEEL_BYTES = 256 * 1024 * 1024
+MAX_WHEEL_METADATA_BYTES = 4 * 1024 * 1024
+
 
 def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
@@ -102,12 +112,19 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _load_mapping(path: Path, *, description: str) -> dict[str, Any]:
-    if not path.is_file():
-        raise ConfigError(f"{description} not found: {path}")
+def _read_input(path: Path, *, description: str, max_size: int = MAX_INPUT_BYTES) -> bytes:
     try:
-        value = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, yaml.YAMLError) as exc:
+        return read_regular_file_beneath(
+            path.parent.resolve(), path.name, max_size=max_size, label=description,
+        )
+    except ValueError as exc:
+        raise ConfigError(f"Unable to read {description} {path}: {exc}") from exc
+
+
+def _load_mapping(data: bytes, *, path: Path, description: str) -> dict[str, Any]:
+    try:
+        value = yaml.safe_load(data.decode("utf-8"))
+    except (UnicodeError, yaml.YAMLError) as exc:
         raise ConfigError(f"Unable to read {description} {path}: {exc}") from exc
     if not isinstance(value, dict):
         raise ConfigError(f"{description} must contain one JSON/YAML object: {path}")
@@ -115,18 +132,26 @@ def _load_mapping(path: Path, *, description: str) -> dict[str, Any]:
 
 
 def load_frozen_corpus(path: Path) -> FrozenSafetyCorpusV1:
+    return _parse_frozen_corpus(_read_input(path, description="Frozen safety corpus"), path)
+
+
+def _parse_frozen_corpus(data: bytes, path: Path) -> FrozenSafetyCorpusV1:
     try:
         return FrozenSafetyCorpusV1.model_validate(
-            _load_mapping(path, description="Frozen safety corpus")
+            _load_mapping(data, path=path, description="Frozen safety corpus")
         )
     except ValidationError as exc:
         raise ConfigError(f"Invalid frozen safety corpus {path}: {exc}") from exc
 
 
 def load_receipt_index(path: Path) -> SafetyReceiptIndexV1:
+    return _parse_receipt_index(_read_input(path, description="Safety receipt index"), path)
+
+
+def _parse_receipt_index(data: bytes, path: Path) -> SafetyReceiptIndexV1:
     try:
         return SafetyReceiptIndexV1.model_validate(
-            _load_mapping(path, description="Safety receipt index")
+            _load_mapping(data, path=path, description="Safety receipt index")
         )
     except ValidationError as exc:
         raise ConfigError(f"Invalid safety receipt index {path}: {exc}") from exc
@@ -137,8 +162,9 @@ def inspect_wheel(path: Path) -> tuple[str, str, str]:
 
     if not path.is_file() or path.suffix != ".whl":
         raise ConfigError(f"Built wheel not found or not a .whl file: {path}")
+    data = _read_input(path, description="Built wheel", max_size=MAX_WHEEL_BYTES)
     try:
-        with zipfile.ZipFile(path) as archive:
+        with zipfile.ZipFile(BytesIO(data)) as archive:
             metadata_names = [
                 name
                 for name in archive.namelist()
@@ -148,7 +174,14 @@ def inspect_wheel(path: Path) -> tuple[str, str, str]:
                 raise ConfigError(
                     f"Wheel must contain exactly one .dist-info/METADATA file: {path}"
                 )
-            metadata = BytesParser(policy=email_policy).parsebytes(archive.read(metadata_names[0]))
+            info = archive.getinfo(metadata_names[0])
+            if info.file_size > MAX_WHEEL_METADATA_BYTES:
+                raise ConfigError(f"Wheel METADATA exceeds its size limit: {path}")
+            with archive.open(info) as metadata_file:
+                metadata_bytes = metadata_file.read(MAX_WHEEL_METADATA_BYTES + 1)
+            if len(metadata_bytes) > MAX_WHEEL_METADATA_BYTES:
+                raise ConfigError(f"Wheel METADATA exceeds its size limit: {path}")
+            metadata = BytesParser(policy=email_policy).parsebytes(metadata_bytes)
     except (OSError, zipfile.BadZipFile, KeyError) as exc:
         raise ConfigError(f"Invalid built wheel {path}: {exc}") from exc
 
@@ -159,7 +192,7 @@ def inspect_wheel(path: Path) -> tuple[str, str, str]:
         raise ConfigError(
             f"Qualification requires an agents-shipgate wheel with Name and Version: {path}"
         )
-    return canonical_name, version, sha256_file(path)
+    return canonical_name, version, _sha256_bytes(data)
 
 
 def hash_policy_bundle(paths: Iterable[Path]) -> str:
@@ -185,17 +218,24 @@ def hash_policy_bundle(paths: Iterable[Path]) -> str:
         for logical_name, file_path in entries:
             if logical_name in records:
                 raise ConfigError(f"Duplicate qualification policy logical path: {logical_name}")
-            records[logical_name] = sha256_file(file_path)
+            try:
+                data = read_regular_file_beneath(
+                    root.parent.resolve(), file_path.relative_to(root.parent).as_posix(),
+                    max_size=MAX_INPUT_BYTES, label="Qualification policy input",
+                )
+            except ValueError as exc:
+                raise ConfigError(str(exc)) from exc
+            records[logical_name] = _sha256_bytes(data)
     encoded = json.dumps(records, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return _sha256_bytes(encoded)
 
 
 def _confined_path(root: Path, relative: str) -> Path:
-    candidate = (root / relative).resolve()
-    resolved_root = root.resolve()
-    if not candidate.is_relative_to(resolved_root):
+    path = Path(relative)
+    if path.is_absolute() or ".." in path.parts:
         raise ValueError(f"path escapes qualification receipt root: {relative}")
-    return candidate
+    # Keep logical components intact for the descriptor-relative no-follow read.
+    return root / path
 
 
 def _normalize_sha256(value: str | None) -> str | None:
@@ -204,8 +244,8 @@ def _normalize_sha256(value: str | None) -> str | None:
     return value.removeprefix("sha256:")
 
 
-def _read_json_object(path: Path) -> dict[str, Any]:
-    value = json.loads(path.read_text(encoding="utf-8"))
+def _read_json_object(data: bytes, *, path: Path) -> dict[str, Any]:
+    value = json.loads(data.decode("utf-8"))
     if not isinstance(value, dict):
         raise ValueError(f"artifact is not a JSON object: {path.name}")
     return value
@@ -221,13 +261,18 @@ def _receipt_artifact(
     ref = receipt.artifact_manifest.artifacts.get(key)
     if ref is None:
         raise ValueError(f"terminal receipt is missing content-addressed {key}")
-    artifact_path = _confined_path(root, ref.path)
-    if not artifact_path.is_file():
-        raise ValueError(f"verify-run {key} artifact is missing: {ref.path}")
-    actual_hash = sha256_file(artifact_path)
+    artifact_root = _confined_path(root, entry.artifact_root)
+    artifact_path = _confined_path(artifact_root, ref.path)
+    data = read_regular_file_beneath(
+        root, artifact_path.relative_to(root).as_posix(),
+        max_size=MAX_INPUT_BYTES, label=f"verify-run {key} artifact",
+    )
+    actual_hash = _sha256_bytes(data)
     if actual_hash != _normalize_sha256(ref.sha256):
         raise ValueError(f"verify-run {key} artifact hash mismatch: {ref.path}")
-    return artifact_path, _read_json_object(artifact_path)
+    if len(data) != ref.size_bytes:
+        raise ValueError(f"verify-run {key} artifact size mismatch: {ref.path}")
+    return artifact_path, _read_json_object(data, path=artifact_path)
 
 
 def _evaluate_receipt(
@@ -239,14 +284,18 @@ def _evaluate_receipt(
 ) -> tuple[ReleaseDecisionStatus | None, str | None, list[str], list[EvidenceGap]]:
     errors: list[str] = []
     try:
+        index_root = index_root.resolve()
         receipt_path = _confined_path(index_root, entry.receipt_path)
-        artifact_root = _confined_path(index_root, entry.artifact_root)
-        if not receipt_path.is_file():
-            raise ValueError(f"verify-run receipt is missing: {entry.receipt_path}")
-        receipt_hash = sha256_file(receipt_path)
+        receipt_bytes = read_regular_file_beneath(
+            index_root, entry.receipt_path,
+            max_size=MAX_RECEIPT_BYTES, label="verify-run receipt",
+        )
+        receipt_hash = _sha256_bytes(receipt_bytes)
         if receipt_hash != entry.receipt_sha256:
             raise ValueError(f"verify-run receipt hash mismatch: {entry.receipt_path}")
-        receipt = VerificationReceipt.model_validate(_read_json_object(receipt_path))
+        receipt = VerificationReceipt.model_validate(
+            _read_json_object(receipt_bytes, path=receipt_path)
+        )
         identity_bindings = {
             "request_id": (entry.request_id, receipt.request_id),
             "receipt_id": (entry.receipt_id, receipt.receipt_id),
@@ -258,7 +307,7 @@ def _evaluate_receipt(
             if indexed != actual:
                 raise ValueError(f"receipt-index {name} does not match terminal receipt")
         _verify_run_path, verify_run_payload = _receipt_artifact(
-            root=artifact_root,
+            root=index_root,
             entry=entry,
             key="verify_run_json",
             receipt=receipt,
@@ -284,14 +333,14 @@ def _evaluate_receipt(
             raise ValueError("qualification receipt is missing its config digest")
 
         verifier_path, verifier_payload = _receipt_artifact(
-            root=artifact_root,
+            root=index_root,
             entry=entry,
             key="verifier_json",
             receipt=receipt,
         )
         verifier = VerifierArtifact.model_validate(verifier_payload)
         _report_path, report = _receipt_artifact(
-            root=artifact_root,
+            root=index_root,
             entry=entry,
             key="report_json",
             receipt=receipt,
@@ -600,10 +649,12 @@ def run_safety_qualification(
     # ``requirements=`` keyword, which bypasses the selector above.
     tier = tier_for_requirements(active_requirements)
     require_tier_governs_version(tier, wheel_version)
-    corpus = load_frozen_corpus(corpus_path)
-    receipt_index = load_receipt_index(receipt_index_path)
-    corpus_sha256 = sha256_file(corpus_path)
-    receipt_index_sha256 = sha256_file(receipt_index_path)
+    corpus_bytes = _read_input(corpus_path, description="Frozen safety corpus")
+    corpus = _parse_frozen_corpus(corpus_bytes, corpus_path)
+    index_bytes = _read_input(receipt_index_path, description="Safety receipt index")
+    receipt_index = _parse_receipt_index(index_bytes, receipt_index_path)
+    corpus_sha256 = _sha256_bytes(corpus_bytes)
+    receipt_index_sha256 = _sha256_bytes(index_bytes)
     policy_sha256 = hash_policy_bundle(policy_paths)
 
     failures: list[SafetyQualificationFailureV1] = []

@@ -1284,3 +1284,185 @@ def test_fallback_receipt_declaration_is_schema_invalid(tmp_path: Path) -> None:
 
     with pytest.raises(ConfigError, match="Invalid safety receipt index"):
         load_receipt_index(receipts)
+
+
+@pytest.mark.parametrize(
+    'target_name',
+    ['wheel', 'corpus', 'index', 'policy', 'receipt', 'report.json', 'verifier.json', 'verify-run.json'],
+)
+def test_scoring_uses_the_captured_input_after_path_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target_name: str,
+) -> None:
+    from scripts import run_safety_qualification as runner
+
+    paths = _fixture(tmp_path)
+    expected = _run(paths)
+    targets = dict(zip(('wheel', 'corpus', 'index', 'policy'), paths, strict=True))
+    targets['receipt'] = tmp_path / 'receipts/case-passed.json'
+    for name in ('report.json', 'verifier.json', 'verify-run.json'):
+        targets[name] = tmp_path / 'artifacts/case-passed/agents-shipgate-reports' / name
+    target = targets[target_name]
+    real_read = runner.read_regular_file_beneath
+    reads = 0
+
+    def replace_after_read(root: Path, logical_path: str, **kwargs: object) -> bytes:
+        nonlocal reads
+        data = real_read(root, logical_path, **kwargs)
+        if root / logical_path == target:
+            reads += 1
+            replacement = target.with_suffix('.replacement')
+            replacement.write_bytes(b'{"unbound": "replacement bytes"}')
+            replacement.replace(target)
+        return data
+
+    monkeypatch.setattr(runner, 'read_regular_file_beneath', replace_after_read)
+    actual = _run(paths)
+
+    assert reads == 1
+    assert actual.qualified is True
+    assert actual == expected
+    assert target.read_bytes() == b'{"unbound": "replacement bytes"}'
+
+
+@pytest.mark.parametrize('target_name', ['receipt', 'report.json', 'verifier.json', 'verify-run.json'])
+def test_scorer_does_not_reopen_after_accepting_a_digest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target_name: str,
+) -> None:
+    """Reproduce the old hash-then-parse interleaving with real bindings."""
+    from scripts import run_safety_qualification as runner
+
+    paths = _fixture(tmp_path)
+    target = (
+        tmp_path / 'receipts/case-passed.json' if target_name == 'receipt'
+        else tmp_path / 'artifacts/case-passed/agents-shipgate-reports' / target_name
+    )
+    real_hash = runner.sha256_file
+
+    def replace_after_hash(path: Path) -> str:
+        digest = real_hash(path)
+        if path == target:
+            path.write_bytes(b'{"unbound": "different parsed bytes"}')
+        return digest
+
+    monkeypatch.setattr(runner, 'sha256_file', replace_after_hash)
+    result = _run(paths)
+    assert result.qualified is True
+    assert result.summary.runtime_failure_count == 0
+
+
+@pytest.mark.parametrize('target_offset', [1, 2])
+def test_scorer_does_not_reopen_parsed_corpus_or_index_for_its_digest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target_offset: int,
+) -> None:
+    paths = _fixture(tmp_path)
+    expected = _run(paths)
+    real_read = Path.read_text
+
+    def replace_after_parse_input(path: Path, *args: object, **kwargs: object) -> str:
+        data = real_read(path, *args, **kwargs)
+        if path == paths[target_offset]:
+            path.write_bytes(b'{"unbound": "later digest bytes"}')
+        return data
+
+    monkeypatch.setattr(Path, 'read_text', replace_after_parse_input)
+    assert _run(paths) == expected
+
+
+@pytest.mark.parametrize('target_name', ['receipt', 'report.json', 'verifier.json', 'verify-run.json'])
+@pytest.mark.parametrize('damage', ['missing', 'corrupt', 'symlink'])
+def test_unreadable_or_unbound_archive_inputs_never_fallback_to_scoring(
+    tmp_path: Path, target_name: str, damage: str,
+) -> None:
+    paths = _fixture(tmp_path)
+    target = (
+        tmp_path / 'receipts/case-passed.json' if target_name == 'receipt'
+        else tmp_path / 'artifacts/case-passed/agents-shipgate-reports' / target_name
+    )
+    data = target.read_bytes()
+    target.unlink()
+    if damage == 'corrupt':
+        target.write_bytes(b'{}')
+    elif damage == 'symlink':
+        replacement = tmp_path / 'same-bytes.json'
+        replacement.write_bytes(data)
+        target.symlink_to(replacement)
+
+    result = _run(paths)
+    case = next(case for case in result.cases if case.id == 'case-passed')
+    assert result.qualified is False
+    assert case.runtime_failure is True
+    assert case.actual_decision is None
+    assert any(f.code == 'invalid_verifier_receipt' for f in result.failures)
+
+
+def test_archive_root_symlink_is_not_resolved_away(tmp_path: Path) -> None:
+    paths = _fixture(tmp_path)
+    root = tmp_path / 'artifacts/case-passed/agents-shipgate-reports'
+    moved = root.with_name('moved')
+    root.rename(moved)
+    root.symlink_to(moved, target_is_directory=True)
+
+    result = _run(paths)
+    assert result.qualified is False
+    assert result.summary.runtime_failure_count == 1
+
+
+def test_bound_artifact_size_must_match_the_captured_bytes(tmp_path: Path) -> None:
+    paths = _fixture(tmp_path)
+    receipt_path = tmp_path / 'receipts/case-passed.json'
+    receipt = json.loads(receipt_path.read_text())
+    receipt['artifact_manifest']['artifacts']['report_json']['size_bytes'] += 1
+    # Rebind the intentionally inconsistent size claim so this reaches the
+    # consumer's size check instead of being rejected by an outer digest.
+    manifest = receipt['artifact_manifest']
+    manifest['artifact_set_id'] = content_id({
+        key: value for key, value in manifest.items()
+        if key not in {'schema_version', 'artifact_set_id'}
+    })
+    receipt['artifact_set_id'] = manifest['artifact_set_id']
+    receipt['receipt_id'] = content_id({
+        key: value for key, value in receipt.items()
+        if key not in {'schema_version', 'receipt_id', 'attempt_id'}
+    })
+    _write_json(receipt_path, receipt)
+    index = json.loads(paths[2].read_text())
+    row = next(row for row in index['receipts'] if row['case_id'] == 'case-passed')
+    row.update(
+        receipt_sha256=sha256_file(receipt_path), receipt_id=receipt['receipt_id'],
+        artifact_set_id=receipt['artifact_set_id'],
+    )
+    _write_json(paths[2], index)
+
+    result = _run(paths)
+    assert result.qualified is False
+    assert any('size mismatch' in f.message for f in result.failures)
+
+
+@pytest.mark.parametrize('kind', ['receipt', 'artifact', 'wheel', 'metadata', 'corpus', 'index', 'policy'])
+def test_qualification_input_limits_refuse_before_scoring(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str,
+) -> None:
+    from scripts import run_safety_qualification as runner
+
+    paths = _fixture(tmp_path)
+    if kind in {'receipt', 'artifact'}:
+        target = (
+            tmp_path / 'receipts/case-passed.json' if kind == 'receipt'
+            else tmp_path / 'artifacts/case-passed/agents-shipgate-reports/report.json'
+        )
+        limit = runner.MAX_RECEIPT_BYTES if kind == 'receipt' else runner.MAX_INPUT_BYTES
+        with target.open('wb') as handle:
+            handle.truncate(limit + 1)
+        result = _run(paths)
+        assert result.summary.runtime_failure_count == 1
+        assert any('size limit' in f.message for f in result.failures)
+    elif kind in {'wheel', 'metadata'}:
+        monkeypatch.setattr(runner, 'MAX_WHEEL_BYTES' if kind == 'wheel' else 'MAX_WHEEL_METADATA_BYTES', 1)
+        with pytest.raises(ConfigError, match='size limit'):
+            _run(paths)
+    else:
+        target = paths[{'corpus': 1, 'index': 2, 'policy': 3}[kind]]
+        with target.open('wb') as handle:
+            handle.truncate(runner.MAX_INPUT_BYTES + 1)
+        with pytest.raises(ConfigError, match='size limit'):
+            _run(paths)

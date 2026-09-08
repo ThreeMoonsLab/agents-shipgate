@@ -40,6 +40,19 @@ contain binding and semantic coverage, and agree with the verifier receipt. Miss
 failed, unknown, hash-mismatched, or fallback receipts fail closed; the runner
 never substitutes a cold-start scan result.
 
+The scorer hashes and parses the same captured bytes for every consumed
+input. It does not reopen a path after accepting its digest. Detached receipt
+files and separate `artifact_root` directories remain supported beneath the
+receipt index directory; archive paths cannot traverse symlinks or escape
+that directory. Artifact byte lengths must also match the receipt.
+
+Reads are bounded: 4 MiB per receipt, 64 MiB per report, verifier, verify-run,
+corpus, index or policy file, and 256 MiB per wheel. Wheel `METADATA` has a
+separate 4 MiB decompressed limit. Unreadable or oversized top-level inputs
+are configuration errors (exit 2); invalid receipt evidence produces a named
+`invalid_verifier_receipt` failure and cannot be scored. These bounds do not
+change either qualification policy.
+
 ## What to build first
 
 [`strata-inventory.csv`](strata-inventory.csv) maps the known candidate pool onto
