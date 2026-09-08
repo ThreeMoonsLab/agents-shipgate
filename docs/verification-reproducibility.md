@@ -237,6 +237,21 @@ grant and `shipgate.human_authorization_evaluation/v1` projection are added to
 the final artifact closure, so the newly written terminal receipt binds the
 authorization result and exact command.
 
+If the verifier cannot construct that authorization context, it keeps
+`authorization_context_invalid` in `authorization.reason_codes` and adds one
+fixed prerequisite code. The suffix names the observed stopping point:
+`report_missing`, `runtime_validation_failed`,
+`replace_refs_inspection_failed`, `replace_refs_present`, `grant_load_failed`,
+`review_set_failed`, `subject_not_committed`, `subject_identity_incomplete`,
+`source_engine_mismatch`, `source_executor_mismatch`, or `request_build_failed`;
+each has the `authorization_context_` prefix. These codes describe context
+construction, not a diagnosis inferred from exception text. Raw exceptions,
+grant contents, signatures and private paths are not included. The rejection
+keeps its existing permissions and contributes no executable authorization
+command or accepted grant artifact. A missing trust policy still reports
+`trust_policy_unavailable` after context construction succeeds; it is a
+different prerequisite, not an interchangeable rejection reason.
+
 Authorization v1 permits only one typed Git-push operation. It binds the exact
 commit whose tree was evaluated, a canonical credential-free HTTPS destination
 whose repository identity matches the verified repository, one full
