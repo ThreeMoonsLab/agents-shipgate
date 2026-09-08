@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Count actual `insufficient_evidence` qualification outcomes per profile with
+  denominators, case IDs, named evidence gaps and explicit unscored cases.
+  Mark the legacy expected-IE metric not applicable on the three-label corpus;
+  all existing scores and thresholds remain unchanged. Qualification v6 adds
+  these diagnostics while preserving old artifacts without inventing coverage
+  they never recorded (#520).
+
 - Label conservative action-effect projections separately from their static
   evidence in CLI, report, PR and packet summaries. Inferred/default/unknown
   effects remain visible as provisional risks, with current pass eligibility;

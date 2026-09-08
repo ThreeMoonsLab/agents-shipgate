@@ -8,13 +8,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from agents_shipgate.schemas.common import ReleaseDecisionStatus
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
+from agents_shipgate.schemas.report import EvidenceGap
 
 SAFETY_CORPUS_SCHEMA_VERSION = "shipgate.safety_corpus/v4"
 SAFETY_RECEIPT_INDEX_SCHEMA_VERSION = "shipgate.safety_receipt_index/v4"
-# v5 carries the ``pre_1_0`` tier and the production_qualified/tier invariant
-# added for issue #341. The corpus and receipt-index envelopes stay at v4: their
-# grammar did not move, and versions here track grammar, not release batches.
-SAFETY_QUALIFICATION_SCHEMA_VERSION = "shipgate.safety_qualification/v5"
+# v6 adds diagnostic coverage misses and explicit metric applicability. v5
+# remains readable without inventing diagnostics its producer never recorded.
+SAFETY_QUALIFICATION_SCHEMA_VERSION = "shipgate.safety_qualification/v6"
 
 SafetyProfile = Literal[
     "mcp",
@@ -648,6 +648,9 @@ class SafetyQualificationMetricV1(BaseModel):
     interval: WilsonIntervalV1
     requirement: str
     passed: bool
+    applicability: Literal["applicable", "not_applicable", "diagnostic"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class SafetyQualificationCaseResultV1(BaseModel):
@@ -677,14 +680,46 @@ class SafetyQualificationSummaryV1(BaseModel):
     outcome_counts: dict[ReleaseDecisionStatus, int]
 
 
+class QualificationCoverageMissCaseV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str
+    gap_status: Literal["named_gaps", "unclassified"]
+    evidence_gaps: list[EvidenceGap]
+
+    @model_validator(mode="after")
+    def _gap_status_matches_evidence(self) -> QualificationCoverageMissCaseV1:
+        expected = "named_gaps" if self.evidence_gaps else "unclassified"
+        if self.gap_status != expected:
+            raise ValueError("coverage gap status must describe the recorded evidence")
+        return self
+
+
+class QualificationCoverageMissV1(BaseModel):
+    """Recorded actual-IE outcomes, over all attempted cases in this profile.
+
+    Unscored cases are not zero misses: the rate is a lower bound while any
+    exist. Named gaps explain evidence, not ownership of the missing remedy.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    profile: SafetyProfile
+    count: int = Field(ge=0)
+    denominator: int = Field(gt=0)
+    rate: float = Field(ge=0, le=1)
+    unscored_case_ids: list[str]
+    cases: list[QualificationCoverageMissCaseV1]
+
+
 class SafetyQualificationResultV1(BaseModel):
     """Deterministic, wheel-bound qualification result for a named policy."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["shipgate.safety_qualification/v5"] = (
-        SAFETY_QUALIFICATION_SCHEMA_VERSION
-    )
+    schema_version: Literal[
+        "shipgate.safety_qualification/v5", "shipgate.safety_qualification/v6"
+    ] = SAFETY_QUALIFICATION_SCHEMA_VERSION
     qualification_tier: QualificationTier
     qualified: bool
     production_qualified: bool
@@ -699,6 +734,9 @@ class SafetyQualificationResultV1(BaseModel):
     intervals: list[SafetyQualificationMetricV1]
     cases: list[SafetyQualificationCaseResultV1]
     failures: list[SafetyQualificationFailureV1]
+    coverage_misses: list[QualificationCoverageMissV1] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -720,6 +758,18 @@ class SafetyQualificationResultV1(BaseModel):
         if not isinstance(data, dict):
             return data
         declared = data.get("schema_version")
+        # An older closed grammar must not be widened by changing its label.
+        if (
+            declared in LEGACY_QUALIFICATION_ENVELOPES
+            or declared == "shipgate.safety_qualification/v5"
+        ):
+            if "coverage_misses" in data or any(
+                "applicability" in item
+                if isinstance(item, dict)
+                else getattr(item, "applicability", None) is not None
+                for item in data.get("intervals", [])
+            ):
+                raise ValueError("coverage diagnostics and applicability require the v6 envelope")
         if declared not in LEGACY_QUALIFICATION_ENVELOPES:
             return data
         if data.get("qualification_tier") not in LEGACY_QUALIFICATION_TIERS:
@@ -728,7 +778,51 @@ class SafetyQualificationResultV1(BaseModel):
                 f"{sorted(LEGACY_QUALIFICATION_TIERS)}; this payload requires "
                 f"{SAFETY_QUALIFICATION_SCHEMA_VERSION}"
             )
-        return {**data, "schema_version": SAFETY_QUALIFICATION_SCHEMA_VERSION}
+        return {**data, "schema_version": "shipgate.safety_qualification/v5"}
+
+    @model_validator(mode="after")
+    def _coverage_accounting_matches_cases(self) -> SafetyQualificationResultV1:
+        if self.schema_version != SAFETY_QUALIFICATION_SCHEMA_VERSION:
+            return self
+        if self.coverage_misses is None:
+            raise ValueError("v6 requires coverage diagnostics")
+        profiles = {case.profile for case in self.cases}
+        if {row.profile for row in self.coverage_misses} != profiles or len(
+            self.coverage_misses
+        ) != len(profiles):
+            raise ValueError("coverage profiles must cover every case exactly once")
+        for row in self.coverage_misses:
+            cases = [case for case in self.cases if case.profile == row.profile]
+            miss_ids = sorted(
+                case.id for case in cases if case.actual_decision == "insufficient_evidence"
+            )
+            unscored = sorted(case.id for case in cases if case.actual_decision is None)
+            if (
+                row.count != len(miss_ids)
+                or row.denominator != len(cases)
+                or row.rate != round(len(miss_ids) / len(cases), 6)
+                or sorted(item.case_id for item in row.cases) != miss_ids
+                or sorted(row.unscored_case_ids) != unscored
+            ):
+                raise ValueError("coverage accounting must match recorded case outcomes")
+            row.cases.sort(key=lambda item: item.case_id)
+            row.unscored_case_ids.sort()
+        self.coverage_misses.sort(key=lambda item: item.profile)
+        for metric in self.intervals:
+            expected = "applicable"
+            if metric.name == "overall_exact_rate":
+                expected = "diagnostic"
+            elif (
+                metric.name == "insufficient_evidence_exact_rate"
+                and metric.denominator == 0
+                and self.requirements.minimum_insufficient_evidence_exact == 0
+            ):
+                expected = "not_applicable"
+            if metric.applicability != expected:
+                raise ValueError(
+                    "metric applicability must match its actual denominator and policy"
+                )
+        return self
 
     @model_validator(mode="after")
     def _production_claim_matches_the_tier(self) -> SafetyQualificationResultV1:
