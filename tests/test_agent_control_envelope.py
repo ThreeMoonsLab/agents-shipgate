@@ -1437,6 +1437,51 @@ def test_the_workspace_is_re_observed_before_authority_is_returned(repo: Path):
     assert raised.value.reason == "workspace_changed"
 
 
+@pytest.mark.parametrize("entrypoint", ["refresh", "verify"])
+def test_control_cli_refuses_a_same_path_edit_during_final_observation(
+    repo: Path, monkeypatch, entrypoint: str
+):
+    from agents_shipgate.cli import agent_interface
+    from agents_shipgate.cli.verify import command as verify_command
+
+    tools = repo / "tools.json"
+    tools.write_text(tools.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    _completed_verifier(repo)
+    observations = []
+
+    def observe(workspace, reports_dir):
+        live = live_workspace(workspace, reports_dir)
+        observations.append(live)
+        if len(observations) == 2:
+            tools.write_text(tools.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        return live
+
+    module = agent_interface if entrypoint == "refresh" else verify_command
+    monkeypatch.setattr(module, "live_workspace", observe)
+    if entrypoint == "refresh":
+        result = runner.invoke(
+            app,
+            [
+                "agent", "control", "--workspace", str(repo),
+                "--reports-dir", str(repo / "agents-shipgate-reports"),
+            ],
+        )
+        assert result.exit_code != 0, result.output
+        assert '"control_state": "complete"' not in result.output
+        assert "Re-run verification" in result.output
+    else:
+        result = runner.invoke(
+            app,
+            ["verify", "--workspace", str(repo), "--config", "shipgate.yaml", "--format", "control"],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert payload["permissions"]["merge"] is False
+        assert payload["permissions"]["report_complete"] is False
+        assert "Re-run verification" in payload["reason"]
+    assert len(observations) == 2
+
+
 @pytest.mark.parametrize(
     ("mutation", "why"),
     [

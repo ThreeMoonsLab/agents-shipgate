@@ -284,6 +284,7 @@ def _receipt_binding_refusal(
     *,
     request_id: str | None,
     decision_id: str | None,
+    receipt_bytes: bytes | None = None,
 ) -> str | None:
     """Return why completion must be refused, or ``None`` when it may stand."""
 
@@ -294,7 +295,11 @@ def _receipt_binding_refusal(
             "so completion authority cannot be established."
         )
     try:
-        receipt = _load_receipt(out_dir, ref)
+        receipt = (
+            _load_receipt(out_dir, ref)
+            if receipt_bytes is None
+            else VerificationReceipt.model_validate_json(receipt_bytes)
+        )
     except ValueError as exc:
         return f"The bound terminal receipt could not be read: {exc}"
     if receipt.request_id != request_id or receipt.decision_id != decision_id:
@@ -542,7 +547,14 @@ def read_current_control(
     for _ in range(max(1, attempts)):
         pointer = _load_pointer(out_dir, path)
         try:
-            captured = _validate_bound_artifacts(out_dir, pointer, capture=capture)
+            # Currency checks must parse the same plan and receipt bytes that
+            # this pass validated, including on the final observation. Reopening
+            # them could compare live inputs against another generation's plan.
+            validated = _validate_bound_artifacts(
+                out_dir,
+                pointer,
+                capture=set(capture) | {"verification_plan", RECEIPT_ARTIFACT_KEY},
+            )
         except CurrentControlUnavailable as mismatch:
             # A run that republished mid-read moves the pointer too. Retry that
             # case; a mismatch under a pointer that did not move is a real
@@ -551,9 +563,10 @@ def read_current_control(
                 raise
             last = mismatch
             continue
+        captured = {key: data for key, data in validated.items() if key in capture}
         observed = observe()
         try:
-            _validate_control_currency(out_dir, pointer, observed)
+            _validate_control_currency(out_dir, pointer, observed, artifacts=validated)
         except CurrentControlUnavailable as stale:
             # The set validated; only its currency did not. Hand the captured
             # bytes on so the caller can recover the producing run's own exact
@@ -565,12 +578,23 @@ def read_current_control(
         if confirmation.current_control_id != pointer.current_control_id:
             last = moved
             continue
-        # The workspace is re-observed after the pointer is confirmed, and both
-        # observations must agree. Checking the pointer alone left a window in
-        # which HEAD advanced between the comparison and the return.
-        if _workspace_fingerprint(observe()) != _workspace_fingerprint(observed):
+        # HEAD and path names alone miss edits to an already-dirty file and
+        # movement of the comparison base. Apply exactly the same complete
+        # currency checks again, against the same validated evidence bytes.
+        confirmed = observe()
+        try:
+            _validate_control_currency(out_dir, pointer, confirmed, artifacts=validated)
+        except CurrentControlUnavailable as stale:
+            stale.artifacts = dict(captured)
+            raise
+        if _workspace_fingerprint(confirmed) != _workspace_fingerprint(observed):
             workspace_moved.artifacts = dict(captured)
             last = workspace_moved
+            continue
+        # Currency checks perform live reads too. A publication during that
+        # final observation must not return the superseded pointer.
+        if _load_pointer(out_dir, path).current_control_id != pointer.current_control_id:
+            last = moved
             continue
         # `captured` was read in the same pass that hashed it, and neither the
         # pointer nor the workspace moved since. Returning the bytes is what
@@ -585,15 +609,17 @@ def read_current_control(
 
 
 def _workspace_fingerprint(live: LiveWorkspace | None) -> tuple[object, ...]:
-    """What must not change between the currency check and the return.
+    """Additional context that must agree across complete currency checks.
 
     ``None`` fingerprints distinctly from any resolved workspace, so a
     workspace that becomes unresolvable mid-read is drift rather than a match.
+    This is not a substitute for validating base and overlay currency.
     """
 
     if live is None:
         return (None,)
     return (
+        live.root,
         live.repository,
         live.head_commit_sha,
         live.head_tree_sha,
@@ -674,6 +700,8 @@ def _validate_control_currency(
     out_dir: Path,
     pointer: CurrentControlPointer,
     live: LiveWorkspace | None,
+    *,
+    artifacts: Mapping[str, bytes],
 ) -> None:
     """Refuse a pointer whose evidence no longer describes this workspace."""
 
@@ -684,6 +712,7 @@ def _validate_control_currency(
             pointer.artifacts,
             request_id=pointer.request_id,
             decision_id=pointer.decision_id,
+            receipt_bytes=artifacts.get(RECEIPT_ARTIFACT_KEY),
         )
         if refusal is not None:
             raise CurrentControlUnavailable("receipt_mismatch", refusal, path=out_dir)
@@ -731,7 +760,9 @@ def _validate_control_currency(
         )
     _validate_base_currency(out_dir, identity, live, required=grants_authority)
     if identity.snapshot_kind == "worktree_overlay":
-        _validate_worktree_currency(out_dir, pointer, live, required=grants_authority)
+        _validate_worktree_currency(
+            out_dir, pointer, live, required=grants_authority, artifacts=artifacts
+        )
     elif identity.snapshot_kind == "committed_tree":
         _require_clean_worktree(out_dir, live, required=grants_authority)
 
@@ -742,6 +773,7 @@ def _validate_worktree_currency(
     live: LiveWorkspace,
     *,
     required: bool,
+    artifacts: Mapping[str, bytes],
 ) -> None:
     """Confirm the working tree is still the one a worktree decision saw.
 
@@ -784,13 +816,7 @@ def _validate_worktree_currency(
         _validate_live_overlay(out_dir, pointer, live)
         return
     try:
-        data = read_regular_file_beneath(
-            out_dir,
-            ref.path,
-            max_size=MAX_BOUND_ARTIFACT_BYTES,
-            label="current control plan",
-        )
-        plan = VerificationPlan.model_validate_json(data)
+        plan = VerificationPlan.model_validate_json(artifacts["verification_plan"])
         # Not `inputs.changed_paths`: since #336 that is the merge-base-
         # relative evaluated set, while the overlay this pointer was
         # published against is HEAD-relative and recorded separately.
