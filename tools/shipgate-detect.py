@@ -1046,6 +1046,7 @@ class RegistrationSite:
     #: there is no annotation and when there is one this reader cannot
     #: represent; ``returns`` tells the two apart.
     returns_json_type: str | None = None
+    context_injection_unresolved: bool = False
     #: Whether *this site alone* is evidence that the repository is an MCP
     #: server, independently of whether its name could be read. False for
     #: every lexical idiom: those match a spelling. The Python idiom follows
@@ -2763,6 +2764,9 @@ def _python_site(
         if wrapped
         else _python_tool_name(node, decorator)
     )
+    parameters, context_injection_unresolved = (
+        (None, False) if wrapped else _python_signature(node, module, index, module_path)
+    )
     return RegistrationSite(
         idiom="py_fastmcp_decorator",
         name=name,
@@ -2771,10 +2775,11 @@ def _python_site(
         span=span,
         description=_python_tool_description(node, decorator),
         unresolved_reason=unresolved,
-        # Withheld with the name: the schema comes from the same object.
-        parameters=(
-            None if wrapped else _python_signature(node, module, index, module_path)
-        ),
+        # Withheld with the name: the schema comes from the same object, so a
+        # signature published beside an unreadable name would be a parameter
+        # list for a function the server may not have registered.
+        parameters=parameters,
+        context_injection_unresolved=context_injection_unresolved,
         returns=None if wrapped else _python_annotation(node.returns),
         returns_json_type=(
             None
@@ -2854,7 +2859,34 @@ def _python_signature(
     module: _PythonModule,
     index: PythonServerIndex,
     module_path: str | None,
-) -> tuple[SignatureParameter, ...]:
+) -> tuple[tuple[SignatureParameter, ...], bool]:
+    arguments = node.args
+    all_arguments = [
+        *arguments.posonlyargs, *arguments.args,
+        *([arguments.vararg] if arguments.vararg else []),
+        *arguments.kwonlyargs,
+        *([arguments.kwarg] if arguments.kwarg else []),
+    ]
+    identities = {
+        argument.arg: _python_context_injection(
+            argument.annotation, module, index, module_path
+        ) for argument in all_arguments
+    }
+    returns_identity = _python_context_injection(node.returns, module, index, module_path)
+    # SDK get_type_hints resolves the entire signature before selecting a
+    # parameter. Standalone FastMCP has a different raw-annotation fallback;
+    # neither result may be inferred by discarding an unresolved annotation.
+    unresolved = "unresolved" in identities.values() or returns_identity != "caller_supplied"
+    # Annotated variadics can win the framework's first-match selection but
+    # are not schema properties. Keep that unsupported selection visible.
+    unresolved |= any(
+        argument is not None and identities[argument.arg] != "caller_supplied"
+        for argument in (arguments.vararg, arguments.kwarg)
+    )
+    selected = None if unresolved else next(
+        (name for name, identity in identities.items() if identity == "framework_injected"), None
+    )
+
     def _parameter(
         argument: ast.arg, default: ast.expr | None
     ) -> SignatureParameter:
@@ -2862,8 +2894,10 @@ def _python_signature(
             name=argument.arg,
             annotation=_python_annotation(argument.annotation),
             required=default is None,
-            injection=_python_context_injection(
-                argument.annotation, module, index, module_path
+            injection=(
+                "framework_injected" if argument.arg == selected
+                else "unresolved" if unresolved and identities[argument.arg] != "caller_supplied"
+                else "caller_supplied"
             ),
             json_type=(
                 None
@@ -2874,7 +2908,6 @@ def _python_signature(
             ),
         )
 
-    arguments = node.args
     positional = [*arguments.posonlyargs, *arguments.args]
     defaults: list[ast.expr | None] = [None] * (
         len(positional) - len(arguments.defaults)
@@ -2893,7 +2926,7 @@ def _python_signature(
     # ``*args`` and ``**kwargs`` are deliberately absent: they are not schema
     # properties, and a tool that has them takes arguments this reader cannot
     # enumerate rather than one parameter named ``kwargs``.
-    return tuple(parameters)
+    return tuple(parameters), unresolved
 
 
 def _python_annotation(node: ast.expr | None) -> str | None:
@@ -3153,11 +3186,7 @@ def _python_class_identity(
         if named is None:
             return "unresolved"
         full = f"{named}.{rest}" if rest else named
-        return (
-            "framework_injected"
-            if _is_python_context_symbol(full, attribute)
-            else "caller_supplied"
-        )
+        return _python_imported_class_identity(full, attribute)
     if not isinstance(node, ast.Name):
         return "unresolved"
     resolved = module.binding_of(node.id, scope)
@@ -3182,29 +3211,43 @@ def _python_class_identity(
             # carries server names, not annotation provenance. Until that
             # evidence is read, preserve the injection question (#541 review).
             return "unresolved"
-        return (
-            "framework_injected"
-            if _is_python_context_symbol(imported.module, imported.symbol)
-            else "caller_supplied"
-        )
+        return _python_imported_class_identity(imported.module, imported.symbol)
     if isinstance(binding, ast.ClassDef):
-        if id(binding) in seen:
+        if id(binding) in seen or len(seen) >= _MAX_ANNOTATION_DEPTH:
             # Mutual bases. ``class A(B)`` beside ``class B(A)`` raises at
             # import time, but it parses, and a reader that followed it would
             # not return — so the cycle is an answer this reader does not have.
             return "unresolved"
+        if binding.decorator_list or binding.keywords:
+            # A decorator or metaclass can replace the class or alter ancestry.
+            return "unresolved"
         seen = seen | {id(binding)}
         identity: ContextInjection = "caller_supplied"
         for base in binding.bases:
-            head = base.value if isinstance(base, ast.Subscript) else base
-            resolved_base = _python_class_identity(head, module, index, module_path, base, seen)
-            if resolved_base == "framework_injected":
-                return "framework_injected"
+            if isinstance(base, ast.Subscript):
+                return "unresolved"
+            resolved_base = _python_class_identity(base, module, index, module_path, base, seen)
             if resolved_base == "unresolved":
-                identity = "unresolved"
+                return "unresolved"
+            if resolved_base == "framework_injected":
+                identity = "framework_injected"
         return identity
     # A ``def``, a parameter, an assignment: whatever the name refers to, this
     # reader did not read a class definition for it.
+    return "unresolved"
+
+
+def _python_imported_class_identity(module: str, symbol: str) -> ContextInjection:
+    if _is_python_context_symbol(module, symbol):
+        return "framework_injected"
+    # A named supported library class is evidence; an arbitrary external
+    # package path is not. It can re-export Context or one of its subclasses.
+    if (module, symbol) in {("pydantic", "BaseModel"), ("pydantic.main", "BaseModel")}:
+        return "caller_supplied"
+    if module in _PYTHON_TYPING_MODULES and symbol in (
+        _PYTHON_BUILTIN_TYPE_NAMES | set(PYTHON_ANNOTATION_JSON_TYPES) | {"Any", "LiteralString", "Never", "NoReturn"}
+    ):
+        return "caller_supplied"
     return "unresolved"
 
 
@@ -3282,32 +3325,66 @@ def _python_context_injection(
     module: _PythonModule,
     index: PythonServerIndex,
     module_path: str | None,
+    *,
+    scope: ast.AST | None = None,
+    depth: int = 0,
 ) -> ContextInjection:
-    """Whether the framework supplies this parameter instead of the caller."""
+    """A bounded common injection profile, before whole-signature selection.
+
+    Preserve generic arguments and Annotated metadata: the framework resolves
+    them too. A scalar/context class, nullable union, or a container of proven
+    caller types is readable here; generic Context membership differs between
+    SDK and standalone FastMCP and remains an explicit local limitation.
+    """
 
     if annotation is None:
         # The SDK identifies the context by resolving a *type hint*; a
         # parameter without one is never injected, whatever it is named.
         return "caller_supplied"
-    members = _python_annotation_members(annotation, module, annotation)
-    if members is None:
+    if depth > _MAX_ANNOTATION_DEPTH:
         return "unresolved"
-    identities = {
-        _python_class_identity(
-            member.value if isinstance(member, ast.Subscript) else member,
-            module,
-            index,
-            module_path,
-            annotation,
-            frozenset(),
+    scope = annotation if scope is None else scope
+
+    def resolve(child: ast.expr) -> ContextInjection:
+        return _python_context_injection(
+            child, module, index, module_path, scope=scope, depth=depth + 1
         )
-        for member in members
-    }
-    if "framework_injected" in identities:
-        return "framework_injected"
+
+    if isinstance(annotation, ast.Constant):
+        if annotation.value is None:
+            return "caller_supplied"
+        if isinstance(annotation.value, str):
+            parsed = _parse_python_expression(annotation.value)
+            return "unresolved" if parsed is None else resolve(parsed)
+        return "unresolved"
+    if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
+        identities = {resolve(annotation.left), resolve(annotation.right)}
+    elif isinstance(annotation, ast.Subscript):
+        symbol = _python_annotation_symbol(annotation.value, module, scope)
+        elements = list(annotation.slice.elts) if isinstance(annotation.slice, ast.Tuple) else [annotation.slice]
+        if symbol == "Annotated":
+            if len(elements) < 2 or not all(isinstance(item, ast.Constant) for item in elements[1:]):
+                return "unresolved"
+            return resolve(elements[0])
+        if symbol == "Literal":
+            return "caller_supplied" if all(isinstance(item, ast.Constant) for item in elements) else "unresolved"
+        if symbol in {"Union", "Optional"}:
+            if symbol == "Optional" and len(elements) != 1:
+                return "unresolved"
+            identities = {resolve(item) for item in elements}
+        elif symbol in {"list", "List", "dict", "Dict", "tuple", "Tuple", "set", "Set", "frozenset", "FrozenSet"}:
+            identities = {
+                "caller_supplied" if isinstance(item, ast.Constant) and item.value is Ellipsis else resolve(item)
+                for item in elements
+            }
+            return "caller_supplied" if identities == {"caller_supplied"} else "unresolved"
+        else:
+            return "unresolved"
+    else:
+        return _python_class_identity(annotation, module, index, module_path, scope, frozenset())
     if "unresolved" in identities:
         return "unresolved"
-    return "caller_supplied"
+    return "framework_injected" if "framework_injected" in identities else "caller_supplied"
 
 
 class _PythonOffsets:

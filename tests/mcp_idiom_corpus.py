@@ -1715,6 +1715,38 @@ REGRESSIONS: dict[str, SourceCase] = {
     # matching the last token of the spelling answers wrongly in *both*
     # directions, so each shape below is paired with the one that looks
     # identical and must come back the other way.
+    "python_context_first_match": SourceCase(
+        "python_context_first_match", "python",
+        "from mcp.server.fastmcp import FastMCP, Context\n"
+        "mcp = FastMCP('fixture')\n"
+        "@mcp.tool()\n"
+        "def lookup(first: Context, *, second: Context) -> str:\n"
+        "    return 'fixture'\n",
+    ),
+    "python_context_unknown_return": SourceCase(
+        "python_context_unknown_return", "python",
+        "from mcp.server.fastmcp import FastMCP, Context\n"
+        "mcp = FastMCP('fixture')\n"
+        "@mcp.tool()\n"
+        "def lookup(ctx: Context) -> Missing:\n"
+        "    return 'fixture'\n",
+    ),
+    "python_context_generic_limit": SourceCase(
+        "python_context_generic_limit", "python",
+        "from mcp.server.fastmcp import FastMCP, Context\n"
+        "mcp = FastMCP('fixture')\n"
+        "@mcp.tool()\n"
+        "def lookup(holder: list[Context]) -> str:\n"
+        "    return 'fixture'\n",
+    ),
+    "python_context_unknown_variadic": SourceCase(
+        "python_context_unknown_variadic", "python",
+        "from mcp.server.fastmcp import FastMCP\n"
+        "mcp = FastMCP('fixture')\n"
+        "@mcp.tool()\n"
+        "def lookup(query: str, **options: Missing) -> str:\n"
+        "    return 'fixture'\n",
+    ),
     "python_application_model_named_context": SourceCase(
         "python_application_model_named_context",
         "python",
