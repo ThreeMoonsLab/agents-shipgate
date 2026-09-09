@@ -1397,8 +1397,8 @@ def test_a_published_continuation_validates_against_its_own_schemas(
 
     root = Path(__file__).resolve().parent.parent
     for artifact, schema in (
-        ("verifier.json", "verifier-schema.v0.16.json"),
-        ("agent-handoff.json", "agent-handoff-schema.v8.json"),
+        ("verifier.json", "verifier-schema.v0.17.json"),
+        ("agent-handoff.json", "agent-handoff-schema.v9.json"),
         ("verify-run.json", "verify-run-schema.v5.json"),
     ):
         payload = json.loads((repo / "sg-out" / artifact).read_text(encoding="utf-8"))
@@ -1431,7 +1431,7 @@ def test_a_blocked_run_without_a_continuation_still_fails_the_schema(
     root = Path(__file__).resolve().parent.parent
     payload = json.loads((repo / "sg-out" / "verifier.json").read_text(encoding="utf-8"))
     validator = Draft202012Validator(
-        json.loads((root / "docs" / "verifier-schema.v0.16.json").read_text("utf-8"))
+        json.loads((root / "docs" / "verifier-schema.v0.17.json").read_text("utf-8"))
     )
     payload.pop("declaration_continuation")
     assert list(validator.iter_errors(payload))

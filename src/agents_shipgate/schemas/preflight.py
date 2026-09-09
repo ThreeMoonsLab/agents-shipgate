@@ -5,9 +5,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from agents_shipgate.schemas.agent_control import AgentControl
+from agents_shipgate.schemas.instruction_structure import (
+    ConditionalInstructionEditRule,
+    InstructionStructureEvidence,
+)
 from agents_shipgate.schemas.surfaces import ActionEffect
 
-PREFLIGHT_SCHEMA_VERSION = "0.4"
+PREFLIGHT_SCHEMA_VERSION = "0.5"
 MAX_PREFLIGHT_DIFF_BYTES = 32 * 1024 * 1024
 
 PreflightActor = Literal["coding_agent", "human"]
@@ -476,7 +480,70 @@ class PreflightResultV3(PreflightResultV2):
         return self
 
 
+class TrustRootNodeV2(TrustRootNodeV1):
+    instruction_structures: dict[str, InstructionStructureEvidence] = Field(
+        default_factory=dict, exclude_if=lambda value: not value,
+    )
+
+
+class TrustRootGraphV2(TrustRootGraphV1):
+    schema_version: Literal["0.2"] = "0.2"
+    nodes: list[TrustRootNodeV2] = Field(default_factory=list)
+
+
+class PreflightProtectedSurfaceTouchV2(PreflightProtectedSurfaceTouch):
+    instruction_structure_unchanged: Literal[True] | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def _proof_routes_without_human(self):
+        if self.instruction_structure_unchanged and (
+            self.requires_human_review or self.kind not in {"agent_instructions", "tool_surface_decl"}
+        ):
+            raise ValueError("Instruction structure proof must project a non-human instruction touch")
+        return self
+
+
+class PreflightResultV5(PreflightResultV3):
+    """Planning with structural comparison; raw graph identity remains current."""
+
+    # The historical grammar prohibited update_pr even on the already
+    # supported complete planning result. Match the existing model exactly:
+    # unevaluated, incomplete plans never carry publication authority. This
+    # changes the successor grammar only, not runtime control or frozen files.
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {
+                            "control": {
+                                "properties": {"state": {"not": {"const": "complete"}}},
+                                "required": ["state"],
+                            }
+                        },
+                        "required": ["control"],
+                    },
+                    "then": PreflightResultV3.model_config["json_schema_extra"]["allOf"][0],
+                },
+                *PreflightResultV3.model_config["json_schema_extra"]["allOf"][1:],
+            ]
+        },
+    )
+
+    preflight_schema_version: Literal["0.5"] = "0.5"
+    trust_root_graph: TrustRootGraphV2
+    protected_surface_touches: list[PreflightProtectedSurfaceTouchV2] = Field(default_factory=list)
+    conditional_file_edits: list[ConditionalInstructionEditRule] = Field(default_factory=list)
+
+
 __all__ = [
+    "PreflightResultV5",
+    "PreflightProtectedSurfaceTouchV2",
+    "TrustRootGraphV2",
+    "TrustRootNodeV2",
     "PREFLIGHT_SCHEMA_VERSION",
     "CapabilityRequestControls",
     "CapabilityRequestEvidence",

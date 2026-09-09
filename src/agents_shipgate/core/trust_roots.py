@@ -20,6 +20,8 @@ from typing import Literal
 
 from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
 from agents_shipgate.core.globbing import glob_match, glob_match_ci
+from agents_shipgate.invocation import render_command
+from agents_shipgate.schemas.instruction_structure import ConditionalInstructionEditRule
 
 # Ordered (class, glob) classification of a repo's release trust roots —
 # the surfaces that define the gate in any repo that has adopted
@@ -94,7 +96,9 @@ TRUST_ROOT_SURFACES: tuple[tuple[str, str], ...] = (
 # The deny-list of trust-root files a coding agent must never edit *to make a
 # verdict pass*, derived from ``TRUST_ROOT_SURFACES`` (single source of truth),
 # restricted to the classes whose trust boundary is the WHOLE FILE: the
-# Shipgate CI gate, the agent-instruction surfaces, and policy packs.
+# Shipgate CI gate, host boundaries, and policy packs. Instruction-directory
+# paths have a separate conditional rule: complete unchanged parsed structure
+# can clear a touch, while unknown structure and path-only plans still review.
 #
 # Deliberately EXCLUDES:
 #   * ``shipgate.yaml`` and ``.agents-shipgate/**`` — their boundary is
@@ -110,11 +114,32 @@ TRUST_ROOT_SURFACES: tuple[tuple[str, str], ...] = (
 # the IDENTICAL
 # standing deny-list — a passing/preview verdict never reads as "anything goes".
 _FORBIDDEN_EDIT_CLASSES = frozenset(
-    {"ci_gate", "agent_instructions", "policy", "host_boundary"}
+    {"ci_gate", "policy", "host_boundary"}
 )
 PROTECTED_FILE_EDITS: tuple[str, ...] = tuple(
     pattern for kind, pattern in TRUST_ROOT_SURFACES if kind in _FORBIDDEN_EDIT_CLASSES
 )
+
+
+CONDITIONAL_INSTRUCTION_PATTERNS: tuple[str, ...] = tuple(
+    pattern for kind, pattern in TRUST_ROOT_SURFACES
+    if kind == "agent_instructions" or pattern == "**/SKILL.md"
+)
+
+
+def conditional_instruction_edits(
+    *, workspace: Path, config: str, canonical: bool = False,
+) -> list[ConditionalInstructionEditRule]:
+    # Bind the actual subject; a default config could classify a custom
+    # manifest named AGENTS.md as prose. Durable verifier artifacts keep the
+    # canonical executable, while interactive preflight follows its launcher.
+    return [ConditionalInstructionEditRule(
+        patterns=list(CONDITIONAL_INSTRUCTION_PATTERNS),
+        preflight_command=render_command(
+            ["preflight", "--workspace", str(workspace), "--config", config, "--plan", "-", "--json"],
+            prefix=("agents-shipgate",) if canonical else None,
+        ),
+    )]
 
 
 def trust_root_class_for(path: str) -> str | None:

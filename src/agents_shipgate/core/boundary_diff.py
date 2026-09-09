@@ -39,6 +39,7 @@ class DiffFile:
     is_deleted: bool = False
     is_new: bool = False
     is_rename: bool = False
+    metadata_changed: bool = False
 
     @property
     def path(self) -> str:
@@ -125,6 +126,7 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
                 is_deleted=bool(current.get("is_deleted")),
                 is_new=bool(current.get("is_new")),
                 is_rename=bool(current.get("is_rename")),
+                metadata_changed=bool(current.get("metadata_changed")),
             )
         )
         current = None
@@ -160,10 +162,14 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
             continue
         if current is None:
             continue
-        if raw_line.startswith("deleted file mode"):
+        if raw_line.startswith(("old mode ", "new mode ", "copy from ", "copy to ")):
+            current["metadata_changed"] = True
+        elif raw_line.startswith("deleted file mode"):
             current["is_deleted"] = True
+            current["metadata_changed"] = raw_line != "deleted file mode 100644"
         elif raw_line.startswith("new file mode"):
             current["is_new"] = True
+            current["metadata_changed"] = raw_line != "new file mode 100644"
         elif raw_line.startswith("rename from "):
             value = _parse_git_path_value(raw_line[len("rename from ") :])
             current["old_path"] = (

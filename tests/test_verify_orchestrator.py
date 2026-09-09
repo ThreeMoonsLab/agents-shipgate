@@ -388,7 +388,7 @@ def test_verify_threads_changed_files_into_head_scan(tmp_path):
     sample_dst = repo / "samples" / "support_refund_agent"
     sample_dst.parent.mkdir(parents=True)
     shutil.copytree(REPO_ROOT / "samples" / "support_refund_agent", sample_dst)
-    (repo / "AGENTS.md").write_text("base instructions\n", encoding="utf-8")
+    (repo / ".mcp.json").write_text("{}\n", encoding="utf-8")
 
     _git(repo, "init")
     _git(repo, "config", "user.email", "test@example.test")
@@ -396,8 +396,8 @@ def test_verify_threads_changed_files_into_head_scan(tmp_path):
     _git(repo, "add", ".")
     _git(repo, "commit", "-m", "base")
 
-    (repo / "AGENTS.md").write_text("head instructions\n", encoding="utf-8")
-    _git(repo, "add", "AGENTS.md")
+    (repo / ".mcp.json").write_text('{"mcpServers": {"audit": {"command": "audit"}}}\n', encoding="utf-8")
+    _git(repo, "add", ".mcp.json")
     _git(repo, "commit", "-m", "touch agent instructions")
 
     out_dir = repo / "agents-shipgate-reports"
@@ -424,7 +424,7 @@ def test_verify_threads_changed_files_into_head_scan(tmp_path):
     assert report is not None
     assert any(
         finding.check_id == "SHIP-VERIFY-TRUST-ROOT-TOUCHED"
-        and finding.evidence.get("changed_file") == "AGENTS.md"
+        and finding.evidence.get("changed_file") == ".mcp.json"
         for finding in report.findings
     )
     assert verifier.artifacts["capability_lock_json"] == (
@@ -521,7 +521,7 @@ def test_verify_threads_uncommitted_worktree_files_into_head_scan(tmp_path):
     sample_dst = repo / "samples" / "support_refund_agent"
     sample_dst.parent.mkdir(parents=True)
     shutil.copytree(REPO_ROOT / "samples" / "support_refund_agent", sample_dst)
-    (repo / "AGENTS.md").write_text("base instructions\n", encoding="utf-8")
+    (repo / ".mcp.json").write_text("{}\n", encoding="utf-8")
 
     _git(repo, "init")
     _git(repo, "config", "user.email", "test@example.test")
@@ -529,7 +529,7 @@ def test_verify_threads_uncommitted_worktree_files_into_head_scan(tmp_path):
     _git(repo, "add", ".")
     _git(repo, "commit", "-m", "base")
 
-    (repo / "AGENTS.md").write_text("uncommitted instructions\n", encoding="utf-8")
+    (repo / ".mcp.json").write_text('{"mcpServers": {"audit": {"command": "audit"}}}\n', encoding="utf-8")
     (repo / ".claude" / "commands").mkdir(parents=True)
     (repo / ".claude" / "commands" / "review.md").write_text("review command\n", encoding="utf-8")
     (repo / ".claude-plugin").mkdir()
@@ -558,7 +558,7 @@ def test_verify_threads_uncommitted_worktree_files_into_head_scan(tmp_path):
     assert report is not None
     assert any(
         finding.check_id == "SHIP-VERIFY-TRUST-ROOT-TOUCHED"
-        and finding.evidence.get("changed_file") == "AGENTS.md"
+        and finding.evidence.get("changed_file") == ".mcp.json"
         for finding in report.findings
     )
 

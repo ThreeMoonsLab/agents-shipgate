@@ -63,8 +63,8 @@ CASES = {
     ),
     "agents_requirement_removed": (
         "require_review",
-        ["CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED"],
-        "human_review_required",  # gate-weakening rule is band-excluded
+        ["BOUNDARY-INPUT-INCOMPLETE", "BOUNDARY-INPUT-INCOMPLETE"],
+        "human_review_required",  # Missing file/structure proof, not prose weakening
     ),
     "github_action_removed": (
         "block",
@@ -1386,7 +1386,7 @@ index 0000000..1111111
     assert [item.id for item in result.violated_rules] == ["CODEX-MCP-AUTO-APPROVE-WRITE"]
 
 
-def test_codex_agents_softening_keeps_shipgate_term_requires_review(
+def test_codex_agents_softening_without_captured_file_is_incomplete(
     tmp_path: Path,
 ) -> None:
     diff_text = """diff --git a/AGENTS.md b/AGENTS.md
@@ -1401,12 +1401,13 @@ index 1111111..2222222 100644
     result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
 
     assert result.decision == "require_review"
+    assert result.violated_rules[0].evidence["kind"] == "instruction_structure_unresolved"
     assert [item.id for item in result.violated_rules] == [
-        "CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED"
+        "BOUNDARY-INPUT-INCOMPLETE"
     ]
 
 
-def test_codex_agents_reworded_requirement_without_marker_requires_review(
+def test_codex_agents_rewording_without_captured_file_is_incomplete(
     tmp_path: Path,
 ) -> None:
     diff_text = """diff --git a/AGENTS.md b/AGENTS.md
@@ -1421,8 +1422,9 @@ index 1111111..2222222 100644
     result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
 
     assert result.decision == "require_review"
+    assert result.violated_rules[0].evidence["kind"] == "instruction_structure_unresolved"
     assert [item.id for item in result.violated_rules] == [
-        "CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED"
+        "BOUNDARY-INPUT-INCOMPLETE"
     ]
 
 

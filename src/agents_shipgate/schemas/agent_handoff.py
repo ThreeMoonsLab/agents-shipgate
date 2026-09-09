@@ -8,11 +8,12 @@ from agents_shipgate import __version__
 from agents_shipgate.schemas.agent_control import AgentControl
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
+from agents_shipgate.schemas.instruction_structure import ConditionalInstructionEditRule
 from agents_shipgate.schemas.verification_identity import CONTENT_ID_PATTERN
 from agents_shipgate.schemas.verifier import Applicability, MergeVerdict, map_merge_verdict
 
-AGENT_HANDOFF_SCHEMA_VERSION = "shipgate.agent_handoff/v8"
-AGENT_HANDOFF_SCHEMA_PATH = "docs/agent-handoff-schema.v8.json"
+AGENT_HANDOFF_SCHEMA_VERSION = "shipgate.agent_handoff/v9"
+AGENT_HANDOFF_SCHEMA_PATH = "docs/agent-handoff-schema.v9.json"
 
 AgentHandoffOperation = Literal["verify_pr", "verify_local", "verify_preview"]
 RemediationPlanSafety = Literal["allowed", "forbidden", "patch"]
@@ -306,7 +307,7 @@ class AgentHandoffArtifact(BaseModel):
         },
     )
 
-    schema_version: Literal["shipgate.agent_handoff/v8"] = AGENT_HANDOFF_SCHEMA_VERSION
+    schema_version: Literal["shipgate.agent_handoff/v9"] = AGENT_HANDOFF_SCHEMA_VERSION
     contract_version: str
     tool: AgentHandoffTool = Field(default_factory=AgentHandoffTool)
     operation: AgentHandoffOperation
@@ -320,6 +321,7 @@ class AgentHandoffArtifact(BaseModel):
     capability_review: dict[str, Any] = Field(default_factory=dict)
     forbidden_file_edits: list[str] = Field(default_factory=list)
     forbidden_actions: list[str] = Field(default_factory=list)
+    conditional_file_edits: list[ConditionalInstructionEditRule] = Field(default_factory=list)
     reproducibility: AgentHandoffReproducibility = Field(
         default_factory=AgentHandoffReproducibility
     )
@@ -329,6 +331,15 @@ class AgentHandoffArtifact(BaseModel):
     #: authorize publication and nothing more (#429). Appended, because the
     #: top-level section order is itself a pinned contract.
     declaration_continuation: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read_v8(cls, data: Any) -> Any:
+        if isinstance(data, dict) and data.get("schema_version") == "shipgate.agent_handoff/v8":
+            if "conditional_file_edits" in data:
+                raise ValueError("Legacy handoffs cannot carry conditional edit rules")
+            return {**data, "schema_version": AGENT_HANDOFF_SCHEMA_VERSION, "conditional_file_edits": []}
+        return data
 
     @model_validator(mode="after")
     def _single_gate_and_control(self) -> AgentHandoffArtifact:

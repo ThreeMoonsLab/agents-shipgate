@@ -258,14 +258,14 @@ def test_codex_requirements_change_requires_human_review(tmp_path: Path) -> None
     assert result.affected_hosts == ["codex"]
 
 
-def test_stored_lowercase_agent_instructions_keep_the_human_stop(
+def test_stored_lowercase_instruction_prose_has_the_same_structural_classification(
     tmp_path: Path,
 ) -> None:
     result = _build(tmp_path, _new_file_diff("agents.md", "Run Shipgate."))
 
-    assert result.control.state == "review_publishable"
-    assert result.control.permissions.merge is False
-    assert any(item.path == "agents.md" for item in result.violations)
+    assert result.control.state == "complete"
+    assert result.control.permissions.merge is True
+    assert not result.violations
 
 
 def test_untracked_unicode_agent_instructions_are_not_hidden_by_git_quoting(
@@ -293,7 +293,7 @@ def test_untracked_unicode_agent_instructions_are_not_hidden_by_git_quoting(
     assert invoked.exit_code == 0, invoked.output
     payload = json.loads(invoked.output)
     assert "caf\u00e9/AGENTS.md" in payload["changed_files"]
-    assert payload["control"]["state"] == "review_publishable"
+    assert payload["control"]["state"] == "agent_action_required"
     assert payload["input_coverage"] == "complete"
 
 
@@ -350,14 +350,14 @@ def test_nested_codex_config_retains_structural_dangerous_grant_check(
     [
         ("sub/.mcp.json", "agent_action_required", "verify"),
         ("sub/.github/workflows/release.yml", "agent_action_required", "verify"),
-        ("claude.md", "review_publishable", "review"),
+        ("claude.md", "complete", None),
     ],
 )
-def test_nested_and_case_variant_boundary_paths_never_complete(
+def test_nested_and_case_variant_paths_preserve_their_actual_surface_kind(
     tmp_path: Path,
     path: str,
     expected_state: str,
-    expected_action: str,
+    expected_action: str | None,
 ) -> None:
     content = (
         json.dumps({"mcpServers": {"danger": {"command": "danger"}}})
@@ -366,17 +366,16 @@ def test_nested_and_case_variant_boundary_paths_never_complete(
     )
     result = _build(tmp_path, _new_file_diff(path, content))
 
-    # Nested copies remain verify-routed, while a case-variant root instruction
-    # file is a live gate-governing trust root that a human must approve before
-    # merge. Contract v20 keeps publishing it for that review authorized.
+    # Nested structured copies remain verify-routed; plain guidance has no grant.
     assert result.control.state == expected_state
-    assert result.control.next_action.kind == expected_action
+    if expected_action is not None:
+        assert result.control.next_action.kind == expected_action
     if expected_state == "agent_action_required":
         assert result.pending_review
-    else:
+    elif expected_state != "complete":
         assert result.violations
         assert result.control.human_review.required is True
-    assert result.control.completion_allowed is False
+    assert result.control.completion_allowed is (expected_state == "complete")
 
 
 def test_claude_nested_permission_expansion_is_not_ignored(tmp_path: Path) -> None:
@@ -506,14 +505,14 @@ def test_central_snapshot_reads_each_static_source_at_most_once(tmp_path: Path) 
         ),
     ],
 )
-def test_instruction_trust_root_weakening_requires_review(
+def test_complete_prose_comparison_does_not_judge_instruction_weakening(
     tmp_path: Path, path: str, old: str, new: str
 ) -> None:
     target = tmp_path / path
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(old, encoding="utf-8")
     result = _build(tmp_path, _change_diff(path, old, new))
-    assert result.control.state == "review_publishable"
+    assert result.control.state == "complete"
 
 
 def test_unclassified_workflow_behavior_change_requires_review(tmp_path: Path) -> None:

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Compare supported instruction structure across verifier, local control,
+  preflight, host drift and generated Claude Code edit hooks. Complete prose
+  edits no longer imply permission changes; malformed/unknown structure and
+  configured trust roots retain review. Raw byte currency remains mandatory.
+  Contract v32 adds successor schemas and explicit conditional edit rules;
+  legacy host baselines require deliberate review, and automatic prose edits
+  never seed or consume per-path hook approvals (#545, #516).
+
 - Count actual `insufficient_evidence` qualification outcomes per profile with
   denominators, case IDs, named evidence gaps and explicit unscored cases.
   Mark the legacy expected-IE metric not applicable on the three-label corpus;

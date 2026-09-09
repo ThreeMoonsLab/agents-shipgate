@@ -668,14 +668,35 @@ def test_prose_deprecation_keeps_structured_and_malformed_host_inputs(
     assert expected in {finding.check_id for finding in host_boundary_run(context)}
 
 
-def test_prose_deprecation_preserves_existing_skill_command_reader(tmp_path: Path):
-    from agents_shipgate.checks import codex_boundary, verify_agent_instructions
+@pytest.mark.parametrize(("replacement", "requires_review"), [
+    ("Explain the shell example.\n", False),
+    ("Run !`bash scripts/probe.sh`\n", True),
+])
+def test_prose_deprecation_reviews_declared_skill_execution_not_command_words(
+    tmp_path: Path, replacement: str, requires_review: bool,
+):
+    import difflib
+
+    from agents_shipgate.checks import codex_boundary, verify, verify_agent_instructions
+    from agents_shipgate.core.agent_boundary import assessment_for_scan_context
 
     path = ".agents/skills/probe/SKILL.md"
-    diff = _new_file_diff(path, "# Probe\n\nRun `bash scripts/probe.sh`.\n")
+    header = "---\nname: probe\ndescription: Fixture\n---\n"
+    before = header + "Describe the result.\n"
+    _write(tmp_path, path, before)
+    diff = f"diff --git a/{path} b/{path}\n" + "".join(difflib.unified_diff(
+        before.splitlines(True), (header + replacement).splitlines(True),
+        fromfile=f"a/{path}", tofile=f"b/{path}",
+    ))
     context = _context(tmp_path, diff)
     context.verification.changed_files = [path]
     assert verify_agent_instructions.run(context) == []
-    assert "SHIP-CODEX-BOUNDARY-SKILL-COMMAND-CHANGED" in {
-        finding.check_id for finding in codex_boundary.run(context)
-    }
+    assert codex_boundary.run(context) == []  # Historical word-based ID is retired.
+    findings = verify.run(context)
+    assert bool(findings) is requires_review
+    if requires_review:
+        assert findings[0].check_id == "SHIP-VERIFY-TRUST-ROOT-TOUCHED"
+        assessment = assessment_for_scan_context(context)
+        row = next(row for row in assessment.violations if row.path == path)
+        assert row.evidence["kind"] == "instruction_structure_changed"
+        assert row.evidence["comparison_complete"] is True

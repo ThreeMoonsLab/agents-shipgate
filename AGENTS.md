@@ -125,6 +125,18 @@ suppressions, Codex hooks/config, Codex plugin manifests, `.mcp.json`,
 `.app.json`, and `SKILL.md`. Preflight is a routing/projection surface only;
 `release_decision.decision` remains the release gate.
 
+Contract v32 makes instruction protection conditional on parsed structure.
+For a prose edit, supply the complete proposed `diff_text` to preflight; a
+path-only plan still routes to review. Only an explicit
+`protected_surface_touches[].instruction_structure_unchanged: true` on that
+exact path proves the supported structure did not change. Unknown/malformed
+frontmatter, inline preprocessing changes, registration moves and configured
+manifest/policy edits retain their review route. This does not judge prompt
+safety or grant edit/merge authority. Verifier v0.17 and handoff v9 publish
+`conditional_file_edits` separately from unconditional `forbidden_file_edits`;
+follow current `control` as before. See the
+[instruction structure boundary](docs/engineering/instruction-structure-boundary.md).
+
 **PR / reviewer evidence** — for committed PR/CI refs, run the deterministic
 verifier on the diff. Make the base ref available first because `verify` never
 fetches:
@@ -523,7 +535,7 @@ Do NOT use it for:
 
 One known gap in the Google ADK row: an edit that *modifies* a tools list on the `Agent` alias (rather than `LlmAgent`) is not matched, because a bare `Agent(..., tools=[...])` hunk with no ADK import in it cannot be distinguished from CrewAI's by diff text alone. `LlmAgent` changes and whole-file additions in either spelling are covered.
 
-`prompts/` and `policies/` in that row match at any depth and case-insensitively: an edit under `services/foo/policies/` or `enterprise/lib/captain/Prompts/` routes exactly like a repo-root one. That is parity with the verifier, whose trust-root classification has always read those two surfaces as `**/policies/**` and `**/prompts/**` and has always tolerated the case variant a case-insensitive filesystem resolves to the canonical name. The catalog's `glob` and `none_match_glob` predicates match the same way, so a path cannot be a trust root to the verifier and a `no_match` to the router; the Tier B checks (`SHIP-VERIFY-POLICY-WEAKENED`, `SHIP-VERIFY-CI-GATE-REMOVED`, agent-instruction weakening, trigger-catalog drift) select their changed files the same way too, so a case variant cannot be a trust root in Tier A and invisible to the specialized check that carries the severity. `every_file_matches` is deliberately the exception and stays case-sensitive: it is the docs-only rule's own classifier, and `skip_shipgate` beats `run_shipgate`, so folding it would read `src/TEST_agent.py` — a production module on a case-sensitive filesystem — as a test file and skip a PR that adds a tool beside it. The rule is to fold the predicates that can only add evaluation, never the one that can subtract it. The three surfaces that copy this routing — the pre-commit `files:` regex, the `.cursor/rules/agents-shipgate.mdc` activation globs, and the documented copy-paste hook snippets — follow, so a nested governance edit also activates the host instructions and stages the local hook.
+`prompts/` and `policies/` in that row match at any depth and case-insensitively: an edit under `services/foo/policies/` or `enterprise/lib/captain/Prompts/` routes exactly like a repo-root one. That is parity with the verifier, whose trust-root classification has always read those two surfaces as `**/policies/**` and `**/prompts/**` and has always tolerated the case variant a case-insensitive filesystem resolves to the canonical name. The catalog's `glob` and `none_match_glob` predicates match the same way, so a path cannot be a trust root to the verifier and a `no_match` to the router; the Tier B checks (`SHIP-VERIFY-POLICY-WEAKENED`, `SHIP-VERIFY-CI-GATE-REMOVED`, the retained non-emitting agent-instruction weakening ID, trigger-catalog drift) select their changed files the same way too, so a case variant cannot be a trust root in Tier A and invisible to the specialized check that carries the severity. `every_file_matches` is deliberately the exception and stays case-sensitive: it is the docs-only rule's own classifier, and `skip_shipgate` beats `run_shipgate`, so folding it would read `src/TEST_agent.py` — a production module on a case-sensitive filesystem — as a test file and skip a PR that adds a tool beside it. The rule is to fold the predicates that can only add evaluation, never the one that can subtract it. The three surfaces that copy this routing — the pre-commit `files:` regex, the `.cursor/rules/agents-shipgate.mdc` activation globs, and the documented copy-paste hook snippets — follow, so a nested governance edit also activates the host instructions and stages the local hook.
 
 `shipgate.yaml` matches at any depth for the same reason. A monorepo keeps one manifest per project directory, so an edit to `services/refund/shipgate.yaml` — the file that declares that project's agent, purpose, and tool surface — routes exactly like a root-level one; a root-only rule reported it as `no_match`. A nested manifest is also an opt-in: `verify --preview` treats the changed project's own `shipgate.yaml` as the repo-already-adopted signal and routes verification to that manifest rather than to a root one governing a different boundary.
 
@@ -763,13 +775,13 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Report schema (v0.7 frozen reference) | [`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json) | `0.7` |
 | Report schema (v0.6 frozen reference) | [`docs/report-schema.v0.6.json`](docs/report-schema.v0.6.json) | `0.6` |
 | Packet schema (Release Evidence Packet, latest) | [`docs/packet-schema.v0.18.json`](docs/packet-schema.v0.18.json) | `0.18` |
-| Agent result schema (current) | [`docs/agent-result-schema.v2.json`](docs/agent-result-schema.v2.json) | `agent_result_v2` |
-| Verifier schema (current) | [`docs/verifier-schema.v0.5.json`](docs/verifier-schema.v0.5.json) | `0.5` |
-| Agent handoff schema (current) | [`docs/agent-handoff-schema.v5.json`](docs/agent-handoff-schema.v5.json) | `shipgate.agent_handoff/v5` |
-| Preflight schema (current) | [`docs/preflight-schema.v0.3.json`](docs/preflight-schema.v0.3.json) | `0.3` |
-| Host-grants inventory schema | [`docs/host-grants-inventory-schema.v0.2.json`](docs/host-grants-inventory-schema.v0.2.json) | `0.2` |
-| Host-grants baseline schema | [`docs/host-grants-baseline-schema.v0.2.json`](docs/host-grants-baseline-schema.v0.2.json) | `0.2` |
-| Host-grants drift schema | [`docs/host-grants-drift-schema.v0.2.json`](docs/host-grants-drift-schema.v0.2.json) | `0.2` |
+| Agent result schema (current) | [`docs/agent-result-schema.v3.json`](docs/agent-result-schema.v3.json) | `agent_result_v3` |
+| Verifier schema (current) | [`docs/verifier-schema.v0.17.json`](docs/verifier-schema.v0.17.json) | `0.17` |
+| Agent handoff schema (current) | [`docs/agent-handoff-schema.v9.json`](docs/agent-handoff-schema.v9.json) | `shipgate.agent_handoff/v9` |
+| Preflight schema (current) | [`docs/preflight-schema.v0.5.json`](docs/preflight-schema.v0.5.json) | `0.5` |
+| Host-grants inventory schema | [`docs/host-grants-inventory-schema.v0.3.json`](docs/host-grants-inventory-schema.v0.3.json) | `0.3` |
+| Host-grants baseline schema | [`docs/host-grants-baseline-schema.v0.3.json`](docs/host-grants-baseline-schema.v0.3.json) | `0.3` |
+| Host-grants drift schema | [`docs/host-grants-drift-schema.v0.3.json`](docs/host-grants-drift-schema.v0.3.json) | `0.3` |
 | Capability standard | [`docs/capability-standard.md`](docs/capability-standard.md) | `0.5` |
 | Capability lock schema | [`docs/capability-lock-schema.v0.8.json`](docs/capability-lock-schema.v0.8.json) | `0.8` |
 | Capability lock diff schema | [`docs/capability-lock-diff-schema.v0.9.json`](docs/capability-lock-diff-schema.v0.9.json) | `0.9` |

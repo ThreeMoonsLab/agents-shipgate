@@ -152,7 +152,7 @@ def _host_grants_line(workspace: Path) -> tuple[str | None, bool]:
             True,
         )
 
-    if inventory.get("host_grants_inventory_schema_version") == "0.2":
+    if inventory.get("host_grants_inventory_schema_version") in {"0.2", "0.3"}:
         grants = inventory.get("grants") or []
         kind_labels = {
             "mcp_server": "MCP server",

@@ -8,7 +8,7 @@ Nothing identifying appears here without the specific consent it requires.
 Aggregate counts never require consent; names, source links and raw artifacts
 always do.
 
-**Status date: 2026-09-05.** No external repository has been enrolled. The
+**Status date: 2026-09-09.** No external repository has been enrolled. The
 sections below say why, in denominators rather than adjectives.
 
 ## Denominators
@@ -64,15 +64,16 @@ allow list from `Bash(npm test)` / `Read(src/**)` to `Bash(*)` / `Read(**)` /
 capability-change class this pilot exists to observe.
 
 **Published build measured: `0.15.0`.** Preview measured:
-`0.16.0+preview.20260903.gb61aca7`. Source tree: `0.16.0`, rechecked on 2026-09-08 while
-implementing #537, based on `3f88ef18` with runtime contract 31. The source-tree
+`0.16.0+preview.20260903.gb61aca7`. Source tree: `0.16.0`, rechecked on 2026-09-09 against the uncommitted
+#545 candidate based on `42818ec25b06cf39d5c95024e2ba7884bffa4166`, with
+runtime contract 32. The source-tree
 column below was rerun; the released and preview columns retain their earlier
 measurement and were not relabeled as new runs.
 
 | | Released `v0.15.0` (`pipx install`) | Preview `0.16.0+preview.20260903` (`gh release download`) | Source tree |
 | --- | --- | --- | --- |
-| Runtime contract | 10 | 29 | 31 |
-| Host-grant inventory schema | 0.1 | 0.2 | 0.2 |
+| Runtime contract | 10 | 29 | 32 |
+| Host-grant inventory schema | 0.1 | 0.2 | 0.3 |
 | `check` on the fixture | `warn` / `none`, **0 violations** | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** |
 | Coverage limit visible (`host_coverage`, `excluded_scopes`) | no | yes | yes |
 | `init --write --ci` Action pin | `@v0.15.0` — exists | `@v0.16.0+preview.20260903.gb61aca7` — **no such tag** (the release tag is `preview-`-prefixed) | `@v0.15.0` — exists |
@@ -83,8 +84,9 @@ measurement and were not relabeled as new runs.
 The source rerun reproduced four boundary violations (`block` / `critical`),
 visible coverage, the released Action pin, and the Route A exit-2 placeholder
 refusal. Baseline/drift reproduced all four expansion signals with a canonical
-non-symlink temporary path. The documented `/tmp/` recovery path itself fails
-on macOS; that newly observed documentation problem is deferred as #550.
+non-symlink temporary path. The earlier run discovered the documented `/tmp/`
+recovery-path problem on macOS; #550 was subsequently fixed by #595. This run
+uses the canonical path and does not add a new recovery-path observation.
 No reviewer, retention or qualification result is inferred from this rerun.
 
 Four things follow, and each one is a fact about a build rather than a
@@ -257,8 +259,8 @@ those is a matter of writing more runbook.
   knows the answers. It shows what a command emits; it cannot show what a
   stranger understands.
 - **Findings are build-dated.** They describe three builds as they stood on
-  2026-09-05: the released `0.15.0`, the preview
-  `0.16.0+preview.20260903.gb61aca7`, and this tree. A release or a new
+  2026-09-05 for the released `0.15.0` and preview
+  `0.16.0+preview.20260903.gb61aca7`, and 2026-09-09 for this source candidate. A release or a new
   preview invalidates the comparison, and the dry run must be re-run and
   re-dated before any row here is cited again. A standing guard fails the
   build when the newest published tag moves; **nothing fails the build when a

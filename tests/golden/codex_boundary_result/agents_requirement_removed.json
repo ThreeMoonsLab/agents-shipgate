@@ -10,15 +10,15 @@
   },
   "decision": "require_review",
   "risk_level": "medium",
-  "audit_id": "agent_boundary_130a698865cb613276ec3b70",
+  "audit_id": "agent_boundary_cbcff45c3a01784e65d9dbc7",
   "policy_version": "1",
-  "summary": "1 coding-agent boundary change(s) require human review.",
+  "summary": "2 coding-agent boundary change(s) require human review.",
   "changed_files": [
     "AGENTS.md"
   ],
   "control": {
     "state": "human_review_required",
-    "reason": "1 coding-agent boundary change(s) require human review.",
+    "reason": "2 coding-agent boundary change(s) require human review.",
     "completion_allowed": false,
     "must_stop": true,
     "verify_required": false,
@@ -27,23 +27,24 @@
       "kind": "review",
       "command": null,
       "expects": null,
-      "why": "AGENTS.md removed a Shipgate requirement"
+      "why": "Boundary input is incomplete"
     },
     "allowed_next_commands": [],
     "human_review": {
       "required": true,
-      "why": "AGENTS.md removed a Shipgate requirement",
+      "why": "Boundary input is incomplete",
       "required_reviewers": [
         "agent-platform"
       ]
     },
-    "stop_reason": "AGENTS.md removed a Shipgate requirement"
+    "stop_reason": "Boundary input is incomplete"
   },
   "repair": {
     "actor": "human",
     "safe_to_attempt": false,
     "instructions": [
-      "Have a human confirm the agent instructions were not weakened."
+      "Provide a complete, coherent boundary diff and rerun the check.",
+      "Provide a complete, coherent boundary diff and rerun the check."
     ],
     "forbidden_shortcuts": [
       "Do not suppress the finding (checks.ignore in shipgate.yaml).",
@@ -63,21 +64,45 @@
   },
   "violated_rules": [
     {
-      "id": "CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED",
-      "check_id": "SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED",
+      "id": "BOUNDARY-INPUT-INCOMPLETE",
+      "check_id": "SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE",
       "action": "require_review",
       "risk_level": "medium",
-      "title": "AGENTS.md removed a Shipgate requirement",
+      "title": "Boundary input is incomplete",
       "path": "AGENTS.md",
       "evidence": {
-        "kind": "shipgate_instruction_removed",
-        "deleted": false,
-        "removed_shipgate_lines": true,
-        "softened_shipgate_lines": false,
-        "removed_requirement_lines": true,
-        "replacement_requirement_lines": false
+        "kind": "instruction_structure_unresolved",
+        "comparison_complete": false,
+        "before": {
+          "profile": "plain_instruction/v1",
+          "status": "unresolved",
+          "sha256": null,
+          "reason": "complete_text_unavailable"
+        },
+        "after": {
+          "profile": "plain_instruction/v1",
+          "status": "unresolved",
+          "sha256": null,
+          "reason": "complete_text_unavailable"
+        }
       },
-      "recommendation": "Have a human confirm the agent instructions were not weakened."
+      "recommendation": "Provide a complete, coherent boundary diff and rerun the check."
+    },
+    {
+      "id": "BOUNDARY-INPUT-INCOMPLETE",
+      "check_id": "SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE",
+      "action": "require_review",
+      "risk_level": "medium",
+      "title": "Boundary input is incomplete",
+      "path": "AGENTS.md",
+      "evidence": {
+        "kind": "boundary_coverage_incomplete",
+        "issues": [
+          "content_source",
+          "instruction_structure_unresolved"
+        ]
+      },
+      "recommendation": "Provide a complete, coherent boundary diff and rerun the check."
     }
   ],
   "affected_files": [
@@ -88,14 +113,29 @@
   "required_reviewers": [
     "agent-platform"
   ],
-  "explanation": "1 coding-agent boundary change(s) require human review.",
+  "explanation": "2 coding-agent boundary change(s) require human review.",
   "suggested_fixes": [
-    "Have a human confirm the agent instructions were not weakened."
+    "Provide a complete, coherent boundary diff and rerun the check.",
+    "Provide a complete, coherent boundary diff and rerun the check."
   ],
   "agent_repair_instructions": [
-    "Have a human confirm the agent instructions were not weakened."
+    "Provide a complete, coherent boundary diff and rerun the check.",
+    "Provide a complete, coherent boundary diff and rerun the check."
   ],
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "level": "warning",
+      "code": "content_source",
+      "message": "Evaluated coding-agent boundary file from workspace_file_missing.",
+      "path": "AGENTS.md"
+    },
+    {
+      "level": "warning",
+      "code": "instruction_structure_unresolved",
+      "message": "The supported instruction structure could not be completely compared; review the input and rerun verification.",
+      "path": "AGENTS.md"
+    }
+  ],
   "trace": [
     {
       "step": "policy_discovery",
@@ -103,7 +143,7 @@
     },
     {
       "step": "decision",
-      "summary": "Projected 1 violation(s) to require_review."
+      "summary": "Projected 2 violation(s) to require_review."
     }
   ],
   "source_artifacts": {},
@@ -148,7 +188,8 @@
     }
   },
   "finding_fingerprints": [
-    "fp_e3eff6c19a8ab16d"
+    "fp_f8128ab4dfba6962",
+    "fp_76085804d737936f"
   ],
   "policy_snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a"
 }
