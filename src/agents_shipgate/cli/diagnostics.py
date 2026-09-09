@@ -22,6 +22,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from agents_shipgate.cli.discovery.identity_recovery import AgentNameRecovery
 from agents_shipgate.core.adopter_text import (
     DUPLICATE_ACROSS_ARTIFACTS,
     DUPLICATE_TOOL_IN_SOURCE,
@@ -730,6 +731,7 @@ def diagnose_doctor(
     manifest_path: Path,
     manifest_text: str,
     placeholders: list[dict[str, Any]] | None = None,
+    name_recovery: AgentNameRecovery | None = None,
 ) -> list[Diagnostic]:
     """Diagnostics for ``doctor --json``.
 
@@ -907,6 +909,27 @@ def diagnose_doctor(
             target = (
                 f"{manifest_rel}:{line}" if line is not None else manifest_rel
             )
+            if entry.get("path") == "agent.name" and name_recovery is not None:
+                if name_recovery.human_reason:
+                    actions.append(NextAction(
+                        kind="review",
+                        path=target,
+                        why=f"{target} (agent.name): {name_recovery.human_reason}",
+                        expects="A reviewed product identity or product code that establishes it.",
+                    ))
+                    continue
+                if name_recovery.state == "product" and name_recovery.product_path:
+                    actions.append(NextAction(
+                        kind="edit",
+                        path=target,
+                        why=(
+                            f"Read the product agent name in {name_recovery.product_path} "
+                            "and replace CHANGE_ME "
+                            "at field 'agent.name'."
+                        ),
+                        expects="agent.name matches the supported product declaration.",
+                    ))
+                    continue
             actions.append(
                 NextAction(
                     kind="edit",
