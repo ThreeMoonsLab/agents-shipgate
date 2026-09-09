@@ -255,21 +255,22 @@ def test_removing_ignored_conflicting_package_invalidates_control(tmp_path, comm
         read_current_control(out, live=_live(root))
 
 
-@pytest.mark.parametrize("kind", ["symlink", "oversized", "directory"])
-def test_uncaptured_helper_cannot_supply_current_authority(tmp_path, kind):
+@pytest.mark.parametrize("kind", ["symlink", "oversized", "directory", "symlink_loop"])
+@pytest.mark.parametrize("relative", ["refund_agent/guards.py", "refund_agent/__init__.py"])
+def test_uncaptured_helper_cannot_supply_current_authority(tmp_path, kind, relative):
     root, _ = _workspace(tmp_path)
-    path = root / "refund_agent/guards.py"
+    path = root / relative
     valid = path.read_bytes()
-    _git(root, "rm", "refund_agent/guards.py")
+    _git(root, "rm", relative)
     with (root / ".gitignore").open("a") as handle:
-        handle.write("/refund_agent/guards.py\n")
+        handle.write(f"/{relative}\n")
     _git(root, "add", ".gitignore")
     _git(root, "commit", "-qm", "external helper")
-    if kind == "symlink":
+    if kind in {"symlink", "symlink_loop"}:
         external = tmp_path / "external.py"
         external.write_bytes(valid)
         try:
-            path.symlink_to(external)
+            path.symlink_to(path.name if kind == "symlink_loop" else external)
         except OSError:
             pytest.skip("symlink creation unavailable")
     elif kind == "oversized":
@@ -280,7 +281,7 @@ def test_uncaptured_helper_cannot_supply_current_authority(tmp_path, kind):
     out = root / "agents-shipgate-reports"
     plan = json.loads((out / "verification-plan.json").read_text())
     assert plan["inputs"]["options"]["dependency_inputs"]["unconfirmable_paths"] == [
-        "refund_agent/guards.py"
+        relative
     ]
     with pytest.raises(CurrentControlUnavailable, match="dependency could not be captured"):
         read_current_control(out, live=_live(root))

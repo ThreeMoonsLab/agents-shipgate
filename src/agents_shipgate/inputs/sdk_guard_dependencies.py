@@ -58,7 +58,14 @@ def _body(node: ast.Module | ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast
 
 def _read(path: Path, root: Path, role: str, evidence: GuardDependencyEvidence) -> ast.Module:
     snapshot = active_static_input_snapshot()
-    if path.resolve() != path or not path.is_relative_to(root):
+    try:
+        contained = path.is_relative_to(root) and path.resolve() == path
+    except (OSError, RuntimeError):
+        # Python 3.11/3.12 raise RuntimeError for a symlink loop; newer
+        # pathlib versions can raise OSError instead. Both are failed input
+        # resolution, not evidence that the dependency was absent or read.
+        contained = False
+    if not contained:
         if snapshot is not None and snapshot.contains(path):
             snapshot.mark_unconfirmable_dependency(path)
         raise _Unresolved("dependency_path_not_contained_or_aliased")
