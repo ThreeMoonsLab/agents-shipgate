@@ -1309,6 +1309,7 @@ def _corpus_workspace(tmp_path, case_name: str, *, name: str) -> Path:
 @pytest.mark.parametrize("case, remaining, limited", [
     ("python_context_first_match", ["second"], False),
     ("python_context_unknown_return", ["ctx"], True),
+    ("python_context_invalid_typing_arity", ["ctx", "payload"], True),
     ("python_context_generic_limit", ["holder"], True),
     ("python_context_unknown_variadic", ["query"], True),
 ])

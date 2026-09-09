@@ -3369,10 +3369,16 @@ def _python_context_injection(
         if symbol == "Literal":
             return "caller_supplied" if all(isinstance(item, ast.Constant) for item in elements) else "unresolved"
         if symbol in {"Union", "Optional"}:
-            if symbol == "Optional" and len(elements) != 1:
+            if not elements or (symbol == "Optional" and len(elements) != 1):
                 return "unresolved"
             identities = {resolve(item) for item in elements}
         elif symbol in {"list", "List", "dict", "Dict", "tuple", "Tuple", "set", "Set", "frozenset", "FrozenSet"}:
+            # typing aliases enforce arity during get_type_hints; builtin
+            # GenericAlias does not. An invalid alias anywhere prevents the
+            # SDK from resolving even an otherwise proven Context parameter.
+            required_arity = {"List": 1, "Set": 1, "FrozenSet": 1, "Dict": 2}.get(symbol)
+            if required_arity is not None and len(elements) != required_arity:
+                return "unresolved"
             identities = {
                 "caller_supplied" if isinstance(item, ast.Constant) and item.value is Ellipsis else resolve(item)
                 for item in elements

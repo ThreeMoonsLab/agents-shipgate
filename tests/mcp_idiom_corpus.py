@@ -1731,6 +1731,15 @@ REGRESSIONS: dict[str, SourceCase] = {
         "def lookup(ctx: Context) -> Missing:\n"
         "    return 'fixture'\n",
     ),
+    "python_context_invalid_typing_arity": SourceCase(
+        "python_context_invalid_typing_arity", "python",
+        "from mcp.server.fastmcp import FastMCP, Context\n"
+        "from typing import List\n"
+        "mcp = FastMCP('fixture')\n"
+        "@mcp.tool()\n"
+        "def lookup(ctx: Context, payload: 'List[str, int]') -> str:\n"
+        "    return 'fixture'\n",
+    ),
     "python_context_generic_limit": SourceCase(
         "python_context_generic_limit", "python",
         "from mcp.server.fastmcp import FastMCP, Context\n"

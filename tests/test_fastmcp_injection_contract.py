@@ -4,6 +4,8 @@ SDK probes below call only the installed framework's signature utility on
 functions authored in this test. No scanned server is imported or executed.
 """
 
+import typing
+
 import pytest
 
 from agents_shipgate.inputs.mcp_idioms import scan_source
@@ -60,6 +62,40 @@ def test_generic_context_has_an_explicit_local_limit(annotation, family):
 ])
 def test_unresolved_whole_signature_does_not_hide_context(signature):
     assert _parameters(signature)["ctx"] == "unresolved"
+
+
+@pytest.mark.parametrize("annotation", [
+    "List[str, int]", "List[()]", "Set[str, int]", "FrozenSet[str, int]",
+    "Dict[str]", "Dict[str, str, int]", "Union[()]",
+])
+def test_invalid_typing_arity_cannot_hide_context(annotation):
+    sdk = pytest.importorskip("mcp.server.fastmcp.utilities.context_injection")
+    from mcp.server.fastmcp import Context
+
+    # Authored test annotations only: get_type_hints must reach the same
+    # semantic refusal that stops the real SDK's whole-signature resolver.
+    def specimen(ctx, payload):
+        return ""
+
+    specimen.__annotations__ = {"ctx": Context, "payload": f"typing.{annotation}", "return": str}
+    with pytest.raises(TypeError):
+        typing.get_type_hints(specimen)
+    assert sdk.find_context_parameter(specimen) is None
+    assert _parameters(
+        f"ctx: Context, payload: {annotation}) -> str",
+        imports="from typing import List, Set, FrozenSet, Dict",
+    ) == {"ctx": "unresolved", "payload": "unresolved"}
+
+
+@pytest.mark.parametrize("annotation", [
+    "List[str]", "Set[str]", "FrozenSet[str]", "Dict[str, int]",
+    "Union[str, int]", "list[str, int]",
+])
+def test_supported_container_arity_keeps_context_injection(annotation):
+    assert _parameters(
+        f"ctx: Context, payload: {annotation}) -> str",
+        imports="from typing import List, Set, FrozenSet, Dict",
+    ) == {"ctx": "framework_injected", "payload": "caller_supplied"}
 
 
 @pytest.mark.parametrize("imports, annotation", [

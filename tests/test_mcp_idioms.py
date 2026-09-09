@@ -381,6 +381,7 @@ def test_a_python_tool_with_no_parameters_is_not_one_without_a_signature():
 @pytest.mark.parametrize("case, remaining, limited", [
     ("python_context_first_match", ["second"], False),
     ("python_context_unknown_return", ["ctx"], True),
+    ("python_context_invalid_typing_arity", ["ctx", "payload"], True),
     ("python_context_generic_limit", ["holder"], True),
     ("python_context_unknown_variadic", ["query"], True),
 ])
