@@ -2037,6 +2037,27 @@ for anything reading the artifacts directly. A run can skip the second command
 entirely with `agents-shipgate verify --format control`, which emits the same
 envelope for the run it just performed.
 
+The compact reader validates **every entry in `current-control.json.artifacts`**.
+It does not follow the terminal receipt into optional artifacts absent from that
+map. For example, a successful read does not validate `human-review-request.json`
+merely because the bound receipt references it. Changed, missing, oversized, or
+symlinked receipt-only files leave the compact read unchanged; those same
+conditions on pointer-bound files make it refuse.
+
+For API consumers, `read_current_control(..., capture=...)` returns selected
+bytes from the same pass that validated every pointer entry. `capture` neither
+reduces validation nor adds optional files: a requested unbound key is absent
+from the returned `artifacts`. Consume these captured bytes instead of reopening
+their paths. A consumer that needs a receipt-only artifact must also call
+`load_validated_receipt_artifacts`, compare its returned receipt with the
+pointer-captured `verification_receipt`, and consume the returned closure bytes.
+The full loader rejects invalid optional files. It proves a coherent artifact
+snapshot, not current workspace state or permission to act; retain the currency
+checks below and revalidate before consequential actions. See the
+[consumer boundary and resource bounds](verification-reproducibility.md#current-control-and-receipt-closure)
+for the exact distinction. Standalone renderers such as `agent handoff` do not
+implicitly perform this current-control protocol.
+
 Byte consistency is not generation consistency. A pointer whose artifacts all
 still hash correctly can describe a workspace that one commit has moved past, so
 the reader compares the bound `workspace_identity` against the live repository —

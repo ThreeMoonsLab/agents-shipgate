@@ -479,7 +479,7 @@ class LiveWorkspace:
 class CurrentControlRead:
     """A pointer that was validated against the artifacts it binds.
 
-    ``artifacts`` holds the exact bytes of the keys the caller asked to capture,
+    ``artifacts`` holds the exact bytes of the pointer-bound keys the caller asked to capture,
     taken from the same validated pass that hashed them. A caller that reopens a
     bound artifact afterwards is making a second, unsynchronized read: a run
     republishing in between would let it combine this pointer's identity with a
@@ -505,6 +505,14 @@ def read_current_control(
     only when ``current_control_id`` is unchanged.  A run that republishes
     while this read is in flight makes the read fail rather than return a
     pointer describing one generation and artifacts from another.
+
+    The validated set is exactly ``pointer.artifacts``, not the larger closure
+    embedded in the terminal receipt. ``capture`` selects which validated bytes
+    are returned; it neither narrows validation nor adds receipt-only artifacts.
+    A requested key absent from the pointer is absent from ``artifacts`` too.
+    Consumers of receipt-only artifacts must additionally call
+    ``load_validated_receipt_artifacts``, compare its receipt with the captured
+    ``verification_receipt``, and consume the returned bytes, never reopen files.
 
     Byte consistency is not generation consistency.  A pointer whose artifacts
     all still hash correctly can still describe a workspace that has since
