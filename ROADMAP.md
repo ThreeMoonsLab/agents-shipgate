@@ -76,14 +76,24 @@ sub-issue of #557, owns the newly isolated operation-to-policy-predicate
 relationship. #557 and #515 remain open; these source models do not satisfy
 the TypeScript MongoDB acceptance case or historical safety bars.
 
-The next implementation routes include explicit human dependencies. Preflight
-requires a human for the necessary protected instruction/workflow edits in
-#568, #570 and #510. #545 has an unpublished prototype; automatic approval
-review rejected its proposed protected-edit deny-list change, which was not
-applied. Those stops remain open in their issues. Independent coding-agent PR
-reviews do not clear them. Newly discovered issues #575/#577/#580/#581,
-#584–#586, #588/#590, #592/#593, #596–#598/#601 and #607 remain separately deferred;
-they are not silently added to this implementation pass or counted as repairs.
+The prose/structure implementation in #545 separates
+supported instruction structure from prose across the final/local verifier,
+preflight, host drift and exact edit-hook previews. Its successor schemas retain
+raw byte freshness, unknown-structure review and legacy evidence migration;
+prose edits cannot seed or consume hook approval memory. #516's deprecated
+weakening ID remains available and non-emitting. These changes do not supply
+reviewed deployment declarations, independent release signers, pilot observations
+or qualification labels.
+
+Newly discovered issues #575/#577/#580/#581, #584–#586, #588/#590, #592/#593,
+#596–#598/#601, #607, #609–#611 remain separately deferred; they are not silently
+added to this implementation pass or counted as repairs. #609 documents a frozen
+preflight schema URL/discriminator mismatch; the current successor uses a fresh
+version without rewriting historical bytes. #610 owns the distinct compatibility
+question of completed planning results exposing the shared permission vector;
+preflight still supplies no verifier-bound current-control identity. #611 records
+header-like hunk rows lost by the existing diff parser; incomplete comparisons
+continue to require review until that separate repair lands.
 
 The following sequence and approved release bars still apply. Contract
 convergence, historical catch results, report freeze, actual human ownership,

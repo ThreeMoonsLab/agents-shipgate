@@ -149,7 +149,8 @@ checks:
     reports and configuration. New runs emit no findings for this ID.
   rationale: Changed-file membership cannot establish that natural-language
     instructions weakened a control. Structured permission and execution readers
-    remain active; the generic trust-root route is unchanged (follow-up 545).
+    remain active. Complete parsed instruction equality can clear only the exact
+    instruction touch; unknown structure and configured trust roots retain review.
   fires_when: Never on current scans. Historical findings retain their original
     meaning and metadata; the published ID is not removed or repurposed.
   evidence_fields:

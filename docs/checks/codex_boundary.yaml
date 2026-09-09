@@ -108,13 +108,15 @@ checks:
   floor_severity: medium
   mvp_tier: lifecycle
   requires_human_review: true
-  description: AGENTS.md removed a Shipgate requirement.
-  rationale: Agent instructions are not controls; removing gate instructions
-    requires human review because semantic weakening cannot be proven safely.
-  fires_when: A changed AGENTS.md/AGENTS.override.md deletes Shipgate command or
-    requirement text without adding a replacement.
+  description: Deprecated in the unreleased minor cycle; retained for historical
+    reports and configuration. New runs emit no findings for this ID.
+  rationale: Prose words do not establish changed authority. Complete parsed
+    instruction structure and unresolved-input review replace word matching.
+  fires_when: Never on current scans. The published ID remains available;
+    structured settings, hooks, permissions and MCP readers stay active.
   evidence_fields: [kind, deleted, removed_shipgate_lines]
-  recommendation: Have a human confirm the agent instructions were not weakened.
+  recommendation: Re-run the current verifier for supported structural changes
+    and coverage limitations; historical instruction wording is not a new grant.
 - id: SHIP-CODEX-BOUNDARY-CI-GATE-REMOVED
   default_severity: critical
   floor_severity: critical
@@ -156,9 +158,12 @@ checks:
   floor_severity: medium
   mvp_tier: lifecycle
   requires_human_review: true
-  description: A Codex skill gained command-bearing instructions.
-  rationale: Skills can steer agents into shell commands or helper scripts, so
-    command-bearing changes need review before local automation.
-  fires_when: A changed .agents/skills/**/SKILL.md adds command-like text.
+  description: Deprecated in the unreleased minor cycle; retained for historical
+    reports and configuration. New runs emit no findings for this ID.
+  rationale: Prose words do not establish changed authority. Complete parsed
+    instruction structure and unresolved-input review replace word matching.
+  fires_when: Never on current scans. The published ID remains available;
+    structured settings, hooks, permissions and MCP readers stay active.
   evidence_fields: [kind]
-  recommendation: Review command-bearing skill changes before local automation.
+  recommendation: Re-run the current verifier for supported structural changes
+    and coverage limitations; historical instruction wording is not a new grant.

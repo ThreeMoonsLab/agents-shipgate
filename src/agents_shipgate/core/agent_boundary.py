@@ -26,6 +26,7 @@ from agents_shipgate.core.boundary_registry import (
     boundary_hosts_for_path,
     is_agent_boundary_path,
 )
+from agents_shipgate.core.boundary_rules import GENERIC_BOUNDARY_RULES as _GENERIC_RULES
 from agents_shipgate.core.codex_boundary import (
     DEFAULT_RULES as CODEX_DEFAULT_RULES,
 )
@@ -109,6 +110,7 @@ class AgentBoundaryAssessment:
     completion_eligible: bool
     host_snapshot: HostBoundarySnapshot
     legacy_result: AgentResultV2
+    instruction_structure_unchanged: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -121,50 +123,6 @@ class _PolicySet:
     issues: tuple[str, ...]
 
 
-@dataclass(frozen=True)
-class _GenericBoundaryRule:
-    id: str
-    check_id: str
-    title: str
-    action: str
-    risk_level: str
-    recommendation: str
-
-
-_GENERIC_RULES = {
-    "PROTECTED-SURFACE-UNCLASSIFIED": _GenericBoundaryRule(
-        id="BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED",
-        check_id="SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED",
-        title="Protected coding-agent surface lacks a safe static classification",
-        action="require_review",
-        risk_level="medium",
-        recommendation="Have a human review the protected boundary change.",
-    ),
-    "EXPERIMENTAL-SURFACE-CHANGED": _GenericBoundaryRule(
-        id="BOUNDARY-EXPERIMENTAL-SURFACE-CHANGED",
-        check_id="SHIP-AGENT-BOUNDARY-EXPERIMENTAL-SURFACE-CHANGED",
-        title="Experimental coding-agent boundary surface changed",
-        action="require_review",
-        risk_level="high",
-        recommendation="Have a human review the experimental boundary surface.",
-    ),
-    "STATIC-REQUIREMENTS-CHANGED": _GenericBoundaryRule(
-        id="BOUNDARY-STATIC-REQUIREMENTS-CHANGED",
-        check_id="SHIP-AGENT-BOUNDARY-STATIC-REQUIREMENTS-CHANGED",
-        title="Static host requirements changed",
-        action="require_review",
-        risk_level="high",
-        recommendation="Have a human review the static host requirements change.",
-    ),
-    "INPUT-INCOMPLETE": _GenericBoundaryRule(
-        id="BOUNDARY-INPUT-INCOMPLETE",
-        check_id="SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE",
-        title="Boundary input is incomplete",
-        action="require_review",
-        risk_level="medium",
-        recommendation="Provide a complete, coherent boundary diff and rerun the check.",
-    ),
-}
 
 
 def evaluate_agent_boundary(
@@ -244,6 +202,7 @@ def evaluate_agent_boundary(
     ]
     policies = _load_policy_set(workspace=workspace, explicit=policy_path)
     resolved_text_cache = {}
+    instruction_structure_unchanged: set[str] = set()
 
     legacy = evaluate_codex_boundary_result(
         workspace=workspace,
@@ -266,7 +225,15 @@ def evaluate_agent_boundary(
         verification_replayable=verification_replayable,
         discovery_replayable=input_mode != "git_range",
         manifest_label=_manifest_label(config_path, workspace),
+        instruction_structure_unchanged=instruction_structure_unchanged,
     )
+    instruction_structure_unchanged = {
+        path for path in instruction_structure_unchanged
+        if not input_issues
+        and trust_root_class_for(path) in {"agent_instructions", "tool_surface_decl"}
+        and not is_configured_manifest(config_path, path, workspace=workspace)
+        and not _is_invocation_path(policy_path, path, workspace=workspace)
+    }
     host_violations, host_diagnostics = evaluate_host_boundary(
         workspace=workspace,
         diff_text=diff_text,
@@ -283,6 +250,7 @@ def evaluate_agent_boundary(
     for diagnostic in diagnostics:
         if diagnostic.level in {"warning", "error"} and diagnostic.code in {
             "content_source",
+            "instruction_structure_unresolved",
             "policy_conflict",
             "policy_load_failed",
             "policy_missing",
@@ -304,12 +272,15 @@ def evaluate_agent_boundary(
         policy_path=policy_path,
         workspace=workspace,
         evaluated_paths={
+            *instruction_structure_unchanged,
+            *(
             item.path
             for item in diagnostics
             if (
                 (item.code == "content_source" and item.path == ".codex/config.toml")
                 or item.code == "proposal_safe_manifest_addition"
             )
+            ),
         },
     )
     combined = _with_experimental_adapter_changes(
@@ -494,6 +465,7 @@ def evaluate_agent_boundary(
         completion_eligible=completion_eligible,
         host_snapshot=host_snapshot,
         legacy_result=projected,
+        instruction_structure_unchanged=frozenset(instruction_structure_unchanged),
     )
 
 

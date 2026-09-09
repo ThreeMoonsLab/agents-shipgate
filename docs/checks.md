@@ -104,7 +104,7 @@ baseline summary and do not fail CI.
 | `SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-WRITE` | critical | Codex auto-approves a write or destructive MCP/app tool. |
 | `SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-UNKNOWN` | high | Codex auto-approves an MCP server whose tool surface is not statically enumerable. |
 | `SHIP-CODEX-BOUNDARY-APP-AUTO-APPROVE` | high | Codex app connector tool approval changed to approve. |
-| `SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED` | medium | AGENTS.md removed a Shipgate requirement. |
+| `SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED` | medium | Deprecated; historical ID, no current findings. |
 | `SHIP-CODEX-BOUNDARY-CI-GATE-REMOVED` | critical | Shipgate GitHub Action no longer invokes the gate. |
 | `SHIP-CODEX-BOUNDARY-POLICY-WEAKENED` | critical | Codex boundary policy was weakened. |
 | `SHIP-CODEX-BOUNDARY-HOOK-COMMAND-CHANGED` | high | A Codex executable hook changed. |
@@ -588,9 +588,10 @@ approval changes before local automation.
 
 ### SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED
 
-`AGENTS.md` or `AGENTS.override.md` removed Shipgate command or requirement
-text without adding a replacement. A human should confirm the agent
-instructions were not weakened.
+Deprecated across the unreleased minor cycle. The ID remains available for
+historical reports and configuration; current runs do not judge removed or
+softened prose. Complete parsed structure and unresolved-input review replace
+the word heuristic. Structured host readers remain active (#545, #516).
 
 ### SHIP-CODEX-BOUNDARY-CI-GATE-REMOVED
 
@@ -609,8 +610,10 @@ before relying on them.
 
 ### SHIP-CODEX-BOUNDARY-SKILL-COMMAND-CHANGED
 
-A changed `.agents/skills/**/SKILL.md` adds command-like text. Review
-command-bearing skill changes before local automation.
+Deprecated across the unreleased minor cycle. The ID remains readable but
+current runs emit no command claim from prose words. Supported skill frontmatter
+and preprocessing declarations remain in structural comparison; unknown or
+malformed structure remains a coverage limitation (#545, #516).
 
 ### SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED
 
@@ -1059,11 +1062,13 @@ metadata and historical report compatibility remain for at least one minor
 version cycle. Current scans emit no findings for this ID: a path change does
 not establish that natural-language instructions weakened a control.
 
-Existing structured permission, MCP and hook readers, plus the skill-command
-mention heuristic, remain active, including mixed prose/executable surfaces. No replacement semantic
-check is added. `SHIP-VERIFY-TRUST-ROOT-TOUCHED` and the existing local instruction
-requirement route are unchanged; #545 tracks their remaining prose-only review
-boundary. Disappearance of this one finding is not a passing verifier result.
+Existing structured permission, MCP, CI and hook readers remain active,
+including changes beside prose in the same directory. The local word-based
+instruction and skill emitters are also retired while their IDs remain readable.
+The shared comparison in #545 clears only complete unchanged supported instruction
+structure; unknown or malformed inputs retain explicit coverage/review routes.
+`SHIP-VERIFY-TRUST-ROOT-TOUCHED` remains active for structural trust roots.
+Neither deprecation nor preflight substitutes for a current verifier result.
 
 ### SHIP-VERIFY-TRIGGER-CATALOG-DRIFT
 

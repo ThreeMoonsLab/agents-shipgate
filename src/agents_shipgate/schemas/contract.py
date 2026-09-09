@@ -165,7 +165,10 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # control type or historical grammar changes; the control floor stays at 21.
 # v31 advertises the separate, host-neutral decision evaluator. It does not
 # add a CLI command, widen operational control or create a trust context.
-CONTRACT_VERSION: Literal["31"] = "31"
+# v32 adds conditional instruction-edit routing (verifier 0.17/handoff v9),
+# preflight 0.5 and host inventories/baselines/drift 0.3. Old readers retain
+# their conservative boundary; structural comparison never grants authority.
+CONTRACT_VERSION: Literal["32"] = "32"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"

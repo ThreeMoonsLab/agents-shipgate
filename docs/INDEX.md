@@ -69,7 +69,8 @@ repository [`README.md`](../README.md) is the landing page that routes to both.
 - [`report-schema.v0.27.json`](report-schema.v0.27.json) — frozen v0.27 reference schema; pre-v0.28 reports validate against this
 - [`report-schema.v0.26.json`](report-schema.v0.26.json) — frozen v0.26 reference schema; pre-v0.27 reports validate against this
 - [`report-schema.v0.25.json`](report-schema.v0.25.json) — frozen v0.25 reference schema; pre-v0.26 reports validate against this
-- [`verifier-schema.v0.16.json`](verifier-schema.v0.16.json) — current JSON Schema for `verifier.json`, including declaration review in the embedded release decision
+- [`verifier-schema.v0.17.json`](verifier-schema.v0.17.json) — current JSON Schema for `verifier.json`, including declaration review in the embedded release decision
+- [`verifier-schema.v0.16.json`](verifier-schema.v0.16.json) — frozen prior reference; no inferred structural comparison
 - [`verifier-schema.v0.15.json`](verifier-schema.v0.15.json) — frozen verifier reference
 - [`verifier-schema.v0.12.json`](verifier-schema.v0.12.json) — frozen v0.12 reference; pre-v0.13 verifier artifacts validate against this
 - [`verifier-schema.v0.11.json`](verifier-schema.v0.11.json) — frozen v0.11 reference; pre-v0.12 verifier artifacts validate against this
@@ -85,7 +86,8 @@ repository [`README.md`](../README.md) is the landing page that routes to both.
 - [`verify-run-schema.v1.json`](verify-run-schema.v1.json) — frozen verify-run v1 reference
 - [`human-authorization-schema.v1.json`](human-authorization-schema.v1.json) — current schema family for unsigned requests, externally signed grants, evaluations, and external trust policies
 - [`human-authorization-signature-v1.json`](human-authorization-signature-v1.json) — canonical Ed25519 signature interoperability vector
-- [`agent-handoff-schema.v8.json`](agent-handoff-schema.v8.json) — current compact verifier handoff schema with authorization provenance
+- [`agent-handoff-schema.v9.json`](agent-handoff-schema.v9.json) — current compact verifier handoff schema with authorization provenance
+- [`agent-handoff-schema.v8.json`](agent-handoff-schema.v8.json) — frozen prior reference; no inferred structural comparison
 - [`agent-handoff-schema.v5.json`](agent-handoff-schema.v5.json) — frozen handoff v5 reference
 - [`verification-plan-schema.v1.json`](verification-plan-schema.v1.json) — content-addressed verification subject, inputs, engine requirement, and task plan
 - [`verification-unit-result-schema.v1.json`](verification-unit-result-schema.v1.json) — decision-free worker result contract
@@ -101,7 +103,8 @@ repository [`README.md`](../README.md) is the landing page that routes to both.
 - [`codex-boundary-result-schema.v2.json`](codex-boundary-result-schema.v2.json) — frozen deprecated compatibility projection for `--format codex-boundary-json`
 - [`codex-boundary-result-schema.v1.json`](codex-boundary-result-schema.v1.json) — frozen boundary v1 reference
 - [`agent-result-schema.v1.json`](agent-result-schema.v1.json) — legacy JSON Schema retained for existing local-agent protocol and MCP surfaces; not emitted by `agents-shipgate verify`
-- [`preflight-schema.v0.4.json`](preflight-schema.v0.4.json) — current proactive preflight control schema
+- [`preflight-schema.v0.5.json`](preflight-schema.v0.5.json) — current proactive preflight control schema
+- [`preflight-schema.v0.4.json`](preflight-schema.v0.4.json) — frozen prior reference; no inferred structural comparison
 - [`policy-pack-schema.v0.4.json`](policy-pack-schema.v0.4.json) — JSON Schema for local policy-pack YAML files (current; selectors are evaluated against typed predicate evidence)
 - [`policy-pack-schema.v0.3.json`](policy-pack-schema.v0.3.json) — frozen v0.3 policy-pack reference
 - [`policy-pack-schema.v0.2.json`](policy-pack-schema.v0.2.json) — frozen v0.2 policy-pack reference
@@ -112,9 +115,12 @@ repository [`README.md`](../README.md) is the landing page that routes to both.
 - [`org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json) — JSON Schema for `agents-shipgate org bundle`; compact CI/ledger ingestion artifact over verifier/report/attestation/org/host-grant evidence, not a release verdict
 - [`registry-schema.v0.4.json`](registry-schema.v0.4.json) — JSON Schema for `agents-shipgate registry query --json`, `registry summary --json`, `registry verify --json`, and `registry report --bypass --json`
 - [`registry-schema.v0.3.json`](registry-schema.v0.3.json) — frozen v0.3 registry reference
-- [`host-grants-inventory-schema.v0.2.json`](host-grants-inventory-schema.v0.2.json) — current typed, redacted, scope-aware host inventory
-- [`host-grants-baseline-schema.v0.2.json`](host-grants-baseline-schema.v0.2.json) — current acknowledged host-grant baseline
-- [`host-grants-drift-schema.v0.2.json`](host-grants-drift-schema.v0.2.json) — current comparable/incomparable host-grant drift result
+- [`host-grants-inventory-schema.v0.3.json`](host-grants-inventory-schema.v0.3.json) — current typed, redacted, scope-aware host inventory
+- [`host-grants-inventory-schema.v0.2.json`](host-grants-inventory-schema.v0.2.json) — frozen prior reference; no inferred structural comparison
+- [`host-grants-baseline-schema.v0.3.json`](host-grants-baseline-schema.v0.3.json) — current acknowledged host-grant baseline
+- [`host-grants-baseline-schema.v0.2.json`](host-grants-baseline-schema.v0.2.json) — frozen prior reference; no inferred structural comparison
+- [`host-grants-drift-schema.v0.3.json`](host-grants-drift-schema.v0.3.json) — current comparable/incomparable host-grant drift result
+- [`host-grants-drift-schema.v0.2.json`](host-grants-drift-schema.v0.2.json) — frozen prior reference; no inferred structural comparison
 - [`host-grants-inventory-schema.v0.1.json`](host-grants-inventory-schema.v0.1.json) — frozen legacy host inventory reference
 - [`attestation-schema.v0.3.json`](attestation-schema.v0.3.json) — frozen v0.3 attestation reference
 - [`attestation-schema.v0.2.json`](attestation-schema.v0.2.json) — frozen v0.2 attestation reference
@@ -228,3 +234,5 @@ repository [`README.md`](../README.md) is the landing page that routes to both.
 - [`../llms.txt`](../llms.txt) — AI-readable project summary
 - [`ai-search-summary.md`](ai-search-summary.md) — prose companion to `llms.txt`
 - [`../.well-known/agents-shipgate.json`](../.well-known/agents-shipgate.json) — discovery metadata
+
+- [Instruction structure and review routing](engineering/instruction-structure-boundary.md) — supported profiles, edit-hook behavior and legacy evidence migration.

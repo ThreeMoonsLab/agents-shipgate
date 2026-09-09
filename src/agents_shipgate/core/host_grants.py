@@ -39,6 +39,7 @@ from agents_shipgate.core.host_input_failure import (
     HostInventoryReadError,
     safe_failure_text,
 )
+from agents_shipgate.core.instruction_structure import classify_instruction, instruction_profile
 from agents_shipgate.core.privacy import SENSITIVE_VALUE_KEYS
 from agents_shipgate.core.trust_roots import (
     IdentityBoundReadSession,
@@ -51,8 +52,9 @@ from agents_shipgate.schemas.host_grants import (
     HOST_GRANTS_DRIFT_SCHEMA_VERSION,
     HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
     HostGrantsBaselineV2,
-    HostGrantsDriftV2,
-    HostGrantsInventoryV2,
+    HostGrantsBaselineV3,
+    HostGrantsDriftV3,
+    HostGrantsInventoryV3,
 )
 
 HOST_GRANTS_SCHEMA_VERSION = HOST_GRANTS_BASELINE_SCHEMA_VERSION
@@ -850,13 +852,13 @@ def _workflow_grant(data: Any, *, source: str) -> dict[str, Any] | None:
     }
 
 
-def _instruction_grant(*, host: str, scope: HostScope, source: str, data: str) -> dict[str, Any]:
+def _instruction_grant(*, host: str, scope: HostScope, source: str, data: str, structure: dict | None = None) -> dict[str, Any]:
     redacted_text = _sanitize_sensitive_string(data)
     return {
         **_grant_base(
             host=host, scope=scope, source=source, kind="instruction_trust_root",
             identity=source,
-            config={"content_sha256": hashlib.sha256(redacted_text.encode()).hexdigest()},
+            config=(structure if structure is not None else {"content_sha256": hashlib.sha256(redacted_text.encode()).hexdigest()}),
             access="execute", risk="medium",
         ),
         "path": source,
@@ -879,8 +881,23 @@ def _collect_file(
             return
         assert text is not None
         redacted_text = _sanitize_sensitive_string(text)
-        artifacts.append(_artifact(host=host, scope=scope, source=source, kind=kind, status="parsed", data={"sha256": hashlib.sha256(redacted_text.encode()).hexdigest()}))
-        grants.append(_instruction_grant(host=host, scope=scope, source=source, data=text))
+        artifact = _artifact(host=host, scope=scope, source=source, kind=kind, status="parsed", data={"sha256": hashlib.sha256(redacted_text.encode()).hexdigest()})
+        structure = classify_instruction(source, text)
+        if structure is not None:
+            artifact["instruction_structure"] = structure.projection()
+            if structure.status == "unresolved":
+                artifact["parse_status"] = "unsupported"
+                issues.append(_inventory_issue(
+                    kind="unsupported", host=host, source=source,
+                    message=f"Instruction structure is unresolved ({structure.reason}); repair or review this declared surface.",
+                    blocking=True,
+                ))
+        artifacts.append(artifact)
+        if structure is None or structure.status != "guidance":
+            grants.append(_instruction_grant(
+                host=host, scope=scope, source=source, data=text,
+                structure=structure.projection() if structure is not None else None,
+            ))
         return text
 
     data = _load_structured(
@@ -1350,7 +1367,7 @@ def build_host_boundary_snapshot(
         "static_analysis_only": True,
         "runtime_session_verified": False,
     }
-    inventory = HostGrantsInventoryV2.model_validate(payload).model_dump(mode="json")
+    inventory = HostGrantsInventoryV3.model_validate(payload).model_dump(mode="json")
     return HostBoundarySnapshot(
         inventory=inventory, cache=cache, input_failures=dict(cache.input_failures),
     )
@@ -1367,7 +1384,7 @@ def host_audit_inventory(
 
     if snapshot is None:
         snapshot = build_host_boundary_snapshot(workspace, scope=scope, cache=cache)
-    inventory = HostGrantsInventoryV2.model_validate(snapshot.inventory)
+    inventory = HostGrantsInventoryV3.model_validate(snapshot.inventory)
     if inventory.scope != scope:
         raise ValueError(
             f"Host boundary snapshot scope {inventory.scope!r} does not match {scope!r}"
@@ -1418,7 +1435,7 @@ def build_host_grants_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
         "inventory_sha256": host_grants_sha256(normalized),
         "inventory": normalized,
     }
-    return HostGrantsBaselineV2.model_validate(payload).model_dump(mode="json")
+    return HostGrantsBaselineV3.model_validate(payload).model_dump(mode="json")
 
 
 def load_host_grants_baseline(path: Path) -> dict[str, Any]:
@@ -1462,18 +1479,19 @@ def load_host_grants_baseline_with_text(
                 "and repair or replace it deliberately."
             )
         return data, text
-    if version != HOST_GRANTS_BASELINE_SCHEMA_VERSION:
+    if version not in {"0.2", HOST_GRANTS_BASELINE_SCHEMA_VERSION}:
         raise ValueError(
             f"Host-grants baseline {path} has unsupported schema version "
             f"{version!r}. A human must review migration or replacement."
         )
     try:
-        parsed = HostGrantsBaselineV2.model_validate(data).model_dump(mode="json")
+        model = HostGrantsBaselineV2 if version == "0.2" else HostGrantsBaselineV3
+        parsed = model.model_validate(data).model_dump(mode="json")
     except ValidationError:
         return (
             {
-                "host_grants_schema_version": "0.2-invalid",
-                "_load_error": "malformed_v0.2_baseline",
+                "host_grants_schema_version": f"{version}-invalid",
+                "_load_error": f"malformed_v{version}_baseline",
             },
             text,
         )
@@ -1649,11 +1667,31 @@ def _diff_host_artifacts(
     for artifact_id in sorted(set(base_by_id) | set(current_by_id)):
         before = base_by_id.get(artifact_id)
         after = current_by_id.get(artifact_id)
-        if before != after:
+        if before != after and not _same_instruction_artifact(before, after):
             changes.append(
                 {"artifact_id": artifact_id, "baseline": before, "current": after}
             )
     return changes
+
+
+def _same_instruction_artifact(before: dict | None, after: dict | None) -> bool:
+    present = [item for item in (before, after) if item is not None]
+    if not present or any(
+        item.get("kind") != "instructions" or item.get("parse_status") != "parsed"
+        for item in present
+    ):
+        return False
+    projections = [item.get("instruction_structure") or {} for item in present]
+    if any(item.get("status") not in {"guidance", "structured"} for item in projections):
+        return False
+    if before is None or after is None:
+        return projections[0]["status"] == "guidance"
+    if projections[0] != projections[1]:
+        return False
+    return (
+        {key: value for key, value in before.items() if key != "redacted_sha256"}
+        == {key: value for key, value in after.items() if key != "redacted_sha256"}
+    )
 
 
 def _diff_host_coverage(
@@ -1664,10 +1702,23 @@ def _diff_host_coverage(
         item["host"]: item for item in current.get("host_coverage", [])
     }
     changes: list[dict[str, Any]] = []
+    guidance_paths = {
+        (artifact["host"], artifact["path"])
+        for inventory in (baseline, current)
+        for artifact in inventory.get("artifacts", [])
+        if artifact.get("parse_status") == "parsed"
+        and (artifact.get("instruction_structure") or {}).get("status") == "guidance"
+    }
     for host in sorted(set(base_by_host) | set(current_by_host)):
         before = base_by_host.get(host)
         after = current_by_host.get(host)
-        if before != after:
+        def comparison(item, host=host):
+            if item is None:
+                return None
+            return {**item, "sources_observed": [
+                path for path in item.get("sources_observed", []) if (host, path) not in guidance_paths
+            ]}
+        if comparison(before) != comparison(after):
             changes.append({"host": host, "baseline": before, "current": after})
     return changes
 
@@ -1722,7 +1773,7 @@ def _incomparable_payload(
         # and also route to a human before any first acknowledgement.
         "next_action": None,
     }
-    return HostGrantsDriftV2.model_validate(payload).model_dump(mode="json")
+    return HostGrantsDriftV3.model_validate(payload).model_dump(mode="json")
 
 
 def build_host_drift_payload(
@@ -1740,6 +1791,13 @@ def build_host_drift_payload(
     baseline_scope = baseline.get("scope")
     if baseline_scope is not None and baseline_scope != inventory.get("scope"):
         reasons.append(f"scope_mismatch:{baseline_scope}->{inventory.get('scope')}")
+    if any(
+        artifact.get("kind") == "instructions"
+        and instruction_profile(str(artifact.get("path") or "")) is not None
+        and not artifact.get("instruction_structure")
+        for artifact in (baseline.get("inventory") or {}).get("artifacts", [])
+    ):
+        reasons.append("baseline_instruction_structure_unavailable")
     if reasons:
         return _incomparable_payload(inventory=inventory, baseline_file=baseline_file, reasons=reasons)
 
@@ -1764,7 +1822,7 @@ def build_host_drift_payload(
         "incomparable_reasons": [],
         "next_action": None,
     }
-    return HostGrantsDriftV2.model_validate(payload).model_dump(mode="json")
+    return HostGrantsDriftV3.model_validate(payload).model_dump(mode="json")
 
 
 def render_host_audit_markdown(inventory: dict[str, Any]) -> str:

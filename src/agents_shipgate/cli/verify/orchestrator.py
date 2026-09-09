@@ -87,6 +87,7 @@ from agents_shipgate.core.surface_exclusions import (
     nameable_subject,
 )
 from agents_shipgate.core.trust_roots import (
+    conditional_instruction_edits,
     inspect_lexical_path_identity,
     is_configured_manifest,
     read_identity_bound_text,
@@ -3834,6 +3835,9 @@ def _build_verifier(
         headline=headline,
         fix_task=fix_task,
         forbidden_file_edits=list(PROTECTED_FILE_EDITS),
+        conditional_file_edits=conditional_instruction_edits(
+            workspace=git_root, config=_display_path(config_path, git_root), canonical=True,
+        ),
         forbidden_actions=list(FORBIDDEN_SHORTCUTS),
         artifacts=artifacts,
     )
@@ -6242,6 +6246,9 @@ def run_preview(
         authorization=AuthorizationEvaluationV1.not_requested(),
         headline=headline,
         forbidden_file_edits=list(PROTECTED_FILE_EDITS),
+        conditional_file_edits=conditional_instruction_edits(
+            workspace=root, config=_display_path(config_path, root), canonical=True,
+        ),
         forbidden_actions=list(FORBIDDEN_SHORTCUTS),
         artifacts={
             "verifier_json": _display_path(verifier_path.resolve(), root),

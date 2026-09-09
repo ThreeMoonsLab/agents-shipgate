@@ -1,9 +1,9 @@
 """Verify category — trust-root protection (the cheap reward-hacking guard).
 
 ``SHIP-VERIFY-TRUST-ROOT-TOUCHED`` is Tier A of trust-root protection
-(docs/engineering/ai-coding-workflow-verifier.md §5.1): pure path/glob
-classification of the PR's changed files against the release gate's
-trust spine. It is fully deterministic, needs no base scan, and fires
+(docs/engineering/ai-coding-workflow-verifier.md §5.1): path/glob classification of the PR's changed files against the release
+gate's trust spine, with a shared complete-text comparison for supported
+instructions. Prose-only edits clear only a positively unchanged structure. It is fully deterministic, needs no base scan, and fires
 only when a :class:`VerificationContext` is present — plain ``scan``
 (``context.verification is None``) emits nothing.
 
@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.globbing import glob_match_ci
+from agents_shipgate.core.instruction_structure import instruction_profile
 
 # The trust-root table lives in ``core.trust_roots`` so the local boundary
 # evaluator can classify paths from the identical data without an import cycle
@@ -55,10 +56,20 @@ def run(context: ScanContext) -> list[Finding]:
         if not path or path in seen:
             continue
         seen.add(path)
-        classification = _classify(path) or _configured_manifest(context, path)
+        classification = _configured_manifest(context, path) or _classify(path)
         if classification is None:
             continue
         trust_root_class, matched_glob = classification
+        if (
+            trust_root_class in {"agent_instructions", "tool_surface_decl"}
+            and instruction_profile(path) is not None
+            and verification.diff_text_available
+        ):
+            from agents_shipgate.core.agent_boundary import assessment_for_scan_context
+
+            assessment = assessment_for_scan_context(context)
+            if path in assessment.instruction_structure_unchanged:
+                continue
         findings.append(
             _finding(context, path, trust_root_class, matched_glob)
         )

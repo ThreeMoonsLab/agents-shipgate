@@ -303,6 +303,6 @@ def test_existing_closed_schemas_accept_recovery_projection(tmp_path: Path, monk
     snapshot = build_host_boundary_snapshot(tmp_path)
     for name, payload in (
         ("agent-boundary-result-schema.v2.json", _result(tmp_path, snapshot)),
-        ("host-grants-inventory-schema.v0.2.json", snapshot.inventory),
+        ("host-grants-inventory-schema.v0.3.json", snapshot.inventory),
     ):
         jsonschema.validate(payload, json.loads((Path("docs") / name).read_text()))
