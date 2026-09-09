@@ -48,6 +48,41 @@ tracks delivery. The [release-readiness audit](docs/engineering/v1-release-readi
 records evidence and the disposition of all 45 original open issues. Closing
 all those issues is not the release criterion.
 
+**Delivery checkpoint — 2026-09-09.** The audit below remains the original
+measurement. Subsequent repairs have passed their issue-specific GitHub
+coding-agent review/address loops and applicable CI; they do not supply the
+missing release qualification or human authority.
+
+| Delivered work | Implementation evidence | Remaining obligation |
+| --- | --- | --- |
+| Live control currency and captured qualification bytes (#567/#559) | [#576](https://github.com/ThreeMoonsLab/agents-shipgate/pull/576), [#578](https://github.com/ThreeMoonsLab/agents-shipgate/pull/578) | Bind final evidence to the final candidate; ordinary tests are not beta qualification. |
+| Discovery, identity and bounded reader/host recovery (#553/#561/#547/#543) | [#583](https://github.com/ThreeMoonsLab/agents-shipgate/pull/583), [#587](https://github.com/ThreeMoonsLab/agents-shipgate/pull/587), [#589](https://github.com/ThreeMoonsLab/agents-shipgate/pull/589), [#594](https://github.com/ThreeMoonsLab/agents-shipgate/pull/594) | Host-only adoption #568 and reviewed historical scope #563 remain unresolved. |
+| Current operator guidance and macOS pilot baseline recipe (#566/#550) | [#579](https://github.com/ThreeMoonsLab/agents-shipgate/pull/579), [#595](https://github.com/ThreeMoonsLab/agents-shipgate/pull/595) | No pilot participation or adoption counts were produced by these repairs. |
+| Compact/full receipt validation contract and accepted decisions (#552/#493) | [#600](https://github.com/ThreeMoonsLab/agents-shipgate/pull/600), [#602](https://github.com/ThreeMoonsLab/agents-shipgate/pull/602) | Reconcile the final behavior before #569 freezes report 1.0. |
+| Bounded FastMCP Context injection (#542) | [#603](https://github.com/ThreeMoonsLab/agents-shipgate/pull/603) | Whole-signature limits remain visible; broader framework/export provenance is deferred in #601. |
+
+Three delivered slices leave larger release obligations open: [#582](https://github.com/ThreeMoonsLab/agents-shipgate/pull/582)
+types unsupported historical base inputs but does not satisfy #563's catch bars;
+[#591](https://github.com/ThreeMoonsLab/agents-shipgate/pull/591) improves #548's
+prerequisite diagnostics without establishing its original intermittent cause;
+[#599](https://github.com/ThreeMoonsLab/agents-shipgate/pull/599) binds and compares
+one SDK guard-dependency profile while explicitly keeping dependency coverage
+incomplete and finding-exclusion eligibility false. #557 and #515 remain open.
+
+The next implementation routes include explicit human dependencies. Preflight
+requires a human for the necessary protected instruction/workflow edits in
+#568, #570 and #510. #545 has an unpublished prototype; automatic approval
+review rejected its proposed protected-edit deny-list change, which was not
+applied. Those stops remain open in their issues. Independent coding-agent PR
+reviews do not clear them. Newly discovered issues #575/#577/#580/#581,
+#584–#586, #588/#590, #592/#593 and #596–#598/#601 remain separately deferred;
+they are not silently added to this implementation pass or counted as repairs.
+
+The following sequence and approved release bars still apply. Contract
+convergence, historical catch results, report freeze, actual human ownership,
+blind labels, independent signing, rehearsals and external product evidence
+remain prerequisites. The current release decision is still **no-go**.
+
 - The [fixed W37 history](benchmark/miner/README.md#2026-w37-re-eval--the-fixed-cold-start-workflow-no-longer-reaches-verify)
   produced **0/19 verifier results** across five repositories. Legacy scan
   fallback catches are **0/2 must-block** and **1/3 needs-human**; both unchanged
