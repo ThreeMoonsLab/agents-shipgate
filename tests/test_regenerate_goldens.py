@@ -191,12 +191,16 @@ def test_symlinked_ancestor_cannot_rewrite_external_goldens(generator, tmp_path,
     assert _files(outside) == before
 
 
-def test_crlf_checkout_inputs_generate_the_same_artifacts(generator, tmp_path):
+@pytest.mark.parametrize("conversions", [1, 2])
+def test_crlf_checkout_inputs_generate_the_same_artifacts(generator, tmp_path, conversions):
     for sample in generator.RECIPES:
         target = _copy(tmp_path, sample)
         for path in target.rglob("*"):
             if path.is_file() and "expected" not in path.relative_to(target).parts:
-                path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+                # The second pass models inputs already checked out as CRLF.
+                for _ in range(conversions):
+                    text = path.read_text(encoding="utf-8")
+                    path.write_bytes(text.replace("\n", "\r\n").encode("utf-8"))
     result = generator.build_goldens(tmp_path)
     assert all(data == (ROOT / path).read_bytes() for path, data in result.items())
 
