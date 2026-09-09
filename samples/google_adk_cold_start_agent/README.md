@@ -120,132 +120,31 @@ questionnaire is here to own. `test_a_heuristic_cannot_propose_that_an_action_is
 
 ## Regenerating the goldens
 
-Run from the repository root, after any change that moves values:
+Run from the repository root:
 
 ```bash
-python - <<'PY'
-import json
-from pathlib import Path
-from agents_shipgate.cli.scan import run_scan
-
-sample = Path("samples/google_adk_cold_start_agent")
-expected = sample / "expected"
-run_scan(
-    config_path=sample / "shipgate.yaml",
-    output_dir=Path("expected"),
-    formats=["json", "markdown"],
-    ci_mode="advisory",
-    packet_enabled=False,
-)
-(expected / "current-control.json").unlink(missing_ok=True)
-
-golden = expected / "report.json"
-payload = json.loads(golden.read_text(encoding="utf-8"))
-payload["manifest_dir"] = f"<REPO>/{sample.as_posix()}"
-payload["generated_reports"] = {
-    fmt: Path(written).as_posix()
-    for fmt, written in payload["generated_reports"].items()
-}
-golden.write_text(json.dumps(payload, indent=2), encoding="utf-8", newline="\n")
-
-# The scan's own writers use the platform newline. Rewrite every golden with
-# an explicit LF, whoever produced it.
-for name in ("report.md", "suggested-declarations.yaml"):
-    path = expected / name
-    path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
-PY
+python scripts/regenerate_goldens.py google_adk_cold_start_agent
+python scripts/regenerate_goldens.py --check google_adk_cold_start_agent
 ```
 
-### Regenerating the cold report
+The [committed recipe](../../scripts/regenerate_goldens.py) builds both
+repository states in disposable copies. The ordinary report has a committed
+manifest; `cold-report.md` commits only `agent.py`, `inventories` and `specs`,
+leaving the existing manifest untracked. It never fills declaration blanks or
+changes the sample's inputs. Those different states are why an ordinary scan
+cannot regenerate the cold-reader ordering.
 
-`expected/cold-report.md` comes from a different repository state than the
-ordinary goldens: the agent sources are committed, while `shipgate.yaml`
-exists only in the worktree. Recreate that state in a temporary repository;
-running the ordinary recipe above cannot produce the cold-reader order.
+The script uses relative `output_dir="expected"`, which the scanner resolves
+under the copied manifest directory. It normalizes `manifest_dir` structurally
+to `<REPO>/samples/google_adk_cold_start_agent` and report paths to POSIX,
+forces LF bytes on every output, and keeps the JSON writer's field order and
+terminator. Absolute output paths or surviving generating-machine paths stop
+generation before any repository artifact is written.
 
-```bash
-python - <<'PY'
-import shutil
-import subprocess
-import tempfile
-from pathlib import Path
+This fixture does not publish a control pointer. The Conductor recipe covers
+that contract by rebinding its scan-only pointer after every normalized byte
+is final; it cannot authorize merge or completion. See
+[the contributor recipe](../../CONTRIBUTING.md#sample-goldens) for all samples.
 
-from agents_shipgate.cli.scan import run_scan
-
-source = Path("samples/google_adk_cold_start_agent").resolve()
-golden = source / "expected" / "cold-report.md"
-
-with tempfile.TemporaryDirectory(prefix="shipgate-cold-golden-") as temp:
-    repo = Path(temp) / "repo"
-    shutil.copytree(source, repo, ignore=shutil.ignore_patterns("expected"))
-
-    def git(*args: str) -> None:
-        subprocess.run(
-            ["git", "-C", str(repo), *args],
-            check=True,
-            capture_output=True,
-        )
-
-    git("init", "-q")
-    git("config", "user.name", "Shipgate Golden")
-    git("config", "user.email", "shipgate@example.invalid")
-    git("add", "agent.py", "inventories", "specs")
-    git("commit", "-qm", "base without manifest")
-
-    out = repo / "reports"
-    run_scan(
-        config_path=repo / "shipgate.yaml",
-        output_dir=out,
-        formats=["markdown", "json"],
-        ci_mode="advisory",
-    )
-    golden.write_text(
-        (out / "report.md").read_text(encoding="utf-8"),
-        encoding="utf-8",
-        newline="\n",
-    )
-PY
-```
-
-Four things that look like details and are not.
-
-**Newlines are forced, not inherited.** `Path.write_text(..., encoding="utf-8")`
-opens in text mode with `newline=None`, so on Windows every `\n` is written as
-`\r\n` — by the recipe *and* by `write_json_report`, the Markdown writer and the
-questionnaire writer. `.gitattributes` pins `samples/**/expected/** -text`
-precisely so Git hands those bytes over unchanged, so a golden regenerated on
-Windows would be committed as CRLF against everyone else's LF. The tests cannot
-see it: `read_text()` applies universal newlines and normalizes CRLF back to LF
-on the way in, so every byte comparison in this repo passes on a file whose
-bytes moved. `newline="\n"` on all three is what makes the artifact the same
-artifact everywhere, and
-`test_sample_expected_goldens_are_committed_with_lf_newlines` reads the raw
-bytes so the guard does not share the blindness.
-
-**The path normalization is structural, not textual.** An earlier version did
-`text.replace(os.getcwd(), "<REPO>")`, which works on POSIX and is a no-op on
-Windows: `json.dumps` escapes the separators, so the file holds
-`C:\\repo\\samples\\…` while `os.getcwd()` is `C:\repo\samples\…` and the two
-never match. The golden then keeps an absolute `manifest_dir` and fails
-`test_sample_expected_report_json_uses_repo_placeholder_for_manifest_dir` — on
-the machine that produced it. Assigning the field a POSIX value is correct on
-both, and `Path(written).as_posix()` does the same for `generated_reports`,
-which would otherwise commit `expected\report.json` and churn against every
-other platform.
-
-`json.dumps(payload, indent=2)` is exactly what `write_json_report` uses — no
-`sort_keys`, no trailing newline — so the round trip is byte-identical and
-nothing but the two normalized fields moves.
-
-**`output_dir` is the relative `"expected"`**, which `run_scan` resolves under
-the manifest directory rather than under the process directory. The report
-records where it wrote itself, so scanning into an absolute temporary directory
-and copying the files back bakes a contributor's `/var/folders/…/tmp…` path
-into `generated_reports` — a value no test compared, which is exactly why it
-sat there churning until #425's review.
-
-**The `unlink` is not tidying.** A scan also publishes `current-control.json`,
-and this fixture deliberately does not commit one: the hash-bound pointer path
-is covered by [`conductor_agent`](../conductor_agent/), and a second copy would
-have to be rebound *after* the normalization every time, since that rewrite
-changes both the length and the digest of `report.json`.
+Review the semantic assertions above alongside any golden diff. Closing the
+open questions or changing a declaration is not a regeneration technique.

@@ -2541,8 +2541,8 @@
           "total": 2
         },
         "declaration_review": {
-          "base_kind": "none",
           "base_comparison_requested": false,
+          "base_kind": "none",
           "changed_count": 0,
           "enabled": false,
           "notes": [

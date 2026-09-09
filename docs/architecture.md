@@ -207,6 +207,12 @@ Adding a new wire field: edit the relevant `schemas/<name>.py`, run
 `report_schema_version` / `packet_schema_version` if the addition is
 public. The CI step `python scripts/generate_schemas.py --check`
 fails if the committed JSON drifts from the live model.
+Regenerate affected sample artifacts with
+`python scripts/regenerate_goldens.py` and confirm
+`python scripts/regenerate_goldens.py --check`; the
+[contributor recipe](../CONTRIBUTING.md#sample-goldens) owns the output paths,
+normalization and subsequent scan-pointer rebinding. Keep the independent
+semantic assertions when reviewing the resulting golden diff.
 
 ## Typed domain types: `Scope`, `SideEffect`, `Action`
 

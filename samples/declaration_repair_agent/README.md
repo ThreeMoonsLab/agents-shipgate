@@ -120,66 +120,20 @@ action-row route; keeping the two apart also keeps this golden clear of
 
 ## Regenerating
 
-Run from the repository root, after any change that moves values:
+Run from the repository root:
 
 ```bash
-python - <<'PY'
-import json
-from pathlib import Path
-from agents_shipgate.cli.scan import run_scan
-
-sample = Path("samples/declaration_repair_agent")
-expected = sample / "expected"
-run_scan(
-    config_path=sample / "shipgate.yaml",
-    output_dir=Path("expected"),
-    formats=["json", "markdown"],
-    ci_mode="advisory",
-    packet_enabled=False,
-)
-(expected / "current-control.json").unlink(missing_ok=True)
-
-golden = expected / "report.json"
-payload = json.loads(golden.read_text(encoding="utf-8"))
-payload["manifest_dir"] = f"<REPO>/{sample.as_posix()}"
-payload["generated_reports"] = {
-    fmt: Path(written).as_posix()
-    for fmt, written in payload["generated_reports"].items()
-}
-golden.write_text(json.dumps(payload, indent=2), encoding="utf-8", newline="\n")
-
-# The scan's own writers use the platform newline. Rewrite every golden with
-# an explicit LF, whoever produced it.
-for name in ("report.md", "suggested-declarations.yaml"):
-    path = expected / name
-    path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
-PY
+python scripts/regenerate_goldens.py declaration_repair_agent
+python scripts/regenerate_goldens.py --check declaration_repair_agent
 ```
 
-This is the sibling's recipe with the sample path swapped, and every
-normalization in it is load-bearing for the same reasons — the four notes under
-[`google_adk_cold_start_agent` § Regenerating the goldens](../google_adk_cold_start_agent/README.md)
-apply here verbatim. In short:
-
-- the path rewrite is **structural**, because a textual `<REPO>` replace is a
-  silent no-op on Windows: `json.dumps` escapes the separators, so the file
-  holds `C:\\repo\\samples\…` while `os.getcwd()` is `C:\repo\samples\…` and
-  the two never match — leaving an absolute `manifest_dir` that fails
-  `test_sample_expected_report_json_uses_repo_placeholder_for_manifest_dir` on
-  the machine that produced the golden;
-- `generated_reports` needs `.as_posix()`, or a Windows run commits
-  `expected\report.json` and churns against every other platform;
-- all three goldens are rewritten with an explicit `newline="\n"`, because
-  every writer involved opens text mode with `newline=None` and
-  `.gitattributes` pins `samples/**/expected/** -text`, so Git stores whatever
-  bytes were produced. No byte comparison can see it — `read_text` normalizes
-  CRLF on the way in — which is why
-  `test_sample_expected_goldens_are_committed_with_lf_newlines` reads raw bytes.
-
-An earlier draft of this section gave the first two as prose and omitted the
-third entirely, which made the repo's designated recovery path — named in
-`test_repair_scaffold_matches_its_golden`'s own failure message — the
-counterexample to that guard's docstring (#465 review).
+The [shared recipe](../../scripts/regenerate_goldens.py) runs the existing
+scanner against a disposable copy of the committed inputs. It owns relative
+output paths, structural path normalization and LF bytes; see
+[the contributor recipe](../../CONTRIBUTING.md#sample-goldens). It does not
+change the challenged declarations, execute sample tools or apply the suggested
+questionnaire. CI calls the same check mode and retains the existing semantic
+and questionnaire assertions.
 
 Read the diff on `expected/suggested-declarations.yaml` before committing: a
 change in the `risk_tags:` values a block publishes is a change to the remedy
