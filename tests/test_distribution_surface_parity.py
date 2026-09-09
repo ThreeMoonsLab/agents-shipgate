@@ -335,6 +335,7 @@ NOT_A_DISTRIBUTION_SURFACE: dict[str, str] = {
     "ci_sharding.py": "test-run mechanics",
     "conftest.py": "test-run mechanics",
     "constraints": "hash-locked dependency pins",
+    "hatch_build.py": "build-only source provenance producer; no runtime engine answer, covered by tests/test_release_source.py",
     "llms-full.txt": "generated agent-discovery text, pinned by tests/test_public_surface_contract.py",
     "llms.txt": "generated agent-discovery text, pinned by tests/test_public_surface_contract.py",
     "pyproject.toml": "packaging",

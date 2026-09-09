@@ -148,6 +148,13 @@ tag, which is the normal state between releases. A surface may name the source
 build only when it also says which channel that is; naming it as though it were
 published was the `rendered-prompt-unpublished-pin` gap, closed by #506.
 
+`hatch_build.py` belongs to the build toolchain, alongside `pyproject.toml`,
+rather than an adopter-facing command. It produces the candidate's source
+provenance and makes no claim about a runtime verdict or qualification.
+`tests/test_release_source.py` checks that producer against real wheel builds;
+the `emitted_ci_workflow` row above covers how the installed engine uses its
+record. The top-level classifier records this distinction explicitly.
+
 The main-tree `.well-known/agents-shipgate.json` integration enumeration is
 checked against `contract --json` from the same source build, including missing
 and unsupported entries. The site's discovery copy stays pinned to its released
