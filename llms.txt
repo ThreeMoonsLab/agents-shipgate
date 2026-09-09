@@ -73,7 +73,7 @@
 - Verification receipt schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verification-receipt-schema.v1.json
 - Agent handoff schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-handoff-schema.v9.json
 - PR comment (ongoing-PR verify): `agents-shipgate-reports/pr-comment.md`.
-- Proactive preflight routing JSON: `agents-shipgate preflight --workspace . --plan - --json` emits `preflight_schema_version: "0.3"`; switch on `control.state`. It routes protected-surface edits, host permission requests, and high-risk capability evidence gaps but is not a release verdict.
+- Proactive preflight routing JSON: `agents-shipgate preflight --workspace . --plan - --json` emits `preflight_schema_version: "0.5"`; switch on `control.state`. It routes protected-surface edits, host permission requests, and high-risk capability evidence gaps but is not a release verdict.
 - Preflight schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/preflight-schema.v0.5.json
 - Capability lock (stable static envelope): `.agents-shipgate/capabilities.lock.json`.
 - Verify head capability lock: `agents-shipgate-reports/capabilities.lock.json`.
