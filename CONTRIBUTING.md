@@ -95,7 +95,41 @@ part of the release, not documentation about it.
 ./shipgate doctor --config samples/support_refund_agent/shipgate.yaml
 ./shipgate scan --config samples/support_refund_agent/shipgate.yaml
 ./shipgate list-checks
+python scripts/regenerate_goldens.py --check
 ```
+
+### Sample goldens
+
+The [golden generator](scripts/regenerate_goldens.py) owns the 24 committed
+artifacts in seven `samples/*/expected/` directories. With the normal development
+dependencies and Git available:
+
+```bash
+python scripts/regenerate_goldens.py                       # regenerate all
+python scripts/regenerate_goldens.py conductor_agent       # one sample
+python scripts/regenerate_goldens.py --check                # read-only drift check
+```
+
+It scans disposable copies with the source-tree writers; the caller's working
+tree, manifests, declarations and CI summary are not scan output destinations.
+Generation validates the entire selected set before writing any expected file.
+Exit 0 means generated/matching, 1 means drift in check mode, and 2 means the
+recipe could not finish. Every drift names its file. An added expected artifact
+requires an explicit recipe; deleting one does not remove it from the check.
+`tests/test_regenerate_goldens.py` invokes the actual `--check` command in the
+normal CI suite. Existing behavioral assertions remain independent oracles;
+do not regenerate away a changed verdict, open question or safety regression.
+
+The recipe pins packet time, preserves the ordinary and cold-manifest states,
+uses relative output paths under the manifest, normalizes only known path
+fields, and writes LF bytes. Text inputs in the disposable copy are normalized
+to LF too, so a Windows checkout does not change the manifest bytes bound by
+the sample pointer. Scans disable installed plugins and isolate inherited Git
+configuration; symlinked fixture paths and leaked temporary paths are errors. The
+Conductor scan pointer is rebound **after** normalization and has no predecessor
+from another generating run; it retains scan-only permissions, never a verifier
+receipt or release authority. These development fixtures are not qualification
+evidence. #569 still owns the actual report 1.0 freeze and migration fixtures.
 
 ## Contribution Areas
 
@@ -194,6 +228,11 @@ CI runs `python scripts/generate_schemas.py --check` and fails fast
 with a unified diff if a committed schema drifts from the live model.
 The same drift is also caught by `tests/test_schema_roundtrip.py`, so
 your test suite will reject the change locally before CI does.
+After a report or contract change, run
+`python scripts/regenerate_goldens.py`, inspect the semantic diff, then run
+`python scripts/regenerate_goldens.py --check` and the affected behavioral
+tests. The [sample recipe](#sample-goldens) owns path and digest normalization;
+do not update a version stamp or pointer hash by hand.
 
 ## Check Contributions
 

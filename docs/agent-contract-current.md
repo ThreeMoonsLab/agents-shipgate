@@ -11,6 +11,13 @@ GitHub acquisition and persistence remain an integration obligation.
 
 The single, current statement of what AI coding agents and CI integrations should read from Agents Shipgate output. When the contract changes, update [STABILITY.md](../STABILITY.md) first, then this file. Other agent-facing surfaces (`AGENTS.md`, `llms.txt`, `.well-known/agents-shipgate.json`, the slash command, the skill, the FAQ) link here instead of restating field lists.
 
+For contributors changing the contract: regenerate schemas with
+`python scripts/generate_schemas.py`, then run
+`python scripts/regenerate_goldens.py` and its `--check` mode using the
+[committed sample recipe](../CONTRIBUTING.md#sample-goldens). Review actual
+artifact changes and preserve behavioral assertions; sample regeneration does
+not freeze a release contract or qualify a candidate wheel.
+
 ## Current versions
 
 Verify the installed CLI contract locally before relying on hard-coded docs:
