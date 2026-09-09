@@ -97,9 +97,14 @@ anything. [`zero-install.md`](zero-install.md) covers the `uvx` and GitHub
 Action variants that also avoid a local install.
 
 If `host_boundary_candidates` is non-empty, the repository has recognized
-host configuration paths. Follow [Route H](#route-h--no-manifest)
-with `agents-shipgate audit --host --workspace . --json`; no manifest is
-needed. Detection reads filenames, not permissions. Invalid contents remain
+host configuration paths. For a **host-only** repository with no manifest,
+builder or plugin candidates, and complete discovery, follow
+[Route H](#route-h--no-manifest) with
+`agents-shipgate audit --host --workspace . --json`; no manifest is needed.
+Mixed builder/host repositories retain agent setup; an existing manifest
+retains its doctor route. Follow the emitted typed `control.next_action`:
+incomplete discovery and unresolved project scope take precedence over setup
+or host review. Detection reads filenames, not permissions. Invalid contents remain
 audit inputs; a config path that is a directory requires inspection first.
 `host_discovery_incomplete_paths` lists unfollowed links that could conceal
 nested config. Inspect them before interpreting an empty candidate list.
