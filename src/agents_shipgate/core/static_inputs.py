@@ -46,6 +46,10 @@ class StaticInputSnapshot:
             for path in excluded_paths
         }
         self._entries: dict[Path, bytes] = {}
+        self._dependency_paths: set[Path] = set()
+        self._absent_dependency_paths: set[Path] = set()
+        self._present_dependency_paths: set[Path] = set()
+        self._unconfirmable_dependency_paths: set[Path] = set()
         self._total_bytes = 0
         self._budget = IdentityReadBudget(
             max_entries=max_files * 32,
@@ -105,6 +109,45 @@ class StaticInputSnapshot:
 
     def paths(self) -> list[Path]:
         return sorted(self._entries)
+
+    def mark_dependency_input(self, path: Path) -> None:
+        """Select already captured reader bytes for live dependency currency."""
+
+        key, _relative = self._key(path)
+        if key not in self._entries or self._finished:
+            raise ValueError("dependency input was not captured by this active snapshot")
+        self._dependency_paths.add(key)
+
+    def bind_dependency_absence(self, path: Path) -> bool:
+        """Capture a named absent lookup candidate, including its parent listing."""
+
+        key, _relative = self._key(path)
+        names = self.bind_directory(key.parent)
+        if key.name in names:
+            self._present_dependency_paths.add(key)
+            return False
+        self._absent_dependency_paths.add(key)
+        return True
+
+    def dependency_paths(self) -> list[Path]:
+        return sorted(self._dependency_paths)
+
+    def absent_dependency_paths(self) -> list[Path]:
+        return sorted(self._absent_dependency_paths)
+
+    def present_dependency_paths(self) -> list[Path]:
+        return sorted(self._present_dependency_paths)
+
+    def mark_unconfirmable_dependency(self, path: Path) -> None:
+        """An attempted read without captured bytes grants no current identity."""
+
+        key, _relative = self._key(path)
+        if self._finished:
+            raise ValueError("static input snapshot is already finalized")
+        self._unconfirmable_dependency_paths.add(key)
+
+    def unconfirmable_dependency_paths(self) -> list[Path]:
+        return sorted(self._unconfirmable_dependency_paths)
 
     def read_bytes(
         self,

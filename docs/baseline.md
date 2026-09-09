@@ -164,6 +164,52 @@ before attributing a finding to the change. #515's default diff scope remains
 open on dependency-proof prerequisite #557; this comparison does not exclude
 standing findings from the release decision.
 
+For the OpenAI Agents SDK, the current reader also carries
+`tool_surface_facts.guard_dependencies` and compares them in
+`tool_surface_diff.guard_comparisons`. An unchanged tool declaration can now
+point to an imported Boolean guard whose allowed inputs changed. The report
+preserves the tool observation and canonical capability identity, the call
+and guard definition locations, the input file digests, and the base/head
+predicate tables. Bit `i` in each `allowed_inputs` integer represents the
+Boolean value of `parameters[i]`; the parameter list is sorted and bounded
+to eight names. A widened set permits more Boolean inputs, a narrowed set
+permits fewer, and equal sets describe equivalent predicates in that domain.
+
+This first reader profile (`sdk_boolean_guard/v1`) handles a direct sibling
+relative import through empty package initializers, followed by a first
+`if not guard(...): return False` (or `return None`) in a module-level tool.
+The imported function has one return expression composed of Boolean
+parameters, constants, `and`, `or`, and `not`. Calls in predicates, configuration
+indirection, module/package ambiguity, executable initializers, rebinding,
+unsupported signatures, missing inputs and reader limits remain unresolved.
+An older report with no record does not establish absence of a guard.
+
+These are **source-predicate comparisons**. They do not establish deployed
+Python import resolution, downstream effects, or complete capability
+dependency coverage. Every row reports `dependency_coverage: incomplete` and
+`finding_exclusion_eligible: false`; all findings and the current release
+decision remain unchanged. A user-supplied `--diff-from` report is comparison
+input, not authenticated proof of its claimed source evidence. Redacted or
+ambiguous records cannot yield a predicate direction. The Markdown report
+shows up to eight relevant comparisons; JSON retains the full list.
+
+Verification binds the reader's captured dependency bytes and named absent
+import candidates in `verification-plan.json` under
+`inputs.options.dependency_inputs`. A current-control read checks
+them again, including ignored files and newly appearing packages that ordinary
+Git status would miss. Committed comparisons read each side's archived Git
+tree. This input binding does not turn a bounded predicate into a complete
+dependency closure; #557 and #515 retain that remaining obligation.
+
+An attempted guard read that fails before bytes can be captured (such as a
+symlink, oversized input or non-regular file) is explicitly unconfirmable.
+`agent control` then uses its existing `workspace_unverifiable` refusal;
+repair the unreadable path and re-run verification before using current
+authority. This does not replace the report's release decision. A missing
+candidate whose absence was captured, or an unsupported predicate whose bytes
+were read, remains confirmable. Durable typed refusal identities are deferred
+separately; an exception string is not sufficient evidence of stable inputs.
+
 Scope deltas distinguish tool-required scopes from manifest-declared scopes.
 If the same literal scope moves between those kinds, the diff reports one
 removed scope and one added scope so the JSON preserves the source of the

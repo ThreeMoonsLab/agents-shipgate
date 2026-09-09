@@ -28,6 +28,7 @@ from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference
 from agents_shipgate.core.privacy import RedactionStats
 from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, BindingSurfaceDiff
 from agents_shipgate.schemas.codex_plugin import CodexPluginSurface
+from agents_shipgate.schemas.guard_dependencies import GuardDependencyEvidence
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest, CiConfig
 from agents_shipgate.schemas.report import PolicyAudit
 from agents_shipgate.schemas.surfaces import ActionDeclarationFacts, ActionSurfaceFacts
@@ -105,6 +106,7 @@ class _ToolsAndAgent:
     # Agent -> remote tool-surface bindings, aggregated across all loaded
     # sources. Empty for every workspace with no recognized remote binding.
     remote_bindings: list[AgentRemoteBinding] = field(default_factory=list)
+    guard_dependencies: list[GuardDependencyEvidence] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

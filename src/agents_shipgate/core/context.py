@@ -28,6 +28,7 @@ from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference
 from agents_shipgate.inputs.common import PositionIndex
 from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment
 from agents_shipgate.schemas.capabilities import CapabilityFactV1
+from agents_shipgate.schemas.guard_dependencies import GuardDependencyEvidence
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest, CiConfig
 from agents_shipgate.schemas.report import CapabilityRuntimeEvidence, EvidenceGap
 from agents_shipgate.schemas.surfaces import ActionSurfaceFacts
@@ -96,6 +97,7 @@ class ScanContext:
     # ``core.remote_bindings`` for the one encode/decode contract. Empty when
     # no source declares a recognized remote binding.
     remote_bindings: list[AgentRemoteBinding] = field(default_factory=list)
+    guard_dependencies: list[GuardDependencyEvidence] = field(default_factory=list)
     # Computed once during verify and shared by all boundary Finding projections.
     agent_boundary: AgentBoundaryAssessment | None = None
     # The manifest's ``ci`` block as declared on disk, before ``--ci-mode`` /

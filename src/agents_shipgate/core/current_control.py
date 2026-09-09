@@ -42,6 +42,7 @@ from agents_shipgate.core.errors import AgentsShipgateError
 from agents_shipgate.core.verification_identity import (
     plan_worktree_overlay_paths,
     read_regular_file_beneath,
+    validate_dependency_inputs,
     worktree_overlay,
 )
 from agents_shipgate.schemas.agent_control import (
@@ -759,6 +760,16 @@ def _validate_control_currency(
             path=out_dir,
         )
     _validate_base_currency(out_dir, identity, live, required=grants_authority)
+    if "verification_plan" in artifacts:
+        try:
+            plan = VerificationPlan.model_validate_json(artifacts["verification_plan"])
+            validate_dependency_inputs(plan, root=live.root)
+        except (ValueError, OSError) as exc:
+            raise CurrentControlUnavailable(
+                "workspace_unverifiable",
+                f"The dependency inputs this decision read are no longer current: {exc}",
+                path=out_dir,
+            ) from exc
     if identity.snapshot_kind == "worktree_overlay":
         _validate_worktree_currency(
             out_dir, pointer, live, required=grants_authority, artifacts=artifacts

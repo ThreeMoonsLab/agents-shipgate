@@ -4,6 +4,7 @@ import logging
 
 from agents_shipgate.core.agent_bindings import resolve_agent_binding_graph
 from agents_shipgate.core.domain import LoadedToolSource
+from agents_shipgate.core.guard_dependencies import associate_guard_dependencies
 from agents_shipgate.core.risk_hints import enrich_tools_with_risk_hints
 from agents_shipgate.core.semantic_assessment import attach_semantic_assessments
 from agents_shipgate.core.source_warnings import withdraw_completed_adk_tool_warnings
@@ -196,4 +197,5 @@ def _build_tools_and_agent(
         warnings=warnings,
         toolkit_bounds=toolkit_bounds,
         remote_bindings=remote_bindings,
+        guard_dependencies=associate_guard_dependencies(inputs.loaded_sources, tool_catalog),
     )
