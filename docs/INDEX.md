@@ -26,6 +26,7 @@ repository [`README.md`](../README.md) is the landing page that routes to both.
 - [`design-partner-verifier-pilot.md`](design-partner-verifier-pilot.md) — runbook for the design-partner cohort: the two routes under test, the denominators, what counts as reviewer-understood first value, and the pre-registered continue/narrow/stop rule
 - [`design-partner-pilot-results.md`](design-partner-pilot-results.md) — the public aggregate ledger for that experiment: denominators, dated enrollment shortfall, reproduced blockers, and the standing decision
 - [`architecture.md`](architecture.md) — codebase layout for new contributors
+- [`decisions.md`](decisions.md) — current accepted-decision index, superseded v0.1 defaults and explicit implementation obligations before the v1.0 freeze
 - [`engineering/ai-coding-workflow-verifier.md`](engineering/ai-coding-workflow-verifier.md) — canonical engineering guide and roadmap for making Agents Shipgate the deterministic verifier inside AI coding workflows
 - [`engineering/insufficient-evidence-cold-start.md`](engineering/insufficient-evidence-cold-start.md) — proposed design for getting first-adoption repos out of a standing `insufficient_evidence` verdict on every turn
 - [`engineering/host-authenticated-approval-receipts.md`](engineering/host-authenticated-approval-receipts.md) — proposed design for in-session approval receipts a host attests, and the record of why the unsigned version was rejected
