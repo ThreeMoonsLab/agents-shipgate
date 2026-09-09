@@ -151,7 +151,7 @@ published was the `rendered-prompt-unpublished-pin` gap, closed by #506.
 `hatch_build.py` belongs to the build toolchain, alongside `pyproject.toml`,
 rather than an adopter-facing command. It produces the candidate's source
 provenance and makes no claim about a runtime verdict or qualification.
-`tests/test_release_source.py` checks that producer against real wheel builds;
+`tests/test_wheel_candidate_build.py` checks that producer against real wheel builds;
 the `emitted_ci_workflow` row above covers how the installed engine uses its
 record. The top-level classifier records this distinction explicitly.
 
