@@ -161,6 +161,16 @@ class WorkspaceSignals(BaseModel):
     conventional_dirs: list[str] = Field(default_factory=list)
 
 
+class HostBoundaryCandidate(BaseModel):
+    """A recognized host config path; no content or permission assertion."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+    hosts: list[str]
+    file_type: Literal["file", "directory", "symlink", "other", "unresolved"]
+
+
 class DetectResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -216,6 +226,10 @@ class DetectResult(BaseModel):
     # mcpServers-style host config matching *mcp*.json).
     excluded_sources: list[dict[str, str]] = Field(default_factory=list)
     codex_plugin_candidates: list[CodexPluginCandidate] = Field(default_factory=list)
+    host_boundary_candidates: list[HostBoundaryCandidate] = Field(default_factory=list)
+    # Unfollowed links can conceal recursively supported config paths. They
+    # inhibit a complete negative, but their names do not prove a host exists.
+    host_discovery_incomplete_paths: list[str] = Field(default_factory=list)
     next_action: str = ""
     workspace_signals: WorkspaceSignals = Field(default_factory=WorkspaceSignals)
     # Every subject discovery decided not to look at, in the shape every other

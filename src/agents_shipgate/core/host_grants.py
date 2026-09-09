@@ -991,6 +991,7 @@ def _repository_paths(
     *,
     reader: IdentityBoundReadSession,
     limits: tuple[tuple[str, int], ...] = (),
+    include_directory_candidates: bool = False,
 ) -> tuple[list[tuple[Path, str, str, str]], int]:
     """Enumerate repository sources exclusively from the boundary registry."""
 
@@ -1033,6 +1034,8 @@ def _repository_paths(
                 if stat.S_ISDIR(metadata.st_mode):
                     if name not in skipped:
                         child_directories.append(Path(relative))
+                        if include_directory_candidates:
+                            candidates.append((candidate, relative))
                     continue
             except (OSError, ValueError) as exc:
                 raise HostInventoryReadError(HostInputFailure(

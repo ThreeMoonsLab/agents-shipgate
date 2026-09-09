@@ -29,6 +29,8 @@ The script's output is a **structural subset** of `agents-shipgate detect --json
   "suggested_sources": [{"type": "mcp", "path": "..."}],
   "excluded_sources": [{"type": "mcp", "path": "...", "reason": "..."}],
   "codex_plugin_candidates": [{"mode": "package", "path": "..."}],
+  "host_boundary_candidates": [],
+  "host_discovery_incomplete_paths": [],
   "agent_scope": "single",
   "agent_project_candidates": [{"path": ".", "marker": "pyproject.toml", "agent_names": [...]}],
   "agent_scope_truncated": false,
@@ -38,6 +40,17 @@ The script's output is a **structural subset** of `agents-shipgate detect --json
   "script_version": "0.6.0"
 }
 ```
+
+`host_boundary_candidates` contains `{path, hosts, file_type}` entries from
+recognized host config names. It includes ignored settings; JSON/TOML contents
+are not read by this census and grants are not verified. Follow the existing
+`audit --host` route for host-only repositories. A directory at a config
+filename requires inspection first. `host_discovery_incomplete_paths` lists
+unfollowed links that could conceal recursively supported configs; empty
+candidates do not establish absence while that list is non-empty. Enumeration
+errors or the 100,000-entry bound fail discovery instead of returning a negative.
+Both fields are pinned against the CLI. Older payloads lacking them cannot
+satisfy the current product-wide stop condition.
 
 Like the canonical CLI, the script parse-probes each glob-matched MCP/OpenAPI candidate before suggesting it — a filename match is not a guarantee. A Cursor plugin `mcp.json` is an `mcpServers`-style host config, not an MCP tools-array export; suggesting it would make the next `init --write` → `scan` step fail. Rejected candidates appear under `excluded_sources` (`{type, path, reason}`) instead of `suggested_sources`. The probe is **JSON-only** (stdlib has no YAML parser): a `.json` candidate the adapters would reject is excluded here too, while a `.yaml`/`.yml` OpenAPI spec is kept as a suggestion whenever the verdict would depend on content (never wrongly dropped). The real-world miss this guards against — `mcpServers`-style host configs — is always JSON, so the probe is exact where it matters.
 

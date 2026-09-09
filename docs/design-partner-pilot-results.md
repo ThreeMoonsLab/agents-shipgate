@@ -65,25 +65,29 @@ capability-change class this pilot exists to observe.
 
 **Published build measured: `0.15.0`.** Preview measured:
 `0.16.0+preview.20260903.gb61aca7`. Source tree: `0.16.0`, rechecked on 2026-09-09 against the uncommitted
-#545 candidate based on `42818ec25b06cf39d5c95024e2ba7884bffa4166`, with
-runtime contract 32. The source-tree
+#568 candidate based on `649992803952da63c087f3143403447bf8528a46`, with
+runtime contract 33. The source-tree
 column below was rerun; the released and preview columns retain their earlier
 measurement and were not relabeled as new runs.
 
 | | Released `v0.15.0` (`pipx install`) | Preview `0.16.0+preview.20260903` (`gh release download`) | Source tree |
 | --- | --- | --- | --- |
-| Runtime contract | 10 | 29 | 32 |
+| Runtime contract | 10 | 29 | 33 |
 | Host-grant inventory schema | 0.1 | 0.2 | 0.3 |
 | `check` on the fixture | `warn` / `none`, **0 violations** | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** |
 | Coverage limit visible (`host_coverage`, `excluded_scopes`) | no | yes | yes |
-| `init --write --ci` Action pin | `@v0.15.0` — exists | `@v0.16.0+preview.20260903.gb61aca7` — **no such tag** (the release tag is `preview-`-prefixed) | `@v0.15.0` — exists |
-| `init` then `verify` on this Route H repo | exit 3 | exit 2 | exit 2 |
+| `init --write --ci` Action pin | `@v0.15.0` — exists | `@v0.16.0+preview.20260903.gb61aca7` — **no such tag** (the release tag is `preview-`-prefixed) | not applicable — host audit handoff, no workflow written |
+| `init` then `verify` on this Route H repo | exit 3 | exit 2 | `init` exits 0 with audit handoff; ignoring it and requesting manifest verify exits 2 |
 | `audit --host --save-baseline` → `--drift` | works, all 4 expansion signals | works | works |
 | Qualification | qualified release | **none** — no adjudicated corpus, nothing signed | not a distributed build |
 
-The source rerun reproduced four boundary violations (`block` / `critical`),
-visible coverage, the released Action pin, and the Route A exit-2 placeholder
-refusal. Baseline/drift reproduced all four expansion signals with a canonical
+The source rerun reproduced four boundary violations (`block` / `critical`)
+and visible coverage. Discovery now names the two host config candidates and
+routes to audit. `init --write --ci` returns
+`not_applicable_host_review`, writes no manifest or workflow, and offers the
+same read-only audit route. A deliberately forced manifest `verify` still exits
+2 because no manifest exists; it is not the emitted next step. Baseline/drift
+reproduced all four expansion signals with a canonical
 non-symlink temporary path. The earlier run discovered the documented `/tmp/`
 recovery-path problem on macOS; #550 was subsequently fixed by #595. This run
 uses the canonical path and does not add a new recovery-path observation.
@@ -101,19 +105,20 @@ judgement about a partner.
    zero violations on a diff that grants `Bash(*)`, and no coverage surface at
    inventory schema 0.1. It reaches three of the four recognitions through the
    baseline/drift pair; it cannot reach the fourth.
-3. **#506's repair has not reached any downloadable build.** The source tree
-   now writes `@v0.15.0`, a tag that exists. The preview wheel a partner can
+3. **#506's repair has not reached the measured downloadable builds.**
+   Agent-builder setup in the source tree writes `@v0.15.0`, a tag that exists;
+   this host-only fixture now writes no workflow. The preview wheel a partner can
    download today was cut on 2026-09-03, before that fix, and still writes
    `@v0.16.0+preview.20260903.gb61aca7` — which is not the release tag
    (`preview-0.16.0+preview.20260903.gb61aca7`) and resolves to nothing. A
    preview cut from current main would not have this. Nothing to file: #506
    owns it and is fixed; the ledger records that the fix is not yet in a
    partner's hands.
-4. **`init` then `verify` still dead-ends on Route H**, on every channel —
-   exit 3 on the release, exit 2 on the preview and the tree. A repository
-   with no tool surface gets a `CHANGE_ME` scaffold and the `verify` after it
-   fails. That is why the runbook routes these partners away from a manifest
-   rather than through one.
+4. **The measured release and preview still dead-end through manifest setup**:
+   exit 3 on the release and exit 2 on the preview. The #568 source candidate
+   now hands host-only users to audit without a `CHANGE_ME` scaffold. This
+   repairs the first route in source; it is not yet a distributed-build or
+   external adoption observation.
 
 An earlier version of this section reported findings 1 and 2 as a single
 claim — that the two entry failures were "mutually exclusive by build", so no

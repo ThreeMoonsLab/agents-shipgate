@@ -174,6 +174,14 @@ Consume the response to decide whether to proceed. Key fields:
 - `codex_plugin_candidates[]` — Codex plugin package or marketplace
   artifacts matched by convention. These also do NOT bump
   `is_agent_project` on their own.
+- `host_boundary_candidates[]` — `{path, hosts, file_type}` from the existing
+  bounded host census, including ignored settings. Filenames only; no config
+  contents, grants or runtime authority have been verified. Host-only input
+  routes to `audit --host` without a manifest.
+- `host_discovery_incomplete_paths[]` — unfollowed links that may conceal
+  nested host configuration. Empty candidates beside this field do not prove
+  absence. Follow the inspection route; a directory at a config filename is
+  also an input defect requiring inspection.
 - `next_actions[]` — the ranked route. On `agent_scope: "ambiguous"` rank 1 is
   the decision (`kind: "review"`, `command: null`) and every entry below it is
   one exact `init --workspace <candidate> --write --json`, with `executable`
@@ -196,6 +204,8 @@ Consume the response to decide whether to proceed. Key fields:
 - `is_agent_project` is `false`, AND
 - `suggested_sources` is empty, AND
 - `codex_plugin_candidates` is empty, AND
+- `host_boundary_candidates` is empty, AND
+- `host_discovery_incomplete_paths` is empty, AND
 - `python_parse_truncated` is `false` — each negative above is a claim about
   the whole workspace, and a run whose Python parse stopped at its cap read
   only part of one. This is the raw parse bit, not `agent_scope_truncated`,
@@ -211,6 +221,10 @@ key as `false`.
 Otherwise proceed. MCP/OpenAPI-only tool-surface repos and Codex plugin
 package repos surface as `is_agent_project: false` but should still be
 onboarded — their sources will land in `tool_sources` during `init`.
+Host-only repositories instead follow the emitted audit route. `init` and
+`bootstrap` hand off without creating setup files; even `init --ci` cannot
+create a manifest-based workflow for a repository needing only host review.
+Explicit `init --minimal` still requests the manual template.
 
 ### Step 2 · `init --write --ci --json`
 

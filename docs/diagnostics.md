@@ -178,7 +178,7 @@ point either.
 | ----------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `SHIP-DIAG-MISSING-MANIFEST`        | block    | The manifest file does not exist on disk. Rank-1 action: `agents-shipgate verify --workspace <dir> --preview --json`.                             |
 | `SHIP-DIAG-INVALID-MANIFEST`        | block    | The manifest file exists but the loader rejected it (invalid YAML, schema validation failure, unsupported version). Rank-1 action: `edit <path>`. |
-| `SHIP-DIAG-NO-AGENT-SURFACE`        | info     | `is_agent_project=false` AND `suggested_sources=[]` AND `codex_plugin_candidates=[]` AND `python_parse_truncated=false` AND no manifest. Catch-all negative control. |
+| `SHIP-DIAG-NO-AGENT-SURFACE`        | info     | `is_agent_project=false` AND `suggested_sources=[]` AND `codex_plugin_candidates=[]` AND `host_boundary_candidates=[]` AND `host_discovery_incomplete_paths=[]` AND `python_parse_truncated=false` AND no manifest. Catch-all negative control. |
 | `SHIP-DIAG-NON-AGENT-LIBRARY`       | info     | Python project (≥1 .py file + pyproject/requirements) with no agent framework, prompts, or tool surface.                                         |
 | `SHIP-DIAG-PURE-PROMPT-EXPERIMENT`  | info     | Only `prompts/` is present; no Python framework, no tool sources.                                                                                |
 | `SHIP-DIAG-MCP-OPENAPI-ARTIFACT-ONLY` | info   | `is_agent_project=false` BUT `suggested_sources` has MCP/OpenAPI entries. Artifact-only repos are valid Shipgate targets.                        |

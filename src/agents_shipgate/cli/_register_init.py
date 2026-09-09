@@ -37,6 +37,7 @@ from agents_shipgate.cli.discovery.gitignore_block import (
     GitignoreOutcomeStatus,
     ensure_reports_gitignore,
 )
+from agents_shipgate.cli.discovery.host_boundary import host_discovery_action, needs_host_route
 from agents_shipgate.cli.discovery.identity_recovery import (
     classify_agent_name,
     discover_agent_name,
@@ -1521,6 +1522,33 @@ def register(app: typer.Typer) -> None:
                     exit_code=4,
                 )
                 raise typer.Exit(4) from exc
+            if not target.exists() and needs_host_route(detect_result):
+                action = host_discovery_action(detect_result, workspace_resolved)
+                routing = setup_control_envelope(
+                    operation="init",
+                    input_id=setup_input_id(
+                        operation="init", workspace=workspace_resolved,
+                        routing_facts=(detect_result.model_dump(mode="json"), action.model_dump(mode="json")),
+                    ),
+                    reason="Host-only discovery does not need a manifest. No setup files were written.",
+                    diagnostics=[], advance=action, advance_kind="discover",
+                    advance_decision=SETUP_INCOMPLETE, exit_code=0,
+                )
+                if json_output:
+                    typer.echo(json.dumps({
+                        "manifest_status": "not_applicable_host_review",
+                        "created": False, "path": str(target),
+                        "manifest_message": "No setup files were written. Follow next_action for host review.",
+                        "auto_detected": detect_result.model_dump(mode="json"),
+                        "placeholders": [], "workflow": None, "agent_instructions": None,
+                        "next_action": routing.legacy_next_action,
+                        "next_actions": routing.json_actions(),
+                        "control": routing.envelope.model_dump(mode="json"),
+                    }, indent=2))
+                else:
+                    typer.echo("Host-only discovery needs no shipgate.yaml; no setup files were written.")
+                    typer.echo(f"Next: {routing.legacy_next_action}")
+                return
             # Both rendering and validation belong to the product boundary.
             # A generated document failing our own schema is not malformed
             # adopter input, and no setup files have been written yet (#328).

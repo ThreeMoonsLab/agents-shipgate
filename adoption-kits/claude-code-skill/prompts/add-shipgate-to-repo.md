@@ -54,6 +54,12 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
    repos can be valid Shipgate targets even when Python framework detection
    would classify `is_agent_project: false`; look for `suggested_sources` and
    `codex_plugin_candidates` when those fields are present.
+   Host-only discovery uses `host_boundary_candidates` and
+   `host_discovery_incomplete_paths` (current candidate contract 33). Follow
+   the host audit or inspection route instead of the manifest setup below.
+   These fields describe filenames and unfollowed links, not verified grants;
+   an older payload lacking them cannot establish absence. On older installs,
+   supported host settings can go directly to `audit --host --workspace . --json`.
 
    **Read `control.next_action` — do not run it yet.** Step 4 performs the
    setup exactly once; running the emitted `init` here and the command in

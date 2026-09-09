@@ -60,6 +60,8 @@ CANONICAL_KEYS = frozenset(
         "python_parse_truncated",
         "suggested_sources",
         "excluded_sources",
+        "host_boundary_candidates",
+        "host_discovery_incomplete_paths",
         "next_action",
         "workspace_signals",
     }

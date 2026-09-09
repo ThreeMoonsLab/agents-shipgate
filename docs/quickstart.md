@@ -87,13 +87,27 @@ Continue when `is_agent_project: true`, or when `suggested_sources` or
 `shipgate.yaml`.
 
 If `is_agent_project: false`, `suggested_sources: []`,
-`codex_plugin_candidates: []`, **and `python_parse_truncated: false`**, this is
+`codex_plugin_candidates: []`, `host_boundary_candidates: []`,
+`host_discovery_incomplete_paths: []`, **and `python_parse_truncated: false`**, this is
 not the right tool for this repository. `python_parse_truncated: true` means the
 Python parse stopped at its cap, so that negative describes the files that were
 read rather than the repository — re-run with
 `--max-python-files <workspace_signals.python_file_total>` before concluding
 anything. [`zero-install.md`](zero-install.md) covers the `uvx` and GitHub
 Action variants that also avoid a local install.
+
+If `host_boundary_candidates` is non-empty, the repository has recognized
+host configuration paths. Follow [Route H](#route-h--no-manifest)
+with `agents-shipgate audit --host --workspace . --json`; no manifest is
+needed. Detection reads filenames, not permissions. Invalid contents remain
+audit inputs; a config path that is a directory requires inspection first.
+`host_discovery_incomplete_paths` lists unfollowed links that could conceal
+nested config. Inspect them before interpreting an empty candidate list.
+
+These host discovery fields require the current source/candidate (runtime
+contract 33). On an older install, absence of the fields is not an empty
+answer: use the existing Route H audit directly when your repository carries
+supported host configuration.
 
 ## One review, end to end
 

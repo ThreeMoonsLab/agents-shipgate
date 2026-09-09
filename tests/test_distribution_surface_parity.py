@@ -734,6 +734,9 @@ def detector_divergences(
         cli_pairs = sorted((e["type"], e["path"]) for e in cli_result[key])
         if script_pairs != cli_pairs:
             divergences.append(f"{key}: script={script_pairs!r} cli={cli_pairs!r}")
+    for key in ("host_boundary_candidates", "host_discovery_incomplete_paths"):
+        if script_result.get(key) != cli_result.get(key):
+            divergences.append(f"{key}: script={script_result.get(key)!r} cli={cli_result.get(key)!r}")
     return divergences
 
 

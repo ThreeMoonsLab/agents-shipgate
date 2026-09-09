@@ -35,6 +35,15 @@ package should not carry a second implementation at all. The standalone detector
 is the one real exception — being importable-free is its entire value — so it
 keeps its own implementation and takes the parity test as its contract.
 
+Host applicability is part of `agent_project_verdict`: both discovery paths
+publish the same `host_boundary_candidates` and
+`host_discovery_incomplete_paths`. Candidates mean recognized config filenames,
+including ignored settings; they do not mean parsed grants. Unfollowed links
+inhibit a complete negative without proving a host exists. The dedicated
+`tests/test_host_discovery.py` corpus also exercises root/nested registry
+predicates, invalid input types, no-write setup and bounded recovery. The
+zero-install script remains metadata-only and emits no control authority.
+
 ## Claims vocabulary
 
 Every claim in the registry is one of these. The vocabulary is closed; the code

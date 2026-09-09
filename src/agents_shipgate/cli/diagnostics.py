@@ -587,6 +587,8 @@ def diagnose_detect(
             and not has_suggested
             and not has_codex_plugin
             and not result.python_parse_truncated
+            and not result.host_boundary_candidates
+            and not result.host_discovery_incomplete_paths
         ):
             # Negative-control precedence
             if (

@@ -617,6 +617,12 @@ def build_detect_exclusions(result: DetectResult) -> SurfaceExclusionLedger:
 
     entries: list[SurfaceExclusion] = []
     signals = result.workspace_signals
+    for path in result.host_discovery_incomplete_paths:
+        entries.append(SurfaceExclusion(
+            stage="discovery", subject=path, reason="source_rejected",
+            detail="An unfollowed link may conceal nested host configuration; a complete negative is withheld.",
+            accounting="not_claimed",
+        ))
     if result.python_parse_truncated:
         entries.append(
             SurfaceExclusion(

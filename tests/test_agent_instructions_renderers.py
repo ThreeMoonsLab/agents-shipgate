@@ -46,7 +46,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": "b09ffc59ad9e52ae34b0015d55ff311f2856e745581fc83b607b5eacf84c1a69",
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": "7fd2c718e5dad94b231409a72710e05af1b231c3d495d8796c501a7e9493a394",
-    ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "b600b97d5a94768213cea27d725561e9b7572f0b84e1aee3c1e89939214ca6cf",
+    ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "a25dc9c8d4f846d4bd06cc6176a807213e74178595e21008fefd128fc6d8f2ca",
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": "be3079a2f41b66d2db19cfea14c57ccd80ab9047ef7d69eccf30e97fa1beca5b",
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829",
     ".claude/skills/agents-shipgate/prompts/fix-top-finding.md": "1956133a2d1003326e471f8ecab7b781e655dc9c33fbd2d1d681711f9ac0f08c",
@@ -173,7 +173,7 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
     assert payload["schema_version"] == "10"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "32"
+    assert payload["contract_version"] == "33"
     assert payload["minimum_control_contract_version"] == "21"
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")

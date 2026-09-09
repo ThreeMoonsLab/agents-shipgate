@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Route host-only repositories from first discovery to the existing host audit
+  without a placeholder manifest. The CLI and zero-install script retain
+  ignored and malformed config candidates; incomplete traversal and config
+  directories remain explicit inspection routes. `init` and `bootstrap`
+  hand off without setup writes. Contract v33 adds filename-only applicability
+  fields; the release gate and permission model are unchanged (#568).
+
 - Compare supported instruction structure across verifier, local control,
   preflight, host drift and generated Claude Code edit hooks. Complete prose
   edits no longer imply permission changes; malformed/unknown structure and

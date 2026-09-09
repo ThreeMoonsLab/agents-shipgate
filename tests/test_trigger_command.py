@@ -243,6 +243,8 @@ def test_stop_conditions_fire_with_detect_result():
         "is_agent_project": False,
         "suggested_sources": [],
         "codex_plugin_candidates": [],
+        "host_boundary_candidates": [],
+        "host_discovery_incomplete_paths": [],
         "python_parse_truncated": False,
     }
     res = evaluate(paths=["src/internal/util.py"], detect_result=detect)
@@ -262,6 +264,8 @@ def test_a_truncated_detect_cannot_fire_the_stop_conditions():
         "is_agent_project": False,
         "suggested_sources": [],
         "codex_plugin_candidates": [],
+        "host_boundary_candidates": [],
+        "host_discovery_incomplete_paths": [],
         "python_parse_truncated": True,
     }
     res = evaluate(paths=["src/internal/util.py"], detect_result=detect)
@@ -278,6 +282,8 @@ def test_a_matched_capability_rule_survives_a_truncated_detect():
         "is_agent_project": False,
         "suggested_sources": [],
         "codex_plugin_candidates": [],
+        "host_boundary_candidates": [],
+        "host_discovery_incomplete_paths": [],
         "python_parse_truncated": True,
     }
     res = evaluate(
@@ -299,6 +305,8 @@ def test_a_detect_payload_missing_a_stop_key_is_not_evaluable():
         "is_agent_project": False,
         "suggested_sources": [],
         "codex_plugin_candidates": [],
+        "host_boundary_candidates": [],
+        "host_discovery_incomplete_paths": [],
     }
     res = evaluate(paths=["src/internal/util.py"], detect_result=legacy)
     assert res["stop_conditions_evaluated"] is False
@@ -310,6 +318,8 @@ def test_stop_conditions_suppressed_by_user_request():
         "is_agent_project": False,
         "suggested_sources": [],
         "codex_plugin_candidates": [],
+        "host_boundary_candidates": [],
+        "host_discovery_incomplete_paths": [],
         "python_parse_truncated": False,
     }
     res = evaluate(
@@ -327,6 +337,8 @@ def test_trigger_subcommand_detect_json_enables_stop(tmp_path):
                 "is_agent_project": False,
                 "suggested_sources": [],
                 "codex_plugin_candidates": [],
+        "host_boundary_candidates": [],
+        "host_discovery_incomplete_paths": [],
                 "python_parse_truncated": False,
             }
         ),

@@ -56,11 +56,12 @@ missing release qualification or human authority.
 | Delivered work | Implementation evidence | Remaining obligation |
 | --- | --- | --- |
 | Live control currency and captured qualification bytes (#567/#559) | [#576](https://github.com/ThreeMoonsLab/agents-shipgate/pull/576), [#578](https://github.com/ThreeMoonsLab/agents-shipgate/pull/578) | Bind final evidence to the final candidate; ordinary tests are not beta qualification. |
-| Discovery, identity and bounded reader/host recovery (#553/#561/#547/#543) | [#583](https://github.com/ThreeMoonsLab/agents-shipgate/pull/583), [#587](https://github.com/ThreeMoonsLab/agents-shipgate/pull/587), [#589](https://github.com/ThreeMoonsLab/agents-shipgate/pull/589), [#594](https://github.com/ThreeMoonsLab/agents-shipgate/pull/594) | Host-only adoption #568 and reviewed historical scope #563 remain unresolved. |
+| Discovery, identity and bounded reader/host recovery (#553/#561/#547/#543) | [#583](https://github.com/ThreeMoonsLab/agents-shipgate/pull/583), [#587](https://github.com/ThreeMoonsLab/agents-shipgate/pull/587), [#589](https://github.com/ThreeMoonsLab/agents-shipgate/pull/589), [#594](https://github.com/ThreeMoonsLab/agents-shipgate/pull/594) | Host-only discovery is addressed in #568; reviewed historical scope #563 and actual pilot adoption remain unresolved. |
 | Current operator guidance and macOS pilot baseline recipe (#566/#550) | [#579](https://github.com/ThreeMoonsLab/agents-shipgate/pull/579), [#595](https://github.com/ThreeMoonsLab/agents-shipgate/pull/595) | No pilot participation or adoption counts were produced by these repairs. |
 | Compact/full receipt validation contract and accepted decisions (#552/#493) | [#600](https://github.com/ThreeMoonsLab/agents-shipgate/pull/600), [#602](https://github.com/ThreeMoonsLab/agents-shipgate/pull/602) | Reconcile the final behavior before #569 freezes report 1.0. |
 | Bounded FastMCP Context injection (#542) | [#603](https://github.com/ThreeMoonsLab/agents-shipgate/pull/603) | Whole-signature limits remain visible; broader framework/export provenance is deferred in #601. |
 | Reproducible current sample goldens (#499) | [#605](https://github.com/ThreeMoonsLab/agents-shipgate/pull/605) | The 24 current artifacts have a checked recipe; #569 still owns the report 1.0 freeze and migration fixtures. |
+| Host-only first discovery (#568) | Filename-only host candidates, no-write init/bootstrap handoff, CLI/zero-install parity and cold installed-wheel replay | Existing audit config-directory omission remains deferred in #613; synthetic tests do not demonstrate external adoption. |
 
 Three delivered slices leave larger release obligations open: [#582](https://github.com/ThreeMoonsLab/agents-shipgate/pull/582)
 types unsupported historical base inputs but does not satisfy #563's catch bars;
@@ -76,7 +77,9 @@ sub-issue of #557, owns the newly isolated operation-to-policy-predicate
 relationship. #557 and #515 remain open; these source models do not satisfy
 the TypeScript MongoDB acceptance case or historical safety bars.
 
-The prose/structure implementation in #545 separates
+The merged [#612](https://github.com/ThreeMoonsLab/agents-shipgate/pull/612)
+implementation closes #545 and #516 after one independent review/address
+loop on that PR and all applicable CI. It separates
 supported instruction structure from prose across the final/local verifier,
 preflight, host drift and exact edit-hook previews. Its successor schemas retain
 raw byte freshness, unknown-structure review and legacy evidence migration;
@@ -86,7 +89,7 @@ reviewed deployment declarations, independent release signers, pilot observation
 or qualification labels.
 
 Newly discovered issues #575/#577/#580/#581, #584–#586, #588/#590, #592/#593,
-#596–#598/#601, #607, #609–#611 remain separately deferred; they are not silently
+#596–#598/#601, #607, #609–#611 and #613 remain separately deferred; they are not silently
 added to this implementation pass or counted as repairs. #609 documents a frozen
 preflight schema URL/discriminator mismatch; the current successor uses a fresh
 version without rewriting historical bytes. #610 owns the distinct compatibility
@@ -94,6 +97,9 @@ question of completed planning results exposing the shared permission vector;
 preflight still supplies no verifier-bound current-control identity. #611 records
 header-like hunk rows lost by the existing diff parser; incomplete comparisons
 continue to require review until that separate repair lands.
+#613 records recognized configuration paths that are directories disappearing
+from host audit; discovery routes this defect to inspection and does not claim
+that audit repair has landed.
 
 The following sequence and approved release bars still apply. Contract
 convergence, historical catch results, report freeze, actual human ownership,

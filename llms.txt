@@ -13,7 +13,7 @@
 - Publisher URL: https://threemoonslab.com/
 - License: Apache-2.0
 - Latest public release: v0.15.0
-- Current source-tree runtime: 0.16.0 (contract 32; pre-release)
+- Current source-tree runtime: 0.16.0 (contract 33; pre-release)
 - Canonical repository: https://github.com/ThreeMoonsLab/agents-shipgate
 - Do not use: Agent Shipcheck, Agent Shipgate, agents shipgate, Agents-Shipgate
 
@@ -196,3 +196,5 @@
 
 - Three Moons Lab: https://threemoonslab.com/
 - Contact: help@threemoonslab.com
+
+- Current candidate discovery (contract 33) routes filename-only `host_boundary_candidates` to host audit without a manifest; `host_discovery_incomplete_paths` inhibits complete negatives. See docs/agent-contract-current.md.

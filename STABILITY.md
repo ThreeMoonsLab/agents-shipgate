@@ -2,6 +2,17 @@
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
+Runtime contract v33 extends `detect` with `host_boundary_candidates` and
+`host_discovery_incomplete_paths`. They are filename applicability and
+unfollowed traversal evidence, never permission assertions. An absent field
+cannot satisfy the product-wide negative predicate. Host-only `init` returns
+`manifest_status: "not_applicable_host_review"` without setup writes;
+`bootstrap` returns `verdict: "host_review_required"` and the existing detect
+control route. Both may exit zero with work still required, all setup
+permissions remain false, and explicit `init --minimal` keeps its template
+behavior. Existing manifests, builder sources, and Python-cap recovery retain
+their routes. Persisted release evidence and its schema versions are unchanged.
+
 This document is the contract. If the runtime ever diverges from what's documented here, that's a bug — please file an issue.
 
 Shipgate is pre-1.0. The CLI surface, exit codes, and `contract_version`
