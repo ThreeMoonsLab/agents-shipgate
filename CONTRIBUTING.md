@@ -2,6 +2,11 @@
 
 Yes, please contribute.
 
+Start architecture or release-contract work with the current
+[accepted-decision index](docs/decisions.md). It links the governing contracts,
+the v0.1 defaults they supersede, and accepted directions that still have open
+implementation obligations.
+
 ## Local Setup
 
 ```bash
