@@ -12,7 +12,12 @@ Issue #521.
 from __future__ import annotations
 
 import json
+import os
 import re
+import shlex
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -396,6 +401,90 @@ def test_route_h_makes_the_baseline_reachable_from_the_change():
     assert "acknowledges the very expansion under review" in text or (
         "acknowledges the expansion being reviewed" in text
     ), "the prohibition must say why, or it reads as arbitrary."
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None,
+                    reason="The copyable pilot recipe targets macOS/Linux shells.")
+@pytest.mark.parametrize("heading", ["## Pilot Commands", "## Partner Agent Prompt"])
+def test_pilot_snapshot_recipe_resolves_temp_alias_and_keeps_base_evidence(tmp_path, heading):
+    """Execute the published recipe; a symlinked TMPDIR models macOS /tmp.
+
+    The same test runs on Linux CI. Both the readable runbook and copyable
+    agent prompt must preserve the base snapshot and the existing refusal.
+    """
+    workspace = tmp_path / "repository"
+    workspace.mkdir()
+    cli = [sys.executable, str(REPO_ROOT / "shipgate")]
+    environment = {**os.environ, "AGENTS_SHIPGATE_PYTHON": sys.executable}
+
+    def git(*args):
+        result = subprocess.run(["git", *args], cwd=workspace, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+
+    def commit(message):
+        git("add", ".claude/settings.json")
+        git("-c", "user.name=Pilot Fixture", "-c", "user.email=pilot@example.invalid",
+            "commit", "-qm", message)
+
+    git("init", "-q", "-b", "pilot-base")
+    settings = workspace / ".claude/settings.json"
+    settings.parent.mkdir()
+    settings.write_text(json.dumps({"permissions": {"allow": ["Read"]}}))
+    commit("base read permission")
+    git("checkout", "-qb", "pilot-change")
+    settings.write_text(json.dumps({"permissions": {"allow": ["Read", "Bash(*)"]}}))
+    commit("change adds shell permission")
+
+    real_temp = tmp_path / "real temporary files"
+    real_temp.mkdir()
+    temp_alias = tmp_path / "temporary alias"
+    temp_alias.symlink_to(real_temp, target_is_directory=True)
+    environment["TMPDIR"] = str(temp_alias)
+    raw = _section(_read(RUNBOOK), heading)
+    start = raw.index("git checkout <default-branch>")
+    finish = raw.index("git checkout <change-ref>", start) + len("git checkout <change-ref>")
+    recipe = "\n".join(line.strip() for line in raw[start:finish].splitlines())
+    recipe = recipe.replace("<default-branch>", "pilot-base").replace("<change-ref>", "pilot-change")
+    output_path = tmp_path / "baseline-path.txt"
+    script = (
+        "set -eu\n"
+        f"agents-shipgate() {{ {shlex.join(cli)} \"$@\"; }}\n"
+        f"python3() {{ {shlex.quote(sys.executable)} \"$@\"; }}\n"
+        + recipe
+        + f"\nprintf '%s\\n' \"$pilot_baseline_file\" > {shlex.quote(str(output_path))}\n"
+    )
+    saved = subprocess.run(["bash", "-c", script], cwd=workspace, env=environment,
+                           capture_output=True, text=True, timeout=60)
+    assert saved.returncode == 0, saved.stdout + saved.stderr
+    baseline = Path(output_path.read_text().strip())
+    assert baseline == baseline.resolve()
+    assert baseline.is_relative_to(real_temp.resolve())
+    assert baseline.parent.stat().st_mode & 0o077 == 0
+    before = baseline.read_bytes()
+    assert b"Bash(*)" not in before
+
+    # Read through the same explicit path the recipe saved, from the changed ref.
+    drift = subprocess.run([*cli, "audit", "--host", "--drift", "--baseline-file",
+                            str(baseline), "--json"], cwd=workspace, env=environment,
+                           capture_output=True, text=True, timeout=60)
+    assert drift.returncode == 0, drift.stdout + drift.stderr
+    payload = json.loads(drift.stdout)
+    assert payload["has_drift"] is True
+    assert any("Bash(*)" in signal for signal in payload["expansion_signals"])
+    assert baseline.read_bytes() == before
+
+    # Resolving the recipe is not relaxing the reader: the alias still fails.
+    aliased_baseline = temp_alias / baseline.relative_to(real_temp.resolve())
+    for operation in ("--drift", "--save-baseline"):
+        refused = subprocess.run([*cli, "audit", "--host", operation, "--baseline-file",
+                                  str(aliased_baseline), "--json"], cwd=workspace,
+                                 env=environment, capture_output=True, text=True, timeout=60)
+        assert refused.returncode == 2, refused.stdout + refused.stderr
+        if operation == "--drift":
+            assert f"symlink at {temp_alias}" in refused.stderr, refused.stderr
+        else:
+            assert f"{aliased_baseline}: the path contains a symbolic link." in refused.stderr
+        assert baseline.read_bytes() == before
 
 
 def test_second_change_window_is_stated_with_its_unobserved_rule():
