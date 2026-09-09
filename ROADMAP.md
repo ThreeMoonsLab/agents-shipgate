@@ -88,16 +88,21 @@ or qualification labels.
 Host-only discovery #568 is implemented in
 [#614](https://github.com/ThreeMoonsLab/agents-shipgate/pull/614), with its first
 independent PR review correction published; merge remains subject to the
-current control result. Final-wheel provenance #570 now has a candidate-only
+current control result. Final-wheel provenance #570 is implemented in
+[#616](https://github.com/ThreeMoonsLab/agents-shipgate/pull/616), with a candidate-only
 build path, an immutable generated Action pin and a hash-checked exact-wheel
 Action input. Its read-only distribution smoke compares the installed CLI and
 Action on the existing refund fixture. These are implementation and distribution
 checks, not release qualification. Keep #570 open through the release owner's
 actual published-tag/download observation; do not wait for that post-publication
-observation to implement #510's isolated negative rehearsal.
+observation to implement #510's isolated negative rehearsal. The new manual
+smoke needs human review/merge before GitHub can dispatch it from the default
+branch. Local replay is not hosted evidence. Automatic approval review also
+stopped #510's new protected workflow and an additional PR trigger for #570;
+those rejected edits are absent and need human handling.
 
 Newly discovered issues #575/#577/#580/#581, #584–#586, #588/#590, #592/#593,
-#596–#598/#601, #607, #609–#611 remain separately deferred; they are not silently
+#596–#598/#601, #607, #609–#611, #613/#615/#617 remain separately deferred; they are not silently
 added to this implementation pass or counted as repairs. #609 documents a frozen
 preflight schema URL/discriminator mismatch; the current successor uses a fresh
 version without rewriting historical bytes. #610 owns the distinct compatibility
@@ -105,6 +110,9 @@ question of completed planning results exposing the shared permission vector;
 preflight still supplies no verifier-bound current-control identity. #611 records
 header-like hunk rows lost by the existing diff parser; incomplete comparisons
 continue to require review until that separate repair lands.
+The latest three cover directory-valued host configuration omitted by audit,
+a corruption drill that rejects its filename before comparing wheel payloads,
+and fixture output overflowing the CI summary. None is counted as repaired.
 
 The following sequence and approved release bars still apply. Contract
 convergence, historical catch results, report freeze, actual human ownership,
@@ -305,7 +313,7 @@ a hosted control plane or broader adapters do not precede this release.
 Twelve merged PRs remain delivered: reader/identity repairs (#540/#541/#544),
 errors/prose-check retirement (#546/#549), request/evaluation/PR presentation
 (#551/#554/#556), finding/effect evidence (#558/#560), qualification diagnostics
-and history (#562/#565). **#328/#337/#515/#516/#520 remain open** for residual
+and history (#562/#565). **#328/#337/#515/#520 remain open** for residual
 scopes; an epic's entire aspiration is not a new release prerequisite.
 
 Build on existing manifest-free check, preflight, current control, capability
