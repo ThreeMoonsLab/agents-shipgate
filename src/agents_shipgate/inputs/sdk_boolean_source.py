@@ -15,6 +15,7 @@ from agents_shipgate.schemas.guard_dependencies import BooleanSourceBehavior, Bo
 
 Value = Callable[[dict[str, bool]], bool]
 Step = Callable[[dict[str, bool]], tuple[bool, bool | None]]
+GuardTable = tuple[list[str], tuple[bool, ...]]
 
 
 class _Unsupported(ValueError):
@@ -63,7 +64,7 @@ def _expression(
     node: ast.expr,
     names: set[str],
     guard_name: str | None,
-    guard: tuple[list[str], Value] | None,
+    guard: GuardTable | None,
     depth: int = 0,
 ) -> Value:
     if depth > 24:
@@ -90,9 +91,9 @@ def _expression(
         and len(node.args) == len(guard[0])
     ):
         arguments = [_expression(arg, names, None, None, depth + 1) for arg in node.args]
-        return lambda values: guard[1](
-            {name: arg(values) for name, arg in zip(guard[0], arguments, strict=True)}
-        )
+        return lambda values: guard[1][
+            sum((1 << i) if argument(values) else 0 for i, argument in enumerate(arguments))
+        ]
     raise _Unsupported("function_expression_dependency_not_supported")
 
 
@@ -100,7 +101,7 @@ def _sequence(
     body: list[ast.stmt],
     names: set[str],
     guard_name: str,
-    guard: tuple[list[str], Value],
+    guard: GuardTable,
     depth: int = 0,
 ) -> Step:
     if depth > 24:
@@ -238,8 +239,15 @@ def read_boolean_source_behavior(
             raise _Unsupported("helper_function_not_closed")
         predicate = _expression(helper[0].value, set(guard_parameters), None, None)
         binding = _binding(tree, definition, guard_name, target.name, guard_module)
+        # The entire helper expression was validated before any evaluation.
+        # Each helper input is evaluated once, independently of the number of
+        # tool parameters or repeated calls; AST limits must not multiply.
+        table = tuple(
+            predicate({name: bool(mask & (1 << i)) for i, name in enumerate(guard_parameters)})
+            for mask in range(1 << len(guard_parameters))
+        )
         function = _sequence(
-            _body(definition), set(parameters), guard_name, (guard_parameters, predicate)
+            _body(definition), set(parameters), guard_name, (guard_parameters, table)
         )
         parameters = sorted(parameters)
         returns = []

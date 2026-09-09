@@ -281,3 +281,51 @@ def test_deep_boolean_model_refuses_without_crashing(tmp_path):
     (row,) = read_workspace(tmp_path, manifest)
     assert row.source_behavior.status == "unresolved"
     assert row.source_behavior.reason == "source_model_depth_limit"
+
+
+def test_high_fanout_helper_is_evaluated_once_per_distinct_boolean_input(tmp_path, monkeypatch):
+    import ast
+
+    from agents_shipgate.inputs import sdk_boolean_source, sdk_guard_dependencies
+
+    manifest = write_workspace(tmp_path)
+    parameters = ", ".join(f"p{i}: bool" for i in range(8))
+    source = (
+        "from agents import Agent, function_tool\n"
+        "from .guards import permitted as allowed\n\n"
+        f"@function_tool\ndef refund({parameters}) -> bool:\n"
+        "    if not allowed(p0):\n        return False\n"
+        "    return " + " and ".join(["allowed(p0)"] * 790) + "\n\n"
+        'agent = Agent(name="Refund", tools=[refund])\n'
+    )
+    helper = "def permitted(p0: bool) -> bool:\n    return " + " and ".join(["True"] * 4000) + "\n"
+    for text in (source, helper):
+        assert sdk_guard_dependencies.guard_module_metadata(ast.parse(text), text)[1]
+    _change(tmp_path, source)
+    (tmp_path / "refund_agent/guards.py").write_text(helper)
+    original = sdk_boolean_source._expression
+    evaluations = 0
+
+    def count_helper(node, *args, **kwargs):
+        expression = original(node, *args, **kwargs)
+        if isinstance(node, ast.BoolOp) and len(node.values) == 4000:
+
+            def evaluate(values):
+                nonlocal evaluations
+                evaluations += 1
+                # Structural validation above still visits every real operand.
+                # This all-True helper is constant: count calls without doing
+                # the old implementation's 809,984,000 leaf evaluations.
+                return True
+
+            return evaluate
+        return expression
+
+    monkeypatch.setattr(sdk_boolean_source, "_expression", count_helper)
+    (row,) = read_workspace(tmp_path, manifest)
+    assert row.source_behavior.status == "observed"
+    assert row.source_behavior.returns == ["true"] * 256
+    assert evaluations == 2
+    monkeypatch.setattr(sdk_boolean_source, "_expression", original)
+    (actual,) = read_workspace(tmp_path, manifest)
+    assert actual == row
