@@ -244,7 +244,10 @@ BASE_CACHE_KEEP_ENTRIES = 16
 #     a ``target_file`` naming a base archive that no longer exists. A cached
 #     report is admitted on its hash, so a poisoned entry would be served
 #     verbatim until its base tree changed.
-BASE_CACHE_KEY_EPOCH = 4
+# 5 — bounded imported-guard evidence retains each base source/dependency
+#     snapshot (#557). Older cached reports contain no comparable record;
+#     they must be regenerated rather than interpreted as guard absence.
+BASE_CACHE_KEY_EPOCH = 5
 MAX_HUMAN_AUTHORIZATION_BYTES = 1024 * 1024
 MAX_WORKTREE_MANIFEST_BYTES = 4 * 1024 * 1024
 MAX_WORKTREE_CHANGED_FILE_BYTES = 64 * 1024 * 1024

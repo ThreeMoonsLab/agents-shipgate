@@ -191,6 +191,32 @@ def build_verification_plan(
 ) -> VerificationPlan:
     effective_plugins_enabled = _plugins_enabled(plugins_enabled)
     normalized_options = dict(options)
+    # This is reader provenance, never a caller-supplied assertion. Named
+    # negative lookups matter as much as the bytes that resolved an import.
+    normalized_options.pop("dependency_inputs", None)
+    snapshot = active_static_input_snapshot()
+    if snapshot is not None and (snapshot.dependency_paths() or snapshot.absent_dependency_paths() or snapshot.present_dependency_paths() or snapshot.unconfirmable_dependency_paths()):
+        normalized_options["dependency_inputs"] = {
+            "files": sorted(
+                [{"path": path.relative_to(input_root).as_posix(),
+                  "sha256": sha256_bytes(snapshot.read_bytes(path)),
+                  "size_bytes": len(snapshot.read_bytes(path))}
+                 for path in snapshot.dependency_paths()],
+                key=lambda row: row["path"],
+            ),
+            "absent_paths": sorted(
+                path.relative_to(input_root).as_posix()
+                for path in snapshot.absent_dependency_paths()
+            ),
+            "present_paths": sorted(
+                path.relative_to(input_root).as_posix()
+                for path in snapshot.present_dependency_paths()
+            ),
+            "unconfirmable_paths": sorted(
+                path.relative_to(input_root).as_posix()
+                for path in snapshot.unconfirmable_dependency_paths()
+            ),
+        }
     normalized_options["plugins_enabled"] = effective_plugins_enabled
     overlay_paths = sorted(
         set(changed_files if worktree_overlay_paths is None else worktree_overlay_paths)
@@ -855,6 +881,8 @@ def validate_plan_inputs(
 ) -> None:
     """Fail closed unless every portable plan blob matches the supplied root."""
 
+    validate_dependency_inputs(plan, root=root)
+
     blobs = [
         plan.inputs.config,
         *plan.inputs.tool_sources,
@@ -889,6 +917,63 @@ def validate_plan_inputs(
         raise ValueError("plan diff input hash does not match")
     if resolved_diff.stat().st_size != plan.inputs.diff.size_bytes:
         raise ValueError("plan diff input size does not match")
+
+
+def validate_dependency_inputs(plan: VerificationPlan, *, root: Path) -> None:
+    """Reconfirm reader-selected bytes and named absence, including ignored files."""
+
+    from agents_shipgate.core.static_inputs import StaticInputSnapshot
+
+    declaration = plan.inputs.options.get("dependency_inputs")
+    if declaration is None:
+        return
+    if not isinstance(declaration, dict) or set(declaration) != {"files", "absent_paths", "present_paths", "unconfirmable_paths"}:
+        raise ValueError("invalid dependency input identity")
+    files, absent, present = declaration["files"], declaration["absent_paths"], declaration["present_paths"]
+    unconfirmable = declaration["unconfirmable_paths"]
+    if not all(isinstance(value, list) for value in (files, absent, present, unconfirmable)):
+        raise ValueError("invalid dependency input identity")
+    paths = []
+    for row in files:
+        if not isinstance(row, dict) or set(row) != {"path", "sha256", "size_bytes"}:
+            raise ValueError("invalid dependency file identity")
+        digest = row["sha256"]
+        if (not isinstance(digest, str) or len(digest) != 71
+                or not digest.startswith("sha256:")
+                or any(char not in "0123456789abcdef" for char in digest[7:])
+                or type(row["size_bytes"]) is not int or row["size_bytes"] < 0):
+            raise ValueError("invalid dependency file identity")
+        paths.append(row["path"])
+    for values in (paths, absent, present, unconfirmable):
+        if any(
+            not isinstance(path, str) or not path or Path(path).is_absolute()
+            or ".." in Path(path).parts or Path(path).as_posix() != path
+            or "\\" in path or ":" in path
+            for path in values
+        ):
+            raise ValueError("dependency input escapes supplied root")
+        if values != sorted(set(values)):
+            raise ValueError("dependency input paths must be sorted and unique")
+    if (set(paths) | set(present)) & set(absent):
+        raise ValueError("dependency input is both present and absent")
+    if unconfirmable:
+        raise ValueError(
+            "A guard dependency could not be captured. Inspect "
+            "tool_surface_facts.guard_dependencies, repair unreadable paths "
+            "and re-run verification before using current authority."
+        )
+    snapshot = StaticInputSnapshot(root.resolve())
+    for row in files:
+        data = snapshot.read_bytes(root.resolve() / row["path"])
+        if len(data) != row["size_bytes"] or sha256_bytes(data) != row["sha256"]:
+            raise ValueError("dependency input changed since verification")
+    for path in absent:
+        if not snapshot.bind_dependency_absence(root.resolve() / path):
+            raise ValueError("dependency lookup candidate appeared since verification")
+    for path in present:
+        if snapshot.bind_dependency_absence(root.resolve() / path):
+            raise ValueError("dependency lookup candidate disappeared since verification")
+    snapshot.finish()
 
 
 def _manifest_declared_input_paths(*, config_path: Path, input_root: Path) -> list[Path]:

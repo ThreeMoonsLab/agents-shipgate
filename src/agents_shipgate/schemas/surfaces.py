@@ -5,6 +5,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agents_shipgate.schemas.common import BaselineStatus, Confidence, Severity
+from agents_shipgate.schemas.guard_dependencies import (
+    GuardDependencyComparison,
+    GuardDependencyEvidence,
+)
 from agents_shipgate.schemas.semantic import ToolSemanticEvidence
 
 ToolSurfaceDiffBaseKind = Literal["none", "report", "baseline"]
@@ -90,6 +94,7 @@ class ToolSurfaceFacts(BaseModel):
     scopes: list[ToolSurfaceScopeFact] = Field(default_factory=list)
     controls: list[ToolSurfaceControlFact] = Field(default_factory=list)
     policies: list[ToolSurfacePolicyFact] = Field(default_factory=list)
+    guard_dependencies: list[GuardDependencyEvidence] = Field(default_factory=list, exclude_if=lambda value: not value)
 
 
 class ToolSurfaceDiffBase(BaseModel):
@@ -251,6 +256,7 @@ class ToolSurfaceDiff(BaseModel):
         default_factory=ToolSurfaceFindingDeltas
     )
     notes: list[str] = Field(default_factory=list)
+    guard_comparisons: list[GuardDependencyComparison] = Field(default_factory=list, exclude_if=lambda value: not value)
 
 
 ActionEffect = Literal[

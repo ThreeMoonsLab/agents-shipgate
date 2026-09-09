@@ -15,6 +15,7 @@ from agents_shipgate.core.artifact_models import (
 from agents_shipgate.core.domain import AgentRemoteBinding, Tool, ToolkitScopeBound
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.findings.identity import _canonicalize_for_fingerprint
+from agents_shipgate.core.guard_dependencies import compare_guard_dependencies
 from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.core.lenses.finding_comparison import finding_comparison_notes
 from agents_shipgate.core.remote_bindings import remote_binding_facts
@@ -25,6 +26,7 @@ from agents_shipgate.core.toolkit_scope import toolkit_bound_facts
 from agents_shipgate.schemas.baseline import BaselineFile
 from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment
 from agents_shipgate.schemas.capability_change import EffectivePolicy
+from agents_shipgate.schemas.guard_dependencies import GuardDependencyEvidence
 from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
     PolicyToolEntry,
@@ -96,10 +98,12 @@ def build_tool_surface_facts(
     anthropic_artifacts: AnthropicArtifacts | None,
     toolkit_bounds: list[ToolkitScopeBound] | tuple[ToolkitScopeBound, ...] = (),
     remote_bindings: list[AgentRemoteBinding] | tuple[AgentRemoteBinding, ...] = (),
+    guard_dependencies: list[GuardDependencyEvidence] | tuple[GuardDependencyEvidence, ...] = (),
 ) -> ToolSurfaceFacts:
     del findings  # Reserved for future evidence projections.
     return ToolSurfaceFacts(
         tools=_tool_facts(tools),
+        guard_dependencies=list(guard_dependencies),
         scopes=_scope_facts(manifest, tools),
         controls=_control_facts(manifest, tools, api_artifacts, anthropic_artifacts),
         policies=_policy_facts_with_carried_bounds(
@@ -236,6 +240,7 @@ def compute_tool_surface_diff(
             )
         return ToolSurfaceDiff(
             enabled=False,
+            guard_comparisons=compare_guard_dependencies(current.guard_dependencies, []),
             base=diff_base,
             summary=_summary_from_diff_parts(finding_deltas=finding_deltas),
             finding_deltas=finding_deltas,
@@ -264,6 +269,7 @@ def compute_tool_surface_diff(
         notes.extend(reference.notes)
     return ToolSurfaceDiff(
         enabled=True,
+        guard_comparisons=compare_guard_dependencies(current.guard_dependencies, base.guard_dependencies),
         base=_diff_base(reference),
         summary=summary,
         tools=tool_changes,

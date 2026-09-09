@@ -805,6 +805,20 @@ def _append_tool_surface(lines: list[str], report: ReadinessReport) -> None:
 def _append_tool_surface_diff(lines: list[str], report: ReadinessReport) -> None:
     diff = report.tool_surface_diff
     lines.extend(["## Tool Surface Diff", ""])
+    visible_guards = [row for row in diff.guard_comparisons if
+                      (row.before is not None and row.before.status == "observed") or
+                      (row.after is not None and row.after.status == "observed")]
+    if visible_guards:
+        lines.extend(["### Imported guard evidence", "",
+            "Boolean source predicates only; dependency coverage is incomplete and no finding is excluded.", ""])
+        for comparison in visible_guards[:8]:
+            before, after = comparison.before, comparison.after
+            def location(row):
+                return f"{row.guard_path}:{row.guard_line}" if row and row.guard_path else "unavailable"
+            lines.append(f"- {_safe_markdown_text(comparison.tool_name)}: {comparison.direction.replace('_', ' ')}; base `{_safe_markdown_text(location(before))}`, head `{_safe_markdown_text(location(after))}`.")
+        if len(visible_guards) > 8:
+            lines.append(f"{len(visible_guards) - 8} more guard comparisons in report.json.")
+        lines.append("")
     if not diff.enabled:
         note = diff.notes[0] if diff.notes else "No comparison source was available."
         lines.extend(

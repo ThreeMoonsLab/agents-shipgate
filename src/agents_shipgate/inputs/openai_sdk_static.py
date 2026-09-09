@@ -12,7 +12,7 @@ from agents_shipgate.core.domain import (
     ToolkitScopeBound,
 )
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.inputs.common import resolve_input_path, stable_tool_id
+from agents_shipgate.inputs.common import load_text_file, resolve_input_path, stable_tool_id
 from agents_shipgate.inputs.config_trace import trace_config_binding
 from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
@@ -24,7 +24,12 @@ from agents_shipgate.inputs.python_static import (
     function_signature,
     parse_python_file,
 )
+from agents_shipgate.inputs.sdk_guard_dependencies import (
+    guard_module_metadata,
+    read_guard_dependency,
+)
 from agents_shipgate.schemas.coverage_recovery import CoverageRecovery, SourceRecoveryEvidence
+from agents_shipgate.schemas.guard_dependencies import GuardDependencyEvidence
 from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
     ToolSourceConfig,
@@ -65,12 +70,14 @@ def load_openai_sdk_static_tools(
             raise InputParseError(f"OpenAI Agents SDK source directory has no Python files: {path}")
         tools: list[Tool] = []
         toolkit_bounds: list[ToolkitScopeBound] = []
+        guard_dependencies: list[GuardDependencyEvidence] = []
         for python_file in python_files:
-            file_tools, file_bounds = _load_python_file(python_file, source, base_dir)
+            file_tools, file_bounds, file_guards = _load_python_file(python_file, source, base_dir)
             tools.extend(file_tools)
             toolkit_bounds.extend(file_bounds)
+            guard_dependencies.extend(file_guards)
     elif path.suffix.lower() == ".py":
-        tools, toolkit_bounds = _load_python_file(path, source, base_dir)
+        tools, toolkit_bounds, guard_dependencies = _load_python_file(path, source, base_dir)
         python_files = [path]
     else:
         raise InputParseError(
@@ -87,6 +94,7 @@ def load_openai_sdk_static_tools(
         binding_observations=binding_observations,
         warnings=[*_toolkit_binding_warnings(toolkit_bounds), *binding_warnings],
         recovery_evidence=recovery_evidence,
+        guard_dependencies=guard_dependencies,
     )
 
 
@@ -119,9 +127,12 @@ def _load_python_file(
     path: Path,
     source: ToolSourceConfig,
     base_dir: Path,
-) -> tuple[list[Tool], list[ToolkitScopeBound]]:
+) -> tuple[list[Tool], list[ToolkitScopeBound], list[GuardDependencyEvidence]]:
     try:
-        tree = parse_python_file(path, label="OpenAI Agents SDK")
+        source_text = load_text_file(path)
+        tree = ast.parse(source_text, filename=str(path))
+    except SyntaxError as exc:
+        raise InputParseError(f"Unable to parse OpenAI Agents SDK entrypoint {path}: {exc.msg}") from exc
     except InputParseError as exc:
         message = str(exc).replace(
             "OpenAI Agents SDK Python entrypoint",
@@ -130,12 +141,17 @@ def _load_python_file(
         raise InputParseError(message) from exc
     ref = display_path(path, base_dir)
     decorator_names = _function_tool_decorator_names(tree)
-    tools = [
-        _function_to_tool(node, source, ref, decorator_names)
-        for node in ast.walk(tree)
-        if _is_function_tool(node, decorator_names)
+    definitions = [node for node in ast.walk(tree) if _is_function_tool(node, decorator_names)]
+    tools = [_function_to_tool(node, source, ref, decorator_names) for node in definitions]
+    source_sha256, source_within_limits = guard_module_metadata(tree, source_text)
+    guards = [
+        read_guard_dependency(
+            tree=tree, source_sha256=source_sha256, source_within_limits=source_within_limits,
+            path=path, root=base_dir, tool=tool, definition=node,
+        )
+        for tool, node in zip(tools, definitions, strict=True)
     ]
-    return tools, _detect_toolkit_bounds(tree, ref)
+    return tools, _detect_toolkit_bounds(tree, ref), guards
 
 
 def _extract_agent_bindings(

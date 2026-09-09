@@ -400,6 +400,7 @@ def _sanitize_for_output(
         privacy_stats=privacy_stats,
         toolkit_bounds=decision.context.toolkit_bounds,
         remote_bindings=decision.context.remote_bindings,
+        guard_dependencies=decision.context.guard_dependencies,
     )
     source_recovery_evidence = _sanitize_source_recovery_evidence(inputs.loaded_sources, privacy_stats)
     privacy_audit = build_privacy_audit(
@@ -606,6 +607,7 @@ def _public_tool_surfaces(
     privacy_stats,
     toolkit_bounds=(),
     remote_bindings=(),
+    guard_dependencies=(),
 ):
     public_tool_surface_facts = sanitize_model(
         build_tool_surface_facts(
@@ -616,11 +618,17 @@ def _public_tool_surfaces(
             public_anthropic_artifacts,
             toolkit_bounds,
             remote_bindings,
+            guard_dependencies,
         ),
         ToolSurfaceFacts,
         stats=privacy_stats,
         path="tool_surface_facts",
     )
+    for original, public in zip(guard_dependencies, public_tool_surface_facts.guard_dependencies, strict=True):
+        if public != original:
+            public.status = "redacted"
+            public.reason = "guard_evidence_redacted"
+            public.allowed_inputs = []
     if diffs.diff_reference_error:
         public_tool_surface_diff = disabled_tool_surface_diff(
             redact_data(
