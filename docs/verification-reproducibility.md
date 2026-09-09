@@ -11,6 +11,49 @@ The terminal trust root is
 Read it before the handoff or report. A receipt is written last and only after
 all referenced artifacts exist.
 
+## Current control and receipt closure
+
+Artifact integrity and current authority have separate read boundaries:
+
+| Reader | Validated evidence | What it does not establish |
+| --- | --- | --- |
+| `read_current_control` / `agent control` | Every explicit pointer entry, generation consistency, and live workspace currency. `capture` returns selected bytes from that same validated pass. | Integrity of a receipt-only optional file absent from the pointer map. Requesting an unbound capture key returns no bytes for it. |
+| `load_validated_receipt_artifacts` | The complete terminal receipt closure, including optional files, from a bounded private snapshot. | Current workspace state, review eligibility, or operational permission on its own. |
+
+`human-review-request.json` is one such optional artifact. Changing, deleting,
+oversizing, or symlinking it must fail a full-closure read but does not invalidate
+an otherwise current compact pointer. Changing a pointer-bound file fails the
+compact read even with `capture=()`. Successful capture never means all files
+mentioned inside the captured JSON were read.
+
+When a consumer needs both guarantees, capture `verification_receipt` in the
+current-control read, validate the full closure, and compare the returned receipt
+with that captured receipt before consuming any optional bytes. Use the bytes
+returned by the loaders; reopening paths creates a second observation that can
+belong to another run. Preserve the current-control live-workspace checks and
+repeat validation before consequential actions. Full closure validation cannot
+grant a permission denied by current control.
+
+The production control renderers consume captured verifier bytes. The human
+review evaluator additionally validates the full closure, joins the receipts,
+and checks the actual request against its reconstruction. Authorization request
+and execution consumers also validate the full closure; execution revalidates
+immediately before dispatch. Standalone artifact renderers make no implicit
+current-control promise.
+
+The compact contract remains unchanged: a 1 MiB pointer, 256 MiB per bound
+artifact, and up to three read attempts; it has no aggregate artifact budget.
+The full loader defaults to 64 artifacts, 64 MiB per artifact, and 256 MiB total,
+with 4 MiB bounds on the canonical colocated receipt and artifact manifest.
+Both use no-follow regular-file reads. `allowed_artifact_names` rejects unexpected
+references; it does not filter which referenced artifacts are validated. The
+compact read does no additional optional-file I/O; regression tests pin the read
+set independently of `capture`, rather than imposing a timing-dependent limit.
+
+The [normative control recipe](agent-contract-current.md#two-read-entry-points)
+defines freshness and permission routing. These boundaries change neither its
+wire format nor the release decision.
+
 ## Identity graph
 
 ```text

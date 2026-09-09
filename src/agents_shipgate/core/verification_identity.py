@@ -694,7 +694,18 @@ def load_validated_receipt_artifacts(
     max_artifact_size: int = 64 * 1024 * 1024,
     max_total_size: int = 256 * 1024 * 1024,
 ) -> tuple[VerificationReceipt, dict[str, bytes]]:
-    """Load receipt-bound artifact bytes from one validated snapshot."""
+    """Load the entire receipt closure as bytes from one validated snapshot.
+
+    Unlike ``read_current_control``, this includes optional artifacts absent
+    from the pointer map. ``allowed_artifact_names`` rejects unexpected names;
+    it does not select a subset to validate. Consume the returned bytes rather
+    than reopening source files after this snapshot has been validated.
+
+    Closure integrity alone establishes neither workspace currency nor action
+    authority. When joining this result to a current-control read, compare the
+    returned receipt with that read's captured ``verification_receipt`` and
+    retain the current-control freshness and consequential-action rechecks.
+    """
 
     with validated_receipt_snapshot(
         receipt_path=receipt_path,
