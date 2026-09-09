@@ -427,6 +427,7 @@ jobs:
         # environment to constrain. See constraints/release-build.txt.
         env:
           PIP_CONSTRAINT: constraints/release-build.txt
+          AGENTS_SHIPGATE_CANDIDATE_SOURCE_COMMIT: ${{ steps.candidate.outputs.source_sha }}
         run: |
           set -euo pipefail
           if [ -e source-build ] || [ -L source-build ]; then
@@ -440,7 +441,13 @@ jobs:
           # outside the lock — the locked closure would be bypassed for exactly
           # the code that produces the artifact. Verified byte-equivalent to an
           # isolated build.
-          python -m build --wheel --no-isolation --outdir source-build .
+          # Keep build output outside the checkout until the hook has
+          # revalidated its clean source; it must not certify its own output
+          # as an untracked input. This mode is scoped to this step only.
+          candidate_build_dir="$(mktemp -d "${RUNNER_TEMP}/shipgate-source-build.XXXXXX")"
+          python -m build --wheel --no-isolation --outdir "${candidate_build_dir}" .
+          mkdir source-build
+          cp "${candidate_build_dir}"/*.whl source-build/
 
       - name: Download configured qualification inputs
         id: qualified

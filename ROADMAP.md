@@ -76,7 +76,7 @@ sub-issue of #557, owns the newly isolated operation-to-policy-predicate
 relationship. #557 and #515 remain open; these source models do not satisfy
 the TypeScript MongoDB acceptance case or historical safety bars.
 
-The prose/structure implementation in #545 separates
+[#612](https://github.com/ThreeMoonsLab/agents-shipgate/pull/612) closes #545 and #516. It separates
 supported instruction structure from prose across the final/local verifier,
 preflight, host drift and exact edit-hook previews. Its successor schemas retain
 raw byte freshness, unknown-structure review and legacy evidence migration;
@@ -84,6 +84,17 @@ prose edits cannot seed or consume hook approval memory. #516's deprecated
 weakening ID remains available and non-emitting. These changes do not supply
 reviewed deployment declarations, independent release signers, pilot observations
 or qualification labels.
+
+Host-only discovery #568 is implemented in
+[#614](https://github.com/ThreeMoonsLab/agents-shipgate/pull/614), with its first
+independent PR review correction published; merge remains subject to the
+current control result. Final-wheel provenance #570 now has a candidate-only
+build path, an immutable generated Action pin and a hash-checked exact-wheel
+Action input. Its read-only distribution smoke compares the installed CLI and
+Action on the existing refund fixture. These are implementation and distribution
+checks, not release qualification. Keep #570 open through the release owner's
+actual published-tag/download observation; do not wait for that post-publication
+observation to implement #510's isolated negative rehearsal.
 
 Newly discovered issues #575/#577/#580/#581, #584–#586, #588/#590, #592/#593,
 #596–#598/#601, #607, #609–#611 remain separately deferred; they are not silently

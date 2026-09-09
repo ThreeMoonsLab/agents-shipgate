@@ -1,0 +1,112 @@
+name: Release Engine Smoke (unqualified)
+
+# Distribution evidence only: no publishing, qualification promotion, signing
+# identity, production environment or write token. The same immutable source
+# supplies the candidate build and the Action exercised in the disposable job.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      wheel_filename: ${{ steps.build.outputs.wheel_filename }}
+      wheel_sha256: ${{ steps.build.outputs.wheel_sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install the hash-locked build backend
+        run: python -m pip install --require-hashes -r constraints/build-backend.txt
+      - name: Build the exact source candidate
+        id: build
+        env:
+          AGENTS_SHIPGATE_CANDIDATE_SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          candidate_build_dir="$(mktemp -d "${RUNNER_TEMP}/shipgate-engine-wheel.XXXXXX")"
+          python -m hatchling build -t wheel -d "${candidate_build_dir}"
+          mkdir smoke-dist
+          cp "${candidate_build_dir}"/*.whl smoke-dist/
+          python - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          wheels = list(Path("smoke-dist").glob("*.whl"))
+          assert len(wheels) == 1
+          wheel = wheels[0]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"wheel_filename={wheel.name}\n")
+              output.write(f"wheel_sha256={hashlib.sha256(wheel.read_bytes()).hexdigest()}\n")
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: unqualified-engine-wheel
+          path: smoke-dist/*.whl
+          if-no-files-found: error
+
+  downstream:
+    needs: candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: unqualified-engine-wheel
+          path: .shipgate-smoke/wheels
+      - name: Install dependencies from the reviewed lock
+        run: python -m pip install --require-hashes -r constraints/dev.txt
+      - name: Install the exact wheel for the local half
+        env:
+          SHIPGATE_WHEEL: .shipgate-smoke/wheels/${{ needs.candidate.outputs.wheel_filename }}
+          SHIPGATE_WHEEL_SHA256: ${{ needs.candidate.outputs.wheel_sha256 }}
+        run: python scripts/install_action_engine.py
+      - name: Exercise the installed CLI in a disposable adoption and PR workflow
+        id: fixture
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          WHEEL_PATH: .shipgate-smoke/wheels/${{ needs.candidate.outputs.wheel_filename }}
+        run: |
+          python scripts/release_engine_smoke.py prepare \
+            --source-commit "${SOURCE_SHA}" --wheel "${WHEEL_PATH}"
+      - name: Exercise the Action from the same immutable checkout
+        uses: ./
+        with:
+          shipgate_wheel: .shipgate-smoke/wheels/${{ needs.candidate.outputs.wheel_filename }}
+          shipgate_wheel_sha256: ${{ needs.candidate.outputs.wheel_sha256 }}
+          config: .shipgate-smoke/fixture/shipgate.yaml
+          base_ref: ${{ steps.fixture.outputs.base_ref }}
+          head_ref: ${{ steps.fixture.outputs.head_ref }}
+          ci_mode: advisory
+          output_dir: .shipgate-smoke/ci
+          upload_artifact: "false"
+          check_annotations: "false"
+          pr_comment: "false"
+      - name: Require local and Action capability results to agree
+        run: python scripts/release_engine_smoke.py compare > .shipgate-smoke/distribution-evidence.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: unqualified-engine-smoke
+          path: |
+            .shipgate-smoke/prepared.json
+            .shipgate-smoke/distribution-evidence.json
+            .shipgate-smoke/local
+            .shipgate-smoke/ci
+          include-hidden-files: true
+          if-no-files-found: error

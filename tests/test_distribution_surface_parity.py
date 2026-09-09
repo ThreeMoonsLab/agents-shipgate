@@ -175,6 +175,7 @@ SURFACES: tuple[Surface, ...] = (
         {
             "executable_pin": (
                 f"{_ADOPTER_PINS}::test_the_emitted_workflow_pins_the_release_and_not_the_source_tree",
+                "tests/test_release_source.py::test_candidate_workflow_uses_immutable_source_before_and_after_publication",
             )
         },
     ),
@@ -470,7 +471,7 @@ def _defined_test_names() -> set[str]:
     """
 
     names = set(_test_names_in(Path(__file__)))
-    for relpath in {_ADOPTER_PINS}:
+    for relpath in {_ADOPTER_PINS, "tests/test_release_source.py"}:
         module = REPO_ROOT / relpath
         assert module.is_file(), f"registry names tests in {relpath}, which is gone"
         names |= {f"{relpath}::{name}" for name in _test_names_in(module)}

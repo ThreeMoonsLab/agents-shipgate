@@ -24,33 +24,29 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from agents_shipgate import __version__
 from agents_shipgate.published_release import latest_published_action_ref
+from agents_shipgate.release_source import candidate_action_ref
 
 
 def _action_ref() -> str:
-    """Return the action ref the generated workflow should pin to.
+    return _engine_selection()[0]
 
-    The newest *published* release tag, not ``v<__version__>``. ``@main`` is
-    unpinned and breaks reproducibility, which is why this pins at all — but
-    "pin to a ref that resolves" and "pin to the version of the tree that
-    happens to be emitting" are different requirements, and only the first was
-    ever needed. This file is written into a stranger's repository and then
-    executed by their CI, so a ref that does not exist yet fails at
-    action-resolution time, before any step runs: for 56 days every workflow
-    `init --ci` wrote named a tag that had never been cut, and a first-time
-    adopter's first Shipgate run was a red check about our repository rather
-    than theirs (#506).
 
-    ``AGENTS_SHIPGATE_WORKFLOW_REF`` overrides it for tracking ``main`` or
-    testing against another release. The override is the operator's claim that
-    the ref resolves; nothing here can check it.
+def _engine_selection() -> tuple[str, str | None]:
+    """Use the candidate's source SHA, or an ordinary build's published pin.
+
+    An explicit operator override still wins, but cannot hide a malformed
+    embedded record. No future tag, runtime network lookup, or wheel rewrite
+    is involved: the source SHA resolves before and after publication (#570).
     """
     import os
 
+    candidate_ref = candidate_action_ref()
     override = os.environ.get("AGENTS_SHIPGATE_WORKFLOW_REF")
     if override:
-        return override
-    return latest_published_action_ref()
+        return override, None
+    return (candidate_ref, __version__) if candidate_ref else (latest_published_action_ref(), None)
 
 
 # Inputs/outputs mirror ``action.yml``; update both when adding inputs.
@@ -77,6 +73,7 @@ jobs:
       - name: Run Agents Shipgate
         uses: ThreeMoonsLab/agents-shipgate@{ref}
         with:
+{engine_pin}\
           config: {config}
           ci_mode: advisory       # change to "strict" once findings are clean
           diff_base: target
@@ -111,7 +108,9 @@ def _yaml_scalar(value: str) -> str:
 
 
 def _render_workflow_template(config: str = DEFAULT_MANIFEST_PATH) -> str:
-    return _WORKFLOW_TEMPLATE.format(ref=_action_ref(), config=_yaml_scalar(config))
+    ref, version = _engine_selection()
+    engine_pin = f'          shipgate_version: "{version}"\n' if version else ""
+    return _WORKFLOW_TEMPLATE.format(ref=ref, engine_pin=engine_pin, config=_yaml_scalar(config))
 
 
 # Backwards-compat: tests and external callers may import the constant.
