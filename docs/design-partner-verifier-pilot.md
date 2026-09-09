@@ -342,9 +342,18 @@ git checkout <change-ref> && git merge <default-branch>   # or rebase onto it
 
 # Or — leave the PR untouched: snapshot the base ref outside the repository
 git checkout <default-branch>
-agents-shipgate audit --host --save-baseline --baseline-file /tmp/base-grants.json
+pilot_baseline_file="$(python3 -c 'from pathlib import Path; import tempfile; print(Path(tempfile.mkdtemp(prefix="agents-shipgate-pilot-")).resolve() / "base-grants.json")')"
+agents-shipgate audit --host --save-baseline --baseline-file "$pilot_baseline_file"
 git checkout <change-ref>
 ```
+
+Keep `pilot_baseline_file` in the same shell for the drift commands below.
+It names a new private temporary directory, resolved before the snapshot is
+written. This works with macOS's `/tmp` → `/private/tmp` alias and Linux's
+temporary directory without relaxing the baseline reader's no-symlink rule.
+To record the exact path for another shell, run `printf '%s\n' "$pilot_baseline_file"`.
+If a baseline path is refused because it contains a symbolic link, return to the
+base ref and rerun the snapshot recipe above; use the resulting path for drift.
 
 **Never `--save-baseline` from the changed checkout to get past that error.**
 That is what the CLI's own recovery line suggests when the file is missing,
@@ -363,7 +372,7 @@ agents-shipgate check --agent <codex|claude-code|cursor> \
 With the out-of-tree snapshot, pass it to the drift command every time:
 
 ```bash
-agents-shipgate audit --host --drift --baseline-file /tmp/base-grants.json \
+agents-shipgate audit --host --drift --baseline-file "$pilot_baseline_file" \
   --json --out shipgate-drift.json
 ```
 
@@ -463,11 +472,17 @@ Add Agents Shipgate as an advisory reviewer for this agent-capability change.
      b. leave the change branch untouched and keep the snapshot outside the
         repository:
         git checkout <default-branch>
+        pilot_baseline_file="$(python3 -c 'from pathlib import Path; import tempfile; print(Path(tempfile.mkdtemp(prefix="agents-shipgate-pilot-")).resolve() / "base-grants.json")')"
         agents-shipgate audit --host --save-baseline \
-          --baseline-file /tmp/base-grants.json
+          --baseline-file "$pilot_baseline_file"
         git checkout <change-ref>
-        and pass --baseline-file /tmp/base-grants.json to every drift command
-        below.
+        and pass --baseline-file "$pilot_baseline_file" to every drift command
+        below, in the same shell. To record the exact path for another shell:
+        printf '%s\n' "$pilot_baseline_file"
+        The temporary directory is private and resolved first: macOS's /tmp
+        alias must not reach the no-symlink baseline reader. If a path contains
+        a symbolic link, return to the base ref and rerun this snapshot recipe;
+        never replace it by saving a snapshot from the changed checkout.
    Never run --save-baseline from the changed checkout to clear a missing
    baseline error, even though the CLI's recovery line says to record one:
    from that checkout it acknowledges the expansion being reviewed and the
