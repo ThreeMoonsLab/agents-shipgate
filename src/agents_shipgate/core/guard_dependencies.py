@@ -6,6 +6,7 @@ from collections import defaultdict
 
 from agents_shipgate.core.domain import LoadedToolSource, Tool
 from agents_shipgate.schemas.guard_dependencies import (
+    BooleanSourceComparison,
     GuardDependencyComparison,
     GuardDependencyEvidence,
 )
@@ -58,6 +59,91 @@ def _valid_predicate(row: GuardDependencyEvidence) -> bool:
         and any(item.path == row.tool_path and item.role == "tool_module" for item in row.inputs)
         and any(item.path == row.guard_path and item.role == "guard_module" for item in row.inputs)
     )
+
+
+def _valid_source(row: GuardDependencyEvidence) -> bool:
+    source = row.source_behavior
+    return bool(
+        _valid_predicate(row)
+        and source is not None
+        and source.status == "observed"
+        and source.configuration_reads == "none"
+        and source.binding is not None
+        and type(source.binding.tool_bound) is bool
+        and len(source.parameters) <= 8
+        and source.parameters == sorted(set(source.parameters))
+        and set(row.parameters) <= set(source.parameters)
+        and len(source.returns) == 1 << len(source.parameters)
+        and all(value in {"true", "false", "none"} for value in source.returns)
+    )
+
+
+def _domain_direction(before: set[int], after: set[int]) -> str:
+    return (
+        "unchanged"
+        if before == after
+        else "widened"
+        if before < after
+        else "narrowed"
+        if after < before
+        else "changed"
+    )
+
+
+def _compare_source(
+    old: GuardDependencyEvidence | None, new: GuardDependencyEvidence | None
+) -> BooleanSourceComparison:
+    result = BooleanSourceComparison(reason="base_or_head_source_model_unavailable")
+    if old is None or new is None or not _valid_source(old) or not _valid_source(new):
+        return result
+    before, after = old.source_behavior, new.source_behavior
+    if (
+        old.tool_id,
+        old.source_id,
+        old.tool_path,
+        old.tool_symbol,
+        old.guard_path,
+        old.guard_symbol,
+        before.parameters,
+    ) != (
+        new.tool_id,
+        new.source_id,
+        new.tool_path,
+        new.tool_symbol,
+        new.guard_path,
+        new.guard_symbol,
+        after.parameters,
+    ):
+        result.reason = "source_subject_or_parameter_domain_changed"
+        return result
+    result.returns = "unchanged" if before.returns == after.returns else "changed"
+    previous = {i for i, value in enumerate(before.returns) if value == "true"}
+    following = {i for i, value in enumerate(after.returns) if value == "true"}
+    result.true_domain = _domain_direction(previous, following)
+    if (before.binding.agent_symbol, before.binding.agent_name) != (
+        after.binding.agent_symbol,
+        after.binding.agent_name,
+    ):
+        result.binding = "changed"
+        result.reason = "agent_source_identity_changed; bound relation is unresolved"
+        return result
+    result.binding = (
+        "unchanged"
+        if before.binding.tool_bound == after.binding.tool_bound
+        else "added"
+        if after.binding.tool_bound
+        else "removed"
+    )
+    result.bound_true_domain = _domain_direction(
+        previous if before.binding.tool_bound else set(),
+        following if after.binding.tool_bound else set(),
+    )
+    result.reason = (
+        "Compare the closed Boolean source function and its literal Agent tool membership only. "
+        "A true return is not approval, authority or an action effect; deployed wiring and "
+        "finding-predicate attribution remain unproved. No finding is excluded."
+    )
+    return result
 
 
 def compare_guard_dependencies(
@@ -121,6 +207,11 @@ def compare_guard_dependencies(
                 reason=reason,
                 before=old,
                 after=new,
+                source_behavior=(
+                    _compare_source(old, new)
+                    if any(row.source_behavior is not None for row in old_rows + new_rows)
+                    else None
+                ),
             )
         )
     return comparisons

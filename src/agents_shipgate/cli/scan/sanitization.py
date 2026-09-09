@@ -629,6 +629,12 @@ def _public_tool_surfaces(
             public.status = "redacted"
             public.reason = "guard_evidence_redacted"
             public.allowed_inputs = []
+            if public.source_behavior is not None:
+                public.source_behavior.status = "redacted"
+                public.source_behavior.reason = "source_behavior_evidence_redacted"
+                public.source_behavior.returns = []
+                public.source_behavior.binding = None
+                public.source_behavior.configuration_reads = None
     if diffs.diff_reference_error:
         public_tool_surface_diff = disabled_tool_surface_diff(
             redact_data(

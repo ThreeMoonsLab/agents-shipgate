@@ -1872,6 +1872,170 @@
       "title": "BindingSurfaceDiff",
       "type": "object"
     },
+    "BooleanSourceBehavior": {
+      "additionalProperties": false,
+      "description": "A closed source-function model, never deployed behavior or policy evidence.",
+      "properties": {
+        "binding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BooleanSourceBinding"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "configuration_reads": {
+          "anyOf": [
+            {
+              "const": "none",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Configuration Reads"
+        },
+        "parameters": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Parameters",
+          "type": "array"
+        },
+        "reader_profile": {
+          "const": "sdk_boolean_function/v1",
+          "default": "sdk_boolean_function/v1",
+          "title": "Reader Profile",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "returns": {
+          "items": {
+            "enum": [
+              "true",
+              "false",
+              "none"
+            ],
+            "type": "string"
+          },
+          "title": "Returns",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "observed",
+            "unresolved",
+            "redacted"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason"
+      ],
+      "title": "BooleanSourceBehavior",
+      "type": "object"
+    },
+    "BooleanSourceBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_name": {
+          "title": "Agent Name",
+          "type": "string"
+        },
+        "agent_symbol": {
+          "title": "Agent Symbol",
+          "type": "string"
+        },
+        "tool_bound": {
+          "title": "Tool Bound",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "agent_symbol",
+        "agent_name",
+        "tool_bound"
+      ],
+      "title": "BooleanSourceBinding",
+      "type": "object"
+    },
+    "BooleanSourceComparison": {
+      "additionalProperties": false,
+      "properties": {
+        "binding": {
+          "default": "unresolved",
+          "enum": [
+            "unchanged",
+            "added",
+            "removed",
+            "changed",
+            "unresolved"
+          ],
+          "title": "Binding",
+          "type": "string"
+        },
+        "bound_true_domain": {
+          "default": "unresolved",
+          "enum": [
+            "unchanged",
+            "widened",
+            "narrowed",
+            "changed",
+            "unresolved"
+          ],
+          "title": "Bound True Domain",
+          "type": "string"
+        },
+        "finding_exclusion_eligible": {
+          "const": false,
+          "default": false,
+          "title": "Finding Exclusion Eligible",
+          "type": "boolean"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "returns": {
+          "default": "unresolved",
+          "enum": [
+            "unchanged",
+            "changed",
+            "unresolved"
+          ],
+          "title": "Returns",
+          "type": "string"
+        },
+        "true_domain": {
+          "default": "unresolved",
+          "enum": [
+            "unchanged",
+            "widened",
+            "narrowed",
+            "changed",
+            "unresolved"
+          ],
+          "title": "True Domain",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "BooleanSourceComparison",
+      "type": "object"
+    },
     "CapabilityChangeBlock": {
       "additionalProperties": false,
       "description": "The diff-derived capability delta, grouped by direction.\n\nReviewer-facing projection over ``action_surface_diff`` /\n``tool_surface_diff`` (roadmap \u00a77.1). Four member lists \u2014\n``added`` / ``removed`` / ``broadened`` / ``narrowed`` \u2014 plus\n``enabled`` (mirrors the surface-diff enabled flag: ``False`` when no\nbase is available, so the block is a stable empty shape rather than\nabsent). Never gates on its own.",
@@ -4870,6 +5034,17 @@
           "title": "Reason",
           "type": "string"
         },
+        "source_behavior": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BooleanSourceComparison"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "tool_id": {
           "anyOf": [
             {
@@ -5002,6 +5177,17 @@
         "reason": {
           "title": "Reason",
           "type": "string"
+        },
+        "source_behavior": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BooleanSourceBehavior"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "source_id": {
           "title": "Source Id",

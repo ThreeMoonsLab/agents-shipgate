@@ -19,6 +19,7 @@ from agents_shipgate.core.static_inputs import (
 )
 from agents_shipgate.core.tool_identity import source_observation_id
 from agents_shipgate.core.trust_roots import IdentityBoundReadSession
+from agents_shipgate.inputs.sdk_boolean_source import read_boolean_source_behavior
 from agents_shipgate.schemas.guard_dependencies import (
     GuardDependencyEvidence,
     GuardInputEvidence,
@@ -390,6 +391,10 @@ def read_guard_dependency(
         evidence.allowed_inputs = allowed
         evidence.status = "observed"
         evidence.reason = "bounded_source_predicate_only"
+        evidence.source_behavior = read_boolean_source_behavior(
+            tree=tree, definition=definition, guard_tree=guard_tree, target=target,
+            guard_name=call.func.id, guard_module=str(imported.module),
+        )
     except _Unresolved as exc:
         evidence.reason = str(exc)
         evidence.status = "ambiguous" if "ambiguous" in evidence.reason else "unresolved"

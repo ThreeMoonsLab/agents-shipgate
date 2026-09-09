@@ -295,3 +295,66 @@ def test_uncaptured_helper_cannot_supply_current_authority(tmp_path, kind, relat
         read_current_control(out, live=_live(root))
     _verify(root, archive_head=False)
     read_current_control(out, live=_live(root))
+
+
+def test_paired_source_behavior_reports_continuation_without_excluding_findings(tmp_path):
+    root, _ = _workspace(tmp_path)
+    old, _ = run_scan(config_path=root / "shipgate.yaml", output_dir=tmp_path / "base",
+                      plugins_enabled=False)
+    source = root / "refund_agent/agent.py"
+    source.write_text(AGENT.replace("return True", "return False"))
+    new, _ = run_scan(config_path=root / "shipgate.yaml", output_dir=tmp_path / "head",
+                      diff_from_path=tmp_path / "base/report.json", plugins_enabled=False)
+    comparison = new.tool_surface_diff.guard_comparisons[0]
+    assert comparison.direction == "predicate_unchanged"
+    assert comparison.source_behavior.true_domain == "narrowed"
+    assert comparison.source_behavior.finding_exclusion_eligible is False
+    assert {f.fingerprint for f in old.findings} == {f.fingerprint for f in new.findings}
+    assert old.release_decision.decision == new.release_decision.decision
+    assert "Full Boolean source: returns changed" in (tmp_path / "head/report.md").read_text()
+
+
+def test_actual_committed_source_model_binds_continuation_and_membership_inputs(tmp_path):
+    root, _ = _workspace(tmp_path)
+    base = _git(root, "rev-parse", "HEAD")
+    source = root / "refund_agent/agent.py"
+    source.write_text(AGENT.replace("tools=[refund]", "tools=[]"))
+    _git(root, "add", "refund_agent/agent.py")
+    _git(root, "commit", "-qm", "remove literal tool membership")
+    _verify(root, base=base)
+    out = root / "agents-shipgate-reports"
+    report = json.loads((out / "report.json").read_text())
+    comparison = report["tool_surface_diff"]["guard_comparisons"][0]
+    assert comparison["direction"] == "predicate_unchanged"
+    assert comparison["source_behavior"]["binding"] == "removed"
+    assert comparison["source_behavior"]["bound_true_domain"] == "narrowed"
+    assert comparison["before"]["source_behavior"]["binding"]["tool_bound"] is True
+    assert comparison["after"]["source_behavior"]["binding"]["tool_bound"] is False
+    read_current_control(out, live=_live(root))
+    # Source dependencies include the full continuation and binding, even if
+    # Git's normal overlay cannot see a local modification to that module.
+    _git(root, "update-index", "--assume-unchanged", "refund_agent/agent.py")
+    source.write_text(source.read_text().replace("return True", "return False"))
+    assert _git(root, "status", "--porcelain") == ""
+    with pytest.raises(CurrentControlUnavailable):
+        read_current_control(out, live=_live(root))
+
+
+def test_redacted_binding_cannot_retain_an_observed_source_relation(tmp_path):
+    root, _ = _workspace(tmp_path)
+    secret = "AKIAABCDEFGHIJKLMNOP"
+    source = root / "refund_agent/agent.py"
+    source.write_text(AGENT.replace('name="Refund"', f'name="{secret}"'))
+    old, _ = run_scan(config_path=root / "shipgate.yaml", output_dir=tmp_path / "base",
+                      plugins_enabled=False)
+    row = old.tool_surface_facts.guard_dependencies[0]
+    assert row.status == "redacted"
+    assert row.source_behavior.status == "redacted"
+    assert row.source_behavior.returns == [] and row.source_behavior.binding is None
+    new, _ = run_scan(config_path=root / "shipgate.yaml", output_dir=tmp_path / "head",
+                      diff_from_path=tmp_path / "base/report.json", plugins_enabled=False)
+    assert new.tool_surface_diff.guard_comparisons[0].source_behavior.returns == "unresolved"
+    for directory in (tmp_path / "base", tmp_path / "head"):
+        for path in directory.iterdir():
+            if path.is_file():
+                assert secret not in path.read_text(errors="replace")
