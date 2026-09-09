@@ -325,6 +325,7 @@ NOT_A_DISTRIBUTION_SURFACE: dict[str, str] = {
     "CODE_OF_CONDUCT.md": "repository documentation",
     "CONTRIBUTING.md": "repository documentation",
     "LICENSE": "repository documentation",
+    "MAINTAINERS.md": "maintenance and support responsibilities; no runtime engine answer or release authority",
     "ROADMAP.md": "repository documentation, pinned by tests/test_public_surface_contract.py",
     "SECURITY.md": "repository documentation",
     "STABILITY.md": "repository documentation",

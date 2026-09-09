@@ -7,6 +7,12 @@ partially succeeds.
 For the packaging surface and post-release fan-out checks, see
 [`distribution.md`](distribution.md).
 
+[MAINTAINERS.md](../MAINTAINERS.md) records the documented release/policy owners,
+the proposed support commitment and the outstanding responsibility confirmations.
+Before 1.x, complete the [operational ownership and access recovery](#operational-ownership-and-access-recovery)
+record below alongside qualification; workflow presence does not establish who
+can act when a required person or account is unavailable.
+
 ## The pipeline
 
 A release runs as five jobs with an explicit, content-addressed handoff.
@@ -653,3 +659,59 @@ committed trust root or the source-to-wheel provenance gate.
 
 None of the four are currently set. Until they are, the release stops at
 **Require configured qualification artifact locations**.
+
+## Operational ownership and access recovery
+
+[#494](https://github.com/ThreeMoonsLab/agents-shipgate/issues/494) owns actual
+responsibility acceptance and a non-publishing tabletop. The inventory below
+names operative interfaces, not secret values or a claim that access works.
+Confirmed custodians and recovery evidence are still outstanding as recorded
+in [MAINTAINERS.md](../MAINTAINERS.md#responsibilities).
+
+| Interface | What the responsible person must confirm | Recovery boundary |
+| --- | --- | --- |
+| GitHub repository/organization access, `v*` tag rules and release-write actors | Actual administrator/release custodians, permitted writers, inherited rules and emergency-bypass responsibility | Recover through the provider's established account/organization process. No backup identity or bypass permission is granted by this document; #573 must verify effective controls after recovery. |
+| Protected GitHub `pypi` environment | Actual configuration custodian, eligible independent reviewers and absence coverage | An unavailable required reviewer holds publication. Self-review or an agent-created review cannot substitute for independent approval. |
+| PyPI Trusted Publisher mapping for `agents-shipgate` | The actual PyPI project custodian and mapping to this repository/workflow/environment | Verify provider-side ownership and restore/revoke the mapping through that custodian. This workflow uses OIDC; do not invent a long-lived PyPI upload token as a fallback. |
+| Ephemeral `GITHUB_TOKEN` / `${{ github.token }}` and the publication job's OIDC permission | Who can authorize workflow/settings changes and stop affected runs | Tokens are issued for jobs, not an undocumented shared recovery credential. Contain a compromised run/mapping with the authorized platform custodian, then re-establish reviewed access and evidence before rerunning. |
+| `.github/release-trust-roots.json`: `signer_identity`, `oidc_issuer` | The independent promotion owner, exact certificate identity and reviewed issuer; `signer_identity` is still unresolved | A missing/compromised signer holds publication. Recover the independent signing path and review any trust-root change; do not replace it with the release initiator or a mutable variable. No persistent Sigstore private-key custodian is assumed. |
+| `SAFETY_QUALIFICATION_WHEEL_URL`, `SAFETY_QUALIFICATION_WHEEL_FILENAME`, `SAFETY_QUALIFICATION_JSON_URL`, `SAFETY_QUALIFICATION_SIGSTORE_BUNDLE_URL` | Actual content-location custodian and the exact signed handoff from #509 | These are locations only. Relocation still needs signature, policy and exact-wheel validation. A new location does not authenticate replacement evidence. |
+| `security@threemoonslab.com` and account/contact recovery | Actual mailbox custodian, accepted acknowledgment capacity and available absence route | No alternate contact is confirmed. Keep reports private and hold any release decision that depends on unavailable security review. Record failed contact/access attempts honestly. |
+
+Record custodian acceptance and recovery references through the existing #494
+review. Keep private recovery links, codes, credential values and personal
+contact details outside GitHub issues and committed artifacts. The public record
+should establish which role can act and which evidence was checked; it need
+not expose account-recovery material. The existing [deployment prerequisites](#deployment-prerequisites)
+remain #573's effective-settings obligation, while #509 supplies the independently
+authenticated qualification identity and bytes.
+
+### Non-publishing tabletop
+
+The responsible people walk these cases with the existing runbook and read-only
+platform/evidence inspection. Do not mutate production tags, releases, uploads,
+trust roots or account permissions to prove that a stop works.
+
+| Case | Expected decision and evidence to inspect |
+| --- | --- |
+| Required reviewer or independent signer unavailable | Hold publication; identify the actually accepted alternate, if any, and prove its eligibility/independence. If none exists, record an unresolved dependency. |
+| Repository, PyPI or mailbox access lost | Identify the actual custodian and established provider recovery path. Record whether that person can initiate recovery without publishing codes or claiming an unexercised recovery succeeded. Recheck #573 controls before release resumes. |
+| Qualification signer or evidence integrity in doubt | Hold publication, contain the affected access through its real custodian, restore independently reviewed trust and obtain fresh trustworthy evidence for the affected inputs. Re-signing alone cannot rehabilitate untrusted measurements. |
+| PyPI upload completed; GitHub finalization did not | Use [the existing identical-publication recovery](#publication-succeeded-finalisation-failed). Inspect the exact index, candidate, signatures, asset set, notes and live tag before any finalization; unavailable validation holds publication. |
+| Candidate, workflow, policy or wheel changed | Invalidate the affected freeze, receipts, signatures and matching rehearsal. Repeat the owning steps against the new exact candidate; never restamp old evidence into current authority. |
+| Security contact unavailable | Record the unresolved intake/absence duty and private follow-up path under SECURITY.md. A missing reply cannot be recorded as acknowledgment or completed security review. |
+
+The legacy bare manual-undraft fallback in the recovery section is separately
+tracked in [#618](https://github.com/ThreeMoonsLab/agents-shipgate/issues/618).
+It is not validated 1.x recovery evidence. This tabletop requires the complete
+current validation and independent authority; when either is unavailable, stop.
+Repairing and exercising that fallback remains separate work.
+
+For each case, retain in #494 or a linked non-secret record the date, source and
+workflow revision, actual participants and accepted roles, scenario, inspected
+evidence, expected stop/resume condition, observed result and unresolved owner.
+Distinguish a document walkthrough from a successfully exercised recovery.
+No tabletop, access recovery, owner acceptance or effective protection is claimed
+by this procedure. Before closing #494, the owner must supply those results and
+accept the 1.x support/response commitment; #572 links that evidence alongside
+#509's signing and #573's platform controls.
