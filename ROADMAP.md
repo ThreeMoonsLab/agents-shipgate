@@ -60,14 +60,21 @@ missing release qualification or human authority.
 | Current operator guidance and macOS pilot baseline recipe (#566/#550) | [#579](https://github.com/ThreeMoonsLab/agents-shipgate/pull/579), [#595](https://github.com/ThreeMoonsLab/agents-shipgate/pull/595) | No pilot participation or adoption counts were produced by these repairs. |
 | Compact/full receipt validation contract and accepted decisions (#552/#493) | [#600](https://github.com/ThreeMoonsLab/agents-shipgate/pull/600), [#602](https://github.com/ThreeMoonsLab/agents-shipgate/pull/602) | Reconcile the final behavior before #569 freezes report 1.0. |
 | Bounded FastMCP Context injection (#542) | [#603](https://github.com/ThreeMoonsLab/agents-shipgate/pull/603) | Whole-signature limits remain visible; broader framework/export provenance is deferred in #601. |
+| Reproducible current sample goldens (#499) | [#605](https://github.com/ThreeMoonsLab/agents-shipgate/pull/605) | The 24 current artifacts have a checked recipe; #569 still owns the report 1.0 freeze and migration fixtures. |
 
 Three delivered slices leave larger release obligations open: [#582](https://github.com/ThreeMoonsLab/agents-shipgate/pull/582)
 types unsupported historical base inputs but does not satisfy #563's catch bars;
 [#591](https://github.com/ThreeMoonsLab/agents-shipgate/pull/591) improves #548's
 prerequisite diagnostics without establishing its original intermittent cause;
-[#599](https://github.com/ThreeMoonsLab/agents-shipgate/pull/599) binds and compares
-one SDK guard-dependency profile while explicitly keeping dependency coverage
-incomplete and finding-exclusion eligibility false. #557 and #515 remain open.
+[#599](https://github.com/ThreeMoonsLab/agents-shipgate/pull/599) binds imported
+SDK guard evidence, and [#606](https://github.com/ThreeMoonsLab/agents-shipgate/pull/606)
+compares a closed Boolean function and its literal source Agent membership.
+Both keep capability dependency coverage incomplete and finding-exclusion
+eligibility false. A return value is not an action effect or approval:
+[#607](https://github.com/ThreeMoonsLab/agents-shipgate/issues/607), a deferred
+sub-issue of #557, owns the newly isolated operation-to-policy-predicate
+relationship. #557 and #515 remain open; these source models do not satisfy
+the TypeScript MongoDB acceptance case or historical safety bars.
 
 The next implementation routes include explicit human dependencies. Preflight
 requires a human for the necessary protected instruction/workflow edits in
@@ -75,7 +82,7 @@ requires a human for the necessary protected instruction/workflow edits in
 review rejected its proposed protected-edit deny-list change, which was not
 applied. Those stops remain open in their issues. Independent coding-agent PR
 reviews do not clear them. Newly discovered issues #575/#577/#580/#581,
-#584–#586, #588/#590, #592/#593 and #596–#598/#601 remain separately deferred;
+#584–#586, #588/#590, #592/#593, #596–#598/#601 and #607 remain separately deferred;
 they are not silently added to this implementation pass or counted as repairs.
 
 The following sequence and approved release bars still apply. Contract
@@ -144,7 +151,7 @@ reader, control and publication work need not wait for each other.
 | Live authority | #567: reconfirm overlay contents/metadata and resolved base/merge base in the shared control reader | Same-path/base interleavings cannot return stale authority; unchanged reads and actual CLI consumers still work |
 | Offline evidence | #559: capture bounded bytes once for hash validation and parsing across qualification inputs | Interleaved replacements cannot be scored as bound data; existing containment and identity joins remain enforced |
 | Historical workflow | [#563](https://github.com/ThreeMoonsLab/agents-shipgate/issues/563) reviewed scope and [#564](https://github.com/ThreeMoonsLab/agents-shipgate/issues/564) new/renamed base inputs can start together | Same 19 SHAs/labels reach truthful verifier outcomes and restore the existing catch bars; no fabricated authority or scope |
-| Change attribution | [#557](https://github.com/ThreeMoonsLab/agents-shipgate/issues/557) shared-helper/import/configuration evidence **before** [#515](https://github.com/ThreeMoonsLab/agents-shipgate/issues/515) default diff scope | Paired standing-weakness, improvement and widened-capability fixtures; incomplete dependency coverage remains explicit |
+| Change attribution | [#557](https://github.com/ThreeMoonsLab/agents-shipgate/issues/557) shared-helper/import/configuration evidence and [#607](https://github.com/ThreeMoonsLab/agents-shipgate/issues/607) operation/predicate attribution **before** [#515](https://github.com/ThreeMoonsLab/agents-shipgate/issues/515) default diff scope | Paired standing-weakness, improvement and widened-capability fixtures; incomplete dependency coverage remains explicit; #607 is deferred from this implementation pass, so this route remains pending |
 | Prose and structure | [#545](https://github.com/ThreeMoonsLab/agents-shipgate/issues/545) classification **before** completing [#516](https://github.com/ThreeMoonsLab/agents-shipgate/issues/516) | Final verifier, local check and preflight distinguish prose edits from structured grants/hooks/CI; malformed structure remains visible |
 | Cold entry and CI | [#568](https://github.com/ThreeMoonsLab/agents-shipgate/issues/568) routes host-only repositories correctly; [#570](https://github.com/ThreeMoonsLab/agents-shipgate/issues/570) defines final-wheel/Action pin provenance | Supported Route H reaches a useful review without a placeholder manifest; local and generated CI name the intended engine/contract |
 
@@ -178,7 +185,7 @@ workstream beyond its planning window.
 
 ### Next — 30–60 days: converge behavior, prove migration and freeze
 
-Converge behavior in order **#557 → #515** and **#545 → #516** before freezing
+Converge behavior in order **#557 (including #607) → #515** and **#545 → #516** before freezing
 contracts. Equal fingerprints or changed-files-only scans cannot prove a
 standing finding unrelated; preserve base/head evidence and explicit missing inputs.
 
