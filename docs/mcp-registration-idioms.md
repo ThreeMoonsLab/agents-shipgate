@@ -113,9 +113,45 @@ id nobody serves is worse than a measured gap.
 
 ### What the request context is, and is not
 
-The server injects its `Context` on the parameter's **annotation**, so this
-reader drops a parameter only when it is annotated `Context` — including
-`Context | None` and `Context[ServerSession, None]`, and not `list[Context]`.
+Context injection is a **whole-signature selection**, not a rule applied
+independently to every parameter. The supported static subset excludes only
+the first established direct or nullable Context parameter, including aliases,
+qualified imports, quoted annotations and plain local subclasses. It first
+checks every annotation, including return, `*args` and `**kwargs`, because an
+unresolved annotation elsewhere can prevent the framework from selecting any
+parameter. Subsequent Context parameters stay in the inventory.
+
+The SDK and standalone FastMCP do not have identical rules. The pinned
+[SDK 1.27.2 utility](https://github.com/modelcontextprotocol/python-sdk/blob/v1.27.2/src/mcp/server/fastmcp/utilities/context_injection.py)
+resolves all type hints, selects the first match and inspects immediate generic
+arguments; its installed implementation selects `holder` for `list[Context]`.
+[Standalone FastMCP 2.14.5](https://github.com/PrefectHQ/fastmcp/blob/21221b4ab128e8dd71b5d9637fa70a9139511380/src/fastmcp/utilities/types.py)
+does not treat a container's Context element as membership and has a different
+raw-annotation fallback. Parameterized Context can itself materialize a class
+in Pydantic. The reader therefore leaves generic/parameterized/nested Context,
+uncertain annotated variadics, Context returns, and unresolved signature
+annotations outside its supported injection subset. It does not import a
+target server or evaluate its annotations to settle them.
+
+`unresolved_context_signature` names this function-level limitation, including
+cases with no ordinary parameter to carry it. A retained parameter whose
+injection cannot be established also carries `unresolved_context_identity` in
+the tool's surface gaps. Generic arguments and `Annotated` metadata are not
+discarded when deciding whether the signature is understood; only literal
+metadata is supported. An arbitrary external import may re-export Context or
+a subclass, so its package name alone never proves caller ownership. Canonical
+framework classes, builtins, plain local classes and narrowly recognized
+Pydantic `BaseModel` ancestry have static identity evidence; decorators,
+metaclasses and unresolved bases do not.
+
+Tool discovery and the medium confidence ceiling are retained for all these
+limits. The output names unresolved parameters and coverage rather than
+silently removing them. This is a bounded common subset, not full injection
+fidelity across framework versions, mixed framework families, import re-exports
+or arbitrary framework submodules (the inherited provenance gap is tracked in
+[#601](https://github.com/ThreeMoonsLab/agents-shipgate/issues/601)). A committed MCP export remains the stronger
+route when that complete published surface is available.
+
 The conventional-name list this package's other Python adapters share holds
 `config`, `context` and `runtime`, which are ordinary user-supplied inputs to
 an MCP tool: dropping them by name published an empty schema for a

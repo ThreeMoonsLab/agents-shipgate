@@ -1282,8 +1282,12 @@ def test_a_conventional_parameter_name_is_still_a_tool_input(tmp_path):
         "context",
         "runtime",
     ]
-    # Only the annotated context is injected. `list[Context]` is a list.
-    assert [p.name for p in by_name["search"].parameters] == ["query", "holder"]
+    # Generic membership is outside the shared profile. It prevents a whole-
+    # signature selection; no independently classified Context disappears.
+    assert [p.name for p in by_name["search"].parameters] == [
+        "query", "reporter", "optional", "parameterised", "holder",
+    ]
+    assert mcp_server_source.SURFACE_GAP_UNRESOLVED_CONTEXT_SIGNATURE in by_name["search"].extraction["surface_gaps"]
 
 
 def _corpus_workspace(tmp_path, case_name: str, *, name: str) -> Path:
@@ -1300,6 +1304,24 @@ def _corpus_workspace(tmp_path, case_name: str, *, name: str) -> Path:
         REGRESSIONS[case_name].text, encoding="utf-8"
     )
     return workspace
+
+
+@pytest.mark.parametrize("case, remaining, limited", [
+    ("python_context_first_match", ["second"], False),
+    ("python_context_unknown_return", ["ctx"], True),
+    ("python_context_invalid_typing_arity", ["ctx", "payload"], True),
+    ("python_context_generic_limit", ["holder"], True),
+    ("python_context_unknown_variadic", ["query"], True),
+])
+def test_whole_signature_limit_survives_the_production_loader(tmp_path, case, remaining, limited):
+    workspace = _corpus_workspace(tmp_path, case, name=case)
+    tool = load_mcp_server_source(_source("server.py"), workspace).tools[0]
+    assert tool.name == "lookup"
+    assert [p.name for p in tool.parameters] == remaining
+    assert tool.extraction_confidence == mcp_server_source.EXTRACTION_CONFIDENCE
+    assert (mcp_server_source.SURFACE_GAP_UNRESOLVED_CONTEXT_SIGNATURE in tool.extraction.get("surface_gaps", [])) is limited
+    if limited:
+        assert tool.extraction["surface"] == SURFACE_PARTIAL
 
 
 def test_an_application_model_named_context_stays_a_required_input(tmp_path):
@@ -1498,6 +1520,8 @@ def test_a_signature_publishes_the_type_the_annotation_denotes(tmp_path):
     assert tool.input_schema["properties"]["untyped"] == {}
     assert tool.extraction["surface_gaps"] == [
         mcp_server_source.SURFACE_GAP_UNREPRESENTABLE_ANNOTATION,
+        mcp_server_source.SURFACE_GAP_UNRESOLVED_CONTEXT,
+        mcp_server_source.SURFACE_GAP_UNRESOLVED_CONTEXT_SIGNATURE,
         mcp_server_source.SURFACE_GAP_UNTYPED_PARAMETER,
     ]
     # Every published surface describes the same evidence: a parameter is in
@@ -1544,6 +1568,7 @@ def test_a_container_names_its_kind_and_a_mapping_needs_string_keys(tmp_path):
     assert tool.extraction["surface_gaps"] == [
         mcp_server_source.SURFACE_GAP_UNREPRESENTABLE_ANNOTATION,
         mcp_server_source.SURFACE_GAP_UNRESOLVED_CONTEXT,
+        mcp_server_source.SURFACE_GAP_UNRESOLVED_CONTEXT_SIGNATURE,
     ]
 
 
@@ -1576,6 +1601,7 @@ def test_a_spelling_means_what_it_looks_like_only_while_nothing_rebinds_it(
     assert tool.extraction["surface_gaps"] == [
         mcp_server_source.SURFACE_GAP_UNREPRESENTABLE_ANNOTATION,
         mcp_server_source.SURFACE_GAP_UNRESOLVED_CONTEXT,
+        mcp_server_source.SURFACE_GAP_UNRESOLVED_CONTEXT_SIGNATURE,
     ]
 
 
@@ -1611,17 +1637,8 @@ def test_a_union_denotes_a_type_only_when_its_arms_agree(tmp_path):
     }
 
 
-def test_a_class_imported_from_another_package_is_a_caller_input(tmp_path):
-    """An absolute import outside the framework's own packages settles it.
-
-    The bound is written where it is taken: a class defined in another
-    distribution could subclass the framework's context and be injected too,
-    and reading that would mean reading that distribution. The parameter is
-    published either way — what would differ is one `required` flag, on a
-    shape none of the surveyed servers writes — while treating every imported
-    model as unresolved would put a question mark on the ordinary Pydantic
-    parameter every server has.
-    """
+def test_an_external_import_without_class_provenance_remains_unresolved(tmp_path):
+    """An external package can export Context or a subclass; its path is not proof."""
 
     workspace = _corpus_workspace(
         tmp_path, "python_context_from_another_package", name="package"
@@ -1632,7 +1649,7 @@ def test_a_class_imported_from_another_package_is_a_caller_input(tmp_path):
     assert tool.input_schema["required"] == ["context"]
     assert (
         mcp_server_source.SURFACE_GAP_UNRESOLVED_CONTEXT
-        not in tool.extraction["surface_gaps"]
+        in tool.extraction["surface_gaps"]
     )
 
 
@@ -1704,7 +1721,8 @@ def test_an_unreadable_return_annotation_is_not_a_string_output_schema(tmp_path)
 
     assert by_name["modelled"].output_schema == {}
     assert by_name["modelled"].extraction["surface_gaps"] == [
-        mcp_server_source.SURFACE_GAP_UNREPRESENTABLE_ANNOTATION
+        mcp_server_source.SURFACE_GAP_UNREPRESENTABLE_ANNOTATION,
+        mcp_server_source.SURFACE_GAP_UNRESOLVED_CONTEXT_SIGNATURE,
     ]
     assert by_name["counted"].output_schema == {"type": "number"}
     assert "surface_gaps" not in by_name["counted"].extraction

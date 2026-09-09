@@ -1682,6 +1682,7 @@ def _site_fields(site: Any) -> dict[str, Any]:
         ),
         "returns": site.returns,
         "returns_json_type": site.returns_json_type,
+        "context_injection_unresolved": site.context_injection_unresolved,
         "proves_server": site.proves_server,
     }
 

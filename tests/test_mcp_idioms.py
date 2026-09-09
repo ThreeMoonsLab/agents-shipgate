@@ -378,6 +378,21 @@ def test_a_python_tool_with_no_parameters_is_not_one_without_a_signature():
     assert site.returns is None
 
 
+@pytest.mark.parametrize("case, remaining, limited", [
+    ("python_context_first_match", ["second"], False),
+    ("python_context_unknown_return", ["ctx"], True),
+    ("python_context_invalid_typing_arity", ["ctx", "payload"], True),
+    ("python_context_generic_limit", ["holder"], True),
+    ("python_context_unknown_variadic", ["query"], True),
+])
+def test_context_selection_and_limit_share_the_idiom_corpus(case, remaining, limited):
+    fixture = REGRESSIONS[case]
+    site = scan_source(fixture.text, fixture.language).sites[0]
+    assert site.name == "lookup"
+    assert [p.name for p in site.parameters if p.injection != "framework_injected"] == remaining
+    assert site.context_injection_unresolved is limited
+
+
 def test_a_python_variadic_is_not_a_signature_parameter():
     """``*args`` and ``**kwargs`` name no property a caller can send.
 

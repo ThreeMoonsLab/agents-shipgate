@@ -452,6 +452,10 @@ def _tool_from_site(
 #: tool says which question it could not answer (#539).
 SURFACE_GAP_UNRESOLVED_CONTEXT = "unresolved_context_identity"
 
+# The framework selects over the whole signature, including return/variadic
+# annotations that have no published parameter row.
+SURFACE_GAP_UNRESOLVED_CONTEXT_SIGNATURE = "unresolved_context_signature"
+
 #: A parameter carrying no annotation at all. The type it publishes would be
 #: the emitter's fallback rather than anything the source said.
 SURFACE_GAP_UNTYPED_PARAMETER = "untyped_parameter"
@@ -512,7 +516,9 @@ def _signature_gaps(site: RegistrationSite) -> list[str]:
 
     if site.parameters is None:
         return []
-    gaps: set[str] = set()
+    gaps: set[str] = (
+        {SURFACE_GAP_UNRESOLVED_CONTEXT_SIGNATURE} if site.context_injection_unresolved else set()
+    )
     for parameter in site.parameters:
         if parameter.injection == "framework_injected":
             # Not published, so nothing about its type is claimed either.
