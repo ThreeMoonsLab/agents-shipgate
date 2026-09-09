@@ -193,6 +193,48 @@ input, not authenticated proof of its claimed source evidence. Redacted or
 ambiguous records cannot yield a predicate direction. The Markdown report
 shows up to eight relevant comparisons; JSON retains the full list.
 
+An observed guard can also carry `source_behavior`, from the narrower
+`sdk_boolean_function/v1` profile. This inspects the **entire** selected tool
+function, including statements after a return and both arms of every branch,
+and a single source-level `Agent(name="…", tools=[tool])` (or `tools=[]`).
+Its module contains only the exact SDK imports, the one sibling guard import,
+the decorated function and that literal Agent assignment, in definition order.
+The guard module contains only the selected pure Boolean function. Every
+function parameter is Boolean; expressions are Boolean literals, parameters,
+`not`, `and`, `or`, and the already-resolved guard call. Statements are `if`
+and `return`; an implicit return is recorded as `none`. There are no opaque
+operation leaves. External calls, free/configuration variables, mutation,
+additional functions or Agent configuration, handoffs and unresolved imports
+leave the source model unresolved, even in apparently unreachable code.
+
+`source_behavior.returns[i]` is `true`, `false` or `none` for input mask `i`
+over **all** sorted tool parameters, not just the parameters used by the first
+guard. `configuration_reads: none` means the closed model admitted no such
+read; it is absent as a claim when the model is unresolved. The literal
+`binding` records the source Agent symbol/name and whether its tools list
+contains the selected function. This is source membership, not a claim that
+the Agent is a deployed entry point or that the installed SDK executes it.
+
+The comparison keeps four axes separate: all return values (`returns`), the
+set of inputs returning true (`true_domain`), literal tool membership
+(`binding`), and the true-return inputs reachable through that membership
+(`bound_true_domain`). A narrowed first guard can still have a widened whole
+function true domain; unchanged returns can accompany added membership.
+Changing `False` to `None` changes returns even when the true domain is equal.
+A changed Agent identity leaves the bound relation unresolved. Missing old
+models, ambiguous capability identities and redacted evidence never establish
+equality. The model and its inputs are carried in each side's existing guard
+record and verifier-bound artifacts; it introduces no separate authority.
+
+**A true return is not approval.** The model does not prove a caller-controlled
+Boolean came from an approver, establish an action's effect/authority or
+attribute an existing policy predicate to a change. The outer capability
+dependency coverage remains `incomplete` and finding exclusion remains false.
+Neither a narrowed true domain nor equal source models is a safe verdict.
+Joining complete source evidence to actual capability/policy dependencies and
+the fixed-history evaluation remains work in #557/#515/#563. This SDK profile
+does not cover #515's TypeScript MongoDB acceptance case.
+
 Verification binds the reader's captured dependency bytes and named absent
 import candidates in `verification-plan.json` under
 `inputs.options.dependency_inputs`. A current-control read checks

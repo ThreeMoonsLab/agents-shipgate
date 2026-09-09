@@ -816,6 +816,14 @@ def _append_tool_surface_diff(lines: list[str], report: ReadinessReport) -> None
             def location(row):
                 return f"{row.guard_path}:{row.guard_line}" if row and row.guard_path else "unavailable"
             lines.append(f"- {_safe_markdown_text(comparison.tool_name)}: {comparison.direction.replace('_', ' ')}; base `{_safe_markdown_text(location(before))}`, head `{_safe_markdown_text(location(after))}`.")
+            if comparison.source_behavior is not None:
+                source = comparison.source_behavior
+                lines.append(
+                    f"  Full Boolean source: returns {source.returns}; true-return inputs "
+                    f"{source.true_domain}; literal Agent membership {source.binding}; "
+                    f"bound true-return inputs {source.bound_true_domain}. "
+                    "True is a return value, not approval or action authority."
+                )
         if len(visible_guards) > 8:
             lines.append(f"{len(visible_guards) - 8} more guard comparisons in report.json.")
         lines.append("")
