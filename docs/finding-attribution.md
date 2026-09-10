@@ -1,0 +1,99 @@
+# Finding attribution
+
+`tool_surface_diff.finding_deltas` answers a question about identity: is this
+fingerprint in the base report? Three very different changes give it the same
+answer. A repository weakness the pull request never touched, a change that
+bounds the capability without perfecting it, and a change that widens the
+capability all land in one `unchanged_findings` row.
+
+`tool_surface_diff.finding_attributions[]` (#515) answers the other question —
+what did *this change* do to the bound this finding depends on — for the
+findings the shipped comparison profiles can actually speak about. It is an
+optional diagnostic. It changes no finding, fingerprint, support
+classification, severity, baseline, exit code or release decision, it
+introduces no check ID, and `finding_exclusion_eligible` is `false` on every
+row. There is no scope flag: `--scope diff` / `--scope tree` and the receipt
+question they imply are still #515's open work.
+
+## What a row is, and is not
+
+Each row names one active finding and one class:
+
+| Class | Means |
+|---|---|
+| `widened_by_change` | A bound this finding depends on was removed, or the compared domain of the capability it names grew. |
+| `improved_not_resolved` | A bound was added or narrowed and the finding still stands — an improvement, not the finding's cause. |
+| `standing_weakness` | The finding matched the base and every *modeled* bound it depends on is unchanged. |
+| `unresolved` | No comparable evidence, a refused direction, or a contradiction on the same capability. |
+
+`standing_weakness` is the class most easily misread. It says no modeled bound
+changed. It does not say the capability is unchanged, because
+`dependency_coverage` is still `incomplete`: no profile has yet proved a
+complete shared-helper, import and configuration closure for a capability
+(#557). A finding is not droppable because it carries this class.
+
+## Where the direction comes from
+
+The projection reads no source, reconstructs no tree and runs no second diff.
+Every direction it reports is copied verbatim out of a comparison row that
+`compare_operations` (`openapi_delete/v1`,
+[contract](operation-attribution.md)) or `compare_guard_dependencies`
+(`sdk_boolean_guard/v1`) already published, and the row carries that profile's
+own spelling in `evidence[].direction` so it can be joined back to the
+comparison it came from.
+
+`evidence[].effect` is the one place the two vocabularies are reconciled. A
+compared domain that is neither equal to nor a subset of the base contains at
+least one member the base did not declare, so `changed` and `predicate_changed`
+are recorded as `widening` — a proved statement about the compared sets, not a
+risk judgement.
+
+## The three refusals
+
+**Only predicate-linked evidence classifies.** A profile row earns
+`link: "predicate"` by naming the finding's own fingerprint, which today only
+`openapi_delete/v1` does. A row joined by canonical tool id is `link:
+"capability"`: evidence about the same capability whose relation to *this*
+finding's predicate is unproved. A tool's display name is never a join;
+a guard comparison without a canonical tool id, or a finding without one, is
+not joined at all. And because a profile row names a *fingerprint*, two active
+findings answering to one fingerprint make every row about them `unresolved`:
+no comparison can say which of them it names.
+
+**Capability-linked evidence can withdraw a claim, never establish one.**
+`standing_weakness` and `improved_not_resolved` are claims about what did not
+get worse. Any capability-linked movement — a widened guard predicate, a
+literal true-return domain that grew, an axis the profile could not compare —
+retracts them to `unresolved`. It can never promote a finding to a direction of
+its own.
+
+**Absence is not agreement.** A finding no profile can compare draws no row,
+and the count of those findings is published in `tool_surface_diff.notes` so an
+empty attribution can never be read as a clean one.
+
+A run that asks no diff question answers none: where neither profile is active,
+or where there is no base — no `--diff-from` report, no baseline snapshot and no
+reconstructed Git operation base — the block is absent entirely rather than
+filled with `unresolved` rows against every finding of every plain `scan`. The
+missing base is already explicit in `tool_surface_diff.notes`. Where a base
+exists but the identity buckets do not name a fingerprint, `identity` is
+`unresolved`; it is never reported as `new`.
+
+## Boundary
+
+Rows are ordered most-consequential first and then by finding identity, so a
+rerun on an unchanged repository prints an unchanged block and the Markdown
+section's eight-row limit cannot hide a widening behind a documentation
+finding. `report.json` carries every row; `report.md` spells the rows that
+reached a direction and counts the rest, because one `unresolved` sentence per
+finding on a shared capability buries the decided rows printed beside it.
+Neither surface can disagree with the other about a class: both read the same
+rows, and only this projection produces them.
+
+The regression inputs are isolated synthetic fixtures and paired committed
+repositories, not deployed wiring, human qualification labels or runtime
+observations. #557 owns the dependency closure this projection reports as
+incomplete; #515 owns the scope flag, the receipt question, decision
+consumption and its TypeScript MongoDB `cal-1` case; #563/#312 still require
+independently reviewed historical evidence. This projection satisfies none of
+those bars and does not freeze report 1.0 (#569).

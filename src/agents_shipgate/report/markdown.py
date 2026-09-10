@@ -44,6 +44,7 @@ from agents_shipgate.schemas.report import (
     Misalignment,
     ReadinessReport,
 )
+from agents_shipgate.schemas.surfaces import ToolSurfaceDiff
 
 DISCLAIMER = (
     "Agents Shipgate is an advisory tool: the deterministic merge gate for "
@@ -802,6 +803,83 @@ def _append_tool_surface(lines: list[str], report: ReadinessReport) -> None:
     )
 
 
+_ATTRIBUTION_LABELS = {
+    "widened_by_change": "widened by this change",
+    "improved_not_resolved": "improved by this change, not resolved",
+    "standing_weakness": "standing weakness, no modeled bound changed",
+    "unresolved": "unresolved",
+}
+
+
+def _attribution_pointers(evidence) -> str:
+    """Where to read the compared bound, naming each side only when they differ.
+
+    Escaped plain text rather than a code span: these pointers carry `#`, `{`
+    and `}`, and a backslash escape inside backticks reaches the reader as a
+    backslash.
+    """
+    base, head = evidence.base_pointer, evidence.head_pointer
+    if base and head:
+        if base == head:
+            return f"; {_safe_markdown_text(base)}."
+        return f"; base {_safe_markdown_text(base)}, head {_safe_markdown_text(head)}."
+    if base or head:
+        side = "base" if base else "head"
+        return f"; {side} only, {_safe_markdown_text(base or head)}."
+    return "."
+
+
+def _append_finding_attributions(lines: list[str], diff: ToolSurfaceDiff) -> None:
+    """Render the per-finding attribution rows the JSON block also carries.
+
+    One renderer for both profiles: the value-join lives in
+    ``core.lenses.finding_attribution`` and this only spells it, so Markdown
+    can never disagree with ``report.json`` about which bound moved.
+    """
+    if not diff.finding_attributions:
+        return
+    # Only the rows that reached a direction are spelled here. An `unresolved`
+    # row repeats one sentence per finding on a shared capability, which buries
+    # the decided rows it is printed next to; `report.json` keeps all of them.
+    decided = [row for row in diff.finding_attributions if row.attribution != "unresolved"]
+    undecided = len(diff.finding_attributions) - len(decided)
+    lines.extend(
+        [
+            "### Finding attribution",
+            "",
+            "What this change did to the bound each finding depends on. "
+            "Dependency coverage is incomplete and no finding is excluded.",
+            "",
+        ]
+    )
+    for row in decided[:8]:
+        # A tool a reader can open, or the check ID alone. A fingerprint is
+        # identity vocabulary for `report.json`, never a subject line.
+        subject = (
+            f"{_safe_markdown_text(row.tool_name)} ({_safe_markdown_text(row.check_id)})"
+            if row.tool_name
+            else _safe_markdown_text(row.check_id)
+        )
+        lines.append(
+            f"- {subject}: {_ATTRIBUTION_LABELS[row.attribution]}. "
+            f"{_safe_markdown_text(row.reason)}"
+        )
+        for evidence in row.evidence:
+            lines.append(
+                f"  - {evidence.axis.replace('_', ' ')}: "
+                f"{evidence.direction.replace('_', ' ')} ({evidence.effect}, "
+                f"{evidence.link}-linked){_attribution_pointers(evidence)}"
+            )
+    if len(decided) > 8:
+        lines.append(f"{len(decided) - 8} more attributed findings in report.json.")
+    if undecided:
+        lines.append(
+            f"{undecided} finding(s) could not be attributed in either direction; "
+            "their evidence and the reason are in report.json."
+        )
+    lines.append("")
+
+
 def _append_tool_surface_diff(lines: list[str], report: ReadinessReport) -> None:
     diff = report.tool_surface_diff
     lines.extend(["## Tool Surface Diff", ""])
@@ -836,6 +914,7 @@ def _append_tool_surface_diff(lines: list[str], report: ReadinessReport) -> None
         if len(diff.operation_comparisons) > 8:
             lines.append(f"{len(diff.operation_comparisons) - 8} more operation comparisons in report.json.")
         lines.append("")
+    _append_finding_attributions(lines, diff)
     if not diff.enabled:
         note = diff.notes[0] if diff.notes else "No comparison source was available."
         lines.extend(

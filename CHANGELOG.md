@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Name what a change did to the bound each finding depends on.
+  `tool_surface_diff.finding_attributions[]` projects the shipped
+  `openapi_delete/v1` and `sdk_boolean_guard/v1` comparisons onto active
+  findings and separates a standing weakness, an improvement that leaves the
+  finding standing, and a newly widened capability — three cases the identity
+  bucket reports as one. Only evidence naming a finding's own fingerprint
+  classifies; same-capability evidence can withdraw a negative claim but never
+  establish one, a display name is never a join, two active findings sharing one
+  fingerprint are unresolvable, and findings no profile can compare are counted
+  in the diff notes. A run with no base asks no diff
+  question and emits no rows. Dependency coverage remains
+  incomplete, exclusion eligibility remains false, and no finding, fingerprint,
+  severity, baseline, exit code or release decision changes. No `--scope`
+  option and no receipt question are added (#515).
+
 - Bind reader-selected input directory names and no-follow entry kinds in the
   verification plan. Both current-control observations and worker replay now
   reject changed membership, including ignored additions with unchanged file

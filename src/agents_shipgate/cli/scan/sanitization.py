@@ -30,6 +30,7 @@ from agents_shipgate.core.lenses.declaration_surface import (
     build_public_action_declaration_facts,
 )
 from agents_shipgate.core.lenses.effective_policy import accepted_debt_fingerprints
+from agents_shipgate.core.lenses.finding_attribution import attribute_findings
 from agents_shipgate.core.lenses.tool_surface import (
     build_tool_surface_facts,
     compute_tool_surface_diff,
@@ -683,6 +684,13 @@ def _public_tool_surfaces(
             reference=public_diff_reference,
         )
     public_tool_surface_diff.operation_comparisons = compare_operations(public_operations, operation_base)
+    # One canonical per-finding statement over both comparison lists, built
+    # here because ``operation_comparisons`` is only complete after the line
+    # above. Both inputs are already sanitized, so the projection carries no
+    # value the redaction pass has not seen.
+    attributions, attribution_notes = attribute_findings(public_tool_surface_diff, public_findings)
+    public_tool_surface_diff.finding_attributions = attributions
+    public_tool_surface_diff.notes.extend(attribution_notes)
     # v0.19 reviewer-grade provenance: enrich tool-surface diff
     # controls (and any other reason-bearing rows) with the public
     # tool path:line citation so the rendered report.json and packet
