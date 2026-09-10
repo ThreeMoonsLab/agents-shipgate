@@ -8,12 +8,15 @@ the day it is written, or the adopter's very first Shipgate run is a red check
 about *our* repository, raised at action-resolution time before a single step
 executes.
 
-So every version an adopter's machine has to resolve — the ``uses:`` pin in the
+For source checkouts and ordinary/preview builds, the ``uses:`` pin in the
 workflow ``init --ci`` writes, the runner pins in the bundled adoption prompts,
 the ``shipgate_version`` input in the bundled CI recipe — comes from
 ``LATEST_PUBLISHED_VERSION`` here, which is the same rule ``llms.txt``,
 ``.well-known``, the docs and the Action examples already follow. One rule, one
-constant.
+constant. A final candidate wheel instead carries its verified full source
+commit in ``_meta/release-source.json``; its generated workflow uses that
+immutable Action source before and after publication (#570). The record is
+provenance, not qualification. It never changes these published constants.
 
 Both constants are bumped together, after the tag is pushed and never before —
 ``docs/release-runbook.md`` § Cutting the release, step 8. Bumping them is not
