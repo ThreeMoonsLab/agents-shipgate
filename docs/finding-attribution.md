@@ -58,13 +58,16 @@ pointer for that side rather than substituting the tool declaration.
 
 **Only predicate-linked evidence classifies.** A profile row earns
 `link: "predicate"` by naming the finding's own fingerprint, which today only
-`openapi_delete/v1` does. A row joined by canonical tool id is `link:
-"capability"`: evidence about the same capability whose relation to *this*
-finding's predicate is unproved. A tool's display name is never a join;
-a guard comparison without a canonical tool id, or a finding without one, is
-not joined at all. And because a profile row names a *fingerprint*, two active
-findings answering to one fingerprint make every row about them `unresolved`:
-no comparison can say which of them it names.
+`openapi_delete/v1` does. Everything else joins by canonical identity — a
+shared tool id, or a capability id the finding cites in `capability_refs` — and
+is `link: "capability"`: evidence about the same capability whose relation to
+*this* finding's predicate is unproved.
+
+A display name is never a join. A guard comparison carries no canonical tool
+id of its own beyond its observation, so a guard row without one, or a finding
+without one, is not joined at all. And because a profile row names a
+*fingerprint*, two active findings answering to one fingerprint make every row
+about them `unresolved`: no comparison can say which of them it names.
 
 **Capability-linked evidence can withdraw a claim, never establish one.** It
 never promotes a finding to a direction of its own, and the two negative claims

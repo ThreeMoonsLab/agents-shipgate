@@ -488,6 +488,21 @@ def test_a_guard_comparison_never_joins_a_finding_by_display_name():
     assert not rows
 
 
+def test_a_cited_capability_id_joins_a_finding_that_carries_no_tool_id():
+    """The same-capability join is canonical identity, not the tool id alone."""
+    widened = _unchanged_operation(("other",))
+    widened.declared_target_domain = "widened"
+    diff = _diff(operations=[widened], matched=["fp1"])
+    # No tool id at all, and the operation's fingerprint names another finding.
+    cited = _finding(tool_id=None, refs=("cap_a",))
+    (row,) = attribute_findings(diff, [cited]).rows
+    assert [item.link for item in row.evidence] == ["capability", "capability"]
+    assert row.attribution == "unresolved"
+    # Citing nothing leaves the same finding unjoined entirely.
+    result = attribute_findings(diff, [_finding(tool_id=None, refs=())])
+    assert (result.rows, result.unattributed) == ([], 1)
+
+
 def test_the_whole_function_domain_is_carried_as_its_own_axis():
     behavior = BooleanSourceBehavior(
         status="observed", reason="observed", parameters=["dry_run"], returns=["false", "true"],

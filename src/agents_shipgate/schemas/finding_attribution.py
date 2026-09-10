@@ -29,31 +29,37 @@ AttributionEffect = Literal["widening", "narrowing", "unchanged", "unresolved"]
 
 #: ``predicate`` — the profile row names this finding's own fingerprint, so the
 #: compared bound is the one that made the finding eligible.
-#: ``capability`` — the row was joined only by canonical tool id, so it is a
-#: bound on the same capability whose relation to *this* finding's predicate is
-#: unproved.  Capability-linked evidence is recorded and can withdraw a
-#: negative claim; it can never establish one.
+#: ``capability`` — the row was joined by canonical identity instead: a shared
+#: tool id, or a capability id the finding cites in ``capability_refs``.  It is
+#: a bound on the same capability whose relation to *this* finding's predicate
+#: is unproved.  Capability-linked evidence is recorded and can withdraw a
+#: negative claim; it can never establish one.  A display name is never a join.
 AttributionLink = Literal["predicate", "capability"]
 
 FindingAttributionClass = Literal[
     # A bound the finding depends on was removed, or the capability's compared
     # domain grew.  Under a diff-scoped question this is the change's finding.
     "widened_by_change",
-    # A bound was added or narrowed and the finding still stands — a strict
-    # improvement that did not perfect the surface (#515's `cal-1` shape).
+    # A bound was added or narrowed and a finding of this shape is still
+    # present at head — a strict improvement that did not perfect the surface
+    # (#515's `cal-1` shape).  Whether that finding is the base's own is the
+    # separate ``identity`` axis, which the row's reason states.
     "improved_not_resolved",
     # Finding identity matched the base and every joined comparison says the
     # modeled bounds are unchanged.  Dependency coverage is still incomplete.
     "standing_weakness",
-    # No comparable predicate evidence, an unresolved or ambiguous comparison,
-    # or a capability-linked contradiction.  Never read as safe.
+    # No comparable predicate evidence, a comparison the profile refused or
+    # could not disambiguate, a shared finding identity, a same-capability
+    # contradiction, or unchanged bounds under an identity that is not a base
+    # match.  Never read as safe.
     "unresolved",
 ]
 
 #: Which fingerprint bucket of ``finding_deltas`` this finding is in.
 #: ``matched`` is ``unchanged_findings`` — an identity match, not a safety claim.
-#: ``unresolved`` is a finding no bucket named, which happens when there is no
-#: base to compare identity against; it is never reported as ``new``.
+#: ``unresolved`` is a finding no bucket named: the buckets are empty when the
+#: run's only base is a reconstructed Git operation base and no report or
+#: baseline reference supplied identities.  It is never reported as ``new``.
 FindingIdentity = Literal["new", "matched", "accepted_debt", "unresolved"]
 
 
