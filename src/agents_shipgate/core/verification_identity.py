@@ -191,6 +191,7 @@ def build_verification_plan(
     auxiliary_origins: dict[Path, dict[str, str | None]] | None = None,
     auxiliary_source_paths: dict[Path, Path] | None = None,
     config_from_worktree: bool = False,
+    _engine_requirement: VerificationEngineRequirement | None = None,
 ) -> VerificationPlan:
     effective_plugins_enabled = _plugins_enabled(plugins_enabled)
     normalized_options = dict(options)
@@ -385,7 +386,11 @@ def build_verification_plan(
         ),
         **inputs_payload,
     )
-    engine = build_engine_requirement(plugins_enabled=effective_plugins_enabled)
+    # The verifier may already have captured this invocation's engine for its
+    # base-cache lookup. Serialized options never select an engine identity.
+    engine = _engine_requirement or build_engine_requirement(
+        plugins_enabled=effective_plugins_enabled
+    )
     task_payload = {
         "kind": "evaluate",
         "shard": 0,
