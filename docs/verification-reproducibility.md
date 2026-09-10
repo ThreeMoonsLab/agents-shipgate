@@ -124,12 +124,18 @@ Committed archives already reject tracked symlinks before component loading;
 their failure record grants no permissions. Standalone loading retains its
 existing in-root resolution behavior.
 
-This does not claim that every reader retains every lookup. The separately
-reproduced implicit default-selection gap — adding a previously absent
-`.app.json` without changing the plugin manifest — remains deferred in
-[#635](https://github.com/ThreeMoonsLab/agents-shipgate/issues/635). A named
-default's absence must be bound where selection happens; broad plugin-root
-membership is not a substitute.
+Implicit Codex plugin defaults (`skills`, `.app.json`, `.mcp.json`) bind named
+absence or presence before selection (#635). A missing exact directory entry
+counts as absence only when a no-follow probe of that name also reports it
+missing. Case aliases, unreadable lookups and excluded output overlap retain
+an unconfirmable dependency and a component-path diagnostic. A later successful
+retry does not clear a captured failure; repair needs fresh verification.
+Existing defaults use the same component kind and byte capture described above.
+Explicit component paths do not bind unused defaults, hooks gain no default,
+and unrelated plugin-root siblings are not input dependencies. The existing
+`dependency_inputs` obligations are checked in both current-control observations
+and prepare/worker replay. This closes the reproduced default-selection gap;
+it does not claim that every reader retains every lookup.
 
 `excluded_paths` records Git metadata and the exact generated report subtree,
 mapped into the archive for committed capture. A live output-only parent such

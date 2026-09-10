@@ -117,6 +117,48 @@ def test_named_negative_lookup_and_file_parent_are_not_directory_sources(tmp_pat
     assert snapshot.input_directory_identity(source='worktree')['directories'] == []
 
 
+def test_named_negative_lookup_keeps_a_failed_probe_after_successful_retry(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    candidate = tmp_path / 'missing'
+    snapshot = StaticInputSnapshot(tmp_path)
+    original = Path.lstat
+
+    def unreadable(path):
+        if path == candidate:
+            raise PermissionError('synthetic named lookup failure')
+        return original(path)
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(Path, 'lstat', unreadable)
+        with pytest.raises(PermissionError):
+            snapshot.bind_dependency_absence(candidate)
+    assert snapshot.absent_dependency_paths() == []
+    assert snapshot.bind_dependency_absence(candidate)
+    snapshot.finish()
+    assert snapshot.unconfirmable_dependency_paths() == [candidate]
+
+
+def test_named_negative_lookup_parent_cap_is_not_absence(tmp_path):
+    for name in ('a', 'b'):
+        (tmp_path / name).write_text(name)
+    candidate = tmp_path / 'missing'
+    snapshot = StaticInputSnapshot(tmp_path, max_files=1)
+    with pytest.raises(ValueError):
+        snapshot.bind_dependency_absence(candidate)
+    assert snapshot.absent_dependency_paths() == []
+    assert snapshot.unconfirmable_dependency_paths() == [candidate]
+
+
+def test_named_negative_lookup_rechecks_parent_at_finish(tmp_path):
+    snapshot = StaticInputSnapshot(tmp_path)
+    candidate = tmp_path / 'missing'
+    assert snapshot.bind_dependency_absence(candidate)
+    candidate.write_text('appeared during capture')
+    with pytest.raises(ValueError):
+        snapshot.finish()
+
+
 def test_caught_directory_cap_retains_an_unconfirmable_obligation(tmp_path):
     for name in ('a', 'b'):
         (tmp_path / name).write_text(name)

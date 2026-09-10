@@ -175,11 +175,15 @@ The #633 implementation pass separately reproduced
 [#635](https://github.com/ThreeMoonsLab/agents-shipgate/issues/635): an implicit
 `.app.json` can appear and change the next app surface while old full input
 currency still passes. Its absent default was never selected for capture.
-Keep this P1 named default-selection obligation after #633 and before final
-input-set qualification/#569 freeze, deferred from the selected-component PR.
-It must preserve unrelated sibling independence rather than census the whole
-plugin root. The reproduction is loader/currency evidence, not a Git authority
-or merge-bypass demonstration.
+The #635 repair binds named absence/presence for implicit `skills`, `.app.json`
+and `.mcp.json` before selection. An exact-name miss must also fail a no-follow
+lookup before it counts as absence; a case alias or unreadable lookup remains
+an unconfirmable dependency with a component diagnostic. Explicit paths do not
+bind unused defaults, and unrelated root siblings stay outside the input set.
+Actual verifier/current-control and prepare/worker regressions cover ignored
+default insertion, including both control observations and committed/worktree
+plans. This follows #633 and precedes final input-set qualification/#569 freeze;
+it does not qualify all reader discovery or establish a merge-permission bypass.
 
 The following sequence and approved release bars still apply. Contract
 convergence, historical catch results, report freeze, actual human ownership,

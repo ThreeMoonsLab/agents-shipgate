@@ -130,12 +130,25 @@ class StaticInputSnapshot:
         """Capture a named absent lookup candidate, including its parent listing."""
 
         key, _relative = self._key(path)
-        names = self.bind_directory(key.parent)
-        if key.name in names:
-            self._present_dependency_paths.add(key)
-            return False
-        self._absent_dependency_paths.add(key)
-        return True
+        try:
+            names = self.bind_directory(key.parent)
+            if key.name in names:
+                self._present_dependency_paths.add(key)
+                return False
+            # An exact listing miss can still resolve on a case-insensitive
+            # filesystem. Probe only this name, without following its target;
+            # the bound parent is rechecked when the session finishes.
+            try:
+                key.lstat()
+            except FileNotFoundError:
+                self._absent_dependency_paths.add(key)
+                return True
+            raise ValueError("path resolves through a differently spelled filesystem entry")
+        except (OSError, ValueError):
+            # Readers may recover from a lookup failure. Keep its obligation
+            # even when they return a diagnostic instead of parsed evidence.
+            self.mark_unconfirmable_dependency(key)
+            raise
 
     def dependency_paths(self) -> list[Path]:
         return sorted(self._dependency_paths)
