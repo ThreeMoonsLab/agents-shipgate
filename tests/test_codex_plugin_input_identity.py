@@ -248,7 +248,7 @@ def test_prepare_and_worker_preserve_a_caught_missing_component(repo, committed,
     assert "dependency could not be captured" in str(result.exception)
 
 
-@pytest.mark.parametrize("form", ["apps", "mcpServers", "hooks"])
+@pytest.mark.parametrize("form", ["skills_file", "apps", "mcpServers", "hooks"])
 @pytest.mark.parametrize("committed", [False, True])
 def test_optional_file_component_directory_cannot_reconfirm_after_repair(repo, form, committed):
     root, target, _ = plugin_source(repo, form)
@@ -286,6 +286,40 @@ def test_optional_file_component_directory_cannot_reconfirm_after_repair(repo, f
     _verify(repo, archive_head=committed)
     read_current_control(reports, live=lambda: _live(repo))
     surface = json.loads((reports / "report.json").read_text())["codex_plugin_surface"]
-    count = {"apps": "app_count", "mcpServers": "mcp_server_stub_count", "hooks": "hook_stub_count"}[form]
+    count = {
+        "skills_file": "skill_count", "apps": "app_count",
+        "mcpServers": "mcp_server_stub_count", "hooks": "hook_stub_count",
+    }[form]
     assert surface[count] == 1
     assert not (root / "never-execute").exists()
+
+
+@pytest.mark.parametrize("suffix", ["", "/", "/."])
+def test_direct_skill_directory_refusal_uses_the_selected_basename(repo, suffix):
+    root, target, key = plugin_source(repo, "skills_file")
+    target.unlink()
+    target.mkdir()
+    select_component(root, key, "./" + target.relative_to(root).as_posix() + suffix)
+    snapshot, artifacts = capture(repo)
+    assert not artifacts.skills
+    assert len(artifacts.component_path_issues) == 1
+    assert "directory, expected a regular file" in artifacts.component_path_issues[0].reason
+    assert snapshot.unconfirmable_dependency_paths() == [target]
+
+
+def test_root_named_skill_md_is_still_a_direct_file_selection(repo):
+    old_root, _, key = plugin_source(repo)
+    root = old_root.with_name("SKILL.md")
+    old_root.rename(root)
+    select_component(root, key, ".")
+    manifest_path = repo / "shipgate.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text())
+    manifest["tool_sources"][0]["path"] = root.relative_to(repo).as_posix()
+    manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False))
+    snapshot, artifacts = capture(repo)
+    assert not artifacts.skills
+    assert len(artifacts.component_path_issues) == 1
+    assert "directory, expected a regular file" in artifacts.component_path_issues[0].reason
+    assert snapshot.input_directory_identity(source="worktree")["unconfirmable_paths"] == [
+        root.relative_to(repo).as_posix()
+    ]

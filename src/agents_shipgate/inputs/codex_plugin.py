@@ -895,8 +895,12 @@ def _resolve_plugin_path(root: Path, raw_path: str, *, allow_directory: bool) ->
                 raise ValueError("component path is outside plugin root")
             if snapshot.excludes(candidate):
                 raise ValueError("component path overlaps excluded verification output")
+            # _skill_files treats this basename as a direct file before any
+            # directory walk. Match that selection, including './' when the
+            # plugin root itself is named SKILL.md, before parser recovery.
             snapshot.capture_selected_path(
-                candidate, max_bytes=MAX_INPUT_FILE_BYTES, allow_directory=allow_directory,
+                candidate, max_bytes=MAX_INPUT_FILE_BYTES,
+                allow_directory=allow_directory and candidate.name != "SKILL.md",
             )
         except (OSError, ValueError) as exc:
             # The caller turns InputParseError into a component diagnostic.

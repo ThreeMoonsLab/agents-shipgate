@@ -117,7 +117,9 @@ records an unconfirmable dependency (or an unconfirmable directory for a refused
 root/containment lookup), so repairing the path requires a fresh verification.
 Apps, MCP and hooks require regular files; a directory at one of those paths
 is a captured refusal even when the plugin source is optional. Skills retain
-their directory and direct `SKILL.md` forms.
+their directory and direct `SKILL.md` forms. A selected path named `SKILL.md`
+is always the direct-file form; a directory at that name is a captured refusal,
+including when `.` selects a plugin root with that name.
 Committed archives already reject tracked symlinks before component loading;
 their failure record grants no permissions. Standalone loading retains its
 existing in-root resolution behavior.
