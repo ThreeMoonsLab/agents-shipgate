@@ -12,7 +12,12 @@ from agents_shipgate.core.domain import (
     ToolkitScopeBound,
 )
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.inputs.common import load_text_file, resolve_input_path, stable_tool_id
+from agents_shipgate.inputs.common import (
+    list_input_directory,
+    load_text_file,
+    resolve_input_path,
+    stable_tool_id,
+)
 from agents_shipgate.inputs.config_trace import trace_config_binding
 from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
@@ -65,7 +70,7 @@ def load_openai_sdk_static_tools(
             )],
         )
     if path.is_dir():
-        python_files = sorted(path.glob("*.py"))
+        python_files = [child for child in list_input_directory(path) if child.match("*.py")]
         if not python_files:
             raise InputParseError(f"OpenAI Agents SDK source directory has no Python files: {path}")
         tools: list[Tool] = []

@@ -17,7 +17,7 @@ Artifact integrity and current authority have separate read boundaries:
 
 | Reader | Validated evidence | What it does not establish |
 | --- | --- | --- |
-| `read_current_control` / `agent control` | Every explicit pointer entry, generation consistency, live workspace currency, and the recorded plan input blobs at their declared origins. `capture` returns selected bytes from that same validated pass. | Integrity of a receipt-only optional output file absent from the pointer map, or source-directory membership not recorded in the plan. Requesting an unbound capture key returns no bytes for it. |
+| `read_current_control` / `agent control` | Every explicit pointer entry, generation consistency, live workspace currency, the recorded plan input blobs at their declared origins, and reader-selected directory membership. `capture` returns selected bytes from that same validated pass. | Integrity of a receipt-only optional output file absent from the pointer map, or directories the input readers never enumerated. Requesting an unbound capture key returns no bytes for it. |
 | `load_validated_receipt_artifacts` | The complete terminal receipt closure, including optional files, from a bounded private snapshot. | Current workspace state, review eligibility, or operational permission on its own. |
 
 `human-review-request.json` is one such optional artifact. Changing, deleting,
@@ -90,11 +90,49 @@ the plan's bundle directory even when reports are outside the workspace. Missing
 unreadable, aliased, oversized or concurrently replaced inputs refuse the read.
 The existing named absent/present/refused dependency rules still apply.
 
-This validates **recorded file blobs**. Directory-source membership is a separate
-open obligation in [#630](https://github.com/ThreeMoonsLab/agents-shipgate/issues/630):
-adding an ignored source file that was never recorded can change a fresh catalog
-while all recorded blobs remain intact. File currency does not establish a
-complete directory census or close that release blocker.
+`inputs.options.input_directories` version `1` binds the directories the input
+readers actually enumerate, including empty directories. Each row names a
+repository-relative `path` (`.` is the root) and sorted `members` with a lexical
+`name` and no-follow `kind` (`file`, `directory`, `symlink`, or `special`). The
+`source` distinguishes `git_blob` capture from `worktree` capture. This metadata
+is engine-owned, hashed into `input_set_id`, and reconfirmed with file bytes in
+one bounded session in both current-control observations and worker replay.
+An ignored addition, deletion, rename, or member kind change invalidates it,
+even when every previously recorded file blob still matches (#630).
+
+Only source discovery publishes these rows. Lexical parents inspected to read a
+file and parents inspected for a named absent dependency are not whole-directory
+inputs. The SDK/framework readers keep their top-level Python selection, Codex
+plugin skills keep their two-level selection, and other readers retain their
+existing recursive/skip boundaries. This is a census of those selected
+directories, not proof that every repository file or dynamic tool was analyzed.
+File parsing caps and coverage limitations still apply independently.
+A component lookup resolved away before capture cannot be recovered from the
+resulting directory rows: the reproduced Codex plugin alias-retarget case is
+still a separate P1 obligation in [#633](https://github.com/ThreeMoonsLab/agents-shipgate/issues/633).
+This census does not claim that every reader retains such lexical lookups.
+
+`excluded_paths` records Git metadata and the exact generated report subtree,
+mapped into the archive for committed capture. A live output-only parent such
+as `build/artifacts` is projected away only along that exact output prefix;
+adding `build/agent.ts` or even an unrelated empty directory makes it visible.
+These projection probes bind identity for the session but do not become source
+rows. A selected input cannot itself be the excluded output directory.
+
+Directory capture shares the identity-read budget with file inputs and caps
+selected directory rows plus members at 100,000. Cached listings obey the same
+per-directory bound as fresh listings. Names and kinds are rechecked before the
+session completes. A refused enumeration remains in `unconfirmable_paths` even
+if an adapter recovers; a partial or over-budget census grants no current
+identity. A selected Conductor JSON symlink is refused before resolution can
+erase its lexical identity.
+
+A captured empty `directories` list means the readers enumerated no source
+directories. Missing metadata means capture is unknown: older plans and direct
+builder fallback plans need a fresh `verify` or `verification prepare` before
+current reads or worker replay. A matching snapshot context alone does not
+attest that adapter loading occurred. Existing historical receipt integrity
+remains readable and does not grant current authority.
 
 The [normative control recipe](agent-contract-current.md#two-read-entry-points)
 defines freshness and permission routing. These boundaries change neither its

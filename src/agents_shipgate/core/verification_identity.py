@@ -198,7 +198,12 @@ def build_verification_plan(
     # negative lookups matter as much as the bytes that resolved an import.
     normalized_options.pop("dependency_inputs", None)
     normalized_options.pop("input_origins", None)
+    normalized_options.pop("input_directories", None)
     snapshot = active_static_input_snapshot()
+    if snapshot is not None and snapshot.root == input_root and captured_input_paths is not None:
+        normalized_options["input_directories"] = snapshot.input_directory_identity(
+            source="git_blob" if archived_head else "worktree",
+        )
     if snapshot is not None and (snapshot.dependency_paths() or snapshot.absent_dependency_paths() or snapshot.present_dependency_paths() or snapshot.unconfirmable_dependency_paths()):
         normalized_options["dependency_inputs"] = {
             "files": sorted(
@@ -935,42 +940,12 @@ def validate_plan_inputs(
 ) -> None:
     """Fail closed unless every portable plan blob matches the supplied root."""
 
-    validate_dependency_inputs(plan, root=root)
+    from agents_shipgate.core.verification_input_currency import validate_bound_plan_inputs
 
-    blobs = [
-        plan.inputs.config,
-        *plan.inputs.tool_sources,
-        *plan.inputs.policy_packs,
-        *plan.inputs.changed_files,
-    ]
-    if plan.inputs.baseline is not None:
-        blobs.append(plan.inputs.baseline)
-    if plan.inputs.diff_from is not None:
-        blobs.append(plan.inputs.diff_from)
-    resolved_root = root.resolve()
-    resolved_bundle_root = (bundle_root or resolved_root).resolve()
-    for blob in blobs:
-        candidate_root = (
-            resolved_bundle_root
-            if blob.source in {"external_input", "generated"}
-            else resolved_root
-        )
-        candidate = (candidate_root / blob.path).resolve()
-        if candidate != candidate_root and candidate_root not in candidate.parents:
-            raise ValueError(f"plan input escapes supplied root: {blob.path}")
-        if not candidate.is_file():
-            raise ValueError(f"plan input is missing: {blob.path}")
-        if sha256_file(candidate) != blob.sha256:
-            raise ValueError(f"plan input hash does not match: {blob.path}")
-        if candidate.stat().st_size != blob.size_bytes:
-            raise ValueError(f"plan input size does not match: {blob.path}")
-    resolved_diff = (diff_path or (resolved_root / plan.inputs.diff.path)).resolve()
-    if not resolved_diff.is_file():
-        raise ValueError(f"plan diff input is missing: {plan.inputs.diff.path}")
-    if sha256_file(resolved_diff) != plan.inputs.diff.sha256:
-        raise ValueError("plan diff input hash does not match")
-    if resolved_diff.stat().st_size != plan.inputs.diff.size_bytes:
-        raise ValueError("plan diff input size does not match")
+    validate_bound_plan_inputs(
+        plan, root=root, artifacts_root=bundle_root or root,
+        live_origins=False, diff_path=diff_path or root / plan.inputs.diff.path,
+    )
 
 
 def validate_dependency_inputs(plan: VerificationPlan, *, root: Path, snapshot=None) -> None:

@@ -1046,7 +1046,9 @@ def run_verify(
             # already does for a worktree run.
             head_snapshot = StaticInputSnapshot(
                 head_tree_dir,
-                excluded_paths=[out_dir],
+                excluded_paths=[_map_optional_tree_path(
+                    git_root=git_root, tree_dir=head_tree_dir, path=out_dir,
+                )],
             )
             # Read the manifest once, here, and hand those exact bytes to the
             # scan. `load_manifest_with_positions` otherwise parses it twice —

@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 import posixpath
 import stat
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
@@ -282,6 +282,7 @@ class IdentityReadBudget:
 class _DirectoryIdentitySnapshot:
     names: frozenset[str]
     observed: dict[str, os.stat_result]
+    entry_kinds: dict[str, str] = field(default_factory=dict)
 
 
 class IdentityBoundReadSession:
@@ -403,6 +404,10 @@ class IdentityBoundReadSession:
                 raise ValueError("inventory path is not a directory")
             directory = self.root / relative
         snapshot = self._snapshot(directory, max_entries=max_entries)
+        if max_entries is not None and len(snapshot.names) > max_entries:
+            raise IdentityReadBudgetExceeded(
+                "directory inventory exceeded its static filesystem entry bound"
+            )
         return tuple(sorted(snapshot.names))
 
     def finish(self) -> None:
@@ -420,6 +425,10 @@ class IdentityBoundReadSession:
                 raise ValueError(
                     "directory entries changed while identity-bound files were read"
                 )
+            for name, expected_kind in sorted(snapshot.entry_kinds.items()):
+                requested = directory / name
+                if _directory_member_kind(requested) != expected_kind:
+                    raise ValueError("directory entry kind changed while inputs were read")
             for name, expected in sorted(snapshot.observed.items()):
                 if name not in current_names:
                     raise ValueError("path changed lexical identity while it was read")
@@ -436,6 +445,29 @@ class IdentityBoundReadSession:
                 ):
                     raise ValueError("path changed identity while it was read")
         self._finished = True
+
+    def directory_entry_kind(self, relative: Path) -> str:
+        """Observe one enumerated name's no-follow kind, without reading bytes.
+
+        Unread siblings need a kind obligation, not a file-content obligation.
+        Files actually consumed still use read_bytes and its stronger identity
+        checks. Unsafe kinds are described without following or opening them.
+        """
+
+        if self._finished or relative.is_absolute() or ".." in relative.parts or not relative.name:
+            raise ValueError("invalid directory entry observation")
+        directory = self.root / relative.parent
+        if directory not in self._snapshots:
+            self.directory_entries(relative.parent)
+        snapshot = self._snapshots[directory]
+        if relative.name not in snapshot.names:
+            raise ValueError("directory entry changed lexical identity")
+        kind = _directory_member_kind(self.root / relative)
+        previous = snapshot.entry_kinds.get(relative.name)
+        if previous is not None and previous != kind:
+            raise ValueError("directory entry kind changed while inputs were read")
+        snapshot.entry_kinds[relative.name] = kind
+        return kind
 
     def _inspect_components(
         self,
@@ -860,6 +892,19 @@ def inspect_lexical_path_identity(
             return PathIdentityIssue(kind="reparse_point", requested=requested)
         current = requested
     return None
+
+
+def _directory_member_kind(path: Path) -> str:
+    """Classify an enumerated name without following or opening its target."""
+
+    metadata = path.lstat()
+    if stat.S_ISLNK(metadata.st_mode) or _is_reparse_point(metadata) or _is_junction(path):
+        return "symlink"
+    if stat.S_ISDIR(metadata.st_mode):
+        return "directory"
+    if stat.S_ISREG(metadata.st_mode):
+        return "file"
+    return "special"
 
 
 def _is_reparse_point(metadata: os.stat_result) -> bool:

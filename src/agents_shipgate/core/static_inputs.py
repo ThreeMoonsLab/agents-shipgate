@@ -51,6 +51,13 @@ class StaticInputSnapshot:
         self._absent_dependency_paths: set[Path] = set()
         self._present_dependency_paths: set[Path] = set()
         self._unconfirmable_dependency_paths: set[Path] = set()
+        self._input_directories: dict[Path, tuple[tuple[str, str], ...]] = {}
+        self._unconfirmable_input_directories: set[Path] = set()
+        self._directory_members = 0
+        # These exclusions apply only to source discovery, never to file reads
+        # or named negative lookups. Git metadata is not an agent tool surface.
+        self._discovery_exclusions = self._excluded_paths | {self.root / ".git"}
+        self._output_only: dict[Path, bool] = {}
         self._total_bytes = 0
         self._budget = budget if budget is not None else IdentityReadBudget(
             max_entries=max_files * 32,
@@ -175,7 +182,7 @@ class StaticInputSnapshot:
         return data
 
     def bind_directory(self, path: Path) -> tuple[str, ...]:
-        """Bind one directory inventory to the graph-scoped snapshot."""
+        """Bind an incidental inventory for this session, not future currency."""
 
         if self._finished:
             raise ValueError("static input snapshot is already finalized")
@@ -186,6 +193,106 @@ class StaticInputSnapshot:
         )
         session, relative = self._session_for(key)
         return session.directory_entries(relative, max_entries=self.max_files)
+
+    def mark_unconfirmable_input_directory(self, path: Path) -> None:
+        """Keep a refused directory lookup visible even if an adapter recovers."""
+
+        if self._finished:
+            raise ValueError("static input snapshot is already finalized")
+        key = Path(os.path.abspath(path))
+        key.relative_to(self.root)
+        self._unconfirmable_input_directories.add(key)
+
+    def enumerate_input_directory(self, path: Path) -> tuple[str, ...]:
+        """Record a reader-selected inventory, including empty directories.
+
+        Merely reading a file or checking a named absent import does not select
+        its whole parent as an input. Only readers that discover inputs through
+        this API publish membership obligations in the verification plan.
+        """
+
+        key = Path(os.path.abspath(os.path.normpath(os.fspath(
+            path if path.is_absolute() else self.root / path
+        ))))
+        try:
+            if self._finished or (key != self.root and self.root not in key.parents):
+                raise ValueError("input directory is outside the active snapshot")
+            if self.excludes(key) or key == self.root / ".git":
+                raise ValueError("input directory overlaps excluded verification output")
+            cached = self._input_directories.get(key)
+            if cached is not None:
+                return tuple(name for name, _kind in cached)
+            names = self.bind_directory(key)
+            session, relative = self._session_for(key)
+            members = []
+            for name in names:
+                child = key / name
+                if child in self._discovery_exclusions:
+                    continue
+                kind = session.directory_entry_kind(relative / name)
+                if kind == "directory" and self._is_output_only_ancestor(child):
+                    continue
+                members.append((name, kind))
+            if self._directory_members + len(members) + 1 > self.max_files:
+                raise ValueError("input directory census exceeds its aggregate entry limit")
+            self._directory_members += len(members) + 1
+            self._input_directories[key] = tuple(members)
+            return tuple(name for name, _kind in members)
+        except (OSError, ValueError):
+            self._unconfirmable_input_directories.add(key)
+            raise
+
+    def _is_output_only_ancestor(self, path: Path) -> bool:
+        """Project away only scaffolding on an exact output-path prefix.
+
+        A live build/reports directory need not exist in an archived tree. But
+        build/agent.ts or even build/other-empty-directory is a real new source
+        member. Never inspect arbitrary sibling subtrees to call them empty.
+        These identity-bound inspections do not select directories as inputs.
+        """
+
+        if not any(path in excluded.parents for excluded in self._discovery_exclusions):
+            return False
+        if path in self._output_only:
+            return self._output_only[path]
+        names = self.bind_directory(path)
+        session, relative = self._session_for(path)
+        result = True
+        for name in names:
+            child = path / name
+            if child in self._discovery_exclusions:
+                continue
+            kind = session.directory_entry_kind(relative / name)
+            if kind != "directory" or not self._is_output_only_ancestor(child):
+                result = False
+                break
+        self._output_only[path] = result
+        return result
+
+    def input_directory_identity(self, *, source: str) -> dict[str, object]:
+        """Export the selected census, never incidental lexical parents."""
+
+        return {
+            "version": 1,
+            "source": source,
+            "excluded_paths": sorted(
+                path.relative_to(self.root).as_posix()
+                for path in self._discovery_exclusions
+                if path == self.root or self.root in path.parents
+            ),
+            "directories": [
+                {"path": path.relative_to(self.root).as_posix(),
+                 "members": [{"name": name, "kind": kind} for name, kind in members]}
+                for path, members in sorted(
+                    self._input_directories.items(),
+                    key=lambda item: item[0].relative_to(self.root).as_posix(),
+                )
+            ],
+            "unconfirmable_paths": sorted(
+                path.relative_to(self.root).as_posix()
+                for path in self._unconfirmable_input_directories
+            ),
+        }
 
     def finish(self) -> None:
         """Reject any identity or directory-membership change since capture."""

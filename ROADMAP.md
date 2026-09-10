@@ -149,11 +149,24 @@ This general currency repair precedes final candidate/freeze; it does not reopen
 
 The pass separately reproduced [#630](https://github.com/ThreeMoonsLab/agents-shipgate/issues/630):
 adding an ignored file under a directory-valued source can change a fresh tool
-catalog without changing any recorded input blob. Directory membership is a
-distinct P1 v1.0 release obligation, deferred from #627 rather than silently
-treated as covered by file hashes. Implement its bounded census before the
-final candidate replay and #569 freeze. Neither finding proves runtime reachability
-or supplies the missing historical qualification evidence.
+catalog without changing any recorded input blob. The selected #630 repair
+binds reader-selected names and no-follow entry kinds in the same bounded input
+session, across worktree/committed capture, both current observations, and worker
+replay. Exact report exclusions preserve source siblings; incidental file and
+negative-lookup parents are not new directory dependencies. Older plans without
+capture need a fresh run. This repair precedes final candidate replay and #569
+freeze; it does not remove static reader coverage limits, prove runtime
+reachability, or supply the missing historical qualification evidence.
+
+The #630 implementation review separately reproduced
+[#633](https://github.com/ThreeMoonsLab/agents-shipgate/issues/633): a Codex plugin
+component alias is resolved before capture, so retargeting it changes the next
+skill surface while the previously resolved files and directory rows remain
+valid. This is a lost lexical lookup, not missing membership of an already
+recorded directory. Keep its P1 repair after #630 and before final input-set
+qualification/#569 freeze; it is deferred from this census PR. The reproduction
+uses the actual loader and input-currency validator, not a demonstrated merge
+permission bypass.
 
 The following sequence and approved release bars still apply. Contract
 convergence, historical catch results, report freeze, actual human ownership,
