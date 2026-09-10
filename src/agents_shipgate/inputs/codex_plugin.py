@@ -564,7 +564,7 @@ def _load_skills(
     plugin_name: str,
     artifacts: CodexPluginArtifacts,
 ) -> None:
-    paths = _component_paths(data, root, "skills", default="skills")
+    paths = _component_paths(data, root, "skills", plugin_name, artifacts, default="skills")
     skill_files: list[Path] = []
     for path in paths:
         resolved = _resolve_component_path(
@@ -630,7 +630,7 @@ def _load_apps(
     plugin_name: str,
     artifacts: CodexPluginArtifacts,
 ) -> None:
-    for path in _component_paths(data, root, "apps", default=".app.json"):
+    for path in _component_paths(data, root, "apps", plugin_name, artifacts, default=".app.json"):
         resolved = _resolve_component_path(
             root=root,
             base_dir=base_dir,
@@ -678,7 +678,7 @@ def _load_mcp_servers(
     inventories: dict[tuple[str, str], CodexPluginMcpInventoryConfig],
 ) -> list[LoadedToolSource]:
     loaded_sources: list[LoadedToolSource] = []
-    for path in _component_paths(data, root, "mcpServers", default=".mcp.json"):
+    for path in _component_paths(data, root, "mcpServers", plugin_name, artifacts, default=".mcp.json"):
         resolved = _resolve_component_path(
             root=root,
             base_dir=base_dir,
@@ -788,7 +788,7 @@ def _load_hooks(
     plugin_name: str,
     artifacts: CodexPluginArtifacts,
 ) -> None:
-    for path in _component_paths(data, root, "hooks"):
+    for path in _component_paths(data, root, "hooks", plugin_name, artifacts):
         resolved = _resolve_component_path(
             root=root,
             base_dir=base_dir,
@@ -821,6 +821,8 @@ def _component_paths(
     data: dict[str, Any],
     root: Path,
     key: str,
+    plugin: str,
+    artifacts: CodexPluginArtifacts,
     *,
     default: str | None = None,
 ) -> list[str]:
@@ -830,8 +832,27 @@ def _component_paths(
         paths.append(value)
     elif isinstance(value, list):
         paths.extend(item for item in value if isinstance(item, str) and item.strip())
-    if not paths and default and (root / default).exists():
-        paths.append(default)
+    if not paths and default:
+        candidate = root / default
+        snapshot = active_static_input_snapshot()
+        if snapshot is not None and (root == snapshot.root or snapshot.contains(root)):
+            try:
+                if snapshot.excludes(candidate):
+                    raise ValueError("default component path overlaps excluded verification output")
+                if not snapshot.bind_dependency_absence(candidate):
+                    paths.append(default)
+            except (OSError, ValueError) as exc:
+                snapshot.mark_unconfirmable_dependency(candidate)
+                artifacts.component_path_issues.append(
+                    CodexPluginComponentPathIssue(
+                        plugin=plugin,
+                        component=key,
+                        path=default,
+                        reason=f"Default component lookup could not be captured: {exc}",
+                    )
+                )
+        elif candidate.exists():
+            paths.append(default)
     return paths
 
 
