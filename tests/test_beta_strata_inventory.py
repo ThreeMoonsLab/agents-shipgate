@@ -71,9 +71,9 @@ def test_beta_uses_the_existing_sourcing_contract(rows: list[dict[str, str]]) ->
     cut_a.test_exposure_decides_the_split_and_nothing_else_does(rows)
     cut_a.test_a_miner_label_row_agrees_with_the_csv_it_cites(rows)
     for row in rows:
-        # No beta primary labels or constructed cases have been collected by
-        # this work. Adding either requires an explicit, reviewed handoff.
-        assert row["target_basis"] in {"miner_label", "unsourced"}
+        # Direct source targeting uses Cut A's vocabulary; it is not a beta
+        # primary label, constructed case, or accepted holdout.
+        assert row["target_basis"] in {"miner_label", "diff_substance", "unsourced"}
         assert row["status"] in {"pinned", "gap"}
         if row["status"] == "pinned":
             assert cut_a.EXTERNAL_CANDIDATE.fullmatch(row["candidate_ref"])
@@ -155,11 +155,50 @@ def test_beta_exposure_preserves_known_history_and_scans_all_beta_candidates(
             observed.add("benchmark_scored")
         if ref in labels:
             observed.add("miner_label")
+        if row["target_basis"] == "diff_substance":
+            observed.add("maintainer_walk")
         owner_repo, _, number = ref.removeprefix("github.com/").partition("#")
         repo = re.compile(rf"\b{re.escape(owner_repo.split('/')[-1])}\b")
         if any(repo.search(line) for line in mentions[number]):
             observed.add("engine_tests")
         assert observed <= cut_a._declared_exposure(row), ref
+
+
+def test_direct_source_targets_cite_the_beta_register_and_keep_the_exposure_floor(
+    rows: list[dict[str, str]],
+) -> None:
+    # Cut A's equivalent helper reads its own register; use the beta entries
+    # here, so a reserve or a private inspection note cannot stand in for one.
+    entries = {
+        cells[0]: cells[4]
+        for cells in _tables()["## Candidate register"]
+        if cells[0].startswith("github.com/")
+    }
+    for row in rows:
+        if row["target_basis"] != "diff_substance":
+            continue
+        assert row["evidence_ref"] == (
+            "benchmark/safety-qualification/beta-strata-inventory.md#candidate-register"
+        )
+        context = entries[row["candidate_ref"]]
+        assert f"{row['pinned_base']}...{row['pinned_head']}" in context
+        assert f"/blob/{row['pinned_head']}/" in context
+        assert "maintainer_walk" in cut_a._declared_exposure(row)
+        assert row["split_eligibility"] == "tuning_only"
+
+
+def test_sequential_harness_candidates_preserve_joint_admissibility(
+    rows: list[dict[str, str]],
+) -> None:
+    refs = [f"github.com/google/adk-samples#{number}" for number in (2543, 2544)]
+    by_ref = {row["candidate_ref"]: row for row in rows if row["status"] == "pinned"}
+    first, second = (by_ref[ref] for ref in refs)
+    assert first["pinned_head"] == second["pinned_base"]
+    for row in (first, second):
+        assert all(ref in row["notes"] for ref in refs)
+        assert "#2561" in row["notes"]
+        assert "one split" in row["notes"]
+        assert row["split_eligibility"] == "tuning_only"
 
 
 def test_register_counts_only_the_candidate_capacity_the_csv_has(
