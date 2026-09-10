@@ -104,6 +104,21 @@ def test_smoke_cannot_publish_or_substitute_for_qualification() -> None:
         checkout = next(step for step in job["steps"] if "actions/checkout@" in step.get("uses", ""))
         assert checkout["with"]["ref"] == "${{ github.sha }}"
         assert checkout["with"]["persist-credentials"] is False
+    # `python -m hatchling build` does not enforce `[build-system] requires`
+    # the way the sealer's `python -m build` does, so the only thing keeping
+    # the smoke on the release backend is the hash-locked install ahead of it.
+    # An index-resolved hatchling would stamp a different `Generator:` and the
+    # "exact source candidate" would not be the bytes the sealer compares.
+    candidate = workflow["jobs"]["candidate"]["steps"]
+    runs = [step.get("run", "") for step in candidate]
+    installed = [
+        index for index, run in enumerate(runs)
+        if "--require-hashes" in run and "constraints/build-backend.txt" in run
+    ]
+    built = [index for index, run in enumerate(runs) if "hatchling build" in run]
+    assert len(installed) == 1 and len(built) == 1, (installed, built)
+    assert installed[0] < built[0]
+
     downstream = workflow["jobs"]["downstream"]
     action = next(step for step in downstream["steps"] if step.get("uses") == "./")
     assert action["with"]["shipgate_wheel_sha256"] == "${{ needs.candidate.outputs.wheel_sha256 }}"
