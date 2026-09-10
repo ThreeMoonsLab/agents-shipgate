@@ -106,8 +106,11 @@ retains its doctor route. Follow the emitted typed `control.next_action`:
 incomplete discovery and unresolved project scope take precedence over setup
 or host review. Detection reads filenames, not permissions. Invalid contents remain
 audit inputs; a config path that is a directory requires inspection first.
-`host_discovery_incomplete_paths` lists unfollowed links that could conceal
-nested config. Inspect them before interpreting an empty candidate list.
+`host_discovery_incomplete_paths` lists paths discovery could not see
+through — a link to a directory that it does not follow, or a directory it
+could not read. A link to a file conceals nothing and is not listed. Inspect
+them before interpreting an empty candidate list; the rest of the
+classification still stands.
 
 These host discovery fields require the current source/candidate (runtime
 contract 33). On an older install, absence of the fields is not an empty

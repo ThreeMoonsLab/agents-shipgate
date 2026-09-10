@@ -621,8 +621,8 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         "suggested_sources": [],
         "excluded_sources": [],
         "codex_plugin_candidates": [],
-            "host_boundary_candidates": [],
-            "host_discovery_incomplete_paths": [],
+        "host_boundary_candidates": [],
+        "host_discovery_incomplete_paths": [],
         "next_action": "",
         "workspace_signals": {
             "python_file_count": 0,

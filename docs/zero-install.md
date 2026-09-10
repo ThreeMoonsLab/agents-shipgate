@@ -46,9 +46,11 @@ recognized host config names. It includes ignored settings; JSON/TOML contents
 are not read by this census and grants are not verified. Follow the existing
 `audit --host` route for host-only repositories. A directory at a config
 filename requires inspection first. `host_discovery_incomplete_paths` lists
-unfollowed links that could conceal recursively supported configs; empty
-candidates do not establish absence while that list is non-empty. Enumeration
-errors or the 100,000-entry bound fail discovery instead of returning a negative.
+paths this census could not see through — a link to a directory that it does
+not follow, or a directory it could not read; empty candidates do not establish
+absence while that list is non-empty. Enumeration errors and the 100,000-entry
+bound name the path that stopped the census in that list and publish no
+candidates, rather than returning a negative or failing the classification.
 Both fields are pinned against the CLI. Older payloads lacking them cannot
 satisfy the current product-wide stop condition.
 

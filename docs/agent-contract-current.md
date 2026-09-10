@@ -2,7 +2,9 @@
 
 Runtime contract v33 adds `host_boundary_candidates[]` and
 `host_discovery_incomplete_paths[]` to discovery. They describe recognized
-configuration paths and unfollowed traversal, never parsed grants. A host-only
+configuration paths and traversal the bounded census could not see through,
+never parsed grants. An incomplete census withholds the product-wide negative
+and publishes no candidates; it does not fail the classification. A host-only
 workspace follows `audit --host` without creating a manifest. `init` and
 `bootstrap` hand off without setup writes; incomplete input cannot publish a
 product-wide negative. Existing operational control and persisted evidence

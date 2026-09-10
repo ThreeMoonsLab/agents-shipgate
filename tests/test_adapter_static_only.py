@@ -166,7 +166,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/bootstrap.py",
         surface="attr_call:subprocess.run",
-        line=73,
+        line=74,
         snippet=(
             "subprocess.run(argv, cwd=str(cwd), env=env, "
             "capture_output=True, text=True, check=False)"

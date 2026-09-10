@@ -50,6 +50,7 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
@@ -769,16 +770,67 @@ def test_detector_comparison_reports_a_seeded_divergence():
         "frameworks": [],
         "suggested_sources": [],
         "excluded_sources": [],
+        "host_boundary_candidates": [],
+        "host_discovery_incomplete_paths": [],
     }
     changed = {
         "is_agent_project": True,
         "frameworks": [{"type": "mcp_server_source"}],
         "suggested_sources": [{"type": "mcp_server_source", "path": "src"}],
         "excluded_sources": [],
+        # Seeded too: comparing two payloads that are empty here would leave
+        # the host rows agreeing by absence, which is the shape of a guard
+        # that cannot fail.
+        "host_boundary_candidates": [
+            {"path": ".mcp.json", "hosts": ["claude-code"], "file_type": "file"}
+        ],
+        "host_discovery_incomplete_paths": ["docs"],
     }
     divergences = detector_divergences(empty, changed)
-    assert len(divergences) == 3, divergences
+    assert len(divergences) == 5, divergences
     assert not detector_divergences(changed, changed)
+
+
+@pytest.mark.parametrize(
+    "shape",
+    ["host_config_file", "host_config_directory", "unreadable_directory"],
+)
+def test_detector_verdict_matches_cli_on_host_only_shapes(
+    detector: Any, tmp_path: Path, shape: str
+):
+    """The committed corpus has no host-only workspace, and cannot have one.
+
+    A `.mcp.json` under `tests/` would be a host boundary candidate of *this*
+    repository — `**/.mcp.json` matches at any depth — so the shapes that make
+    the two new comparison rows non-vacuous are built here instead of
+    committed. Without them the rows compare `[] == []` on every row of the
+    corpus, which is a guard that cannot fail.
+    """
+
+    (tmp_path / "notes.txt").write_text("x\n", encoding="utf-8")
+    guard: Path | None = None
+    if shape == "host_config_file":
+        (tmp_path / ".mcp.json").write_text("{}\n", encoding="utf-8")
+    elif shape == "host_config_directory":
+        (tmp_path / ".mcp.json").mkdir()
+    else:
+        guard = tmp_path / "secret"
+        guard.mkdir()
+        guard.chmod(0o000)
+        if os.access(guard, os.R_OK):
+            pytest.skip("directory permissions are not enforced here")
+
+    try:
+        script_result = detector.detect(tmp_path)
+        cli_result = detect_workspace(tmp_path.resolve()).model_dump(mode="json")
+        assert (
+            script_result["host_boundary_candidates"]
+            or script_result["host_discovery_incomplete_paths"]
+        ), "the shape under test produced neither row, so it compares nothing"
+        assert not detector_divergences(script_result, cli_result)
+    finally:
+        if guard is not None:
+            guard.chmod(0o755)
 
 
 def test_parity_corpus_covers_the_registration_site_route():

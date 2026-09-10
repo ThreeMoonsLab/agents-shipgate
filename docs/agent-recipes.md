@@ -178,10 +178,15 @@ Consume the response to decide whether to proceed. Key fields:
   bounded host census, including ignored settings. Filenames only; no config
   contents, grants or runtime authority have been verified. Host-only input
   routes to `audit --host` without a manifest.
-- `host_discovery_incomplete_paths[]` — unfollowed links that may conceal
-  nested host configuration. Empty candidates beside this field do not prove
-  absence. Follow the inspection route; a directory at a config filename is
-  also an input defect requiring inspection.
+- `host_discovery_incomplete_paths[]` — paths the bounded census could not
+  see through: a link it does not follow (only when that link resolves to a
+  directory — one pointing at a file conceals nothing and is not listed), and
+  a directory it could not read or that exhausted the entry bound. Empty
+  candidates beside this field do not prove absence. Follow the inspection
+  route; a directory at a config filename is also an input defect requiring
+  inspection. A census that stops publishes no candidates at all, and never
+  refuses the rest of the classification — the framework, tool-source and
+  scope answers stand, and only the product-wide negative is withheld.
 - `next_actions[]` — the ranked route. On `agent_scope: "ambiguous"` rank 1 is
   the decision (`kind: "review"`, `command: null`) and every entry below it is
   one exact `init --workspace <candidate> --write --json`, with `executable`
@@ -240,7 +245,10 @@ Auto-detection runs again inside `init` and writes:
 Key response fields:
 
 - `manifest_status`: `"written"` | `"skipped_existing"` |
-  `"refused_unresolved_scope"` | `"not_attempted"`.
+  `"refused_unresolved_scope"` | `"not_attempted"` |
+  `"not_applicable_host_review"` — the last one is the host-only hand-off:
+  no manifest, workflow or instruction file was written, and
+  `control.next_action` names the read-only host audit instead.
 - `workflow.status` (when `--ci`): `"written"` | `"skipped_existing_target"`
   | `"skipped_cross_reference"`.
 - `placeholders[]` — entries the template intentionally leaves as

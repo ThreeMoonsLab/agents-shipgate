@@ -4,8 +4,14 @@ What agents and CI integrations can rely on across versions of Agents Shipgate.
 
 Runtime contract v33 extends `detect` with `host_boundary_candidates` and
 `host_discovery_incomplete_paths`. They are filename applicability and
-unfollowed traversal evidence, never permission assertions. An absent field
-cannot satisfy the product-wide negative predicate. Host-only `init` returns
+incomplete-traversal evidence, never permission assertions. The second field
+names every path the bounded census could not see through — a link it does not
+follow, a directory it could not read, the entry bound — and a census that
+stops publishes no candidates. It never refuses the classification: an
+unreadable path withholds the product-wide negative and leaves the framework,
+source and scope answers standing, the same way `audit --host` records the
+failure and continues. An absent field cannot satisfy the product-wide
+negative predicate. Host-only `init` returns
 `manifest_status: "not_applicable_host_review"` without setup writes;
 `bootstrap` returns `verdict: "host_review_required"` and the existing detect
 control route. Both may exit zero with work still required, all setup

@@ -36,6 +36,7 @@ from typing import Any
 import typer
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
+from agents_shipgate.cli.discovery.host_boundary import needs_host_route_payload
 from agents_shipgate.cli.workspace_guard import require_workspace
 
 _ENV_VAR = "AGENTS_SHIPGATE_AGENT_MODE"
@@ -176,15 +177,11 @@ def bootstrap_run(
     # the guard, not `agent_scope_truncated`: a single-scope workspace whose
     # only agent sits past the cap has the narrow flag false.
     parse_truncated = bool(detect_payload.get("python_parse_truncated"))
-    host_candidates = detect_payload.get("host_boundary_candidates") or []
-    host_incomplete = detect_payload.get("host_discovery_incomplete_paths") or []
-
-    if (
-        not manifest_already and not is_agent_project and not suggested
-        and not plugin_candidates and not parse_truncated
-        and detect_payload.get("agent_scope") == "single"
-        and (host_candidates or host_incomplete)
-    ):
+    # The same predicate `detect` and `init` route on, read from the payload
+    # they publish rather than restated here: this guard already carried its
+    # own copy of the no-agent-surface rule, and a second spelling of the host
+    # rule beside it is how the three answers drift apart (#322).
+    if not manifest_already and needs_host_route_payload(detect_payload):
         return {
             "verdict": "host_review_required", "stopped": True,
             "stop_reason": "Host discovery needs review through next_action; no setup files were written.",

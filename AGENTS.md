@@ -278,8 +278,11 @@ agents-shipgate bootstrap --json
   `host_boundary_candidates` empty **and** `host_discovery_incomplete_paths`
   empty **and** `python_parse_truncated: false`. Host candidates are filenames
   only: follow `control.next_action` to `audit --host`; no manifest is needed
-  and no grants have been verified. Unfollowed links can conceal nested host
-  configuration, so an incomplete host census is never a terminal negative.
+  and no grants have been verified. A path the census could not see through —
+  a link it does not follow, a directory it could not read — can conceal nested
+  host configuration, so an incomplete host census is never a terminal
+  negative. It is not a failed classification either: the framework, source
+  and scope answers stand beside it.
   `python_parse_truncated: true` means the
   Python parse stopped at `max_python_files`, so the negative describes the
   files that were read rather than the repository — re-run with

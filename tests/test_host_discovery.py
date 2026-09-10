@@ -17,7 +17,6 @@ from agents_shipgate.cli.discovery.signals import detect_workspace
 from agents_shipgate.cli.main import app
 from agents_shipgate.core import host_grants
 from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS, host_config_adapters_for_path
-from agents_shipgate.core.errors import DiscoveryError
 from tests.test_zero_install_detector import _load_script_module
 
 CONFIG_PATHS = [
@@ -146,8 +145,10 @@ def test_zero_install_refuses_junction_before_enumerating_descendants(tmp_path, 
     monkeypatch.setattr(Path, "lstat", lstat)
     monkeypatch.setattr(Path, "is_junction", lambda path: facade == "junction" and path == linked, raising=False)
     monkeypatch.setattr(os, "scandir", scandir)
-    with pytest.raises(zero.DiscoveryError):
-        zero._discover_host_boundary(tmp_path)
+    # Refused, and the refusal is published as an unseen subject rather than
+    # as an empty census: nothing beneath the facade was enumerated, and no
+    # candidate is claimed from a walk that stopped.
+    assert zero._discover_host_boundary(tmp_path) == ([], ["linked"])
     assert linked not in visited
 
 
@@ -207,10 +208,8 @@ def test_bounded_census_failure_is_not_an_empty_result(tmp_path, monkeypatch, ze
     write(tmp_path, "asset.txt")
     monkeypatch.setattr(host_grants, "MAX_HOST_REPOSITORY_ENTRIES", 0)
     monkeypatch.setattr(zero, "MAX_HOST_REPOSITORY_ENTRIES", 0)
-    with pytest.raises(DiscoveryError):
-        discover_host_boundary(tmp_path)
-    with pytest.raises(zero.DiscoveryError):
-        zero._discover_host_boundary(tmp_path)
+    assert discover_host_boundary(tmp_path) == ([], ["."])
+    assert zero._discover_host_boundary(tmp_path) == ([], ["."])
 
 
 def test_census_reconfirms_identity_before_publishing(tmp_path, monkeypatch):
@@ -218,8 +217,83 @@ def test_census_reconfirms_identity_before_publishing(tmp_path, monkeypatch):
     def fail(_self):
         raise ValueError("snapshot moved")
     monkeypatch.setattr(host_grants.HostStaticParseCache, "finish", fail)
-    with pytest.raises(DiscoveryError):
-        discover_host_boundary(tmp_path)
+    # No candidate survives a census that could not confirm what it read, and
+    # the failure is published as an unseen subject rather than swallowed.
+    assert discover_host_boundary(tmp_path) == ([], ["."])
+
+
+def test_an_unreadable_directory_does_not_refuse_the_classification(tmp_path, zero):
+    """`detect` must not be stricter than the audit it routes to.
+
+    `audit --host` records exactly this failure as an `inventory_failures` row
+    and carries on, so aborting discovery made one `chmod 000` directory an
+    unrecoverable exit 4 for `detect`, `init` and `bootstrap` on a repository
+    the audit still audits (PR #614 review).
+    """
+    write(tmp_path, "agent.py", "from agents import Agent\nagent = Agent(name='S')\n")
+    secret = tmp_path / "secret"
+    secret.mkdir()
+    (secret / "x.txt").write_text("x", encoding="utf-8")
+    secret.chmod(0o000)
+    try:
+        if os.access(secret, os.R_OK):
+            pytest.skip("directory permissions are not enforced here")
+        canonical = detect_workspace(tmp_path)
+        assert canonical.is_agent_project
+        assert canonical.host_boundary_candidates == []
+        assert canonical.host_discovery_incomplete_paths == ["secret"]
+        assert zero.detect(tmp_path)["host_discovery_incomplete_paths"] == ["secret"]
+
+        result = payload("detect", "--workspace", str(tmp_path), "--json")
+        assert result["is_agent_project"]
+        # An unseen path is recorded, and it does not become the route: an
+        # adoptable workspace still routes to `init`.
+        assert "init" in shlex.split(result["control"]["next_action"]["command"])
+        subjects = [e["subject"] for e in result["surface_exclusions"]["entries"]]
+        assert subjects == ["secret"]
+    finally:
+        secret.chmod(0o755)
+
+
+def test_an_unreadable_directory_withholds_the_complete_negative(tmp_path, zero):
+    write(tmp_path, "notes.txt", "x")
+    secret = tmp_path / "secret"
+    secret.mkdir()
+    secret.chmod(0o000)
+    try:
+        if os.access(secret, os.R_OK):
+            pytest.skip("directory permissions are not enforced here")
+        result = payload("detect", "--workspace", str(tmp_path), "--json")
+        assert result["host_discovery_incomplete_paths"] == ["secret"]
+        assert result["control"]["decision"] == "setup_incomplete"
+        assert result["control"]["next_action"]["actor"] == "human"
+        assert "secret" in result["control"]["next_action"]["why"]
+        assert not result["diagnostics"]
+
+        from agents_shipgate.triggers import evaluate
+        verdict = evaluate(paths=["unknown.file"], detect_result=result)
+        assert not verdict["stop_conditions_fired"]
+
+        boot = bootstrap_run(workspace=tmp_path, ci=True, apply=True)
+        assert boot["verdict"] == "host_review_required"
+        assert not (tmp_path / "shipgate.yaml").exists()
+    finally:
+        secret.chmod(0o755)
+
+
+def test_a_truncated_subject_list_says_how_many_it_left_out(tmp_path, zero):
+    links = [f"link{index}" for index in range(9)]
+    (tmp_path / "real").mkdir()
+    try:
+        for name in links:
+            (tmp_path / name).symlink_to(tmp_path / "real", target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    result = payload("detect", "--workspace", str(tmp_path), "--json")
+    assert sorted(result["host_discovery_incomplete_paths"]) == sorted(links)
+    why = result["control"]["next_action"]["why"]
+    # Five names and a full stop asserted there were five (#397).
+    assert "(and 4 more)" in why
 
 
 def test_zero_install_eligibility_matches_the_actual_registry(zero):
@@ -256,3 +330,49 @@ def test_old_discovery_payload_cannot_prove_a_terminal_negative():
     result = evaluate(paths=["unknown.file"], detect_result=legacy)
     assert not result["stop_conditions_evaluated"]
     assert not result["stop_conditions_fired"]
+
+
+@pytest.mark.parametrize("name", ["docs/README.md", "LICENSE", ".mcp.json"])
+def test_a_link_to_a_file_conceals_nothing_and_keeps_the_negative(tmp_path, zero, name):
+    """A link with no descendants must not withhold the product-wide negative.
+
+    `docs/README.md -> ../README.md` is ordinary in a repository that is not a
+    Shipgate target at all, and counting it as concealment turned that
+    settled negative into a human stop about a file (PR #614 review).
+    """
+    write(tmp_path, "README.md", "# x")
+    write(tmp_path, "pyproject.toml", "[project]\nname='x'\n")
+    write(tmp_path, "src/a.py", "x = 1\n")
+    link = tmp_path / name
+    link.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        link.symlink_to(Path("..") / "README.md" if "/" in name else Path("README.md"))
+    except OSError:
+        pytest.skip("symlinks unavailable")
+
+    canonical = detect_workspace(tmp_path)
+    assert canonical.host_discovery_incomplete_paths == []
+    assert zero.detect(tmp_path)["host_discovery_incomplete_paths"] == []
+    result = payload("detect", "--workspace", str(tmp_path), "--json")
+    assert result["host_discovery_incomplete_paths"] == []
+    if name == ".mcp.json":
+        # It is still a recognized configuration name, and still a candidate.
+        assert [c["path"] for c in result["host_boundary_candidates"]] == [".mcp.json"]
+        assert result["host_boundary_candidates"][0]["file_type"] == "symlink"
+    else:
+        assert result["host_boundary_candidates"] == []
+        assert result["control"]["decision"] == "setup_not_applicable"
+        assert [d["id"] for d in result["diagnostics"]] == ["SHIP-DIAG-NON-AGENT-LIBRARY"]
+        assert result["surface_exclusions"]["entries"] == []
+
+
+def test_a_link_to_a_directory_still_withholds_the_negative(tmp_path, zero):
+    (tmp_path / "real").mkdir()
+    write(tmp_path, "pyproject.toml", "[project]\nname='x'\n")
+    try:
+        (tmp_path / "docs").symlink_to(tmp_path / "real", target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+
+    assert detect_workspace(tmp_path).host_discovery_incomplete_paths == ["docs"]
+    assert zero.detect(tmp_path)["host_discovery_incomplete_paths"] == ["docs"]

@@ -619,8 +619,12 @@ def build_detect_exclusions(result: DetectResult) -> SurfaceExclusionLedger:
     signals = result.workspace_signals
     for path in result.host_discovery_incomplete_paths:
         entries.append(SurfaceExclusion(
-            stage="discovery", subject=path, reason="source_rejected",
-            detail="An unfollowed link may conceal nested host configuration; a complete negative is withheld.",
+            stage="discovery", subject=path, reason="census_not_seen_through",
+            # Both ways the census stops short — a link it does not follow and
+            # a path it could not read — leave the same hole, and the detail
+            # must not name only one of them: it read as a claim about a
+            # `docs/README.md -> ../README.md` that conceals nothing.
+            detail="Host discovery could not see through this path, so a complete negative is withheld.",
             accounting="not_claimed",
         ))
     if result.python_parse_truncated:

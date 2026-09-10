@@ -337,8 +337,8 @@ def test_trigger_subcommand_detect_json_enables_stop(tmp_path):
                 "is_agent_project": False,
                 "suggested_sources": [],
                 "codex_plugin_candidates": [],
-        "host_boundary_candidates": [],
-        "host_discovery_incomplete_paths": [],
+                "host_boundary_candidates": [],
+                "host_discovery_incomplete_paths": [],
                 "python_parse_truncated": False,
             }
         ),

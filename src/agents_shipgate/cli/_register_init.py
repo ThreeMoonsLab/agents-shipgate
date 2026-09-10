@@ -776,6 +776,40 @@ def _manifest_defect(text: str) -> str | None:
     return None
 
 
+def _control_pack_payload(
+    *, selected: str | None, requested: str
+) -> dict[str, object]:
+    """The one question ``init`` asks and every answer it takes (#410 §F).
+
+    Emitted for every run, including a refused one and a hand-off: a caller
+    that is going to re-run ``init`` needs to know what it may pass, not only
+    what this run happened to select. One function rather than one dict per
+    exit, so a route added later cannot quietly drop the block.
+    """
+
+    return {
+        # What the manifest at `path` carries, on the same authority rule the
+        # placeholders follow — `null` when no manifest is on disk, or when
+        # the one there does not load. `requested` is what this invocation
+        # asked for; on `skipped_existing` the two differ and reporting only
+        # the request would describe a file this run did not write.
+        "selected": selected,
+        "requested": requested,
+        "manifest_path": "policies.control_pack",
+        "available": [
+            {
+                "id": pack.id,
+                "name": pack.name,
+                "version": pack.version,
+                "summary": pack.summary,
+            }
+            for pack in (
+                BUILTIN_CONTROL_PACKS[pack_id] for pack_id in CONTROL_PACK_IDS
+            )
+        ],
+    }
+
+
 def _scaffold_next_action(target: Path, summary: str) -> NextAction:
     """The step that follows a manifest whose tool surface is a placeholder.
 
@@ -1541,6 +1575,13 @@ def register(app: typer.Typer) -> None:
                         "manifest_message": "No setup files were written. Follow next_action for host review.",
                         "auto_detected": detect_result.model_dump(mode="json"),
                         "placeholders": [], "workflow": None, "agent_instructions": None,
+                        # Nothing was rendered, so no manifest's tool surface
+                        # has an origin — the same `null` every other route
+                        # that reached neither disk nor this payload reports.
+                        "tool_surface_origin": None,
+                        "control_pack": _control_pack_payload(
+                            selected=None, requested=control_pack
+                        ),
                         "next_action": routing.legacy_next_action,
                         "next_actions": routing.json_actions(),
                         "control": routing.envelope.model_dump(mode="json"),
@@ -2232,32 +2273,9 @@ def register(app: typer.Typer) -> None:
                 payload["agent_instructions"] = agent_instructions_outcome
             if local_contract_target is not None:
                 payload["local_contract"] = local_contract_target.to_json()
-            # The one question this command asks, and every answer it takes
-            # (#410 §F). Emitted for every run, including a refused one: a
-            # caller that is going to re-run init needs to know what it may
-            # pass, not only what this run happened to select.
-            payload["control_pack"] = {
-                # What the manifest at `path` carries, on the same authority
-                # rule the placeholders follow — `null` when no manifest is
-                # on disk, or when the one there does not load. `requested`
-                # is what this invocation asked for; on `skipped_existing`
-                # the two differ and reporting only the request would
-                # describe a file this run did not write.
-                "selected": selected_control_pack,
-                "requested": control_pack,
-                "manifest_path": "policies.control_pack",
-                "available": [
-                    {
-                        "id": pack.id,
-                        "name": pack.name,
-                        "version": pack.version,
-                        "summary": pack.summary,
-                    }
-                    for pack in (
-                        BUILTIN_CONTROL_PACKS[pack_id] for pack_id in CONTROL_PACK_IDS
-                    )
-                ],
-            }
+            payload["control_pack"] = _control_pack_payload(
+                selected=selected_control_pack, requested=control_pack
+            )
             if gitignore_outcome is not None:
                 payload["gitignore"] = gitignore_outcome.to_json()
             if local_review and not scope_refused:
