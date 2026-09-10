@@ -250,20 +250,20 @@ def _commit(repo: Path, message: str) -> None:
     )
 
 
-def _sample_repo(tmp_path: Path) -> tuple[Path, Path]:
+def _sample_repo(tmp_path: Path, *, sample_dir: Path = SAMPLE.parent) -> tuple[Path, Path]:
     """Copy the sample agent into a fresh git repo. Returns (repo, manifest)."""
     import shutil
 
     repo = tmp_path / "repo"
     sample_dst = repo / "samples" / "support_refund_agent"
     sample_dst.parent.mkdir(parents=True)
-    shutil.copytree(Path(__file__).resolve().parent.parent / SAMPLE.parent, sample_dst)
+    shutil.copytree(Path(__file__).resolve().parent.parent / sample_dir, sample_dst)
     return repo, sample_dst / "shipgate.yaml"
 
 
-def _weakened_repo(tmp_path: Path) -> Path:
+def _weakened_repo(tmp_path: Path, *, sample_dir: Path = SAMPLE.parent) -> Path:
     """A repo whose HEAD downgrades the declared gate strict -> advisory."""
-    repo, manifest_path = _sample_repo(tmp_path)
+    repo, manifest_path = _sample_repo(tmp_path, sample_dir=sample_dir)
     declared = manifest_path.read_text(encoding="utf-8")
     manifest_path.write_text(
         declared.replace("ci:\n  mode: advisory", "ci:\n  mode: strict"),
@@ -410,7 +410,10 @@ def test_base_cache_from_the_pre_fix_epoch_is_not_reused(tmp_path, monkeypatch):
     """
     from agents_shipgate.cli.verify import orchestrator as verify_orchestrator
 
-    repo = _weakened_repo(tmp_path)
+    # OpenAPI bases now rebuild operation evidence independently of the cache
+    # (#607). Keep this cache-epoch positive control on a cached MCP base; the
+    # OpenAPI forged-cache regression covers its separate reconstruction path.
+    repo = _weakened_repo(tmp_path, sample_dir=Path("samples/clean_read_only_agent"))
     monkeypatch.setattr(
         verify_orchestrator, "BASE_CACHE_KEY_EPOCH", _PRE_298_CACHE_EPOCH
     )

@@ -4028,6 +4028,105 @@
       "title": "DeclaredIntention",
       "type": "object"
     },
+    "DeclaredOperation": {
+      "additionalProperties": false,
+      "properties": {
+        "declared_targets": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Declared Targets",
+          "type": "array"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/OperationInput"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "method": {
+          "title": "Method",
+          "type": "string"
+        },
+        "observation_id": {
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "path_template": {
+          "title": "Path Template",
+          "type": "string"
+        },
+        "reader_profile": {
+          "const": "openapi_delete/v1",
+          "default": "openapi_delete/v1",
+          "title": "Reader Profile",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "security_contract": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Security Contract"
+        },
+        "server": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Server"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_pointer": {
+          "title": "Source Pointer",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "observed",
+            "unresolved",
+            "ambiguous",
+            "redacted"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "observation_id",
+        "tool_name",
+        "method",
+        "path_template",
+        "source_pointer",
+        "status",
+        "reason"
+      ],
+      "title": "DeclaredOperation",
+      "type": "object"
+    },
     "EffectSemanticEvidence": {
       "additionalProperties": false,
       "properties": {
@@ -5640,6 +5739,305 @@
         "tool_name"
       ],
       "title": "Misalignment",
+      "type": "object"
+    },
+    "OperationAttribution": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_claim_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Binding Claim Ids",
+          "type": "array"
+        },
+        "capability_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capability Id"
+        },
+        "check_id": {
+          "const": "SHIP-POLICY-APPROVAL-MISSING",
+          "default": "SHIP-POLICY-APPROVAL-MISSING",
+          "title": "Check Id",
+          "type": "string"
+        },
+        "control_pack_identity": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Control Pack Identity"
+        },
+        "declared_binding_path": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Declared Binding Path",
+          "type": "array"
+        },
+        "dependency_coverage": {
+          "const": "incomplete",
+          "default": "incomplete",
+          "title": "Dependency Coverage",
+          "type": "string"
+        },
+        "deployed_reachability": {
+          "const": "unknown",
+          "default": "unknown",
+          "title": "Deployed Reachability",
+          "type": "string"
+        },
+        "finding_exclusion_eligible": {
+          "const": false,
+          "default": false,
+          "title": "Finding Exclusion Eligible",
+          "type": "boolean"
+        },
+        "finding_fingerprints": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Finding Fingerprints",
+          "type": "array"
+        },
+        "missing_approval": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Missing Approval"
+        },
+        "operation": {
+          "$ref": "#/$defs/DeclaredOperation"
+        },
+        "predicates": {
+          "items": {
+            "$ref": "#/$defs/OperationPredicate"
+          },
+          "title": "Predicates",
+          "type": "array"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "observed",
+            "unresolved",
+            "ambiguous",
+            "redacted"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "tool_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Id"
+        }
+      },
+      "required": [
+        "operation",
+        "status",
+        "reason"
+      ],
+      "title": "OperationAttribution",
+      "type": "object"
+    },
+    "OperationComparison": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OperationAttribution"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "approval_predicate": {
+          "default": "unresolved",
+          "enum": [
+            "standing_weakness",
+            "still_declared",
+            "resolved_by_declaration",
+            "newly_missing",
+            "unresolved"
+          ],
+          "title": "Approval Predicate",
+          "type": "string"
+        },
+        "base_tree": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Tree"
+        },
+        "before": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OperationAttribution"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "declared_target_domain": {
+          "default": "unresolved",
+          "enum": [
+            "unchanged",
+            "narrowed",
+            "widened",
+            "changed",
+            "unresolved"
+          ],
+          "title": "Declared Target Domain",
+          "type": "string"
+        },
+        "deployed_reachability": {
+          "const": "unknown",
+          "default": "unknown",
+          "title": "Deployed Reachability",
+          "type": "string"
+        },
+        "evidence_source": {
+          "default": "unavailable",
+          "enum": [
+            "reconstructed_git_base",
+            "unavailable"
+          ],
+          "title": "Evidence Source",
+          "type": "string"
+        },
+        "finding_exclusion_eligible": {
+          "const": false,
+          "default": false,
+          "title": "Finding Exclusion Eligible",
+          "type": "boolean"
+        },
+        "observation_id": {
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "observation_id",
+        "reason"
+      ],
+      "title": "OperationComparison",
+      "type": "object"
+    },
+    "OperationInput": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "openapi_document",
+            "manifest"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "role"
+      ],
+      "title": "OperationInput",
+      "type": "object"
+    },
+    "OperationPredicate": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "contributing_pointers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Contributing Pointers",
+          "type": "array"
+        },
+        "observed": {
+          "title": "Observed",
+          "type": "string"
+        },
+        "predicate": {
+          "enum": [
+            "effect",
+            "approval_obligation",
+            "missing_approval_policy"
+          ],
+          "title": "Predicate",
+          "type": "string"
+        },
+        "source_pointer": {
+          "title": "Source Pointer",
+          "type": "string"
+        }
+      },
+      "required": [
+        "predicate",
+        "observed",
+        "source_pointer"
+      ],
+      "title": "OperationPredicate",
       "type": "object"
     },
     "PolicyApprovalRouting": {
@@ -7402,6 +7800,13 @@
           "title": "Notes",
           "type": "array"
         },
+        "operation_comparisons": {
+          "items": {
+            "$ref": "#/$defs/OperationComparison"
+          },
+          "title": "Operation Comparisons",
+          "type": "array"
+        },
         "policy_drift": {
           "items": {
             "$ref": "#/$defs/ToolSurfacePolicyDrift"
@@ -7616,6 +8021,13 @@
             "$ref": "#/$defs/GuardDependencyEvidence"
           },
           "title": "Guard Dependencies",
+          "type": "array"
+        },
+        "operation_attributions": {
+          "items": {
+            "$ref": "#/$defs/OperationAttribution"
+          },
+          "title": "Operation Attributions",
           "type": "array"
         },
         "policies": {

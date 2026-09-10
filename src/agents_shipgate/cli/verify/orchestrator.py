@@ -75,6 +75,7 @@ from agents_shipgate.core.manifest_provenance import (
     manifest_provenance,
     provisional_manifest_note,
 )
+from agents_shipgate.core.operation_attribution import ReconstructedOperationBase
 from agents_shipgate.core.static_inputs import (
     StaticInputSnapshot,
     activate_static_input_snapshot,
@@ -935,6 +936,12 @@ def run_verify(
         )
     static_snapshot_token = activate_static_input_snapshot(static_snapshot)
 
+    operation_base = None
+
+    def capture_base_operations(tree, rows):
+        nonlocal operation_base
+        operation_base = ReconstructedOperationBase(tree=tree, rows=tuple(rows))
+
     try:
         if diff_from is not None:
             base_status = "diff_from_provided"
@@ -960,6 +967,7 @@ def run_verify(
                 no_heuristics=no_heuristics,
                 verbose=verbose,
                 evaluation_date=verification_date,
+                operation_callback=capture_base_operations,
             )
             base_notes.extend(cache_notes)
 
@@ -1150,6 +1158,7 @@ def run_verify(
                     manifest_text=(
                         head_manifest_text if archive_head else worktree_manifest_text
                     ),
+                    operation_base=operation_base,
                 )
             except AgentsShipgateError as exc:
                 # `run_scan` records the manifest it read, and when the head is
@@ -1345,6 +1354,7 @@ def _prepare_base_report(
     no_heuristics: bool,
     verbose: bool,
     evaluation_date: str,
+    operation_callback=None,
 ) -> tuple[
     VerifierBaseStatus,
     str | None,
@@ -1368,7 +1378,8 @@ def _prepare_base_report(
         no_heuristics=no_heuristics,
         evaluation_date=evaluation_date,
     )
-    if cache_report.exists() and _cache_report_valid(cache_report):
+    cache_valid = cache_report.exists() and _cache_report_valid(cache_report)
+    if cache_valid and operation_callback is None:
         base_lock, lock_notes = _load_cached_capability_lock(cache_report)
         return (
             "succeeded",
@@ -1377,7 +1388,7 @@ def _prepare_base_report(
             base_lock,
             [f"Base report resolved for tree {base_tree}.", *lock_notes],
         )
-    if cache_report.exists():
+    if cache_report.exists() and not cache_valid:
         notes.append("Discarded base cache entry whose content hash did not validate.")
         cache_report.unlink(missing_ok=True)
 
@@ -1423,6 +1434,29 @@ def _prepare_base_report(
                 None,
                 [f"Base tree does not contain {config_relative.as_posix()}."],
             )
+
+        # A checksum beside a cached report proves bytes agree, not that the
+        # operation model was read from this Git tree. Inspect the archived
+        # manifest before accepting a cache hit. OpenAPI bases are rescanned;
+        # other readers retain the cache and cannot contribute operation rows.
+        # The callback is private and never populated from report decoding.
+        try:
+            base_manifest = load_manifest_text(
+                read_static_input_bytes(base_config).decode("utf-8"), source=base_config
+            )
+        except (AgentsShipgateError, OSError, UnicodeError):
+            base_manifest = None
+        if (
+            operation_callback is not None
+            and base_manifest is not None
+            and not any(source.type == "openapi" for source in base_manifest.tool_sources)
+        ):
+            operation_callback(base_tree, [])
+            if cache_valid:
+                base_lock, lock_notes = _load_cached_capability_lock(cache_report)
+                return "succeeded", base_tree, cache_report, base_lock, [
+                    f"Base report resolved for tree {base_tree}.", *lock_notes
+                ]
 
         base_capability_lock: CapabilityLockFileV1 | None = None
 
@@ -1489,6 +1523,8 @@ def _prepare_base_report(
                 None,
                 ["Base scan did not produce report.json; diff enrichment disabled."],
             )
+        if operation_callback is not None:
+            operation_callback(base_tree, base_report_model.tool_surface_facts.operation_attributions)
         # Base diff evidence is never patch-applicable. Strip checkout/output
         # coordinates so identical commits produce identical cached inputs
         # across worktrees and clones.
