@@ -163,10 +163,23 @@ The #630 implementation review separately reproduced
 component alias is resolved before capture, so retargeting it changes the next
 skill surface while the previously resolved files and directory rows remain
 valid. This is a lost lexical lookup, not missing membership of an already
-recorded directory. Keep its P1 repair after #630 and before final input-set
-qualification/#569 freeze; it is deferred from this census PR. The reproduction
-uses the actual loader and input-currency validator, not a demonstrated merge
-permission bypass.
+recorded directory. The selected #633 repair retains the lexical component
+lookup, uses shared no-follow file/directory capture, and records caught
+failures as unconfirmable inputs. Worktree verification, current-control CLI,
+committed missing-component capture and prepare/worker replay exercise the
+refusal; committed symlinks keep their earlier archive rejection. Repairing a
+component needs a fresh run. This does not establish a demonstrated merge
+permission bypass or runtime behavior.
+
+The #633 implementation pass separately reproduced
+[#635](https://github.com/ThreeMoonsLab/agents-shipgate/issues/635): an implicit
+`.app.json` can appear and change the next app surface while old full input
+currency still passes. Its absent default was never selected for capture.
+Keep this P1 named default-selection obligation after #633 and before final
+input-set qualification/#569 freeze, deferred from the selected-component PR.
+It must preserve unrelated sibling independence rather than census the whole
+plugin root. The reproduction is loader/currency evidence, not a Git authority
+or merge-bypass demonstration.
 
 The following sequence and approved release bars still apply. Contract
 convergence, historical catch results, report freeze, actual human ownership,

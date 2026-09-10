@@ -987,8 +987,9 @@ def validate_dependency_inputs(plan: VerificationPlan, *, root: Path, snapshot=N
         raise ValueError("dependency input is both present and absent")
     if unconfirmable:
         raise ValueError(
-            "A guard dependency could not be captured. Inspect "
-            "tool_surface_facts.guard_dependencies, repair unreadable paths "
+            "An input dependency could not be captured. Inspect "
+            "dependency_inputs.unconfirmable_paths and the component/guard diagnostics, "
+            "repair unreadable paths "
             "and re-run verification before using current authority."
         )
     owns_snapshot = snapshot is None

@@ -194,6 +194,38 @@ class StaticInputSnapshot:
         session, relative = self._session_for(key)
         return session.directory_entries(relative, max_entries=self.max_files)
 
+    def capture_selected_path(
+        self, path: Path, *, max_bytes: int = DEFAULT_STATIC_INPUT_FILE_BYTES,
+        allow_directory: bool = True,
+    ) -> None:
+        """Bind a selected lookup before its caller can resolve away an alias.
+
+        Files use the same cached bytes their parser will consume. Directories
+        are bound for this read session only; actual discovery must still call
+        enumerate_input_directory to select a persistent membership obligation.
+        File-only readers reject directories here, before adapter recovery can
+        discard a later parser failure without a captured refusal.
+        """
+
+        if self._finished or ".." in path.parts:
+            raise ValueError("invalid selected input lookup")
+        if path == self.root:
+            if not allow_directory:
+                raise ValueError("selected input is a directory, expected a regular file")
+            self.bind_directory(path)
+            return
+        key, _relative = self._key(path)
+        session, relative = self._session_for(key)
+        kind = session.directory_entry_kind(relative)
+        if kind == "directory":
+            if not allow_directory:
+                raise ValueError("selected input is a directory, expected a regular file")
+            self.bind_directory(key)
+        elif kind == "file":
+            self.read_bytes(key, max_bytes=max_bytes)
+        else:
+            raise ValueError(f"selected input is {kind}, not a regular file or directory")
+
     def mark_unconfirmable_input_directory(self, path: Path) -> None:
         """Keep a refused directory lookup visible even if an adapter recovers."""
 
