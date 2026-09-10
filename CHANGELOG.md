@@ -34,7 +34,15 @@
   `--policy-tier pre-1.0` is refused by name. The policy, its thresholds and
   every reader of it remain, and it keeps its historical `0.43` pin so an
   artifact already scored against it is still named and diagnosed correctly.
-  No scoring floor moved (#569).
+  No scoring floor moved.
+
+  `docs/distribution-surfaces.md` gains a `report_schema_pin` claim: the five
+  surfaces that tell a reader which `report-schema.v<X>.json` to validate
+  against are now checked from the registry, in both directions (a pin left
+  behind and a pin ahead of the build), instead of by hand-maintained per-file
+  lists. `explain-finding` refuses a report whose findings carry no
+  `agent_action` rather than explaining a null one, the way `findings` already
+  refuses a missing `provenance_kind` (#569).
 
 - Name what a change did to the bound each finding depends on.
   `tool_surface_diff.finding_attributions[]` projects the shipped

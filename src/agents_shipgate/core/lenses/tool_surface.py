@@ -65,7 +65,6 @@ from agents_shipgate.schemas.surfaces import (
 )
 
 _METADATA_FIELDS = {"owner", "description", "auth_scopes", "extraction_confidence"}
-_SEMANTIC_DIFF_REPORT_SCHEMA_VERSION = "0.30"
 _REGENERATE_DIFF_BASE_COMMAND = "agents-shipgate scan -c shipgate.yaml --format json"
 
 
@@ -993,28 +992,14 @@ def _reference_from_report_payload(
         # Present on v0.22+ base reports; None for older bases (the
         # weakening checks degrade safely when it is absent).
         effective_policy=report.effective_policy,
+        # The v0.31 version check this used to carry became vacuous at the 1.0
+        # freeze: every accepted base is 1.x, and every 1.x is at or above the
+        # version that introduced the block. Presence in the payload is the
+        # question that still discriminates (#569).
         binding_facts=(
-            report.binding_surface_facts
-            if "binding_surface_facts" in payload
-            and _schema_version_at_least(report.report_schema_version, "0.31")
-            else None
+            report.binding_surface_facts if "binding_surface_facts" in payload else None
         ),
     )
-
-
-def _report_schema_precedes_semantic_diff(value: Any) -> bool:
-    return not _schema_version_at_least(value, _SEMANTIC_DIFF_REPORT_SCHEMA_VERSION)
-
-
-def _schema_version_at_least(value: Any, minimum_value: str) -> bool:
-    if not isinstance(value, str):
-        return False
-    try:
-        current = tuple(int(part) for part in value.split("."))
-        minimum = tuple(int(part) for part in minimum_value.split("."))
-    except ValueError:
-        return False
-    return current >= minimum
 
 
 def _reference_from_baseline_payload(

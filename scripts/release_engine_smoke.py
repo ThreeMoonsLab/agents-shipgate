@@ -153,6 +153,17 @@ def report_schema_exercise(root: Path, prepared: dict) -> dict:
        receipt could acquire current authority by a one-field edit.
     """
 
+    # Which side each fact comes from, stated because this file otherwise
+    # reads everything out of the installed wheel via ``_cli``:
+    #
+    #   * the *observed* values -- advertised contract, emitted report, the
+    #     refusal text -- come from the installed candidate;
+    #   * ``REPORT_CONTRACT_MAJOR`` and ``report_schema_refusal_code`` are the
+    #     *reviewed claim* being checked, and come from the source tree.
+    #
+    # They are the same build by construction: ``prepare`` is given
+    # ``--source-commit`` and refuses unless the generated workflow names it,
+    # so the checkout under review is the commit the wheel was built from.
     from agents_shipgate.schemas.report_compatibility import (
         REPORT_CONTRACT_MAJOR,
         parse_report_schema_version,

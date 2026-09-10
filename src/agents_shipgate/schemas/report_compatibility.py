@@ -188,15 +188,27 @@ def classify_report_schema_version(value: Any) -> ReportSchemaSupport:
             ),
         )
 
-    current = parse_report_schema_version(current_report_schema_version())
-    assert current is not None, "the engine's own schema version must parse"
+    current_text = current_report_schema_version()
+    current = parse_report_schema_version(current_text)
+    if current is None:
+        # Not an assert: `python -O` strips those, and the stripped form
+        # indexes `None` and raises `TypeError` out of the one function whose
+        # whole job is to fail cleanly. Callers wrap
+        # `ReportSchemaCompatibilityError`/`ValueError`, not `TypeError`.
+        raise ReportSchemaCompatibilityError(
+            f"this build declares report schema {current_text!r}, which is not a "
+            "MAJOR.MINOR version it can compare against. The install is broken; "
+            "run `agents-shipgate doctor --json` and read the `environment` block.",
+            reason_code="report_schema_engine_version_unreadable",
+            version=current_text,
+        )
     if minor > current[1]:
         return ReportSchemaSupport(
             status="newer_than_engine",
             version=value,
             reason=(
                 f"report schema {value} was written by a newer engine than this one "
-                f"(which emits {current_report_schema_version()}). The 1.x additive rule "
+                f"(which emits {current_text}). The 1.x additive rule "
                 "keeps *your* parser working across minors; it does not let this build "
                 "compare evidence recorded under a contract it does not have"
             ),

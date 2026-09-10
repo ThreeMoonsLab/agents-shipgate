@@ -633,8 +633,13 @@ def select_release_requirements(
     if choice not in POLICY_TIER_CHOICES:
         raise ConfigError(f"Unknown qualification policy tier: {choice}")
     if choice == "pre-1.0":
-        raise ConfigError(RETIRED_PRE_1_0_ISSUANCE_MESSAGE)
-    del wheel_version
+        raise ConfigError(
+            f"{RETIRED_PRE_1_0_ISSUANCE_MESSAGE} (requested for wheel {wheel_version})"
+        )
+    # Every version now selects production, so the version rule has nothing
+    # left to decide here -- but it is still re-applied to the *result* in
+    # ``run_safety_qualification`` via ``require_tier_governs_version``, which
+    # is what binds the ``requirements=`` keyword this function cannot see.
     return production_safety_requirements()
 
 

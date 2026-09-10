@@ -297,10 +297,12 @@ Surface the `next_action` to the user rather than scraping prose. The full diagn
 To detect the version programmatically:
 
 ```python
-version = report.get("report_schema_version", "0.6")  # pre-v0.7 reports may omit
+# Absent means an artifact this engine will not read back; do not default it
+# to a version, because every value you could pick is one the CLI refuses.
+version = report.get("report_schema_version")
 ```
 
-Frozen schemas are kept in `docs/` so older reports remain machine-validatable. See [`STABILITY.md`](../STABILITY.md) for the full guarantees on what fields are stable across `0.x` and what may change.
+Frozen schemas are kept in `docs/` so older reports remain machine-validatable — but a pre-freeze report is no longer accepted as *input* to the CLI; it is refused with a regeneration route. See [`report-1-0-contract.md`](report-1-0-contract.md) for the `1.x` rules and the stable/provisional inventory, and [`STABILITY.md`](../STABILITY.md) for the full per-field guarantees.
 
 ---
 

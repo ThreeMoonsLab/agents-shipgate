@@ -6,8 +6,12 @@ to be about consumers -- not about the schema document, which
 
 Three paths, because those are the three a reader actually reaches:
 
-* the **installed CLI**, driven as a subprocess with no ``PYTHONPATH`` help, so
-  what is exercised is a package rather than this working tree's ``src/``;
+* the **CLI as a process**, driven as a subprocess with every entry-point
+  environment variable cleared, so what is exercised is the command an adopter
+  types rather than an in-process call. It runs *this* working tree: a genuinely
+  installed distribution is exercised by the RC exercise in
+  ``scripts/release_engine_smoke.py``, which builds and installs a wheel, and
+  these fixtures deliberately do not claim to replace it;
 * the **generated Action workflow**, through the same
   ``scripts/github_action_outputs.py`` reader the workflow runs;
 * the **machine control/report readers** -- the per-command boundaries that
@@ -43,13 +47,20 @@ SAMPLE = REPO_ROOT / "samples/support_refund_agent/shipgate.yaml"
 CURRENT = current_report_schema_version()
 
 
-def _isolated_cli(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-    """Run the CLI the way an installed one runs: no ``PYTHONPATH`` inheritance.
+def _worktree_cli(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    """Run this working tree's CLI as a subprocess, with a pinned environment.
 
-    ``-I`` also drops the CWD from ``sys.path``. Every environment variable that
-    retargets the entry point is cleared, because a command is spelled for the
-    entry point that produced it and an inherited one sends this into a
+    Every environment variable that retargets the entry point is cleared --
+    ``AGENTS_SHIPGATE_CLI`` above all, because a command is spelled for the
+    entry point that produced it and an inherited value sends this into a
     different install.
+
+    It then pins ``PYTHONPATH`` to this worktree's ``src/`` **on purpose**: the
+    ``.venv`` editable install points at the main checkout, so without the pin
+    a worktree run would test somebody else's source. That is also the honest
+    limit of these fixtures. They exercise the process boundary, not a built
+    distribution; a wheel is built and installed by the RC exercise in
+    ``scripts/release_engine_smoke.py``.
     """
 
     env = {
@@ -81,7 +92,7 @@ def scanned(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """One real scan, driven through the CLI, reused by the readers below."""
 
     out = tmp_path_factory.mktemp("scan-1-0")
-    result = _isolated_cli(
+    result = _worktree_cli(
         "scan", "-c", str(SAMPLE), "--out", str(out),
         "--format", "json,markdown", "--ci-mode", "advisory",
     )
@@ -92,7 +103,7 @@ def scanned(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 # --------------------------------------------------------------------------
-# Consumer path 1: the installed CLI
+# Consumer path 1: the CLI as a process
 # --------------------------------------------------------------------------
 
 
@@ -106,7 +117,7 @@ def test_the_cli_emits_the_frozen_schema_and_says_so_in_its_contract(scanned: Pa
     """
 
     payload = json.loads((scanned / "report.json").read_text(encoding="utf-8"))
-    contract = _isolated_cli("contract", "--json")
+    contract = _worktree_cli("contract", "--json")
     assert contract.returncode == 0, contract.stderr[-2000:]
     advertised = json.loads(contract.stdout)["report_schema_version"]
 
@@ -208,7 +219,7 @@ def test_every_report_input_boundary_refuses_a_relabelled_pre_freeze_report(
         part.format(report=str(report), out=str(tmp_path / f"{name.split()[0]}-out.yaml"))
         for part in argv
     ]
-    result = _isolated_cli(*resolved)
+    result = _worktree_cli(*resolved)
 
     assert result.returncode != 0, f"{name} accepted a pre-freeze report"
     combined = result.stdout + result.stderr
@@ -273,7 +284,7 @@ def test_a_current_report_is_accepted_by_the_same_boundaries(scanned: Path, tmp_
     failure mode a fail-closed change actually ships with.
     """
 
-    result = _isolated_cli(
+    result = _worktree_cli(
         "findings", "--from", str(scanned / "report.json"), "--json"
     )
     assert result.returncode == 0, result.stderr[-2000:]

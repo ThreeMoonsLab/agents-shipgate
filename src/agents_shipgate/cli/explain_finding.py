@@ -93,9 +93,13 @@ def _load_report(path: Path) -> tuple[ReadinessReport, dict[str, Any]]:
         raise ValueError("report JSON must be an object")
 
     # The 1.0 freeze replaced this command's own ">= 0.12" floor with the
-    # shared boundary (#569). The old floor said "v0.12 added agent_action";
-    # the freeze says something stronger and simpler -- every supported report
-    # is 1.x, and 1.x carries `agent_action` by construction.
+    # shared boundary (#569). The version check alone was never the real guard:
+    # `Finding.agent_action` is `AgentAction | None` in the model, so a payload
+    # that merely *declares* a supported version can still carry nulls and
+    # produce the `"agent_action": null` explanation #58 review P2.2 exists to
+    # prevent. The published schema requires the field, so the honest guard is
+    # structural -- checked below, the same way `findings.py` checks
+    # `provenance_kind`.
     try:
         require_supported_report_schema(
             payload.get("report_schema_version"),
@@ -110,9 +114,29 @@ def _load_report(path: Path) -> tuple[ReadinessReport, dict[str, Any]]:
     payload = sanitize_report_payload(payload)
 
     try:
-        return ReadinessReport.model_validate(payload), payload
+        report = ReadinessReport.model_validate(payload)
     except ValidationError as exc:
         raise ValueError(f"report.json failed validation: {exc}") from exc
+
+    # The published schema requires `agent_action` on every finding; the
+    # Pydantic model leaves it optional so fixtures can build minimal findings.
+    # Explaining a row without it returns `"agent_action": null` and drops the
+    # action-aware sentence this command exists for, so refuse instead --
+    # `findings.py` refuses the same way when `provenance_kind` is absent.
+    missing = [
+        finding.id or finding.fingerprint or finding.check_id
+        for finding in report.findings
+        if finding.agent_action is None
+    ]
+    if missing:
+        preview = ", ".join(missing[:3])
+        suffix = f", … (+{len(missing) - 3})" if len(missing) > 3 else ""
+        raise ValueError(
+            "report.json contains finding(s) without `agent_action`: "
+            f"{preview}{suffix}. Re-scan with the current CLI: "
+            "`agents-shipgate scan -c shipgate.yaml --format json`."
+        )
+    return report, payload
 
 
 def _evidence_summary(evidence: dict[str, Any]) -> str:

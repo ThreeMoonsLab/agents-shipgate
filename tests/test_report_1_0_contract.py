@@ -69,13 +69,18 @@ def test_the_1_0_schema_is_a_promotion_of_the_last_pre_freeze_schema() -> None:
     ``STABILITY.md``'s own rule reads "major on breaking", so the claim that
     ``0.43 -> 1.0`` broke nothing has to be a fact somebody can check, not a
     sentence in a migration note.
+
+    It compares the two *frozen documents* rather than "whatever is current",
+    so it keeps running after `1.1` lands. An earlier form skipped once a later
+    minor became current -- which retired the only byte comparison guarding
+    `report-schema.v1.0.json` at exactly the moment that file became a frozen
+    published artifact nothing else pinned.
     """
 
-    if FIRST_FROZEN_REPORT_SCHEMA_VERSION != CURRENT:
-        pytest.skip(
-            f"a later {REPORT_CONTRACT_MAJOR}.x minor is current ({CURRENT}); "
-            "the promotion identity is a claim about the freeze commit"
-        )
+    frozen_1_0 = DOCS / f"report-schema.v{FIRST_FROZEN_REPORT_SCHEMA_VERSION}.json"
+    assert frozen_1_0.is_file(), (
+        f"{frozen_1_0.name} is the published freeze and may not be deleted"
+    )
 
     def _comparable(path: Path) -> dict:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -84,12 +89,13 @@ def test_the_1_0_schema_is_a_promotion_of_the_last_pre_freeze_schema() -> None:
         payload["properties"]["report_schema_version"].pop("const", None)
         return payload
 
-    assert _comparable(CURRENT_SCHEMA_PATH) == _comparable(PRE_FREEZE_SCHEMA_PATH), (
-        f"report-schema.v{CURRENT}.json differs from "
+    assert _comparable(frozen_1_0) == _comparable(PRE_FREEZE_SCHEMA_PATH), (
+        f"report-schema.v{FIRST_FROZEN_REPORT_SCHEMA_VERSION}.json differs from "
         f"report-schema.v{LAST_PRE_FREEZE_REPORT_SCHEMA_VERSION}.json in more "
         "than $id/title/version. The freeze is published as a promotion of the "
-        "pre-freeze shape; a real shape change has to ship as its own minor "
-        "with its own migration note."
+        "pre-freeze shape, and both documents are published artifacts consumers "
+        "validate against: a shape change ships as its own minor with its own "
+        "migration note, never as an edit to either of these files."
     )
 
 
