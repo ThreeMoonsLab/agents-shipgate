@@ -22,7 +22,7 @@ No new verifier result was used to choose their target. Six remain unplaced:
 three need a supported profile, two repeat an existing version-refresh family,
 and one is a superseded proposal. They do not add coverage to the table below.
 
-All placed targets use **`miner_label`**, which is **not verifier-independent**:
+The original 42 placed targets use **`miner_label`**, which is **not verifier-independent**:
 the historical worksheet exposed verifier verdicts. These are disclosed mining
 hypotheses, never beta ground truth. The notes transcribe the existing rationale;
 they do not assert that a human or a correct gate agrees with it. In particular,
@@ -30,6 +30,15 @@ closed/reverted status establishes an origin, not a security verdict, and the
 MCP profile name does not assert reviewed declarations or binding completeness.
 Human labels may move a candidate to another cell and reopen a gap; do not edit
 a label to preserve the counts. Earlier pre-1.0 labels are not imported.
+
+Four more candidates were inspected directly on 2026-09-10, using the existing
+**`diff_substance`** vocabulary: two MCP input/read changes, one ADK search
+restriction and one parent-to-child transcript change. Their full merge/parent
+pairs match the committed sweeps and freshly fetched public commit comparisons.
+Their targets come from source inspection, not a new verifier run or an invented
+miner label. The candidate register records the observations and unresolved
+packet questions. These are all `tuning_only` under the existing conservative
+direct-inspection rule; no engine behavior was developed or measured from them.
 
 The figures below count **pinned** candidates only. Gaps have neither an origin
 observation nor holdout capacity. Surplus candidates in one cell cannot fill a
@@ -40,12 +49,12 @@ different cell, so a large total cannot make the corpus ready.
 | Required cases | 80 |
 | Required cells | 21 |
 | Inventory slots including gaps | 84 |
-| Pinned candidates | 42 |
-| Unfilled candidate slots | 42 |
-| Pinned qualifying-origin candidates | 42 |
+| Pinned candidates | 46 |
+| Unfilled candidate slots | 38 |
+| Pinned qualifying-origin candidates | 46 |
 | Required qualifying origins | 32 |
 | Pinned potential holdout candidates | 32 |
-| Pinned tuning-only candidates | 10 |
+| Pinned tuning-only candidates | 14 |
 | Required holdout slots across cells | 23 |
 | Holdout slots still without a potential candidate | 3 |
 | Unplaced reserve candidates | 6 |
@@ -55,7 +64,7 @@ holdout-blocking mark. It is not a frozen split or accepted independent evidence
 
 | Profile | Target | Required | Pinned | Potential holdout | Holdout floor | Gaps |
 |---|---|---|---|---|---|---|
-| `mcp_openapi_declared_binding` | `passed` | 6 | 3 | 3 | 2 | 3 |
+| `mcp_openapi_declared_binding` | `passed` | 6 | 5 | 3 | 2 | 1 |
 | `mcp_openapi_declared_binding` | `review_required` | 4 | 2 | 2 | 1 | 2 |
 | `mcp_openapi_declared_binding` | `blocked` | 6 | 4 | 3 | 2 | 2 |
 | `openai_agents_sdk` | `passed` | 5 | 4 | 3 | 1 | 1 |
@@ -64,14 +73,14 @@ holdout-blocking mark. It is not a frozen split or accepted independent evidence
 | `langchain_crewai` | `passed` | 5 | 1 | 1 | 1 | 4 |
 | `langchain_crewai` | `review_required` | 3 | 2 | 2 | 1 | 1 |
 | `langchain_crewai` | `blocked` | 4 | 1 | 1 | 1 | 3 |
-| `google_adk` | `passed` | 3 | 1 | 0 | 1 | 2 |
+| `google_adk` | `passed` | 3 | 2 | 0 | 1 | 1 |
 | `google_adk` | `review_required` | 2 | 4 | 2 | 1 | 0 |
 | `google_adk` | `blocked` | 3 | 1 | 1 | 1 | 2 |
 | `n8n` | `passed` | 3 | 1 | 1 | 1 | 2 |
 | `n8n` | `review_required` | 2 | 2 | 2 | 1 | 0 |
 | `n8n` | `blocked` | 3 | 0 | 0 | 1 | 3 |
 | `multi_agent_handoffs` | `passed` | 4 | 1 | 1 | 1 | 3 |
-| `multi_agent_handoffs` | `review_required` | 3 | 1 | 1 | 1 | 2 |
+| `multi_agent_handoffs` | `review_required` | 3 | 2 | 1 | 1 | 1 |
 | `multi_agent_handoffs` | `blocked` | 5 | 1 | 1 | 1 | 4 |
 | `coding_agent_trust_roots` | `passed` | 4 | 3 | 0 | 1 | 1 |
 | `coding_agent_trust_roots` | `review_required` | 3 | 5 | 3 | 1 | 0 |
@@ -88,8 +97,10 @@ source/tests are checked again. Missing searchable evidence does not prove an
 unseen development history clean: the corpus owner must resolve private tuning,
 related changes, prior rater exposure and independence before freezing a split.
 Any evidence of tuning moves a candidate to `tuning_only`; no mark may be erased
-to fill a holdout floor. Newly walking a diff for `diff_substance` would also
-add `maintainer_walk`, exactly as Cut A requires.
+to fill a holdout floor. The current Cut A guard conservatively treats `diff_substance` targeting as
+`maintainer_walk`, even when the activity is source collection alone. Preserve
+that exposure floor and `tuning_only`; this convention does not assert that
+source inspection caused an engine change.
 
 Two public implementation records establish additional `maintainer_walk`
 exposure that literal engine/test searches and the older inventory miss:
@@ -113,6 +124,14 @@ differ, but they are a related family: resolve admissibility together and keep
 them in one split. Do not use one for tuning and the other as holdout or treat
 distinct PR numbers as independent diversity. Their potential counts remain
 conditional on that owner review, not accepted case or holdout coverage.
+
+The newly inspected long-horizon-harness changes have the same obligation:
+`github.com/google/adk-samples#2544` starts exactly at `#2543`'s merged head;
+the inspected but unplaced `#2561` later changes declaration building in that
+harness. Their targets differ, but their sequential shared code is not
+independent diversity. Resolve joint admissibility and keep any admitted
+related cases in one split. The two placed candidates are already tuning-only;
+none supplies potential holdout capacity.
 
 Profiles are provisional sourcing assignments from the existing rationale and
 changed paths, preserving the old assignment where one exists. Scenario profiles
@@ -202,6 +221,15 @@ changed paths and the reason for the profile, not an accepted verdict.
 | `github.com/openai/openai-agents-python#3788` | `openai_agents_sdk` | `merged` | [commit](https://github.com/openai/openai-agents-python/commit/0354f482a8e76d33c50a6a3e462c814eefde1e6b) | OpenAI Agents SDK source/tool/sandbox change. `examples/agent_patterns/README.md`, `examples/agent_patterns/hosted_multi_agent_beta.py` (examples; see the pinned comparison) |
 | `github.com/openai/openai-agents-python#3833` | `openai_agents_sdk` | `merged` | [commit](https://github.com/openai/openai-agents-python/commit/965335aba6f6c71500e0b8cdb4e9e495f5801d4d) | OpenAI Agents SDK source/tool/sandbox change. `examples/tools/programmatic_tool_calling.py`, `src/agents/__init__.py` (examples; see the pinned comparison) |
 | `github.com/openai/openai-agents-python#4399` | `openai_agents_sdk` | `closed` | [commit](https://github.com/openai/openai-agents-python/commit/9e8ee09632e3f968e2286b042cdd7eb5d1226598) | OpenAI Agents SDK source/tool/sandbox change. `src/agents/sandbox/manifest.py` |
+| `github.com/modelcontextprotocol/servers#3545` | `mcp_openapi_declared_binding` | `merged` | [commit](https://github.com/modelcontextprotocol/servers/commit/ae40ec239d80713c5fa892766ccf8285aecf1270) | [src/git/src/mcp_server_git/server.py](https://github.com/modelcontextprotocol/servers/blob/ae40ec239d80713c5fa892766ccf8285aecf1270/src/git/src/mcp_server_git/server.py); [whole change](https://github.com/modelcontextprotocol/servers/compare/81f8301cd2b4a9c32d925083b86c0885b1ba9fbf...ae40ec239d80713c5fa892766ccf8285aecf1270). Adds leading-hyphen rejection before existing git_log timestamp, git_create_branch, git_show and git_branch argument handling; no new tool is registered. Existing MCP Git operations; the target follows the added input rejection, not the repository name or a verifier verdict. This does not assert complete deployed bindings or elimination of every injection path. |
+| `github.com/hashicorp/terraform-mcp-server#466` | `mcp_openapi_declared_binding` | `merged` | [commit](https://github.com/hashicorp/terraform-mcp-server/commit/522bf550b786b7e2afe4b111485d76b4dafa6321) | [pkg/tools/tfe/whoami.go](https://github.com/hashicorp/terraform-mcp-server/blob/522bf550b786b7e2afe4b111485d76b4dafa6321/pkg/tools/tfe/whoami.go); [whole change](https://github.com/hashicorp/terraform-mcp-server/compare/47596030f453d6a808846de17a4dd29c7100265f...522bf550b786b7e2afe4b111485d76b4dafa6321). Registers whoami under the existing enabled Terraform toolset and calls Users.ReadCurrent; returns the current-token username, email and service-account flag. A new MCP identity-read tool. The handler and its returned data support the sourcing hypothesis; ReadOnlyHint alone would not. Token scope and permission to disclose those account fields still require packet review; no authority or binding declaration is supplied. |
+| `github.com/google/adk-samples#2544` | `google_adk` | `merged` | [commit](https://github.com/google/adk-samples/commit/23afe5326e802480e7ed0ad6435e699e5c5a2725) | [core/python/long-horizon-harness/horizon/tools/file_ops.py](https://github.com/google/adk-samples/blob/23afe5326e802480e7ed0ad6435e699e5c5a2725/core/python/long-horizon-harness/horizon/tools/file_ops.py); [whole change](https://github.com/google/adk-samples/compare/8d0302831f52fc1eedeb6ed1c5068d296a6fb6e2...23afe5326e802480e7ed0ad6435e699e5c5a2725). Changes existing search_files with snippet/file-size limits, default directory exclusions, optional ignore_case/no_ignore and a 30-second execution timeout; preserves the existing scope route. Related sequential long-horizon-harness family: github.com/google/adk-samples#2543, github.com/google/adk-samples#2544, and the unplaced #2561; resolve admissibility together and keep any admitted related cases in one split. ADK harness tool change; the target concerns restrictions on the existing read operation, not proof of complete filesystem containment or a successful runtime test. Review the whole change, including new flags and the paired edit helper cleanup. |
+| `github.com/google/adk-samples#2543` | `multi_agent_handoffs` | `merged` | [commit](https://github.com/google/adk-samples/commit/8d0302831f52fc1eedeb6ed1c5068d296a6fb6e2) | [core/python/long-horizon-harness/horizon/subagents/subagent.py](https://github.com/google/adk-samples/blob/8d0302831f52fc1eedeb6ed1c5068d296a6fb6e2/core/python/long-horizon-harness/horizon/subagents/subagent.py); [whole change](https://github.com/google/adk-samples/compare/70df0e0f5fb511f6b62056e11948b3f7a210cfae...8d0302831f52fc1eedeb6ed1c5068d296a6fb6e2). Changes incomplete child-result summaries and adds include_transcript=False; opting in forwards parent conversation text through a 4,000-character helper to the delegated child. Related sequential long-horizon-harness family: github.com/google/adk-samples#2543, github.com/google/adk-samples#2544, and the unplaced #2561; resolve admissibility together and keep any admitted related cases in one split. The handoff scenario comes from the new parent-to-child text flow, not just the presence of several agents. The target is a review of newly available disclosure; completion wording does not prove a child finished, and no deployed authority is asserted. |
+
+The four direct-inspection entries above describe complete pinned comparisons;
+source claims in a PR description are not treated as executed verification.
+Final profile, disclosure/permission context and ground truth remain for the
+independent human handoff. None of these additions fills a holdout gap.
 
 ### Reserve
 
