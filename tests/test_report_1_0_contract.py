@@ -25,6 +25,7 @@ from agents_shipgate.schemas.report_compatibility import (
     classify_report_schema_version,
     current_report_schema_version,
     parse_report_schema_version,
+    report_schema_refusal_code,
     require_supported_report_schema,
 )
 
@@ -283,8 +284,6 @@ def test_every_refusal_carries_a_code_the_classifier_can_look_up() -> None:
     that named the decision failed.
     """
 
-    from agents_shipgate.schemas.report_compatibility import report_schema_refusal_code
-
     for version, expected in (
         ("0.28", "report_schema_pre_freeze"),
         ("2.0", "report_schema_future_major"),
@@ -302,6 +301,47 @@ def test_every_refusal_carries_a_code_the_classifier_can_look_up() -> None:
 
     # And ordinary text is not mistaken for one.
     assert report_schema_refusal_code("tools.json could not be read") is None
+
+
+def test_no_refusal_this_module_raises_can_escape_the_classifier() -> None:
+    """Producer and consumer stay in sync by construction, not by two lists.
+
+    The first version of `report_schema_refusal_code` walked
+    `ReportSchemaStatus` to build the codes it would recognise. That is a second
+    copy of the producer's vocabulary, and it went stale immediately: the
+    engine-unreadable refusal carries a code that is not an *input* status, so
+    it came out unrecognised and would have routed an incomparable base to
+    `review_required` instead of withholding the verdict -- in the one branch
+    that fires when the install itself is broken.
+
+    So the property is stated over every refusal the module can raise, rather
+    than over the statuses somebody remembered to enumerate.
+    """
+
+    raised: list[ReportSchemaCompatibilityError] = []
+    for value in ("0.28", "2.0", "1.999", "nonsense", "1.0.0", "", None, 1.0, []):
+        try:
+            require_supported_report_schema(value)
+        except ReportSchemaCompatibilityError as exc:
+            raised.append(exc)
+        else:  # pragma: no cover - every value above is unsupported
+            raise AssertionError(f"{value!r} was accepted")
+
+    assert len(raised) == 9
+    for exc in raised:
+        assert report_schema_refusal_code(str(exc)) == exc.reason_code, (
+            f"a refusal carrying {exc.reason_code!r} is invisible to the "
+            "classifier that decides whether an incomparable base withholds "
+            "the verdict"
+        )
+
+    # Every *input* status is covered by the loop above except `supported`.
+    covered = {exc.reason_code.removeprefix("report_schema_") for exc in raised}
+    statuses = {
+        classify_report_schema_version(value).status
+        for value in ("0.28", "2.0", "1.999", "nonsense", None)
+    }
+    assert statuses <= covered
 
 
 def test_a_projection_reader_may_accept_a_newer_minor_and_a_comparison_may_not() -> None:

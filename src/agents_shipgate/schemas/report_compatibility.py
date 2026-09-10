@@ -41,8 +41,9 @@ payload; a field I have never heard of changes nothing I output."
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
-from typing import Any, Literal, get_args
+from typing import Any, Literal
 
 #: The frozen major. Every ``1.x`` report is additive over ``1.0``: no field is
 #: renamed, retyped, removed, or given a new meaning within the major. A change
@@ -141,7 +142,14 @@ def parse_report_schema_version(value: Any) -> tuple[int, ...] | None:
 
 
 def classify_report_schema_version(value: Any) -> ReportSchemaSupport:
-    """Decide what this engine may do with ``value``, and say why."""
+    """Decide what this engine may do with ``value``, and say why.
+
+    Returns a verdict for every *input*: nothing about the payload raises.
+    The one exception is about **this build**, not the payload -- if the
+    engine's own declared schema version cannot be parsed there is no baseline
+    to compare a minor against, and that is a broken install rather than a
+    classification, so it is raised.
+    """
 
     if value is None:
         return ReportSchemaSupport(
@@ -195,11 +203,13 @@ def classify_report_schema_version(value: Any) -> ReportSchemaSupport:
         # indexes `None` and raises `TypeError` out of the one function whose
         # whole job is to fail cleanly. Callers wrap
         # `ReportSchemaCompatibilityError`/`ValueError`, not `TypeError`.
+        code = "report_schema_engine_version_unreadable"
         raise ReportSchemaCompatibilityError(
-            f"this build declares report schema {current_text!r}, which is not a "
-            "MAJOR.MINOR version it can compare against. The install is broken; "
-            "run `agents-shipgate doctor --json` and read the `environment` block.",
-            reason_code="report_schema_engine_version_unreadable",
+            f"[{code}] this build declares report schema {current_text!r}, which "
+            "is not a MAJOR.MINOR version it can compare against. The install is "
+            "broken; run `agents-shipgate doctor --json` and read the "
+            "`environment` block.",
+            reason_code=code,
             version=current_text,
         )
     if minor > current[1]:
@@ -278,11 +288,22 @@ def require_supported_report_schema(
     )
 
 
+#: The marker a refusal carries so a downstream classifier can recognise it.
+#: Matched on the *bracket*, not on a list of known codes: an enumerated list
+#: is a second copy of the producer's vocabulary, and the first version of this
+#: function was exactly that -- it walked ``ReportSchemaStatus``, so the
+#: engine-unreadable refusal below (whose code is not an input status) came out
+#: unrecognised and would have routed an incomparable base to
+#: ``review_required`` instead of withholding the verdict, in the one branch
+#: that fires when the install itself is broken.
+_REFUSAL_MARKER = re.compile(r"\[(report_schema_[a-z0-9_]+)\]")
+
+
 def report_schema_refusal_code(text: str) -> str | None:
     """The reason code carried by one of this module's refusals, or ``None``.
 
-    The refusal message embeds its own ``reason_code`` in brackets so that a
-    downstream classifier can recognise it *structurally*.
+    Every refusal this module raises embeds its own ``reason_code`` in brackets
+    so that a downstream classifier can recognise it *structurally*.
 
     This exists because the previous classifier matched three substrings of the
     old prose (``"predates report schema"``, ``"semantic evidence"``,
@@ -291,16 +312,11 @@ def report_schema_refusal_code(text: str) -> str | None:
     of ``insufficient_evidence`` and into ``review_required``: the run stopped
     withholding a verdict it had no evidence for, and nothing failed except one
     unrelated-looking assertion. A code the producer emits and the consumer
-    looks up cannot drift that way.
+    reads back cannot drift that way.
     """
 
-    for status in get_args(ReportSchemaStatus):
-        if status == "supported":
-            continue
-        code = f"report_schema_{status}"
-        if f"[{code}]" in text:
-            return code
-    return None
+    match = _REFUSAL_MARKER.search(text)
+    return match.group(1) if match else None
 
 
 __all__ = [
