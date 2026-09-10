@@ -646,9 +646,16 @@ mistaken for the shipped ones.
 
 ### Verification failed
 
-Nothing outside the run changed: no tag deletion, no cleanup needed. Fix the
-cause on the branch, and either move the tag (only safe while nothing has been
-published for it) or cut a new version.
+Verification does not publish a release or upload a distribution. Inspect any
+earlier attempt before assuming that nothing was published. A transient failure
+with an unchanged candidate can be retried against the same tag and commit.
+
+If fixing the cause changes the source, fix it on the branch, cut a new version
+and use a new tag. Rebuild and refresh the qualification, signing and rehearsal
+evidence affected by the new candidate identity before tagging. Do not move or
+delete the failed tag, or weaken the tag ruleset to reuse it: the `v*` protection
+applies before publication as well as afterward. The failed run remains linked
+to the source it actually verified.
 
 ## Deployment prerequisites
 
@@ -674,11 +681,12 @@ an assertion that settings cannot change; read them back before release.
 | Surface | Observed setting | Remaining release obligation |
 | --- | --- | --- |
 | Repository immutable releases | Enabled under the repository owner's authorization; `GET /repos/ThreeMoonsLab/agents-shipgate/immutable-releases` returned `enabled: true`, `enforced_by_owner: false` after the enable request | Repository-level enablement is not organization-enforced policy, a retroactive lock on old releases or an exercised publication transaction. Verify draft/stage/finalize compatibility on the actual candidate. |
-| Release tags | The ruleset listing returned only the active branch ruleset `Protect main` (15704163); no tag ruleset was returned | Establish the required `v*` update/deletion protection and deliberate creation/recovery rules. Future release immutability does not establish the pre-publication tag boundary. |
+| Release tags | Active repository ruleset [Protect release tags (22726019)](https://github.com/ThreeMoonsLab/agents-shipgate/rules/22726019): target `tag`, include `refs/tags/v*`, no exclusions, rules `update` and `deletion`, no bypass actors; authenticated read-back returned `current_user_can_bypass: "never"` | This establishes the configured pre-publication update/deletion boundary. It has no creation rule and does not establish restricted tag creators or release writers. Remote refusal testing, actual recovery ownership and final-candidate compatibility remain open. |
 | Main workflow/trust-root changes | The main ruleset requires a PR, but zero approving reviews, no code-owner review, no stale-review dismissal, no last-push approval and no required-status-check rule; its bypass-actor list is empty | These settings do not establish independent review of workflow or trust-root changes. Verify the effective policy, including any inherited rules, rather than inferring it from a PR existing. |
 | Publication environment | `pypi` has one required reviewer, `prevent_self_review: false` and `can_admins_bypass: true` | Confirm actually independent eligible reviewers and the named, reviewed recovery/bypass arrangement before changing this boundary or claiming it satisfied. |
 
-Only the repository immutable-release setting was changed for this checkpoint.
+The repository immutable-release setting and release-tag ruleset were changed
+under the repository owner's authorization for this checkpoint.
 The [GitHub API](https://docs.github.com/en/rest/repos/repos#enable-immutable-releases)
 enable request completed, followed by the read-back above. GitHub documents
 that [immutability applies to future releases](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/establish-provenance-and-integrity/prevent-release-changes).
@@ -687,10 +695,22 @@ or dummy publication was used as a test. The current pipeline's draft-first,
 validate-then-finalize order is consistent with that model; this source review
 does not replace an exercised candidate publication/recovery path.
 
+The tag ruleset was created and read back through the
+[repository ruleset API](https://docs.github.com/en/rest/repos/rules#create-a-repository-ruleset).
+The listing with `includes_parents=true` returned only `Protect main` (15704163)
+and `Protect release tags` (22726019), both active repository rulesets. The 13
+existing `v*` ref names, object types and object SHAs were identical before and
+after creation. No existing release tag was moved/deleted as a refusal probe.
+New version tags remain creatable under existing repository access; `preview-*`
+refs are outside this rule. Policy editors can still change the ruleset, so an
+empty bypass list is not proof that administration is immutable or independently
+reviewed. Re-read both the ruleset and its inherited-policy listing before
+release; a configured rule is not an exercised remote refusal or publication.
+
 #573 remains open for the missing protections and effective-policy/refusal
 evidence. #494 retains accepted operating/recovery duties and #509 retains the
 independent qualification signer. No reviewer, signer, writer, emergency actor
-or personal access claim is supplied by enabling immutable releases.
+or personal access claim is supplied by enabling these protections.
 
 ### The limit worth stating plainly
 
