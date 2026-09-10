@@ -110,6 +110,13 @@ rows printed beside it.
 Neither surface can disagree with the other about a class: both read the same
 rows, and only this projection produces them.
 
+The projection is published on `report.json` and `report.md` only, like the two
+profile comparisons it reads. `packet.json` and the PR comment carry the diff
+notes, and both truncate them, so neither restates a class — a surface that
+does not answer is preferable to one that answers differently. The packet's
+"Finding identities" line remains an identity statement, and `report.json` is
+where its attribution lives.
+
 The regression inputs are isolated synthetic fixtures and paired committed
 repositories, not deployed wiring, human qualification labels or runtime
 observations. #557 owns the dependency closure this projection reports as

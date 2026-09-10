@@ -412,8 +412,14 @@ def attribute_findings(
 
 
 def unattributed_sentence(count: int) -> str:
-    """The one spelling of the count, for every surface that prints it."""
+    """The one spelling of the count, for every surface that prints it.
+
+    The wording covers both causes: a finding no active profile could speak
+    about, and a finding that published no identity for one to join on. Naming
+    only the first would send a reader to look at profile coverage for a
+    finding no coverage could have reached.
+    """
     return (
-        f"{count} active finding(s) have no comparison profile evidence and are "
-        "not attributed to this change in either direction."
+        f"{count} active finding(s) could not be joined to any comparison "
+        "profile and are not attributed to this change in either direction."
     )

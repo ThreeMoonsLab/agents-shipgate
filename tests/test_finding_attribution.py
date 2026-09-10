@@ -554,7 +554,7 @@ def test_an_unattributed_finding_is_counted_rather_than_dropped_silently():
         [_finding(), _finding("fp2", tool_id="tool_v2_other", refs=())],
     )
     assert [row.fingerprint for row in rows] == ["fp1"]
-    assert any("1 active finding(s) have no comparison profile evidence" in note for note in notes)
+    assert unattributed_sentence(1) in notes
     assert any("no finding is excluded" in note for note in notes)
 
 
@@ -599,6 +599,10 @@ def test_a_finding_with_no_identity_at_all_is_counted_not_dropped():
     assert [row.fingerprint for row in rows] == ["fp1"]
     assert unattributed == 1
     assert unattributed_sentence(1) in notes
+    # One sentence for both causes: an unjoinable finding is not a statement
+    # about how much the active profiles cover.
+    assert "could not be joined to any comparison profile" in unattributed_sentence(1)
+    assert "no comparison profile evidence" not in unattributed_sentence(1)
 
 
 def test_an_improvement_does_not_claim_a_continuity_its_identity_denies():
