@@ -16,7 +16,11 @@ from agents_shipgate.cli.discovery.host_boundary import discover_host_boundary
 from agents_shipgate.cli.discovery.signals import detect_workspace
 from agents_shipgate.cli.main import app
 from agents_shipgate.core import host_grants
-from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS, host_config_adapters_for_path
+from agents_shipgate.core.boundary_registry import (
+    BOUNDARY_ADAPTERS,
+    boundary_adapters_for_path,
+    host_config_adapters_for_path,
+)
 from tests.test_zero_install_detector import _load_script_module
 
 CONFIG_PATHS = [
@@ -376,3 +380,95 @@ def test_a_link_to_a_directory_still_withholds_the_negative(tmp_path, zero):
 
     assert detect_workspace(tmp_path).host_discovery_incomplete_paths == ["docs"]
     assert zero.detect(tmp_path)["host_discovery_incomplete_paths"] == ["docs"]
+
+
+# Every path shape the boundary registry can match, and whether host discovery
+# treats it as a configuration candidate. `host_config_adapters_for_path`
+# answers this with a suffix gate plus a hard-coded instruction-prefix denylist
+# sitting beside an otherwise registry-driven lookup, so a *new* adapter glob
+# under an instruction directory would silently widen the candidate set with
+# nothing failing. Pinning the decision per registry entry makes that a failing
+# test and a deliberate choice instead (PR #614 review).
+REGISTRY_ELIGIBILITY: dict[str, bool] = {
+    ".codex/config.toml": True,
+    ".codex/hooks.json": True,
+    ".codex/requirements.toml": True,
+    "**/.codex/config.toml": True,
+    "**/.codex/hooks.json": True,
+    "**/.codex/requirements.toml": True,
+    ".claude/settings.json": True,
+    ".claude/settings.local.json": True,
+    ".mcp.json": True,
+    "**/.mcp.json": True,
+    ".cursor/cli.json": True,
+    ".cursor/mcp.json": True,
+    ".vscode/mcp.json": True,
+    # Instructions, commands and skills: prose and prompt surfaces the host
+    # audit reads for a different question. Never host configuration.
+    "CLAUDE.md": False,
+    "**/CLAUDE.md": False,
+    ".claude/commands/*": False,
+    ".claude/commands/**": False,
+    ".claude/skills/*/SKILL.md": False,
+    ".claude/skills/**/SKILL.md": False,
+    ".cursor/rules/*": False,
+    ".cursor/rules/**": False,
+    # Shared governance: this repository's own manifest, policies, baselines
+    # and workflows. Governed surfaces, not a host's configuration.
+    "AGENTS.md": False,
+    "AGENTS.override.md": False,
+    "**/AGENTS.md": False,
+    "**/AGENTS.override.md": False,
+    "shipgate.yaml": False,
+    ".shipgate/agent-contract.json": False,
+    "policies/agent-boundary.shipgate.yaml": False,
+    "policies/codex-boundary.shipgate.yaml": False,
+    "policies/host-boundary.shipgate.yaml": False,
+    "policies/*.shipgate.yaml": False,
+    ".agents/skills/*/SKILL.md": False,
+    ".agents/skills/**/SKILL.md": False,
+    ".github/workflows/*.yml": False,
+    ".github/workflows/*.yaml": False,
+    "**/.github/workflows/*.yml": False,
+    "**/.github/workflows/*.yaml": False,
+    ".agents-shipgate/baseline*.json": False,
+    ".agents-shipgate/*waiver*.json": False,
+    ".agents-shipgate/state*.json": False,
+}
+
+
+def test_every_registry_surface_has_a_pinned_host_config_decision():
+    """A new adapter entry must force a decision, not inherit one silently."""
+    registry = {
+        path
+        for adapter in BOUNDARY_ADAPTERS
+        for path in (*adapter.exact_paths, *adapter.globs)
+    }
+    assert registry == set(REGISTRY_ELIGIBILITY), (
+        "the boundary registry changed; decide whether each new entry is host "
+        "configuration and pin it here:\n"
+        f"  only in registry: {sorted(registry - set(REGISTRY_ELIGIBILITY))}\n"
+        f"  only pinned here: {sorted(set(REGISTRY_ELIGIBILITY) - registry)}"
+    )
+    for pattern, eligible in sorted(REGISTRY_ELIGIBILITY.items()):
+        # A concrete path the pattern matches, since the predicate reads paths.
+        # Every expansion ends in `.json` so a `False` here has to come from the
+        # instruction/governance rules rather than from the suffix gate — the
+        # suffix would make the whole table pass for the wrong reason.
+        concrete = (
+            pattern.replace("**/", "nested/")
+            .replace("/**", "/nested/example.json")
+            .replace("*", "example.json")
+        )
+        assert bool(host_config_adapters_for_path(concrete)) is eligible, (
+            f"{pattern!r} (as {concrete!r}) is "
+            f"{'not ' if eligible else ''}treated as host configuration"
+        )
+
+    # The two exclusions that are neither a suffix nor the `shared` adapter,
+    # spelled directly: these are the ones a new adapter glob would slip past.
+    for instruction in (".claude/commands/hook.json", ".cursor/rules/rule.json"):
+        assert not host_config_adapters_for_path(instruction), instruction
+        assert boundary_adapters_for_path(instruction), (
+            f"{instruction} must still be a boundary surface, or this proves nothing"
+        )

@@ -14,9 +14,18 @@ failure and continues. An absent field cannot satisfy the product-wide
 negative predicate. Host-only `init` returns
 `manifest_status: "not_applicable_host_review"` without setup writes;
 `bootstrap` returns `verdict: "host_review_required"` and the existing detect
-control route. Both may exit zero with work still required, all setup
-permissions remain false, and explicit `init --minimal` keeps its template
-behavior. Existing manifests, builder sources, and Python-cap recovery retain
+control route. Both may exit zero with work still required, and all setup
+permissions remain false.
+
+The hand-off applies to every detection-driven `init`, including `--ci`,
+`--claude-code`, `--agent-instructions` and `--local-review`, and not to
+`init --minimal`. The line is what the flag does with discovery, not how
+explicit it is: `--minimal` selects the legacy template without classifying
+the workspace at all, so there is no classification for a host-only route to
+act on. Every other mode renders from the detection this route belongs to, so
+a repository whose only surface is host configuration would get a manifest
+declaring nothing — the dead end #568 exists to remove. A host-only workspace
+that genuinely wants a manifest asks for the template by name. Existing manifests, builder sources, and Python-cap recovery retain
 their routes. Persisted release evidence and its schema versions are unchanged.
 
 This document is the contract. If the runtime ever diverges from what's documented here, that's a bug — please file an issue.

@@ -625,7 +625,14 @@ def build_detect_exclusions(result: DetectResult) -> SurfaceExclusionLedger:
             # must not name only one of them: it read as a claim about a
             # `docs/README.md -> ../README.md` that conceals nothing.
             detail="Host discovery could not see through this path, so a complete negative is withheld.",
-            accounting="not_claimed",
+            # `route_blocked`, not `not_claimed`: the run did act on these —
+            # withholding the product-wide negative is the act, and
+            # `total - gated` is documented as "recorded and deliberately not
+            # acted on", which these are not. Unconditional for the same
+            # reason `walk_capped` is: the withheld verdict is a whole-run
+            # fact, and that row already sits beside a runnable published
+            # route (the higher-cap retry) without meaning routing stopped.
+            accounting="route_blocked",
         ))
     if result.python_parse_truncated:
         entries.append(

@@ -229,7 +229,10 @@ onboarded — their sources will land in `tool_sources` during `init`.
 Host-only repositories instead follow the emitted audit route. `init` and
 `bootstrap` hand off without creating setup files; even `init --ci` cannot
 create a manifest-based workflow for a repository needing only host review.
-Explicit `init --minimal` still requests the manual template.
+The hand-off covers every detection-driven mode — `--ci`, `--claude-code`,
+`--agent-instructions`, `--local-review` — because each renders its manifest
+from that classification. `init --minimal` is the exception: it never
+classifies the workspace, so it still writes the manual template on request.
 
 ### Step 2 · `init --write --ci --json`
 
