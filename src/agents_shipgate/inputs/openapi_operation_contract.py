@@ -48,7 +48,8 @@ def unambiguous_document(text: str) -> bool:
 
 
 def operation_evidence(
-    *, document, document_digest, source, tool, path_item, operation, document_unambiguous
+    *, document, document_digest, source, tool, path_item, method_key, operation,
+    document_unambiguous
 ):
     row = DeclaredOperation(
         source_id=source.id,
@@ -66,6 +67,10 @@ def operation_evidence(
     try:
         if not document_unambiguous:
             raise ValueError("ambiguous_document")
+        # The compatibility loader normalizes methods; proof must instead
+        # name a case-sensitive key that exists in the captured document.
+        if method_key != "delete":
+            raise ValueError("noncanonical_method_key")
         if document.get("openapi") != "3.0.3" or row.method != "DELETE":
             raise ValueError("unsupported_version_or_method")
         if not isinstance(operation.get("operationId"), str) or not operation["operationId"]:

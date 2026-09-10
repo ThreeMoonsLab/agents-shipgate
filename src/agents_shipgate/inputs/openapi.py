@@ -117,7 +117,8 @@ def load_openapi_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSo
                 operation_rows.append(operation_evidence(
                     document=document, document_digest=document_digest,
                     source=source, tool=tool, path_item=path_item,
-                    operation=operation, document_unambiguous=document_unambiguous,
+                    method_key=method, operation=operation,
+                    document_unambiguous=document_unambiguous,
                 ))
 
     snapshot = active_static_input_snapshot()

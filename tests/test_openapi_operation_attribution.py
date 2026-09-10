@@ -95,6 +95,38 @@ def test_real_delete_finding_has_exact_claim_and_dependency_join(tmp_path):
     assert row.deployed_reachability == "unknown"
 
 
+@pytest.mark.parametrize("method_key", ["delete", "DELETE", "Delete"])
+def test_observed_operation_requires_canonical_source_method_key(tmp_path, method_key):
+    root = tmp_path / "repo"
+    workspace(root)
+    before = scan(root, tmp_path / "before")
+    document = spec()
+    path_item = document["paths"]["/documents/{id}"]
+    path_item[method_key] = path_item.pop("delete")
+    workspace(root, document)
+    after = scan(root, tmp_path / "after")
+    (row,) = after.tool_surface_facts.operation_attributions
+    base = ReconstructedOperationBase(
+        "a" * 40, tuple(before.tool_surface_facts.operation_attributions)
+    )
+    (comparison,) = compare_operations(after.tool_surface_facts.operation_attributions, base)
+    if method_key == "delete":
+        assert row.status == "observed"
+        captured = json.loads((root / "api.json").read_text())
+        for token in row.operation.source_pointer.removeprefix("/").split("/"):
+            captured = captured[token.replace("~1", "/").replace("~0", "~")]
+        assert captured == path_item[method_key]
+        assert comparison.declared_target_domain == "unchanged"
+    else:
+        assert row.status == row.operation.status == "unresolved"
+        assert row.operation.reason == "noncanonical_method_key"
+        assert row.operation.declared_targets == []
+        assert row.predicates == []
+        assert comparison.declared_target_domain == "unresolved"
+        assert comparison.approval_predicate == "unresolved"
+    assert comparison.finding_exclusion_eligible is False
+
+
 @pytest.mark.parametrize(
     "values,direction",
     [
