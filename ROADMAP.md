@@ -156,6 +156,10 @@ remain prerequisites. The current release decision is still **no-go**.
 - Repository release immutability and `v*` tag update/deletion protection are
   now enabled and read back, as recorded in
   the [runbook observation](docs/release-runbook.md#effective-configuration-observed--2026-09-09).
+  The [later main-CI checkpoint](docs/release-runbook.md#main-ci-merge-requirements--2026-09-10-utc)
+  adds nine required checks bound to the observed GitHub Actions App, with
+  current-base testing and no bypass actors. Check configuration does not
+  authenticate workflow contents or replace human approval.
   Current main/environment settings still do not establish independent
   workflow/publication review. [#573](https://github.com/ThreeMoonsLab/agents-shipgate/issues/573)
   retains restricted creators/writers, independent review, recovery ownership,

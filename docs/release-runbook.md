@@ -712,6 +712,51 @@ evidence. #494 retains accepted operating/recovery duties and #509 retains the
 independent qualification signer. No reviewer, signer, writer, emergency actor
 or personal access claim is supplied by enabling these protections.
 
+### Main CI merge requirements — 2026-09-10 UTC
+
+The later #573 checkpoint adds required CI to the existing
+[Protect main ruleset (15704163)](https://github.com/ThreeMoonsLab/agents-shipgate/rules/15704163).
+The authenticated update and read-back retained its `refs/heads/main` scope,
+empty bypass list and all four existing rules, including every PR-review
+parameter. The only addition was `required_status_checks`:
+
+| Existing workflow | Required check contexts |
+| --- | --- |
+| CI | `test`, `suite (1)`, `suite (2)`, `suite (3)`, `coverage`, `windows-launcher`, `clean-checkout-launcher` |
+| Agents Shipgate | `verify` |
+| Agents Shipgate Self Dogfood | `verify-self` |
+
+All nine entries use `integration_id: 15368`, the `github-actions` App observed
+on the successful PR #624 check runs at
+`1c949f63724d9b5da53352f9cc028dcd4c5bafd8`. The three workflows run on PRs
+without path filters. `release-tag-consistency` is main-only and is not a PR
+requirement. Each shard is required separately, so a failed shard cannot hide
+behind a skipped dependent coverage job.
+
+`strict_required_status_checks_policy: true` requires testing against the
+current base; after main advances, refresh the PR branch and its checks.
+`do_not_enforce_on_create: false` adds no creation exception; the rule matches
+main, not contributor branches. The [effective branch-rule API](https://docs.github.com/en/rest/repos/rules#get-rules-for-a-branch)
+returned the same nine entries and flags for main under ruleset `15704163`.
+The inherited-policy listing still contained only Protect main and Protect
+release tags; tag protection and immutable-release enablement remained in place.
+
+This closes the missing required-check configuration recorded in the earlier
+checkpoint, **not independent workflow review**. App binding identifies the
+check producer, not a workflow path, event or trusted workflow contents.
+[GitHub accepts successful, skipped or neutral check conclusions](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches#require-status-checks-before-merging);
+a required name alone does not prove its test ran. Both Shipgate jobs retain
+their advisory human-review routing. Main still requires zero approving reviews,
+and publication reviewer independence remains unresolved. A policy editor can
+still change these settings. No failed merge, tag mutation or publication was
+attempted as a refusal test.
+
+Re-read the effective main rules and expected App/context names before release.
+A job rename needs a reviewed ruleset transition while the existing required
+contexts still report; otherwise the renamed job can leave PRs waiting forever.
+These settings do not supply a signer, recovery owner, qualified candidate or
+the remaining #573 release evidence.
+
 ### The limit worth stating plainly
 
 The workflow that runs for a tag is **the workflow at that tag** — it is part of
