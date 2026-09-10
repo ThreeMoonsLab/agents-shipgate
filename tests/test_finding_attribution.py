@@ -65,6 +65,15 @@ def _attributions(root):
     return report, diff, diff.get("finding_attributions", [])
 
 
+def _render_with(diff):
+    """Render one diff through the real report renderer and sample scaffolding."""
+    report = ReadinessReport.model_validate(
+        json.loads(Path("samples/support_refund_agent/expected/report.json").read_text())
+    )
+    report.tool_surface_diff = diff
+    return render_markdown_report(report, sanitize_output=False)
+
+
 def _predicate_row(rows):
     """The one row whose own bound the profile named by fingerprint."""
     (row,) = [
@@ -573,11 +582,7 @@ def test_the_uncompared_count_survives_the_three_note_report_limit():
     # Four notes ahead of it, exactly as an enabled diff produces.
     diff.notes = ["first", "second", "third", *notes]
     diff.enabled = True
-    report = ReadinessReport.model_validate(
-        json.loads(Path("samples/support_refund_agent/expected/report.json").read_text())
-    )
-    report.tool_surface_diff = diff
-    text = render_markdown_report(report, sanitize_output=False)
+    text = _render_with(diff)
     # The note carrying the same statement is truncated away, as it is today.
     assert "more comparison notes in report.json" in text
     assert notes[-1] not in text.split("Notes:", 1)[1].split("##", 1)[0]
@@ -628,3 +633,57 @@ def test_an_unlocated_guard_publishes_no_pointer_rather_than_the_tool_s():
     assert guard.base_pointer is None
     assert guard.head_pointer == "shared/guard.py:2"
     assert "tools/refund.py" not in rows[0].model_dump_json()
+
+
+def test_a_section_with_no_direction_says_so_instead_of_promising_rows():
+    """A profile that publishes no fingerprint can never reach a direction."""
+    diff = _diff(operations=[_unchanged_operation(("nomatch",))], matched=["fp1"])
+    rows, unattributed, _ = attribute_findings(
+        diff, [_finding(), _finding("fp2", tool_id="tool_v2_other", refs=())]
+    )
+    assert [row.attribution for row in rows] == ["unresolved"]
+    diff.finding_attributions, diff.unattributed_findings = rows, unattributed
+    section = _render_with(diff).split("### Finding attribution", 1)[1].split("- Base:", 1)[0]
+    assert "No finding could be attributed to this change in either direction." in section
+    assert "What this change did to the bound" not in section
+    assert "\n\n\n" not in section
+    assert unattributed_sentence(1) in section
+    # The decided lead comes back as soon as a row reaches a direction.
+    widened = _unchanged_operation()
+    widened.declared_target_domain = "widened"
+    diff = _diff(operations=[widened], matched=["fp1"])
+    diff.finding_attributions = attribute_findings(diff, [_finding()]).rows
+    section = _render_with(diff).split("### Finding attribution", 1)[1].split("- Base:", 1)[0]
+    assert "What this change did to the bound each finding depends on." in section
+    assert "\n\n\n" not in section
+
+
+def test_an_uncomparable_bound_elsewhere_does_not_withdraw_an_improvement():
+    """The two negative claims claim different amounts, so they withdraw
+    differently: `standing_weakness` needs every same-capability axis
+    unchanged, while a demonstrated narrowing survives an axis nobody could
+    compare and is withdrawn only by a demonstrated widening."""
+    improvement = _unchanged_operation()
+    improvement.declared_target_domain = "narrowed"
+    unresolved_guard = GuardDependencyComparison(
+        observation_id="obs", tool_id="tool_v2_a", tool_name="refund",
+        direction="unresolved", reason="base_or_head_guard_evidence_unavailable",
+        after=_guard(),
+    )
+    rows, *_ = attribute_findings(
+        _diff(operations=[improvement], guards=[unresolved_guard], matched=["fp1"]),
+        [_finding()],
+    )
+    assert rows[0].attribution == "improved_not_resolved"
+    assert {item.effect for item in rows[0].evidence if item.link == "capability"} == {
+        "unresolved"
+    }
+    # The same unresolved axis does defeat the wider claim.
+    rows, *_ = attribute_findings(
+        _diff(
+            operations=[_unchanged_operation()], guards=[unresolved_guard], matched=["fp1"]
+        ),
+        [_finding()],
+    )
+    assert rows[0].attribution == "unresolved"
+    assert "could not be compared" in rows[0].reason

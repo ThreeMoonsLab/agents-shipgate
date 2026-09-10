@@ -844,15 +844,23 @@ def _append_finding_attributions(lines: list[str], diff: ToolSurfaceDiff) -> Non
     # the decided rows it is printed next to; `report.json` keeps all of them.
     decided = [row for row in diff.finding_attributions if row.attribution != "unresolved"]
     undecided = len(diff.finding_attributions) - len(decided)
+    # The lead must not promise per-finding statements the section then does
+    # not make. A repository whose only profile publishes no fingerprint can
+    # never reach a direction, so that is the normal shape there, not an edge.
+    lead = (
+        "What this change did to the bound each finding depends on."
+        if decided
+        else "No finding could be attributed to this change in either direction."
+    )
     lines.extend(
         [
             "### Finding attribution",
             "",
-            "What this change did to the bound each finding depends on. "
-            "Dependency coverage is incomplete and no finding is excluded.",
-            "",
+            f"{lead} Dependency coverage is incomplete and no finding is excluded.",
         ]
     )
+    if decided:
+        lines.append("")
     for row in decided[:8]:
         # A tool a reader can open, or the check ID alone. A fingerprint is
         # identity vocabulary for `report.json`, never a subject line.

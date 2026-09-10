@@ -66,12 +66,20 @@ not joined at all. And because a profile row names a *fingerprint*, two active
 findings answering to one fingerprint make every row about them `unresolved`:
 no comparison can say which of them it names.
 
-**Capability-linked evidence can withdraw a claim, never establish one.**
-`standing_weakness` and `improved_not_resolved` are claims about what did not
-get worse. Any capability-linked movement — a widened guard predicate, a
-literal true-return domain that grew, an axis the profile could not compare —
-retracts them to `unresolved`. It can never promote a finding to a direction of
-its own.
+**Capability-linked evidence can withdraw a claim, never establish one.** It
+never promotes a finding to a direction of its own, and the two negative claims
+are withdrawn by different things, because they claim different amounts.
+
+`standing_weakness` says nothing anywhere on the capability got worse, so *any*
+same-capability row that is not `unchanged` defeats it — a widened guard
+predicate, a literal true-return domain that grew, or an axis the profile could
+not compare at all.
+
+`improved_not_resolved` is narrower: a specific bound this finding depends on
+demonstrably narrowed. An axis elsewhere on the capability that could not be
+compared does not refute that, so it is withdrawn only by a demonstrated
+`widening` — where calling the change an improvement would misstate the net
+direction.
 
 **Absence is not agreement.** A finding no profile can compare draws no row.
 The number of them is published as `tool_surface_diff.unattributed_findings`,
