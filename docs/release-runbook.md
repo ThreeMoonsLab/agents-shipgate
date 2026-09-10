@@ -665,6 +665,33 @@ the fact rather than prevention.
 | Protected `.github/workflows/**` and `.github/release-trust-roots.json` (CODEOWNERS or ruleset) | Changes to the pipeline and its trust roots landing unreviewed | Workflow logic is candidate-controlled at the tag, so review is the control that makes it trustworthy |
 | `pypi` environment reviewers, independent of the release initiator | Unattended publication | Approval becomes a formality |
 
+### Effective configuration observed — 2026-09-09
+
+[#573](https://github.com/ThreeMoonsLab/agents-shipgate/issues/573) owns the
+effective platform controls. This dated, authenticated API observation is not
+an assertion that settings cannot change; read them back before release.
+
+| Surface | Observed setting | Remaining release obligation |
+| --- | --- | --- |
+| Repository immutable releases | Enabled under the repository owner's authorization; `GET /repos/ThreeMoonsLab/agents-shipgate/immutable-releases` returned `enabled: true`, `enforced_by_owner: false` after the enable request | Repository-level enablement is not organization-enforced policy, a retroactive lock on old releases or an exercised publication transaction. Verify draft/stage/finalize compatibility on the actual candidate. |
+| Release tags | The ruleset listing returned only the active branch ruleset `Protect main` (15704163); no tag ruleset was returned | Establish the required `v*` update/deletion protection and deliberate creation/recovery rules. Future release immutability does not establish the pre-publication tag boundary. |
+| Main workflow/trust-root changes | The main ruleset requires a PR, but zero approving reviews, no code-owner review, no stale-review dismissal, no last-push approval and no required-status-check rule; its bypass-actor list is empty | These settings do not establish independent review of workflow or trust-root changes. Verify the effective policy, including any inherited rules, rather than inferring it from a PR existing. |
+| Publication environment | `pypi` has one required reviewer, `prevent_self_review: false` and `can_admins_bypass: true` | Confirm actually independent eligible reviewers and the named, reviewed recovery/bypass arrangement before changing this boundary or claiming it satisfied. |
+
+Only the repository immutable-release setting was changed for this checkpoint.
+The [GitHub API](https://docs.github.com/en/rest/repos/repos#enable-immutable-releases)
+enable request completed, followed by the read-back above. GitHub documents
+that [immutability applies to future releases](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/establish-provenance-and-integrity/prevent-release-changes).
+Existing releases were not re-published, and no production tag/asset mutation
+or dummy publication was used as a test. The current pipeline's draft-first,
+validate-then-finalize order is consistent with that model; this source review
+does not replace an exercised candidate publication/recovery path.
+
+#573 remains open for the missing protections and effective-policy/refusal
+evidence. #494 retains accepted operating/recovery duties and #509 retains the
+independent qualification signer. No reviewer, signer, writer, emergency actor
+or personal access claim is supplied by enabling immutable releases.
+
 ### The limit worth stating plainly
 
 The workflow that runs for a tag is **the workflow at that tag** — it is part of

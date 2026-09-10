@@ -63,6 +63,7 @@ missing release qualification or human authority.
 | Reproducible current sample goldens (#499) | [#605](https://github.com/ThreeMoonsLab/agents-shipgate/pull/605) | The 24 current artifacts have a checked recipe; #569 still owns the report 1.0 freeze and migration fixtures. |
 | Host-only first discovery (#568) | Filename-only host candidates, no-write init/bootstrap handoff, CLI/zero-install parity and cold installed-wheel replay | Existing audit config-directory omission remains deferred in #613; synthetic tests do not demonstrate external adoption. |
 | Maintenance and recovery documentation (#494) | [#619](https://github.com/ThreeMoonsLab/agents-shipgate/pull/619), [MAINTAINERS.md](MAINTAINERS.md) and the existing release runbook | Actual owner acceptance, response capacity, access/independence evidence and the responsible people's tabletop remain open. |
+| Repository release immutability (#573) | Enabled for future releases, with authenticated API read-back in the [runbook](docs/release-runbook.md#effective-configuration-observed--2026-09-09) | Tag rules, independent workflow/publication review, recovery ownership and exercised candidate compatibility remain open. |
 
 Three delivered slices leave larger release obligations open: [#582](https://github.com/ThreeMoonsLab/agents-shipgate/pull/582)
 types unsupported historical base inputs but does not satisfy #563's catch bars;
@@ -152,10 +153,12 @@ remain prerequisites. The current release decision is still **no-go**.
   **zero Actions variables**, signer **`CHANGE_ME`**, and **zero Release Rehearsal
   runs**. The distribution smoke supplies none of that qualification, signing
   or positive/negative rehearsal evidence.
-- No tag ruleset was returned, immutable releases were disabled, and the
-  inspected review/environment settings did not establish the runbook's
-  independent review boundary. [#573](https://github.com/ThreeMoonsLab/agents-shipgate/issues/573)
-  owns actual configuration and read-back; workflow YAML is not that proof.
+- Repository release immutability is now enabled and read back, as recorded in
+  the [runbook observation](docs/release-runbook.md#effective-configuration-observed--2026-09-09).
+  No tag ruleset was returned, and current main/environment settings still do
+  not establish independent workflow/publication review. [#573](https://github.com/ThreeMoonsLab/agents-shipgate/issues/573)
+  retains those protections, recovery ownership and candidate compatibility;
+  enabling one setting does not complete its release obligations.
 - The [pilot ledger](docs/design-partner-pilot-results.md) records **zero**
   invitations, attempts, first values and second-change observations.
   [ADOPTERS.md](ADOPTERS.md) separately records no external adopters. An unrun
