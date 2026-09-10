@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import functools
 import hashlib
 import json
 import os
@@ -88,12 +89,14 @@ from agents_shipgate.core.surface_exclusions import (
     nameable_subject,
 )
 from agents_shipgate.core.trust_roots import (
+    IdentityBoundReadSession,
     conditional_instruction_edits,
     inspect_lexical_path_identity,
     is_configured_manifest,
     read_identity_bound_text,
 )
 from agents_shipgate.core.verification_identity import (
+    build_engine_requirement,
     build_executor,
     build_terminal_receipt,
     build_unit_result,
@@ -151,7 +154,11 @@ from agents_shipgate.schemas.report import (
     without_machine_patches,
 )
 from agents_shipgate.schemas.verification import VerificationContext
-from agents_shipgate.schemas.verification_identity import VerificationPlan, content_id
+from agents_shipgate.schemas.verification_identity import (
+    VerificationEngineRequirement,
+    VerificationPlan,
+    content_id,
+)
 from agents_shipgate.schemas.verifier import (
     MergeVerdict,
     VerifierArtifact,
@@ -221,12 +228,10 @@ DEFAULT_OUT_DIR = Path("agents-shipgate-reports")
 BASE_CACHE_KEEP_ENTRIES = 16
 # Cache-key epoch for base-scan reuse.
 #
-# A cached base report is admitted on a content hash alone: that proves the
-# file was not tampered with, never that its CONTENTS still mean what the
-# current CLI expects of them. ``__version__`` is in the key but is not
-# sufficient on its own — a source checkout, an editable install, or any two
-# builds sharing one pre-release version string can change what a field means
-# without moving the version, and the stale entry is then reused verbatim.
+# The effective engine requirement now binds implementation, dependencies,
+# plugins and the policy catalog (#596); same-version reader changes cannot
+# reuse an older engine's entry. The epoch remains a cache-format boundary.
+# A report checksum detects byte corruption, not authenticated source provenance.
 #
 # Bump this whenever the MEANING of anything inside a cached base report
 # changes. Pre-existing entries then land on a key nothing computes and are
@@ -938,6 +943,12 @@ def run_verify(
 
     operation_base = None
 
+    @functools.cache
+    def engine_requirement() -> VerificationEngineRequirement:
+        # One capture per invocation, shared by base cache and final plan.
+        # Never reuse this value across invocations or engine validation reads.
+        return build_engine_requirement(plugins_enabled=plugins_enabled)
+
     def capture_base_operations(tree, rows):
         nonlocal operation_base
         operation_base = ReconstructedOperationBase(tree=tree, rows=tuple(rows))
@@ -968,6 +979,7 @@ def run_verify(
                 verbose=verbose,
                 evaluation_date=verification_date,
                 operation_callback=capture_base_operations,
+                engine_requirement_factory=engine_requirement,
             )
             base_notes.extend(cache_notes)
 
@@ -1312,6 +1324,7 @@ def run_verify(
                     capability_lock_diff=capability_lock_diff,
                     capability_attestation_inputs=capability_attestation_inputs,
                     human_context=head_human_context,
+                    engine_requirement_factory=engine_requirement,
                     input_root=head_input_root,
                     input_snapshot=head_snapshot,
                     config_from_worktree=overlay_worktree_manifest,
@@ -1358,6 +1371,7 @@ def _prepare_base_report(
     verbose: bool,
     evaluation_date: str,
     operation_callback=None,
+    engine_requirement_factory: Callable[[], VerificationEngineRequirement] | None = None,
 ) -> tuple[
     VerifierBaseStatus,
     str | None,
@@ -1371,6 +1385,18 @@ def _prepare_base_report(
     except Exception as exc:  # noqa: BLE001 - optional base enrichment.
         return "archive_failed", None, None, None, [f"Could not resolve base tree: {exc}"]
 
+    try:
+        engine = (
+            engine_requirement_factory()
+            if engine_requirement_factory is not None
+            else build_engine_requirement(plugins_enabled=plugins_enabled)
+        )
+    except (OSError, ValueError):
+        return "scan_failed", base_tree, None, None, [
+            "Base engine identity is unavailable; the base cache was not used. "
+            f"Run {render_command(['doctor', '--json'])} and rerun verification "
+            "after repairing the install."
+        ]
     cache_report = _cache_report_path(
         base_tree=base_tree,
         config_relative=config_relative,
@@ -1380,6 +1406,7 @@ def _prepare_base_report(
         plugins_enabled=plugins_enabled,
         no_heuristics=no_heuristics,
         evaluation_date=evaluation_date,
+        engine_requirement=engine,
     )
     cache_valid = cache_report.exists() and _cache_report_valid(cache_report)
     if cache_valid and operation_callback is None:
@@ -1392,8 +1419,10 @@ def _prepare_base_report(
             [f"Base report resolved for tree {base_tree}.", *lock_notes],
         )
     if cache_report.exists() and not cache_valid:
-        notes.append("Discarded base cache entry whose content hash did not validate.")
-        cache_report.unlink(missing_ok=True)
+        notes.append(
+            "Regenerating cached base report.json from Git: the report or its checksum "
+            "is unreadable, corrupt or incompatible with this engine."
+        )
 
     with tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-") as tmp:
         tmp_root = Path(tmp)
@@ -1545,11 +1574,20 @@ def _prepare_base_report(
             json.dumps(report_json_payload(base_report_model), indent=2),
             encoding="utf-8",
         )
-        _copy_report_to_cache(source_report, cache_report)
-        if base_capability_lock is not None:
-            _write_capability_lock_to_cache(base_capability_lock, cache_report)
-        else:
-            notes.append("Base scan did not produce a capability lock; diff artifact disabled.")
+        try:
+            _copy_report_to_cache(source_report, cache_report)
+            if base_capability_lock is not None:
+                _write_capability_lock_to_cache(base_capability_lock, cache_report)
+            else:
+                notes.append("Base scan did not produce a capability lock; diff artifact disabled.")
+        except OSError:
+            return "scan_failed", base_tree, None, None, [
+                *notes,
+                "Could not store the regenerated base report; diff enrichment is unavailable. "
+                f"Check that {cache_report.parent} is a writable cache directory and that "
+                "report.json, report.sha256 and capabilities.lock.json are regular files, "
+                "then rerun verification.",
+            ]
         _prune_base_scan_cache(cache_report.parents[1], keep=BASE_CACHE_KEEP_ENTRIES)
         notes.append(f"Base report resolved for tree {base_tree}.")
     return "succeeded", base_tree, cache_report, base_capability_lock, notes
@@ -1565,9 +1603,12 @@ def _cache_report_path(
     plugins_enabled: bool | None,
     no_heuristics: bool,
     evaluation_date: str,
+    engine_requirement: VerificationEngineRequirement | None = None,
 ) -> Path:
+    engine = engine_requirement or build_engine_requirement(plugins_enabled=plugins_enabled)
     payload = {
         "version": BASE_CACHE_KEY_EPOCH,
+        "engine_requirement_id": engine.engine_requirement_id,
         "agents_shipgate_version": __version__,
         "base_tree": base_tree,
         "config": config_relative.as_posix(),
@@ -1593,7 +1634,9 @@ def _cache_report_path(
     key = hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()[:24]
-    return git_path(git_root, f"agents-shipgate/base-scans/{key}/report.json")
+    # Resolve Git's metadata root only. Resolving the report path itself would
+    # erase a refused file link before the recovery writer can replace it.
+    return git_path(git_root, "") / "agents-shipgate" / "base-scans" / key / "report.json"
 
 
 def _copy_report_to_cache(source_report: Path, cache_report: Path) -> None:
@@ -1605,26 +1648,49 @@ def _copy_report_to_cache(source_report: Path, cache_report: Path) -> None:
         delete=False,
     ) as handle:
         temp_path = Path(handle.name)
+    digest_temp: Path | None = None
     try:
         shutil.copy2(source_report, temp_path)
+        digest = _sha256_file(temp_path)
+        with tempfile.NamedTemporaryFile(
+            dir=cache_report.parent, prefix="checksum-", suffix=".tmp",
+            delete=False, mode="w", encoding="ascii",
+        ) as handle:
+            digest_temp = Path(handle.name)
+            handle.write(f"{digest}\n")
         temp_path.replace(cache_report)
-        cache_report.with_suffix(".sha256").write_text(
-            f"{_sha256_file(cache_report)}\n",
-            encoding="ascii",
-        )
+        # Recovery must replace a refused checksum alias, never follow it.
+        digest_temp.replace(cache_report.with_suffix(".sha256"))
     finally:
         temp_path.unlink(missing_ok=True)
+        if digest_temp is not None:
+            digest_temp.unlink(missing_ok=True)
 
 
 def _cache_report_valid(cache_report: Path) -> bool:
     digest_path = cache_report.with_suffix(".sha256")
-    if not digest_path.is_file():
-        return False
     try:
-        expected = digest_path.read_text(encoding="ascii").strip()
-    except OSError:
+        session = IdentityBoundReadSession(
+            cache_report.parent, max_entries=64, max_total_bytes=64 * 1024 * 1024 + 128,
+        )
+        data = session.read_bytes(Path(cache_report.name), max_bytes=64 * 1024 * 1024)
+        expected = session.read_bytes(Path(digest_path.name), max_bytes=128).decode("ascii").strip()
+        if re.fullmatch(r"[0-9a-f]{64}", expected) is None:
+            return False
+        if expected != hashlib.sha256(data).hexdigest():
+            return False
+        report = ReadinessReport.model_validate_json(data)
+        if (
+            "report_schema_version" not in report.model_fields_set
+            or report.report_schema_version != ReadinessReport.model_fields[
+                "report_schema_version"
+            ].default
+        ):
+            return False
+        session.finish()
+    except (OSError, ValueError):
         return False
-    return bool(expected and expected == _sha256_file(cache_report))
+    return True
 
 
 def _base_capability_lock_cache_path(cache_report: Path) -> Path:
@@ -4183,6 +4249,7 @@ def _write_artifacts(
     capability_lock_diff: CapabilityLockDiffV1 | None = None,
     capability_attestation_inputs: CapabilityDeltaAttestationInputs | None = None,
     human_context: HumanArtifactContext | None = None,
+    engine_requirement_factory: Callable[[], VerificationEngineRequirement] | None = None,
     input_root: Path | None = None,
     input_snapshot: StaticInputSnapshot | None = None,
     config_from_worktree: bool = False,
@@ -4406,6 +4473,9 @@ def _write_artifacts(
     )
     try:
         plan = build_verification_plan(
+            _engine_requirement=(
+                engine_requirement_factory() if engine_requirement_factory is not None else None
+            ),
             git_root=git_root,
             input_root=resolved_input_root,
             config_path=config_path,

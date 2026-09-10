@@ -83,6 +83,17 @@ Git base, and report declared target changes separately from missing approval.
 unknown deployed reachability and false exclusion eligibility. #557 and #515 remain open; these source models do not satisfy
 the TypeScript MongoDB acceptance case or historical safety bars.
 
+The subsequent #515 prerequisite pass selects existing [#596](https://github.com/ThreeMoonsLab/agents-shipgate/issues/596)
+for v1.0: a real same-version engine replay exposed reuse of a base report made
+by an older reader. Base-cache keys now bind the effective engine requirement,
+shared once per invocation with the verification plan. Source-checkout and
+installed-wheel regressions exercise actual reader changes, old version-only
+keys, warm reuse and corrupt-record recovery. This is a cache compatibility
+repair before further #515 attribution/default work and #569 freeze. It does
+not supply the TypeScript dependency/frame proof, finding-exclusion eligibility
+or reviewed deployment declarations; OpenAPI operation attribution still
+reconstructs its base from Git independently of cached report claims.
+
 [#612](https://github.com/ThreeMoonsLab/agents-shipgate/pull/612) closes #545 and #516. It separates
 supported instruction structure from prose across the final/local verifier,
 preflight, host drift and exact edit-hook previews. Its successor schemas retain
@@ -119,7 +130,7 @@ continues to route that concrete plan to a human. The rejected optional PR
 trigger for #570 remains absent, but the existing manual workflow now runs.
 
 Newly discovered issues #575/#577/#580/#581, #584–#586, #588/#590, #592/#593,
-#596–#598/#601, #609–#611, #613/#615/#617/#618/#620 remain separately deferred; they are not silently
+#597/#598/#601, #609–#611, #613/#615/#617/#618/#620 remain separately deferred; they are not silently
 added to this implementation pass or counted as repairs. #609 documents a frozen
 preflight schema URL/discriminator mismatch; the current successor uses a fresh
 version without rewriting historical bytes. #610 owns the distinct compatibility

@@ -231,8 +231,39 @@ record while the terminal receipt still identifies the complete overlay.
 `attempt_id` is diagnostic and deliberately excluded from `receipt_id`.
 Changing an authoritative input, result, decision, or artifact changes the
 corresponding content ID. Reusing a base-scan cache does not change the public
-verification identity or artifacts, and cached reports are accepted only when
-their sidecar content hash validates.
+verification identity or artifacts.
+
+### Base-scan cache compatibility
+
+A base-cache key binds the effective `engine_requirement_id` in addition to the
+Git tree, manifest, baseline, policy packs, scan options, evaluation date and
+cache-format epoch (#596). The engine requirement covers actual package bytes,
+Python/platform, installed dependency closure, adapters, enabled plugin identity
+and policy catalog. A source edit, editable install or rebuilt wheel at the same
+package version therefore cannot reuse an older engine's entry. The verifier
+captures this descriptor once per invocation for both the cache lookup and
+verification plan; subsequent invocations and engine validation read it afresh.
+
+Existing version-only keys are unreachable and regenerate on demand; no user
+migration command is needed. Equivalent warm runs reuse the current entry.
+Before reuse, bounded no-follow reads validate the report and checksum from one
+identity-bound session: at most 64 directory entries, 64 MiB of report bytes and
+128 checksum bytes. The SHA-256 must match, and the report must parse against the
+current model with an explicit current `report_schema_version`. Missing,
+corrupt or incompatible material triggers a fresh Git base scan and a diagnostic
+explaining the regeneration. Report and checksum files are replaced atomically,
+so repairing a refused file link preserves its external target. This is not a
+cache-directory namespace or concurrent-parent-replacement guarantee.
+If the cache cannot store that report, verification
+reports unavailable base comparison and names the cache location to repair;
+it preserves a conflicting directory and any contents. Missing engine identity
+also refuses cache reuse and routes to `doctor --json`.
+
+These checks establish engine compatibility and byte consistency, not
+authenticated source provenance. A locally writable report plus checksum cannot
+prove what an operation does. The OpenAPI operation-attribution path still
+reconstructs its base from Git, and this cache repair grants neither
+finding-exclusion eligibility nor human release authority.
 
 ## Local verification and portable execution validation
 
