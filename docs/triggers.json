@@ -426,6 +426,8 @@
       {"detect_returns": "is_agent_project: false"},
       {"detect_returns": "suggested_sources: []"},
       {"detect_returns": "codex_plugin_candidates: []"},
+      {"detect_returns": "host_boundary_candidates: []"},
+      {"detect_returns": "host_discovery_incomplete_paths: []"},
       {"detect_returns": "python_parse_truncated: false"},
       {"file_absent": "shipgate.yaml"},
       {"user_did_not_request": true}

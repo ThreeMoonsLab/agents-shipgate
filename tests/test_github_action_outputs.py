@@ -467,6 +467,8 @@ def test_action_outputs_do_not_reinstate_a_stop_the_runtime_overrode(
             "is_agent_project": False,
             "suggested_sources": [],
             "codex_plugin_candidates": [],
+            "host_boundary_candidates": [],
+            "host_discovery_incomplete_paths": [],
             "python_parse_truncated": False,
         },
     )

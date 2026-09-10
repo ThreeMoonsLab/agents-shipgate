@@ -275,7 +275,15 @@ agents-shipgate bootstrap --json
   read at all when the parse was cut short. Stop only when the whole published
   stop condition holds: `is_agent_project: false` **and** `suggested_sources`
   empty **and** `codex_plugin_candidates` empty **and**
-  `python_parse_truncated: false`. `python_parse_truncated: true` means the
+  `host_boundary_candidates` empty **and** `host_discovery_incomplete_paths`
+  empty **and** `python_parse_truncated: false`. Host candidates are filenames
+  only: follow `control.next_action` to `audit --host`; no manifest is needed
+  and no grants have been verified. A path the census could not see through —
+  a link it does not follow, a directory it could not read — can conceal nested
+  host configuration, so an incomplete host census is never a terminal
+  negative. It is not a failed classification either: the framework, source
+  and scope answers stand beside it.
+  `python_parse_truncated: true` means the
   Python parse stopped at `max_python_files`, so the negative describes the
   files that were read rather than the repository — re-run with
   `--max-python-files <workspace_signals.python_file_total>`, which is a bound
@@ -561,13 +569,24 @@ The command emits a stable JSON verdict: `should_run` (alias of `run_shipgate`),
 - `agents-shipgate detect --json` returns `is_agent_project: false`, AND
 - `suggested_sources` is empty (no MCP/OpenAPI hits flowing in as `mcp` or `openapi`), AND
 - `codex_plugin_candidates` is empty (no Codex plugin package or marketplace hits), AND
+- `host_boundary_candidates` is empty (no recognized host config paths), AND
+- `host_discovery_incomplete_paths` is empty (no unresolved traversal that can hide host config), AND
 - `python_parse_truncated` is `false` — every negative above is a claim about the whole workspace, and a run whose Python parse stopped at its cap read only part of one, AND (this is the raw parse bit, not `agent_scope_truncated`: that one additionally requires more than one candidate scope, so a single-scope workspace whose only agent sits past the cap leaves it false)
 - no `shipgate.yaml` already exists in the workspace, AND
 - the user did not explicitly request a scan.
 
 A `detect` payload that does not carry every one of those keys leaves the block unevaluable: `trigger` reports `stop_conditions_evaluated: false` and infers no stop. Re-run `detect` with the current CLI rather than reading an absent key as `false`.
 
-Otherwise proceed to `init`. MCP/OpenAPI tool-surface repos and Codex plugin package repos register as `is_agent_project: false` because they have no Python framework imports — but they are valid Shipgate targets. MCP/OpenAPI hits surface as `suggested_sources`; Codex plugin hits surface as `codex_plugin_candidates`. The trigger table above is the authoritative go/no-go.
+Otherwise follow `control.next_action`. Host-only repositories route to
+`audit --host` without a manifest; `host_boundary_candidates[].file_type`
+describes only the observed pathname, never parsed permission evidence.
+Configuration paths that are directories, and unrecognized links that could
+conceal nested configuration, route to inspection. `init` (including `--ci`
+and agent-instruction options) and `bootstrap` hand off without writing setup
+files on this host-only route. Explicit `init --minimal` retains its template
+behavior. MCP/OpenAPI tool-surface and Codex plugin repositories still use
+`init`; their candidates never become host grants. The trigger table above is
+the authoritative go/no-go.
 
 ---
 

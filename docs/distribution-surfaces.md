@@ -35,6 +35,22 @@ package should not carry a second implementation at all. The standalone detector
 is the one real exception — being importable-free is its entire value — so it
 keeps its own implementation and takes the parity test as its contract.
 
+Host applicability is part of `agent_project_verdict`: both discovery paths
+publish the same `host_boundary_candidates` and
+`host_discovery_incomplete_paths`. Candidates mean recognized config filenames,
+including ignored settings; they do not mean parsed grants. Paths the census
+could not see through inhibit a complete negative without proving a host
+exists, and without refusing the rest of the classification. The dedicated
+`tests/test_host_discovery.py` corpus also exercises root/nested registry
+predicates, invalid input types, no-write setup and bounded recovery. The
+committed parity corpus cannot hold a host-only workspace — a `.mcp.json`
+under `tests/` would be a candidate of *this* repository — so
+`test_detector_verdict_matches_cli_on_host_only_shapes` builds the config,
+config-directory and unreadable-directory shapes in a temporary tree and runs
+them through the same comparator, which keeps the two host rows from agreeing
+by absence. The zero-install script remains metadata-only and emits no control
+authority.
+
 ## Claims vocabulary
 
 Every claim in the registry is one of these. The vocabulary is closed; the code

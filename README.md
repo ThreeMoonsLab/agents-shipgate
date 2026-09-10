@@ -96,6 +96,13 @@ One engine decides (`report.json.release_decision.decision`); everything else â€
 projection of it. Five-minute version:
 [`docs/mental-model.md`](docs/mental-model.md).
 
+Host configuration alone is a supported review target: `.claude/settings.json`,
+`.mcp.json`, Codex, Cursor and VS Code MCP configuration need no manifest.
+Use [Route H](docs/quickstart.md#route-h--no-manifest) for the existing audit.
+Current candidate discovery (contract 33) routes these repositories there
+through `host_boundary_candidates`; the published release predates that
+discovery field. Filename detection never establishes verified permissions.
+
 ## What your PR sees
 
 The same run writes `pr-comment.md`, the comment the GitHub Action posts.

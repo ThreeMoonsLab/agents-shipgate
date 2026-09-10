@@ -97,6 +97,8 @@ import fnmatch
 import json
 import os
 import re
+import shlex
+import stat
 import subprocess
 import sys
 import threading
@@ -106,7 +108,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
-SCRIPT_VERSION = "0.6.0"
+SCRIPT_VERSION = "0.7.0"
 MAX_STRUCTURED_FILE_BYTES = 10 * 1024 * 1024
 # Matches ``detect_workspace``'s ``max_python_files``. The bound is on
 # parses, not on the inventory: capping the inventory lets an asset-heavy
@@ -5329,8 +5331,163 @@ def _conventional_dir_locations(
     return located
 
 
+MAX_HOST_REPOSITORY_ENTRIES = 100_000
+#: What a census failure names when the failure itself carries no path.
+UNSEEN_WORKSPACE_SUBJECT = "."
+# The config-only projection of core.boundary_registry; conformance tests
+# compare every root/nested predicate with the canonical registry. These are
+# applicability names, not a second host parser or permission model.
+HOST_CONFIG_PATHS = {
+    ".codex/config.toml": ["codex"],
+    ".codex/hooks.json": ["codex"],
+    ".codex/requirements.toml": ["codex"],
+    ".claude/settings.json": ["claude-code"],
+    ".claude/settings.local.json": ["claude-code"],
+    ".mcp.json": ["claude-code"],
+    ".cursor/cli.json": ["cursor"],
+    ".cursor/mcp.json": ["cursor"],
+    ".vscode/mcp.json": ["vscode"],
+}
+
+
+def _host_config_hosts(relative: str) -> list[str]:
+    folded = relative.replace("\\", "/").removeprefix("./").casefold()
+    exact = HOST_CONFIG_PATHS.get(folded)
+    if exact:
+        return exact
+    for path, hosts in HOST_CONFIG_PATHS.items():
+        if (path.startswith(".codex/") or path == ".mcp.json") and folded.endswith("/" + path):
+            return hosts
+    return []
+
+
+def _link_may_conceal_a_tree(link: Path) -> bool:
+    """Whether an unfollowed link could hide nested configuration.
+
+    Mirrors `cli.discovery.host_boundary._link_may_conceal_a_tree`. The link is
+    never enumerated; only the *type* of what it points at is read, and that
+    type is the whole question. A link resolving to a regular file has no
+    descendants to conceal. Anything that cannot be typed stays concealment.
+    """
+    try:
+        return stat.S_ISDIR(link.stat().st_mode)
+    except OSError:
+        return True
+
+
+def _listed_subjects(subjects: list[str], limit: int) -> str:
+    """The first ``limit`` subjects, saying so whenever there are more.
+
+    Mirrors `cli.discovery.host_boundary.listed_subjects`: a display cap that
+    reads as the whole set asserts a count nobody measured.
+    """
+    shown = ", ".join(subjects[:limit])
+    remaining = len(subjects) - limit
+    return f"{shown} (and {remaining} more)" if remaining > 0 else shown
+
+
+def _discover_host_boundary(workspace: Path) -> tuple[list[dict[str, Any]], list[str]]:
+    """Bounded filename census including ignored host settings; no config reads.
+
+    Like the canonical host census, links are not followed. Reconfirm the
+    enumerated directory identities/names before publishing any classification.
+    This metadata is applicability only, never an audit or a release receipt.
+
+    A census that cannot finish returns no candidate and names what stopped it,
+    which is what withholds a complete negative. It does not fail the whole
+    classification: `audit --host` records the same failure and carries on, and
+    an applicability hint must not be stricter than the audit it routes to.
+    """
+    skipped = {".git", ".hg", ".svn", "node_modules", "site-packages", ".venv", "venv"}
+    pending = [workspace]
+    snapshots: list[tuple[Path, tuple[int, ...], tuple[str, ...]]] = []
+    candidates: dict[str, dict[str, Any]] = {}
+    links: set[str] = set()
+    visited = 0
+    # The subject a failure names, tracked at the same two granularities the
+    # canonical census reports: the directory being enumerated, and the entry
+    # being inspected. Both stop at the first failure, so a workspace with
+    # several unreadable paths names whichever its own walk order reached.
+    unseen = UNSEEN_WORKSPACE_SUBJECT
+
+    def relative_to_workspace(path: Path) -> str:
+        return path.relative_to(workspace).as_posix() if path != workspace else UNSEEN_WORKSPACE_SUBJECT
+
+    def identity(path: Path) -> tuple[int, ...]:
+        info = path.lstat()
+        attributes = int(getattr(info, "st_file_attributes", 0))
+        is_junction = getattr(path, "is_junction", None)
+        if attributes & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x0400)) or (
+            is_junction is not None and is_junction()
+        ):
+            raise ValueError("host directory is a reparse point or junction")
+        if not stat.S_ISDIR(info.st_mode):
+            raise ValueError("host directory changed type")
+        return (info.st_dev, info.st_ino, info.st_mode, info.st_mtime_ns, info.st_ctime_ns)
+
+    try:
+        while pending:
+            directory = pending.pop()
+            unseen = relative_to_workspace(directory)
+            before = identity(directory)
+            names = []
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    visited += 1
+                    if visited > MAX_HOST_REPOSITORY_ENTRIES:
+                        raise ValueError("host repository entry bound exceeded")
+                    names.append(entry.name)
+            names.sort()
+            if identity(directory) != before:
+                raise ValueError("host directory changed during discovery")
+            snapshots.append((directory, before, tuple(names)))
+            for name in names:
+                path = directory / name
+                relative = path.relative_to(workspace).as_posix()
+                unseen = relative
+                mode = path.lstat().st_mode
+                if (stat.S_ISDIR(mode) or stat.S_ISLNK(mode)) and name in skipped:
+                    continue
+                if stat.S_ISLNK(mode):
+                    if _link_may_conceal_a_tree(path):
+                        links.add(relative)
+                    file_type = "symlink"
+                elif stat.S_ISDIR(mode):
+                    pending.append(path)
+                    file_type = "directory"
+                else:
+                    file_type = "file" if stat.S_ISREG(mode) else "other"
+                hosts = _host_config_hosts(relative)
+                if hosts:
+                    candidates[relative] = {"path": relative, "hosts": hosts, "file_type": file_type}
+        for relative, hosts in HOST_CONFIG_PATHS.items():
+            if any(relative.casefold().startswith(prefix.casefold() + "/") for prefix in links):
+                candidates[relative] = {"path": relative, "hosts": hosts, "file_type": "unresolved"}
+        # Parent-first validation refuses a replaced ancestor before listing
+        # any descendant beneath it. Listing is bounded on this pass too.
+        # A failure here is a coherence failure of the whole census rather than
+        # one unreadable path, and the canonical reader names the census root
+        # for it, so this pass reports the workspace and not a subdirectory.
+        unseen = UNSEEN_WORKSPACE_SUBJECT
+        for directory, before, names in sorted(snapshots, key=lambda row: len(row[0].parts)):
+            if identity(directory) != before:
+                raise ValueError("host directory changed after discovery")
+            current = []
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    if len(current) >= len(names):
+                        raise ValueError("host directory gained entries")
+                    current.append(entry.name)
+            if tuple(sorted(current)) != names or identity(directory) != before:
+                raise ValueError("host directory changed after discovery")
+    except (OSError, ValueError, NotImplementedError):
+        return [], [unseen]
+    return [candidates[key] for key in sorted(candidates)], sorted(links)
+
+
 def detect(workspace: Path) -> dict[str, Any]:
     workspace = workspace.resolve()
+    host_candidates, host_incomplete = _discover_host_boundary(workspace)
     files = _inventory(workspace)
     all_py = [p for p in files if p.suffix == ".py"]
     py_files = all_py[:MAX_PYTHON_FILES]
@@ -5660,6 +5817,20 @@ def detect(workspace: Path) -> dict[str, Any]:
         )
     elif is_agent or suggested or codex_plugin_candidates:
         next_action = f"agents-shipgate init --workspace {workspace}"
+    elif any(c["file_type"] == "directory" for c in host_candidates):
+        next_action = (
+            "Inspect host configuration paths that are directories: "
+            + _listed_subjects([c["path"] for c in host_candidates if c["file_type"] == "directory"], 5)
+            + "; supply the intended files, then rerun detect."
+        )
+    elif host_candidates:
+        next_action = shlex.join(["agents-shipgate", "audit", "--host", "--workspace", str(workspace), "--json"])
+    elif host_incomplete:
+        next_action = (
+            "Host discovery could not see through these paths, so an absence of "
+            "host configuration is not established: "
+            + _listed_subjects(host_incomplete, 5) + "."
+        )
     else:
         next_action = "Workspace does not appear to be an agent project. No action."
 
@@ -5679,6 +5850,8 @@ def detect(workspace: Path) -> dict[str, Any]:
         "suggested_sources": suggested,
         "excluded_sources": excluded,
         "codex_plugin_candidates": codex_plugin_candidates,
+        "host_boundary_candidates": host_candidates,
+        "host_discovery_incomplete_paths": host_incomplete,
         "next_action": next_action,
         "workspace_signals": {
             "python_file_count": len(py_facts),
@@ -5734,6 +5907,22 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\nNext: {result['next_action']}")
         return 0
     if not result["is_agent_project"]:
+        if (
+            not result["suggested_sources"] and not result["codex_plugin_candidates"]
+            and (result["host_boundary_candidates"] or result["host_discovery_incomplete_paths"])
+        ):
+            if result["host_boundary_candidates"]:
+                print("Host configuration discovery (filenames only; grants not verified):")
+                for c in result["host_boundary_candidates"]:
+                    print(f"- {c['path']} ({', '.join(c['hosts'])}; {c['file_type']})")
+            if result["host_discovery_incomplete_paths"]:
+                print(
+                    "Paths host discovery could not see through: "
+                    + _listed_subjects(result["host_discovery_incomplete_paths"], 10)
+                )
+            _print_excluded(result["excluded_sources"])
+            print(f"Next: {result['next_action']}")
+            return 0
         print("Workspace does not appear to be an agent project.")
         if result["suggested_sources"]:
             print("Suggested sources (artifact-only):")

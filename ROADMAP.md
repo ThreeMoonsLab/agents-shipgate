@@ -56,11 +56,12 @@ missing release qualification or human authority.
 | Delivered work | Implementation evidence | Remaining obligation |
 | --- | --- | --- |
 | Live control currency and captured qualification bytes (#567/#559) | [#576](https://github.com/ThreeMoonsLab/agents-shipgate/pull/576), [#578](https://github.com/ThreeMoonsLab/agents-shipgate/pull/578) | Bind final evidence to the final candidate; ordinary tests are not beta qualification. |
-| Discovery, identity and bounded reader/host recovery (#553/#561/#547/#543) | [#583](https://github.com/ThreeMoonsLab/agents-shipgate/pull/583), [#587](https://github.com/ThreeMoonsLab/agents-shipgate/pull/587), [#589](https://github.com/ThreeMoonsLab/agents-shipgate/pull/589), [#594](https://github.com/ThreeMoonsLab/agents-shipgate/pull/594) | Host-only adoption #568 and reviewed historical scope #563 remain unresolved. |
+| Discovery, identity and bounded reader/host recovery (#553/#561/#547/#543) | [#583](https://github.com/ThreeMoonsLab/agents-shipgate/pull/583), [#587](https://github.com/ThreeMoonsLab/agents-shipgate/pull/587), [#589](https://github.com/ThreeMoonsLab/agents-shipgate/pull/589), [#594](https://github.com/ThreeMoonsLab/agents-shipgate/pull/594) | Host-only discovery is addressed in #568; reviewed historical scope #563 and actual pilot adoption remain unresolved. |
 | Current operator guidance and macOS pilot baseline recipe (#566/#550) | [#579](https://github.com/ThreeMoonsLab/agents-shipgate/pull/579), [#595](https://github.com/ThreeMoonsLab/agents-shipgate/pull/595) | No pilot participation or adoption counts were produced by these repairs. |
 | Compact/full receipt validation contract and accepted decisions (#552/#493) | [#600](https://github.com/ThreeMoonsLab/agents-shipgate/pull/600), [#602](https://github.com/ThreeMoonsLab/agents-shipgate/pull/602) | Reconcile the final behavior before #569 freezes report 1.0. |
 | Bounded FastMCP Context injection (#542) | [#603](https://github.com/ThreeMoonsLab/agents-shipgate/pull/603) | Whole-signature limits remain visible; broader framework/export provenance is deferred in #601. |
 | Reproducible current sample goldens (#499) | [#605](https://github.com/ThreeMoonsLab/agents-shipgate/pull/605) | The 24 current artifacts have a checked recipe; #569 still owns the report 1.0 freeze and migration fixtures. |
+| Host-only first discovery (#568) | Filename-only host candidates, no-write init/bootstrap handoff, CLI/zero-install parity and cold installed-wheel replay | Existing audit config-directory omission remains deferred in #613; synthetic tests do not demonstrate external adoption. |
 
 Three delivered slices leave larger release obligations open: [#582](https://github.com/ThreeMoonsLab/agents-shipgate/pull/582)
 types unsupported historical base inputs but does not satisfy #563's catch bars;
@@ -86,9 +87,10 @@ reviewed deployment declarations, independent release signers, pilot observation
 or qualification labels.
 
 Host-only discovery #568 is implemented in
-[#614](https://github.com/ThreeMoonsLab/agents-shipgate/pull/614), with its first
-independent PR review correction published; merge remains subject to the
-current control result. Final-wheel provenance #570 is implemented in
+[#614](https://github.com/ThreeMoonsLab/agents-shipgate/pull/614), with two
+independent PR review corrections published — the second repaired two
+fail-closed discovery defects that stopped settled classifications — and merge
+remains subject to the current control result. Final-wheel provenance #570 is implemented in
 [#616](https://github.com/ThreeMoonsLab/agents-shipgate/pull/616), with a candidate-only
 build path, an immutable generated Action pin and a hash-checked exact-wheel
 Action input. Its read-only distribution smoke compares the installed CLI and
@@ -112,7 +114,9 @@ header-like hunk rows lost by the existing diff parser; incomplete comparisons
 continue to require review until that separate repair lands.
 The latest three cover directory-valued host configuration omitted by audit,
 a corruption drill that rejects its filename before comparing wheel payloads,
-and fixture output overflowing the CI summary. None is counted as repaired.
+and fixture output overflowing the CI summary. None is counted as repaired:
+#568's discovery routes the #613 defect to inspection and claims no audit
+repair.
 
 The following sequence and approved release bars still apply. Contract
 convergence, historical catch results, report freeze, actual human ownership,

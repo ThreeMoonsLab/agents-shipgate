@@ -1,5 +1,15 @@
 # Current Agent Contract
 
+Runtime contract v33 adds `host_boundary_candidates[]` and
+`host_discovery_incomplete_paths[]` to discovery. They describe recognized
+configuration paths and traversal the bounded census could not see through,
+never parsed grants. An incomplete census withholds the product-wide negative
+and publishes no candidates; it does not fail the classification. A host-only
+workspace follows `audit --host` without creating a manifest. `init` and
+`bootstrap` hand off without setup writes; incomplete input cannot publish a
+product-wide negative. Existing operational control and persisted evidence
+schemas are unchanged; all setup permissions remain false.
+
 Runtime contract v32 separates instruction prose from supported parsed permission
 structure across verification, preflight, host drift and generated edit hooks.
 It publishes verifier v0.17, handoff v9, preflight v0.5 and host evidence v0.3.
@@ -518,7 +528,7 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `32` (minimum control contract: `21`)
+- Runtime contract: `33` (minimum control contract: `21`)
 - Current report schema: `0.43` — [`docs/report-schema.v0.43.json`](report-schema.v0.43.json)
 - Current packet schema: `0.18` — [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)

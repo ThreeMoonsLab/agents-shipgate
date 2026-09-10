@@ -69,6 +69,11 @@ from agents_shipgate.cli.discovery.artifacts import (
     _skip_part,
     probe_suggested_source,
 )
+from agents_shipgate.cli.discovery.host_boundary import (
+    discover_host_boundary,
+    host_discovery_action,
+    needs_host_route,
+)
 from agents_shipgate.cli.discovery.mcp_source import (
     McpSourceDiscovery,
     discover_mcp_server_source,
@@ -312,6 +317,7 @@ def detect_workspace(
     scan bounded on large monorepos.
     """
     workspace = workspace.resolve()
+    host_candidates, host_incomplete_paths = discover_host_boundary(workspace)
     # One inventory walk feeds the Python parse, the Codex plugin scan, and
     # the project-marker census below. The walk is unbounded; only the AST
     # parse is capped, and the census has to see the whole repository to
@@ -508,9 +514,14 @@ def detect_workspace(
         suggested_sources=suggested_sources,
         excluded_sources=excluded_sources,
         codex_plugin_candidates=codex_plugin_candidates,
+        host_boundary_candidates=host_candidates,
+        host_discovery_incomplete_paths=host_incomplete_paths,
         next_action=next_action,
         workspace_signals=workspace_signals,
     )
+    if needs_host_route(result):
+        action = host_discovery_action(result, workspace)
+        result.next_action = action.command or action.why
     result.surface_exclusions = build_detect_exclusions(result)
     return result
 

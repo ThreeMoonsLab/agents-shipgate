@@ -168,7 +168,10 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # v32 adds conditional instruction-edit routing (verifier 0.17/handoff v9),
 # preflight 0.5 and host inventories/baselines/drift 0.3. Old readers retain
 # their conservative boundary; structural comparison never grants authority.
-CONTRACT_VERSION: Literal["32"] = "32"
+# v33 routes recognized host-only configuration from discovery to audit,
+# without inventing a manifest. The new detect fields are filename evidence
+# and incomplete traversal, not grants. Operational control is unchanged.
+CONTRACT_VERSION: Literal["33"] = "33"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"

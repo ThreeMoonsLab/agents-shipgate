@@ -617,6 +617,23 @@ def build_detect_exclusions(result: DetectResult) -> SurfaceExclusionLedger:
 
     entries: list[SurfaceExclusion] = []
     signals = result.workspace_signals
+    for path in result.host_discovery_incomplete_paths:
+        entries.append(SurfaceExclusion(
+            stage="discovery", subject=path, reason="census_not_seen_through",
+            # Both ways the census stops short — a link it does not follow and
+            # a path it could not read — leave the same hole, and the detail
+            # must not name only one of them: it read as a claim about a
+            # `docs/README.md -> ../README.md` that conceals nothing.
+            detail="Host discovery could not see through this path, so a complete negative is withheld.",
+            # `route_blocked`, not `not_claimed`: the run did act on these —
+            # withholding the product-wide negative is the act, and
+            # `total - gated` is documented as "recorded and deliberately not
+            # acted on", which these are not. Unconditional for the same
+            # reason `walk_capped` is: the withheld verdict is a whole-run
+            # fact, and that row already sits beside a runnable published
+            # route (the higher-cap retry) without meaning routing stopped.
+            accounting="route_blocked",
+        ))
     if result.python_parse_truncated:
         entries.append(
             SurfaceExclusion(

@@ -36,6 +36,7 @@ from typing import Any
 import typer
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
+from agents_shipgate.cli.discovery.host_boundary import needs_host_route_payload
 from agents_shipgate.cli.workspace_guard import require_workspace
 
 _ENV_VAR = "AGENTS_SHIPGATE_AGENT_MODE"
@@ -176,6 +177,19 @@ def bootstrap_run(
     # the guard, not `agent_scope_truncated`: a single-scope workspace whose
     # only agent sits past the cap has the narrow flag false.
     parse_truncated = bool(detect_payload.get("python_parse_truncated"))
+    # The same predicate `detect` and `init` route on, read from the payload
+    # they publish rather than restated here: this guard already carried its
+    # own copy of the no-agent-surface rule, and a second spelling of the host
+    # rule beside it is how the three answers drift apart (#322).
+    if not manifest_already and needs_host_route_payload(detect_payload):
+        return {
+            "verdict": "host_review_required", "stopped": True,
+            "stop_reason": "Host discovery needs review through next_action; no setup files were written.",
+            "steps": steps, "release_decision": None,
+            "next_action": detect_payload.get("next_action"),
+            "next_actions": detect_payload.get("next_actions", []),
+            "control": detect_payload.get("control"),
+        }
 
     if (
         not is_agent_project
@@ -183,6 +197,8 @@ def bootstrap_run(
         and not plugin_candidates
         and not manifest_already
         and not parse_truncated
+        and detect_payload.get("host_boundary_candidates") == []
+        and detect_payload.get("host_discovery_incomplete_paths") == []
     ):
         return {
             "verdict": "no_agent_surface",
@@ -190,6 +206,7 @@ def bootstrap_run(
             "stop_reason": (
                 "detect says is_agent_project=false, suggested_sources=[], "
                 "codex_plugin_candidates=[], python_parse_truncated=false, "
+                "host_boundary_candidates=[], host_discovery_incomplete_paths=[], "
                 "and no shipgate.yaml exists. Bootstrap has nothing to do."
             ),
             "steps": steps,
@@ -542,7 +559,7 @@ def bootstrap(
     else:
         _emit_human_summary(result)
 
-    if result["stopped"] and result["verdict"] != "no_agent_surface":
+    if result["stopped"] and result["verdict"] not in {"no_agent_surface", "host_review_required"}:
         # Forward the underlying step's structured error so coding
         # agents get the same routing they'd get from a manual
         # invocation (#64 review P2). Bootstrap previously re-emitted
@@ -579,6 +596,8 @@ def _emit_human_summary(result: dict[str, Any]) -> None:
     typer.echo("")
     if result["stopped"]:
         typer.echo(f"Stopped: {result['stop_reason']}")
+        if result.get("next_action"):
+            typer.echo(f"Next: {result['next_action']}")
         return
     rd = result.get("release_decision")
     if rd:
