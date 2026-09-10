@@ -10,7 +10,9 @@ from agents_shipgate.core.domain import (
     Tool,
 )
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.static_inputs import active_static_input_snapshot
 from agents_shipgate.inputs.common import (
+    MAX_INPUT_FILE_BYTES,
     PositionIndex,
     json_pointer_escape,
     list_input_directory,
@@ -882,6 +884,30 @@ def _resolve_component_path(
 def _resolve_plugin_path(root: Path, raw_path: str) -> Path:
     raw = Path(raw_path)
     candidate = raw if raw.is_absolute() else root / raw_path
+    snapshot = active_static_input_snapshot()
+    if snapshot is not None and (root == snapshot.root or snapshot.contains(root)):
+        # Preserve the declared lookup. Resolving first would erase an in-root
+        # alias, leaving only its old target in the verification input set.
+        try:
+            if ".." in raw.parts:
+                raise ValueError("parent traversal is not a confirmable component lookup")
+            if candidate != root and root not in candidate.parents:
+                raise ValueError("component path is outside plugin root")
+            if snapshot.excludes(candidate):
+                raise ValueError("component path overlaps excluded verification output")
+            snapshot.capture_selected_path(candidate, max_bytes=MAX_INPUT_FILE_BYTES)
+        except (OSError, ValueError) as exc:
+            # The caller turns InputParseError into a component diagnostic.
+            # Keep the failed lookup visible to currency validation as well:
+            # repairing an alias must never reconfirm an old empty capture.
+            if ".." in raw.parts or candidate == root or root not in candidate.parents:
+                snapshot.mark_unconfirmable_input_directory(root)
+            else:
+                snapshot.mark_unconfirmable_dependency(candidate)
+            raise InputParseError(
+                f"Codex plugin component path {raw_path!r} could not be captured: {exc}"
+            ) from exc
+        return candidate
     resolved = candidate.resolve()
     try:
         resolved.relative_to(root.resolve())

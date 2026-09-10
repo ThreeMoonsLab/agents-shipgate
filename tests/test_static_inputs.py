@@ -124,3 +124,23 @@ def test_caught_directory_cap_retains_an_unconfirmable_obligation(tmp_path):
     with pytest.raises(ValueError):
         snapshot.enumerate_input_directory(tmp_path)
     assert snapshot.input_directory_identity(source='worktree')['unconfirmable_paths'] == ['.']
+
+
+def test_selected_root_is_bound_without_selecting_a_directory_census(tmp_path):
+    snapshot = StaticInputSnapshot(tmp_path)
+    snapshot.capture_selected_path(tmp_path)
+    snapshot.finish()
+    assert snapshot.input_directory_identity(source="worktree")["directories"] == []
+    with pytest.raises(ValueError, match="invalid selected input lookup"):
+        snapshot.capture_selected_path(tmp_path)
+
+
+def test_selected_file_obeys_the_parser_byte_bound_even_when_cached(tmp_path):
+    path = tmp_path / "selected.json"
+    path.write_bytes(b"12345")
+    snapshot = StaticInputSnapshot(tmp_path)
+    snapshot.read_bytes(path)
+    with pytest.raises(ValueError, match="4-byte read limit"):
+        snapshot.capture_selected_path(path, max_bytes=4)
+    with pytest.raises(ValueError, match="invalid selected input lookup"):
+        snapshot.capture_selected_path(tmp_path / "alias" / ".." / path.name)

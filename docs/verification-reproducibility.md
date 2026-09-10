@@ -108,9 +108,23 @@ existing recursive/skip boundaries. This is a census of those selected
 directories, not proof that every repository file or dynamic tool was analyzed.
 File parsing caps and coverage limitations still apply independently.
 A component lookup resolved away before capture cannot be recovered from the
-resulting directory rows: the reproduced Codex plugin alias-retarget case is
-still a separate P1 obligation in [#633](https://github.com/ThreeMoonsLab/agents-shipgate/issues/633).
-This census does not claim that every reader retains such lexical lookups.
+resulting directory rows. Codex plugin component capture now retains its
+declared lexical path before resolution (#633): selected files use the shared
+cached byte reader, and selected directories bind identity before actual skill
+enumeration selects membership. Aliases, parent traversal, unreadable paths and
+non-file/directory kinds refuse capture. A caught component diagnostic also
+records an unconfirmable dependency (or an unconfirmable directory for a refused
+root/containment lookup), so repairing the path requires a fresh verification.
+Committed archives already reject tracked symlinks before component loading;
+their failure record grants no permissions. Standalone loading retains its
+existing in-root resolution behavior.
+
+This does not claim that every reader retains every lookup. The separately
+reproduced implicit default-selection gap — adding a previously absent
+`.app.json` without changing the plugin manifest — remains deferred in
+[#635](https://github.com/ThreeMoonsLab/agents-shipgate/issues/635). A named
+default's absence must be bound where selection happens; broad plugin-root
+membership is not a substitute.
 
 `excluded_paths` records Git metadata and the exact generated report subtree,
 mapped into the archive for committed capture. A live output-only parent such
