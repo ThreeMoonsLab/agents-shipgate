@@ -156,7 +156,10 @@ source.
 
 ```bash
 python -m pip install --require-hashes -r constraints/build-backend.txt
-python -m build --wheel --no-isolation
+candidate_sha="$(git rev-parse HEAD)"
+candidate_output="$(mktemp -d)"
+AGENTS_SHIPGATE_CANDIDATE_SOURCE_COMMIT="${candidate_sha}" \
+  python -m build --wheel --no-isolation --outdir "${candidate_output}"
 ```
 
 Install the backend closure, then build without isolation. Setting
@@ -164,6 +167,63 @@ Install the backend closure, then build without isolation. Setting
 constraints to an isolated build environment, so a constrained build still
 resolves whatever the index offers — verified by constraining hatchling to a
 version that does not exist and watching the build succeed.
+
+The candidate-only build hook requires a clean Git checkout, an exact full
+HEAD SHA and a final `X.Y.Z` package version. It compares tracked file bytes
+with HEAD blobs, enumerates Hatch's actual selected and force-included payload,
+and verifies that payload in the finished archive; ignored untracked inputs
+and `assume-unchanged` edits cannot acquire a source stamp. It refuses editable builds,
+previews, dirty/untracked source and non-Git copies. Keep the output outside
+the checkout until the build finishes. It writes a deterministic
+`agents_shipgate/_meta/release-source.json` into the wheel and revalidates the
+source after building; it never writes that record into the package tree.
+Ordinary and preview builds omit it. The release sealer uses the same opt-in
+build mode, and `--source-commit` requires the candidate and rebuild to carry
+the same valid record before comparing their bytes.
+
+That record makes `init --ci` in the frozen wheel use its immutable Action source
+SHA plus its `shipgate_version`. Once publication finishes, the unchanged
+generated workflow installs that published distribution instead of rebuilding
+unstamped source or selecting the previous release. The Action SHA resolves
+before the tag exists; the package version is intentionally a post-publication
+selector. Before publication replace that version input with the paired `shipgate_wheel` and
+`shipgate_wheel_sha256` Action inputs. They accept a local regular wheel inside
+`GITHUB_WORKSPACE`, check and privately capture the same bytes, and reinstall
+even an already-installed matching version. Install dependencies from the
+reviewed lock first; this candidate route uses `--no-deps`. It cannot be mixed
+with `shipgate_version`. Missing halves, bad hashes and conflicting wheel
+metadata fail before installation.
+
+An explicit `AGENTS_SHIPGATE_WORKFLOW_REF` still selects the operator's requested
+Action source and omits the candidate version selector. It cannot hide a malformed
+embedded source record. Ordinary and preview builds keep their published fallback.
+
+A malformed record refuses the one thing it decides — the pin `init --ci` writes —
+and nothing else. `doctor`, `check` and `verify` keep running on that install, so
+the diagnostic that names the broken wheel is still available.
+
+### Distribution smoke before and after publication
+
+Run **Release Engine Smoke (unqualified)** on the committed candidate branch
+before freezing qualification inputs. Its read-only jobs build the stamped
+wheel, install it outside the source import path, generate the advisory CI pin,
+and exercise both the installed CLI and the Action from the same immutable
+checkout on the existing unsafe-refund PR fixture. Do not run
+`release_engine_smoke.py prepare` in your own checkout: it commits fixture
+history onto the current HEAD, which is why it refuses to run at all without
+`--disposable-checkout`. The evidence artifact names the wheel hash,
+source/Action SHA, installed version/contract, generated workflow and both
+capability results and engine identities. The two halves must agree and show
+the blocked result. This is synthetic distribution evidence; it grants no
+qualification or release authority.
+
+After publication the release owner must download the actual wheel from the
+published channel, compare its hash with the qualified wheel, and repeat the
+disposable downstream fixture using the unchanged generated workflow, then the
+real published Action tag. Record that resolved tag SHA, wheel hash,
+installed version/contract, engine identity and local/CI result together. The pre-publication
+smoke is not evidence that an unpublished tag or downloadable release exists;
+rollout remains incomplete until this second observation is attached to #570.
 
 If a backend bump lands between qualification and release, the provenance gate
 fails. The fix is to re-run qualification against a wheel built with the current
@@ -445,13 +505,15 @@ The shape that holds:
    that names the newest release — `tests/test_public_surface_contract.py`
    fails once per file until each does, so the suite enumerates them for you.
 
-   These two are what `init` writes into an adopter's repository: the `uses:`
+   These two govern ordinary/source/preview adoption: the `uses:`
    pin in the workflow it generates, the runner pins in the bundled adoption
    prompts, the `shipgate_version` the bundled CI recipe installs. Moving them
    *before* the tag exists is the failure they guard against (#506) — a
    generated workflow that names a ref GitHub cannot resolve fails the
-   adopter's job before any step runs. Moving them late costs nothing: the
-   previous release still resolves.
+   adopter's job before any step runs. A stamped candidate wheel generates its
+   own immutable source SHA independently; updating main later cannot and need
+   not repair that frozen wheel. Bundled prompt pins retain their explicit
+   published-contract-floor diagnostics until this post-publication update.
 
    `LATEST_PUBLISHED_CONTRACT_VERSION` is the `CONTRACT_VERSION` the new tag
    emits, not the tree's. When it lands below

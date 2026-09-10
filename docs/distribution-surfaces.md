@@ -47,7 +47,7 @@ and this document are checked against each other by
 | `merge_verdict_vocabulary` | Enumerates the merge verdicts a caller can gate on, or compares against one | `agents_shipgate.schemas.contract.MERGE_VERDICTS` |
 | `release_decision_vocabulary` | Enumerates the release-gate decisions | `agents_shipgate.schemas.contract.RELEASE_DECISIONS` |
 | `placeholder_ownership` | Tells a reader who may fill a manifest placeholder | `agents_shipgate.cli.discovery.placeholders.placeholder_owner` |
-| `executable_pin` | Names a version, tag or ref a reader will install or run — the Action ref, a `pip`/`uvx` pin, a `>=` install floor, and the Action's own `shipgate_version:` input, which `action.yml` turns into `pip install agents-shipgate==<value>` | `agents_shipgate.published_release.LATEST_PUBLISHED_VERSION` |
+| `executable_pin` | Names a version, tag or ref a reader will install or run — the Action ref, a `pip`/`uvx` pin, a `>=` install floor, and the Action's own `shipgate_version:` input, which `action.yml` turns into `pip install agents-shipgate==<value>` | `agents_shipgate.published_release.LATEST_PUBLISHED_VERSION`; a stamped candidate's emitted CI uses `agents_shipgate.release_source.candidate_action_ref` |
 | `contract_floor` | Names a runtime contract version a reader must reach | `agents_shipgate.published_release.LATEST_PUBLISHED_CONTRACT_VERSION` |
 
 ## The registry
@@ -56,9 +56,9 @@ and this document are checked against each other by
 | --- | --- | --- | --- | --- |
 | `human_review_request` | `docs/human-review-request.md` | `release_decision_vocabulary` | `test_surface_enumerations_match_the_engine_vocabulary` | One complete-evidence documentation-quality class only; no authority or decision ingestion. |
 | `human_review_decision` | `docs/human-review-decision.md` | `release_decision_vocabulary` | `test_surface_enumerations_match_the_engine_vocabulary` | Host-neutral read-only evaluator; no GitHub acquisition, persistence or operation authority. |
-| `github_action` | `action.yml`, `scripts/github_action_outputs.py` | `merge_verdict_vocabulary` | `test_action_input_enumerates_engine_merge_verdicts`, `test_action_output_script_shares_the_engine_merge_verdicts` | — |
+| `github_action` | `action.yml`, `scripts/github_action_outputs.py` | `merge_verdict_vocabulary` | `test_action_input_enumerates_engine_merge_verdicts`, `test_action_output_script_shares_the_engine_merge_verdicts` | The paired `shipgate_wheel`/`shipgate_wheel_sha256` inputs install a caller-supplied local wheel instead of a published version, so that route names no channel and claims no `executable_pin`; it is refused unless both halves are given, and it installs `--no-deps`. `tests/test_action_engine_install.py` proves the refusals. |
 | `zero_install_detector` | `tools/shipgate-detect.py` | `agent_project_verdict` | `test_detector_verdict_matches_cli` | Emits no `diagnostics[]` and no `next_actions[]`; evidence strings and framework scores are simplified. See the script's own "Intentional simplifications". |
-| `emitted_ci_workflow` | `src/agents_shipgate/cli/discovery/ci_workflow.py` | `executable_pin` | `tests/test_adopter_pins_resolve.py::test_the_emitted_workflow_pins_the_release_and_not_the_source_tree` | — |
+| `emitted_ci_workflow` | `src/agents_shipgate/cli/discovery/ci_workflow.py` | `executable_pin` | `tests/test_adopter_pins_resolve.py::test_the_emitted_workflow_pins_the_release_and_not_the_source_tree`, `tests/test_release_source.py::test_candidate_workflow_uses_immutable_source_before_and_after_publication` | Ordinary/source/preview builds use the published fallback; a stamped candidate pins its verified Action SHA and package version. Before publication its smoke substitutes the exact local wheel inputs. Provenance asserts no qualification. |
 | `prompts` | `prompts/` | `contract_floor`, `executable_pin`, `placeholder_ownership`, `release_decision_vocabulary` | `test_executable_pin_resolves_in_a_published_channel`, `test_surface_enumerations_match_the_engine_vocabulary`, `test_surface_routes_human_owned_placeholders_to_a_human`, `tests/test_adopter_pins_resolve.py::test_every_pin_init_writes_into_an_adopter_repo_names_the_published_release`, `tests/test_adopter_pins_resolve.py::test_the_shipped_floor_is_decided_against_the_release_the_prompts_pin` | — |
 | `skills` | `skills/` | `contract_floor`, `executable_pin`, `placeholder_ownership`, `release_decision_vocabulary` | `test_executable_pin_resolves_in_a_published_channel`, `test_surface_enumerations_match_the_engine_vocabulary`, `test_surface_routes_human_owned_placeholders_to_a_human`, `tests/test_adopter_pins_resolve.py::test_every_pin_init_writes_into_an_adopter_repo_names_the_published_release`, `tests/test_adopter_pins_resolve.py::test_the_shipped_floor_is_decided_against_the_release_the_prompts_pin` | Rendered mirror of `adoption-kits/claude-code-skill`; byte parity is pinned by `tests/test_agent_instructions_renderers.py`. |
 | `plugins` | `plugins/` | `contract_floor`, `executable_pin`, `placeholder_ownership`, `release_decision_vocabulary` | `test_executable_pin_resolves_in_a_published_channel`, `test_surface_enumerations_match_the_engine_vocabulary`, `test_surface_routes_human_owned_placeholders_to_a_human`, `tests/test_adopter_pins_resolve.py::test_every_pin_init_writes_into_an_adopter_repo_names_the_published_release`, `tests/test_adopter_pins_resolve.py::test_the_shipped_floor_is_decided_against_the_release_the_prompts_pin` | Same rendered mirror; the plugin adds packaging metadata only. |
@@ -141,11 +141,19 @@ pushes to `main`.
 | Published release | `agents_shipgate.published_release` → `LATEST_PUBLISHED_VERSION` and `LATEST_PUBLISHED_CONTRACT_VERSION`, bound to the tag and to `.well-known` by `tests/test_adopter_pins_resolve.py` | `pipx install agents-shipgate`, `uses: …@v<tag>` | Qualified |
 | Unqualified preview | GitHub pre-release in the `preview-*` namespace, cut by `.github/workflows/release-preview.yml` | `gh release download preview-<version> --pattern '*.whl'` | **None**, by construction — see `docs/release-evidence-policy-decision.md` § Amendment 2 |
 | Source checkout | `pyproject.toml` → `[project].version`, mirrored at `.well-known/agents-shipgate.json` → `version` | `./shipgate …` | Not a distributed build |
+| Final candidate wheel | Build-only `_meta/release-source.json` binds a clean full source SHA and package version; generated CI uses that SHA | Reviewed local wheel; exact-wheel Action smoke requires a local path plus SHA-256 | The provenance record alone grants **none**; qualification, signing and publication bind those same wheel bytes separately |
 
 The published and source values differ whenever the tree is ahead of the newest
 tag, which is the normal state between releases. A surface may name the source
 build only when it also says which channel that is; naming it as though it were
 published was the `rendered-prompt-unpublished-pin` gap, closed by #506.
+
+`hatch_build.py` belongs to the build toolchain, alongside `pyproject.toml`,
+rather than an adopter-facing command. It produces the candidate's source
+provenance and makes no claim about a runtime verdict or qualification.
+`tests/test_wheel_candidate_build.py` checks that producer against real wheel builds;
+the `emitted_ci_workflow` row above covers how the installed engine uses its
+record. The top-level classifier records this distinction explicitly.
 
 The main-tree `.well-known/agents-shipgate.json` integration enumeration is
 checked against `contract --json` from the same source build, including missing
