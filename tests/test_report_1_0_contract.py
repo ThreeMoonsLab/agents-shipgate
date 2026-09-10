@@ -344,6 +344,37 @@ def test_no_refusal_this_module_raises_can_escape_the_classifier() -> None:
     assert statuses <= covered
 
 
+def test_a_build_that_cannot_read_its_own_version_refuses_readably(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The broken-install branch, executed rather than assumed.
+
+    It is unreachable from any input -- the engine's own default always parses
+    -- which is exactly why it needs forcing. It replaced a bare `assert`, and
+    the point of that replacement is that the failure stays a typed, readable
+    refusal instead of a `TypeError` raised past callers that wrap only
+    `ValueError`. An untested branch would have proved neither.
+    """
+
+    import agents_shipgate.schemas.report_compatibility as compat
+
+    monkeypatch.setattr(compat, "current_report_schema_version", lambda: "1.0.0")
+
+    with pytest.raises(ReportSchemaCompatibilityError) as excinfo:
+        # A value that reaches the minor comparison: same major, so the earlier
+        # branches cannot short-circuit it.
+        compat.classify_report_schema_version("1.4")
+
+    assert excinfo.value.reason_code == "report_schema_engine_version_unreadable"
+    message = str(excinfo.value)
+    assert "doctor --json" in message, "the refusal must name a diagnostic route"
+    assert report_schema_refusal_code(message) == excinfo.value.reason_code, (
+        "even the broken-install refusal has to be recognizable, or an "
+        "incomparable base carrying it routes to review_required instead of "
+        "withholding the verdict"
+    )
+
+
 def test_a_projection_reader_may_accept_a_newer_minor_and_a_comparison_may_not() -> None:
     """The additive promise holds forward for projections, not for comparisons."""
 
