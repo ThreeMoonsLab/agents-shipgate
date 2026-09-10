@@ -62,6 +62,7 @@ missing release qualification or human authority.
 | Bounded FastMCP Context injection (#542) | [#603](https://github.com/ThreeMoonsLab/agents-shipgate/pull/603) | Whole-signature limits remain visible; broader framework/export provenance is deferred in #601. |
 | Reproducible current sample goldens (#499) | [#605](https://github.com/ThreeMoonsLab/agents-shipgate/pull/605) | The 24 current artifacts have a checked recipe; #569 still owns the report 1.0 freeze and migration fixtures. |
 | Host-only first discovery (#568) | Filename-only host candidates, no-write init/bootstrap handoff, CLI/zero-install parity and cold installed-wheel replay | Existing audit config-directory omission remains deferred in #613; synthetic tests do not demonstrate external adoption. |
+| Maintenance and recovery documentation (#494) | [#619](https://github.com/ThreeMoonsLab/agents-shipgate/pull/619), [MAINTAINERS.md](MAINTAINERS.md) and the existing release runbook | Actual owner acceptance, response capacity, access/independence evidence and the responsible people's tabletop remain open. |
 
 Three delivered slices leave larger release obligations open: [#582](https://github.com/ThreeMoonsLab/agents-shipgate/pull/582)
 types unsupported historical base inputs but does not satisfy #563's catch bars;
@@ -86,25 +87,34 @@ weakening ID remains available and non-emitting. These changes do not supply
 reviewed deployment declarations, independent release signers, pilot observations
 or qualification labels.
 
-Host-only discovery #568 is implemented in
-[#614](https://github.com/ThreeMoonsLab/agents-shipgate/pull/614), with two
-independent PR review corrections published — the second repaired two
-fail-closed discovery defects that stopped settled classifications — and merge
-remains subject to the current control result. Final-wheel provenance #570 is implemented in
-[#616](https://github.com/ThreeMoonsLab/agents-shipgate/pull/616), with a candidate-only
-build path, an immutable generated Action pin and a hash-checked exact-wheel
-Action input. Its read-only distribution smoke compares the installed CLI and
-Action on the existing refund fixture. These are implementation and distribution
-checks, not release qualification. Keep #570 open through the release owner's
-actual published-tag/download observation; do not wait for that post-publication
-observation to implement #510's isolated negative rehearsal. The new manual
-smoke needs human review/merge before GitHub can dispatch it from the default
-branch. Local replay is not hosted evidence. Automatic approval review also
-stopped #510's new protected workflow and an additional PR trigger for #570;
-those rejected edits are absent and need human handling.
+Host-only discovery #568 is delivered in merged
+[#614](https://github.com/ThreeMoonsLab/agents-shipgate/pull/614). Its subsequent
+review fixes preserve settled file-link and unreadable-census classifications,
+published consumer values and CLI/stdlib parity. Final-wheel provenance #570 is
+implemented in merged [#616](https://github.com/ThreeMoonsLab/agents-shipgate/pull/616),
+with a candidate-only build path, immutable generated Action pin and a
+hash-checked exact-wheel Action input. Both final PR heads passed applicable CI.
+
+The first actual hosted [distribution smoke, run 34435280857](https://github.com/ThreeMoonsLab/agents-shipgate/actions/runs/34435280857),
+passed on source `ed97340226dd85ba22693c333004be2d06255d23`. Downloaded artifacts
+bind package 0.16.0, contract 33, that source/Action ref and the locked
+hatchling 1.32.0 backend to wheel SHA-256
+`42e86430c6a05a756f5e5fe1dcb9963a5186ffd808dfda657d9896258c93094d`.
+The installed CLI and real composite Action agree on full engine identity and
+the expected blocked refund result. This replaces the earlier dispatch 404;
+the artifact explicitly remains synthetic and unqualified. Earlier local replay
+bytes belong to their own commits and build environments, not this run.
+
+Keep #570 open: the final frozen v1.0 candidate needs its own pre-publication
+run and unchanged qualification/signing/publication bytes, followed by the real
+published-tag/download observation. Do not wait for that post-publication
+observation to implement #510's isolated negative rehearsal. Automatic approval
+review still blocks #510's new protected workflow; current-main preflight
+continues to route that concrete plan to a human. The rejected optional PR
+trigger for #570 remains absent, but the existing manual workflow now runs.
 
 Newly discovered issues #575/#577/#580/#581, #584–#586, #588/#590, #592/#593,
-#596–#598/#601, #607, #609–#611, #613/#615/#617 remain separately deferred; they are not silently
+#596–#598/#601, #607, #609–#611, #613/#615/#617/#618/#620 remain separately deferred; they are not silently
 added to this implementation pass or counted as repairs. #609 documents a frozen
 preflight schema URL/discriminator mismatch; the current successor uses a fresh
 version without rewriting historical bytes. #610 owns the distinct compatibility
@@ -112,9 +122,12 @@ question of completed planning results exposing the shared permission vector;
 preflight still supplies no verifier-bound current-control identity. #611 records
 header-like hunk rows lost by the existing diff parser; incomplete comparisons
 continue to require review until that separate repair lands.
-The latest three cover directory-valued host configuration omitted by audit,
+The later findings cover directory-valued host configuration omitted by audit,
 a corruption drill that rejects its filename before comparing wheel payloads,
-and fixture output overflowing the CI summary. None is counted as repaired:
+fixture output overflowing the CI summary, manual-undraft guidance omitting
+current asset/signature/tag checks, and the first-run cost of two discovery
+inventories. #620 requires measurement before sharing walks with
+different coverage and identity guarantees. None is counted as repaired:
 #568's discovery routes the #613 defect to inspection and claims no audit
 repair.
 
@@ -133,9 +146,12 @@ remain prerequisites. The current release decision is still **no-go**.
   separates hashed from parsed qualification bytes. Both precede final
   evidence; neither demonstrates an exploited release.
 - Report schema **0.43** has not met [STABILITY.md](STABILITY.md)'s report
-  **1.0** freeze condition. Generated CI still selects the previous release.
-  Live evidence: **zero Actions variables**, signer **`CHANGE_ME`**, and
-  **zero Release Rehearsal runs**.
+  **1.0** freeze condition. Candidate-generated CI now selects the stamped
+  source/version, as the hosted smoke above shows; ordinary source/preview
+  builds retain the published fallback. The original release audit recorded
+  **zero Actions variables**, signer **`CHANGE_ME`**, and **zero Release Rehearsal
+  runs**. The distribution smoke supplies none of that qualification, signing
+  or positive/negative rehearsal evidence.
 - No tag ruleset was returned, immutable releases were disabled, and the
   inspected review/environment settings did not establish the runbook's
   independent review boundary. [#573](https://github.com/ThreeMoonsLab/agents-shipgate/issues/573)
