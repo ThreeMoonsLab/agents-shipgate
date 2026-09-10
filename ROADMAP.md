@@ -222,6 +222,11 @@ macOS temporary-path recipe where the pilot uses it.
 
 **Start beta sourcing and blind human labeling now** under
 [#512](https://github.com/ThreeMoonsLab/agents-shipgate/issues/512).
+The [separate beta source inventory](benchmark/safety-qualification/beta-strata-inventory.md)
+records fixed PR revisions, exposure and per-cell gaps; it supplies no human
+labels or qualifying evidence. Resolve #520's remaining rater output-contract
+inconsistency and establish actual independent human raters before labeling.
+Source collection can continue in parallel with those prerequisites.
 Neither a v0.16 tag nor the optional 38-case pre-1.0 track is a prerequisite.
 Prepare signing, negative rehearsal fixtures and #573's actual tag,
 immutable-release and independent-review controls alongside engineering.

@@ -290,13 +290,15 @@ def _engine_source_lines() -> tuple[tuple[str, str], ...]:
     """
 
     this_file = Path(__file__).resolve()
+    inventory_guards = {this_file, this_file.with_name("test_beta_strata_inventory.py")}
     lines: list[tuple[str, str]] = []
     for root in SEARCHED_FOR_EXPOSURE:
         for path in sorted((REPO_ROOT / root).rglob("*.py")):
-            # This file names every candidate by construction. Its own
-            # docstrings are not evidence that the engine was built against
-            # them, and counting them would make every row self-exposing.
-            if path == this_file:
+            # Both inventory guards name candidates to check sourcing
+            # metadata, not to develop engine behavior. Counting their own
+            # provenance assertions would make those rows self-exposing.
+            # Every other source/test file remains part of the detector.
+            if path in inventory_guards:
                 continue
             location = path.relative_to(REPO_ROOT).as_posix()
             for offset, line in enumerate(
