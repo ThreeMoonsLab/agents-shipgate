@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
+import textwrap
 import zipfile
 from pathlib import Path
 
@@ -79,6 +81,46 @@ def test_malformed_record_never_uses_override_or_old_release(
     monkeypatch.setenv("AGENTS_SHIPGATE_WORKFLOW_REF", "main")
     with pytest.raises(ValueError, match="release-source"):
         _action_ref()
+
+
+def test_a_corrupt_record_only_fails_the_pin_it_could_get_wrong(tmp_path: Path) -> None:
+    """`doctor` is the command an operator reaches for when an install looks wrong.
+
+    The record is read to decide one thing: the ref written into an adopter's
+    repository. Evaluating that at import time meant a corrupt record in a
+    stamped wheel took the whole CLI down with it, including the diagnostic.
+    An override is set here so the refusal is not the override's doing.
+    """
+    record = tmp_path / "release-source.json"
+    record.write_text('{"schema_version": "shipgate.release_source/v1"')
+    program = textwrap.dedent(
+        f"""
+        import pathlib
+        from agents_shipgate import release_source
+
+        release_source._RECORD = pathlib.Path({str(record)!r})
+        # The import that used to raise: this is what pulls the workflow
+        # emitter into every command.
+        import agents_shipgate.cli.discovery as discovery
+
+        assert discovery.write_ci_workflow is not None
+        from agents_shipgate.cli.discovery import ci_workflow
+
+        try:
+            ci_workflow.WORKFLOW_TEMPLATE
+        except ValueError as exc:
+            print("refused:", exc)
+        else:
+            raise SystemExit("a corrupt record still rendered a workflow")
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", program], text=True, capture_output=True,
+        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src"),
+             "AGENTS_SHIPGATE_WORKFLOW_REF": "main"},
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "refused: Invalid candidate release-source record" in result.stdout
 
 
 def _git(root: Path, *args: str) -> str:

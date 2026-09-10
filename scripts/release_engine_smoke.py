@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Exercise the installed candidate and Action on one disposable refund PR.
 
-`prepare` commits synthetic fixture history into the checkout it is given.
-Use only in the disposable release-engine-smoke job or a temporary clone.
+`prepare` commits synthetic fixture history into the checkout it is given, so
+it refuses to run without `--disposable-checkout`. Use only in the disposable
+release-engine-smoke job or a temporary clone.
 The output is distribution evidence, not human labels or release qualification.
 """
 
@@ -36,7 +37,29 @@ def _cli(root: Path, *args: str) -> dict:
     return json.loads(result.stdout)
 
 
-def prepare(root: Path, source_commit: str, wheel: Path) -> dict:
+def _commit(root: Path, message: str) -> None:
+    """Commit as the smoke identity without writing it into ``.git/config``.
+
+    ``git config user.email …`` would outlive the run and silently re-author
+    whatever the operator committed next, which is not a cost a read-only
+    evidence script gets to impose on a checkout.
+    """
+    _git(root, "-c", "user.name=Agents Shipgate distribution smoke",
+         "-c", "user.email=distribution-smoke@example.invalid",
+         "-c", "commit.gpgsign=false", "commit", "-qm", message)
+
+
+def prepare(root: Path, source_commit: str, wheel: Path, *, disposable: bool = False) -> dict:
+    if not disposable:
+        # Being at the candidate commit is exactly what a maintainer's own
+        # checkout looks like while a release is being cut, so it cannot be the
+        # thing that distinguishes a disposable runner from one. Only the
+        # caller knows, and it has to say so.
+        raise ValueError(
+            "prepare rewrites the checkout it is given: two commits on the current HEAD "
+            "and an info/exclude entry. Pass --disposable-checkout to confirm this one "
+            "is a runner or throwaway clone."
+        )
     if _git(root, "rev-parse", "HEAD") != source_commit:
         raise ValueError("Disposable checkout must still be at the candidate source commit")
     fixture = root / ".shipgate-smoke/fixture"
@@ -46,8 +69,6 @@ def prepare(root: Path, source_commit: str, wheel: Path) -> dict:
     fixture.mkdir(parents=True)
     for name in ("shipgate.yaml", "tools.json"):
         shutil.copyfile(sample / name, fixture / name)
-    _git(root, "config", "user.name", "Agents Shipgate distribution smoke")
-    _git(root, "config", "user.email", "distribution-smoke@example.invalid")
     exclude = Path(_git(root, "rev-parse", "--git-path", "info/exclude"))
     if not exclude.is_absolute():
         exclude = root / exclude
@@ -55,11 +76,11 @@ def prepare(root: Path, source_commit: str, wheel: Path) -> dict:
         handle.write("\n/.shipgate-smoke/\n")
     _git(root, "add", "-f", ".shipgate-smoke/fixture/shipgate.yaml",
          ".shipgate-smoke/fixture/tools.json")
-    _git(root, "-c", "commit.gpgsign=false", "commit", "-qm", "smoke: base support tools")
+    _commit(root, "smoke: base support tools")
     base = _git(root, "rev-parse", "HEAD")
     shutil.copyfile(sample / "_head/tools.json", fixture / "tools.json")
     _git(root, "add", "-f", ".shipgate-smoke/fixture/tools.json")
-    _git(root, "-c", "commit.gpgsign=false", "commit", "-qm", "smoke: add refund capability")
+    _commit(root, "smoke: add refund capability")
     contract = _cli(root, "contract", "--json")
     # Init runs in a separate disposable adopter directory so its generated
     # workflow is not a trust-root change in the reviewed fixture.
@@ -115,12 +136,19 @@ def main() -> int:
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
     parser.add_argument("--source-commit")
     parser.add_argument("--wheel", type=Path)
+    parser.add_argument(
+        "--disposable-checkout", action="store_true",
+        help="confirm the workspace is a runner or throwaway clone that prepare may rewrite",
+    )
     args = parser.parse_args()
     try:
         if args.operation == "prepare":
             if not args.source_commit or args.wheel is None:
                 raise ValueError("prepare requires --source-commit and --wheel")
-            result = prepare(args.workspace.resolve(), args.source_commit, args.wheel)
+            result = prepare(
+                args.workspace.resolve(), args.source_commit, args.wheel,
+                disposable=args.disposable_checkout,
+            )
             if os.environ.get("GITHUB_OUTPUT"):
                 with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
                     handle.write(f"base_ref={result['base_ref']}\nhead_ref={result['head_ref']}\n")

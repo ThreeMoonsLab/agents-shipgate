@@ -25,8 +25,11 @@ def candidate_action_ref() -> str | None:
         return None
     if not stat.S_ISREG(info.st_mode) or info.st_size > 4096:
         raise ValueError("Invalid candidate release-source record: expected a small regular file")
+    # O_BINARY on Windows: os.open() otherwise opens in the C runtime's text
+    # mode, which rewrites CRLF and stops at a 0x1A byte. The stdlib ORs it for
+    # exactly this reason (`_pyio.FileIO`, `tempfile._bin_openflags`).
     descriptor = os.open(_RECORD, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-                         | getattr(os, "O_NONBLOCK", 0))
+                         | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0))
     with os.fdopen(descriptor, "rb") as handle:
         current = os.fstat(handle.fileno())
         if not stat.S_ISREG(current.st_mode) or (current.st_dev, current.st_ino) != (

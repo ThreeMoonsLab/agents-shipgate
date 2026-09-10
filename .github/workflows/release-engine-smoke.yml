@@ -82,7 +82,7 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
           WHEEL_PATH: .shipgate-smoke/wheels/${{ needs.candidate.outputs.wheel_filename }}
         run: |
-          python scripts/release_engine_smoke.py prepare \
+          python scripts/release_engine_smoke.py prepare --disposable-checkout \
             --source-commit "${SOURCE_SHA}" --wheel "${WHEEL_PATH}"
       - name: Exercise the Action from the same immutable checkout
         uses: ./

@@ -113,8 +113,19 @@ def _render_workflow_template(config: str = DEFAULT_MANIFEST_PATH) -> str:
     return _WORKFLOW_TEMPLATE.format(ref=ref, engine_pin=engine_pin, config=_yaml_scalar(config))
 
 
-# Backwards-compat: tests and external callers may import the constant.
-WORKFLOW_TEMPLATE = _render_workflow_template()
+# Backwards-compat: tests and external callers may import the constant. It is
+# served lazily, and evaluating it at import time is the bug this replaced: an
+# unreadable embedded source record has to fail the one thing it can make
+# wrong — the ref this file writes into an adopter's repository — and nothing
+# else. Rendered at import, a corrupt record in a stamped wheel raised while
+# `agents_shipgate.cli.discovery` was still being imported, so every command in
+# the CLI died with a traceback, `doctor` included; `doctor` is what the
+# runbook tells an operator to run when an install looks wrong (#570).
+def __getattr__(name: str) -> str:
+    if name == "WORKFLOW_TEMPLATE":
+        return _render_workflow_template()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 WORKFLOW_RELATIVE_PATH = ".github/workflows/agents-shipgate.yml"
 

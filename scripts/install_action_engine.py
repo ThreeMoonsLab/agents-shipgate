@@ -49,8 +49,17 @@ def install_wheel(*, workspace: Path, wheel: str, sha256: str, version: str = ""
         raise ValueError("Expected an agents_shipgate X.Y.Z py3-none-any wheel filename")
     with tempfile.TemporaryDirectory(prefix="shipgate-action-wheel-") as directory:
         snapshot = Path(directory) / path.name
+        # O_BINARY matters on Windows runners: without it os.open() hands back
+        # a text-mode descriptor, and a zip read through one is rewritten at
+        # every CRLF and truncated at the first 0x1A byte — so a wheel that is
+        # exactly right never captures. The stdlib ORs it for the same reason
+        # (`_pyio.FileIO`, `tempfile._bin_openflags`); it is 0 elsewhere.
         descriptor = os.open(
-            path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+            path,
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0)
+            | getattr(os, "O_BINARY", 0),
         )
         with os.fdopen(descriptor, "rb") as source, snapshot.open("wb") as destination:
             current = os.fstat(source.fileno())

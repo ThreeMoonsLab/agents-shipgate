@@ -198,17 +198,24 @@ An explicit `AGENTS_SHIPGATE_WORKFLOW_REF` still selects the operator's requeste
 Action source and omits the candidate version selector. It cannot hide a malformed
 embedded source record. Ordinary and preview builds keep their published fallback.
 
+A malformed record refuses the one thing it decides — the pin `init --ci` writes —
+and nothing else. `doctor`, `check` and `verify` keep running on that install, so
+the diagnostic that names the broken wheel is still available.
+
 ### Distribution smoke before and after publication
 
 Run **Release Engine Smoke (unqualified)** on the committed candidate branch
 before freezing qualification inputs. Its read-only jobs build the stamped
 wheel, install it outside the source import path, generate the advisory CI pin,
 and exercise both the installed CLI and the Action from the same immutable
-checkout on the existing unsafe-refund PR fixture. The evidence artifact names
-the wheel hash, source/Action SHA, installed version/contract, generated workflow
-and both capability results and engine identities. The two halves must agree
-and show the blocked result. This is
-synthetic distribution evidence; it grants no qualification or release authority.
+checkout on the existing unsafe-refund PR fixture. Do not run
+`release_engine_smoke.py prepare` in your own checkout: it commits fixture
+history onto the current HEAD, which is why it refuses to run at all without
+`--disposable-checkout`. The evidence artifact names the wheel hash,
+source/Action SHA, installed version/contract, generated workflow and both
+capability results and engine identities. The two halves must agree and show
+the blocked result. This is synthetic distribution evidence; it grants no
+qualification or release authority.
 
 After publication the release owner must download the actual wheel from the
 published channel, compare its hash with the qualified wheel, and repeat the
