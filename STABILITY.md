@@ -118,7 +118,7 @@ control surfaces is in
 the runtime by `tests/test_report_1_0_contract.py`.
 
 **Pre-freeze reports are no longer engine input.** `scan --diff-from`,
-`explain-finding`, `findings`, `scenario suggest` and `packet` refuse a `0.x`
+`explain-finding`, `findings`, `scenario suggest` and `evidence-packet` refuse a `0.x`
 report by name, with a stable `reason_code` and a regeneration route, instead
 of validating it against a model whose defaults would stand in for blocks it
 never recorded. A report from a *newer* `1.x` minor is refused the same way:

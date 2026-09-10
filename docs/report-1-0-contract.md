@@ -218,7 +218,7 @@ newer than the running build. Every external report boundary goes through
 - `agents-shipgate explain-finding`
 - `agents-shipgate findings`
 - `agents-shipgate scenario suggest`
-- `agents-shipgate packet` given a `report.json`
+- `agents-shipgate evidence-packet` given a `report.json`
 
 The refusal is by name, with a route, and it carries a stable `reason_code`:
 

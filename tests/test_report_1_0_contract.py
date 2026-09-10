@@ -221,6 +221,33 @@ def test_a_provisional_field_is_never_a_release_gate_input() -> None:
     assert rows["report_schema_version"] == ("required", "stable")
 
 
+def test_every_command_the_contract_names_exists() -> None:
+    """A migration route a reader cannot run is not a route.
+
+    This document's whole job is to tell someone what to do with an artifact
+    this build refuses, and it shipped naming `agents-shipgate packet` -- a
+    command that does not exist; the real one is `evidence-packet`. Nothing
+    caught it: the docs tests check links, and the distribution-surface parity
+    harness checks pins. `distribution-surfaces.md` states the invariant this
+    restores -- "a surface that tells a reader to execute something must name
+    something that resolves in the build it names".
+    """
+
+    from agents_shipgate.cli.main import app
+
+    known = {command.name or command.callback.__name__ for command in app.registered_commands}
+    known |= {group.name for group in app.registered_groups}
+    known = {name for name in known if name}
+
+    referenced = set(re.findall(r"agents-shipgate ([a-z][a-z-]+)", CONTRACT_DOC.read_text(encoding="utf-8")))
+    unknown = sorted(referenced - known)
+    assert not unknown, (
+        f"docs/{CONTRACT_DOC.name} tells a reader to run "
+        f"{', '.join(f'`agents-shipgate {name}`' for name in unknown)}, which "
+        f"this build does not have. Known commands: {', '.join(sorted(known))}."
+    )
+
+
 # --------------------------------------------------------------------------
 # The compatibility boundary
 # --------------------------------------------------------------------------
