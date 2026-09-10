@@ -43,7 +43,7 @@ same remedy. PR summaries retain up to three recovery explanations even when
 the full fix task exceeds the comment budget, and point to the complete report.
 
 This metadata is an additive field on the existing open `EvidenceGap` object,
-including its report v0.43, packet v0.18, verifier v0.16 and qualification v6
+including its report v1.0, packet v0.18, verifier v0.16 and qualification v6
 projections. Older rows omit it on round-trip. It adds no verdict, threshold,
 declaration claim, or permission: `review_warning` and `authorable_by` retain
 their existing meaning, and an actual IE remains an exact-score miss.

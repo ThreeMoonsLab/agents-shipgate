@@ -271,7 +271,7 @@ repo's machine-readable contracts quickly.
 - **[`docs/agent-autofix-boundary.md`](docs/agent-autofix-boundary.md)** — what an agent may fix mechanically, and what it must never assert. Read this before touching a declaration.
 - **[`docs/agents/`](docs/agents/README.md)** — per-host entry points, the local control protocol, and the feedback loop.
 - **[`docs/checks.json`](docs/checks.json)** + **[`docs/checks.md`](docs/checks.md)** — machine-readable and prose check catalogs.
-- **[`docs/report-schema.v0.43.json`](docs/report-schema.v0.43.json)** — the current report schema, `0.43`. Reports carry `report_schema_version: "0.43"`; the handoff, verifier, receipt, capability-lock and attestation schemas are listed with it in [`docs/INDEX.md`](docs/INDEX.md).
+- **[`docs/report-schema.v1.0.json`](docs/report-schema.v1.0.json)** — the current report schema, `1.0`, frozen. Reports carry `report_schema_version: "1.0"`; `0.43` is the last pre-freeze version and stays published as a frozen reference at [`docs/report-schema.v0.43.json`](docs/report-schema.v0.43.json). What `1.x` may and may not change is in [`docs/report-1-0-contract.md`](docs/report-1-0-contract.md); the handoff, verifier, receipt, capability-lock and attestation schemas are listed with it in [`docs/INDEX.md`](docs/INDEX.md).
 - **[`STABILITY.md`](STABILITY.md)** — what will not break across `0.x` versions.
 
 Read `agents-shipgate-reports/current-control.json` first — it names which run
@@ -309,7 +309,7 @@ Agents Shipgate is a static, manifest-first scanner. It is intentionally narrow:
 - It does not verify runtime behavior, latency, prompt quality, or routing decisions.
 - It does not replace dynamic security testing or human security review of the underlying systems.
 - It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, MCP server source registrations, Anthropic/OpenAI API artifacts, optional SDK AST metadata, static Google ADK/LangChain/CrewAI/n8n/Conductor OSS inputs, Codex repo config, and static Codex plugin package metadata; tools that are not declared or statically discoverable are not scanned.
-- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.43"`; every narrowing decision is recorded in `surface_exclusions` and reachable by the release decision, while v0.42 remains frozen for archived reports.
+- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "1.0"`; every narrowing decision is recorded in `surface_exclusions` and reachable by the release decision, while v0.43 remains frozen for archived reports.
 
 ## Trust Model
 

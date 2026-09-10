@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+- Freeze the report contract at `1.0` and publish what that number promises.
+  `report_schema_version` moves `0.43` → `1.0` and runtime contract `33` → `34`;
+  `minimum_control_contract_version` stays `21`. The shape does not change:
+  `docs/report-schema.v1.0.json` and `docs/report-schema.v0.43.json` are
+  byte-identical apart from `$id`, `title` and the version constant, so a
+  consumer written against `0.43` needs no edit. `1.x` is additive-only, a
+  change that cannot be expressed additively needs `2.0`, a deprecation cycle
+  counts shipped releases rather than time on unreleased `main`, and every
+  published schema URL keeps its bytes. The stable/provisional inventory of
+  report fields, CLI, exit-code, Action and control surfaces, the migration
+  from the shipped `v0.15.0` contract, and the recorded RC exercise are in
+  [`docs/report-1-0-contract.md`](docs/report-1-0-contract.md), checked against
+  the runtime by `tests/test_report_1_0_contract.py`.
+
+  Pre-freeze `0.x` reports are no longer accepted as engine *input*.
+  `scan --diff-from`, `explain-finding`, `findings`, `scenario suggest` and
+  `evidence-packet` refuse one by name, with a stable `reason_code` and a
+  regeneration route, instead of validating it against a model whose defaults
+  would stand in for blocks it never recorded. A report from a newer `1.x`
+  minor is read by a projection reader and refused by an evidence comparison.
+  Nothing is converted and no artifact gains current authority through
+  conversion or a restamped digest; every superseded schema stays published, so
+  archived reports remain validatable. An incomparable `--diff-from` base still
+  withholds the verdict rather than downgrading it — that routing is now keyed
+  on the refusal's own reason code instead of on its wording.
+
+  The production `beta` qualification policy's `required_report_schema_version`
+  moves to `1.0` with the engine. Issuance of the `pre_1_0` tier is retired:
+  `scripts/run_safety_qualification.py` produces no artifact carrying it and
+  `--policy-tier pre-1.0` is refused by name. The policy, its thresholds and
+  every reader of it remain, and it keeps its historical `0.43` pin so an
+  artifact already scored against it is still named and diagnosed correctly.
+  No scoring floor moved (#569).
+
 - Name what a change did to the bound each finding depends on.
   `tool_surface_diff.finding_attributions[]` projects the shipped
   `openapi_delete/v1` and `sdk_boolean_guard/v1` comparisons onto active

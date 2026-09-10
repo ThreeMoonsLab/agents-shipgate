@@ -64,15 +64,21 @@ allow list from `Bash(npm test)` / `Read(src/**)` to `Bash(*)` / `Read(**)` /
 capability-change class this pilot exists to observe.
 
 **Published build measured: `0.15.0`.** Preview measured:
-`0.16.0+preview.20260903.gb61aca7`. Source tree: `0.16.0`, rechecked on 2026-09-09 against the uncommitted
-#568 candidate based on `649992803952da63c087f3143403447bf8528a46`, with
-runtime contract 33. The source-tree
+`0.16.0+preview.20260903.gb61aca7`. Source tree: `0.16.0`, rechecked on 2026-09-10 against the
+uncommitted #569 report-1.0-freeze candidate based on
+`8e81672b`, with runtime contract 34. The source-tree
 column below was rerun; the released and preview columns retain their earlier
 measurement and were not relabeled as new runs.
 
+The rerun reproduced every source-tree cell unchanged except the contract
+number: the freeze renumbers the report schema and does not touch host
+discovery, `check`, the audit route or drift. That is the point of re-running
+rather than carrying the row forward — "nothing changed" is a measurement, not
+an assumption.
+
 | | Released `v0.15.0` (`pipx install`) | Preview `0.16.0+preview.20260903` (`gh release download`) | Source tree |
 | --- | --- | --- | --- |
-| Runtime contract | 10 | 29 | 33 |
+| Runtime contract | 10 | 29 | 34 |
 | Host-grant inventory schema | 0.1 | 0.2 | 0.3 |
 | `check` on the fixture | `warn` / `none`, **0 violations** | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** |
 | Coverage limit visible (`host_coverage`, `excluded_scopes`) | no | yes | yes |

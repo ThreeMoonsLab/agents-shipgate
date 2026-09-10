@@ -2,6 +2,14 @@
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
+Runtime contract v34 freezes the report contract at `1.0` (#569). No field is
+added, renamed, retyped or removed; `minimum_control_contract_version` stays at
+`21` because every operational control shape is byte-identical. The production
+qualification policy's `required_report_schema_version` moves to `1.0` with the
+engine, and issuance of the `pre_1_0` qualification tier is retired — existing
+`pre_1_0` artifacts stay readable, nameable and scoreable, and every scoring
+floor is unchanged.
+
 Runtime contract v33 extends `detect` with `host_boundary_candidates` and
 `host_discovery_incomplete_paths`. They are filename applicability and
 incomplete-traversal evidence, never permission assertions. The second field
@@ -30,12 +38,30 @@ their routes. Persisted release evidence and its schema versions are unchanged.
 
 This document is the contract. If the runtime ever diverges from what's documented here, that's a bug — please file an issue.
 
-Shipgate is pre-1.0. The CLI surface, exit codes, and `contract_version`
-described here are stable within the `0.x` line, but the `report.json` schema
-(`report_schema_version`, currently `0.43`) is still additive-versioned and
-not yet frozen. A `1.0` line will not begin until the report schema reaches
-`1.0` and holds without a breaking change. Pin a version (or the Action tag)
-for reproducible CI.
+The `report.json` schema is **frozen at `1.0`**
+(`report_schema_version`, [`docs/report-schema.v1.0.json`](docs/report-schema.v1.0.json)),
+satisfying the condition this document set for beginning a `1.0` line. `1.0`
+is a promotion of the `0.43` shape, not a break: the two schemas are
+byte-identical apart from `$id`, `title` and the version constant, so a
+consumer written against `0.43` reads a `1.0` report unchanged.
+
+`1.x` is additive-only. A minor may add a block, a member, an open-enum value
+or a check ID; it may not rename, retype, remove or redefine anything. A change
+that cannot be expressed additively needs `2.0`. A deprecation cycle is counted
+in **shipped releases**, never in elapsed time on unreleased `main` — a
+deprecation nobody could install gave nobody the chance to migrate. Every
+published `docs/report-schema.v<version>.json` keeps its bytes forever.
+
+The freeze is conditional: it holds while no breaking change lands, and a
+breaking change restarts it and invalidates every qualification receipt
+collected against it. The CLI surface, exit codes and `contract_version` remain
+stable as described here. Pre-freeze `0.x` reports stay published and readable,
+but are no longer accepted as *input* to this engine — they are refused by name
+with a regeneration route rather than reinterpreted under the current model's
+defaults. The stable/provisional inventory, the `1.x` rules and the migration
+from the shipped `v0.15.0` contract are in
+[`docs/report-1-0-contract.md`](docs/report-1-0-contract.md). Pin a version (or
+the Action tag) for reproducible CI.
 
 ---
 
@@ -67,6 +93,54 @@ V3 remains unsupported. Corpus/receipt-index v4, report v0.43, policy labels,
 thresholds and release permissions are unchanged. See
 [qualification coverage](docs/qualification-coverage.md) for denominators,
 unscored cases and the limits of named gap evidence.
+
+<a id="migration-note-unreleased-report-1-0-freeze"></a>
+
+## Migration Note: 0.16.0 — the report contract is frozen at 1.0
+
+Runtime contract `33 → 34`; `report_schema_version` moves **`0.43` → `1.0`**;
+the minimum control contract stays at `21`. Packet `0.18`, verifier `0.17`,
+receipt, capability-lock, attestation, preflight and host-grants schemas keep
+their versions: renumbering every schema would be work without compatibility.
+
+**The shape did not change.** `docs/report-schema.v1.0.json` and
+`docs/report-schema.v0.43.json` are byte-identical apart from `$id`, `title`
+and the `report_schema_version` constant. A consumer written against `0.43`
+needs no change. `0.43` is the last pre-freeze version and stays published as a
+frozen reference.
+
+**What changed is the promise.** `1.x` is additive-only; a change that cannot
+be expressed additively needs `2.0`; a deprecation cycle counts shipped
+releases, not time on `main`; every published schema URL keeps its bytes. The
+stable/provisional inventory of report fields, CLI, exit codes, Action and
+control surfaces is in
+[`docs/report-1-0-contract.md`](docs/report-1-0-contract.md), checked against
+the runtime by `tests/test_report_1_0_contract.py`.
+
+**Pre-freeze reports are no longer engine input.** `scan --diff-from`,
+`explain-finding`, `findings`, `scenario suggest` and `packet` refuse a `0.x`
+report by name, with a stable `reason_code` and a regeneration route, instead
+of validating it against a model whose defaults would stand in for blocks it
+never recorded. A report from a *newer* `1.x` minor is refused the same way:
+the additive rule keeps a consumer's parser working across minors, it does not
+let this build compare evidence recorded under a contract it does not have.
+Nothing is converted, and no artifact gains current authority by conversion or
+by a restamped digest. Every superseded schema stays published, so archived
+reports remain validatable.
+
+**Qualification.** The production `beta` policy's
+`required_report_schema_version` moves to `1.0`, equal to what the engine
+emits. Issuance of the `pre_1_0` tier is retired: the runner will not produce
+one, and `--policy-tier pre-1.0` is refused by name. The `pre_1_0` policy
+itself, its thresholds and every reader of it remain, and it deliberately keeps
+its historical `0.43` pin so an artifact already scored against it is still
+named correctly rather than demoted to the unnamed `test` tier. No scoring
+floor moved; no old evidence is re-read as `beta` qualification.
+
+The freeze is conditional. A breaking change restarts it and invalidates every
+qualification receipt collected against `1.0`.
+
+---
 
 <a id="migration-note-unreleased-human-review-decision"></a>
 
@@ -2000,7 +2074,7 @@ verification continues to require human review before merge or execution.
 
 In `agents-shipgate-reports/report.json`, the following are guaranteed:
 
-- `report_schema_version` — bumps minor on additive changes, major on breaking
+- `report_schema_version` — frozen at `1.0`. Bumps minor on additive changes; a breaking change needs a new major, which restarts the freeze. The `0.43 → 1.0` promotion was itself additive-empty: the two schemas are byte-identical apart from `$id`, `title` and this constant. See [`docs/report-1-0-contract.md`](docs/report-1-0-contract.md)
 - `release_decision.{decision, reason, blockers, review_items, evidence_coverage, baseline_delta, fail_policy}` (v0.8+)
 - `release_decision.evidence_coverage.semantic_coverage.{total_actions, pass_eligible_actions, gap_count, review_concern_count, reason_counts}` (v0.29+) — zero-tolerance semantic pass coverage. It is derived from normalized action assessments and contributes directly to the release decision; it is not suppressible or baseline-able.
 - `release_decision.evidence_coverage.semantic_coverage.declaration_questions.{total, answered, open, open_by_dimension, open_questions[]}` (v0.37+) — the same action surface counted as a questionnaire. A *question* is one `(action, dimension)` a reviewed `action_surface.actions` row has to answer; only `effect` and `authority` are counted, and an action whose effect the scan established by itself never enters `total`. `answered` counts dimensions that gap when the same action is re-resolved without its declaration, so it can neither credit a declaration nobody needed nor be raised by restating what the scan already knew. `total == answered + open`, `open_by_dimension` sums to `open`, and `open_questions[]` is the answer order (highest-acting action first, `effect` before `authority`), joining to `evidence_gaps[]` on `(subject_kind, subject_id)`. Purely a projection: no branch of the release decision reads it, and its ordering cannot change a verdict. v0.38 restates the unit as *one blank a reviewer fills*: `open_questions[].answer_path` names the manifest block that answers the question, and actions answered by the same block are one question. `open_questions[].subject_kind` (`action` | `tool_source`) says which id space `subject_id` is in — an authority question every action of a source shares is answered in that source's `tool_sources[].authority` block, so it is asked, counted, and rendered once. v0.41 adds `open_questions[].authorable_by`, the conjunction of the same tag on every `evidence_gaps[]` row the question folds: a block whose effect the scan can propose but whose authority it cannot is still a human's edit.
@@ -3283,9 +3357,13 @@ If you need stability guarantees beyond what's listed here, please open an issue
 
 We follow [SemVer](https://semver.org/) loosely:
 
-- **Patch** (`0.5.x`): bug fixes only. No new features, no breaking changes.
-- **Minor** (`0.x.0`): new features (new checks, new input loaders, new flags). Adheres to this contract.
-- **Major** (`1.0.0`): may break the contract. Will be announced with a migration guide.
+- **Patch** (`x.y.Z`): bug fixes only. No new features, no breaking changes.
+- **Minor** (`x.Y.0`): new features (new checks, new input loaders, new flags). Adheres to this contract.
+- **Major** (`X.0.0`): may break the contract. Will be announced with a migration guide.
+
+Artifact schemas version independently of the package. `report_schema_version`
+is frozen at `1.0` and follows the `1.x` rules above; a deprecation cycle is
+counted in shipped releases, never in elapsed time on unreleased `main`.
 
 The current version is in [`pyproject.toml`](pyproject.toml). Changelog is in [`CHANGELOG.md`](CHANGELOG.md).
 

@@ -433,7 +433,13 @@ def production_safety_requirements() -> SafetyQualificationRequirementsV1:
         # ``test_the_qualification_gate_demands_the_schema_the_engine_emits``,
         # because a gate demanding a schema no build produces rejects every
         # receipt with "qualification report schema mismatch".
-        required_report_schema_version="0.43",
+        #
+        # Moved 0.43 -> 1.0 with the report freeze (#569). This is the pin a
+        # v1.0 candidate's receipts are collected against, so it, the engine
+        # and the exact candidate wheel have to agree *before* those receipts
+        # exist -- a mismatch discovered afterwards invalidates every one of
+        # them.
+        required_report_schema_version="1.0",
     )
 
 
@@ -537,6 +543,16 @@ def pre_release_safety_requirements() -> SafetyQualificationRequirementsV1:
         # no floor to meet. The field stays for shipped-schema compatibility;
         # both named policies require zero expected-IE cases.
         minimum_insufficient_evidence_exact=0,
+        # Deliberately *not* moved to 1.0 with the report freeze (#569). This
+        # policy is now historical: issuance of ``pre_1_0`` artifacts is
+        # retired, and the only remaining job of this constructor is to let an
+        # artifact that was already scored against it still be read, named and
+        # diagnosed. ``tier_for_requirements`` names a policy by byte-equality,
+        # so re-pinning this to a schema no ``pre_1_0`` artifact ever carried
+        # would demote every existing one to the unnamed ``test`` tier and
+        # replace an accurate diagnosis with a misleading one. A ``pre_1_0``
+        # artifact still cannot publish a 1.0 release: that is decided by
+        # ``accepted_qualification_tiers``, which admits production only.
         required_report_schema_version="0.43",
     )
 

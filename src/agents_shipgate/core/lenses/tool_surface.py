@@ -35,6 +35,10 @@ from agents_shipgate.schemas.report import (
     Finding,
     ReadinessReport,
 )
+from agents_shipgate.schemas.report_compatibility import (
+    ReportSchemaCompatibilityError,
+    require_supported_report_schema,
+)
 from agents_shipgate.schemas.surfaces import (
     ActionDeclarationFacts,
     ActionSurfaceFacts,
@@ -935,16 +939,20 @@ def _reference_from_report_payload(
     payload: dict[str, Any],
     display_path: str,
 ) -> ToolSurfaceDiffReference:
-    source_version = payload.get("report_schema_version")
-    if _report_schema_precedes_semantic_diff(source_version):
-        raise InputParseError(
-            f"Reference report {display_path} uses report schema {source_version}, "
-            f"which predates report schema {_SEMANTIC_DIFF_REPORT_SCHEMA_VERSION} "
-            "semantic evidence and is not comparable with --diff-from. "
-            "Regenerate the base report from its source workspace with "
-            f"`{_REGENERATE_DIFF_BASE_COMMAND}`, then rerun the head scan using "
-            "the regenerated report."
+    # The old gate here was "predates 0.30 semantic evidence". The 1.0 freeze
+    # replaces it with the shared boundary (#569): a base written before the
+    # freeze is refused outright rather than compared field-by-field against a
+    # head whose blocks it never recorded. The route is the same one it always
+    # was -- regenerate the base from its own workspace -- so this narrows what
+    # is accepted without narrowing what a reader can do about it.
+    try:
+        require_supported_report_schema(
+            payload.get("report_schema_version"),
+            subject=f"Reference report {display_path}",
+            regenerate_command=_REGENERATE_DIFF_BASE_COMMAND,
         )
+    except ReportSchemaCompatibilityError as exc:
+        raise InputParseError(str(exc)) from exc
     try:
         report = ReadinessReport.model_validate(payload)
     except ValidationError as exc:

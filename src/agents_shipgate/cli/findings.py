@@ -18,17 +18,11 @@ from agents_shipgate.core.privacy import sanitize_report_payload
 from agents_shipgate.schemas.common import ProvenanceKind, parse_provenance_kind
 from agents_shipgate.schemas.diagnostics import NextAction
 from agents_shipgate.schemas.report import Finding, ReadinessReport
-
-_MIN_SUPPORTED_SCHEMA = "0.15"
-
-
-def _version_tuple(value: str) -> tuple[int, ...]:
-    try:
-        return tuple(int(part) for part in value.split("."))
-    except (AttributeError, ValueError) as exc:
-        raise ValueError(
-            f"invalid report_schema_version: {value!r}"
-        ) from exc
+from agents_shipgate.schemas.report_compatibility import (
+    ReportSchemaCompatibilityError,
+    current_report_schema_version,
+    require_supported_report_schema,
+)
 
 
 def _load_report(path: Path) -> ReadinessReport:
@@ -45,20 +39,19 @@ def _load_report(path: Path) -> ReadinessReport:
     if not isinstance(payload, dict):
         raise ValueError("report JSON must be an object")
 
-    version = payload.get("report_schema_version")
-    if not isinstance(version, str):
-        raise ValueError(
-            "input must be an agents-shipgate report.json with a "
-            "string `report_schema_version`."
+    # Replaced this command's own ">= 0.15 for provenance_kind" floor with
+    # the shared 1.0 boundary (#569): every supported report is 1.x, and 1.x
+    # carries `provenance_kind` by construction.
+    try:
+        require_supported_report_schema(
+            payload.get("report_schema_version"),
+            subject="report.json",
+            # findings filters the rows it is handed, so a
+            # later 1.x minor's extra fields change nothing it emits.
+            accept_newer_minor=True,
         )
-    if _version_tuple(version) < _version_tuple(_MIN_SUPPORTED_SCHEMA):
-        raise ValueError(
-            f"findings provenance filtering requires report_schema_version "
-            f">= {_MIN_SUPPORTED_SCHEMA} (got {version!r}). The v0.15 "
-            "`provenance_kind` field is required for this command. "
-            "Re-scan with the current CLI: "
-            "`agents-shipgate scan -c shipgate.yaml --format json`."
-        )
+    except ReportSchemaCompatibilityError as exc:
+        raise ValueError(str(exc)) from exc
 
     payload = sanitize_report_payload(payload)
     try:
@@ -227,8 +220,9 @@ def findings(
                 "fresh report.json with the current CLI."
             ),
             expects=(
-                "agents-shipgate-reports/report.json on disk, "
-                "validatable against report schema v0.15 or newer."
+                "agents-shipgate-reports/report.json on disk, carrying the "
+                f"report schema this build emits ({current_report_schema_version()}) "
+                "or a later minor of the same major."
             ),
         )
         emit_agent_mode_error(

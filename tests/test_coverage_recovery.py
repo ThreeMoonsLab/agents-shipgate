@@ -294,7 +294,7 @@ def test_recovery_does_not_rewrite_space_bearing_source_locations(tmp_path, caps
 
 
 @pytest.mark.parametrize("schema", [
-    "report-schema.v0.43.json", "packet-schema.v0.18.json", "verifier-schema.v0.16.json",
+    "report-schema.v1.0.json", "packet-schema.v0.18.json", "verifier-schema.v0.16.json",
 ])
 def test_recovery_uses_existing_open_evidence_gap_extension(schema):
     document = json.loads((ROOT / "docs" / schema).read_text())

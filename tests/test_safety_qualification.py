@@ -228,7 +228,12 @@ def _test_requirements() -> SafetyQualificationRequirementsV1:
         minimum_blocked_exact=1,
         minimum_review_exact=1,
         minimum_insufficient_evidence_exact=1,
-        required_report_schema_version="0.43",
+        # Read from the model rather than pinned: this fixture measures scoring,
+        # and a stale literal here fails every receipt on a schema comparison
+        # that has nothing to do with what the test is about.
+        required_report_schema_version=str(
+            ReadinessReport.model_fields["report_schema_version"].default
+        ),
     )
 
 
@@ -312,7 +317,17 @@ def _fixture(
     disagreement_case: str | None = None,
     cases: list[SafetyCorpusCaseV1] | None = None,
     evidence_gaps: dict[str, list[dict]] | None = None,
+    report_schema_version: str | None = None,
 ) -> tuple[Path, Path, Path, Path]:
+    """Build a qualification input set.
+
+    ``report_schema_version`` writes the receipts' reports at a version other
+    than the one this engine emits. That is what scoring a *historical*
+    artifact looks like, and it is the only way the retired ``pre_1_0`` policy
+    can be exercised at all: its pin deliberately stays at the ``0.43`` its
+    artifacts actually carry (#569), so a report from the current engine fails
+    its schema comparison, correctly.
+    """
     wheel = tmp_path / "agents_shipgate-0.16.0b7-py3-none-any.whl"
     _write_wheel(wheel)
     policy = tmp_path / "qualification-policy.json"
@@ -356,6 +371,11 @@ def _fixture(
         report_path = reports / "report.json"
         verifier_path = reports / "verifier.json"
         report = ReadinessReport(
+            **(
+                {"report_schema_version": report_schema_version}
+                if report_schema_version is not None
+                else {}
+            ),
             run_id=f"run-{case.id}",
             request_id=plan.request_id,
             subject_id=plan.subject.subject_id,
@@ -690,9 +710,17 @@ def test_the_pre_1_0_policy_is_never_laxer_than_production_per_rate() -> None:
         == production.minimum_holdout_fraction_per_stratum
     )
     assert pre_1_0.minimum_kappa == production.minimum_kappa
-    assert (
-        pre_1_0.required_report_schema_version == production.required_report_schema_version
+    # The schema pins deliberately stopped being equal at the 1.0 freeze
+    # (#569). Production follows the engine; the retired `pre_1_0` tier keeps
+    # the pin its artifacts actually carry, because `tier_for_requirements`
+    # names a policy by byte-equality and re-pinning it would rename every
+    # existing artifact to the unnamed `test` tier. A schema pin is not a
+    # strictness bar, so this is not a relaxation -- the rate comparison below
+    # is what holds strictness.
+    assert production.required_report_schema_version == str(
+        ReadinessReport.model_fields["report_schema_version"].default
     )
+    assert pre_1_0.required_report_schema_version == "0.43"
     # The origin floor is the same share of the corpus, rounded up.
     production_total = sum(item.count for item in production.required_strata)
     pre_1_0_total = sum(item.count for item in pre_1_0.required_strata)
@@ -704,18 +732,21 @@ def test_the_governing_policy_is_derived_from_the_wheel_version() -> None:
     """#341 approved a policy keyed to the version range, so applying it is
     implementing the decision -- not inferring one from the tag."""
 
-    assert select_release_requirements("0.16.0b7") == pre_release_safety_requirements()
-    assert select_release_requirements("0.16.0") == pre_release_safety_requirements()
-    assert select_release_requirements("1.0.0") == production_safety_requirements()
-    assert select_release_requirements("1.0.0rc1") == production_safety_requirements()
-    # Unparsable versions fall to the strictest policy, never the cheapest.
-    assert select_release_requirements("not-a-version") == production_safety_requirements()
+    # Issuance of the `pre_1_0` tier is retired with the report 1.0 freeze
+    # (#569), so every version now selects the production policy -- including
+    # the `0.x` versions #341's rule used to route to the cheaper one.
+    for version in ("0.16.0b7", "0.16.0", "1.0.0", "1.0.0rc1", "not-a-version"):
+        assert select_release_requirements(version) == production_safety_requirements()
 
-    # Opting *up* is always available; opting down past 1.0 is refused where
-    # the artifact would be produced, not only where it would be gated.
+    # Naming the only remaining policy explicitly is not an error.
     assert select_release_requirements("0.16.0b7", "production") == production_safety_requirements()
-    with pytest.raises(ConfigError, match="does not govern 1.0.0"):
-        select_release_requirements("1.0.0", "pre-1.0")
+    # The retired tier is refused *by name* rather than dropped from the choice
+    # list, so an operator running a pre-freeze runbook line gets the reason
+    # instead of "invalid choice". It is refused for a 0.x wheel too: the point
+    # is that no wheel gets one, not that 1.0 stopped admitting it.
+    for version in ("1.0.0", "0.16.0b7"):
+        with pytest.raises(ConfigError, match="retired and no longer issued"):
+            select_release_requirements(version, "pre-1.0")
     with pytest.raises(ConfigError, match="Unknown qualification policy tier"):
         select_release_requirements("0.16.0b7", "whatever")
 
@@ -779,32 +810,36 @@ def test_an_ad_hoc_threshold_set_can_never_name_itself_a_release_tier() -> None:
     assert tier_for_requirements(weakened) == "test"
 
 
-def test_a_conforming_38_case_corpus_qualifies_a_0_x_wheel(tmp_path: Path) -> None:
-    """End-to-end: the approved pre-1.0 bar is satisfiable, and honest about it.
+def test_the_retired_pre_1_0_policy_still_scores_its_own_historical_artifacts(
+    tmp_path: Path,
+) -> None:
+    """Retirement is about issuance; readability and diagnostics survive it.
 
-    This is the only test in which the runner produces a *passing* named-policy
-    artifact, so it is the only place that can catch the runner claiming
-    ``production_qualified`` for a tier that did not meet the 80-case bar.
+    The approved pre-1.0 bar is still satisfiable by the corpus it was written
+    for, still names itself ``pre_1_0``, and is still emphatically *not*
+    production-qualified. What changed at the 1.0 freeze (#569) is that the
+    runner will not *produce* one -- so this scores explicitly, at the report
+    schema that policy pins, which is what a historical re-score is.
     """
 
     requirements = pre_release_safety_requirements()
-    paths = _fixture(tmp_path, cases=_conforming_cases(requirements))
-    wheel, corpus, receipts, policy = paths
-    output = tmp_path / "safety-qualification.json"
-
-    exit_code = main(
-        [
-            "--wheel", str(wheel),
-            "--corpus", str(corpus),
-            "--receipts", str(receipts),
-            "--policy", str(policy),
-            "--out", str(output),
-        ]
+    wheel, corpus, receipts, policy = _fixture(
+        tmp_path,
+        cases=_conforming_cases(requirements),
+        report_schema_version=requirements.required_report_schema_version,
     )
-    payload = json.loads(output.read_text(encoding="utf-8"))
+
+    result = run_safety_qualification(
+        wheel_path=wheel,
+        corpus_path=corpus,
+        receipt_index_path=receipts,
+        policy_paths=[policy],
+        requirements=requirements,
+    )
+    payload = json.loads(render_safety_qualification_json(result))
 
     assert payload["failures"] == []
-    assert exit_code == 0
+    assert qualification_exit_code(result) == 0
     assert payload["qualification_tier"] == "pre_1_0"
     assert payload["qualified"] is True
     # The whole point of keeping the flag's meaning: a passing pre-1.0 run is
@@ -821,8 +856,24 @@ def test_a_conforming_38_case_corpus_qualifies_a_0_x_wheel(tmp_path: Path) -> No
     assert not [row for row in payload["strata"] if row["expected_decision"] == "insufficient_evidence"]
     assert all(row["holdout_count"] >= row["minimum_holdout_count"] for row in payload["strata"])
 
-    # ...and the same corpus is nowhere near the production bar it does not claim.
-    production_output = tmp_path / "production.json"
+
+def test_the_runner_will_not_issue_a_pre_1_0_artifact_for_any_wheel(
+    tmp_path: Path,
+) -> None:
+    """The retirement, at the only boundary ``main`` can reach.
+
+    A 38-case corpus used to qualify a ``0.x`` wheel through the CLI with no
+    flag at all. After the freeze the same invocation is scored against the
+    80-case production policy and fails on the bar it does not meet -- which is
+    the honest outcome, not an error message about a flag.
+    """
+
+    requirements = pre_release_safety_requirements()
+    wheel, corpus, receipts, policy = _fixture(
+        tmp_path, cases=_conforming_cases(requirements)
+    )
+    output = tmp_path / "safety-qualification.json"
+
     assert (
         main(
             [
@@ -830,16 +881,30 @@ def test_a_conforming_38_case_corpus_qualifies_a_0_x_wheel(tmp_path: Path) -> No
                 "--corpus", str(corpus),
                 "--receipts", str(receipts),
                 "--policy", str(policy),
-                "--out", str(production_output),
-                "--policy-tier", "production",
+                "--out", str(output),
             ]
         )
         == 1
     )
-    production = json.loads(production_output.read_text(encoding="utf-8"))
-    assert production["qualification_tier"] == "beta"
-    assert production["production_qualified"] is False
-    assert production["failures"]
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["qualification_tier"] == "beta"
+    assert payload["production_qualified"] is False
+    assert payload["failures"]
+
+    # And asking for the retired tier by name is refused with the reason.
+    assert (
+        main(
+            [
+                "--wheel", str(wheel),
+                "--corpus", str(corpus),
+                "--receipts", str(receipts),
+                "--policy", str(policy),
+                "--out", str(tmp_path / "retired.json"),
+                "--policy-tier", "pre-1.0",
+            ]
+        )
+        == 2
+    )
 
 
 def test_a_corpus_with_more_holdout_than_required_is_accepted(tmp_path: Path) -> None:
@@ -857,12 +922,17 @@ def test_a_corpus_with_more_holdout_than_required_is_accepted(tmp_path: Path) ->
         case.model_copy(update={"split": "holdout"})
         for case in _conforming_cases(requirements)
     ]
-    wheel, corpus, receipts, policy = _fixture(tmp_path, cases=every_case_held_out)
+    wheel, corpus, receipts, policy = _fixture(
+        tmp_path,
+        cases=every_case_held_out,
+        report_schema_version=requirements.required_report_schema_version,
+    )
     result = run_safety_qualification(
         wheel_path=wheel,
         corpus_path=corpus,
         receipt_index_path=receipts,
         policy_paths=[policy],
+        requirements=requirements,
     )
 
     assert result.failures == []
@@ -1125,10 +1195,10 @@ def test_cli_uses_an_unrelaxed_named_policy_and_emits_failed_artifact(
 ) -> None:
     """The CLI never scores the corpus it was handed on the corpus's own terms.
 
-    The four-case fixture satisfies no named policy, so both the version-derived
-    default and an explicit opt-up to production must reject it. ``0.16.0b7`` is
-    a ``0.x`` wheel, so the default is the pre-1.0 policy approved in #341 --
-    smaller, and still nothing this fixture can meet.
+    The four-case fixture satisfies no named policy, so both the default and an
+    explicit ``production`` must reject it. Since the 1.0 freeze (#569) those
+    are the same policy: ``pre_1_0`` issuance is retired, so a ``0.x`` wheel no
+    longer routes to the smaller bar, and asking for it by name is refused.
     """
 
     wheel, corpus, receipts, policy = _fixture(tmp_path)
@@ -1157,9 +1227,8 @@ def test_cli_uses_an_unrelaxed_named_policy_and_emits_failed_artifact(
         assert payload["failures"]
         return payload
 
-    assert _run_cli()["qualification_tier"] == "pre_1_0"
+    assert _run_cli()["qualification_tier"] == "beta"
     assert _run_cli("--policy-tier", "production")["qualification_tier"] == "beta"
-    assert _run_cli("--policy-tier", "pre-1.0")["qualification_tier"] == "pre_1_0"
 
 
 def test_human_adjudicated_non_safe_pass_fails_closed(tmp_path: Path) -> None:

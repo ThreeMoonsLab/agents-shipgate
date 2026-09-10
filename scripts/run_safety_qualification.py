@@ -5,11 +5,13 @@ This runner does not execute Agents Shipgate and never substitutes a scan for a
 verifier receipt. It validates frozen human labels, content-addressed verifier
 artifacts, and the exact built wheel before scoring a *named* release policy.
 
-Two named policies exist, and the wheel's version decides which one applies:
-the 80-case ``beta`` production policy, and the 38-case ``pre_1_0`` policy
-approved for ``0.x`` tags (issue #341, recorded in
-``docs/release-evidence-policy-decision.md``). Any other threshold set scores
-as ``test`` and can never release.
+One named policy is issued: the 80-case ``beta`` production policy. The
+38-case ``pre_1_0`` policy approved for ``0.x`` tags (issue #341, recorded in
+``docs/release-evidence-policy-decision.md``) is **retired** as of the report
+1.0 freeze (#569) -- this runner will not produce an artifact carrying it. The
+policy, its thresholds and every reader of it remain, so an artifact already
+scored against it is still parsed, named and diagnosed. Any other threshold
+set scores as ``test`` and can never release.
 """
 
 from __future__ import annotations
@@ -56,7 +58,6 @@ from agents_shipgate.schemas.safety_qualification import (
     SafetyReceiptEntryV1,
     SafetyReceiptIndexV1,
     WilsonIntervalV1,
-    pre_release_safety_requirements,
     production_safety_requirements,
     tier_for_requirements,
 )
@@ -68,13 +69,11 @@ if __package__:
     from scripts._release_support import (
         accepted_qualification_tiers,
         describe_accepted_tiers,
-        release_version_is_pre_1_0,
     )
 else:  # ``python scripts/run_safety_qualification.py``
     from _release_support import (
         accepted_qualification_tiers,
         describe_accepted_tiers,
-        release_version_is_pre_1_0,
     )
 
 DECISIONS: tuple[ReleaseDecisionStatus, ...] = (
@@ -579,6 +578,15 @@ def _confusion_matrix(
 
 POLICY_TIER_CHOICES = ("auto", "production", "pre-1.0")
 
+#: Why the shipped runner can no longer produce a ``pre_1_0`` artifact (#569).
+RETIRED_PRE_1_0_ISSUANCE_MESSAGE = (
+    "the pre_1_0 qualification tier is retired and no longer issued: the "
+    "report 1.0 freeze makes the 80-case production policy the only policy a "
+    "release may be qualified under. Existing pre_1_0 artifacts remain "
+    "readable, nameable and scoreable; they are simply not produced any more. "
+    "Re-run with --policy-tier production (or auto, which now selects it)."
+)
+
 
 def require_tier_governs_version(tier: str, wheel_version: str) -> None:
     """Refuse a named policy the wheel's version does not admit.
@@ -609,26 +617,24 @@ def select_release_requirements(
 ) -> SafetyQualificationRequirementsV1:
     """Pick the named policy that governs ``wheel_version``.
 
-    ``auto`` applies the rule a human approved for issue #341 rather than
-    inferring one: ``0.x`` builds are governed by the pre-1.0 policy, anything
-    else by the 80-case production policy. The release verifiers re-derive the
-    same rule from the tag independently, so this choice is never trusted.
+    Every issuance now selects the 80-case production policy. The ``pre_1_0``
+    tier approved for issue #341 is **retired** with the report 1.0 freeze
+    (#569): this runner no longer produces an artifact carrying it, whatever
+    the wheel version. Retirement is about issuance only -- the policy itself,
+    its thresholds and its readers all remain, so an artifact that was already
+    scored against it is still parsed, named and diagnosed exactly as before.
 
-    ``production`` is always available -- opting *up* to more evidence than the
-    tag requires can never weaken a release. ``pre-1.0`` is refused for a
-    non-0.x wheel, at the point of production rather than at the gate, because
-    such an artifact could never publish.
+    ``production`` stays an explicit choice because being explicit about the
+    only remaining policy is not an error. ``pre-1.0`` is refused by name
+    rather than dropped from the choice list, so an operator running a
+    pre-freeze runbook line gets the reason instead of "invalid choice".
     """
 
     if choice not in POLICY_TIER_CHOICES:
         raise ConfigError(f"Unknown qualification policy tier: {choice}")
-    if choice == "production":
-        return production_safety_requirements()
     if choice == "pre-1.0":
-        require_tier_governs_version("pre_1_0", wheel_version)
-        return pre_release_safety_requirements()
-    if release_version_is_pre_1_0(wheel_version):
-        return pre_release_safety_requirements()
+        raise ConfigError(RETIRED_PRE_1_0_ISSUANCE_MESSAGE)
+    del wheel_version
     return production_safety_requirements()
 
 
@@ -648,6 +654,15 @@ def run_safety_qualification(
     # version rule is then re-applied to the *result*, so it also binds the
     # ``requirements=`` keyword, which bypasses the selector above.
     tier = tier_for_requirements(active_requirements)
+    # The retirement of ``pre_1_0`` issuance (#569) is enforced in
+    # ``select_release_requirements``, which is the only path ``main`` -- and
+    # therefore the release workflow -- can reach. It is deliberately *not*
+    # re-applied here. An explicit ``requirements=`` caller is re-scoring an
+    # artifact that was already produced under that policy, and refusing it
+    # would destroy exactly the historical readability and diagnostics the
+    # retirement is required to preserve. The dangerous case is already closed
+    # one line down: a ``pre_1_0`` threshold set against a ``1.0`` wheel is
+    # refused by the version rule, because no gate would ever accept it.
     require_tier_governs_version(tier, wheel_version)
     corpus_bytes = _read_input(corpus_path, description="Frozen safety corpus")
     corpus = _parse_frozen_corpus(corpus_bytes, corpus_path)

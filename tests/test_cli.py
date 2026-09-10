@@ -858,7 +858,15 @@ def test_cli_findings_invalid_provenance_kind_exits_three(tmp_path):
     assert "unsupported --provenance-kind value" in result.output
 
 
-def test_cli_findings_pre_v15_report_agent_mode_error(tmp_path, monkeypatch):
+def test_cli_findings_pre_freeze_report_agent_mode_error(tmp_path, monkeypatch):
+    """A pre-freeze report reaches an agent as a typed error with a route.
+
+    Was "requires >= 0.15 for provenance_kind"; the 1.0 freeze routes every
+    external report input through one boundary (#569). The agent-facing
+    contract is unchanged: exit 3, `input_parse_error`, and a `next_actions`
+    command that actually produces a readable report.
+    """
+
     monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
     old_report = tmp_path / "report.json"
     old_report.write_text(
@@ -872,7 +880,7 @@ def test_cli_findings_pre_v15_report_agent_mode_error(tmp_path, monkeypatch):
     )
 
     assert result.exit_code == 3
-    assert ">= 0.15" in result.output
+    assert "[report_schema_pre_freeze]" in result.output
     json_lines = [line for line in (result.output or "").splitlines() if line.startswith("{")]
     assert json_lines
     payload = json.loads(json_lines[-1])

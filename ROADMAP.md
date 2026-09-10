@@ -226,8 +226,9 @@ remain prerequisites. The current release decision is still **no-go**.
   stale current-control authority during a live read; [#559](https://github.com/ThreeMoonsLab/agents-shipgate/issues/559)
   separates hashed from parsed qualification bytes. Both precede final
   evidence; neither demonstrates an exploited release.
-- Report schema **0.43** has not met [STABILITY.md](STABILITY.md)'s report
-  **1.0** freeze condition. Candidate-generated CI now selects the stamped
+- Report schema is frozen at **1.0**, meeting [STABILITY.md](STABILITY.md)'s
+  report freeze condition; the freeze holds only while no breaking change
+  lands, and a breaking change restarts it. Candidate-generated CI now selects the stamped
   source/version, as the hosted smoke above shows; ordinary source/preview
   builds retain the published fallback. The original release audit recorded
   **zero Actions variables**, signer **`CHANGE_ME`**, and **zero Release Rehearsal
@@ -340,9 +341,10 @@ consumer/receipt-closure contract. Observed #548 outcomes denied authority;
 None establishes a bypass. Repair a demonstrated support violation or state
 its limit; unresolved safety consequences prevent sign-off.
 
-[#569](https://github.com/ThreeMoonsLab/agents-shipgate/issues/569) then owns the
+[#569](https://github.com/ThreeMoonsLab/agents-shipgate/issues/569) owns the
 **report 0.43 → 1.0 freeze**, stable/provisional surface inventory and migration
-from the actual shipped v0.15 contract. Preserve compatible controls and
+from the actual shipped v0.15 contract, delivered in
+[`docs/report-1-0-contract.md`](docs/report-1-0-contract.md). Preserve compatible controls and
 historical readers; retire active pre-1.0 tier issuance in the final 1.x
 implementation and update the qualification schema requirement before wheel
 freeze. Old receipts gain no authority through conversion. An **unpublished RC**
