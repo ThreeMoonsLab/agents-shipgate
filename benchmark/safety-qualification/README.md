@@ -68,6 +68,11 @@ handoff. Verify the actual corpus, admissibility and hashes before using any
 private data; neither a closed issue nor ignored local files prove completion.
 For `1.0`, [#512](https://github.com/ThreeMoonsLab/agents-shipgate/issues/512)
 starts separate beta sourcing and human labeling in parallel with engineering.
+Its [beta source inventory](beta-strata-inventory.md) records pinned candidates,
+known exposure and the remaining per-cell gaps against the production policy.
+It is a separate sourcing register, not human labels or a frozen beta corpus;
+do not give it to raters. The pending guide output-contract correction in #520
+must be resolved before human labeling starts.
 No `0.x` publication is required first. Freeze the final source, workflow,
 policy and exact wheel after selected repairs and
 [#569](https://github.com/ThreeMoonsLab/agents-shipgate/issues/569)'s report
