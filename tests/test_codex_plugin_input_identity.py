@@ -246,3 +246,46 @@ def test_prepare_and_worker_preserve_a_caught_missing_component(repo, committed,
     assert result.exit_code != 0
     assert not (reports / "replayed-unit.json").exists()
     assert "dependency could not be captured" in str(result.exception)
+
+
+@pytest.mark.parametrize("form", ["apps", "mcpServers", "hooks"])
+@pytest.mark.parametrize("committed", [False, True])
+def test_optional_file_component_directory_cannot_reconfirm_after_repair(repo, form, committed):
+    root, target, _ = plugin_source(repo, form)
+    data = target.read_bytes()
+    target.unlink()
+    target.mkdir()
+    # Git does not retain empty directories. Keep this wrong-kind selected
+    # path present in committed capture without making it a discovered source.
+    (target / "unread.txt").write_text("not a component")
+    manifest_path = repo / "shipgate.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text())
+    manifest["tool_sources"][0]["optional"] = True
+    manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False))
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "Synthetic optional file component is a directory")
+    _verify(repo, archive_head=committed)
+    reports = repo / "agents-shipgate-reports"
+    plan = plan_at(reports)
+    assert plan.inputs.options["dependency_inputs"]["unconfirmable_paths"] == [
+        target.relative_to(repo).as_posix()
+    ]
+    with pytest.raises(CurrentControlUnavailable):
+        read_current_control(reports, live=lambda: _live(repo))
+    result = CliRunner().invoke(app, [
+        "agent", "control", "--workspace", str(repo), "--reports-dir", str(reports),
+    ], env={"AGENTS_SHIPGATE_AGENT_MODE": "1"})
+    assert result.exit_code == 4, result.output
+    assert result.stdout == ""
+    shutil.rmtree(target)
+    target.write_bytes(data)
+    with pytest.raises(ValueError, match="dependency.*could not be captured"):
+        validate_current_plan_inputs(plan, root=repo, artifacts_root=reports)
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "Synthetic optional component repair")
+    _verify(repo, archive_head=committed)
+    read_current_control(reports, live=lambda: _live(repo))
+    surface = json.loads((reports / "report.json").read_text())["codex_plugin_surface"]
+    count = {"apps": "app_count", "mcpServers": "mcp_server_stub_count", "hooks": "hook_stub_count"}[form]
+    assert surface[count] == 1
+    assert not (root / "never-execute").exists()

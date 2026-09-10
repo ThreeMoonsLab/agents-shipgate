@@ -845,7 +845,7 @@ def _resolve_component_path(
     artifacts: CodexPluginArtifacts,
 ) -> Path | None:
     try:
-        resolved = _resolve_plugin_path(root, raw_path)
+        resolved = _resolve_plugin_path(root, raw_path, allow_directory=component == "skills")
     except InputParseError as exc:
         artifacts.component_path_issues.append(
             CodexPluginComponentPathIssue(
@@ -881,7 +881,7 @@ def _resolve_component_path(
     return resolved
 
 
-def _resolve_plugin_path(root: Path, raw_path: str) -> Path:
+def _resolve_plugin_path(root: Path, raw_path: str, *, allow_directory: bool) -> Path:
     raw = Path(raw_path)
     candidate = raw if raw.is_absolute() else root / raw_path
     snapshot = active_static_input_snapshot()
@@ -895,7 +895,9 @@ def _resolve_plugin_path(root: Path, raw_path: str) -> Path:
                 raise ValueError("component path is outside plugin root")
             if snapshot.excludes(candidate):
                 raise ValueError("component path overlaps excluded verification output")
-            snapshot.capture_selected_path(candidate, max_bytes=MAX_INPUT_FILE_BYTES)
+            snapshot.capture_selected_path(
+                candidate, max_bytes=MAX_INPUT_FILE_BYTES, allow_directory=allow_directory,
+            )
         except (OSError, ValueError) as exc:
             # The caller turns InputParseError into a component diagnostic.
             # Keep the failed lookup visible to currency validation as well:

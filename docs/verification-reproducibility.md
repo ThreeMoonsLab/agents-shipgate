@@ -115,6 +115,9 @@ enumeration selects membership. Aliases, parent traversal, unreadable paths and
 non-file/directory kinds refuse capture. A caught component diagnostic also
 records an unconfirmable dependency (or an unconfirmable directory for a refused
 root/containment lookup), so repairing the path requires a fresh verification.
+Apps, MCP and hooks require regular files; a directory at one of those paths
+is a captured refusal even when the plugin source is optional. Skills retain
+their directory and direct `SKILL.md` forms.
 Committed archives already reject tracked symlinks before component loading;
 their failure record grants no permissions. Standalone loading retains its
 existing in-root resolution behavior.

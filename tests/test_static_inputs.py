@@ -128,6 +128,8 @@ def test_caught_directory_cap_retains_an_unconfirmable_obligation(tmp_path):
 
 def test_selected_root_is_bound_without_selecting_a_directory_census(tmp_path):
     snapshot = StaticInputSnapshot(tmp_path)
+    with pytest.raises(ValueError, match="directory, expected a regular file"):
+        snapshot.capture_selected_path(tmp_path, allow_directory=False)
     snapshot.capture_selected_path(tmp_path)
     snapshot.finish()
     assert snapshot.input_directory_identity(source="worktree")["directories"] == []
