@@ -33,6 +33,7 @@ class StaticInputSnapshot:
         excluded_paths: Iterable[Path] = (),
         max_total_bytes: int = DEFAULT_STATIC_INPUT_TOTAL_BYTES,
         max_files: int = DEFAULT_STATIC_INPUT_FILES,
+        budget: IdentityReadBudget | None = None,
     ) -> None:
         self.root = Path(os.path.abspath(os.path.normpath(os.fspath(root))))
         self.max_total_bytes = max_total_bytes
@@ -51,7 +52,7 @@ class StaticInputSnapshot:
         self._present_dependency_paths: set[Path] = set()
         self._unconfirmable_dependency_paths: set[Path] = set()
         self._total_bytes = 0
-        self._budget = IdentityReadBudget(
+        self._budget = budget if budget is not None else IdentityReadBudget(
             max_entries=max_files * 32,
             max_total_bytes=max_total_bytes,
         )

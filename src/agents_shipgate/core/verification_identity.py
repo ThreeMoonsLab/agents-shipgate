@@ -188,12 +188,16 @@ def build_verification_plan(
     diff_logical_path: str = "verification-input.diff",
     external_input_root: Path | None = None,
     captured_input_paths: list[Path] | None = None,
+    auxiliary_origins: dict[Path, dict[str, str | None]] | None = None,
+    auxiliary_source_paths: dict[Path, Path] | None = None,
+    config_from_worktree: bool = False,
 ) -> VerificationPlan:
     effective_plugins_enabled = _plugins_enabled(plugins_enabled)
     normalized_options = dict(options)
     # This is reader provenance, never a caller-supplied assertion. Named
     # negative lookups matter as much as the bytes that resolved an import.
     normalized_options.pop("dependency_inputs", None)
+    normalized_options.pop("input_origins", None)
     snapshot = active_static_input_snapshot()
     if snapshot is not None and (snapshot.dependency_paths() or snapshot.absent_dependency_paths() or snapshot.present_dependency_paths() or snapshot.unconfirmable_dependency_paths()):
         normalized_options["dependency_inputs"] = {
@@ -256,7 +260,7 @@ def build_verification_plan(
     config_blob = build_blob(
         path=config_path,
         logical_path=config_logical_path,
-        source="git_blob" if archived_head else "worktree",
+        source="git_blob" if archived_head and not config_from_worktree else "worktree",
     )
     diff_bytes = diff_text.encode("utf-8")
     diff_blob = VerificationBlob(
@@ -272,6 +276,7 @@ def build_verification_plan(
         _lexical_path(path)
         for path in [
             config_path,
+            *(auxiliary_source_paths or {}).values(),
             *policy_pack_paths,
             *([baseline_path] if baseline_path is not None else []),
             *([diff_from_path] if diff_from_path is not None else []),
@@ -298,18 +303,56 @@ def build_verification_plan(
         source="git_blob" if archived_head else "worktree",
     )
     bundle_root = external_input_root or input_root
-    policy_blobs = _blobs(
-        policy_pack_paths,
-        root=bundle_root,
-        source="external_input",
-    )
+    def auxiliary_blob(path: Path | None) -> VerificationBlob | None:
+        if path is not None and auxiliary_source_paths is not None and path in auxiliary_source_paths:
+            # A portable export is not a new observation. Hash the captured
+            # original bytes the adapters read, even when the snapshot is
+            # finished and the newly written copy lives under its root.
+            if snapshot is None or not snapshot.has(auxiliary_source_paths[path]):
+                raise ValueError("portable input must name an already captured source")
+            return build_blob(
+                path=auxiliary_source_paths[path],
+                logical_path=path.relative_to(bundle_root).as_posix(),
+                source="external_input",
+            )
+        return _optional_blob(path, root=bundle_root)
+
+    if auxiliary_source_paths is not None:
+        policy_blobs = sorted(
+            [blob for path in set(policy_pack_paths) if (blob := auxiliary_blob(path)) is not None],
+            key=lambda blob: blob.path,
+        )
+    else:
+        policy_blobs = _blobs(policy_pack_paths, root=bundle_root, source="external_input")
     changed_blobs = _existing_changed_blobs(
         changed_files,
         root=input_root if archived_head else git_root,
         source="git_blob" if archived_head else "worktree",
     )
-    baseline_blob = _optional_blob(baseline_path, root=bundle_root)
-    diff_from_blob = _optional_blob(diff_from_path, root=bundle_root)
+    baseline_blob = auxiliary_blob(baseline_path)
+    diff_from_blob = auxiliary_blob(diff_from_path)
+    from agents_shipgate.core.verification_input_currency import auxiliary_input_origin
+
+    # Preserve the source before portable copies collapse distinct origins.
+    # No caller-supplied option can assert this provenance; producers supply
+    # the mapping beside the actual paths they copied from captured inputs.
+    original_paths = {path.relative_to(bundle_root).as_posix(): path for path in policy_pack_paths}
+    for path, blob in ((baseline_path, baseline_blob), (diff_from_path, diff_from_blob)):
+        if path is not None and blob is not None:
+            original_paths[blob.path] = path
+    external_rows = []
+    for blob in [*policy_blobs, *([baseline_blob] if baseline_blob else []),
+                 *([diff_from_blob] if diff_from_blob else [])]:
+        path = original_paths[blob.path]
+        origin = (
+            auxiliary_origins[path]
+            if auxiliary_origins is not None and path in auxiliary_origins
+            else auxiliary_input_origin(path, input_root=input_root, git_root=git_root)
+        )
+        external_rows.append({"input_path": blob.path, **origin})
+    normalized_options["input_origins"] = {
+        "version": 1, "external": sorted(external_rows, key=lambda row: row["input_path"])
+    }
     inputs_payload = {
         "evaluation_date": evaluation_date,
         "config": config_blob,
@@ -930,7 +973,7 @@ def validate_plan_inputs(
         raise ValueError("plan diff input size does not match")
 
 
-def validate_dependency_inputs(plan: VerificationPlan, *, root: Path) -> None:
+def validate_dependency_inputs(plan: VerificationPlan, *, root: Path, snapshot=None) -> None:
     """Reconfirm reader-selected bytes and named absence, including ignored files."""
 
     from agents_shipgate.core.static_inputs import StaticInputSnapshot
@@ -973,7 +1016,9 @@ def validate_dependency_inputs(plan: VerificationPlan, *, root: Path) -> None:
             "tool_surface_facts.guard_dependencies, repair unreadable paths "
             "and re-run verification before using current authority."
         )
-    snapshot = StaticInputSnapshot(root.resolve())
+    owns_snapshot = snapshot is None
+    if snapshot is None:
+        snapshot = StaticInputSnapshot(root.resolve())
     for row in files:
         data = snapshot.read_bytes(root.resolve() / row["path"])
         if len(data) != row["size_bytes"] or sha256_bytes(data) != row["sha256"]:
@@ -984,7 +1029,8 @@ def validate_dependency_inputs(plan: VerificationPlan, *, root: Path) -> None:
     for path in present:
         if snapshot.bind_dependency_absence(root.resolve() / path):
             raise ValueError("dependency lookup candidate disappeared since verification")
-    snapshot.finish()
+    if owns_snapshot:
+        snapshot.finish()
 
 
 def _manifest_declared_input_paths(*, config_path: Path, input_root: Path) -> list[Path]:

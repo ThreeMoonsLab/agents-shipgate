@@ -42,9 +42,9 @@ from agents_shipgate.core.errors import AgentsShipgateError
 from agents_shipgate.core.verification_identity import (
     plan_worktree_overlay_paths,
     read_regular_file_beneath,
-    validate_dependency_inputs,
     worktree_overlay,
 )
+from agents_shipgate.core.verification_input_currency import validate_current_plan_inputs
 from agents_shipgate.schemas.agent_control import (
     AgentControl,
     FullAgentPermissions,
@@ -768,22 +768,25 @@ def _validate_control_currency(
             path=out_dir,
         )
     _validate_base_currency(out_dir, identity, live, required=grants_authority)
-    if "verification_plan" in artifacts:
-        try:
-            plan = VerificationPlan.model_validate_json(artifacts["verification_plan"])
-            validate_dependency_inputs(plan, root=live.root)
-        except (ValueError, OSError) as exc:
-            raise CurrentControlUnavailable(
-                "workspace_unverifiable",
-                f"The dependency inputs this decision read are no longer current: {exc}",
-                path=out_dir,
-            ) from exc
     if identity.snapshot_kind == "worktree_overlay":
         _validate_worktree_currency(
             out_dir, pointer, live, required=grants_authority, artifacts=artifacts
         )
     elif identity.snapshot_kind == "committed_tree":
         _require_clean_worktree(out_dir, live, required=grants_authority)
+    if "verification_plan" in artifacts:
+        try:
+            plan = VerificationPlan.model_validate_json(artifacts["verification_plan"])
+            plan_parent = Path(pointer.artifacts["verification_plan"].path).parent
+            validate_current_plan_inputs(
+                plan, root=live.root, artifacts_root=out_dir / plan_parent
+            )
+        except (ValueError, OSError) as exc:
+            raise CurrentControlUnavailable(
+                "workspace_unverifiable",
+                f"The recorded source and dependency inputs are no longer current: {exc}",
+                path=out_dir,
+            ) from exc
 
 
 def _validate_worktree_currency(

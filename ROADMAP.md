@@ -139,10 +139,21 @@ repair.
 The subsequent #607 pass reproduced [#627](https://github.com/ThreeMoonsLab/agents-shipgate/issues/627):
 a worktree control refresh can accept a changed declared input whose hash is
 already in the plan but which is absent from the separately revalidated
-dependency set. This is a new P0 release blocker, deferred from that bounded
-implementation. #607 binds its own source and manifest dependencies; #627 owns
-the general currency repair before final candidate/freeze. It does not reopen
-#299's already-delivered input-enumeration repair or count as a #567 review.
+dependency set. The selected #627 pass now reconfirms every recorded input blob
+in both control observations, preserves live auxiliary origins before portable
+copying, and validates frozen/generated copies beneath their bundle root.
+Prepare/worker/assemble retain the same origin distinction; replay alone grants
+no current authority. Missing, aliased, changed and over-budget inputs refuse.
+This general currency repair precedes final candidate/freeze; it does not reopen
+#299's delivered file-enumeration repair or count as a #567 review.
+
+The pass separately reproduced [#630](https://github.com/ThreeMoonsLab/agents-shipgate/issues/630):
+adding an ignored file under a directory-valued source can change a fresh tool
+catalog without changing any recorded input blob. Directory membership is a
+distinct P1 v1.0 release obligation, deferred from #627 rather than silently
+treated as covered by file hashes. Implement its bounded census before the
+final candidate replay and #569 freeze. Neither finding proves runtime reachability
+or supplies the missing historical qualification evidence.
 
 The following sequence and approved release bars still apply. Contract
 convergence, historical catch results, report freeze, actual human ownership,
