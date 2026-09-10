@@ -7,6 +7,10 @@ import os
 import re
 from pathlib import Path
 
+from agents_shipgate.core.input_directory_identity import (
+    directory_input_exclusions,
+    validate_directory_inputs,
+)
 from agents_shipgate.core.static_inputs import (
     DEFAULT_STATIC_INPUT_FILES,
     DEFAULT_STATIC_INPUT_TOTAL_BYTES,
@@ -81,7 +85,26 @@ def validate_current_plan_inputs(
     captured artifact graph. This is intentionally separate from worker replay.
     """
 
+    validate_bound_plan_inputs(plan, root=root, artifacts_root=artifacts_root, live_origins=True)
+
+
+def validate_bound_plan_inputs(
+    plan: VerificationPlan, *, root: Path, artifacts_root: Path,
+    live_origins: bool, diff_path: Path | None = None,
+) -> None:
+    """Bind bytes and membership in one observation, for replay or live reads.
+
+    Replay consumes captured auxiliary copies; only a current-authority read
+    also checks their original workspace paths. Neither mode evaluates policy.
+    """
+
     from agents_shipgate.core.verification_identity import validate_dependency_inputs
+
+    root = Path(os.path.abspath(root))
+    artifacts_root = Path(os.path.abspath(artifacts_root))
+    if diff_path is not None:
+        diff_path = Path(os.path.abspath(diff_path))
+    exclusions = directory_input_exclusions(plan)
 
     blobs = [
         plan.inputs.config, *plan.inputs.tool_sources, *plan.inputs.changed_files,
@@ -133,12 +156,15 @@ def validate_current_plan_inputs(
 
     for blob in blobs:
         _portable(blob.path)
+        if blob is plan.inputs.diff and diff_path is not None:
+            bind(expected, diff_path, blob.sha256, blob.size_bytes)
+            continue
         if blob.source in {"worktree", "git_blob"}:
             bind(expected, root / blob.path, blob.sha256, blob.size_bytes)
         elif blob.source in {"generated", "external_input", "artifact"}:
             bind(artifact_inputs, Path(blob.path), blob.sha256, blob.size_bytes)
             origin = origins.get(blob.path)
-            if origin is not None and origin["path"] is not None:
+            if live_origins and origin is not None and origin["path"] is not None:
                 bind(expected, root / origin["path"], blob.sha256, blob.size_bytes)
         else:
             raise ValueError("unknown recorded input source")
@@ -149,7 +175,10 @@ def validate_current_plan_inputs(
         max_entries=DEFAULT_STATIC_INPUT_FILES * 32,
         max_total_bytes=MAX_CURRENCY_TOTAL_BYTES,
     )
-    snapshot = StaticInputSnapshot(root, budget=budget)
+    snapshot = StaticInputSnapshot(
+        root, budget=budget, excluded_paths=[root / path for path in exclusions],
+        external_paths=[diff_path] if diff_path is not None else [],
+    )
     artifacts = IdentityBoundReadSession(artifacts_root, budget=budget)
 
     def check(data: bytes, digest: str, size: int) -> None:
@@ -162,5 +191,6 @@ def validate_current_plan_inputs(
                 raise ValueError("recorded input exceeds the currency read limit")
             check(reader.read_bytes(path, max_bytes=MAX_CURRENCY_INPUT_BYTES), digest, size)
     validate_dependency_inputs(plan, root=root, snapshot=snapshot)
+    validate_directory_inputs(plan, snapshot=snapshot)
     snapshot.finish()
     artifacts.finish()

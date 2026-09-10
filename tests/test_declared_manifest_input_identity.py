@@ -985,3 +985,31 @@ def test_derived_blocks_cover_every_framework_that_names_paths() -> None:
     assert "prompt_files" in DECLARED_INPUT_PATH_BLOCKS["anthropic"]
     # openai_api.model_config is aliased; both spellings load, so both resolve.
     assert {"model_config", "api_model_config"} <= DECLARED_INPUT_PATH_BLOCKS["openai_api"]
+
+
+@pytest.mark.parametrize('context', ['none', 'matching', 'outer'])
+def test_direct_builder_cannot_assert_a_complete_census_without_reader_capture(tmp_path, context):
+    from agents_shipgate.core.static_inputs import (
+        activate_static_input_snapshot,
+        reset_static_input_snapshot,
+    )
+
+    repo = _sample_repo(tmp_path, 'clean_read_only_agent')
+    snapshot = StaticInputSnapshot(repo if context == 'matching' else tmp_path)
+    token = activate_static_input_snapshot(snapshot) if context != 'none' else None
+    try:
+        plan = build_verification_plan(
+            git_root=repo, input_root=repo, config_path=repo / 'shipgate.yaml',
+            config_logical_path='shipgate.yaml', base_ref=None, head_ref='HEAD',
+            archived_head=True, repository_id='local:synthetic',
+            base_commit_sha=None, base_tree_sha=None, head_commit_sha='a' * 40,
+            head_tree_sha='b' * 40, merge_base_sha=None, changed_files=[], diff_text='',
+            baseline_path=None, diff_from_path=None, policy_pack_paths=[],
+            evaluation_date='2026-09-10', plugins_enabled=False,
+            options={'input_directories': {'version': 1, 'directories': []}},
+            captured_input_paths=None,
+        )
+        assert 'input_directories' not in plan.inputs.options
+    finally:
+        if token is not None:
+            reset_static_input_snapshot(token)

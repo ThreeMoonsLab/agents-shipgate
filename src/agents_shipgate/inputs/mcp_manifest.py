@@ -19,6 +19,7 @@ from agents_shipgate.core.source_warnings import (
     duplicate_mcp_server_declaration_warning,
 )
 from agents_shipgate.inputs.common import (
+    list_input_directory,
     load_structured_file_with_positions,
     load_text_file,
     manifest_relative_path,
@@ -1042,10 +1043,7 @@ def _iter_mcp_candidate_files(root: Path) -> list[Path]:
     stack = [root]
     while stack:
         current = stack.pop()
-        try:
-            children = sorted(current.iterdir(), key=lambda item: item.name)
-        except OSError:
-            continue
+        children = list_input_directory(current)
         for child in children:
             if child.is_symlink() and child.is_dir():
                 continue

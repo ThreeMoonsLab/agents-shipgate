@@ -2,13 +2,20 @@
 
 ## Unreleased
 
+- Bind reader-selected input directory names and no-follow entry kinds in the
+  verification plan. Both current-control observations and worker replay now
+  reject changed membership, including ignored additions with unchanged file
+  hashes. Exact output exclusions work across archived and live trees without
+  hiding new source siblings. Cached listings retain bounds; refused captures
+  remain explicit. Plans without directory capture require a fresh run (#630).
+
 - Reconfirm recorded verification inputs before returning current control,
   including ignored and Git-hidden changes. Preserve each live policy,
   baseline and comparison origin through portable copying; generated and
   outside-repository imports remain frozen artifacts. Prepare exports captured
   auxiliary bytes, and all live reads retain bounded no-follow validation.
   Legacy external-input plans need a fresh run when their origin is ambiguous.
-  Directory-source membership remains a separate release obligation (#627, #630).
+  Directory-source membership is captured separately below (#627).
 
 - Route host-only repositories from first discovery to the existing host audit
   without a placeholder manifest. The CLI and zero-install script retain

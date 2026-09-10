@@ -78,6 +78,7 @@ def resolve_input_path(base_dir: Path, value: str) -> Path:
             try:
                 snapshot.bind_directory(lexical)
             except (OSError, ValueError) as exc:
+                snapshot.mark_unconfirmable_input_directory(lexical)
                 raise InputParseError(
                     f"Input directory {value!r} could not be captured safely: {exc}"
                 ) from exc
@@ -96,6 +97,8 @@ def list_input_directory(directory: Path) -> list[Path]:
 
     lexical = Path(os.path.abspath(os.path.normpath(os.fspath(directory))))
     snapshot = active_static_input_snapshot()
+    if snapshot is not None and snapshot.excludes(lexical):
+        raise InputParseError(f"Input directory overlaps verification output: {lexical}")
     if snapshot is None or (
         lexical != snapshot.root and not snapshot.contains(lexical)
     ):
@@ -106,7 +109,7 @@ def list_input_directory(directory: Path) -> list[Path]:
                 f"Input directory {lexical} could not be inspected safely: {exc}"
             ) from exc
     try:
-        names = snapshot.bind_directory(lexical)
+        names = snapshot.enumerate_input_directory(lexical)
     except (OSError, ValueError) as exc:
         raise InputParseError(
             f"Input directory {lexical} could not be captured safely: {exc}"

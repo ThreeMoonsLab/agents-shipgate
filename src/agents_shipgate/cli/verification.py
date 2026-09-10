@@ -273,6 +273,7 @@ def _build_plan(
         with _captured_inputs(
             config_path=root / config_relative,
             input_root=root,
+            excluded_paths=[artifacts_root] if artifacts_root is not None else [],
             policy_pack_paths=policy_paths,
             plugins_enabled=False if no_plugins else None,
             # The overlay set is HEAD-relative and ``changed`` is merge-base-
@@ -323,6 +324,8 @@ def _build_plan(
         with _captured_inputs(
             config_path=snapshot / config_relative,
             input_root=snapshot,
+            excluded_paths=[snapshot / artifacts_root.relative_to(root)]
+            if artifacts_root is not None and (artifacts_root == root or root in artifacts_root.parents) else [],
             policy_pack_paths=mapped_policy_paths,
             plugins_enabled=False if no_plugins else None,
             changed_files=changed,
@@ -398,6 +401,7 @@ def _captured_inputs(
     plugins_enabled: bool | None,
     changed_files: list[str],
     plan_inputs: list[Path],
+    excluded_paths: tuple[Path, ...] | list[Path] = (),
 ) -> Iterator[list[Path]]:
     """Yield the paths the adapters opened, with their bytes still bound.
 
@@ -446,6 +450,7 @@ def _captured_inputs(
     # refuses to read it at all.
     snapshot = StaticInputSnapshot(
         resolved_root,
+        excluded_paths=excluded_paths,
         external_paths=[
             path
             for path in plan_inputs
