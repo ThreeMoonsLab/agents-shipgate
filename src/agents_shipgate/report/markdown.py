@@ -26,6 +26,7 @@ from agents_shipgate.core.findings.subject_rollup import (
     rollup_headline,
     top_findings_block,
 )
+from agents_shipgate.core.lenses.finding_attribution import unattributed_sentence
 from agents_shipgate.core.privacy import sanitize_report
 from agents_shipgate.core.source_warnings import group_source_warnings
 from agents_shipgate.core.surface_exclusions import agent_label_index
@@ -836,7 +837,7 @@ def _append_finding_attributions(lines: list[str], diff: ToolSurfaceDiff) -> Non
     ``core.lenses.finding_attribution`` and this only spells it, so Markdown
     can never disagree with ``report.json`` about which bound moved.
     """
-    if not diff.finding_attributions:
+    if not diff.finding_attributions and not diff.unattributed_findings:
         return
     # Only the rows that reached a direction are spelled here. An `unresolved`
     # row repeats one sentence per finding on a shared capability, which buries
@@ -870,13 +871,24 @@ def _append_finding_attributions(lines: list[str], diff: ToolSurfaceDiff) -> Non
                 f"{evidence.direction.replace('_', ' ')} ({evidence.effect}, "
                 f"{evidence.link}-linked){_attribution_pointers(evidence)}"
             )
+    # A trailing line that is not separated from the bullets above becomes a
+    # lazy continuation of the last one, so the counts would render inside a
+    # row instead of under the section.
+    trailing: list[str] = []
     if len(decided) > 8:
-        lines.append(f"{len(decided) - 8} more attributed findings in report.json.")
+        trailing.append(f"{len(decided) - 8} more attributed findings in report.json.")
     if undecided:
-        lines.append(
-            f"{undecided} finding(s) could not be attributed in either direction; "
-            "their evidence and the reason are in report.json."
+        trailing.append(
+            f"{undecided} finding(s) have evidence on their capability but could not "
+            "be attributed in either direction; the reason is in report.json."
         )
+    if diff.unattributed_findings:
+        # Printed here rather than left to the diff notes, which this report
+        # truncates to three: absence of evidence has to be visible next to the
+        # rows that have it.
+        trailing.append(unattributed_sentence(diff.unattributed_findings))
+    if trailing:
+        lines.extend(["", *trailing])
     lines.append("")
 
 

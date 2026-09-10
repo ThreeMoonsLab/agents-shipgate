@@ -8,6 +8,7 @@ fixtures pin the difference, and pin that naming it still excludes nothing.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import get_args
 
 import pytest
@@ -22,8 +23,9 @@ from agents_shipgate.core.lenses.finding_attribution import (
     _GUARD_EFFECTS,
     _ORDER,
     attribute_findings,
+    unattributed_sentence,
 )
-from agents_shipgate.report.markdown import _ATTRIBUTION_LABELS
+from agents_shipgate.report.markdown import _ATTRIBUTION_LABELS, render_markdown_report
 from agents_shipgate.schemas.finding_attribution import FindingAttributionClass
 from agents_shipgate.schemas.guard_dependencies import (
     BooleanDomainDirection,
@@ -38,7 +40,7 @@ from agents_shipgate.schemas.operation_attribution import (
     OperationComparison,
     OperationInput,
 )
-from agents_shipgate.schemas.report import Finding
+from agents_shipgate.schemas.report import Finding, ReadinessReport
 from agents_shipgate.schemas.surfaces import (
     ToolSurfaceDiff,
     ToolSurfaceFindingDeltaItem,
@@ -302,7 +304,10 @@ def test_markdown_spells_exactly_what_the_json_block_says(tmp_path):
     # The three same-capability-only rows here are all unresolved, so Markdown
     # counts them instead of repeating one sentence and two axes each. Their
     # evidence stays in report.json.
-    assert "3 finding(s) could not be attributed in either direction" in text
+    assert (
+        "3 finding(s) have evidence on their capability but could not be "
+        "attributed in either direction" in text
+    )
     assert len([row for row in rows if row["attribution"] == "unresolved"]) == 3
     assert "capability-linked" not in text
 
@@ -326,11 +331,11 @@ def test_a_reconstructed_git_base_asks_the_question_without_a_reference():
     assert diff.base.kind == "none"
     assert attribute_findings(diff, [_finding()])[0][0].attribution == "standing_weakness"
     comparison.evidence_source = "unavailable"
-    assert attribute_findings(diff, [_finding()]) == ([], [])
+    assert attribute_findings(diff, [_finding()]) == ([], 0, [])
 
 
 def test_a_run_with_no_comparison_profile_adds_no_rows_and_no_notes():
-    rows, notes = attribute_findings(ToolSurfaceDiff(), [])
+    rows, _, notes = attribute_findings(ToolSurfaceDiff(), [])
     assert (rows, notes) == ([], [])
 
 
@@ -424,7 +429,7 @@ def test_capability_evidence_withdraws_a_standing_weakness_it_cannot_confirm(dir
         observation_id="obs", tool_id="tool_v2_a", tool_name="refund",
         direction=direction, reason="compared", before=_guard(), after=_guard(allowed=(1, 2)),
     )
-    rows, _ = attribute_findings(
+    rows, _, _ = attribute_findings(
         _diff(operations=[_unchanged_operation()], guards=[guard], matched=["fp1"]),
         [_finding()],
     )
@@ -432,7 +437,7 @@ def test_capability_evidence_withdraws_a_standing_weakness_it_cannot_confirm(dir
     assert row.attribution == "unresolved"
     assert "another modeled bound on the same capability" in row.reason
     # Without the guard row the very same inputs are a standing weakness.
-    rows, _ = attribute_findings(
+    rows, _, _ = attribute_findings(
         _diff(operations=[_unchanged_operation()], matched=["fp1"]), [_finding()]
     )
     assert rows[0].attribution == "standing_weakness"
@@ -446,12 +451,12 @@ def test_capability_widening_withdraws_an_improvement_claim():
         direction="predicate_widened", reason="compared",
         before=_guard(), after=_guard(allowed=(1, 2)),
     )
-    rows, _ = attribute_findings(
+    rows, _, _ = attribute_findings(
         _diff(operations=[improvement], guards=[guard], matched=["fp1"]), [_finding()]
     )
     assert rows[0].attribution == "unresolved"
     assert "net direction is unresolved" in rows[0].reason
-    rows, _ = attribute_findings(
+    rows, _, _ = attribute_findings(
         _diff(operations=[improvement], matched=["fp1"]), [_finding()]
     )
     assert rows[0].attribution == "improved_not_resolved"
@@ -465,12 +470,12 @@ def test_a_guard_comparison_never_joins_a_finding_by_display_name():
         before=_guard(tool_id=None), after=_guard(tool_id=None, allowed=(1, 2)),
     )
     diff = _diff(operations=[_unchanged_operation()], guards=[guard], matched=["fp1"])
-    rows, _ = attribute_findings(diff, [_finding()])
+    rows, _, _ = attribute_findings(diff, [_finding()])
     assert rows[0].attribution == "standing_weakness"
     assert not [item for item in rows[0].evidence if item.profile == "sdk_boolean_guard/v1"]
     # A finding carrying no canonical id is not joined to a guard either, so
     # it draws no row at all rather than one built on a name match.
-    rows, _ = attribute_findings(diff, [_finding("fp2", tool_id=None, refs=())])
+    rows, _, _ = attribute_findings(diff, [_finding("fp2", tool_id=None, refs=())])
     assert not rows
 
 
@@ -487,7 +492,7 @@ def test_the_whole_function_domain_is_carried_as_its_own_axis():
             bound_true_domain="widened", reason="compared",
         ),
     )
-    rows, _ = attribute_findings(
+    rows, _, _ = attribute_findings(
         _diff(operations=[_unchanged_operation()], guards=[guard], matched=["fp1"]), [_finding()]
     )
     bound = next(item for item in rows[0].evidence if item.axis == "bound_true_domain")
@@ -501,11 +506,11 @@ def test_two_findings_sharing_one_identity_are_never_attributed():
     """A profile row names a fingerprint, not a finding; a tie is unresolvable."""
     diff = _diff(operations=[_unchanged_operation()], matched=["fp1"])
     twin = _finding().model_copy(update={"check_id": "ORG-OTHER"})
-    rows, _ = attribute_findings(diff, [_finding(), twin])
+    rows, _, _ = attribute_findings(diff, [_finding(), twin])
     assert [row.attribution for row in rows] == ["unresolved", "unresolved"]
     assert all("share this identity" in row.reason for row in rows)
     # A suppressed twin is not an active finding and does not create the tie.
-    rows, _ = attribute_findings(
+    rows, _, _ = attribute_findings(
         diff, [_finding(), twin.model_copy(update={"suppressed": True})]
     )
     assert [row.attribution for row in rows] == ["standing_weakness"]
@@ -535,7 +540,7 @@ def test_accepted_debt_keeps_its_bucket_and_is_never_a_standing_weakness():
 
 
 def test_an_unattributed_finding_is_counted_rather_than_dropped_silently():
-    rows, notes = attribute_findings(
+    rows, _, notes = attribute_findings(
         _diff(operations=[_unchanged_operation()], matched=["fp1"]),
         [_finding(), _finding("fp2", tool_id="tool_v2_other", refs=())],
     )
@@ -546,8 +551,80 @@ def test_an_unattributed_finding_is_counted_rather_than_dropped_silently():
 
 def test_a_suppressed_finding_is_not_attributed():
     finding = _finding().model_copy(update={"suppressed": True})
-    rows, notes = attribute_findings(
+    rows, _, notes = attribute_findings(
         _diff(operations=[_unchanged_operation()], matched=["fp1"]), [finding]
     )
     assert rows == []
     assert not [note for note in notes if "active finding" in note]
+
+
+# --- The statements that must survive every truncation on the way out ---
+
+
+def test_the_uncompared_count_survives_the_three_note_report_limit():
+    """`report.md` prints three diff notes. The absence statement is not one."""
+    diff = _diff(operations=[_unchanged_operation()], matched=["fp1"])
+    rows, unattributed, notes = attribute_findings(
+        diff, [_finding(), _finding("fp2", tool_id="tool_v2_other", refs=())]
+    )
+    assert (unattributed, [row.fingerprint for row in rows]) == (1, ["fp1"])
+    diff.finding_attributions = rows
+    diff.unattributed_findings = unattributed
+    # Four notes ahead of it, exactly as an enabled diff produces.
+    diff.notes = ["first", "second", "third", *notes]
+    diff.enabled = True
+    report = ReadinessReport.model_validate(
+        json.loads(Path("samples/support_refund_agent/expected/report.json").read_text())
+    )
+    report.tool_surface_diff = diff
+    text = render_markdown_report(report, sanitize_output=False)
+    # The note carrying the same statement is truncated away, as it is today.
+    assert "more comparison notes in report.json" in text
+    assert notes[-1] not in text.split("Notes:", 1)[1].split("##", 1)[0]
+    # The section states it anyway.
+    section = text.split("### Finding attribution", 1)[1].split("- Base:", 1)[0]
+    assert unattributed_sentence(1) in section
+
+
+def test_a_finding_with_no_identity_at_all_is_counted_not_dropped():
+    """Both identity fields are optional; a plugin check can supply neither."""
+    diff = _diff(operations=[_unchanged_operation()], matched=["fp1"])
+    nameless = _finding().model_copy(update={"fingerprint": None, "id": None})
+    rows, unattributed, notes = attribute_findings(diff, [_finding(), nameless])
+    assert [row.fingerprint for row in rows] == ["fp1"]
+    assert unattributed == 1
+    assert unattributed_sentence(1) in notes
+
+
+def test_an_improvement_does_not_claim_a_continuity_its_identity_denies():
+    improvement = _unchanged_operation()
+    improvement.declared_target_domain = "narrowed"
+    matched, *_ = attribute_findings(
+        _diff(operations=[improvement], matched=["fp1"]), [_finding()]
+    )
+    assert matched[0].attribution == "improved_not_resolved"
+    assert "the finding still stands" in matched[0].reason
+    # The same direction against a fingerprint the base never matched must not
+    # be described as a finding that survived the change.
+    fresh, *_ = attribute_findings(_diff(operations=[improvement]), [_finding()])
+    assert (fresh[0].attribution, fresh[0].identity) == ("improved_not_resolved", "unresolved")
+    assert "still stands" not in fresh[0].reason
+    assert "present at head (identity unresolved)" in fresh[0].reason
+
+
+def test_an_unlocated_guard_publishes_no_pointer_rather_than_the_tool_s():
+    """A pointer under a guard axis names the guard or nothing at all."""
+    unlocated = _guard().model_copy(update={"guard_path": None, "guard_line": None})
+    comparison = GuardDependencyComparison(
+        observation_id="obs", tool_id="tool_v2_a", tool_name="refund",
+        direction="unresolved", reason="predicate_or_dependency_evidence_unresolved",
+        before=unlocated, after=_guard(),
+    )
+    rows, *_ = attribute_findings(
+        _diff(operations=[_unchanged_operation()], guards=[comparison], matched=["fp1"]),
+        [_finding()],
+    )
+    guard = next(item for item in rows[0].evidence if item.profile == "sdk_boolean_guard/v1")
+    assert guard.base_pointer is None
+    assert guard.head_pointer == "shared/guard.py:2"
+    assert "tools/refund.py" not in rows[0].model_dump_json()

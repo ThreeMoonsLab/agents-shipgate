@@ -8010,6 +8010,12 @@
           },
           "title": "Tools",
           "type": "array"
+        },
+        "unattributed_findings": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Unattributed Findings",
+          "type": "integer"
         }
       },
       "required": [

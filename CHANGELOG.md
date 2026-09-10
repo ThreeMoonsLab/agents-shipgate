@@ -10,8 +10,9 @@
   bucket reports as one. Only evidence naming a finding's own fingerprint
   classifies; same-capability evidence can withdraw a negative claim but never
   establish one, a display name is never a join, two active findings sharing one
-  fingerprint are unresolvable, and findings no profile can compare are counted
-  in the diff notes. A run with no base asks no diff
+  fingerprint are unresolvable, and findings no profile can compare — including
+  any carrying neither a fingerprint nor an id — are counted in
+  `tool_surface_diff.unattributed_findings` and printed beside the rows. A run with no base asks no diff
   question and emits no rows. Dependency coverage remains
   incomplete, exclusion eligibility remains false, and no finding, fingerprint,
   severity, baseline, exit code or release decision changes. No `--scope`

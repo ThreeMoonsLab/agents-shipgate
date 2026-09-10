@@ -48,6 +48,12 @@ least one member the base did not declare, so `changed` and `predicate_changed`
 are recorded as `widening` — a proved statement about the compared sets, not a
 risk judgement.
 
+`evidence[].base_pointer` / `head_pointer` name the compared bound on each
+side: the declaring OpenAPI document plus its JSON pointer, or the guard
+module and line. A pointer printed under a `guard_predicate` axis has to name
+the guard, so an observation whose guard location is unknown publishes no
+pointer for that side rather than substituting the tool declaration.
+
 ## The three refusals
 
 **Only predicate-linked evidence classifies.** A profile row earns
@@ -67,9 +73,13 @@ literal true-return domain that grew, an axis the profile could not compare —
 retracts them to `unresolved`. It can never promote a finding to a direction of
 its own.
 
-**Absence is not agreement.** A finding no profile can compare draws no row,
-and the count of those findings is published in `tool_surface_diff.notes` so an
-empty attribution can never be read as a clean one.
+**Absence is not agreement.** A finding no profile can compare draws no row.
+The number of them is published as `tool_surface_diff.unattributed_findings`,
+not only as prose, because `report.md` renders three diff notes and a fourth is
+dropped — the one statement that stops an empty attribution reading as a clean
+one cannot live where it can be truncated. A finding carrying neither a
+fingerprint nor an id has no identity to join on at all, which is the strongest
+form of "not compared", so it is counted rather than skipped.
 
 A run that asks no diff question answers none: where neither profile is active,
 or where there is no base — no `--diff-from` report, no baseline snapshot and no
@@ -85,8 +95,10 @@ Rows are ordered most-consequential first and then by finding identity, so a
 rerun on an unchanged repository prints an unchanged block and the Markdown
 section's eight-row limit cannot hide a widening behind a documentation
 finding. `report.json` carries every row; `report.md` spells the rows that
-reached a direction and counts the rest, because one `unresolved` sentence per
-finding on a shared capability buries the decided rows printed beside it.
+reached a direction and counts the rest — both the rows that stayed
+`unresolved` and the findings that drew no row at all — because one
+`unresolved` sentence per finding on a shared capability buries the decided
+rows printed beside it.
 Neither surface can disagree with the other about a class: both read the same
 rows, and only this projection produces them.
 

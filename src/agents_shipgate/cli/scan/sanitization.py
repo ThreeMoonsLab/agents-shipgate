@@ -688,9 +688,10 @@ def _public_tool_surfaces(
     # here because ``operation_comparisons`` is only complete after the line
     # above. Both inputs are already sanitized, so the projection carries no
     # value the redaction pass has not seen.
-    attributions, attribution_notes = attribute_findings(public_tool_surface_diff, public_findings)
-    public_tool_surface_diff.finding_attributions = attributions
-    public_tool_surface_diff.notes.extend(attribution_notes)
+    attribution = attribute_findings(public_tool_surface_diff, public_findings)
+    public_tool_surface_diff.finding_attributions = attribution.rows
+    public_tool_surface_diff.unattributed_findings = attribution.unattributed
+    public_tool_surface_diff.notes.extend(attribution.notes)
     # v0.19 reviewer-grade provenance: enrich tool-surface diff
     # controls (and any other reason-bearing rows) with the public
     # tool path:line citation so the rendered report.json and packet

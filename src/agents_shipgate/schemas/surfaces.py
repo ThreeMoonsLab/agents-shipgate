@@ -266,6 +266,11 @@ class ToolSurfaceDiff(BaseModel):
     # change did to the bound each finding depends on (#515), and never
     # excludes a finding from the release decision.
     finding_attributions: list[FindingAttribution] = Field(default_factory=list, exclude_if=lambda value: not value)
+    # Active findings no comparison profile could speak about at all. Carried
+    # as a value, not only as a diff note, because renderers truncate notes and
+    # this is the statement that stops an empty attribution reading as a clean
+    # one. It is a count of what was *not* compared, never a pass.
+    unattributed_findings: int = Field(default=0, ge=0, exclude_if=lambda value: not value)
 
 
 ActionEffect = Literal[

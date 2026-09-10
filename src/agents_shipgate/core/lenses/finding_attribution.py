@@ -31,6 +31,7 @@ row lands on ``unresolved``:
 from __future__ import annotations
 
 from collections import Counter
+from typing import NamedTuple
 
 from agents_shipgate.schemas.finding_attribution import (
     AttributionEffect,
@@ -101,11 +102,16 @@ def _operation_pointer(row) -> str | None:
 
 
 def _guard_pointer(row) -> str | None:
-    if row is None:
+    """The guard's own location, or nothing.
+
+    An unresolved observation can carry a ``guard_path`` with no line, and can
+    carry neither. The tool declaration is not a substitute: a pointer printed
+    under a ``guard_predicate`` axis has to name the guard, so an unknown
+    location stays absent rather than sending a reviewer to the wrong file.
+    """
+    if row is None or not row.guard_path:
         return None
-    if row.guard_path and row.guard_line:
-        return f"{row.guard_path}:{row.guard_line}"
-    return f"{row.tool_path}:{row.tool_line}"
+    return f"{row.guard_path}:{row.guard_line}" if row.guard_line else row.guard_path
 
 
 def _operation_evidence(
@@ -264,9 +270,14 @@ def _classify(
                 "This finding's own bound was narrowed, but another modeled bound "
                 "on the same capability widened; the net direction is unresolved."
             )
+        standing = (
+            "the finding still stands"
+            if identity == "matched"
+            else f"a finding of this shape is present at head (identity {identity})"
+        )
         return "improved_not_resolved", (
-            "This change added or narrowed a bound this finding depends on and the "
-            "finding still stands. It is an improvement, not the finding's cause."
+            f"This change added or narrowed a bound this finding depends on and "
+            f"{standing}. It is an improvement, not the finding's cause."
         )
     if identity != "matched":
         # `accepted_debt` is not proof of absence from the base either: the
@@ -289,13 +300,27 @@ def _classify(
     )
 
 
+class FindingAttributionResult(NamedTuple):
+    """Rows, the findings no profile could compare, and the limit notes.
+
+    ``unattributed`` is returned as a value rather than only as prose because
+    the prose is a diff note, and ``report.md`` renders the first three notes
+    only. The one statement that keeps an empty attribution from reading as a
+    clean one cannot live where a fourth note is dropped.
+    """
+
+    rows: list[FindingAttribution]
+    unattributed: int
+    notes: list[str]
+
+
 def attribute_findings(
     diff: ToolSurfaceDiff, findings: list[Finding]
-) -> tuple[list[FindingAttribution], list[str]]:
-    """Return one attribution row per comparable finding, plus its limit notes.
+) -> FindingAttributionResult:
+    """Return one attribution row per comparable finding, and what was skipped.
 
     A finding no profile can join gets no row: an empty attribution is the
-    absence of evidence, and the returned note counts those findings so absence
+    absence of evidence, and ``unattributed`` counts those findings so absence
     is never read as agreement.
     """
     if not _asks_the_question(diff):
@@ -303,7 +328,7 @@ def attribute_findings(
         # not asking what a change did. Attributing findings to a change that
         # was never described would print "unresolved" against every finding of
         # every plain `scan`, and the diff notes already say a base is missing.
-        return [], []
+        return FindingAttributionResult([], 0, [])
     identity = _identity(diff)
     # Built once, not once per (finding, comparison) pair: the evidence rows
     # differ between the two links only by that word, and the join keys are
@@ -328,11 +353,15 @@ def attribute_findings(
         for finding in active
         if (fingerprint := finding.fingerprint or finding.id)
     )
-    rows: list[FindingAttribution] = []
     unattributed = 0
+    rows: list[FindingAttribution] = []
     for finding in active:
         fingerprint = finding.fingerprint or finding.id
         if not fingerprint:
+            # No identity to join on is the strongest form of "not compared",
+            # so it is counted rather than skipped. Both fields are optional
+            # and a plugin check can supply neither.
+            unattributed += 1
             continue
         refs = set(finding.capability_refs)
         predicate: list[FindingAttributionEvidence] = []
@@ -375,11 +404,16 @@ def attribute_findings(
     # truncation never hides a widening behind a documentation finding.
     rows.sort(key=lambda row: (_ORDER[row.attribution], row.check_id, row.fingerprint))
     if not rows and not unattributed:
-        return [], []
+        return FindingAttributionResult([], 0, [])
     notes = [_LIMIT]
     if unattributed:
-        notes.append(
-            f"{unattributed} active finding(s) have no comparison profile evidence "
-            "and are not attributed to this change in either direction."
-        )
-    return rows, notes
+        notes.append(unattributed_sentence(unattributed))
+    return FindingAttributionResult(rows, unattributed, notes)
+
+
+def unattributed_sentence(count: int) -> str:
+    """The one spelling of the count, for every surface that prints it."""
+    return (
+        f"{count} active finding(s) have no comparison profile evidence and are "
+        "not attributed to this change in either direction."
+    )
