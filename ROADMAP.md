@@ -196,6 +196,22 @@ default insertion, including both control observations and committed/worktree
 plans. This follows #633 and precedes final input-set qualification/#569 freeze;
 it does not qualify all reader discovery or establish a merge-permission bypass.
 
+The subsequent #515 pass projects the two shipped comparison profiles onto the
+findings they support. `tool_surface_diff.finding_attributions[]` names, per
+active finding, whether this change widened a bound, added or narrowed one
+without resolving the finding, or left every modeled bound unchanged — the
+three cases the existing `unchanged_findings` identity bucket reports
+identically. Paired committed repositories pin all three plus a removed
+approval declaration. [The projection contract](docs/finding-attribution.md)
+records its refusals: only evidence naming a finding's own fingerprint
+classifies, same-capability evidence can withdraw a negative claim but never
+establish one, and unattributed findings are counted rather than dropped.
+Dependency coverage stays `incomplete` and finding-exclusion eligibility stays
+false, so no finding is excluded and no verdict changes. This is #515's
+attribution step only: `--scope diff`/`--scope tree`, the receipt question,
+decision consumption, #557's dependency closure and the TypeScript MongoDB
+`cal-1` case all remain open, and no historical safety bar is satisfied.
+
 The following sequence and approved release bars still apply. Contract
 convergence, historical catch results, report freeze, actual human ownership,
 blind labels, independent signing, rehearsals and external product evidence

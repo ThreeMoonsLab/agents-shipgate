@@ -5006,6 +5006,179 @@
       "title": "Finding",
       "type": "object"
     },
+    "FindingAttribution": {
+      "additionalProperties": false,
+      "properties": {
+        "attribution": {
+          "enum": [
+            "widened_by_change",
+            "improved_not_resolved",
+            "standing_weakness",
+            "unresolved"
+          ],
+          "title": "Attribution",
+          "type": "string"
+        },
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "dependency_coverage": {
+          "const": "incomplete",
+          "default": "incomplete",
+          "title": "Dependency Coverage",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/FindingAttributionEvidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "finding_exclusion_eligible": {
+          "const": false,
+          "default": false,
+          "title": "Finding Exclusion Eligible",
+          "type": "boolean"
+        },
+        "fingerprint": {
+          "title": "Fingerprint",
+          "type": "string"
+        },
+        "identity": {
+          "enum": [
+            "new",
+            "matched",
+            "accepted_debt",
+            "unresolved"
+          ],
+          "title": "Identity",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "tool_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Id"
+        },
+        "tool_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Name"
+        }
+      },
+      "required": [
+        "fingerprint",
+        "check_id",
+        "identity",
+        "attribution",
+        "reason"
+      ],
+      "title": "FindingAttribution",
+      "type": "object"
+    },
+    "FindingAttributionEvidence": {
+      "additionalProperties": false,
+      "description": "One compared axis of one profile row, and where to read both sides.",
+      "properties": {
+        "axis": {
+          "enum": [
+            "approval_predicate",
+            "declared_target_domain",
+            "guard_predicate",
+            "bound_true_domain"
+          ],
+          "title": "Axis",
+          "type": "string"
+        },
+        "base_pointer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Pointer"
+        },
+        "direction": {
+          "title": "Direction",
+          "type": "string"
+        },
+        "effect": {
+          "enum": [
+            "widening",
+            "narrowing",
+            "unchanged",
+            "unresolved"
+          ],
+          "title": "Effect",
+          "type": "string"
+        },
+        "head_pointer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Head Pointer"
+        },
+        "link": {
+          "enum": [
+            "predicate",
+            "capability"
+          ],
+          "title": "Link",
+          "type": "string"
+        },
+        "observation_id": {
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "profile": {
+          "enum": [
+            "openapi_delete/v1",
+            "sdk_boolean_guard/v1"
+          ],
+          "title": "Profile",
+          "type": "string"
+        }
+      },
+      "required": [
+        "profile",
+        "observation_id",
+        "link",
+        "axis",
+        "direction",
+        "effect"
+      ],
+      "title": "FindingAttributionEvidence",
+      "type": "object"
+    },
     "FindingSupport": {
       "additionalProperties": false,
       "description": "Authoritative support for finding confidence and release contribution.\n\nRule metadata may request a severity or block, but it cannot upgrade the\nunderlying evidence. ``support_hash`` binds baselines and audit surfaces\nto the predicate evidence that actually made the finding eligible.",
@@ -7769,6 +7942,13 @@
           "title": "Enabled",
           "type": "boolean"
         },
+        "finding_attributions": {
+          "items": {
+            "$ref": "#/$defs/FindingAttribution"
+          },
+          "title": "Finding Attributions",
+          "type": "array"
+        },
         "finding_deltas": {
           "$ref": "#/$defs/ToolSurfaceFindingDeltas"
         },
@@ -7830,6 +8010,12 @@
           },
           "title": "Tools",
           "type": "array"
+        },
+        "unattributed_findings": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Unattributed Findings",
+          "type": "integer"
         }
       },
       "required": [

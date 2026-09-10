@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agents_shipgate.schemas.common import BaselineStatus, Confidence, Severity
+from agents_shipgate.schemas.finding_attribution import FindingAttribution
 from agents_shipgate.schemas.guard_dependencies import (
     GuardDependencyComparison,
     GuardDependencyEvidence,
@@ -260,6 +261,16 @@ class ToolSurfaceDiff(BaseModel):
     notes: list[str] = Field(default_factory=list)
     guard_comparisons: list[GuardDependencyComparison] = Field(default_factory=list, exclude_if=lambda value: not value)
     operation_comparisons: list[OperationComparison] = Field(default_factory=list, exclude_if=lambda value: not value)
+    # The canonical per-finding projection over the two comparison lists above.
+    # ``finding_deltas`` stays an identity comparison; this answers what the
+    # change did to the bound each finding depends on (#515), and never
+    # excludes a finding from the release decision.
+    finding_attributions: list[FindingAttribution] = Field(default_factory=list, exclude_if=lambda value: not value)
+    # Active findings no comparison profile could speak about at all. Carried
+    # as a value, not only as a diff note, because renderers truncate notes and
+    # this is the statement that stops an empty attribution reading as a clean
+    # one. It is a count of what was *not* compared, never a pass.
+    unattributed_findings: int = Field(default=0, ge=0, exclude_if=lambda value: not value)
 
 
 ActionEffect = Literal[
