@@ -9,6 +9,7 @@ from agents_shipgate.schemas.guard_dependencies import (
     GuardDependencyComparison,
     GuardDependencyEvidence,
 )
+from agents_shipgate.schemas.operation_attribution import OperationAttribution, OperationComparison
 from agents_shipgate.schemas.semantic import ToolSemanticEvidence
 
 ToolSurfaceDiffBaseKind = Literal["none", "report", "baseline"]
@@ -95,6 +96,7 @@ class ToolSurfaceFacts(BaseModel):
     controls: list[ToolSurfaceControlFact] = Field(default_factory=list)
     policies: list[ToolSurfacePolicyFact] = Field(default_factory=list)
     guard_dependencies: list[GuardDependencyEvidence] = Field(default_factory=list, exclude_if=lambda value: not value)
+    operation_attributions: list[OperationAttribution] = Field(default_factory=list, exclude_if=lambda value: not value)
 
 
 class ToolSurfaceDiffBase(BaseModel):
@@ -257,6 +259,7 @@ class ToolSurfaceDiff(BaseModel):
     )
     notes: list[str] = Field(default_factory=list)
     guard_comparisons: list[GuardDependencyComparison] = Field(default_factory=list, exclude_if=lambda value: not value)
+    operation_comparisons: list[OperationComparison] = Field(default_factory=list, exclude_if=lambda value: not value)
 
 
 ActionEffect = Literal[

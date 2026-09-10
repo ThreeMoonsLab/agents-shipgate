@@ -36,6 +36,12 @@ from agents_shipgate.core.lenses.tool_surface import (
     disabled_tool_surface_diff,
     enrich_tool_surface_diff_with_source,
 )
+from agents_shipgate.core.operation_attribution import (
+    ReconstructedOperationBase,
+    build_operation_attributions,
+    compare_operations,
+    invalidate_redacted_operations,
+)
 from agents_shipgate.core.privacy import (
     RedactionStats,
     build_privacy_audit,
@@ -47,6 +53,7 @@ from agents_shipgate.core.privacy import (
 from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, BindingSurfaceDiff
 from agents_shipgate.schemas.coverage_recovery import CoverageRecovery, SourceRecoveryEvidence
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.operation_attribution import OperationAttribution
 from agents_shipgate.schemas.report import (
     BaselineSummary,
     CapabilityRuntimeEvidence,
@@ -88,6 +95,7 @@ def _sanitize_for_output(
     decision: _ChecksDecision,
     plan: _OutputPlan,
     plugins_enabled: bool | None,
+    operation_base: ReconstructedOperationBase | None = None,
 ) -> _SanitizedSurfaces:
     """Phase 7: privacy redaction of every value that flows into a
     report or packet — STABILITY contract: runs BEFORE any file is
@@ -401,6 +409,13 @@ def _sanitize_for_output(
         toolkit_bounds=decision.context.toolkit_bounds,
         remote_bindings=decision.context.remote_bindings,
         guard_dependencies=decision.context.guard_dependencies,
+        operation_attributions=build_operation_attributions(
+            context=decision.context,
+            sources=inputs.loaded_sources,
+            findings=public_findings,
+            config_path=config_path,
+        ),
+        operation_base=operation_base,
     )
     source_recovery_evidence = _sanitize_source_recovery_evidence(inputs.loaded_sources, privacy_stats)
     privacy_audit = build_privacy_audit(
@@ -608,6 +623,8 @@ def _public_tool_surfaces(
     toolkit_bounds=(),
     remote_bindings=(),
     guard_dependencies=(),
+    operation_attributions=(),
+    operation_base=None,
 ):
     public_tool_surface_facts = sanitize_model(
         build_tool_surface_facts(
@@ -635,6 +652,21 @@ def _public_tool_surfaces(
                 public.source_behavior.returns = []
                 public.source_behavior.binding = None
                 public.source_behavior.configuration_reads = None
+    public_operations = [
+        sanitize_model(row, OperationAttribution, stats=privacy_stats,
+                       path="tool_surface_facts.operation_attributions[]")
+        for row in operation_attributions
+    ]
+    invalidate_redacted_operations(operation_attributions, public_operations)
+    public_tool_surface_facts.operation_attributions = public_operations
+    if operation_base is not None:
+        public_base_operations = [
+            sanitize_model(row, OperationAttribution, stats=privacy_stats,
+                           path="tool_surface_diff.operation_comparisons.base[]")
+            for row in operation_base.rows
+        ]
+        invalidate_redacted_operations(operation_base.rows, public_base_operations)
+        operation_base = ReconstructedOperationBase(tree=operation_base.tree, rows=tuple(public_base_operations))
     if diffs.diff_reference_error:
         public_tool_surface_diff = disabled_tool_surface_diff(
             redact_data(
@@ -650,6 +682,7 @@ def _public_tool_surfaces(
             public_findings,
             reference=public_diff_reference,
         )
+    public_tool_surface_diff.operation_comparisons = compare_operations(public_operations, operation_base)
     # v0.19 reviewer-grade provenance: enrich tool-surface diff
     # controls (and any other reason-bearing rows) with the public
     # tool path:line citation so the rendered report.json and packet

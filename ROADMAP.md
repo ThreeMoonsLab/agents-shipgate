@@ -74,9 +74,13 @@ SDK guard evidence, and [#606](https://github.com/ThreeMoonsLab/agents-shipgate/
 compares a closed Boolean function and its literal source Agent membership.
 Both keep capability dependency coverage incomplete and finding-exclusion
 eligibility false. A return value is not an action effect or approval:
-[#607](https://github.com/ThreeMoonsLab/agents-shipgate/issues/607), a deferred
-sub-issue of #557, owns the newly isolated operation-to-policy-predicate
-relationship. #557 and #515 remain open; these source models do not satisfy
+[#607](https://github.com/ThreeMoonsLab/agents-shipgate/issues/607), originally
+deferred from #606's implementation pass, owns the isolated operation-to-policy-predicate
+relationship. The subsequent engineering pass selects a bounded OpenAPI DELETE
+profile: join actual source/capability/approval-predicate evidence, rebuild the
+Git base, and report declared target changes separately from missing approval.
+[The profile contract](docs/operation-attribution.md) preserves unresolved inputs,
+unknown deployed reachability and false exclusion eligibility. #557 and #515 remain open; these source models do not satisfy
 the TypeScript MongoDB acceptance case or historical safety bars.
 
 [#612](https://github.com/ThreeMoonsLab/agents-shipgate/pull/612) closes #545 and #516. It separates
@@ -115,7 +119,7 @@ continues to route that concrete plan to a human. The rejected optional PR
 trigger for #570 remains absent, but the existing manual workflow now runs.
 
 Newly discovered issues #575/#577/#580/#581, #584–#586, #588/#590, #592/#593,
-#596–#598/#601, #607, #609–#611, #613/#615/#617/#618/#620 remain separately deferred; they are not silently
+#596–#598/#601, #609–#611, #613/#615/#617/#618/#620 remain separately deferred; they are not silently
 added to this implementation pass or counted as repairs. #609 documents a frozen
 preflight schema URL/discriminator mismatch; the current successor uses a fresh
 version without rewriting historical bytes. #610 owns the distinct compatibility
@@ -131,6 +135,14 @@ inventories. #620 requires measurement before sharing walks with
 different coverage and identity guarantees. None is counted as repaired:
 #568's discovery routes the #613 defect to inspection and claims no audit
 repair.
+
+The subsequent #607 pass reproduced [#627](https://github.com/ThreeMoonsLab/agents-shipgate/issues/627):
+a worktree control refresh can accept a changed declared input whose hash is
+already in the plan but which is absent from the separately revalidated
+dependency set. This is a new P0 release blocker, deferred from that bounded
+implementation. #607 binds its own source and manifest dependencies; #627 owns
+the general currency repair before final candidate/freeze. It does not reopen
+#299's already-delivered input-enumeration repair or count as a #567 review.
 
 The following sequence and approved release bars still apply. Contract
 convergence, historical catch results, report freeze, actual human ownership,
@@ -209,7 +221,7 @@ reader, control and publication work need not wait for each other.
 | Live authority | #567: reconfirm overlay contents/metadata and resolved base/merge base in the shared control reader | Same-path/base interleavings cannot return stale authority; unchanged reads and actual CLI consumers still work |
 | Offline evidence | #559: capture bounded bytes once for hash validation and parsing across qualification inputs | Interleaved replacements cannot be scored as bound data; existing containment and identity joins remain enforced |
 | Historical workflow | [#563](https://github.com/ThreeMoonsLab/agents-shipgate/issues/563) reviewed scope and [#564](https://github.com/ThreeMoonsLab/agents-shipgate/issues/564) new/renamed base inputs can start together | Same 19 SHAs/labels reach truthful verifier outcomes and restore the existing catch bars; no fabricated authority or scope |
-| Change attribution | [#557](https://github.com/ThreeMoonsLab/agents-shipgate/issues/557) shared-helper/import/configuration evidence and [#607](https://github.com/ThreeMoonsLab/agents-shipgate/issues/607) operation/predicate attribution **before** [#515](https://github.com/ThreeMoonsLab/agents-shipgate/issues/515) default diff scope | Paired standing-weakness, improvement and widened-capability fixtures; incomplete dependency coverage remains explicit; #607 is deferred from this implementation pass, so this route remains pending |
+| Change attribution | [#557](https://github.com/ThreeMoonsLab/agents-shipgate/issues/557) shared-helper/import/configuration evidence and [#607](https://github.com/ThreeMoonsLab/agents-shipgate/issues/607) operation/predicate attribution **before** [#515](https://github.com/ThreeMoonsLab/agents-shipgate/issues/515) default diff scope | #607's subsequent pass compares bounded OpenAPI declared targets and the actual approval predicate; broader dependency coverage, TypeScript `cal-1` and historical qualification remain pending before any default/gate change |
 | Prose and structure | [#545](https://github.com/ThreeMoonsLab/agents-shipgate/issues/545) classification **before** completing [#516](https://github.com/ThreeMoonsLab/agents-shipgate/issues/516) | Final verifier, local check and preflight distinguish prose edits from structured grants/hooks/CI; malformed structure remains visible |
 | Cold entry and CI | [#568](https://github.com/ThreeMoonsLab/agents-shipgate/issues/568) routes host-only repositories correctly; [#570](https://github.com/ThreeMoonsLab/agents-shipgate/issues/570) defines final-wheel/Action pin provenance | Supported Route H reaches a useful review without a placeholder manifest; local and generated CI name the intended engine/contract |
 

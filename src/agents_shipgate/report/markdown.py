@@ -827,6 +827,15 @@ def _append_tool_surface_diff(lines: list[str], report: ReadinessReport) -> None
         if len(visible_guards) > 8:
             lines.append(f"{len(visible_guards) - 8} more guard comparisons in report.json.")
         lines.append("")
+    if diff.operation_comparisons:
+        lines.extend(["### Declared operation attribution", "", "OpenAPI declaration comparison only; runtime enforcement and deployed reachability remain unknown. No finding is excluded.", ""])
+        for row in diff.operation_comparisons[:8]:
+            subject = row.after or row.before
+            name = subject.operation.tool_name if subject else row.observation_id
+            lines.append(f"- {_safe_markdown_text(name)}: declared targets {row.declared_target_domain}; approval predicate {row.approval_predicate.replace('_', ' ')}. {_safe_markdown_text(row.reason)}.")
+        if len(diff.operation_comparisons) > 8:
+            lines.append(f"{len(diff.operation_comparisons) - 8} more operation comparisons in report.json.")
+        lines.append("")
     if not diff.enabled:
         note = diff.notes[0] if diff.notes else "No comparison source was available."
         lines.extend(

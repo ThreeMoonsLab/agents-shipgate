@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, ClassVar, Literal
@@ -13,11 +14,13 @@ from agents_shipgate.core.domain import (
     Tool,
 )
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.static_inputs import active_static_input_snapshot, read_static_input_text
+from agents_shipgate.inputs import common as input_common
 from agents_shipgate.inputs.common import (
     HTTP_METHODS,
     PositionIndex,
     json_pointer_escape,
-    load_structured_file_with_positions,
+    load_structured_text_with_positions,
     manifest_relative_path,
     resolve_input_path,
     schema_to_parameters,
@@ -26,6 +29,10 @@ from agents_shipgate.inputs.common import (
     tool_name_warning,
 )
 from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
+from agents_shipgate.inputs.openapi_operation_contract import (
+    operation_evidence,
+    unambiguous_document,
+)
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
@@ -39,7 +46,13 @@ MAX_SCHEMA_RESOLVE_NODES = 5000
 def load_openapi_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource:
     assert source.path is not None
     path = resolve_input_path(base_dir, source.path)
-    document, positions = load_structured_file_with_positions(path)
+    if not path.exists():
+        raise InputParseError(f"Input file not found: {path}")
+    try:
+        text = read_static_input_text(path, max_bytes=input_common.MAX_INPUT_FILE_BYTES)
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise InputParseError(f"Unable to read input file {path}: {exc}") from exc
+    document, positions = load_structured_text_with_positions(text, source=path)
     if not isinstance(document, dict):
         raise InputParseError(f"OpenAPI file must contain an object: {path}")
     if "openapi" not in document:
@@ -52,6 +65,9 @@ def load_openapi_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSo
     tools: list[Tool] = []
     warnings: list[str] = []
     seen_names: set[str] = set()
+    operation_rows = []
+    document_unambiguous = unambiguous_document(text)
+    document_digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
     for api_path, path_item in paths.items():
         if not isinstance(path_item, dict):
             raise InputParseError(f"OpenAPI path item {api_path} must be an object")
@@ -97,12 +113,22 @@ def load_openapi_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSo
                     "external or missing refs are left as metadata."
                 )
             tools.append(tool)
+            if method_lower == "delete":
+                operation_rows.append(operation_evidence(
+                    document=document, document_digest=document_digest,
+                    source=source, tool=tool, path_item=path_item,
+                    operation=operation, document_unambiguous=document_unambiguous,
+                ))
 
+    snapshot = active_static_input_snapshot()
+    if operation_rows and snapshot is not None and snapshot.contains(path):
+        snapshot.mark_dependency_input(path)
     return LoadedToolSource(
         source_id=source.id,
         source_type="openapi",
         tools=tools,
         warnings=warnings,
+        operation_evidence=operation_rows,
     )
 
 

@@ -10,6 +10,7 @@ from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.schemas.common import Confidence, ProvenanceKind, parse_confidence
 from agents_shipgate.schemas.coverage_recovery import SourceRecoveryEvidence
 from agents_shipgate.schemas.guard_dependencies import GuardDependencyEvidence
+from agents_shipgate.schemas.operation_attribution import DeclaredOperation
 from agents_shipgate.schemas.surfaces import ActionEffect
 
 SemanticDimension = Literal["identity", "binding", "effect", "authority"]
@@ -745,6 +746,7 @@ class LoadedToolSource(BaseModel):
     binding_observations: list[AgentBindingObservation] = Field(default_factory=list)
     # Reader-owned observations, never derived from catalog annotations.
     guard_dependencies: list[GuardDependencyEvidence] = Field(default_factory=list)
+    operation_evidence: list[DeclaredOperation] = Field(default_factory=list)
     # For a reviewed tool inventory declared with
     # ``<framework>.tool_inventories[].source_id``: the id of the source whose
     # surface this file enumerates. ``build_tool_identity_catalog`` turns it
