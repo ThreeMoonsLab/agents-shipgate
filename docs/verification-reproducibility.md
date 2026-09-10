@@ -17,7 +17,7 @@ Artifact integrity and current authority have separate read boundaries:
 
 | Reader | Validated evidence | What it does not establish |
 | --- | --- | --- |
-| `read_current_control` / `agent control` | Every explicit pointer entry, generation consistency, and live workspace currency. `capture` returns selected bytes from that same validated pass. | Integrity of a receipt-only optional file absent from the pointer map. Requesting an unbound capture key returns no bytes for it. |
+| `read_current_control` / `agent control` | Every explicit pointer entry, generation consistency, live workspace currency, and the recorded plan input blobs at their declared origins. `capture` returns selected bytes from that same validated pass. | Integrity of a receipt-only optional output file absent from the pointer map, or source-directory membership not recorded in the plan. Requesting an unbound capture key returns no bytes for it. |
 | `load_validated_receipt_artifacts` | The complete terminal receipt closure, including optional files, from a bounded private snapshot. | Current workspace state, review eligibility, or operational permission on its own. |
 
 `human-review-request.json` is one such optional artifact. Changing, deleting,
@@ -47,8 +47,54 @@ The full loader defaults to 64 artifacts, 64 MiB per artifact, and 256 MiB total
 with 4 MiB bounds on the canonical colocated receipt and artifact manifest.
 Both use no-follow regular-file reads. `allowed_artifact_names` rejects unexpected
 references; it does not filter which referenced artifacts are validated. The
-compact read does no additional optional-file I/O; regression tests pin the read
+compact read does no additional optional-output-file I/O; regression tests pin the read
 set independently of `capture`, rather than imposing a timing-dependent limit.
+
+### Recorded input currency
+
+After confirming the live HEAD, tree, base and overlay, the compact reader
+reconfirms the plan's manifest, configured and discovered file inputs, changed
+files, policy packs, baseline, comparison report and diff. A tracked input marked
+`assume-unchanged`, or an ignored input the verifier actually read, still has to
+match. This check runs in both live observations, using the same captured plan
+and receipt; a successful Git status alone cannot preserve authority.
+
+Repository inputs describe the matching local checkout, including files read
+from its evaluated committed tree. A historical HEAD must match first; the
+reader never compares historical source bytes with a different current HEAD.
+A local manifest overlaid on an archived tree remains a `worktree` input.
+Generated historical comparison reports and diffs are checked in the artifact
+bundle, not looked up as source files in the checkout.
+
+`inputs.options.input_origins` version `1` records auxiliary provenance before
+portable copying. Its `external` rows join `input_path` to a `kind` and `path`:
+`worktree` and `git_blob` name a repository-relative original; both the original
+and exported copy must match. `generated` and `external_snapshot` have no live
+path. An outside-repository baseline or supplied comparison report is an
+explicit frozen import: the copy is checked, with no claim that its original
+outside location is still current. Absolute original locations are not exported
+or recovered. Policy loading retains its existing manifest-directory boundary.
+The metadata is engine-owned and hashed into the request; callers cannot supply
+it through behavior options. Legacy plans with ambiguous external inputs require
+a fresh verification, rather than a guessed origin.
+
+`verification prepare` exports the same captured auxiliary bytes and retains
+their roles and origins. Worker replay still validates the immutable request;
+it does not establish that the result grants authority in a changed checkout.
+The assembled pointer undergoes the same live read as a normal verifier result.
+
+Input reads use no-follow, identity-bound regular files, with 64 MiB per file and
+one shared 256 MiB aggregate budget per live observation, including named
+dependency inputs and portable input copies. Artifact traversal is anchored at
+the plan's bundle directory even when reports are outside the workspace. Missing,
+unreadable, aliased, oversized or concurrently replaced inputs refuse the read.
+The existing named absent/present/refused dependency rules still apply.
+
+This validates **recorded file blobs**. Directory-source membership is a separate
+open obligation in [#630](https://github.com/ThreeMoonsLab/agents-shipgate/issues/630):
+adding an ignored source file that was never recorded can change a fresh catalog
+while all recorded blobs remain intact. File currency does not establish a
+complete directory census or close that release blocker.
 
 The [normative control recipe](agent-contract-current.md#two-read-entry-points)
 defines freshness and permission routing. These boundaries change neither its
@@ -80,7 +126,7 @@ binds:
   set, plugin distribution set, and policy catalog; and
 - the normalized task list.
 
-"Every input an adapter reads" is `plan.inputs.tool_sources`, and it covers
+Recorded file inputs an adapter reads appear in `plan.inputs.tool_sources`, covering
 more than the `tool_sources` manifest block. `prompt_files`, the framework
 blocks (`openai_api`, `anthropic`, `google_adk`, `langchain`, `crewai`, `n8n`,
 `codex_plugins`), `validation.evidence`, `checks.policy_packs`, and

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Reconfirm recorded verification inputs before returning current control,
+  including ignored and Git-hidden changes. Preserve each live policy,
+  baseline and comparison origin through portable copying; generated and
+  outside-repository imports remain frozen artifacts. Prepare exports captured
+  auxiliary bytes, and all live reads retain bounded no-follow validation.
+  Legacy external-input plans need a fresh run when their origin is ambiguous.
+  Directory-source membership remains a separate release obligation (#627, #630).
+
 - Route host-only repositories from first discovery to the existing host audit
   without a placeholder manifest. The CLI and zero-install script retain
   ignored and malformed config candidates; incomplete traversal and config

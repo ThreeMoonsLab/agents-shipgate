@@ -1312,6 +1312,7 @@ def run_verify(
                     human_context=head_human_context,
                     input_root=head_input_root,
                     input_snapshot=head_snapshot,
+                    config_from_worktree=overlay_worktree_manifest,
                     diff_text=diff_text,
                     diff_from_path=base_report,
                     authorization_path=authorization,
@@ -4182,6 +4183,7 @@ def _write_artifacts(
     human_context: HumanArtifactContext | None = None,
     input_root: Path | None = None,
     input_snapshot: StaticInputSnapshot | None = None,
+    config_from_worktree: bool = False,
     diff_text: str = "",
     diff_from_path: Path | None = None,
     authorization_path: Path | None = None,
@@ -4308,11 +4310,16 @@ def _write_artifacts(
         else None
     )
     external_input_root = verifier_path.parent
+    from agents_shipgate.core.verification_input_currency import auxiliary_input_origin
+
     portable_policy_pack_paths = [
         _write_portable_static_input(
             path,
             root=external_input_root,
             category="policy-packs",
+            source_logical_path=auxiliary_input_origin(
+                path, input_root=resolved_input_root, git_root=git_root
+            )["path"],
         )
         for path in policy_pack_paths
     ]
@@ -4329,10 +4336,26 @@ def _write_artifacts(
             baseline_path,
             root=external_input_root,
             category="baseline",
+            source_logical_path=auxiliary_input_origin(
+                baseline_path, input_root=resolved_input_root, git_root=git_root
+            )["path"],
         )
         if baseline_path is not None and baseline_was_captured
         else None
     )
+    auxiliary_origins = {
+        portable: auxiliary_input_origin(original, input_root=resolved_input_root, git_root=git_root)
+        for original, portable in zip(policy_pack_paths, portable_policy_pack_paths, strict=True)
+    }
+    if portable_baseline_path is not None:
+        auxiliary_origins[portable_baseline_path] = auxiliary_input_origin(
+            baseline_path, input_root=resolved_input_root, git_root=git_root
+        )
+    if portable_diff_from_path is not None:
+        auxiliary_origins[portable_diff_from_path] = auxiliary_input_origin(
+            diff_from_path, input_root=resolved_input_root, git_root=git_root,
+            generated=verifier.base_status != "diff_from_provided",
+        )
     logical_config = config_logical_path or (
         config_path.resolve().relative_to(resolved_input_root).as_posix()
         if resolved_input_root in config_path.resolve().parents
@@ -4421,6 +4444,8 @@ def _write_artifacts(
             worktree_overlay_paths=worktree_overlay_paths,
             external_input_root=external_input_root,
             captured_input_paths=captured_input_paths,
+            auxiliary_origins=auxiliary_origins,
+            config_from_worktree=config_from_worktree,
         )
     finally:
         if plan_snapshot_token is not None:
@@ -5417,18 +5442,15 @@ def _write_portable_static_input(
     *,
     root: Path,
     category: str,
+    source_logical_path: str | None = None,
 ) -> Path:
     """Copy one captured external input into the reproducible artifact graph."""
 
-    data = read_static_input_bytes(path, max_bytes=64 * 1024 * 1024)
-    digest = hashlib.sha256(data).hexdigest()
-    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", path.name).strip("._")
-    if not safe_name:
-        safe_name = "input"
-    target = root / "verification-inputs" / category / f"{digest[:16]}-{safe_name}"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(data)
-    return target
+    from agents_shipgate.core.verification_input_currency import write_portable_input
+
+    return write_portable_input(
+        path, root=root, category=category, source_logical_path=source_logical_path
+    )
 
 
 def _reject_output_input_overlap(

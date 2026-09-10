@@ -500,9 +500,20 @@ def test_prepare_binds_the_explicit_baseline_and_comparison_report(
 
     for plan, variant in zip(plans, ("a", "b"), strict=True):
         assert plan["inputs"]["baseline"] is not None
-        assert plan["inputs"]["baseline"]["path"] == f"baseline-{variant}.json"
+        assert plan["inputs"]["baseline"]["path"].endswith(f"-baseline-{variant}.json")
         assert plan["inputs"]["diff_from"] is not None
-        assert plan["inputs"]["diff_from"]["path"] == f"comparison-{variant}.json"
+        assert plan["inputs"]["diff_from"]["path"].endswith(f"-comparison-{variant}.json")
+        origins = {
+            row["input_path"]: row for row in plan["inputs"]["options"]["input_origins"]["external"]
+        }
+        for key, name in (("baseline", "baseline"), ("diff_from", "comparison")):
+            blob = plan["inputs"][key]
+            origin = origins[blob["path"]]
+            assert origin["path"] == f"{name}-{variant}.json"
+            assert origin["kind"] == ("git_blob" if committed and key == "baseline" else "worktree")
+            assert (tmp_path / f"out-{variant}" / blob["path"]).read_bytes() == (
+                repo / origin["path"]
+            ).read_bytes()
 
     assert plans[0]["inputs"]["input_set_id"] != plans[1]["inputs"]["input_set_id"]
 
