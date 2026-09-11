@@ -187,7 +187,7 @@ def _init_command(config: str, workspace: Path | None) -> str:
 
 
 def register(app: typer.Typer) -> None:
-    @app.command(hidden=True)
+    @app.command()
     def doctor(
         config: str = typer.Option("shipgate.yaml", "--config", "-c", help="Path or quoted glob."),
         workspace: Path | None = typer.Option(None, "--workspace", help="Inspect every manifest below workspace."),

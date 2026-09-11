@@ -43,6 +43,21 @@
   either ref alone so it cannot disagree with the check that emitted it
   (#649).
 
+- Show a reader six commands and speak to them in their own language.
+  `--help` listed three of 53 commands while every documented first step —
+  `init`, `doctor` — was hidden from the one place a stranger looks; it now
+  lists `diff`, `check`, `verify`, `audit`, `init` and `doctor`, and the new
+  `--help-all` lists every command, rendered from the same Click command as
+  the real help so the two cannot fall out of step. Prominence is a reading
+  aid, never a claim about what exists. Reader-facing strings are now
+  guarded: `tests/test_reader_vocabulary.py` runs every shipped fixture and
+  fails when a headline, summary, `control.reason` or `why` carries engine
+  vocabulary. It found two — "the agent's tool binding graph is incomplete"
+  and "a complete root-reachable static binding graph is required for
+  passed" — which now say what a reader must fix rather than the model it is
+  fixed in. Enum values are untouched: `release_decision.decision` is still
+  `insufficient_evidence` for the machines that gate on it (#652).
+
 - Add `shipgate diff`: what this change does to the agent's authority, in one
   row per host grant, with no manifest and no committed baseline. The engine
   already decided this — `audit --host --drift` names every typed grant

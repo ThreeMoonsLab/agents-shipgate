@@ -272,7 +272,11 @@ _GAP_PHRASE: dict[str, str] = {
     "ambiguous_legacy_tool_identity": "a legacy tool identity is ambiguous",
     "invalid_tool_binding": "a tool_identity binding does not apply",
     "missing_binding_evidence": "the agent's tool bindings are unproven",
-    "partial_binding_evidence": "the agent's tool binding graph is incomplete",
+    "partial_binding_evidence": (
+        # "binding graph" names how this is modelled, not what a reader has
+        # to fix (#652).
+        "some tools cannot be traced to an agent that can call them"
+    ),
     "conflicting_binding_evidence": "declared and structural binding evidence disagree",
     "ambiguous_root_agent": "the root agent is ambiguous",
     "unresolved_agent_binding": "an agent binding target does not resolve",

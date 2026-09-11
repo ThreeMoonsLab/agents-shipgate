@@ -658,7 +658,7 @@
             "kind": "resolve_binding_conflict",
             "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
             "path": "shipgate.yaml#agent_bindings.declarations",
-            "why": "A complete root-reachable static binding graph is required for passed.",
+            "why": "Every tool has to be traceable to an agent that can call it before this can pass.",
             "expects": "Reconcile the declaration with positive structural evidence and rerun verification.",
             "accepted_values": [
               "match_structural_graph",

@@ -906,7 +906,10 @@ def _binding_coverage(
             action_kind = "provide_complete_binding_graph"
             path = "shipgate.yaml#agent_bindings"
             accepted_values = ["literal_tools", "literal_handoffs", "complete:true"]
-            expects = "Provide static wiring or an exact reviewed declaration for every reachable edge."
+            expects = (
+                "Wire each tool to the agent that calls it in code, or declare "
+                "that link exactly."
+            )
         elif issue.kind == "conflicting_binding_evidence":
             action_kind = "resolve_binding_conflict"
             path = "shipgate.yaml#agent_bindings.declarations"
@@ -949,7 +952,10 @@ def _binding_coverage(
                     kind=action_kind,  # type: ignore[arg-type]
                     command=_SEMANTIC_RERUN_COMMAND,
                     path=path,
-                    why="A complete root-reachable static binding graph is required for passed.",
+                    why=(
+                        "Every tool has to be traceable to an agent that can "
+                        "call it before this can pass."
+                    ),
                     expects=_with_scaffold_pointer(expects, template),
                     accepted_values=accepted_values,
                     declaration_template=template,

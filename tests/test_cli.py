@@ -619,14 +619,12 @@ HIDDEN_TOP_LEVEL_COMMANDS = {
     "capability",
     "contract",
     "detect",
-    "doctor",
     "evidence-packet",
     "explain",
     "explain-finding",
     "feedback",
     "findings",
     "fixture",
-    "init",
     "install-hooks",
     "list-checks",
     "mcp",
@@ -641,9 +639,15 @@ HIDDEN_TOP_LEVEL_COMMANDS = {
     "trigger",
 }
 VISIBLE_CORE_COMMANDS = {
+    # The six a reader needs to get from a fresh checkout to an answer.
+    # `init` and `doctor` were hidden while every quickstart step named
+    # them, and `diff` is the first-value command (#652).
+    "diff",
     "check",
     "verify",
     "audit",
+    "init",
+    "doctor",
 }
 
 
