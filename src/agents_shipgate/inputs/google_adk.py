@@ -9,17 +9,21 @@ from typing import Any, ClassVar, Literal
 from agents_shipgate.core.artifact_models import (
     GoogleAdkArtifacts,
     GoogleAdkToolset,
+    GoogleAdkToolsetConnection,
 )
 from agents_shipgate.core.domain import (
     SURFACE_ENUMERATED,
     SURFACE_PARTIAL,
     AgentBindingObservation,
+    AgentRemoteBinding,
     AuthInfo,
     LoadedToolSource,
+    RemoteBindingStatus,
     Tool,
     ToolParameter,
 )
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.privacy import is_credential_key, redact_url_credentials
 from agents_shipgate.core.source_warnings import adk_unresolved_tool_warning
 from agents_shipgate.inputs.common import (
     load_structured_file,
@@ -67,6 +71,56 @@ MCP_TOOLSET_NAMES = {
     "google.adk.tools.mcp_tool.McpToolset",
     "google.adk.tools.mcp_tool.MCPToolset",
 }
+#: ADK connection-params constructors, mapped to the transport they mount.
+#: Matched on the final dotted segment so an aliased or fully-qualified
+#: spelling resolves the same way. A constructor outside this table is read as
+#: ``unresolved`` transport rather than guessed at.
+MCP_CONNECTION_TRANSPORTS = {
+    "StreamableHTTPConnectionParams": "streamable_http",
+    "StreamableHTTPServerParams": "streamable_http",
+    "SseConnectionParams": "sse",
+    "SseServerParams": "sse",
+    "StdioConnectionParams": "stdio",
+    "StdioServerParameters": "stdio",
+}
+#: Constructor arguments that carry credential material. ``headers`` is the
+#: HTTP transports' spelling; ``env`` is stdio's — on ``StdioServerParameters``,
+#: which ``StdioConnectionParams`` holds under ``server_params`` rather than
+#: inline, so the nested call has to be resolved before this reads anything
+#: (ADK 2.8.0 ``mcp_session_manager.StdioConnectionParams``; PR #540 review).
+MCP_CREDENTIAL_ARG_NAMES = ("headers", "env")
+#: The argument a stdio connection nests its server parameters under.
+MCP_NESTED_PARAMS_ARG = "server_params"
+
+#: Rendered in place of a credential value the reader read and will not
+#: publish, and of one it could not read. Both keep the credential axis
+#: *comparable*: adding a hardcoded credential beside an existing environment
+#: reference changes this list, so it changes the carried summary and hash
+#: rather than showing up only as a limitation the hash never saw (PR #540
+#: review). Neither uses parentheses, so a one-entry list can never be mistaken
+#: for a whole-summary status sentinel.
+CREDENTIAL_WITHHELD_MARKER = "<literal credential withheld>"
+CREDENTIAL_UNREADABLE_MARKER = "<not statically readable>"
+#: ``os.environ`` / ``os.getenv`` spellings, after import-alias resolution.
+_ENVIRON_MAPPING_NAMES = {"os.environ", "os.environb"}
+_ENVIRON_GETTER_NAMES = {"os.getenv", "os.environ.get", "os.environb.get"}
+
+#: Per-binding limitation codes. Each names what the reader could not
+#: establish about *this* binding, so a reviewer never has to infer a silence.
+LIMIT_SHADOWED_CONNECTION_CONSTRUCTOR = "shadowed_connection_constructor"
+LIMIT_SHADOWED_TOOLSET_CONSTRUCTOR = "shadowed_toolset_constructor"
+LIMIT_REBOUND_CONNECTION_REFERENCE = "rebound_connection_reference"
+LIMIT_UNRESOLVED_CONNECTION_REFERENCE = "unresolved_connection_reference"
+LIMIT_DYNAMIC_CONNECTION_EXPRESSION = "dynamic_connection_expression"
+LIMIT_UNRECOGNIZED_CONNECTION_CONSTRUCTOR = "unrecognized_connection_constructor"
+LIMIT_DYNAMIC_ENDPOINT_EXPRESSION = "dynamic_endpoint_expression"
+LIMIT_ENDPOINT_CREDENTIALS_REDACTED = "endpoint_credentials_redacted"
+LIMIT_LITERAL_CREDENTIAL_VALUE = "literal_credential_value"
+LIMIT_DYNAMIC_CREDENTIAL_EXPRESSION = "dynamic_credential_expression"
+LIMIT_UNRESOLVED_NESTED_PARAMS = "unresolved_nested_server_params"
+LIMIT_DYNAMIC_TOOL_FILTER = "dynamic_tool_filter"
+LIMIT_CONNECTION_NOT_READ_FROM_CONFIG = "connection_not_read_from_agent_config"
+
 CALLBACK_KEYS = {
     "before_agent_callback",
     "after_agent_callback",
@@ -190,6 +244,82 @@ ADK_CONTEXT_TYPE_NAMES = {
 ADK_CONTEXT_PARAMETER_NAME = "tool_context"
 
 
+def remote_bindings_from_toolsets(
+    toolsets: list[GoogleAdkToolset],
+) -> list[AgentRemoteBinding]:
+    """One :class:`AgentRemoteBinding` per agent that binds an MCP toolset.
+
+    The toolset record is per *construction* — a toolset shared by two agents
+    is one record — while a binding is per agent, because that is the unit a
+    reviewer attributes and the unit that can change independently: one agent
+    dropping a shared toolset is a real capability change for that agent only.
+
+    Deterministic: emitted in the order the toolsets were read, deduped on the
+    ``(source_id, agent, slot)`` identity the carriage keys on.
+    """
+
+    bindings: list[AgentRemoteBinding] = []
+    seen: set[tuple[str, str, str]] = set()
+    for toolset in toolsets:
+        if toolset.kind != "mcp" or toolset.connection is None:
+            continue
+        connection = toolset.connection
+        agents = toolset.binding_agents or (
+            [toolset.agent_name] if toolset.agent_name else []
+        )
+        slot = toolset.slot or "#1"
+        for agent in agents:
+            identity = (toolset.source_id, agent, slot)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            bindings.append(
+                AgentRemoteBinding(
+                    agent=agent,
+                    source_id=toolset.source_id,
+                    slot=slot,
+                    provider="google_adk_mcp",
+                    transport=connection.transport,
+                    transport_status=connection.transport_status,
+                    endpoint=connection.endpoint,
+                    endpoint_status=connection.endpoint_status,
+                    endpoint_env_ref=connection.endpoint_env_ref,
+                    credential_refs=list(connection.credential_refs),
+                    credential_status=connection.credential_status,
+                    tool_filter=list(toolset.filter_values),
+                    filter_status=connection.filter_status,
+                    inventory_path=toolset.inventory_path,
+                    limitations=list(connection.limitations),
+                    source_ref=toolset.source_ref,
+                )
+            )
+    return bindings
+
+
+def _attach_remote_bindings(
+    loaded_sources: list[LoadedToolSource],
+    artifacts: GoogleAdkArtifacts,
+) -> None:
+    """Carry each source's remote bindings on its own ``LoadedToolSource``.
+
+    Grouped by ``source_id`` so a workspace with several ADK sources keeps each
+    source's bindings with the source that produced them; the aggregation in
+    ``cli/scan`` then flattens them exactly the way ``toolkit_bounds`` are.
+    """
+
+    by_source: dict[str, list[AgentRemoteBinding]] = {}
+    for binding in remote_bindings_from_toolsets(artifacts.toolsets):
+        by_source.setdefault(binding.source_id, []).append(binding)
+    if not by_source:
+        return
+    for loaded in loaded_sources:
+        if loaded.source_type != "google_adk":
+            continue
+        bindings = by_source.get(loaded.source_id)
+        if bindings:
+            loaded.remote_bindings = bindings
+
+
 def load_google_adk_artifacts(
     manifest: AgentsShipgateManifest,
     base_dir: Path,
@@ -257,6 +387,7 @@ def load_google_adk_artifacts(
         artifacts.trace_sample_files.extend(files)
         artifacts.trace_samples.extend(traces)
 
+    _attach_remote_bindings(loaded_sources, artifacts)
     return loaded_sources, artifacts
 
 
@@ -566,6 +697,8 @@ def _record_config_openapi_toolset(
         name=name,
         resolved=bool(spec_path),
         dynamic=not bool(spec_path),
+        binding_agents=[agent_name],
+        slot=_config_toolset_slot(artifacts, agent_name, source_id),
     )
     artifacts.toolsets.append(toolset)
     if not spec_path:
@@ -586,6 +719,65 @@ def _record_config_openapi_toolset(
     return [loaded]
 
 
+def _config_toolset_slot(
+    artifacts: GoogleAdkArtifacts,
+    agent_name: str,
+    source_id: str,
+) -> str:
+    """1-based order of this agent's toolsets in one ADK agent config.
+
+    The array position rather than the file line, for the same reason the
+    Python path uses an ordinal: reformatting the config must not read as a
+    changed binding. Counted within the *source*, because ``artifacts`` is
+    shared across every configured source and two of them may each declare an
+    agent of the same name.
+    """
+
+    existing = sum(
+        1
+        for toolset in artifacts.toolsets
+        if toolset.source_id == source_id and agent_name in toolset.binding_agents
+    )
+    return f"#{existing + 1}"
+
+
+def _config_mcp_connection(
+    args: dict[str, Any],
+    filtered: bool,
+) -> GoogleAdkToolsetConnection:
+    """The connection an ADK *agent config* declares, as far as it is read.
+
+    Only the literal endpoint is read here. Credential material in a YAML
+    config is written in idioms this reader does not interpret (``${VAR}``
+    interpolation, a deployment secret store), so the credential axis reports
+    ``not_read`` — a statement about the reader — rather than ``absent``,
+    which would claim the binding carries no credential at all.
+    """
+
+    limitations = [LIMIT_CONNECTION_NOT_READ_FROM_CONFIG]
+    params = args.get("connection_params")
+    url = params.get("url") if isinstance(params, dict) else None
+    endpoint: str | None = None
+    endpoint_status: RemoteBindingStatus = "not_read"
+    if isinstance(params, dict):
+        if isinstance(url, str) and url:
+            endpoint, withheld = redact_url_credentials(url)
+            endpoint_status = "literal"
+            if withheld:
+                limitations.append(LIMIT_ENDPOINT_CREDENTIALS_REDACTED)
+        elif url is None:
+            endpoint_status = "absent"
+        else:
+            endpoint_status = "unresolved"
+            limitations.append(LIMIT_DYNAMIC_ENDPOINT_EXPRESSION)
+    return GoogleAdkToolsetConnection(
+        endpoint=endpoint,
+        endpoint_status=endpoint_status,
+        filter_status="literal" if filtered else "absent",
+        limitations=sorted(set(limitations)),
+    )
+
+
 def _record_config_mcp_toolset(
     name: str,
     args: dict[str, Any],
@@ -597,6 +789,7 @@ def _record_config_mcp_toolset(
 ) -> list[LoadedToolSource]:
     filter_values = _string_list(args.get("tool_filter"))
     inventory_path = _first_string_arg(args, MCP_INVENTORY_KEYS)
+    connection = _config_mcp_connection(args, bool(filter_values))
     toolset = GoogleAdkToolset(
         kind="mcp",
         source_id=source_id,
@@ -608,11 +801,18 @@ def _record_config_mcp_toolset(
         inventory_path=inventory_path,
         resolved=bool(inventory_path),
         dynamic=not bool(inventory_path),
+        binding_agents=[agent_name],
+        slot=_config_toolset_slot(artifacts, agent_name, source_id),
+        connection=connection,
     )
     artifacts.toolsets.append(toolset)
     if not inventory_path:
         artifacts.warnings.append(
-            f"Google ADK McpToolset at {location} has no static MCP tool inventory path."
+            adk_mcp_inventory_warning(
+                location,
+                agent_name=agent_name,
+                endpoint=_endpoint_phrase(connection),
+            )
         )
         return []
     loaded = load_mcp_tools(
@@ -711,6 +911,20 @@ class _PythonAdkExtractor:
         # call node. A toolset assigned to a variable and shared between
         # agents is loaded once, not once per agent.
         self.toolset_tool_names: dict[int, list[str]] = {}
+        # The toolset record produced by one construction, keyed by AST call
+        # node, so a second agent binding a shared toolset variable is recorded
+        # against the same binding rather than starting a new one.
+        self.toolset_records: dict[int, GoogleAdkToolset] = {}
+        # Module-level variable a toolset construction was assigned to.
+        self.toolset_variable_names: dict[int, str] = {
+            id(call): name for name, call in self.toolset_assignments.items()
+        }
+        # Module-level assignments whose value is a recognized connection-params
+        # construction, so ``connection_params=params`` resolves.
+        self.connection_assignments = self._connection_assignments()
+        # Per-agent counter for inline toolset constructions. A slot is an
+        # ordinal within one agent's tool list, never a line number.
+        self.inline_slot_counts: dict[str, int] = {}
         self.agent_bindings: dict[str, _AdkAgentBinding] = {}
         # Reasons this module's tool surface was not proven complete (#393).
         # Empty at the end of ``extract`` is what earns ``SURFACE_ENUMERATED``.
@@ -843,14 +1057,19 @@ class _PythonAdkExtractor:
         resolution to mean anything.
         """
 
+        if not self._framework_symbol_is_proven(call):
+            self._note_surface_gap(SURFACE_GAP_SHADOWED_FRAMEWORK_SYMBOL)
+
+    def _framework_symbol_is_proven(self, call: ast.Call) -> bool:
+        """Whether ``call``'s root name is still the import it resolves through."""
+
         root = call.func
         while isinstance(root, ast.Attribute):
             root = root.value
         if not isinstance(root, ast.Name):
-            return
+            return True
         bindings = self.name_bindings.get(root.id, [])
-        if len(bindings) != 1 or not isinstance(bindings[0], ast.alias):
-            self._note_surface_gap(SURFACE_GAP_SHADOWED_FRAMEWORK_SYMBOL)
+        return len(bindings) == 1 and isinstance(bindings[0], ast.alias)
 
     def _record_mutable_tool_bindings(self) -> None:
         """Notice any reach for an agent's ``tools`` after it is constructed.
@@ -1164,6 +1383,38 @@ class _PythonAdkExtractor:
                 toolsets[target_name] = node.value
         return toolsets
 
+    def _connection_assignments(self) -> dict[str, ast.Call]:
+        """Module-level ``params = <ConnectionParams>(...)`` assignments."""
+
+        assignments: dict[str, ast.Call] = {}
+        for node in ast.walk(self.tree):
+            if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
+                continue
+            target_name = _simple_target_name(node.targets)
+            if not target_name:
+                continue
+            call_name = _qualified_name(node.value.func, self.aliases) or ""
+            if call_name.rsplit(".", 1)[-1] in MCP_CONNECTION_TRANSPORTS:
+                assignments[target_name] = node.value
+        return assignments
+
+    def _slot_for(self, call: ast.Call, agent_name: str) -> str:
+        """Stable discriminator for one toolset inside one agent.
+
+        The module-level variable when there is one — which is also what keeps
+        a toolset shared by two agents a single binding — otherwise the
+        1-based order of inline constructions in that agent's tool list.
+        Neither depends on the source line, so moving or reformatting the call
+        cannot register as a change.
+        """
+
+        variable = self.toolset_variable_names.get(id(call))
+        if variable:
+            return variable
+        count = self.inline_slot_counts.get(agent_name, 0) + 1
+        self.inline_slot_counts[agent_name] = count
+        return f"#{count}"
+
     def _extract_tool_expr(
         self,
         expr: ast.AST,
@@ -1314,6 +1565,10 @@ class _PythonAdkExtractor:
         cached = self.toolset_tool_names.get(id(call))
         if cached is not None:
             self._bind_toolset_tools(cached, agent_name, binding)
+            # One toolset, several agents. The construction is extracted once,
+            # so this is the only place the second agent's attribution can be
+            # recorded at all (#538).
+            self._record_binding_agent(call, agent_name)
             return []
         self._require_proven_framework_symbol(call)
         call_name = _qualified_name(call.func, self.aliases)
@@ -1321,12 +1576,22 @@ class _PythonAdkExtractor:
             loaded_sources = self._extract_openapi_toolset(call, agent_name)
         else:
             loaded_sources = self._extract_mcp_toolset(call, agent_name)
+        self._record_binding_agent(call, agent_name)
         tool_names = [
             tool.name for loaded in loaded_sources for tool in loaded.tools
         ]
         self.toolset_tool_names[id(call)] = tool_names
         self._bind_toolset_tools(tool_names, agent_name, binding)
         return loaded_sources
+
+    def _record_binding_agent(self, call: ast.Call, agent_name: str) -> None:
+        """Note that ``agent_name`` binds the toolset built at ``call``."""
+
+        toolset = self.toolset_records.get(id(call))
+        if toolset is None:
+            return
+        if agent_name not in toolset.binding_agents:
+            toolset.binding_agents.append(agent_name)
 
     def _bind_toolset_tools(
         self,
@@ -1425,8 +1690,10 @@ class _PythonAdkExtractor:
             name="OpenAPIToolset",
             resolved=bool(spec_path),
             dynamic=not bool(spec_path),
+            slot=self._slot_for(call, agent_name),
         )
         self.artifacts.toolsets.append(toolset)
+        self.toolset_records[id(call)] = toolset
         if not spec_path:
             self._surface_warning(
                 f"Google ADK OpenAPIToolset at {self.source_ref}:{call.lineno} "
@@ -1450,9 +1717,157 @@ class _PythonAdkExtractor:
             tool.annotations["adk_agent_source_id"] = self.source_id
         return [loaded]
 
+    def _read_mcp_connection(self, call: ast.Call) -> GoogleAdkToolsetConnection:
+        """Read one ``McpToolset``'s ``connection_params`` argument, statically.
+
+        Never imports the module, constructs the object, resolves the endpoint,
+        or reads the process environment. Every axis the reader could not
+        establish keeps a status and a limitation code rather than a guess.
+
+        A shadowed or rebound constructor keeps its read values and records the
+        limitation instead of discarding them. The module-wide
+        ``shadowed_framework_symbol`` gap already caps this file's extraction
+        confidence, which is the engine's established answer to shadowing;
+        blanking the values on top of that would destroy exactly the evidence
+        this reader exists to preserve, and the limitation names the doubt.
+        """
+
+        limitations: list[str] = []
+        expr = _kwarg(call, "connection_params")
+        if expr is None:
+            return GoogleAdkToolsetConnection(
+                transport_status="absent",
+                endpoint_status="absent",
+                credential_status="absent",
+            )
+        if isinstance(expr, ast.Name):
+            resolved = self.connection_assignments.get(expr.id)
+            if resolved is None:
+                limitations.append(LIMIT_UNRESOLVED_CONNECTION_REFERENCE)
+                return _unresolved_connection(limitations)
+            if not self._name_is_proven(expr.id):
+                # The flat assignment map answers with one binding of a name
+                # the module binds more than once. Naming the endpoint it
+                # happens to hold would be a guess about which assignment was
+                # in effect.
+                self._note_surface_gap(SURFACE_GAP_SHADOWED_DEFINITION)
+                limitations.append(LIMIT_REBOUND_CONNECTION_REFERENCE)
+                return _unresolved_connection(limitations)
+            expr = resolved
+        if not isinstance(expr, ast.Call):
+            limitations.append(LIMIT_DYNAMIC_CONNECTION_EXPRESSION)
+            return _unresolved_connection(limitations)
+        constructor_proven = self._framework_symbol_is_proven(expr)
+        if not constructor_proven:
+            self._note_surface_gap(SURFACE_GAP_SHADOWED_FRAMEWORK_SYMBOL)
+            limitations.append(LIMIT_SHADOWED_CONNECTION_CONSTRUCTOR)
+        constructor = _qualified_name(expr.func, self.aliases) or ""
+        short_name = constructor.rsplit(".", 1)[-1]
+        transport = MCP_CONNECTION_TRANSPORTS.get(short_name)
+        if transport is None:
+            limitations.append(LIMIT_UNRECOGNIZED_CONNECTION_CONSTRUCTOR)
+            transport_status: RemoteBindingStatus = "unresolved"
+        elif not constructor_proven:
+            # The transport is the one axis derived *entirely* from the
+            # constructor's identity, which is exactly what a rebinding puts in
+            # doubt. The endpoint, the credential references and the filter are
+            # read from literal arguments and survive: dropping them would
+            # destroy the evidence this reader exists to preserve, and the
+            # limitation above already names the doubt.
+            transport = None
+            transport_status = "unresolved"
+        else:
+            transport_status = "literal"
+        endpoint, endpoint_env_ref, endpoint_status = _read_endpoint(
+            expr, self.aliases, limitations
+        )
+        credential_refs, credential_status = self._read_connection_credentials(
+            expr, limitations
+        )
+        return GoogleAdkToolsetConnection(
+            transport=transport,
+            transport_status=transport_status,
+            constructor=short_name or None,
+            endpoint=endpoint,
+            endpoint_status=endpoint_status,
+            endpoint_env_ref=endpoint_env_ref,
+            credential_refs=credential_refs,
+            credential_status=credential_status,
+            limitations=sorted(set(limitations)),
+        )
+
+    def _read_connection_credentials(
+        self,
+        call: ast.Call,
+        limitations: list[str],
+    ) -> tuple[list[str], RemoteBindingStatus]:
+        """Credential entries of one connection, including its nested params.
+
+        A stdio connection does not carry ``env`` inline: ADK's
+        ``StdioConnectionParams`` holds a ``StdioServerParameters`` under
+        ``server_params``, and reading only the outer call reported
+        ``credential_status: "absent"`` for a binding that plainly had one —
+        a false claim of absence, and one that made a changed credential
+        reference produce no delta at all (PR #540 review).
+
+        The nested call is resolved the same way the outer one is: inline, or
+        through a module-level name the module binds exactly once. Anything
+        else reports ``unresolved`` with a limitation, never ``absent``.
+        """
+
+        entries, status = _read_credential_refs(call, self.aliases, limitations)
+        nested = _kwarg(call, MCP_NESTED_PARAMS_ARG)
+        if nested is None:
+            return entries, status
+        if isinstance(nested, ast.Name):
+            resolved = self.connection_assignments.get(nested.id)
+            if resolved is None or not self._name_is_proven(nested.id):
+                limitations.append(LIMIT_UNRESOLVED_NESTED_PARAMS)
+                return _merge_credentials(
+                    entries,
+                    status,
+                    [f"{MCP_NESTED_PARAMS_ARG}={CREDENTIAL_UNREADABLE_MARKER}"],
+                    "unresolved",
+                )
+            nested = resolved
+        if not isinstance(nested, ast.Call) or not _is_connection_params_call(
+            nested, self.aliases
+        ):
+            # An unrecognised call is not a server-parameters object this
+            # reader knows the shape of. Reading its ``env`` anyway would be a
+            # guess, and returning "absent" would be the same false claim one
+            # level down from the one this method exists to fix.
+            limitations.append(LIMIT_UNRESOLVED_NESTED_PARAMS)
+            return _merge_credentials(
+                entries,
+                status,
+                [f"{MCP_NESTED_PARAMS_ARG}={CREDENTIAL_UNREADABLE_MARKER}"],
+                "unresolved",
+            )
+        nested_entries, nested_status = _read_credential_refs(
+            nested,
+            self.aliases,
+            limitations,
+            prefix=f"{MCP_NESTED_PARAMS_ARG}.",
+        )
+        return _merge_credentials(entries, status, nested_entries, nested_status)
+
     def _extract_mcp_toolset(self, call: ast.Call, agent_name: str) -> list[LoadedToolSource]:
         filter_values = _string_list(_kwarg_literal(call, "tool_filter"))
         inventory_path = _extract_path_argument(call, self.aliases, MCP_INVENTORY_KEYS)
+        connection = self._read_mcp_connection(call)
+        connection.filter_status = _filter_status(call, filter_values)
+        if connection.filter_status == "unresolved":
+            connection.limitations = sorted(
+                {*connection.limitations, LIMIT_DYNAMIC_TOOL_FILTER}
+            )
+        if not self._framework_symbol_is_proven(call):
+            # ``_extract_toolset_call`` already noted the module-wide gap; the
+            # binding carries its own code so a reviewer reading one binding's
+            # evidence sees the doubt without cross-referencing the module.
+            connection.limitations = sorted(
+                {*connection.limitations, LIMIT_SHADOWED_TOOLSET_CONSTRUCTOR}
+            )
         toolset = GoogleAdkToolset(
             kind="mcp",
             source_id=self.source_id,
@@ -1464,12 +1879,18 @@ class _PythonAdkExtractor:
             inventory_path=inventory_path,
             resolved=bool(inventory_path),
             dynamic=not bool(inventory_path),
+            slot=self._slot_for(call, agent_name),
+            connection=connection,
         )
         self.artifacts.toolsets.append(toolset)
+        self.toolset_records[id(call)] = toolset
         if not inventory_path:
             self._surface_warning(
-                f"Google ADK McpToolset at {self.source_ref}:{call.lineno} "
-                "has no static MCP tool inventory path.",
+                adk_mcp_inventory_warning(
+                    f"{self.source_ref}:{call.lineno}",
+                    agent_name=agent_name,
+                    endpoint=_endpoint_phrase(connection),
+                ),
                 SURFACE_GAP_DYNAMIC_TOOLSET,
             )
             return []
@@ -1805,6 +2226,248 @@ def _string_list(value: Any) -> list[str]:
 
 def _string_or_none(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+def _unresolved_connection(limitations: list[str]) -> GoogleAdkToolsetConnection:
+    """A connection argument that is present and not statically readable."""
+
+    return GoogleAdkToolsetConnection(
+        transport_status="unresolved",
+        endpoint_status="unresolved",
+        credential_status="unresolved",
+        limitations=sorted(set(limitations)),
+    )
+
+
+def _endpoint_phrase(connection: GoogleAdkToolsetConnection | None) -> str | None:
+    """How to name this connection's endpoint to a reviewer, or ``None``.
+
+    A literal endpoint names itself. An environment reference names the
+    variable, which is a thing a reviewer can look up — never a value, and
+    never a claim about what the variable grants.
+    """
+
+    if connection is None:
+        return None
+    if connection.endpoint_status == "literal" and connection.endpoint:
+        return connection.endpoint
+    if connection.endpoint_status == "environment_reference" and connection.endpoint_env_ref:
+        return f"the endpoint in {connection.endpoint_env_ref}"
+    return None
+
+
+def adk_mcp_inventory_warning(
+    location: str,
+    *,
+    agent_name: str | None = None,
+    endpoint: str | None = None,
+) -> str:
+    """Warning for an ADK ``McpToolset`` with no local MCP tool inventory.
+
+    Names the binding the inventory is owed for, not only the file and line:
+    the missing input belongs to *this agent's* connection, and a reviewer
+    reading a repository with several toolsets could not tell which one from
+    a line number alone (#538).
+    """
+
+    subject = ""
+    if agent_name and endpoint:
+        subject = f" (agent {agent_name!r} -> {endpoint})"
+    elif agent_name:
+        subject = f" (agent {agent_name!r})"
+    elif endpoint:
+        subject = f" ({endpoint})"
+    return (
+        f"Google ADK McpToolset at {location}{subject} has no static MCP tool "
+        "inventory path."
+    )
+
+
+def _environment_reference(node: ast.AST, aliases: dict[str, str]) -> str | None:
+    """The environment variable *name* ``node`` reads, or ``None``.
+
+    Recognizes ``os.environ["X"]``, ``os.environ.get("X")`` and
+    ``os.getenv("X")``, in every import spelling the alias table resolves.
+    Only the name is ever produced: nothing here reads the process
+    environment, and a variable called ``ADMIN_KEY`` establishes no privilege
+    level — it is a reference a reviewer can look up, not a claim.
+    """
+
+    if isinstance(node, ast.Subscript):
+        container = _qualified_name(node.value, aliases)
+        if container in _ENVIRON_MAPPING_NAMES:
+            key = _literal(node.slice)
+            if isinstance(key, str) and key:
+                return key
+        return None
+    if isinstance(node, ast.Call):
+        getter = _qualified_name(node.func, aliases)
+        if getter in _ENVIRON_GETTER_NAMES and node.args:
+            key = _literal(node.args[0])
+            if isinstance(key, str) and key:
+                return key
+    return None
+
+
+def _dict_items(node: ast.AST) -> list[tuple[str, ast.AST]] | None:
+    """``(literal key, value node)`` pairs of a dict literal, else ``None``.
+
+    ``None`` also for a dict that carries ``**spread``: the spread can add or
+    replace any key, so the literal pairs are not the whole mapping and
+    reporting them as if they were would understate the surface.
+    """
+
+    if not isinstance(node, ast.Dict):
+        return None
+    items: list[tuple[str, ast.AST]] = []
+    for key, value in zip(node.keys, node.values, strict=True):
+        if key is None:
+            return None
+        name = _literal(key)
+        if not isinstance(name, str):
+            return None
+        items.append((name, value))
+    return items
+
+
+def _read_credential_refs(
+    call: ast.Call,
+    aliases: dict[str, str],
+    limitations: list[str],
+    *,
+    prefix: str = "",
+) -> tuple[list[str], RemoteBindingStatus]:
+    """What the connection's credential-bearing arguments carry.
+
+    Returns ``("<where>=<what>"`` entries, status). ``where`` names the
+    argument the entry sits in so a reviewer can open the line; ``what`` is the
+    environment variable *name*, or a marker for a value that was read and
+    withheld, or one that could not be read at all.
+
+    Every entry is listed, not only the references. A hardcoded credential
+    added beside an existing environment reference is a credential being
+    *added*, and recording it only as a limitation left the carried summary and
+    hash unchanged, so the delta never appeared (PR #540 review). The markers
+    carry presence and completeness without carrying a single byte of the
+    value.
+    """
+
+    refs: list[str] = []
+    literal_credential = False
+    unresolved = False
+    for arg_name in MCP_CREDENTIAL_ARG_NAMES:
+        expr = _kwarg(call, arg_name)
+        if expr is None:
+            continue
+        where = f"{prefix}{arg_name}"
+        items = _dict_items(expr)
+        if items is None:
+            unresolved = True
+            limitations.append(LIMIT_DYNAMIC_CREDENTIAL_EXPRESSION)
+            refs.append(f"{where}={CREDENTIAL_UNREADABLE_MARKER}")
+            continue
+        for key, value in items:
+            env_ref = _environment_reference(value, aliases)
+            if env_ref:
+                refs.append(f"{where}.{key}={env_ref}")
+                continue
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                # A literal under a non-credential header (``X-Client:
+                # "shipgate"``) is ordinary metadata, not a secret.
+                if is_credential_key(key):
+                    literal_credential = True
+                    limitations.append(LIMIT_LITERAL_CREDENTIAL_VALUE)
+                    refs.append(f"{where}.{key}={CREDENTIAL_WITHHELD_MARKER}")
+                continue
+            unresolved = True
+            limitations.append(LIMIT_DYNAMIC_CREDENTIAL_EXPRESSION)
+            refs.append(f"{where}.{key}={CREDENTIAL_UNREADABLE_MARKER}")
+    entries = sorted(set(refs))
+    if not entries:
+        return [], "absent"
+    if literal_credential and not _has_environment_entry(entries):
+        # Present, read, and deliberately withheld. The status is what makes
+        # the hardcoded credential visible without publishing it.
+        return entries, "redacted"
+    if unresolved and not _has_environment_entry(entries):
+        return entries, "unresolved"
+    return entries, "environment_reference"
+
+
+def _is_connection_params_call(call: ast.Call, aliases: dict[str, str]) -> bool:
+    """Whether ``call`` constructs a recognized ADK connection-params object."""
+
+    name = _qualified_name(call.func, aliases) or ""
+    return name.rsplit(".", 1)[-1] in MCP_CONNECTION_TRANSPORTS
+
+
+def _merge_credentials(
+    outer: list[str],
+    outer_status: RemoteBindingStatus,
+    nested: list[str],
+    nested_status: RemoteBindingStatus,
+) -> tuple[list[str], RemoteBindingStatus]:
+    """Combine an outer connection's credential entries with its nested ones.
+
+    The status is the strongest claim either side supports: an established
+    environment reference anywhere wins, then a withheld literal, then
+    something unreadable. ``absent`` survives only when *both* sides are.
+    """
+
+    entries = sorted(set(outer) | set(nested))
+    if not entries:
+        return [], "absent"
+    statuses = {outer_status, nested_status}
+    for candidate in ("environment_reference", "redacted", "unresolved"):
+        if candidate in statuses:
+            return entries, candidate  # type: ignore[return-value]
+    return entries, "absent"
+
+
+def _has_environment_entry(entries: list[str]) -> bool:
+    """Whether any entry names an environment variable rather than a marker."""
+
+    return any(
+        not entry.endswith(CREDENTIAL_WITHHELD_MARKER)
+        and not entry.endswith(CREDENTIAL_UNREADABLE_MARKER)
+        for entry in entries
+    )
+
+
+def _read_endpoint(
+    call: ast.Call,
+    aliases: dict[str, str],
+    limitations: list[str],
+) -> tuple[str | None, str | None, RemoteBindingStatus]:
+    """``(endpoint, endpoint_env_ref, status)`` for one connection constructor."""
+
+    expr = _kwarg(call, "url")
+    if expr is None:
+        return None, None, "absent"
+    if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+        endpoint, withheld = redact_url_credentials(expr.value)
+        if withheld:
+            limitations.append(LIMIT_ENDPOINT_CREDENTIALS_REDACTED)
+        return endpoint, None, "literal"
+    env_ref = _environment_reference(expr, aliases)
+    if env_ref:
+        return None, env_ref, "environment_reference"
+    limitations.append(LIMIT_DYNAMIC_ENDPOINT_EXPRESSION)
+    return None, None, "unresolved"
+
+
+def _filter_status(call: ast.Call, filter_values: list[str]) -> RemoteBindingStatus:
+    expr = _kwarg(call, "tool_filter")
+    if expr is None:
+        return "absent"
+    if filter_values:
+        return "literal"
+    # Present and it produced no literal strings: an empty literal list is a
+    # real (empty) filter; anything else — a callable, a name, a comprehension
+    # — is not statically readable.
+    if isinstance(expr, ast.List | ast.Tuple) and not expr.elts:
+        return "literal"
+    return "unresolved"
 
 
 def _looks_like_openapi_toolset(name: str) -> bool:
@@ -2283,7 +2946,13 @@ class GoogleADKAdapter:
                     "the workspace records `dynamic_toolset`. The actions already "
                     "read stay in the catalog; the whole module drops to `medium`, "
                     "because a tool set this file could not prove is a fact about "
-                    "the file, not about the tool visited first."
+                    "the file, not about the tool visited first. An unenumerable "
+                    "`McpToolset` still has its *connection* read: the literal "
+                    "endpoint, the `os.environ` names its credentials are read "
+                    "from, the transport and the literal `tool_filter` are "
+                    "preserved and compared base-vs-head, so a changed endpoint or "
+                    "credential reference is named to a reviewer even while the "
+                    "tools behind it stay unproven."
                 ),
                 emits=("google_adk_function",),
                 ceiling="medium",

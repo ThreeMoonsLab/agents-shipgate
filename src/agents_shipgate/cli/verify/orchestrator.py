@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import functools
 import hashlib
 import json
 import os
@@ -68,12 +69,14 @@ from agents_shipgate.core.human_authorization import (
     default_human_authorization_trust_policy_path,
     evaluate_human_authorization,
 )
+from agents_shipgate.core.human_review_request import project_human_review_request
 from agents_shipgate.core.manifest_provenance import (
     LOCAL_REVIEW_MANIFEST_NAME,
     ManifestProvenance,
     manifest_provenance,
     provisional_manifest_note,
 )
+from agents_shipgate.core.operation_attribution import ReconstructedOperationBase
 from agents_shipgate.core.static_inputs import (
     StaticInputSnapshot,
     activate_static_input_snapshot,
@@ -86,11 +89,14 @@ from agents_shipgate.core.surface_exclusions import (
     nameable_subject,
 )
 from agents_shipgate.core.trust_roots import (
+    IdentityBoundReadSession,
+    conditional_instruction_edits,
     inspect_lexical_path_identity,
     is_configured_manifest,
     read_identity_bound_text,
 )
 from agents_shipgate.core.verification_identity import (
+    build_engine_requirement,
     build_executor,
     build_terminal_receipt,
     build_unit_result,
@@ -140,6 +146,7 @@ from agents_shipgate.schemas.human_authorization import (
     authorization_review_items,
     build_human_authorization_request,
 )
+from agents_shipgate.schemas.human_review_request import HUMAN_REVIEW_REQUEST_FILENAME
 from agents_shipgate.schemas.report import (
     ReadinessReport,
     ReleaseDecision,
@@ -147,7 +154,11 @@ from agents_shipgate.schemas.report import (
     without_machine_patches,
 )
 from agents_shipgate.schemas.verification import VerificationContext
-from agents_shipgate.schemas.verification_identity import VerificationPlan, content_id
+from agents_shipgate.schemas.verification_identity import (
+    VerificationEngineRequirement,
+    VerificationPlan,
+    content_id,
+)
 from agents_shipgate.schemas.verifier import (
     MergeVerdict,
     VerifierArtifact,
@@ -217,12 +228,10 @@ DEFAULT_OUT_DIR = Path("agents-shipgate-reports")
 BASE_CACHE_KEEP_ENTRIES = 16
 # Cache-key epoch for base-scan reuse.
 #
-# A cached base report is admitted on a content hash alone: that proves the
-# file was not tampered with, never that its CONTENTS still mean what the
-# current CLI expects of them. ``__version__`` is in the key but is not
-# sufficient on its own — a source checkout, an editable install, or any two
-# builds sharing one pre-release version string can change what a field means
-# without moving the version, and the stale entry is then reused verbatim.
+# The effective engine requirement now binds implementation, dependencies,
+# plugins and the policy catalog (#596); same-version reader changes cannot
+# reuse an older engine's entry. The epoch remains a cache-format boundary.
+# A report checksum detects byte corruption, not authenticated source provenance.
 #
 # Bump this whenever the MEANING of anything inside a cached base report
 # changes. Pre-existing entries then land on a key nothing computes and are
@@ -242,7 +251,10 @@ BASE_CACHE_KEEP_ENTRIES = 16
 #     a ``target_file`` naming a base archive that no longer exists. A cached
 #     report is admitted on its hash, so a poisoned entry would be served
 #     verbatim until its base tree changed.
-BASE_CACHE_KEY_EPOCH = 4
+# 5 — bounded imported-guard evidence retains each base source/dependency
+#     snapshot (#557). Older cached reports contain no comparable record;
+#     they must be regenerated rather than interpreted as guard absence.
+BASE_CACHE_KEY_EPOCH = 5
 MAX_HUMAN_AUTHORIZATION_BYTES = 1024 * 1024
 MAX_WORKTREE_MANIFEST_BYTES = 4 * 1024 * 1024
 MAX_WORKTREE_CHANGED_FILE_BYTES = 64 * 1024 * 1024
@@ -929,6 +941,18 @@ def run_verify(
         )
     static_snapshot_token = activate_static_input_snapshot(static_snapshot)
 
+    operation_base = None
+
+    @functools.cache
+    def engine_requirement() -> VerificationEngineRequirement:
+        # One capture per invocation, shared by base cache and final plan.
+        # Never reuse this value across invocations or engine validation reads.
+        return build_engine_requirement(plugins_enabled=plugins_enabled)
+
+    def capture_base_operations(tree, rows):
+        nonlocal operation_base
+        operation_base = ReconstructedOperationBase(tree=tree, rows=tuple(rows))
+
     try:
         if diff_from is not None:
             base_status = "diff_from_provided"
@@ -954,6 +978,8 @@ def run_verify(
                 no_heuristics=no_heuristics,
                 verbose=verbose,
                 evaluation_date=verification_date,
+                operation_callback=capture_base_operations,
+                engine_requirement_factory=engine_requirement,
             )
             base_notes.extend(cache_notes)
 
@@ -1032,7 +1058,9 @@ def run_verify(
             # already does for a worktree run.
             head_snapshot = StaticInputSnapshot(
                 head_tree_dir,
-                excluded_paths=[out_dir],
+                excluded_paths=[_map_optional_tree_path(
+                    git_root=git_root, tree_dir=head_tree_dir, path=out_dir,
+                )],
             )
             # Read the manifest once, here, and hand those exact bytes to the
             # scan. `load_manifest_with_positions` otherwise parses it twice —
@@ -1144,6 +1172,7 @@ def run_verify(
                     manifest_text=(
                         head_manifest_text if archive_head else worktree_manifest_text
                     ),
+                    operation_base=operation_base,
                 )
             except AgentsShipgateError as exc:
                 # `run_scan` records the manifest it read, and when the head is
@@ -1295,8 +1324,10 @@ def run_verify(
                     capability_lock_diff=capability_lock_diff,
                     capability_attestation_inputs=capability_attestation_inputs,
                     human_context=head_human_context,
+                    engine_requirement_factory=engine_requirement,
                     input_root=head_input_root,
                     input_snapshot=head_snapshot,
+                    config_from_worktree=overlay_worktree_manifest,
                     diff_text=diff_text,
                     diff_from_path=base_report,
                     authorization_path=authorization,
@@ -1339,6 +1370,8 @@ def _prepare_base_report(
     no_heuristics: bool,
     verbose: bool,
     evaluation_date: str,
+    operation_callback=None,
+    engine_requirement_factory: Callable[[], VerificationEngineRequirement] | None = None,
 ) -> tuple[
     VerifierBaseStatus,
     str | None,
@@ -1352,6 +1385,18 @@ def _prepare_base_report(
     except Exception as exc:  # noqa: BLE001 - optional base enrichment.
         return "archive_failed", None, None, None, [f"Could not resolve base tree: {exc}"]
 
+    try:
+        engine = (
+            engine_requirement_factory()
+            if engine_requirement_factory is not None
+            else build_engine_requirement(plugins_enabled=plugins_enabled)
+        )
+    except (OSError, ValueError):
+        return "scan_failed", base_tree, None, None, [
+            "Base engine identity is unavailable; the base cache was not used. "
+            f"Run {render_command(['doctor', '--json'])} and rerun verification "
+            "after repairing the install."
+        ]
     cache_report = _cache_report_path(
         base_tree=base_tree,
         config_relative=config_relative,
@@ -1361,8 +1406,10 @@ def _prepare_base_report(
         plugins_enabled=plugins_enabled,
         no_heuristics=no_heuristics,
         evaluation_date=evaluation_date,
+        engine_requirement=engine,
     )
-    if cache_report.exists() and _cache_report_valid(cache_report):
+    cache_valid = cache_report.exists() and _cache_report_valid(cache_report)
+    if cache_valid and operation_callback is None:
         base_lock, lock_notes = _load_cached_capability_lock(cache_report)
         return (
             "succeeded",
@@ -1371,9 +1418,11 @@ def _prepare_base_report(
             base_lock,
             [f"Base report resolved for tree {base_tree}.", *lock_notes],
         )
-    if cache_report.exists():
-        notes.append("Discarded base cache entry whose content hash did not validate.")
-        cache_report.unlink(missing_ok=True)
+    if cache_report.exists() and not cache_valid:
+        notes.append(
+            "Regenerating cached base report.json from Git: the report or its checksum "
+            "is unreadable, corrupt or incompatible with this engine."
+        )
 
     with tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-") as tmp:
         tmp_root = Path(tmp)
@@ -1417,6 +1466,29 @@ def _prepare_base_report(
                 None,
                 [f"Base tree does not contain {config_relative.as_posix()}."],
             )
+
+        # A checksum beside a cached report proves bytes agree, not that the
+        # operation model was read from this Git tree. Inspect the archived
+        # manifest before accepting a cache hit. OpenAPI bases are rescanned;
+        # other readers retain the cache and cannot contribute operation rows.
+        # The callback is private and never populated from report decoding.
+        try:
+            base_manifest = load_manifest_text(
+                read_static_input_bytes(base_config).decode("utf-8"), source=base_config
+            )
+        except (AgentsShipgateError, OSError, UnicodeError):
+            base_manifest = None
+        if (
+            operation_callback is not None
+            and base_manifest is not None
+            and not any(source.type == "openapi" for source in base_manifest.tool_sources)
+        ):
+            operation_callback(base_tree, [])
+            if cache_valid:
+                base_lock, lock_notes = _load_cached_capability_lock(cache_report)
+                return "succeeded", base_tree, cache_report, base_lock, [
+                    f"Base report resolved for tree {base_tree}.", *lock_notes
+                ]
 
         base_capability_lock: CapabilityLockFileV1 | None = None
 
@@ -1483,6 +1555,8 @@ def _prepare_base_report(
                 None,
                 ["Base scan did not produce report.json; diff enrichment disabled."],
             )
+        if operation_callback is not None:
+            operation_callback(base_tree, base_report_model.tool_surface_facts.operation_attributions)
         # Base diff evidence is never patch-applicable. Strip checkout/output
         # coordinates so identical commits produce identical cached inputs
         # across worktrees and clones.
@@ -1500,11 +1574,20 @@ def _prepare_base_report(
             json.dumps(report_json_payload(base_report_model), indent=2),
             encoding="utf-8",
         )
-        _copy_report_to_cache(source_report, cache_report)
-        if base_capability_lock is not None:
-            _write_capability_lock_to_cache(base_capability_lock, cache_report)
-        else:
-            notes.append("Base scan did not produce a capability lock; diff artifact disabled.")
+        try:
+            _copy_report_to_cache(source_report, cache_report)
+            if base_capability_lock is not None:
+                _write_capability_lock_to_cache(base_capability_lock, cache_report)
+            else:
+                notes.append("Base scan did not produce a capability lock; diff artifact disabled.")
+        except OSError:
+            return "scan_failed", base_tree, None, None, [
+                *notes,
+                "Could not store the regenerated base report; diff enrichment is unavailable. "
+                f"Check that {cache_report.parent} is a writable cache directory and that "
+                "report.json, report.sha256 and capabilities.lock.json are regular files, "
+                "then rerun verification.",
+            ]
         _prune_base_scan_cache(cache_report.parents[1], keep=BASE_CACHE_KEEP_ENTRIES)
         notes.append(f"Base report resolved for tree {base_tree}.")
     return "succeeded", base_tree, cache_report, base_capability_lock, notes
@@ -1520,9 +1603,12 @@ def _cache_report_path(
     plugins_enabled: bool | None,
     no_heuristics: bool,
     evaluation_date: str,
+    engine_requirement: VerificationEngineRequirement | None = None,
 ) -> Path:
+    engine = engine_requirement or build_engine_requirement(plugins_enabled=plugins_enabled)
     payload = {
         "version": BASE_CACHE_KEY_EPOCH,
+        "engine_requirement_id": engine.engine_requirement_id,
         "agents_shipgate_version": __version__,
         "base_tree": base_tree,
         "config": config_relative.as_posix(),
@@ -1548,7 +1634,9 @@ def _cache_report_path(
     key = hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()[:24]
-    return git_path(git_root, f"agents-shipgate/base-scans/{key}/report.json")
+    # Resolve Git's metadata root only. Resolving the report path itself would
+    # erase a refused file link before the recovery writer can replace it.
+    return git_path(git_root, "") / "agents-shipgate" / "base-scans" / key / "report.json"
 
 
 def _copy_report_to_cache(source_report: Path, cache_report: Path) -> None:
@@ -1560,26 +1648,49 @@ def _copy_report_to_cache(source_report: Path, cache_report: Path) -> None:
         delete=False,
     ) as handle:
         temp_path = Path(handle.name)
+    digest_temp: Path | None = None
     try:
         shutil.copy2(source_report, temp_path)
+        digest = _sha256_file(temp_path)
+        with tempfile.NamedTemporaryFile(
+            dir=cache_report.parent, prefix="checksum-", suffix=".tmp",
+            delete=False, mode="w", encoding="ascii",
+        ) as handle:
+            digest_temp = Path(handle.name)
+            handle.write(f"{digest}\n")
         temp_path.replace(cache_report)
-        cache_report.with_suffix(".sha256").write_text(
-            f"{_sha256_file(cache_report)}\n",
-            encoding="ascii",
-        )
+        # Recovery must replace a refused checksum alias, never follow it.
+        digest_temp.replace(cache_report.with_suffix(".sha256"))
     finally:
         temp_path.unlink(missing_ok=True)
+        if digest_temp is not None:
+            digest_temp.unlink(missing_ok=True)
 
 
 def _cache_report_valid(cache_report: Path) -> bool:
     digest_path = cache_report.with_suffix(".sha256")
-    if not digest_path.is_file():
-        return False
     try:
-        expected = digest_path.read_text(encoding="ascii").strip()
-    except OSError:
+        session = IdentityBoundReadSession(
+            cache_report.parent, max_entries=64, max_total_bytes=64 * 1024 * 1024 + 128,
+        )
+        data = session.read_bytes(Path(cache_report.name), max_bytes=64 * 1024 * 1024)
+        expected = session.read_bytes(Path(digest_path.name), max_bytes=128).decode("ascii").strip()
+        if re.fullmatch(r"[0-9a-f]{64}", expected) is None:
+            return False
+        if expected != hashlib.sha256(data).hexdigest():
+            return False
+        report = ReadinessReport.model_validate_json(data)
+        if (
+            "report_schema_version" not in report.model_fields_set
+            or report.report_schema_version != ReadinessReport.model_fields[
+                "report_schema_version"
+            ].default
+        ):
+            return False
+        session.finish()
+    except (OSError, ValueError):
         return False
-    return bool(expected and expected == _sha256_file(cache_report))
+    return True
 
 
 def _base_capability_lock_cache_path(cache_report: Path) -> Path:
@@ -3829,6 +3940,9 @@ def _build_verifier(
         headline=headline,
         fix_task=fix_task,
         forbidden_file_edits=list(PROTECTED_FILE_EDITS),
+        conditional_file_edits=conditional_instruction_edits(
+            workspace=git_root, config=_display_path(config_path, git_root), canonical=True,
+        ),
         forbidden_actions=list(FORBIDDEN_SHORTCUTS),
         artifacts=artifacts,
     )
@@ -3897,6 +4011,7 @@ def _remove_scan_artifacts(out_dir: Path) -> None:
         "capability-lock-diff.json",
         "capability-lock-diff.md",
         CAPABILITY_DELTA_ATTESTATION_FILENAME,
+        HUMAN_REVIEW_REQUEST_FILENAME,
         # Remediation instructions must not outlive the report they describe:
         # an early verifier reset would otherwise clear report.json and leave a
         # scaffold behind asking for declarations nothing is measuring.
@@ -4000,19 +4115,28 @@ def _evaluate_authorization_overlay(
             ),
             None,
         )
+    # Fixed prerequisite names expose where context construction stopped,
+    # without publishing exception text or fragments of an external grant.
+    context_failure = "authorization_context_report_missing"
     try:
         if report is None:
             raise ValueError("authorization requires a release report")
+        context_failure = "authorization_context_runtime_validation_failed"
         ensure_authorization_runtime_is_external(workspace)
+        context_failure = "authorization_context_replace_refs_inspection_failed"
         if active_replace_refs(workspace):
+            context_failure = "authorization_context_replace_refs_present"
             raise ValueError("authorization rejects repositories with Git replace refs")
+        context_failure = "authorization_context_grant_load_failed"
         grant = _load_external_human_authorization(
             authorization_path,
             workspace=workspace,
         )
+        context_failure = "authorization_context_review_set_failed"
         review_items = authorization_review_items(report.release_decision.model_dump(mode="json"))
         git = plan.subject.git
         if git.snapshot_kind != "committed_tree" or git.worktree_overlay_sha256 is not None:
+            context_failure = "authorization_context_subject_not_committed"
             raise ValueError("authorization requires a committed Git subject")
         if not (
             git.base_commit_sha
@@ -4021,11 +4145,14 @@ def _evaluate_authorization_overlay(
             and git.head_tree_sha
             and git.source_head_commit_sha
         ):
+            context_failure = "authorization_context_subject_identity_incomplete"
             raise ValueError("authorization requires complete committed PR tree identity")
         signed_source = grant.statement.request
         if signed_source.source_engine_requirement_id != plan.engine.engine_requirement_id:
+            context_failure = "authorization_context_source_engine_mismatch"
             raise ValueError("authorization source engine differs from the current engine")
         if signed_source.source_executor_id != verifier.executor_id:
+            context_failure = "authorization_context_source_executor_mismatch"
             raise ValueError("authorization source executor differs from the current executor")
         # These two IDs are signer-authenticated provenance labels. Unlike the
         # engine, executor, request, subject, decision, tree, review-set, and
@@ -4033,6 +4160,7 @@ def _evaluate_authorization_overlay(
         # set are not transported into this second verification pass. Copying
         # them preserves the exact signed request; it is not an independent
         # provenance check by this verifier.
+        context_failure = "authorization_context_request_build_failed"
         expected_request = build_human_authorization_request(
             repository_id=git.repository_id,
             source_receipt_id=signed_source.source_receipt_id,
@@ -4051,7 +4179,10 @@ def _evaluate_authorization_overlay(
             operation=grant.statement.request.operation,
         )
     except (OSError, ValueError, json.JSONDecodeError):
-        return AuthorizationEvaluationV1.rejected("authorization_context_invalid"), None
+        return (
+            AuthorizationEvaluationV1.rejected("authorization_context_invalid", context_failure),
+            None,
+        )
 
     evaluation = evaluate_human_authorization(
         grant,
@@ -4118,8 +4249,10 @@ def _write_artifacts(
     capability_lock_diff: CapabilityLockDiffV1 | None = None,
     capability_attestation_inputs: CapabilityDeltaAttestationInputs | None = None,
     human_context: HumanArtifactContext | None = None,
+    engine_requirement_factory: Callable[[], VerificationEngineRequirement] | None = None,
     input_root: Path | None = None,
     input_snapshot: StaticInputSnapshot | None = None,
+    config_from_worktree: bool = False,
     diff_text: str = "",
     diff_from_path: Path | None = None,
     authorization_path: Path | None = None,
@@ -4128,6 +4261,10 @@ def _write_artifacts(
     evaluation_date: str | None = None,
 ) -> None:
     verifier_path.parent.mkdir(parents=True, exist_ok=True)
+    # An optional question must not outlive the run that could offer it.
+    review_request_path = verifier_path.with_name(HUMAN_REVIEW_REQUEST_FILENAME)
+    review_request_path.unlink(missing_ok=True)
+    verifier.artifacts.pop("human_review_request_json", None)
     portable_diff_from_path: Path | None = None
     if diff_from_path is not None and diff_from_path.is_file():
         portable_diff_from_path = verifier_path.with_name(
@@ -4242,11 +4379,16 @@ def _write_artifacts(
         else None
     )
     external_input_root = verifier_path.parent
+    from agents_shipgate.core.verification_input_currency import auxiliary_input_origin
+
     portable_policy_pack_paths = [
         _write_portable_static_input(
             path,
             root=external_input_root,
             category="policy-packs",
+            source_logical_path=auxiliary_input_origin(
+                path, input_root=resolved_input_root, git_root=git_root
+            )["path"],
         )
         for path in policy_pack_paths
     ]
@@ -4263,10 +4405,26 @@ def _write_artifacts(
             baseline_path,
             root=external_input_root,
             category="baseline",
+            source_logical_path=auxiliary_input_origin(
+                baseline_path, input_root=resolved_input_root, git_root=git_root
+            )["path"],
         )
         if baseline_path is not None and baseline_was_captured
         else None
     )
+    auxiliary_origins = {
+        portable: auxiliary_input_origin(original, input_root=resolved_input_root, git_root=git_root)
+        for original, portable in zip(policy_pack_paths, portable_policy_pack_paths, strict=True)
+    }
+    if portable_baseline_path is not None:
+        auxiliary_origins[portable_baseline_path] = auxiliary_input_origin(
+            baseline_path, input_root=resolved_input_root, git_root=git_root
+        )
+    if portable_diff_from_path is not None:
+        auxiliary_origins[portable_diff_from_path] = auxiliary_input_origin(
+            diff_from_path, input_root=resolved_input_root, git_root=git_root,
+            generated=verifier.base_status != "diff_from_provided",
+        )
     logical_config = config_logical_path or (
         config_path.resolve().relative_to(resolved_input_root).as_posix()
         if resolved_input_root in config_path.resolve().parents
@@ -4315,6 +4473,9 @@ def _write_artifacts(
     )
     try:
         plan = build_verification_plan(
+            _engine_requirement=(
+                engine_requirement_factory() if engine_requirement_factory is not None else None
+            ),
             git_root=git_root,
             input_root=resolved_input_root,
             config_path=config_path,
@@ -4355,6 +4516,8 @@ def _write_artifacts(
             worktree_overlay_paths=worktree_overlay_paths,
             external_input_root=external_input_root,
             captured_input_paths=captured_input_paths,
+            auxiliary_origins=auxiliary_origins,
+            config_from_worktree=config_from_worktree,
         )
     finally:
         if plan_snapshot_token is not None:
@@ -4396,6 +4559,15 @@ def _write_artifacts(
     verifier.engine_requirement_id = plan.engine.engine_requirement_id
     verifier.executor_id = executor.executor_id
     verifier.decision_id = decision_id
+    review_request = project_human_review_request(verifier=verifier, report=report, plan=plan)
+    if review_request is not None:
+        review_request_path.write_text(
+            json.dumps(review_request.model_dump(mode="json"), indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        verifier.artifacts["human_review_request_json"] = _display_path(
+            review_request_path.resolve(), git_root
+        )
     _write_capability_delta_attestation(
         verifier=verifier,
         plan=plan,
@@ -4468,6 +4640,7 @@ def _write_artifacts(
             style=pr_comment_style,
             capability_lock_diff=capability_lock_diff,
             human_context=human_context,
+            human_review_request=review_request,
         ),
         encoding="utf-8",
     )
@@ -5341,18 +5514,15 @@ def _write_portable_static_input(
     *,
     root: Path,
     category: str,
+    source_logical_path: str | None = None,
 ) -> Path:
     """Copy one captured external input into the reproducible artifact graph."""
 
-    data = read_static_input_bytes(path, max_bytes=64 * 1024 * 1024)
-    digest = hashlib.sha256(data).hexdigest()
-    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", path.name).strip("._")
-    if not safe_name:
-        safe_name = "input"
-    target = root / "verification-inputs" / category / f"{digest[:16]}-{safe_name}"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(data)
-    return target
+    from agents_shipgate.core.verification_input_currency import write_portable_input
+
+    return write_portable_input(
+        path, root=root, category=category, source_logical_path=source_logical_path
+    )
 
 
 def _reject_output_input_overlap(
@@ -6206,6 +6376,9 @@ def run_preview(
         authorization=AuthorizationEvaluationV1.not_requested(),
         headline=headline,
         forbidden_file_edits=list(PROTECTED_FILE_EDITS),
+        conditional_file_edits=conditional_instruction_edits(
+            workspace=root, config=_display_path(config_path, root), canonical=True,
+        ),
         forbidden_actions=list(FORBIDDEN_SHORTCUTS),
         artifacts={
             "verifier_json": _display_path(verifier_path.resolve(), root),

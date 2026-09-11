@@ -25,26 +25,28 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from agents_shipgate import __version__
-
-# The generated workflow pins to the current package version so users
-# get a reproducible action reference. Override via the
-# ``AGENTS_SHIPGATE_WORKFLOW_REF`` env var if you need to track main or
-# pin to a different release for testing.
+from agents_shipgate.published_release import latest_published_action_ref
+from agents_shipgate.release_source import candidate_action_ref
 
 
 def _action_ref() -> str:
-    """Return the action ref the generated workflow should pin to.
+    return _engine_selection()[0]
 
-    Defaults to ``v<__version__>`` so newly-onboarded repos pin to the
-    Shipgate release that wrote their workflow. ``@main`` is unpinned and
-    breaks reproducibility.
+
+def _engine_selection() -> tuple[str, str | None]:
+    """Use the candidate's source SHA, or an ordinary build's published pin.
+
+    An explicit operator override still wins, but cannot hide a malformed
+    embedded record. No future tag, runtime network lookup, or wheel rewrite
+    is involved: the source SHA resolves before and after publication (#570).
     """
     import os
 
+    candidate_ref = candidate_action_ref()
     override = os.environ.get("AGENTS_SHIPGATE_WORKFLOW_REF")
     if override:
-        return override
-    return f"v{__version__}"
+        return override, None
+    return (candidate_ref, __version__) if candidate_ref else (latest_published_action_ref(), None)
 
 
 # Inputs/outputs mirror ``action.yml``; update both when adding inputs.
@@ -71,6 +73,7 @@ jobs:
       - name: Run Agents Shipgate
         uses: ThreeMoonsLab/agents-shipgate@{ref}
         with:
+{engine_pin}\
           config: {config}
           ci_mode: advisory       # change to "strict" once findings are clean
           diff_base: target
@@ -105,11 +108,24 @@ def _yaml_scalar(value: str) -> str:
 
 
 def _render_workflow_template(config: str = DEFAULT_MANIFEST_PATH) -> str:
-    return _WORKFLOW_TEMPLATE.format(ref=_action_ref(), config=_yaml_scalar(config))
+    ref, version = _engine_selection()
+    engine_pin = f'          shipgate_version: "{version}"\n' if version else ""
+    return _WORKFLOW_TEMPLATE.format(ref=ref, engine_pin=engine_pin, config=_yaml_scalar(config))
 
 
-# Backwards-compat: tests and external callers may import the constant.
-WORKFLOW_TEMPLATE = _render_workflow_template()
+# Backwards-compat: tests and external callers may import the constant. It is
+# served lazily, and evaluating it at import time is the bug this replaced: an
+# unreadable embedded source record has to fail the one thing it can make
+# wrong — the ref this file writes into an adopter's repository — and nothing
+# else. Rendered at import, a corrupt record in a stamped wheel raised while
+# `agents_shipgate.cli.discovery` was still being imported, so every command in
+# the CLI died with a traceback, `doctor` included; `doctor` is what the
+# runbook tells an operator to run when an install looks wrong (#570).
+def __getattr__(name: str) -> str:
+    if name == "WORKFLOW_TEMPLATE":
+        return _render_workflow_template()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 WORKFLOW_RELATIVE_PATH = ".github/workflows/agents-shipgate.yml"
 

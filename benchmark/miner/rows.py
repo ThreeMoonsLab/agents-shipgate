@@ -1,7 +1,8 @@
-"""Row schema for mined-PR results (miner schema v0.1).
+"""Row schema for mined-PR results (miner schema v0.3).
 
 Privacy rule: rows carry public PR metadata, verdicts, check IDs, and
-counts only — never diff text, code excerpts, or report evidence. The
+counts and repository-relative input paths — never diff text, code excerpts,
+or report evidence. The
 same "no raw transcript text" convention as the adoption-harness CSVs.
 """
 
@@ -12,8 +13,28 @@ import dataclasses
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal, TypedDict
 
-MINER_SCHEMA_VERSION = "0.2"
+MINER_SCHEMA_VERSION = "0.3"
+
+ScopedInputReason = Literal[
+    "scoped_base_absent", "scoped_base_rename_candidates",
+    "scoped_comparison_unreadable", "scoped_base_not_directory",
+]
+
+
+class ScopedInputObligation(TypedDict):
+    """An unavailable comparison input, never a verifier decision."""
+
+    kind: Literal["unsupported_input"]
+    reason: ScopedInputReason
+    base_sha: str
+    head_sha: str
+    head_scope: str
+    observed_renames: list[dict[str, str]]
+    next_action: Literal[
+        "provide_supported_scoped_base_comparison", "restore_readable_comparison_trees",
+    ]
 
 # Row lifecycle states.
 STATUS_EVALUATED = "evaluated"  # head scan produced a release decision
@@ -59,6 +80,9 @@ class MinedRow:
     verify_cap_added: int | None = None
     verify_cap_modified: int | None = None
     verify_cap_removed: int | None = None
+    # v0.3 — retain the precise input obligation when the injected scoped
+    # manifest cannot describe the original base. No receipt is fabricated.
+    verify_input_obligation: ScopedInputObligation | None = None
     status: str = STATUS_ERROR
     notes: str = ""
     schema_version: str = field(default=MINER_SCHEMA_VERSION)
@@ -84,7 +108,13 @@ def write_csv(rows: list[MinedRow], path: Path) -> None:
         for row in rows:
             payload = row.to_json()
             writer.writerow(
-                {key: ("" if value is None else value) for key, value in payload.items()}
+                {
+                    key: (
+                        "" if value is None else
+                        json.dumps(value, sort_keys=True) if isinstance(value, dict) else value
+                    )
+                    for key, value in payload.items()
+                }
             )
 
 

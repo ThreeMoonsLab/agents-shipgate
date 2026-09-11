@@ -1230,6 +1230,11 @@ def test_a_refused_instruction_target_still_reports_what_failed(unadopted: Path)
 
     assert result.exit_code != 0
     assert payload["control"]["next_action"]["kind"] == "edit"
+    assert payload["control"]["next_action"]["actor"] == "coding_agent"
+    assert human_owned_placeholders(payload["placeholders"]), (
+        "the setup edit takes precedence without clearing the human declaration; "
+        "actor alone must never be read as proof that every placeholder is agent-owned"
+    )
     assert "agents-shipgate.mdc" in payload["control"]["next_action"]["path"]
     # And the structured location rides in the ranked list.
     assert payload["next_actions"][0]["kind"] == "edit"
@@ -2205,18 +2210,15 @@ def _error_lines(output: str) -> list[dict]:
     return [json.loads(line) for line in output.splitlines() if line.startswith('{"error"')]
 
 
-def test_a_failed_render_routes_the_fallback_at_the_run_it_is_correcting(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("failure_site", ["render_auto_manifest", "_validate_manifest_text"])
+@pytest.mark.parametrize("extra_flags", [[], ["--ci", "--agent-instructions=default"]])
+def test_a_generated_manifest_failure_reports_a_product_defect_without_repo_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure_site: str, extra_flags: list[str]
 ):
-    """The `internal_error` route, which no fixture can reach without a fault.
+    """A product exception must not send an adopter back to a blank template.
 
-    Two things this pins. The error line carries the envelope at all — it is a
-    setup answer, and a run that produced no payload is exactly the run whose
-    caller has nothing else to route on. And the fallback repeats the
-    invocation it is correcting: a bare ``init --minimal`` dropped the
-    workspace, the ``--write`` that made it a real run, and the ``--json`` the
-    caller is reading the answer through, so following it exactly produced a
-    dry run against the process directory.
+    Exercise the real CLI and both generation stages. No setup surface may be
+    written, even when the invocation asked for CI and an instruction kit.
     """
 
     monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
@@ -2227,32 +2229,58 @@ def test_a_failed_render_routes_the_fallback_at_the_run_it_is_correcting(
     )
     import agents_shipgate.cli._register_init as init_module
 
-    def refuse(_text: str) -> None:
+    def refuse(*_args, **_kwargs):
         raise ValueError("synthetic schema failure")
 
-    monkeypatch.setattr(init_module, "_validate_manifest_text", refuse)
-
-    result = runner.invoke(app, ["init", "--workspace", str(tmp_path), "--write", "--json"])
+    monkeypatch.setattr(init_module, failure_site, refuse)
+    before = {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+    result = runner.invoke(
+        app, ["init", "--workspace", str(tmp_path), "--write", "--json", *extra_flags]
+    )
     assert result.exit_code == 4
-    lines = _error_lines(result.output)
+    lines = _error_lines(result.stderr)
     assert len(lines) == 1, result.output
     payload = lines[0]
     control = payload["control"]
 
     assert payload["error"] == "internal_error"
+    assert payload["details"]["failure"] == "manifest_generation_failed"
+    assert payload["details"]["origin"] == "agents_shipgate"
+    assert "Agents Shipgate defect" in payload["message"]
     assert control["operation"] == "init"
     assert control["execution"] == "failed"
     assert control["exit_code"] == 4
     assert control["decision"] == SETUP_INCOMPLETE
     assert control["decision_source"] == "setup"
     assert set(control["permissions"].values()) == {False}
-    # One selected route across both fields on the line.
-    assert control["next_action"]["command"] == payload["next_actions"][0]["command"]
-    fallback = shlex.split(control["next_action"]["command"])
-    assert fallback[fallback.index("--workspace") + 1] == str(tmp_path)
-    assert "--write" in fallback
-    assert "--minimal" in fallback
-    assert "--json" in fallback
+    assert control["control_state"] == "human_review_required"
+    assert control["next_action"]["command"] is None
+    assert control["next_action"]["actor"] == "human"
+    assert len(payload["next_actions"]) == 1
+    action = payload["next_actions"][0]
+    assert action["kind"] == "review"
+    assert action.get("path") is None
+    assert action.get("command") is None
+    assert "--minimal" not in payload["next_action"]
+    assert "Report" in payload["next_action"]
+    assert not list(_PUBLISHED_SCHEMA.iter_errors(control))
+    validate_agent_control_envelope(control)
+    after = {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+    assert after == before
+
+
+def test_a_malformed_user_manifest_still_routes_to_the_file_for_repair(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    manifest = tmp_path / "shipgate.yaml"
+    manifest.write_text("agent: [broken\n", encoding="utf-8")
+    result = runner.invoke(app, ["doctor", "--config", str(manifest), "--json"])
+    assert result.exit_code == 2
+    payload = _error_lines(result.stderr)[0]
+    assert payload["error"] == "config_error"
+    assert payload["control"]["next_action"]["kind"] == "edit"
+    assert payload["control"]["next_action"]["path"] == str(manifest)
+    assert payload["next_actions"][0]["path"] == str(manifest)
+    assert "manifest_generation_failed" not in json.dumps(payload)
 
 
 def test_a_discovery_failure_is_a_human_route_with_no_authority(

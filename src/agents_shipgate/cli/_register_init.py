@@ -37,6 +37,12 @@ from agents_shipgate.cli.discovery.gitignore_block import (
     GitignoreOutcomeStatus,
     ensure_reports_gitignore,
 )
+from agents_shipgate.cli.discovery.host_boundary import host_discovery_action, needs_host_route
+from agents_shipgate.cli.discovery.identity_recovery import (
+    classify_agent_name,
+    discover_agent_name,
+    needs_agent_name,
+)
 from agents_shipgate.cli.discovery.local_contract import LOCAL_CONTRACT_RELATIVE_PATH
 from agents_shipgate.cli.discovery.local_review import (
     LocalReviewExcludeOutcome,
@@ -768,6 +774,40 @@ def _manifest_defect(text: str) -> str | None:
     except Exception as exc:  # noqa: BLE001 - any loader objection routes the same way.
         return str(exc)
     return None
+
+
+def _control_pack_payload(
+    *, selected: str | None, requested: str
+) -> dict[str, object]:
+    """The one question ``init`` asks and every answer it takes (#410 §F).
+
+    Emitted for every run, including a refused one and a hand-off: a caller
+    that is going to re-run ``init`` needs to know what it may pass, not only
+    what this run happened to select. One function rather than one dict per
+    exit, so a route added later cannot quietly drop the block.
+    """
+
+    return {
+        # What the manifest at `path` carries, on the same authority rule the
+        # placeholders follow — `null` when no manifest is on disk, or when
+        # the one there does not load. `requested` is what this invocation
+        # asked for; on `skipped_existing` the two differ and reporting only
+        # the request would describe a file this run did not write.
+        "selected": selected,
+        "requested": requested,
+        "manifest_path": "policies.control_pack",
+        "available": [
+            {
+                "id": pack.id,
+                "name": pack.name,
+                "version": pack.version,
+                "summary": pack.summary,
+            }
+            for pack in (
+                BUILTIN_CONTROL_PACKS[pack_id] for pack_id in CONTROL_PACK_IDS
+            )
+        ],
+    }
 
 
 def _scaffold_next_action(target: Path, summary: str) -> NextAction:
@@ -1516,52 +1556,63 @@ def register(app: typer.Typer) -> None:
                     exit_code=4,
                 )
                 raise typer.Exit(4) from exc
-            rendered = render_auto_manifest(
-                workspace_resolved, detect_result, control_pack=control_pack
-            )
-            template = rendered.text
-            tool_surface_origin = rendered.tool_surface_origin
-            scaffold_summary = rendered.scaffold_summary
-            # Validation gate: refuse to emit a manifest the schema would reject.
-            try:
-                _validate_manifest_text(template)
-            except Exception as exc:  # noqa: BLE001 - validation surface
-                message = f"Generated manifest failed validation: {exc}"
-                typer.echo(message, err=True)
-                minimal_action = NextAction(
-                    kind="command",
-                    # Through the one recovery builder, like the two early
-                    # validation routes above. A bare `init --minimal` dropped
-                    # the workspace this run was pointed at, the `--write` that
-                    # made it a real run, and the `--json` the caller is
-                    # reading the answer through — so following the fallback
-                    # exactly produced a dry run against the process directory.
-                    # (The console-script spelling was never the problem:
-                    # `NextAction` retargets `command` on construction.)
-                    command=_recovery_command(
-                        workspace=workspace_resolved,
-                        write=write,
-                        local_review=local_review,
-                        json_output=json_output,
-                        setup_flags=_invocation_flags(
-                            minimal=True,
-                            ci=ci,
-                            claude_code=claude_code,
-                            agent_instructions=agent_instructions,
-                            control_pack=control_pack,
-                            allow_unresolved_scope=allow_unresolved_scope,
-                            agent_instructions_kit=agent_instructions_kit,
-                            max_python_files=max_python_files,
+            if not target.exists() and needs_host_route(detect_result):
+                action = host_discovery_action(detect_result, workspace_resolved)
+                routing = setup_control_envelope(
+                    operation="init",
+                    input_id=setup_input_id(
+                        operation="init", workspace=workspace_resolved,
+                        routing_facts=(detect_result.model_dump(mode="json"), action.model_dump(mode="json")),
+                    ),
+                    reason="Host-only discovery does not need a manifest. No setup files were written.",
+                    diagnostics=[], advance=action, advance_kind="discover",
+                    advance_decision=SETUP_INCOMPLETE, exit_code=0,
+                )
+                if json_output:
+                    typer.echo(json.dumps({
+                        "manifest_status": "not_applicable_host_review",
+                        "created": False, "path": str(target),
+                        "manifest_message": "No setup files were written. Follow next_action for host review.",
+                        "auto_detected": detect_result.model_dump(mode="json"),
+                        "placeholders": [], "workflow": None, "agent_instructions": None,
+                        # Nothing was rendered, so no manifest's tool surface
+                        # has an origin — the same `null` every other route
+                        # that reached neither disk nor this payload reports.
+                        "tool_surface_origin": None,
+                        "control_pack": _control_pack_payload(
+                            selected=None, requested=control_pack
                         ),
-                    ),
+                        "next_action": routing.legacy_next_action,
+                        "next_actions": routing.json_actions(),
+                        "control": routing.envelope.model_dump(mode="json"),
+                    }, indent=2))
+                else:
+                    typer.echo("Host-only discovery needs no shipgate.yaml; no setup files were written.")
+                    typer.echo(f"Next: {routing.legacy_next_action}")
+                return
+            # Both rendering and validation belong to the product boundary.
+            # A generated document failing our own schema is not malformed
+            # adopter input, and no setup files have been written yet (#328).
+            try:
+                rendered = render_auto_manifest(
+                    workspace_resolved, detect_result, control_pack=control_pack
+                )
+                template = rendered.text
+                tool_surface_origin = rendered.tool_surface_origin
+                scaffold_summary = rendered.scaffold_summary
+                _validate_manifest_text(template)
+            except Exception as exc:  # noqa: BLE001 - generation boundary
+                message = f"Agents Shipgate defect: manifest generation failed: {exc}"
+                typer.echo(message, err=True)
+                report_action = NextAction(
+                    kind="review",
                     why=(
-                        "Auto-detected manifest failed schema validation. "
-                        "Fall back to the legacy CHANGE_ME-heavy template."
+                        "Report this Agents Shipgate defect with the failure message "
+                        "and a minimal reproduction at "
+                        "https://github.com/ThreeMoonsLab/agents-shipgate/issues. "
+                        "Do not change the repository to repair generated output."
                     ),
-                    expects=(
-                        "shipgate.yaml renders with placeholder fields "
-                        "you fill in manually."
-                    ),
+                    expects="A product fix that can generate a valid manifest from these inputs.",
                 )
                 _emit_agent_mode_error_routing(
                     "internal_error",
@@ -1570,11 +1621,14 @@ def register(app: typer.Typer) -> None:
                         workspace=workspace_resolved,
                         reason=message,
                         exit_code=4,
-                        action=minimal_action,
-                        action_kind="initialize",
+                        action=report_action,
                     ),
                     message=message,
                     exit_code=4,
+                    details={
+                        "failure": "manifest_generation_failed",
+                        "origin": "agents_shipgate",
+                    },
                 )
                 raise typer.Exit(4) from exc
             placeholders = collect_placeholders(template)
@@ -1985,6 +2039,15 @@ def register(app: typer.Typer) -> None:
         control_placeholders, control_manifest_bytes, manifest_defect = _manifest_placeholders(
             target, template=template, placeholders=placeholders, write=write
         )
+        name_recovery = (
+            (
+                classify_agent_name(detect_result)
+                if target.resolve().parent == workspace_resolved
+                else discover_agent_name(target, control_placeholders)
+            )
+            if not minimal and not manifest_defect and needs_agent_name(control_placeholders)
+            else None
+        )
         # One read of the pack the manifest on disk carries, shared by the route
         # and by the `control_pack` block of the payload. Reading it twice would
         # let a route be selected against one answer and reported beside
@@ -2057,6 +2120,7 @@ def register(app: typer.Typer) -> None:
                     manifest_exit,
                     agent_instructions_exit,
                     control_placeholders,
+                    name_recovery.identity_facts if name_recovery else None,
                     manifest_defect,
                     advance_decision,
                     # Not carried by the action, and between them they decide
@@ -2110,22 +2174,27 @@ def register(app: typer.Typer) -> None:
             advance_alternatives=scope_actions[1:],
             recheck_command=_doctor_command(target),
             placeholders=control_placeholders,
+            name_recovery=name_recovery,
             manifest_display_path=str(target),
             human_review_suffix=(
-                "A human must decide whether to keep this setup provisional "
-                "or adopt it durably. If approved, use `"
-                + render_command(
-                    [
-                        "init",
-                        "--workspace",
-                        str(workspace_resolved),
-                        "--write",
-                        "--json",
-                    ]
+                "A human must also decide whether to adopt this provisional setup durably."
+                if local_review and not scope_refused and name_recovery and name_recovery.human_reason
+                else (
+                    "A human must decide whether to keep this setup provisional "
+                    "or adopt it durably. If approved, use `"
+                    + render_command(
+                        [
+                            "init",
+                            "--workspace",
+                            str(workspace_resolved),
+                            "--write",
+                            "--json",
+                        ]
+                    )
+                    + "`."
+                    if local_review and not scope_refused
+                    else None
                 )
-                + "`."
-                if local_review and not scope_refused
-                else None
             ),
             exit_code=max(manifest_exit, agent_instructions_exit) or None,
         )
@@ -2204,32 +2273,9 @@ def register(app: typer.Typer) -> None:
                 payload["agent_instructions"] = agent_instructions_outcome
             if local_contract_target is not None:
                 payload["local_contract"] = local_contract_target.to_json()
-            # The one question this command asks, and every answer it takes
-            # (#410 §F). Emitted for every run, including a refused one: a
-            # caller that is going to re-run init needs to know what it may
-            # pass, not only what this run happened to select.
-            payload["control_pack"] = {
-                # What the manifest at `path` carries, on the same authority
-                # rule the placeholders follow — `null` when no manifest is
-                # on disk, or when the one there does not load. `requested`
-                # is what this invocation asked for; on `skipped_existing`
-                # the two differ and reporting only the request would
-                # describe a file this run did not write.
-                "selected": selected_control_pack,
-                "requested": control_pack,
-                "manifest_path": "policies.control_pack",
-                "available": [
-                    {
-                        "id": pack.id,
-                        "name": pack.name,
-                        "version": pack.version,
-                        "summary": pack.summary,
-                    }
-                    for pack in (
-                        BUILTIN_CONTROL_PACKS[pack_id] for pack_id in CONTROL_PACK_IDS
-                    )
-                ],
-            }
+            payload["control_pack"] = _control_pack_payload(
+                selected=selected_control_pack, requested=control_pack
+            )
             if gitignore_outcome is not None:
                 payload["gitignore"] = gitignore_outcome.to_json()
             if local_review and not scope_refused:

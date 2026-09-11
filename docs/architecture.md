@@ -3,7 +3,7 @@
 A single-page summary of the `agents-shipgate` codebase for new
 contributors and AI coding agents extending the project. Current as of
 2026-07-13; auto-checked against `agents-shipgate contract --json`:
-runtime contract `29`, report schema `v0.43`, packet schema `v0.18`.
+runtime contract `33`, report schema `v0.43`, packet schema `v0.18`.
 
 For the per-field stability contract, see
 [`../STABILITY.md`](../STABILITY.md). For the agent-facing field index,
@@ -207,6 +207,12 @@ Adding a new wire field: edit the relevant `schemas/<name>.py`, run
 `report_schema_version` / `packet_schema_version` if the addition is
 public. The CI step `python scripts/generate_schemas.py --check`
 fails if the committed JSON drifts from the live model.
+Regenerate affected sample artifacts with
+`python scripts/regenerate_goldens.py` and confirm
+`python scripts/regenerate_goldens.py --check`; the
+[contributor recipe](../CONTRIBUTING.md#sample-goldens) owns the output paths,
+normalization and subsequent scan-pointer rebinding. Keep the independent
+semantic assertions when reviewing the resulting golden diff.
 
 ## Typed domain types: `Scope`, `SideEffect`, `Action`
 

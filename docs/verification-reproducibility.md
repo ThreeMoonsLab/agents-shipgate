@@ -11,6 +11,158 @@ The terminal trust root is
 Read it before the handoff or report. A receipt is written last and only after
 all referenced artifacts exist.
 
+## Current control and receipt closure
+
+Artifact integrity and current authority have separate read boundaries:
+
+| Reader | Validated evidence | What it does not establish |
+| --- | --- | --- |
+| `read_current_control` / `agent control` | Every explicit pointer entry, generation consistency, live workspace currency, the recorded plan input blobs at their declared origins, and reader-selected directory membership. `capture` returns selected bytes from that same validated pass. | Integrity of a receipt-only optional output file absent from the pointer map, or directories the input readers never enumerated. Requesting an unbound capture key returns no bytes for it. |
+| `load_validated_receipt_artifacts` | The complete terminal receipt closure, including optional files, from a bounded private snapshot. | Current workspace state, review eligibility, or operational permission on its own. |
+
+`human-review-request.json` is one such optional artifact. Changing, deleting,
+oversizing, or symlinking it must fail a full-closure read but does not invalidate
+an otherwise current compact pointer. Changing a pointer-bound file fails the
+compact read even with `capture=()`. Successful capture never means all files
+mentioned inside the captured JSON were read.
+
+When a consumer needs both guarantees, capture `verification_receipt` in the
+current-control read, validate the full closure, and compare the returned receipt
+with that captured receipt before consuming any optional bytes. Use the bytes
+returned by the loaders; reopening paths creates a second observation that can
+belong to another run. Preserve the current-control live-workspace checks and
+repeat validation before consequential actions. Full closure validation cannot
+grant a permission denied by current control.
+
+The production control renderers consume captured verifier bytes. The human
+review evaluator additionally validates the full closure, joins the receipts,
+and checks the actual request against its reconstruction. Authorization request
+and execution consumers also validate the full closure; execution revalidates
+immediately before dispatch. Standalone artifact renderers make no implicit
+current-control promise.
+
+The compact contract remains unchanged: a 1 MiB pointer, 256 MiB per bound
+artifact, and up to three read attempts; it has no aggregate artifact budget.
+The full loader defaults to 64 artifacts, 64 MiB per artifact, and 256 MiB total,
+with 4 MiB bounds on the canonical colocated receipt and artifact manifest.
+Both use no-follow regular-file reads. `allowed_artifact_names` rejects unexpected
+references; it does not filter which referenced artifacts are validated. The
+compact read does no additional optional-output-file I/O; regression tests pin the read
+set independently of `capture`, rather than imposing a timing-dependent limit.
+
+### Recorded input currency
+
+After confirming the live HEAD, tree, base and overlay, the compact reader
+reconfirms the plan's manifest, configured and discovered file inputs, changed
+files, policy packs, baseline, comparison report and diff. A tracked input marked
+`assume-unchanged`, or an ignored input the verifier actually read, still has to
+match. This check runs in both live observations, using the same captured plan
+and receipt; a successful Git status alone cannot preserve authority.
+
+Repository inputs describe the matching local checkout, including files read
+from its evaluated committed tree. A historical HEAD must match first; the
+reader never compares historical source bytes with a different current HEAD.
+A local manifest overlaid on an archived tree remains a `worktree` input.
+Generated historical comparison reports and diffs are checked in the artifact
+bundle, not looked up as source files in the checkout.
+
+`inputs.options.input_origins` version `1` records auxiliary provenance before
+portable copying. Its `external` rows join `input_path` to a `kind` and `path`:
+`worktree` and `git_blob` name a repository-relative original; both the original
+and exported copy must match. `generated` and `external_snapshot` have no live
+path. An outside-repository baseline or supplied comparison report is an
+explicit frozen import: the copy is checked, with no claim that its original
+outside location is still current. Absolute original locations are not exported
+or recovered. Policy loading retains its existing manifest-directory boundary.
+The metadata is engine-owned and hashed into the request; callers cannot supply
+it through behavior options. Legacy plans with ambiguous external inputs require
+a fresh verification, rather than a guessed origin.
+
+`verification prepare` exports the same captured auxiliary bytes and retains
+their roles and origins. Worker replay still validates the immutable request;
+it does not establish that the result grants authority in a changed checkout.
+The assembled pointer undergoes the same live read as a normal verifier result.
+
+Input reads use no-follow, identity-bound regular files, with 64 MiB per file and
+one shared 256 MiB aggregate budget per live observation, including named
+dependency inputs and portable input copies. Artifact traversal is anchored at
+the plan's bundle directory even when reports are outside the workspace. Missing,
+unreadable, aliased, oversized or concurrently replaced inputs refuse the read.
+The existing named absent/present/refused dependency rules still apply.
+
+`inputs.options.input_directories` version `1` binds the directories the input
+readers actually enumerate, including empty directories. Each row names a
+repository-relative `path` (`.` is the root) and sorted `members` with a lexical
+`name` and no-follow `kind` (`file`, `directory`, `symlink`, or `special`). The
+`source` distinguishes `git_blob` capture from `worktree` capture. This metadata
+is engine-owned, hashed into `input_set_id`, and reconfirmed with file bytes in
+one bounded session in both current-control observations and worker replay.
+An ignored addition, deletion, rename, or member kind change invalidates it,
+even when every previously recorded file blob still matches (#630).
+
+Only source discovery publishes these rows. Lexical parents inspected to read a
+file and parents inspected for a named absent dependency are not whole-directory
+inputs. The SDK/framework readers keep their top-level Python selection, Codex
+plugin skills keep their two-level selection, and other readers retain their
+existing recursive/skip boundaries. This is a census of those selected
+directories, not proof that every repository file or dynamic tool was analyzed.
+File parsing caps and coverage limitations still apply independently.
+A component lookup resolved away before capture cannot be recovered from the
+resulting directory rows. Codex plugin component capture now retains its
+declared lexical path before resolution (#633): selected files use the shared
+cached byte reader, and selected directories bind identity before actual skill
+enumeration selects membership. Aliases, parent traversal, unreadable paths and
+non-file/directory kinds refuse capture. A caught component diagnostic also
+records an unconfirmable dependency (or an unconfirmable directory for a refused
+root/containment lookup), so repairing the path requires a fresh verification.
+Apps, MCP and hooks require regular files; a directory at one of those paths
+is a captured refusal even when the plugin source is optional. Skills retain
+their directory and direct `SKILL.md` forms. A selected path named `SKILL.md`
+is always the direct-file form; a directory at that name is a captured refusal,
+including when `.` selects a plugin root with that name.
+Committed archives already reject tracked symlinks before component loading;
+their failure record grants no permissions. Standalone loading retains its
+existing in-root resolution behavior.
+
+Implicit Codex plugin defaults (`skills`, `.app.json`, `.mcp.json`) bind named
+absence or presence before selection (#635). A missing exact directory entry
+counts as absence only when a no-follow probe of that name also reports it
+missing. Case aliases, unreadable lookups and excluded output overlap retain
+an unconfirmable dependency and a component-path diagnostic. A later successful
+retry does not clear a captured failure; repair needs fresh verification.
+Existing defaults use the same component kind and byte capture described above.
+Explicit component paths do not bind unused defaults, hooks gain no default,
+and unrelated plugin-root siblings are not input dependencies. The existing
+`dependency_inputs` obligations are checked in both current-control observations
+and prepare/worker replay. This closes the reproduced default-selection gap;
+it does not claim that every reader retains every lookup.
+
+`excluded_paths` records Git metadata and the exact generated report subtree,
+mapped into the archive for committed capture. A live output-only parent such
+as `build/artifacts` is projected away only along that exact output prefix;
+adding `build/agent.ts` or even an unrelated empty directory makes it visible.
+These projection probes bind identity for the session but do not become source
+rows. A selected input cannot itself be the excluded output directory.
+
+Directory capture shares the identity-read budget with file inputs and caps
+selected directory rows plus members at 100,000. Cached listings obey the same
+per-directory bound as fresh listings. Names and kinds are rechecked before the
+session completes. A refused enumeration remains in `unconfirmable_paths` even
+if an adapter recovers; a partial or over-budget census grants no current
+identity. A selected Conductor JSON symlink is refused before resolution can
+erase its lexical identity.
+
+A captured empty `directories` list means the readers enumerated no source
+directories. Missing metadata means capture is unknown: older plans and direct
+builder fallback plans need a fresh `verify` or `verification prepare` before
+current reads or worker replay. A matching snapshot context alone does not
+attest that adapter loading occurred. Existing historical receipt integrity
+remains readable and does not grant current authority.
+
+The [normative control recipe](agent-contract-current.md#two-read-entry-points)
+defines freshness and permission routing. These boundaries change neither its
+wire format nor the release decision.
+
 ## Identity graph
 
 ```text
@@ -37,7 +189,7 @@ binds:
   set, plugin distribution set, and policy catalog; and
 - the normalized task list.
 
-"Every input an adapter reads" is `plan.inputs.tool_sources`, and it covers
+Recorded file inputs an adapter reads appear in `plan.inputs.tool_sources`, covering
 more than the `tool_sources` manifest block. `prompt_files`, the framework
 blocks (`openai_api`, `anthropic`, `google_adk`, `langchain`, `crewai`, `n8n`,
 `codex_plugins`), `validation.evidence`, `checks.policy_packs`, and
@@ -79,8 +231,39 @@ record while the terminal receipt still identifies the complete overlay.
 `attempt_id` is diagnostic and deliberately excluded from `receipt_id`.
 Changing an authoritative input, result, decision, or artifact changes the
 corresponding content ID. Reusing a base-scan cache does not change the public
-verification identity or artifacts, and cached reports are accepted only when
-their sidecar content hash validates.
+verification identity or artifacts.
+
+### Base-scan cache compatibility
+
+A base-cache key binds the effective `engine_requirement_id` in addition to the
+Git tree, manifest, baseline, policy packs, scan options, evaluation date and
+cache-format epoch (#596). The engine requirement covers actual package bytes,
+Python/platform, installed dependency closure, adapters, enabled plugin identity
+and policy catalog. A source edit, editable install or rebuilt wheel at the same
+package version therefore cannot reuse an older engine's entry. The verifier
+captures this descriptor once per invocation for both the cache lookup and
+verification plan; subsequent invocations and engine validation read it afresh.
+
+Existing version-only keys are unreachable and regenerate on demand; no user
+migration command is needed. Equivalent warm runs reuse the current entry.
+Before reuse, bounded no-follow reads validate the report and checksum from one
+identity-bound session: at most 64 directory entries, 64 MiB of report bytes and
+128 checksum bytes. The SHA-256 must match, and the report must parse against the
+current model with an explicit current `report_schema_version`. Missing,
+corrupt or incompatible material triggers a fresh Git base scan and a diagnostic
+explaining the regeneration. Report and checksum files are replaced atomically,
+so repairing a refused file link preserves its external target. This is not a
+cache-directory namespace or concurrent-parent-replacement guarantee.
+If the cache cannot store that report, verification
+reports unavailable base comparison and names the cache location to repair;
+it preserves a conflicting directory and any contents. Missing engine identity
+also refuses cache reuse and routes to `doctor --json`.
+
+These checks establish engine compatibility and byte consistency, not
+authenticated source provenance. A locally writable report plus checksum cannot
+prove what an operation does. The OpenAPI operation-attribution path still
+reconstructs its base from Git, and this cache repair grants neither
+finding-exclusion eligibility nor human release authority.
 
 ## Local verification and portable execution validation
 
@@ -236,6 +419,21 @@ to the verification input set whose `request_id` it signs. When accepted, the
 grant and `shipgate.human_authorization_evaluation/v1` projection are added to
 the final artifact closure, so the newly written terminal receipt binds the
 authorization result and exact command.
+
+If the verifier cannot construct that authorization context, it keeps
+`authorization_context_invalid` in `authorization.reason_codes` and adds one
+fixed prerequisite code. The suffix names the observed stopping point:
+`report_missing`, `runtime_validation_failed`,
+`replace_refs_inspection_failed`, `replace_refs_present`, `grant_load_failed`,
+`review_set_failed`, `subject_not_committed`, `subject_identity_incomplete`,
+`source_engine_mismatch`, `source_executor_mismatch`, or `request_build_failed`;
+each has the `authorization_context_` prefix. These codes describe context
+construction, not a diagnosis inferred from exception text. Raw exceptions,
+grant contents, signatures and private paths are not included. The rejection
+keeps its existing permissions and contributes no executable authorization
+command or accepted grant artifact. A missing trust policy still reports
+`trust_policy_unavailable` after context construction succeeds; it is a
+different prerequisite, not an interchangeable rejection reason.
 
 Authorization v1 permits only one typed Git-push operation. It binds the exact
 commit whose tree was evaluated, a canonical credential-free HTTPS destination

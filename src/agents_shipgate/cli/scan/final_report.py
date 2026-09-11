@@ -107,6 +107,7 @@ def _build_final_report(
         heuristics_filter=sanitized.heuristics_filter,
         policy_evidence_gaps=sanitized.policy_evidence_gaps,
         source_omissions=sanitized.source_omissions,
+        source_recovery_evidence=sanitized.source_recovery_evidence,
     )
     if report.release_decision is not None:
         reference_facts = (

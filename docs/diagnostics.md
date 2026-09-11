@@ -178,7 +178,7 @@ point either.
 | ----------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `SHIP-DIAG-MISSING-MANIFEST`        | block    | The manifest file does not exist on disk. Rank-1 action: `agents-shipgate verify --workspace <dir> --preview --json`.                             |
 | `SHIP-DIAG-INVALID-MANIFEST`        | block    | The manifest file exists but the loader rejected it (invalid YAML, schema validation failure, unsupported version). Rank-1 action: `edit <path>`. |
-| `SHIP-DIAG-NO-AGENT-SURFACE`        | info     | `is_agent_project=false` AND `suggested_sources=[]` AND `codex_plugin_candidates=[]` AND `python_parse_truncated=false` AND no manifest. Catch-all negative control. |
+| `SHIP-DIAG-NO-AGENT-SURFACE`        | info     | `is_agent_project=false` AND `suggested_sources=[]` AND `codex_plugin_candidates=[]` AND `host_boundary_candidates=[]` AND `host_discovery_incomplete_paths=[]` AND `python_parse_truncated=false` AND no manifest. Catch-all negative control. |
 | `SHIP-DIAG-NON-AGENT-LIBRARY`       | info     | Python project (≥1 .py file + pyproject/requirements) with no agent framework, prompts, or tool surface.                                         |
 | `SHIP-DIAG-PURE-PROMPT-EXPERIMENT`  | info     | Only `prompts/` is present; no Python framework, no tool sources.                                                                                |
 | `SHIP-DIAG-MCP-OPENAPI-ARTIFACT-ONLY` | info   | `is_agent_project=false` BUT `suggested_sources` has MCP/OpenAPI entries. Artifact-only repos are valid Shipgate targets.                        |
@@ -267,6 +267,22 @@ interactive users.
 `scan` is unchanged — it still raises `InputParseError(3)` on missing
 or escaped required sources regardless of `--json`, because once an
 agent moves past doctor, those are real scan failures.
+
+That refusal is **one precondition applied before any adapter runs**,
+reading the same resolver this diagnostic uses, so scan and doctor agree
+by construction rather than by each reader deciding for itself. Before
+#585 they did decide for themselves: the shared loaders and
+`mcp_server_source` raised, while `openai_agents_sdk` returned a source
+warning and let a required, absent entrypoint finish as an advisory
+exit-0 scan. The message names each offending source id, its declared
+path and whether it is missing or escapes the manifest directory.
+
+`optional: true` sources are outside this rule by design — they keep
+their source warning and `coverage_recovery` evidence, and the scan
+completes. `verify` applies the precondition to every tree it scans; a
+base commit whose manifest declares a path absent from that tree gives
+`base_status: "scan_failed"` with the reason in `base_notes`, no
+capability delta, and an unchanged head gate.
 
 ## Adoption rung
 
@@ -393,6 +409,28 @@ person having decided something. A value a coding agent supplied is not a guess
 to be corrected later — it is a declaration nobody made, and Shipgate treats it
 as evidence. Every other placeholder (a tool-source path, a project name) is
 ordinary repository reading and stays coding-agent work.
+
+`agent.name` has one contextual exception (#543). When fresh discovery has
+resolved the manifest scope, read the complete Python inventory and found names
+only in test/template code, `init` and `doctor` ask a person to choose the product
+identity or supply product code that establishes it. The route names the field
+and line even after purpose has been supplied; an arbitrary nonempty replacement
+is not evidence. Doctor's placeholder diagnostic carries the same review route.
+A selectable product declaration remains a coding-agent edit and names its
+source file. No setup permission changes.
+
+Init reuses its current discovery result when its workspace is the loaded
+manifest's directory; an existing manifest reached through a link to another
+directory gets fresh discovery at the resolved target. Doctor also recomputes
+there, only for an actual unresolved `agent.name`, rather than using a wider
+workspace or a sibling project. Edit locations retain the caller's manifest
+spelling; product-name guidance names the actual source file. The recovery
+facts participate in `input_id`;
+saved discovery JSON is never a routing input. Capped, ambiguous or partly
+unparsed discovery cannot establish test/template-only evidence. Broader
+unresolved-name recovery remains unchanged, and doctor does not offer a
+higher-cap retry it has no flag to consume. These facts describe the current
+invocation; they do not provide a verifier snapshot or release authority.
 
 Matching is on every segment, not the leaf, because `collect_placeholders` names
 a list item by its own text: a `CHANGE_ME` under `declared_purpose: [...]` is

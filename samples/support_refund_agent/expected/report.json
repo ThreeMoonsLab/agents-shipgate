@@ -1121,7 +1121,7 @@
             ],
             "evidence": "readOnlyHint: true on the reviewed SDK inventory; the description states the preview is rendered locally",
             "reason": "The name carries 'email', but this action renders a draft and has no send path or credential.",
-            "manifest_path": "shipgate.yaml#action_surface.actions[tool='send_email_preview'].override"
+            "manifest_path": "shipgate.yaml#action_surface.actions[6].override"
           },
           {
             "subject": "support.search_kb [support_mcp_tools]",
@@ -1136,7 +1136,7 @@
             ],
             "evidence": "readOnlyHint: true and idempotentHint: true on the MCP export; the only scope is support:kb:read",
             "reason": "The word 'refund' appears in the article text this tool searches, not in anything it changes.",
-            "manifest_path": "shipgate.yaml#action_surface.actions[tool='support.search_kb'].override"
+            "manifest_path": "shipgate.yaml#action_surface.actions[0].override"
           }
         ],
         "declaration_review": {
@@ -3589,6 +3589,36 @@
         "value_hash": "148a37733a582ec1",
         "summary": "Search query intentionally accepts free text."
       }
+    ],
+    "guard_dependencies": [
+      {
+        "reader_profile": "sdk_boolean_guard/v1",
+        "source_id": "openai_sdk_static",
+        "observation_id": "obs_v1_68344b9fde158f18db1f3476cf06003414968e6d82488d8f376eebfecbc8bfb3",
+        "tool_id": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+        "tool_name": "send_email_preview",
+        "tool_path": "agents/refund_agent.py",
+        "tool_symbol": "send_email_preview",
+        "tool_line": 5,
+        "guard_symbol": null,
+        "guard_path": null,
+        "guard_line": null,
+        "call_line": null,
+        "status": "unresolved",
+        "reason": "guard_not_in_supported_position",
+        "parameters": [],
+        "allowed_inputs": [],
+        "inputs": [
+          {
+            "path": "agents/refund_agent.py",
+            "sha256": "eabce7221a892ed71373f5dd54b11d1c92007091d5257e214bcdff6cc1a4824d",
+            "role": "tool_module"
+          }
+        ],
+        "absent_paths": [],
+        "dependency_coverage": "incomplete",
+        "finding_exclusion_eligible": false
+      }
     ]
   },
   "tool_surface_diff": {
@@ -3630,6 +3660,45 @@
     },
     "notes": [
       "No --diff-from report or v0.3 baseline snapshot was provided."
+    ],
+    "guard_comparisons": [
+      {
+        "observation_id": "obs_v1_68344b9fde158f18db1f3476cf06003414968e6d82488d8f376eebfecbc8bfb3",
+        "tool_id": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+        "tool_name": "send_email_preview",
+        "direction": "unresolved",
+        "reason": "base_or_head_guard_evidence_unavailable",
+        "before": null,
+        "after": {
+          "reader_profile": "sdk_boolean_guard/v1",
+          "source_id": "openai_sdk_static",
+          "observation_id": "obs_v1_68344b9fde158f18db1f3476cf06003414968e6d82488d8f376eebfecbc8bfb3",
+          "tool_id": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+          "tool_name": "send_email_preview",
+          "tool_path": "agents/refund_agent.py",
+          "tool_symbol": "send_email_preview",
+          "tool_line": 5,
+          "guard_symbol": null,
+          "guard_path": null,
+          "guard_line": null,
+          "call_line": null,
+          "status": "unresolved",
+          "reason": "guard_not_in_supported_position",
+          "parameters": [],
+          "allowed_inputs": [],
+          "inputs": [
+            {
+              "path": "agents/refund_agent.py",
+              "sha256": "eabce7221a892ed71373f5dd54b11d1c92007091d5257e214bcdff6cc1a4824d",
+              "role": "tool_module"
+            }
+          ],
+          "absent_paths": [],
+          "dependency_coverage": "incomplete",
+          "finding_exclusion_eligible": false
+        },
+        "finding_exclusion_eligible": false
+      }
     ]
   },
   "action_surface_facts": {

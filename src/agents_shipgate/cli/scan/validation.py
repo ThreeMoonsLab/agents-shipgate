@@ -7,10 +7,22 @@ from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.common import load_text_file
 
 
-def _resolve_source_paths(
-    manifest, base_dir: Path, config_path: Path
+def unresolved_required_sources(
+    manifest, base_dir: Path, config_path: Path | None = None
 ) -> list[dict[str, object]]:
     """Return required tool_sources whose declared path is unusable.
+
+    One rule, two readers: ``doctor`` renders these as a
+    ``SHIP-DIAG-MISSING-SOURCE-FILE`` diagnostic and ``scan`` refuses on
+    them before adapter dispatch (see
+    ``cli.scan.source_loading.raise_for_unresolved_required_sources``).
+    Sharing the resolver is what makes the two agree; when each decided
+    for itself, a required ``openai_agents_sdk`` entrypoint that does not
+    exist produced a doctor diagnostic *and* a successful advisory scan
+    (#585).
+
+    ``config_path`` is optional and only supplies manifest line numbers;
+    callers past the manifest read do not have to re-thread it.
 
     Two failure modes are flagged so doctor can surface them as a
     ``SHIP-DIAG-MISSING-SOURCE-FILE`` diagnostic instead of crashing in
@@ -28,10 +40,12 @@ def _resolve_source_paths(
     and the failure reason.
     """
     unresolved: list[dict[str, object]] = []
-    try:
-        manifest_text = load_text_file(config_path)
-    except InputParseError:
-        manifest_text = ""
+    manifest_text = ""
+    if config_path is not None:
+        try:
+            manifest_text = load_text_file(config_path)
+        except InputParseError:
+            manifest_text = ""
     text_lines = manifest_text.splitlines()
     base_resolved = base_dir.resolve()
     for source in manifest.tool_sources:

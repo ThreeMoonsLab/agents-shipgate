@@ -67,6 +67,23 @@ For local control, parse `shipgate.agent_boundary_result/v2` and switch on
 `control.state`. Review `input_coverage`, `host_coverage[]`, `affected_hosts[]`,
 `issues[]`, and `excluded_scopes[]` before relying on the result.
 
+When host inventory fails, `violations[].evidence.recovery` carries the observed
+read phase, reason and source, plus configured limits when a resource bound is
+known. The violation title and control explanation name the failed operation;
+its recommendation names the input to restore before rerunning. Read failures,
+directory inventory failures and final snapshot-validation failures remain
+distinct. A final validation failure means the read could not be confirmed as
+coherent; it does not by itself establish concurrent modification as the cause.
+Existing inventory issue kinds and control permissions are unchanged. Older
+snapshots without these private reader facts keep their generic recovery route.
+
+Recovery text and paths are redacted and bounded to 512 characters. Raw
+filesystem exception text and source contents are never copied into this
+recovery evidence. Configured limits describe the bounds the failed operation
+ran under, not a measured amount by which a particular bound was exceeded.
+Failed runs never retry automatically or authorize continuation. Only an
+explicit new valid run can replace the stop under the current-control protocol.
+
 For inventory and drift, parse host-grants v0.2. An incomplete inventory cannot
 be acknowledged as a baseline. A v0.1 baseline, scope mismatch, or incomplete
 comparison is `incomparable`; `--fail-on-drift` exits 20 for both drift and

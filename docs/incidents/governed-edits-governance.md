@@ -13,11 +13,13 @@ changes only that file to remove the separate-review boundary. It does not copy
 GitHub's instructions or any vendor vulnerability.
 
 ```bash
-uvx agents-shipgate@0.18.0 fixture run governed_edits_governance
+./shipgate fixture run governed_edits_governance
 ```
 
-Before v0.18.0 is published, use
-`./shipgate fixture run governed_edits_governance` from this checkout.
+Once a release carries this fixture, replay it with
+`uvx agents-shipgate@<that version> fixture run governed_edits_governance`. No published release
+does yet — the newest, `v0.15.0`, does not carry it — so naming a version here would
+fail at install before the fixture ran.
 
 Current engine output is intentionally an **expected-fail**:
 

@@ -4,9 +4,11 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
-HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.2"
-HOST_GRANTS_BASELINE_SCHEMA_VERSION = "0.2"
-HOST_GRANTS_DRIFT_SCHEMA_VERSION = "0.2"
+from agents_shipgate.schemas.instruction_structure import InstructionStructureEvidence
+
+HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.3"
+HOST_GRANTS_BASELINE_SCHEMA_VERSION = "0.3"
+HOST_GRANTS_DRIFT_SCHEMA_VERSION = "0.3"
 
 HostName = Literal["codex", "claude-code", "cursor", "vscode", "github"]
 HostGrantScope = Literal["repository", "local_static"]
@@ -214,9 +216,7 @@ class HostGrantsInventoryV2(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    host_grants_inventory_schema_version: Literal["0.2"] = (
-        HOST_GRANTS_INVENTORY_SCHEMA_VERSION
-    )
+    host_grants_inventory_schema_version: Literal["0.2"] = "0.2"
     workspace: str
     scope: HostGrantScope = "repository"
     artifacts: list[HostArtifactV2] = Field(default_factory=list)
@@ -242,7 +242,7 @@ class HostGrantsNormalizedSnapshotV2(BaseModel):
 class HostGrantsBaselineV2(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    host_grants_schema_version: Literal["0.2"] = HOST_GRANTS_BASELINE_SCHEMA_VERSION
+    host_grants_schema_version: Literal["0.2"] = "0.2"
     scope: HostGrantScope
     inventory_sha256: str
     inventory: HostGrantsNormalizedSnapshotV2
@@ -275,7 +275,7 @@ class HostCoverageChangeV2(BaseModel):
 class HostGrantsDriftV2(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    host_grants_schema_version: Literal["0.2"] = HOST_GRANTS_DRIFT_SCHEMA_VERSION
+    host_grants_schema_version: Literal["0.2"] = "0.2"
     baseline_file: str
     scope: HostGrantScope
     comparison_status: Literal["comparable", "incomparable"]
@@ -320,6 +320,44 @@ class HostGrantsDriftV1(BaseModel):
 
 class HostGrantsDriftArtifactV1(RootModel[HostGrantsDriftV1]):
     root: HostGrantsDriftV1
+
+
+# v0.3 separates captured bytes from parsed instruction structure. The closed
+# v0.2 models above remain frozen: a legacy baseline cannot assert this proof.
+class HostArtifactV3(HostArtifactV2):
+    instruction_structure: InstructionStructureEvidence | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+
+class HostGrantsInventoryV3(HostGrantsInventoryV2):
+    host_grants_inventory_schema_version: Literal["0.3"] = "0.3"
+    artifacts: list[HostArtifactV3] = Field(default_factory=list)
+
+
+class HostGrantsNormalizedSnapshotV3(HostGrantsNormalizedSnapshotV2):
+    artifacts: list[HostArtifactV3] = Field(default_factory=list)
+
+
+class HostGrantsBaselineV3(HostGrantsBaselineV2):
+    host_grants_schema_version: Literal["0.3"] = "0.3"
+    inventory: HostGrantsNormalizedSnapshotV3
+
+
+class HostGrantsDriftV3(HostGrantsDriftV2):
+    host_grants_schema_version: Literal["0.3"] = "0.3"
+
+
+class HostGrantsInventoryArtifactV3(RootModel[HostGrantsInventoryV3]):
+    root: HostGrantsInventoryV3
+
+
+class HostGrantsBaselineArtifactV3(RootModel[HostGrantsBaselineV3]):
+    root: HostGrantsBaselineV3
+
+
+class HostGrantsDriftArtifactV3(RootModel[HostGrantsDriftV3]):
+    root: HostGrantsDriftV3
 
 
 __all__ = [name for name in globals() if name.startswith("Host") or name.startswith("HOST_")]

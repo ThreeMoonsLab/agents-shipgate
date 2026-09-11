@@ -1,6 +1,41 @@
 # Current Agent Contract
 
+Runtime contract v33 adds `host_boundary_candidates[]` and
+`host_discovery_incomplete_paths[]` to discovery. They describe recognized
+configuration paths and traversal the bounded census could not see through,
+never parsed grants. An incomplete census withholds the product-wide negative
+and publishes no candidates; it does not fail the classification. A host-only
+workspace follows `audit --host` without creating a manifest. `init` and
+`bootstrap` hand off without setup writes; incomplete input cannot publish a
+product-wide negative. Existing operational control and persisted evidence
+schemas are unchanged; all setup permissions remain false.
+
+Runtime contract v32 separates instruction prose from supported parsed permission
+structure across verification, preflight, host drift and generated edit hooks.
+It publishes verifier v0.17, handoff v9, preflight v0.5 and host evidence v0.3.
+Raw identity still changes on prose edits; legacy evidence is never upgraded to
+a new permission claim. `conditional_file_edits` is a standing routing rule with
+`grants_authority: false`, separate from unconditional `forbidden_file_edits`.
+See [the comparison and migration contract](engineering/instruction-structure-boundary.md).
+
+
+Runtime contract v31 adds a read-only
+[external review decision evaluator](human-review-decision.md) for the bounded
+[`human-review-request.json`](human-review-request.md) class. It verifies current
+scope, host key trust, reviewer eligibility and expiry and returns separate
+evaluation evidence. It writes no artifact and grants no merge or completion
+authority. The shared control union and all existing persisted schema
+identifiers are unchanged; the minimum control contract stays at 21.
+GitHub acquisition and persistence remain an integration obligation.
+
 The single, current statement of what AI coding agents and CI integrations should read from Agents Shipgate output. When the contract changes, update [STABILITY.md](../STABILITY.md) first, then this file. Other agent-facing surfaces (`AGENTS.md`, `llms.txt`, `.well-known/agents-shipgate.json`, the slash command, the skill, the FAQ) link here instead of restating field lists.
+
+For contributors changing the contract: regenerate schemas with
+`python scripts/generate_schemas.py`, then run
+`python scripts/regenerate_goldens.py` and its `--check` mode using the
+[committed sample recipe](../CONTRIBUTING.md#sample-goldens). Review actual
+artifact changes and preserve behavioral assertions; sample regeneration does
+not freeze a release contract or qualify a candidate wheel.
 
 ## Current versions
 
@@ -493,20 +528,20 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `29` (minimum control contract: `21`)
+- Runtime contract: `33` (minimum control contract: `21`)
 - Current report schema: `0.43` — [`docs/report-schema.v0.43.json`](report-schema.v0.43.json)
 - Current packet schema: `0.18` — [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
-- Current verifier schema: `0.16` — [`docs/verifier-schema.v0.16.json`](verifier-schema.v0.16.json) (`0.15` and earlier stay frozen; `0.16` embeds declaration review in the release decision)
+- Current verifier schema: `0.17` — [`docs/verifier-schema.v0.17.json`](verifier-schema.v0.17.json) (`0.16` and earlier stay frozen; `0.17` adds conditional instruction-edit routing)
 - Current verify-run schema: `shipgate.verify_run/v5` — [`docs/verify-run-schema.v5.json`](verify-run-schema.v5.json)
 - Current verification identity schemas: [`plan v1`](verification-plan-schema.v1.json), [`unit result v1`](verification-unit-result-schema.v1.json), [`artifact manifest v1`](verification-artifact-manifest-schema.v1.json), and [`terminal receipt v1`](verification-receipt-schema.v1.json)
 - Current control pointer schema: `shipgate.current_control/v1` — [`docs/current-control-schema.v1.json`](current-control-schema.v1.json)
 - Current agent control envelope schema: `shipgate.agent_control/v1` — [`docs/agent-control-schema.v1.json`](agent-control-schema.v1.json)
 - Current human-authorization schemas: request, signed grant, verifier evaluation, and external trust policy v1 — [`docs/human-authorization-schema.v1.json`](human-authorization-schema.v1.json)
-- Current agent handoff schema: `shipgate.agent_handoff/v8` — [`docs/agent-handoff-schema.v8.json`](agent-handoff-schema.v8.json)
+- Current agent handoff schema: `shipgate.agent_handoff/v9` — [`docs/agent-handoff-schema.v9.json`](agent-handoff-schema.v9.json)
 - Current agent boundary result schema: `shipgate.agent_boundary_result/v2` — [`docs/agent-boundary-result-schema.v2.json`](agent-boundary-result-schema.v2.json)
 - Frozen deprecated Codex projection: `shipgate.codex_boundary_result/v2` — [`docs/codex-boundary-result-schema.v2.json`](codex-boundary-result-schema.v2.json)
-- Current preflight schema: `0.4` — [`docs/preflight-schema.v0.4.json`](preflight-schema.v0.4.json)
+- Current preflight schema: `0.5` — [`docs/preflight-schema.v0.5.json`](preflight-schema.v0.5.json)
 - Current downstream local agent contract schema: `10`
 - Current capability standard: `0.5` — [`docs/capability-standard.md`](capability-standard.md)
 - Current capability lock schema: `0.8` — [`docs/capability-lock-schema.v0.8.json`](capability-lock-schema.v0.8.json)
@@ -516,7 +551,7 @@ Downstream repos generated with
 - Current attestation schema: `0.5` — [`docs/attestation-schema.v0.5.json`](attestation-schema.v0.5.json)
 - Current registry schema: `0.4` — [`docs/registry-schema.v0.4.json`](registry-schema.v0.4.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v2` — [`docs/org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json)
-- Current host-grants inventory, baseline, and drift schemas: `0.2` — [`inventory`](host-grants-inventory-schema.v0.2.json), [`baseline`](host-grants-baseline-schema.v0.2.json), [`drift`](host-grants-drift-schema.v0.2.json)
+- Current host-grants inventory, baseline, and drift schemas: `0.3` — [`inventory`](host-grants-inventory-schema.v0.3.json), [`baseline`](host-grants-baseline-schema.v0.3.json), [`drift`](host-grants-drift-schema.v0.3.json)
 - Current trigger catalog schema: `0.4` — [`docs/triggers.json`](triggers.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
 - Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)
@@ -543,6 +578,27 @@ remains the contract for consumers that want the forensic detail, for CI, and
 for anything reading the artifacts directly. A run can skip the second command
 entirely with `agents-shipgate verify --format control`, which emits the same
 envelope for the run it just performed.
+
+The compact reader validates **every entry in `current-control.json.artifacts`**.
+It does not follow the terminal receipt into optional artifacts absent from that
+map. For example, a successful read does not validate `human-review-request.json`
+merely because the bound receipt references it. Changed, missing, oversized, or
+symlinked receipt-only files leave the compact read unchanged; those same
+conditions on pointer-bound files make it refuse.
+
+For API consumers, `read_current_control(..., capture=...)` returns selected
+bytes from the same pass that validated every pointer entry. `capture` neither
+reduces validation nor adds optional files: a requested unbound key is absent
+from the returned `artifacts`. Consume these captured bytes instead of reopening
+their paths. A consumer that needs a receipt-only artifact must also call
+`load_validated_receipt_artifacts`, compare its returned receipt with the
+pointer-captured `verification_receipt`, and consume the returned closure bytes.
+The full loader rejects invalid optional files. It proves a coherent artifact
+snapshot, not current workspace state or permission to act; retain the currency
+checks below and revalidate before consequential actions. See the
+[consumer boundary and resource bounds](verification-reproducibility.md#current-control-and-receipt-closure)
+for the exact distinction. Standalone renderers such as `agent handoff` do not
+implicitly perform this current-control protocol.
 
 Byte consistency is not generation consistency. A pointer whose artifacts all
 still hash correctly can describe a workspace that one commit has moved past, so
@@ -590,7 +646,7 @@ entry points into the same one decision engine.
   repair, or stop*. Prefer
   validate `agents-shipgate-reports/verification-receipt.json`, then read
   `agents-shipgate-reports/agent-handoff.json` for the compact
-  `shipgate.agent_handoff/v8` view: lead with `control.state`, then read
+  `shipgate.agent_handoff/v9` view: lead with `control.state`, then read
   `control.next_action`, `gate.merge_verdict`, and `reproducibility.run_id` for the
   content-addressed verify identity. `verifier.json` remains the authoritative
   controller substrate and `verify-run.json` remains the detailed run
@@ -670,7 +726,7 @@ they do not replace the gate above and must not introduce a second verdict.
 proactive routing surface for coding agents before edits. It accepts a single
 `PreflightPlanV1` object with `changed_files[]`, optional `diff_text`,
 `capability_requests[]`, `host_permission_requests[]`, and
-`context.{agent,task}`. The emitted `PreflightResultV3` reports protected
+`context.{agent,task}`. The emitted `PreflightResultV5` reports protected
 surfaces, forbidden shortcut actions, required evidence for proposed high-risk
 capabilities, host-grant drift when a host baseline is present, deterministic
 `signals[]`, `control`, `requires_verify`, `verification_command`,
@@ -820,12 +876,12 @@ fingerprints, baselines, run IDs, or release gating.
 
 The remaining v0.22 verifier blocks are reviewer-facing projections / declared inputs — none gates independently (`release_decision.decision` stays the only gate). They populate with real values only under `verify` mode (a `VerificationContext` from `agents-shipgate verify` or an equivalent scan context); a plain `scan` emits their stable empty shape:
 
-- `capability_change` (v0.22+, semantic metadata v0.23+) — the diff-derived capability delta, grouped into `{enabled, added, removed, broadened, narrowed}` member lists over `action_surface_diff` / `tool_surface_diff`. Each `CapabilityChangeMember` carries `{id, direction, subject_kind, tool, action, scope, before_scope, after_scope, before_capability_id, after_capability_id, changed_hashes, semantic_direction, semantic_changes, risk_tags, release_impact, provenance_kind, confidence, rationale, related_finding_ids}`. `broadened` = more effective capability (wider scope, escalated effect, removed control); `narrowed` = less (removed scope, added control). `semantic_direction` explains the proven capability-level movement (`added | removed | broadened | narrowed | mixed | unknown | evidence_only`), and `semantic_changes[]` gives field-level reasons when a base action snapshot is available. `enabled: false` when no base diff is available.
+- `capability_change` (v0.22+, semantic metadata v0.23+) — the diff-derived capability delta, grouped into `{enabled, added, removed, broadened, narrowed}` member lists over `action_surface_diff` / `tool_surface_diff`. Each `CapabilityChangeMember` carries `{id, direction, subject_kind, tool, action, scope, before_scope, after_scope, before_capability_id, after_capability_id, changed_hashes, semantic_direction, semantic_changes, risk_tags, release_impact, provenance_kind, confidence, rationale, related_finding_ids}`. `broadened` = more effective capability (wider scope, escalated effect, removed control); `narrowed` = less (removed scope, added control). `semantic_direction` explains the proven capability-level movement (`added | removed | broadened | narrowed | mixed | unknown | evidence_only`), and `semantic_changes[]` gives field-level reasons when a base action snapshot is available. `enabled: false` when no base diff is available. A member with an empty `tool` and `subject_kind: "scope"` whose `scope` reads `"<agent> -> MCP binding <slot> <axis>"` is an agent's **remote binding** — the endpoint, credential reference, transport or tool filter of a remote MCP server it mounts (#538). `tool` is empty because no remote leaf was enumerated and none is invented; `before_scope` / `after_scope` carry the two sides. Only the tool-filter axis claims a direction; for the others `broadened` is the block's documented opaque-direction bucket and the `rationale` says so, because a host name or an environment variable name establishes no privilege level.
 - `protected_surface_changes` (v0.22+) — list of touched release trust roots, each `{path, kind, glob, related_finding_ids}`. Derived from the active `SHIP-VERIFY-*` findings, so every row's `related_finding_ids` resolves to a real `findings[]` entry and the rollup can never disagree with the gate. A row means "a protected file was touched"; purely-semantic weakenings with no file path stay in `findings[]` and surface via `verifier_summary` flags.
 - `effective_policy` (v0.22+) — normalized (not text-diff) snapshot of the release-policy surface for base-vs-head weakening comparison: `{ci_mode, fail_on[], suppressed_check_ids[], waiver_scopes[], severity_overrides{}, baseline_integrity_mode, baseline_fingerprints[], ci_gate_present}`. Every list/dict is sorted for byte-stable output; derived purely from the manifest (plus accepted-debt fingerprints). It describes the policy the repository **declares**, not the policy this invocation runs under: `--ci-mode` / `--fail-on` move `ci_mode` / `fail_on` at the top level of the report but never here, so two runs of the same tree produce the same snapshot and a base-vs-head comparison stays repository-vs-repository.
 - `human_ack` (v0.22+) — declared human-acknowledgement state, `{required, satisfied, acks[], outstanding[]}`. Within the static boundary, acknowledgement is **declared evidence only — never inferred** (human authority cannot be synthesized). A trust-root weakening (`SHIP-VERIFY-POLICY-WEAKENED`, `-POLICY-BASE-ABSENT`, `-CI-GATE-REMOVED`, `-BASELINE-OR-WAIVER-EXPANDED`) makes a surface `required`; it is `satisfied` only by a matching `human_ack` entry in `shipgate.yaml` (owner + reason + affected surface, optional expiry). `required == (acks-covering-required) + outstanding`. The acknowledgement section lives in `shipgate.yaml` — itself a trust root — so a coding agent cannot add its own ack without tripping `SHIP-VERIFY-TRUST-ROOT-TOUCHED`.
 
-New `SHIP-VERIFY-*` reason codes (v0.22+, category `verify` — suppression-immune and floor-protected; emit only under `verify` mode): `SHIP-VERIFY-POLICY-WEAKENED` (base-vs-head policy weakened), `SHIP-VERIFY-POLICY-BASE-ABSENT` (0.16+; a policy trust root changed with no base snapshot to compare against — split out of `-POLICY-WEAKENED` so a first adoption no longer reports a weakening that could not have happened; evidence `kind` is `manifest_introduced` or `base_snapshot_unavailable`, and only the former reports `policy_weakened: false`), `SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED` (suppression/waiver/baseline broadened), `SHIP-VERIFY-CI-GATE-REMOVED` (Shipgate CI workflow deleted), `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` (agent-instruction trust root changed; routed to human review), `SHIP-VERIFY-TRIGGER-CATALOG-DRIFT` (trigger catalog changed). They are ordinary `Finding`s routed through `release_decision` — never a second verdict.
+New `SHIP-VERIFY-*` reason codes (v0.22+, category `verify` — suppression-immune and floor-protected; emit only under `verify` mode): `SHIP-VERIFY-POLICY-WEAKENED` (base-vs-head policy weakened), `SHIP-VERIFY-POLICY-BASE-ABSENT` (0.16+; a policy trust root changed with no base snapshot to compare against — split out of `-POLICY-WEAKENED` so a first adoption no longer reports a weakening that could not have happened; evidence `kind` is `manifest_introduced` or `base_snapshot_unavailable`, and only the former reports `policy_weakened: false`), `SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED` (suppression/waiver/baseline broadened), `SHIP-VERIFY-CI-GATE-REMOVED` (Shipgate CI workflow deleted), `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` (deprecated compatibility ID; no findings; supported structural changes remain covered by the shared trust-root comparison), `SHIP-VERIFY-TRIGGER-CATALOG-DRIFT` (trigger catalog changed). They are ordinary `Finding`s routed through `release_decision` — never a second verdict.
 
 The action exposes these as outputs `decision`, `blocker_count`, `review_item_count`, `ci_would_fail` (v0.8+).
 For verifier-cycle PR workflows it also exposes additive outputs
@@ -901,7 +957,7 @@ never as a separately derived identity. It has no wall-clock timestamp and is
 not a second gate.
 
 `agents-shipgate-reports/agent-handoff.json` carries
-`schema_version: "shipgate.agent_handoff/v8"` and top-level sections
+`schema_version: "shipgate.agent_handoff/v9"` and top-level sections
 `gate`, `control`, `fix_task`, `blocked_by[]`,
 `remediation_plan[]`, `capability_review`, `authorization`, `reproducibility`,
 and `artifacts`.
@@ -921,7 +977,7 @@ agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --jso
 ```
 
 In `agents-shipgate-reports/verifier.json`, read the fields below (full
-schema [`docs/verifier-schema.v0.16.json`](verifier-schema.v0.16.json)). **Lead
+schema [`docs/verifier-schema.v0.17.json`](verifier-schema.v0.17.json)). **Lead
 with `control.state`.** Every release and merge field below is a mirror or
 deterministic projection of `report.json`; the authorization evaluation is an
 operational overlay and cannot change those fields.

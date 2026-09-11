@@ -250,20 +250,20 @@ def _commit(repo: Path, message: str) -> None:
     )
 
 
-def _sample_repo(tmp_path: Path) -> tuple[Path, Path]:
+def _sample_repo(tmp_path: Path, *, sample_dir: Path = SAMPLE.parent) -> tuple[Path, Path]:
     """Copy the sample agent into a fresh git repo. Returns (repo, manifest)."""
     import shutil
 
     repo = tmp_path / "repo"
     sample_dst = repo / "samples" / "support_refund_agent"
     sample_dst.parent.mkdir(parents=True)
-    shutil.copytree(Path(__file__).resolve().parent.parent / SAMPLE.parent, sample_dst)
+    shutil.copytree(Path(__file__).resolve().parent.parent / sample_dir, sample_dst)
     return repo, sample_dst / "shipgate.yaml"
 
 
-def _weakened_repo(tmp_path: Path) -> Path:
+def _weakened_repo(tmp_path: Path, *, sample_dir: Path = SAMPLE.parent) -> Path:
     """A repo whose HEAD downgrades the declared gate strict -> advisory."""
-    repo, manifest_path = _sample_repo(tmp_path)
+    repo, manifest_path = _sample_repo(tmp_path, sample_dir=sample_dir)
     declared = manifest_path.read_text(encoding="utf-8")
     manifest_path.write_text(
         declared.replace("ci:\n  mode: advisory", "ci:\n  mode: strict"),
@@ -410,7 +410,10 @@ def test_base_cache_from_the_pre_fix_epoch_is_not_reused(tmp_path, monkeypatch):
     """
     from agents_shipgate.cli.verify import orchestrator as verify_orchestrator
 
-    repo = _weakened_repo(tmp_path)
+    # OpenAPI bases now rebuild operation evidence independently of the cache
+    # (#607). Keep this cache-epoch positive control on a cached MCP base; the
+    # OpenAPI forged-cache regression covers its separate reconstruction path.
+    repo = _weakened_repo(tmp_path, sample_dir=Path("samples/clean_read_only_agent"))
     monkeypatch.setattr(
         verify_orchestrator, "BASE_CACHE_KEY_EPOCH", _PRE_298_CACHE_EPOCH
     )
@@ -567,11 +570,12 @@ def test_ci_gate_no_verification_emits_nothing():
 # --- SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED -------------------------------
 
 
-def test_agent_instructions_weakened_on_change():
-    findings = verify_agent_instructions.run(_context(changed_files=["AGENTS.md"]))
-    assert len(findings) == 1
-    assert findings[0].check_id == "SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED"
-    assert findings[0].severity == "medium"
+@pytest.mark.parametrize("path", [
+    "AGENTS.md", "agents.md", "CLAUDE.md", ".claude/README.md",
+    ".codex/README.md", ".cursor/rules/style.mdc", ".agents/skills/probe/SKILL.md",
+])
+def test_deprecated_instruction_check_never_asserts_prose_weakening(path):
+    assert verify_agent_instructions.run(_context(changed_files=[path])) == []
 
 
 def test_agent_instructions_unrelated_file_emits_nothing():
@@ -661,10 +665,10 @@ def test_trigger_catalog_drift_sees_case_variant_catalog_paths(path):
     assert findings[0].check_id == "SHIP-VERIFY-TRIGGER-CATALOG-DRIFT"
 
 
-def test_agent_instructions_weakened_sees_case_variant_paths():
-    findings = verify_agent_instructions.run(_context(changed_files=["agents.md"]))
-    assert len(findings) == 1, (
-        "`agents.md` resolves to AGENTS.md on a case-insensitive filesystem "
-        f"and is a Tier A trust root; got {findings!r}."
-    )
-    assert findings[0].check_id == "SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED"
+def test_deprecated_instruction_id_stays_in_the_published_catalog():
+    from agents_shipgate.checks.registry import CHECK_METADATA
+
+    metadata = next(item for item in CHECK_METADATA if item.id == verify_agent_instructions.CHECK_ID)
+    assert "Deprecated" in metadata.description
+    assert metadata.default_severity == "medium"
+    assert metadata.floor_severity == "medium"

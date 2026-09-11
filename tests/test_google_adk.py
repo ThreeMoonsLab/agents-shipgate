@@ -518,11 +518,22 @@ tool_sources:
     for finding in dynamic_findings:
         assert finding.confidence == "high"
         assert finding.evidence["explicit_inventory"] is False
-        assert set(finding.evidence["toolset"]) == {
-            "kind",
-            "source_ref",
-            "agent_name",
-        }
+        assert {"kind", "source_ref", "agent_name"} <= set(finding.evidence["toolset"])
+        # #538: the evidence now also names the binding the missing inventory
+        # is owed for. An agent config declares no readable connection, so the
+        # MCP row says exactly that rather than claiming the binding carries
+        # none — ``not_read`` is a statement about the reader.
+        assert finding.evidence["toolset"]["binding_agents"] == ["root_agent"]
+    mcp_finding = next(
+        finding
+        for finding in dynamic_findings
+        if finding.evidence["toolset"]["kind"] == "mcp"
+    )
+    assert mcp_finding.evidence["toolset"]["credential_status"] == "not_read"
+    assert mcp_finding.evidence["toolset"]["endpoint_status"] == "not_read"
+    assert mcp_finding.evidence["toolset"]["limitations"] == [
+        "connection_not_read_from_agent_config"
+    ]
     doctor = inspect_sources(config_path=project / "shipgate.yaml")
     assert doctor["frameworks"]["google_adk"]["dynamic_toolset_count"] == 2
 

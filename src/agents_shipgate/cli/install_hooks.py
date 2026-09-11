@@ -469,6 +469,7 @@ It is local-only, deterministic, and advisory. CI remains authoritative.
 from __future__ import annotations
 
 import argparse
+import difflib
 import hashlib
 import json
 import os
@@ -586,7 +587,16 @@ def _pretooluse(
         # against the memory: an out-of-workspace absolute path degrades to its
         # basename, and `/elsewhere/shipgate.yaml` must not authorize the
         # repository's own manifest.
-        if path in already_approved and path in contained:
+        conditional = _conditional_instruction_surface(hit)
+        # A silently accepted prose edit is not a human approval. Conditional
+        # paths must neither consume nor seed the path-based approval memory.
+        if (
+            decision == "ask" and conditional and alias_kind is None
+            and path in contained
+            and _unchanged_instruction_preview(payload, root, args, path)
+        ):
+            continue
+        if not conditional and path in already_approved and path in contained:
             continue
         matched.append((path, hit[0], hit[1]))
     if not matched:
@@ -597,8 +607,8 @@ def _pretooluse(
     )
     reason = (
         "Agents Shipgate protects this surface: "
-        f"{preview}. Changes here alter what agents are allowed to do and "
-        "route to human review at PR time (suppression-immune "
+        f"{preview}. This edit has not been proven to preserve parsed authority "
+        "structure; it requires review (suppression-immune "
         "SHIP-VERIFY-* checks). If the change is intended, have the human "
         "approve this edit; never weaken the manifest, policies, CI gate, "
         "or agent instructions just to make a verifier verdict pass."
@@ -615,6 +625,131 @@ def _pretooluse(
         )
     )
     return 0
+
+
+def _conditional_instruction_surface(hit: tuple[str, str]) -> bool:
+    return hit[0] == "agent_instructions" or hit[1] == "**/SKILL.md"
+
+
+def _unchanged_instruction_preview(
+    payload: dict[str, Any], root: Path, args: argparse.Namespace, path: str,
+) -> bool:
+    """Ask the shared static parser about one exact Edit/Write, never run it.
+
+    Missing preview fields, unsupported edits, old CLIs, timeouts, ambiguous
+    identity and malformed answers retain the prompt. This is a pre-edit
+    routing hint: the completed edit must still pass the verifier.
+    """
+    node = payload.get("tool_input")
+    tool = payload.get("tool_name")
+    if (
+        not isinstance(node, dict) or tool not in {"Write", "Edit"}
+        or set(node) - {"file_path", "content", "old_string", "new_string", "replace_all"}
+        or not isinstance(node.get("file_path"), str)
+        or _changed_paths(payload, root) != [path]
+        or _contained_repo_paths({"tool_input": {"file_path": node["file_path"]}}, root) != frozenset({path})
+        or _unsafe_alias_kind(root, path) is not None
+    ):
+        return False
+    raw, metadata = _read_untracked_file(root, path)
+    new_file = raw is None and not (root / path).exists()
+    if new_file:
+        if tool != "Write":
+            return False
+        before = ""
+    elif raw is None or metadata is None or metadata.st_size > UNTRACKED_DIFF_CONTENT_LIMIT_BYTES:
+        return False
+    else:
+        try:
+            before = raw.decode("utf-8", errors="strict")
+        except UnicodeDecodeError:
+            return False
+    if tool == "Write":
+        if set(node) != {"file_path", "content"} or not isinstance(node["content"], str):
+            return False
+        after = node["content"]
+    else:
+        if set(node) - {"file_path", "old_string", "new_string", "replace_all"}:
+            return False
+        old, new = node.get("old_string"), node.get("new_string")
+        replace_all = node.get("replace_all", False)
+        if (
+            not isinstance(old, str) or not old or not isinstance(new, str)
+            or type(replace_all) is not bool or not before.count(old)
+            or (not replace_all and before.count(old) != 1)
+        ):
+            return False
+        after = before.replace(old, new, -1 if replace_all else 1)
+    # LF-terminated complete text has one exact unified-diff representation.
+    # Other encodings/newline transports keep the prompt rather than normalize
+    # a different proposed edit. The parser itself supports more formats.
+    if any(
+        "\r" in text or "\0" in text or (text and not text.endswith("\n"))
+        or len(text.encode("utf-8")) > UNTRACKED_DIFF_CONTENT_LIMIT_BYTES
+        for text in (before, after)
+    ) or before == after:
+        return False
+    old_path, new_path = json.dumps("a/" + path, ensure_ascii=False), json.dumps("b/" + path, ensure_ascii=False)
+    diff = f"diff --git {old_path} {new_path}\n"
+    if new_file:
+        diff += "new file mode 100644\n"
+    diff += "".join(difflib.unified_diff(
+        before.splitlines(keepends=True), after.splitlines(keepends=True),
+        fromfile="/dev/null" if new_file else old_path, tofile=new_path,
+        n=max(len(before.splitlines()), len(after.splitlines())) + 1,
+    ))
+    plan = {"changed_files": [path], "diff_text": diff}
+    command = [*_cli(), "preflight", "--workspace", str(root), "--config", args.config,
+               "--plan", "-", "--json"]
+    try:
+        # Avoid unbounded in-memory capture. Preflight has its own bounded
+        # static readers; an oversized response is still not a positive proof.
+        with tempfile.TemporaryFile() as output:
+            result = subprocess.run(
+                command, cwd=root, input=json.dumps(plan).encode("utf-8"),
+                stdout=output, stderr=subprocess.DEVNULL, timeout=6, check=False,
+            )
+            if result.returncode != 0 or output.tell() > 2 * 1024 * 1024:
+                return False
+            output.seek(0)
+            answer = json.load(output)
+    except (OSError, subprocess.TimeoutExpired, ValueError, UnicodeError):
+        return False
+    if not isinstance(answer, dict) or answer.get("preflight_schema_version") != "0.5":
+        return False
+    control = answer.get("control")
+    human = control.get("human_review") if isinstance(control, dict) else None
+    action = control.get("next_action") if isinstance(control, dict) else None
+    permissions = control.get("permissions") if isinstance(control, dict) else None
+    touches = answer.get("protected_surface_touches")
+    if (
+        not isinstance(control, dict) or control.get("state") != "agent_action_required"
+        or control.get("must_stop") is not False
+        or not isinstance(human, dict) or human.get("required") is not False
+        or not isinstance(action, dict) or action.get("kind") != "verify"
+        or not isinstance(permissions, dict)
+        or set(permissions) != {"edit", "commit", "push", "update_pr", "merge", "report_complete"}
+        or any(value is not False for value in permissions.values())
+        or answer.get("workspace") != str(root.resolve())
+        or answer.get("requires_human_review") is not False
+        or answer.get("changed_files") != [path]
+        or not isinstance(touches, list) or len(touches) != 1
+        or not isinstance(touches[0], dict) or touches[0].get("path") != path
+        or touches[0].get("kind") not in {"agent_instructions", "tool_surface_decl"}
+        or touches[0].get("instruction_structure_unchanged") is not True
+        or touches[0].get("requires_human_review") is not False
+    ):
+        return False
+    # Discard even a positive parse if its captured source moved in the meantime.
+    if _unsafe_alias_kind(root, path) is not None:
+        return False
+    if new_file:
+        return not (root / path).exists()
+    current, current_metadata = _read_untracked_file(root, path)
+    return bool(
+        current == raw and current_metadata is not None
+        and _file_metadata(current_metadata) == _file_metadata(metadata)
+    )
 
 
 def _protected_surface_for(
@@ -826,7 +961,8 @@ def _record_in_session_approvals(
     protected = [
         path
         for path in _contained_repo_paths(payload, root)
-        if _protected_surface_for(path, configured_manifest=args.config) is not None
+        if (hit := _protected_surface_for(path, configured_manifest=args.config)) is not None
+        and not _conditional_instruction_surface(hit)
     ]
     if protected:
         _remember_approved_surfaces(root, str(payload.get("session_id") or ""), protected)

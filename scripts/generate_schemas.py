@@ -31,7 +31,7 @@ Writes / verifies:
 - docs/human-authorization-schema.v1.json
                                 (authorization request, signed grant,
                                  evaluation, and trust policy union)
-- docs/agent-handoff-schema.v8.json
+- docs/agent-handoff-schema.v9.json
                                 (from agents_shipgate.schemas.agent_handoff.
                                  AgentHandoffArtifact)
 - docs/agent-result-schema.v2.json
@@ -39,9 +39,9 @@ Writes / verifies:
 - docs/agent-boundary-result-schema.v1.json
                                 (from agents_shipgate.schemas.agent_boundary.
                                  AgentBoundaryResultV1)
-- docs/preflight-schema.v0.3.json
+- docs/preflight-schema.v0.5.json
                                 (from agents_shipgate.schemas.preflight.
-                                 PreflightResultV3)
+                                 PreflightResultV5)
 - docs/org-governance-schema.v0.1.json
                                 (from agents_shipgate.schemas.org_governance.
                                  OrgGovernanceStatusV1)
@@ -51,13 +51,13 @@ Writes / verifies:
 - docs/registry-schema.v0.4.json
                                 (from agents_shipgate.schemas.registry.
                                  RegistryQueryResultV1)
-- docs/host-grants-inventory-schema.v0.2.json
+- docs/host-grants-inventory-schema.v0.3.json
                                 (from agents_shipgate.schemas.host_grants.
-                                 HostGrantsInventoryArtifactV2)
-- docs/host-grants-baseline-schema.v0.2.json
-                                (from HostGrantsBaselineArtifactV2)
-- docs/host-grants-drift-schema.v0.2.json
-                                (from HostGrantsDriftArtifactV2)
+                                 HostGrantsInventoryArtifactV3)
+- docs/host-grants-baseline-schema.v0.3.json
+                                (from HostGrantsBaselineArtifactV3)
+- docs/host-grants-drift-schema.v0.3.json
+                                (from HostGrantsDriftArtifactV3)
 - docs/capability-lock-schema.v0.8.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockFileArtifactV1)
@@ -1676,6 +1676,48 @@ def build_human_authorization_schema() -> tuple[Path, str]:
     return DOCS / "human-authorization-schema.v1.json", _canonical_json(schema)
 
 
+def build_human_review_request_schema() -> tuple[Path, str]:
+    """A new request grammar; no shared control union is widened (#536)."""
+    from agents_shipgate.schemas.human_review_request import HumanReviewRequestV1
+
+    schema = HumanReviewRequestV1.model_json_schema()
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        "main/docs/human-review-request-schema.v1.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["description"] = (
+        "Unsigned complete-evidence review question; never an authorization. "
+        "Content identities and full-scope relations also require model validation."
+    )
+    return DOCS / "human-review-request-schema.v1.json", _canonical_json(schema)
+
+
+
+def build_human_review_decision_schema() -> tuple[Path, str]:
+    """A detached decision and its non-authorizing applicability result (#537)."""
+    from pydantic import TypeAdapter
+
+    from agents_shipgate.schemas.human_review_decision import (
+        HumanReviewDecisionV1,
+        HumanReviewEvaluationV1,
+    )
+
+    schema = TypeAdapter(HumanReviewDecisionV1 | HumanReviewEvaluationV1).json_schema()
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        "main/docs/human-review-decision-schema.v1.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = "Agents Shipgate Human Review Decision Protocol v1"
+    schema["description"] = (
+        "Externally signed review decision and separate applicability result; "
+        "neither grants operation or release authority. Content identity, time "
+        "ordering, signature, current verification and trusted eligibility "
+        "require the evaluator, not JSON Schema alone."
+    )
+    return DOCS / "human-review-decision-schema.v1.json", _canonical_json(schema)
+
 def build_agent_handoff_schema() -> tuple[Path, str]:
     """Generate the current agent-handoff schema."""
 
@@ -1709,10 +1751,10 @@ def build_preflight_schema() -> tuple[Path, str]:
 
     from agents_shipgate.schemas.preflight import (
         PREFLIGHT_SCHEMA_VERSION,
-        PreflightResultV3,
+        PreflightResultV5,
     )
 
-    schema = PreflightResultV3.model_json_schema()
+    schema = PreflightResultV5.model_json_schema()
     minor = PREFLIGHT_SCHEMA_VERSION
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
@@ -1722,7 +1764,7 @@ def build_preflight_schema() -> tuple[Path, str]:
     schema["title"] = f"Agents Shipgate Preflight Result v{minor}"
     schema["description"] = (
         "JSON Schema for shipgate preflight --json. Generated from "
-        "agents_shipgate.schemas.preflight.PreflightResultV3. It is a "
+        "agents_shipgate.schemas.preflight.PreflightResultV5. It is a "
         "proactive routing/projection surface, not a release gate; "
         "release_decision.decision remains the only gate."
     )
@@ -2452,10 +2494,10 @@ def build_host_grants_inventory_schema() -> tuple[Path, str]:
 
     from agents_shipgate.schemas.host_grants import (
         HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
-        HostGrantsInventoryArtifactV2,
+        HostGrantsInventoryArtifactV3,
     )
 
-    schema = HostGrantsInventoryArtifactV2.model_json_schema()
+    schema = HostGrantsInventoryArtifactV3.model_json_schema()
     minor = HOST_GRANTS_INVENTORY_SCHEMA_VERSION
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
@@ -2476,10 +2518,10 @@ def build_host_grants_baseline_schema() -> tuple[Path, str]:
 
     from agents_shipgate.schemas.host_grants import (
         HOST_GRANTS_BASELINE_SCHEMA_VERSION,
-        HostGrantsBaselineArtifactV2,
+        HostGrantsBaselineArtifactV3,
     )
 
-    schema = HostGrantsBaselineArtifactV2.model_json_schema()
+    schema = HostGrantsBaselineArtifactV3.model_json_schema()
     minor = HOST_GRANTS_BASELINE_SCHEMA_VERSION
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
@@ -2499,10 +2541,10 @@ def build_host_grants_drift_schema() -> tuple[Path, str]:
 
     from agents_shipgate.schemas.host_grants import (
         HOST_GRANTS_DRIFT_SCHEMA_VERSION,
-        HostGrantsDriftArtifactV2,
+        HostGrantsDriftArtifactV3,
     )
 
-    schema = HostGrantsDriftArtifactV2.model_json_schema()
+    schema = HostGrantsDriftArtifactV3.model_json_schema()
     minor = HOST_GRANTS_DRIFT_SCHEMA_VERSION
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
@@ -2935,6 +2977,8 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("current_control", build_current_control_schema),
     ("agent_control_envelope", build_agent_control_envelope_schema),
     ("human_authorization", build_human_authorization_schema),
+    ("human_review_request", build_human_review_request_schema),
+    ("human_review_decision", build_human_review_decision_schema),
     ("agent_handoff", build_agent_handoff_schema),
     ("agent_result", build_agent_result_schema),
     # codex_boundary_result v2 is a frozen compatibility schema and is not

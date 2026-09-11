@@ -366,3 +366,12 @@ jobs:
 - [`minimal-real-configs.md`](minimal-real-configs.md) — fuller per-framework configs with rationale.
 - [`integrations.md`](integrations.md) — CI provider recipes (CircleCI, GitLab) beyond GitHub Actions.
 - [`docs/manifest-v0.1.md`](manifest-v0.1.md) — full manifest schema reference.
+
+Repository host settings are a separate adoption route from exported tools.
+The current candidate detects supported config filenames in
+`host_boundary_candidates`, including ignored settings, and directs host-only
+repositories to `audit --host` without a manifest. No JSON/TOML grant semantics
+are inferred at discovery time. `host_discovery_incomplete_paths` prevents a
+path the census could not see through — an unfollowed directory link, an
+unreadable directory — from becoming a complete negative; see
+[Route H](quickstart.md#route-h--no-manifest).

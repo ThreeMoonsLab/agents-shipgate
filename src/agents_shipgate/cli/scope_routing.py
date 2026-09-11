@@ -188,7 +188,7 @@ def scope_candidate_actions(
     **A candidate that already carries a manifest routes to ``doctor``, not to
     ``init``.** A nested ``shipgate.yaml`` is itself evidence of a project, so
     adopted directories are candidates too — on this repository's own
-    ``samples/``, 21 of 22 are — and ``init --write`` there exits 2 on a
+    ``samples/``, 23 of 25 are — and ``init --write`` there exits 2 on a
     manifest it will not overwrite while ``expects`` promises a file that
     already exists. ``doctor`` is the command that answers what is actually
     outstanding for an adopted project, and it is the same handoff ``detect``

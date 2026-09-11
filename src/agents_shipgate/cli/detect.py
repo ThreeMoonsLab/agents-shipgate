@@ -23,6 +23,11 @@ from agents_shipgate.cli.discovery import (
     detect_workspace,
     select_agent_name,
 )
+from agents_shipgate.cli.discovery.host_boundary import (
+    host_discovery_action,
+    listed_subjects,
+    needs_host_route,
+)
 from agents_shipgate.cli.scope_routing import (
     MAX_LISTED_SCOPE_CANDIDATES,
     candidate_caveats,
@@ -155,6 +160,27 @@ def detect(
         typer.echo(json.dumps(payload, indent=2))
         return
 
+    # `has_manifest` gates this the way it gates `_detect_advance`: an adopted
+    # workspace routes to `doctor`, and printing a host-discovery heading over
+    # that route told a reader the host audit was the next step while the
+    # `Next:` line under it named something else.
+    if not has_manifest and needs_host_route(result):
+        if result.host_boundary_candidates:
+            typer.echo("Host configuration discovery (filenames only; grants not verified):")
+            for candidate in result.host_boundary_candidates:
+                typer.echo(f"- {candidate.path} ({', '.join(candidate.hosts)}; {candidate.file_type})")
+        if result.host_discovery_incomplete_paths:
+            typer.echo(
+                "Paths host discovery could not see through: "
+                + listed_subjects(result.host_discovery_incomplete_paths, limit=10)
+            )
+        # The same block every other negative route prints. A host-config file
+        # is usually also a rejected tool-source candidate, and the sentence
+        # saying why is exactly what this reader is missing.
+        _echo_excluded_sources(result.excluded_sources)
+        typer.echo(f"Next: {result.next_action}")
+        return
+
     if (
         not result.is_agent_project
         and not result.suggested_sources
@@ -181,6 +207,12 @@ def detect(
                 "No agent framework signals matched the strong-signal threshold."
             )
         _echo_excluded_sources(result.excluded_sources)
+        if has_manifest:
+            # An adopted workspace has a route even when nothing matched:
+            # `detect` never opens the manifest, so `doctor` owns whether
+            # setup is complete. Leaving a reader who has one with a bare
+            # negative and no step is the half-answer (#614 review).
+            typer.echo(f"Next: {result.next_action}")
         return
 
     typer.echo(
@@ -252,6 +284,13 @@ def _detect_reason(result: DetectResult, *, has_manifest: bool) -> str:
         return (
             "Detected Shipgate-compatible tool artifacts with no Python "
             "framework and no shipgate.yaml yet."
+        )
+    if result.host_boundary_candidates:
+        return "Recognized host configuration paths were found; their contents and grants have not been verified."
+    if result.host_discovery_incomplete_paths:
+        return (
+            "Host discovery could not see through every path, so configuration "
+            "beneath them is not excluded."
         )
     return "No agent framework, tool artifact, or prompt surface matched."
 
@@ -401,6 +440,8 @@ def _detect_advance(
         or result.codex_plugin_candidates
     )
     if not adoptable:
+        if needs_host_route(result):
+            return (host_discovery_action(result, workspace), "discover", SETUP_INCOMPLETE, [])
         return (None, "discover", SETUP_INCOMPLETE, [])
     return (
         NextAction(

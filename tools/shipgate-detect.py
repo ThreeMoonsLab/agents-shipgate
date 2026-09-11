@@ -48,14 +48,6 @@ Intentional simplifications vs. the canonical CLI:
 
 - No ``diagnostics[]`` / ``next_actions[]`` (the diagnostic engine is
   not in scope for stdlib-only / zero-install).
-- **No ``mcp_server_source`` detection.** The installed CLI reads an MCP
-  server's tool names out of TypeScript or Go registration sites through a
-  built-in idiom registry (#431); this script does not, so a repository whose
-  tool surface exists only as code is reported here as *not* an agent project
-  while the CLI reports it as one. That is the largest divergence in this list
-  and the only one that changes ``is_agent_project``. No sample exercises it
-  today, so the parity test cannot see it; ``test_framework_vocabulary_names_every_cli_omission``
-  pins it instead, and it is filed as #485.
 - ``agent_scope`` / ``agent_scope_truncated`` / ``python_parse_truncated`` /
   ``agent_project_candidates[]``
   are carried, and the contract test pins them against the CLI: an agent that
@@ -65,10 +57,31 @@ Intentional simplifications vs. the canonical CLI:
 - Absolute scores may differ by ±0.5 in edge cases.
 - The parse probe is **JSON-only** (stdlib has no YAML parser). A
   ``.json`` candidate the input adapters would reject is excluded here
-  too; a ``.yaml`` / ``.yml`` OpenAPI spec is kept as a suggestion
-  unconditionally (never wrongly dropped). The real-world miss this
-  guards against — ``mcpServers``-style host configs — is always JSON,
-  so the probe is exact where it matters.
+  too; a ``.yaml`` / ``.yml`` OpenAPI spec is kept as a suggestion unless
+  it trips the size bound below (never wrongly dropped). The real-world
+  miss this guards against — ``mcpServers``-style host configs — is always
+  JSON, so the probe is exact where it matters.
+- Every **suggestion candidate** — the MCP/OpenAPI/Conductor glob hits — and
+  every n8n/Conductor workflow read for framework scoring is size-gated at
+  ``MAX_STRUCTURED_FILE_BYTES`` before it is read, matching the
+  ``MAX_INPUT_FILE_BYTES`` refusal the input adapters apply ahead of their own
+  parse. This is both a bound on what an unknown workspace can make this script
+  allocate and a parity rule: an oversized ``*mcp*.json`` is excluded by the
+  CLI, so suggesting it here would send an agent to write a manifest entry
+  ``scan`` rejects. The MCP registration-site walk applies its own, smaller
+  ``MAX_SOURCE_FILE_BYTES``. Reads that feed neither surface are *not* covered:
+  ``package.json`` / ``go.mod`` language evidence and the ``pyproject.toml`` /
+  ``requirements.txt`` package tokens are still read whole, exactly as the CLI
+  reads them, so the two stay in step — do not bound one without the other.
+
+``mcp_server_source`` — an MCP server whose tool surface exists only as
+TypeScript, Go or Python registration sites (#431, #484) — **is** detected here, through a
+port of the CLI's masking reader and its idiom registry (#485). That port is a
+second implementation of a load-bearing matcher, so it is held to the CLI's
+answers by a shared conformance corpus rather than by inspection: every
+positive sample, the whole adversarial sweep, the path predicate and both
+escape grammars in ``tests/mcp_idiom_corpus.py`` are driven through both
+readers and compared site by site, span included.
 
 The verdict, detected framework set, suggested/excluded source split, and
 the ranked ``agent_name_candidates`` all match. The name ranking is pinned
@@ -84,13 +97,18 @@ import fnmatch
 import json
 import os
 import re
+import shlex
+import stat
 import subprocess
 import sys
 import threading
-from pathlib import Path
-from typing import Any
+import tomllib
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass, field
+from pathlib import Path, PurePosixPath
+from typing import Any, Literal
 
-SCRIPT_VERSION = "0.4.0"
+SCRIPT_VERSION = "0.7.0"
 MAX_STRUCTURED_FILE_BYTES = 10 * 1024 * 1024
 # Matches ``detect_workspace``'s ``max_python_files``. The bound is on
 # parses, not on the inventory: capping the inventory lets an asset-heavy
@@ -127,7 +145,29 @@ PACKAGE_HINTS: dict[str, tuple[str, ...]] = {
     "conductor": ("conductor-client", "conductor-server", "conductor-oss"),
     "openai_api": (),
 }
+#: The tool-source type the MCP registration-site route suggests, and the
+#: framework key it scores under. Mirrors
+#: ``agents_shipgate.inputs.mcp_server_source.SOURCE_TYPE``.
+MCP_SOURCE_TYPE = "mcp_server_source"
 FRAMEWORKS = (
+    "langchain", "crewai", "google_adk", "anthropic",
+    "openai_agents_sdk", "n8n", "conductor", "openai_api",
+    # Not a Python framework and scored from neither the AST pass nor a
+    # filename glob: it is the workspace's own TypeScript, Go or Python registration
+    # sites, scored by `_discover_mcp_server_source` (#431, ported by #485).
+    MCP_SOURCE_TYPE,
+)
+#: The frameworks a conventional directory is weak evidence for. Deliberately
+#: not every entry in ``FRAMEWORKS`` — mirrors
+#: ``signals.CONVENTIONAL_DIR_FRAMEWORKS``, and pinned against it.
+#:
+#: ``mcp_server_source`` is the one absentee. Its evidence is already a
+#: conjunction — a declared MCP dependency *and* a tool name resolved at a
+#: registration site — so a ``tools/`` directory adds nothing it does not
+#: already have, and adding it would let two conventional directories carry
+#: the published confidence to ``high`` for a route the engine caps at
+#: ``medium``.
+CONVENTIONAL_DIR_FRAMEWORKS = (
     "langchain", "crewai", "google_adk", "anthropic",
     "openai_agents_sdk", "n8n", "conductor", "openai_api",
 )
@@ -179,14 +219,21 @@ AGENT_FRAMEWORK_MODULE_PREFIXES = (
 )
 ROOT_AGENT_SYMBOL = "root_agent"
 CHILD_AGENT_KEYWORDS = ("sub_agents", "handoffs")
-# Origin is meant to dominate hierarchy and corroboration, so the test
-# penalty is strictly greater than their whole spread (3.0 + 1.0 + 1.5).
+# Origin is meant to dominate hierarchy and corroboration, so the
+# non-product penalty is strictly greater than their whole spread
+# (3.0 + 1.0 + 1.5).
 # Conventional test module filenames that carry no `test_` prefix.
 TEST_MODULE_NAMES = frozenset({"conftest.py", "test.py", "tests.py"})
+# Consecutive directory names that hold code shipped as material rather than
+# as the running application: a `templates/` directory nested in a
+# `resources/` one holds what a generator copies. The pair is required, not a
+# bare `templates/` — every name added here widens what fails open (#398).
+# Entries must be lowercase: the path is case-folded before the comparison.
+NON_PRODUCT_DIR_SEQUENCES: tuple[tuple[str, ...], ...] = (("resources", "templates"),)
 ROOT_AGENT_BONUS = 3.0
 SUB_AGENT_PENALTY = 1.5
 CORROBORATION_BONUS = 1.0
-ORIGIN_TEST_PENALTY = 6.0
+ORIGIN_NON_PRODUCT_PENALTY = 6.0
 QUALITY_FLOOR_PENALTY = 3.0
 AGENT_NAME_MIN_LENGTH = 3
 GENERIC_AGENT_NAME_VALUES = frozenset({
@@ -480,10 +527,97 @@ def _project_of(
         directory = parent
 
 
+class _ProjectAttribution:
+    """Which project each path in the workspace belongs to — mirror of
+    ``cli/discovery/signals.py:_ProjectAttribution``.
+
+    One rule, two readers. ``_agent_project_candidates`` groups agent
+    evidence by project to decide whether one manifest can describe the
+    workspace; ``_rank_agent_names`` asks the same question because an
+    application root whose identity cannot be established disqualifies the
+    names declared *in that project* and no others (#398).
+    """
+
+    def __init__(self, workspace: Path, evidence_paths: list[str]) -> None:
+        self._workspace = workspace
+        self._evidence_dirs = frozenset(
+            (workspace / rel) if (workspace / rel).is_dir() else (workspace / rel).parent
+            for rel in evidence_paths
+        )
+        self._by_directory: dict[Path, tuple[str, str | None]] = {}
+        self._agent_projects: frozenset[str] = frozenset()
+        self._established = False
+        self._scope_by_directory: dict[Path, str] = {}
+
+    def of(self, path: Path) -> tuple[str, str | None]:
+        """``(project relative path, marker)``; ``"."`` for the workspace."""
+        directory = path if path.is_dir() else path.parent
+        cached = self._by_directory.get(directory)
+        if cached is not None:
+            return cached
+        found = _project_of(path, self._workspace, self._evidence_dirs)
+        # No marker anywhere above: the workspace is the project by default,
+        # not because a marker said so. The fallback marker is therefore the
+        # workspace's *strong* marker only, matching
+        # `signals.py:_ProjectAttribution.of`. Passing WEAK_PROJECT_MARKERS
+        # here reported `marker: "requirements.txt"` where the CLI reported
+        # `marker: null` — a weak marker that unlocks nowhere it was found
+        # is not the boundary this project rests on.
+        resolved = (
+            found
+            if found is not None
+            else (".", _project_marker(self._workspace))
+        )
+        self._by_directory[directory] = resolved
+        return resolved
+
+    def establish(self, projects: Iterable[str]) -> None:
+        """Record which projects the grouping actually published."""
+        self._agent_projects = frozenset(projects)
+        self._established = True
+        self._scope_by_directory.clear()
+
+    def scope_of(self, path: Path) -> str:
+        """The nearest *established* agent project at or above ``path``.
+
+        `of()` answers with the nearest project *marker*, which is the right
+        boundary for grouping evidence and the wrong one for deciding
+        whether a name is disqualified: a marker directory holding no agent
+        evidence is not a manifest scope, so a name found there belongs to
+        the scope enclosing it. Mirror of
+        ``signals.py:_ProjectAttribution.scope_of``.
+        """
+        if not self._established:
+            raise RuntimeError(
+                "scope_of() read before _agent_project_candidates established "
+                "the projects; it would attribute every name to the workspace"
+            )
+        directory = path if path.is_dir() else path.parent
+        cached = self._scope_by_directory.get(directory)
+        if cached is not None:
+            return cached
+        current = directory
+        scope = "."
+        while True:
+            rel = "." if current == self._workspace else _rel(current, self._workspace)
+            if rel in self._agent_projects:
+                scope = rel
+                break
+            if current == self._workspace:
+                break
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+        self._scope_by_directory[directory] = scope
+        return scope
+
+
 def _agent_project_candidates(
     workspace: Path,
     evidence_paths: list[str],
     literals_by_path: dict[str, list[str]],
+    attribution: _ProjectAttribution,
 ) -> list[dict[str, Any]]:
     """Group agent evidence by the project each piece of it sits in.
 
@@ -492,19 +626,13 @@ def _agent_project_candidates(
     """
     names: dict[str, set[str]] = {}
     markers: dict[str, str | None] = {}
-    evidence_dirs = frozenset(
-        (workspace / rel) if (workspace / rel).is_dir() else (workspace / rel).parent
-        for rel in evidence_paths
-    )
     for rel in evidence_paths:
-        found = _project_of(workspace / rel, workspace, evidence_dirs)
-        project, marker = (
-            found
-            if found is not None
-            else (".", _project_marker(workspace, WEAK_PROJECT_MARKERS))
-        )
+        project, marker = attribution.of(workspace / rel)
         names.setdefault(project, set()).update(literals_by_path.get(rel, []))
         markers.setdefault(project, marker)
+    # These keys are the workspace's agent projects, and ranking resolves a
+    # name's scope against them rather than against the nearest marker.
+    attribution.establish(names)
     return [
         {"path": project, "marker": markers[project], "agent_names": sorted(found)}
         for project, found in sorted(names.items())
@@ -549,12 +677,53 @@ def _glob(workspace: Path, files: list[Path], patterns: tuple[str, ...]) -> list
     return sorted(found)
 
 
+def _oversized(path: Path) -> bool:
+    """Whether ``path`` exceeds the input adapters' pre-parse size bound.
+
+    Every adapter reads through ``core.static_inputs.read_static_input_bytes``,
+    which refuses an input larger than ``inputs.common.MAX_INPUT_FILE_BYTES``
+    *before* the loader sees a byte. So an oversized candidate cannot become a
+    tool source or a workflow whatever it contains, and answering that needs no
+    parse — which is the point: this script runs against repositories it knows
+    nothing about, over ``curl | python3``, and must not pull a
+    several-hundred-megabyte glob hit into memory to learn it is too big.
+
+    A ``stat`` that fails is not an oversize answer; the caller's existing
+    ``OSError`` handling on the read is what reports an unreadable candidate.
+    """
+    try:
+        return path.stat().st_size > MAX_STRUCTURED_FILE_BYTES
+    except OSError:
+        return False
+
+
+def _oversize_reason(rel: str) -> str:
+    """Spell the CLI's refusal for an oversized suggestion candidate.
+
+    ``load_structured_file`` re-raises the size refusal as ``Unable to read
+    input file <path>: <error>`` and ``probe_suggested_source`` rewrites the
+    absolute path back to the manifest-relative one. Reproduced here so the
+    ``excluded_sources`` reason an agent reads from the zero-install script is
+    the reason ``detect --json`` would have given it — excluding the same file
+    under a different explanation only moves the divergence.
+    """
+    return (
+        f"Unable to read input file {rel}: Input file too large "
+        f"(limit: {MAX_STRUCTURED_FILE_BYTES} bytes): {rel}"
+    )
+
+
 def _looks_like_n8n_workflow(path: Path) -> bool:
     """Match the CLI heuristic in cli/discovery/artifacts.py: a JSON file
     is an n8n workflow when it (or any element in a list) is a dict with
     a ``nodes`` list and ``connections`` dict, and at least one node has
     a ``type`` starting with ``n8n-nodes-`` or ``@n8n/n8n-nodes-``."""
     if path.suffix.lower() != ".json":
+        return False
+    if _oversized(path):
+        # The n8n adapter loads workflows through ``load_structured_file``,
+        # so an oversized file cannot be scanned as one; scoring `n8n` off a
+        # file `scan` refuses would name a framework nobody can verify.
         return False
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -622,8 +791,19 @@ def _probe_suggested(workspace: Path, rel: str, kind: str) -> str | None:
     or YAML candidate is kept as a suggestion rather than wrongly dropped.
     The MCP suggestion globs are all ``*.json`` / ``.agents-shipgate/*.json``,
     so the load-bearing ``mcpServers``-host-config case is always covered.
+
+    The one rejection this mirror can make without a parser is the size
+    bound: it applies to every candidate, JSON or YAML, and it is checked
+    before the file is read at all.
     """
     path = workspace / rel
+    if _oversized(path):
+        # Asked before the YAML early return and before any read. The size
+        # refusal is content-independent — the adapters apply it to a .yaml
+        # spec exactly as to a .json one — so it is the one exclusion this
+        # script can make without a parser, and skipping it would leave an
+        # oversized spec suggested here and excluded by the CLI.
+        return _oversize_reason(rel)
     if kind == "openapi" and path.suffix.lower() in (".yaml", ".yml"):
         return None  # No stdlib YAML parser — keep, never wrongly exclude.
     try:
@@ -675,6 +855,3304 @@ def _probe_openapi(data: Any) -> str | None:
     if not isinstance(data.get("paths"), dict):
         return "OpenAPI file missing paths object"
     return None
+
+
+# --- MCP registration idioms (mirror of inputs/mcp_idioms.py) ---------------
+#
+# Most MCP servers never emit their tool surface: `mongodb-js/mongodb-mcp-server`
+# and `grafana/mcp-grafana` publish `drop-database`, `delete-many` and
+# `update_incident` and commit no export at all. What every one of them does do
+# is write the tool's name as a **string literal at a registration site**. The
+# installed CLI reads that literal through a built-in registry of named idioms
+# (`agents_shipgate.inputs.mcp_idioms`, #431); until #485 this script did not,
+# so the documented first-contact detector answered "Stop, not an agent
+# project" on exactly the repositories the installed CLI had just learned to
+# read.
+#
+# This is a second implementation of a load-bearing matcher, which is the
+# recurring bug class in this repository. What makes it affordable is that it
+# is not allowed to become a *different* one: `tests/mcp_idiom_corpus.py` holds
+# one conformance corpus — every idiom's positive sample, the whole adversarial
+# sweep, the path predicate's cases and both escape grammars — and
+# `tests/test_zero_install_detector.py` drives it through both readers,
+# comparing every field of every site including its span. Neither reader can
+# change its answer on any case either of them has ever been asked about
+# without the other following.
+#
+# Reading is done over a **masked** copy of the source, in which comments and
+# string bodies have been overwritten. A registration site can therefore never
+# be found inside a comment or inside another string, and a name is a name only
+# when the masking pass recorded a real literal at that offset.
+
+#: File suffixes each language's idioms are read from. TypeScript's list covers
+#: JavaScript too. ``.tsx``/``.jsx`` are deliberately absent: JSX puts prose in
+#: code position, so an apostrophe in ``<p>don't</p>`` would open a string that
+#: never closes and hold a whole repository's surface at partial.
+LANGUAGE_EXTENSIONS: dict[str, tuple[str, ...]] = {
+    "typescript": (".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"),
+    "go": (".go",),
+    "python": (".py",),
+}
+
+#: The languages read with the masking lexer. Python has a real parser in the
+#: standard library, and a FastMCP tool's name, schema and very existence are
+#: binding facts rather than lexical ones.
+LEXED_LANGUAGES: frozenset[str] = frozenset({"typescript", "go"})
+
+#: Declared-dependency tokens that establish an MCP framework for a language.
+#: The provenance gate: an idiom hit in a repository that declares no MCP
+#: dependency is a coincidence of spelling until something says otherwise.
+TYPESCRIPT_FRAMEWORK_PACKAGES: tuple[str, ...] = (
+    "@modelcontextprotocol/",
+    "fastmcp",
+    "mcp-framework",
+    "@mcp-ui/",
+    "xmcp",
+)
+GO_FRAMEWORK_MODULES: tuple[str, ...] = (
+    "github.com/modelcontextprotocol/go-sdk",
+    "github.com/mark3labs/mcp-go",
+    "github.com/metoro-io/mcp-golang",
+    "github.com/thinkinaixyz/go-mcp",
+    "github.com/ktr0731/go-mcp",
+)
+#: Distribution names, normalised per PEP 503, that establish an MCP framework
+#: for Python. Weaker than the other two gates on purpose — a Python *client*
+#: depends on ``mcp`` too — because for Python the load-bearing half of the
+#: pairing is the import binding the reader itself requires.
+PYTHON_FRAMEWORK_PACKAGES: tuple[str, ...] = ("mcp", "fastmcp")
+#: ``(module prefix, class)`` pairs whose construction is an MCP server. Three,
+#: because all three are live: the standalone ``fastmcp`` package, ``FastMCP``
+#: as it shipped inside the official SDK's v1, and ``MCPServer`` — the same
+#: class after the SDK's v2 renamed it and replaced the old module with one
+#: that raises.
+PYTHON_SERVER_CONSTRUCTORS: tuple[tuple[str, str], ...] = (
+    ("fastmcp", "FastMCP"),
+    ("mcp.server.fastmcp", "FastMCP"),
+    ("mcp.server.mcpserver", "MCPServer"),
+)
+#: The modules whose ``Context`` the framework injects rather than taking from
+#: the caller, derived from the table above for the same reason the prefilter
+#: is: the request context ships beside the server class, so a hand-written
+#: module list would go stale on exactly the rename that already hid 229 tools.
+PYTHON_CONTEXT_MODULES: tuple[str, ...] = tuple(
+    sorted({module for module, _symbol in PYTHON_SERVER_CONSTRUCTORS})
+)
+#: The class name the framework injects on. One symbol, not a set: the SDK's
+#: injection reader resolves the annotation and checks identity against this
+#: one class, so anything else is a caller input however it is spelled.
+PYTHON_CONTEXT_SYMBOL = "Context"
+#: Whether the framework supplies a parameter or the caller does. Three values,
+#: because "not established" is a different answer from "established as a
+#: caller input" and the two must not be published as one.
+ContextInjection = Literal["caller_supplied", "framework_injected", "unresolved"]
+#: The index pass's cheap gate, derived from the table so the two cannot
+#: drift: a hand-written "fastmcp" skipped every SDK v2 server.
+PYTHON_SERVER_PREFILTER_TOKENS: tuple[str, ...] = tuple(
+    sorted({symbol.lower() for _module, symbol in PYTHON_SERVER_CONSTRUCTORS})
+)
+#: The decorator attribute that registers a tool. ``@mcp.resource`` and
+#: ``@mcp.prompt`` are siblings on the same object and register other things.
+PYTHON_TOOL_DECORATOR_ATTR = "tool"
+
+#: Directory names never walked for registration sites. Distinct from this
+#: script's own inventory-level ``SKIP_DIRS`` on purpose: this is the CLI
+#: reader's list, and the two detectors have to skip the same directories *for
+#: registrations* whatever each one's inventory already dropped.
+SKIP_DIRECTORY_NAMES: frozenset[str] = frozenset(
+    {
+        ".eggs", ".git", ".hg", ".mypy_cache", ".next", ".nuxt",
+        ".pytest_cache", ".ruff_cache", ".svn", ".tox", ".turbo", ".venv",
+        "__pycache__", "bin", "build", "coverage", "dist", "node_modules",
+        "obj", "out", "site-packages", "target", "vendor", "venv",
+    }
+)
+
+#: Path segments whose files declare tools for a test, not for the server.
+TEST_DIRECTORY_NAMES: frozenset[str] = frozenset(
+    {
+        "__mocks__", "__tests__", "e2e", "fixtures", "test", "test-fixtures",
+        "testdata", "tests",
+    }
+)
+_TEST_FILE_SUFFIXES: tuple[str, ...] = (
+    "_test.go", "_test.py",
+    ".test.ts", ".test.js", ".test.mts", ".test.mjs",
+    ".spec.ts", ".spec.js", ".spec.mts", ".spec.mjs",
+)
+#: Python spells a test file with a *prefix* and pytest collects it that way,
+#: so a suffix-only rule reads ``test_server.py`` as the server.
+_TEST_FILE_PREFIXES: tuple[str, ...] = ("test_",)
+_TEST_FILE_NAMES: frozenset[str] = frozenset({"conftest.py"})
+
+#: Every idiom's pattern requires these four characters, in some case. A file
+#: that does not contain them cannot hold a registration, so ``scan_source``
+#: answers it without masking. It lives *inside* ``scan_source`` rather than at
+#: the call sites: a caller's own copy is a second, weaker matcher, and the one
+#: written against the trigger catalog's diff tokens missed
+#: ``public static readonly toolName``.
+PREFILTER_TOKEN = "tool"
+
+#: The shape a tool name has to have to be read as one.
+TOOL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+
+#: The largest source file this reader opens. Deliberately below the input
+#: loader's 10 MB bound, so an oversized file is recorded as "too large"
+#: rather than as a decoding failure.
+MAX_SOURCE_FILE_BYTES = 8 * 1024 * 1024
+
+#: The idioms this reader implements, by id. Pinned from both sides by the
+#: conformance test: equal to the CLI registry's ids — an idiom the CLI gains
+#: and this script does not is the #485 divergence happening again — and
+#: covering every id ``scan_source`` actually emits, so the constant cannot
+#: describe a reader it has drifted from.
+IDIOM_IDS: frozenset[str] = frozenset(
+    {
+        "ts_static_tool_name",
+        "ts_sdk_register_tool",
+        "py_fastmcp_decorator",
+        "go_must_tool",
+        "go_new_tool",
+        "go_tool_struct",
+    }
+)
+
+
+@dataclass(frozen=True)
+class RegistrationSite:
+    """One registration this reader found, resolved or not.
+
+    ``span`` is the byte range of the construct that matched — the whole call
+    including its argument list, or the whole composite literal, never a
+    lookup scope. Containment of one span in another is what lets a wrapper
+    call whose own first argument is not a literal
+    (``NewTool(meta, mcp.Tool{Name: "issue_read"})``) stay silent instead of
+    reporting an omission for a tool that was, in fact, named.
+    """
+
+    idiom: str
+    name: str | None
+    line: int
+    column: int
+    span: tuple[int, int]
+    description: str | None = None
+    operation_type: str | None = None
+    unresolved_reason: str | None = None
+    #: The decorated function's signature, for an idiom that reads one.
+    #: ``None`` means the idiom reads no signature, which is a different
+    #: statement from a tool that takes no parameters (``()``).
+    parameters: tuple[SignatureParameter, ...] | None = None
+    #: The return annotation, rendered back to source.
+    returns: str | None = None
+    #: The JSON Schema type that return annotation denotes. ``None`` both when
+    #: there is no annotation and when there is one this reader cannot
+    #: represent; ``returns`` tells the two apart.
+    returns_json_type: str | None = None
+    context_injection_unresolved: bool = False
+    #: Whether *this site alone* is evidence that the repository is an MCP
+    #: server, independently of whether its name could be read. False for
+    #: every lexical idiom: those match a spelling. The Python idiom follows
+    #: the decorated object back to a ``FastMCP(...)`` construction before it
+    #: emits anything, so the route can be offered for a server whose every
+    #: tool name is built at run time.
+    proves_server: bool = False
+
+
+@dataclass(frozen=True)
+class SignatureParameter:
+    """One parameter of a decorated function, as written.
+
+    ``injection`` is the one thing about the annotation that is *resolved*,
+    because the framework resolves it too: the SDK injects its request context
+    on the annotation's binding, not on its spelling.
+    """
+
+    name: str
+    annotation: str | None = None
+    required: bool = True
+    injection: ContextInjection = "caller_supplied"
+    #: The JSON Schema type the annotation denotes, or ``None`` when it denotes
+    #: none this reader can name — having no annotation at all included.
+    json_type: str | None = None
+
+
+@dataclass(frozen=True)
+class SourceScanResult:
+    """What one file yielded.
+
+    ``anomalies`` hold the whole file — a masking failure for a lexed
+    language, a syntax error for Python. They are separate from an unresolved
+    site because they are a fact about the *file*: past the anomaly this reader
+    cannot tell code from content, so a site it did not find there proves
+    nothing.
+
+    ``server_modules`` are the other modules this file's proofs depended on, so
+    a route can be widened to cover the module that constructs the server.
+    """
+
+    sites: tuple[RegistrationSite, ...] = ()
+    anomalies: tuple[str, ...] = ()
+    server_modules: tuple[str, ...] = ()
+
+
+def language_for_path(path: Any) -> str | None:
+    """The language whose idioms apply to ``path``, or ``None``."""
+    suffix = PurePosixPath(str(path)).suffix.lower()
+    for language, extensions in LANGUAGE_EXTENSIONS.items():
+        if suffix in extensions:
+            return language
+    return None
+
+
+def is_scannable_path(relative_path: Any) -> bool:
+    """Whether a workspace-relative path is read for registration sites.
+
+    One predicate on the CLI side, used by both its adapter's walk and its
+    discovery probe. This is its mirror, and the pair that disagrees is the
+    pair where one detector promises tools the other refuses to enumerate.
+    """
+    path = PurePosixPath(str(relative_path).replace("\\", "/"))
+    if language_for_path(path) is None:
+        return False
+    parts = path.parts
+    if any(part in SKIP_DIRECTORY_NAMES for part in parts):
+        return False
+    if any(part.lower() in TEST_DIRECTORY_NAMES for part in parts[:-1]):
+        return False
+    name = path.name.lower()
+    # Scoped to Python, because the *reason* is: pytest collects `test_*.py`,
+    # so a suffix-only rule reads `test_server.py` as the server. `test_util.go`
+    # and `test_helpers.ts` are ordinary module names, and excluding one costs
+    # a surface with no omission to show for it — an excluded path is never
+    # read, so nothing records that it was skipped.
+    if language_for_path(path) == "python" and (
+        name in _TEST_FILE_NAMES or name.startswith(_TEST_FILE_PREFIXES)
+    ):
+        return False
+    return not name.endswith(_TEST_FILE_SUFFIXES)
+
+
+# Masking. Comments become spaces so a token cannot span the hole they leave;
+# string literals become NULs so a literal's *position* stays findable while
+# its content can never be matched as code.
+_COMMENT_FILL = " "
+_STRING_FILL = "\x00"
+
+# Characters after which a `/` opens a regular expression rather than dividing.
+_REGEX_PRECEDING_CHARS = frozenset("(,=:[!&|?{};+-*%~^<>")
+#: Keywords whose parenthesised condition can be followed directly by a regex
+#: that begins the statement's body. `)` alone cannot decide: `foo(a) / 2`
+#: divides and `if (a) /re/.test(b)` does not.
+_REGEX_PRECEDING_STATEMENTS = frozenset({"if", "for", "while", "switch", "catch", "with"})
+_REGEX_PRECEDING_WORDS = frozenset(
+    {
+        "return", "typeof", "instanceof", "in", "of", "new", "delete", "void",
+        "throw", "case", "do", "else", "yield", "await",
+    }
+)
+
+#: The only characters that can begin a comment or a string in either language.
+#: The masking loop jumps between them instead of visiting every character.
+_INTERESTING = re.compile(r"""[/'"`]""")
+
+#: Escapes both languages spell the same way and mean the same thing.
+_SHARED_ESCAPES = {
+    "n": "\n", "t": "\t", "r": "\r", "b": "\b", "f": "\f", "v": "\v",
+    "\\": "\\", "'": "'", '"': '"',
+}
+#: JavaScript adds a backtick, ``\0`` for NUL, and a line continuation.
+_TYPESCRIPT_ESCAPES = {**_SHARED_ESCAPES, "`": "`"}
+#: Go adds the bell and has no line continuation and no bare ``\0``.
+_GO_ESCAPES = {**_SHARED_ESCAPES, "a": "\a"}
+
+#: The line terminators a backslash can continue a line across. ``\r`` is here
+#: because a CRLF checkout spells the same continuation with two characters,
+#: and JavaScript reads both files identically — so a reader that lost the
+#: registration on one of them would answer "not an agent project" for a
+#: line-ending translation (#485 review).
+_TYPESCRIPT_LINE_TERMINATORS = frozenset("\n\r")
+
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+_OCTAL_DIGITS = frozenset("01234567")
+
+
+@dataclass(frozen=True)
+class MaskedSource:
+    """``text`` with comments and string bodies overwritten.
+
+    ``literals`` maps the offset of a string literal's opening quote to its
+    decoded value (``None`` when the literal is not a constant) and the offset
+    just past its closing quote. The end offset is recorded rather than
+    recovered by scanning the fill characters, because masking preserves
+    newlines: a multi-line template literal's fill run stops at its first line
+    break, and a caller asking what follows the literal would be looking
+    inside it.
+    """
+
+    text: str
+    masked: str
+    literals: dict[int, tuple[str | None, int]]
+    anomalies: tuple[str, ...]
+
+    def skip_space(self, index: int) -> int:
+        length = len(self.masked)
+        while index < length and self.masked[index].isspace():
+            index += 1
+        return index
+
+    def literal_at(self, index: int) -> tuple[bool, str | None, int]:
+        """Resolve a string literal starting at ``index`` (whitespace skipped)."""
+        start = self.skip_space(index)
+        record = self.literals.get(start)
+        if record is None:
+            return False, None, start
+        value, end = record
+        return True, value, end
+
+    def line_column(self, index: int) -> tuple[int, int]:
+        prefix = self.text[:index]
+        line = prefix.count("\n") + 1
+        column = index - (prefix.rfind("\n") + 1) + 1
+        return line, column
+
+
+def mask_source(text: str, language: str) -> MaskedSource:
+    """Overwrite comments and string bodies, recording every string literal."""
+    if language not in LEXED_LANGUAGES:
+        # Refused rather than defaulted: the dispatch below has no third
+        # branch, so a language added without a masker would be read with
+        # JavaScript's grammar and answer confidently.
+        raise ValueError(f"{language!r} is not read with the masking lexer")
+    if language == "go":
+        return _mask_go(text)
+    return _mask_typescript(text)
+
+
+def decode_literal(body: str, language: str) -> str | None:
+    """The literal's value, or ``None`` when it cannot be decoded exactly.
+
+    Escape grammars are per language, and one decoder shared between them is a
+    silent mistranslation rather than a parse error: Go writes an octal escape
+    as three digits, so ``MustTool("delete\\137all", …)`` registers
+    ``delete_all`` and a JavaScript-shaped decoder produced ``delete137all`` —
+    the real action absent and an id nobody serves in its place. Anything
+    either grammar does not define is refused, and a refusal becomes a
+    recorded omission instead of a guessed name.
+    """
+    if "\\" not in body:
+        return body
+    if language == "go":
+        return _decode_go(body)
+    return _decode_typescript(body)
+
+
+def _hex_value(body: str, start: int, width: int) -> int | None:
+    digits = body[start : start + width]
+    if len(digits) != width or any(char not in _HEX_DIGITS for char in digits):
+        return None
+    return int(digits, 16)
+
+
+def _decode_typescript(body: str) -> str | None:
+    out: list[str] = []
+    index = 0
+    length = len(body)
+    while index < length:
+        char = body[index]
+        if char != "\\":
+            out.append(char)
+            index += 1
+            continue
+        if index + 1 >= length:
+            return None
+        marker = body[index + 1]
+        if marker in _TYPESCRIPT_LINE_TERMINATORS:
+            # A LineContinuation contributes nothing to the value. CRLF is one
+            # terminator sequence: reading it as `\r` plus a stray line break
+            # both mangles the value and, in the scanner, ends the string.
+            index += 3 if marker == "\r" and body[index + 2 : index + 3] == "\n" else 2
+            continue
+        if marker in _TYPESCRIPT_ESCAPES:
+            out.append(_TYPESCRIPT_ESCAPES[marker])
+            index += 2
+            continue
+        if marker == "0" and (index + 2 >= length or body[index + 2] not in "0123456789"):
+            out.append("\0")
+            index += 2
+            continue
+        if marker == "x":
+            value = _hex_value(body, index + 2, 2)
+            if value is None:
+                return None
+            out.append(chr(value))
+            index += 4
+            continue
+        if marker == "u":
+            if index + 2 < length and body[index + 2] == "{":
+                close = body.find("}", index + 3)
+                digits = body[index + 3 : close] if close != -1 else ""
+                if not digits or any(char not in _HEX_DIGITS for char in digits):
+                    return None
+                point = int(digits, 16)
+                if point > 0x10FFFF:
+                    return None
+                out.append(chr(point))
+                index = close + 1
+                continue
+            value = _hex_value(body, index + 2, 4)
+            if value is None:
+                return None
+            out.append(chr(value))
+            index += 6
+            continue
+        if marker.isdigit():
+            # Legacy octal (`\1`-`\7`) is a syntax error under `use strict`
+            # and in a template literal, and octal *elsewhere*; `\8`/`\9` are
+            # their own special case. Which one a file means depends on a mode
+            # this reader does not track, so it refuses rather than pick.
+            return None
+        out.append(marker)
+        index += 2
+    return "".join(out)
+
+
+def _decode_go(body: str) -> str | None:
+    out: list[str] = []
+    index = 0
+    length = len(body)
+    while index < length:
+        char = body[index]
+        if char != "\\":
+            out.append(char)
+            index += 1
+            continue
+        if index + 1 >= length:
+            return None
+        marker = body[index + 1]
+        if marker in _GO_ESCAPES:
+            out.append(_GO_ESCAPES[marker])
+            index += 2
+            continue
+        if marker in _OCTAL_DIGITS:
+            digits = body[index + 1 : index + 4]
+            if len(digits) != 3 or any(char not in _OCTAL_DIGITS for char in digits):
+                return None
+            value = int(digits, 8)
+            if value > 255:
+                return None
+            out.append(chr(value))
+            index += 4
+            continue
+        widths = {"x": 2, "u": 4, "U": 8}
+        if marker in widths:
+            value = _hex_value(body, index + 2, widths[marker])
+            if value is None or value > 0x10FFFF:
+                return None
+            out.append(chr(value))
+            index += 2 + widths[marker]
+            continue
+        # Every other escape is a Go compile error, so the file this reader is
+        # looking at is not the file that built the server.
+        return None
+    return "".join(out)
+
+
+class _Masker:
+    """Shared bookkeeping for the two language maskers."""
+
+    def __init__(self, text: str, language: str) -> None:
+        self.text = text
+        self.language = language
+        self.out: list[str] = list(text)
+        self.literals: dict[int, tuple[str | None, int]] = {}
+        self.anomalies: list[str] = []
+
+    def blank(self, start: int, end: int, fill: str) -> None:
+        end = min(end, len(self.out))
+        if end <= start:
+            return
+        segment = self.text[start:end]
+        # Newlines survive so line numbers stay the file's own. Slice
+        # assignment rather than a per-character loop: the latter cost more
+        # than a second on a 1.4 MB module that registers nothing.
+        if "\n" in segment:
+            self.out[start:end] = ["\n" if char == "\n" else fill for char in segment]
+        else:
+            self.out[start:end] = fill * (end - start)
+
+    def record(self, start: int, end: int, value: str | None) -> None:
+        self.blank(start, end, _STRING_FILL)
+        self.literals[start] = (value, end)
+
+    def result(self) -> MaskedSource:
+        return MaskedSource(
+            text=self.text,
+            masked="".join(self.out),
+            literals=self.literals,
+            anomalies=tuple(self.anomalies),
+        )
+
+
+def _previous_significant(masked: list[str], index: int) -> tuple[str, int]:
+    while index >= 0 and masked[index].isspace():
+        index -= 1
+    return (masked[index], index) if index >= 0 else ("", -1)
+
+
+def _preceding_word(masked: list[str], index: int) -> str:
+    """The identifier ending at or before ``index``, read from the mask.
+
+    The mask, not the raw text: comments have been overwritten with spaces
+    there, so `if /*why*/ (ok) /re/` still finds `if`. Reading the raw text
+    found `/` — the tail of the comment — decided the slash was division, and
+    scanned the regex body as code, which reported a tool invented out of a
+    pattern. That is the one outcome masking exists to make impossible.
+    """
+
+    while index >= 0 and masked[index].isspace():
+        index -= 1
+    end = index + 1
+    while index >= 0 and (masked[index].isalnum() or masked[index] in "_$"):
+        index -= 1
+    return "".join(masked[index + 1 : end])
+
+
+def _mask_typescript(text: str) -> MaskedSource:
+    masker = _Masker(text, "typescript")
+    index = 0
+    length = len(text)
+    while index < length:
+        found = _INTERESTING.search(text, index)
+        if found is None:
+            break
+        index = found.start()
+        char = text[index]
+        if char == "/" and index + 1 < length and text[index + 1] == "/":
+            end = text.find("\n", index)
+            end = length if end == -1 else end
+            masker.blank(index, end, _COMMENT_FILL)
+            index = end
+            continue
+        if char == "/" and index + 1 < length and text[index + 1] == "*":
+            end = text.find("*/", index + 2)
+            if end == -1:
+                masker.blank(index, length, _COMMENT_FILL)
+                masker.anomalies.append("unterminated_block_comment")
+                break
+            masker.blank(index, end + 2, _COMMENT_FILL)
+            index = end + 2
+            continue
+        if char in {"'", '"'}:
+            index = _consume_quoted(masker, index, char, allow_newline=False)
+            continue
+        if char == "`":
+            index = _consume_template(masker, index)
+            continue
+        if char == "/" and _opens_regex(masker.out, index):
+            index = _consume_regex(masker, index)
+            continue
+        index += 1
+    return masker.result()
+
+
+def _opens_regex(out: list[str], index: int) -> bool:
+    previous, previous_index = _previous_significant(out, index - 1)
+    if previous == "" or previous in _REGEX_PRECEDING_CHARS:
+        return True
+    if previous == ")":
+        # A `)` is usually the end of a call or a parenthesised expression, and
+        # `foo(a) / 2` divides. But it is also the end of a control statement's
+        # condition, and there a regex validly *begins the body*:
+        # `if (ok) /\.registerTool("fake", handler)/.test(value);` is
+        # JavaScript, and reading its `/` as division scanned the pattern as
+        # code and reported a `fake` tool — a registration invented out of a
+        # regex body, which is the one thing this module's masking exists to
+        # make impossible. Which of the two it is, is decided by the keyword in
+        # front of the matching `(`.
+        opener = _matching_open(out, previous_index)
+        if opener is None:
+            return False
+        return _preceding_word(out, opener - 1) in _REGEX_PRECEDING_STATEMENTS
+    if previous.isalnum() or previous in "_$":
+        return _preceding_word(out, index - 1) in _REGEX_PRECEDING_WORDS
+    return False
+
+
+def _matching_open(out: list[str], close_index: int) -> int | None:
+    depth = 0
+    for index in range(close_index, -1, -1):
+        char = out[index]
+        if char == ")":
+            depth += 1
+        elif char == "(":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def _past_escape(text: str, index: int, language: str) -> int:
+    """The index just past the escape whose backslash sits at ``index``.
+
+    Two characters, except for a JavaScript line continuation spelled with
+    CRLF, which is three: the backslash and one *line terminator sequence*.
+    Stepping over two of them leaves the ``\n`` behind, and the scanner then
+    ends the string there — so the identical file lost its registration on a
+    Git-for-Windows checkout while resolving it on a Unix one.
+
+    Go has no line continuation, and its scanner must keep treating a newline
+    as the end of an interpreted string, so this is TypeScript's rule only.
+    """
+
+    if language == "typescript" and text[index + 1 : index + 3] == "\r\n":
+        return index + 3
+    return index + 2
+
+
+def _consume_quoted(
+    masker: _Masker, start: int, quote: str, *, allow_newline: bool
+) -> int:
+    text = masker.text
+    length = len(text)
+    index = start + 1
+    while index < length:
+        char = text[index]
+        if char == "\\":
+            index = _past_escape(text, index, masker.language)
+            continue
+        if char == quote:
+            masker.record(
+                start, index + 1, decode_literal(text[start + 1 : index], masker.language)
+            )
+            return index + 1
+        if char == "\n" and not allow_newline:
+            break
+        index += 1
+    # Unterminated. Blank to the resync point but record no literal, and say so:
+    # past here this reader cannot tell code from content.
+    end = text.find("\n", start)
+    end = length if end == -1 or allow_newline else end
+    masker.blank(start, end, _STRING_FILL)
+    masker.anomalies.append("unterminated_string")
+    return max(end, start + 1)
+
+
+def _consume_template(masker: _Masker, start: int) -> int:
+    """Consume a backtick template literal, tracking ``${…}`` substitutions."""
+
+    text = masker.text
+    length = len(text)
+    end, substituted = _template_end(text, masker.out, start)
+    if end is None:
+        masker.blank(start, length, _STRING_FILL)
+        masker.anomalies.append("unterminated_string")
+        return length
+    body = text[start + 1 : end - 1]
+    masker.record(
+        start, end, None if substituted else decode_literal(body, masker.language)
+    )
+    return end
+
+
+def _template_end(
+    text: str, out: list[str], start: int
+) -> tuple[int | None, bool]:
+    """Where the template literal at ``start`` ends, and whether it substitutes.
+
+    ``None`` when it never closes. The second value says whether the *outer*
+    template carries a ``${…}``, which is what makes its value non-constant.
+
+    **A `${…}` holds code, so a brace inside a string, a comment, a regex or a
+    nested template is not a structural brace.** Counting them made
+    ``const msg = `Literal brace: ${"{"}`;`` leave the substitution open, and
+    from there the rest of the file was consumed as one unterminated template
+    — every registration after that line silently gone, and a workspace that
+    declares an MCP dependency reported as "not an agent project" over a brace
+    in a string (#485 review).
+
+    Iterative, with one stack entry per open template, because a nested
+    template is reached through a substitution and recursion on attacker-shaped
+    input is a crash rather than a wrong answer.
+    """
+
+    length = len(text)
+    index = start + 1
+    # One entry per open template: its `${…}` brace depth, 0 in template text.
+    depths: list[int] = [0]
+    substituted = False
+    while index < length and depths:
+        char = text[index]
+        if char == "\\":
+            index = _past_escape(text, index, "typescript")
+            continue
+        if depths[-1] == 0:
+            if char == "$" and text[index + 1 : index + 2] == "{":
+                substituted = substituted or len(depths) == 1
+                depths[-1] = 1
+                index += 2
+                continue
+            if char == "`":
+                depths.pop()
+                index += 1
+                continue
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            index = _skip_quoted(text, index)
+            continue
+        if char == "`":
+            depths.append(0)
+            index += 1
+            continue
+        if char == "/" and text[index + 1 : index + 2] == "/":
+            line_end = text.find("\n", index)
+            line_end = length if line_end == -1 else line_end
+            # Blanked as it is walked, not merely stepped over: the regex
+            # heuristic below reads the mask to find the keyword in front of a
+            # slash, and a comment still spelled out there hides it.
+            out[index:line_end] = _COMMENT_FILL * (line_end - index)
+            index = line_end
+            continue
+        if char == "/" and text[index + 1 : index + 2] == "*":
+            close = text.find("*/", index + 2)
+            block_end = length if close == -1 else close + 2
+            out[index:block_end] = [
+                "\n" if character == "\n" else _COMMENT_FILL
+                for character in text[index:block_end]
+            ]
+            index = block_end
+            continue
+        if char == "/" and _opens_regex(out, index):
+            index = _skip_regex(text, index)
+            continue
+        if char == "{":
+            depths[-1] += 1
+        elif char == "}":
+            depths[-1] -= 1
+        index += 1
+    return (index if not depths else None), substituted
+
+
+def _skip_quoted(text: str, start: int) -> int:
+    """Index just past a quoted string this reader only needs to walk over."""
+
+    quote = text[start]
+    length = len(text)
+    index = start + 1
+    while index < length:
+        char = text[index]
+        if char == "\\":
+            index = _past_escape(text, index, "typescript")
+            continue
+        if char == quote:
+            return index + 1
+        if char == "\n":
+            # Unterminated on its line. Resync there rather than swallowing the
+            # rest of the substitution.
+            return index
+        index += 1
+    return length
+
+
+def _skip_regex(text: str, start: int) -> int:
+    """Index just past a regex literal, or one past the slash if it is not one."""
+
+    length = len(text)
+    index = start + 1
+    in_class = False
+    while index < length:
+        char = text[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == "\n":
+            return start + 1
+        if char == "[":
+            in_class = True
+        elif char == "]":
+            in_class = False
+        elif char == "/" and not in_class:
+            return index + 1
+        index += 1
+    return start + 1
+
+
+def _consume_regex(masker: _Masker, start: int) -> int:
+    text = masker.text
+    length = len(text)
+    index = start + 1
+    in_class = False
+    while index < length:
+        char = text[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == "\n":
+            # Not a regex after all — a lone `/` on a line. Leave it as code.
+            return start + 1
+        if char == "[":
+            in_class = True
+        elif char == "]":
+            in_class = False
+        elif char == "/" and not in_class:
+            masker.blank(start, index + 1, _COMMENT_FILL)
+            return index + 1
+        index += 1
+    return start + 1
+
+
+def _mask_go(text: str) -> MaskedSource:
+    masker = _Masker(text, "go")
+    index = 0
+    length = len(text)
+    while index < length:
+        found = _INTERESTING.search(text, index)
+        if found is None:
+            break
+        index = found.start()
+        char = text[index]
+        if char == "/" and index + 1 < length and text[index + 1] == "/":
+            end = text.find("\n", index)
+            end = length if end == -1 else end
+            masker.blank(index, end, _COMMENT_FILL)
+            index = end
+            continue
+        if char == "/" and index + 1 < length and text[index + 1] == "*":
+            end = text.find("*/", index + 2)
+            if end == -1:
+                masker.blank(index, length, _COMMENT_FILL)
+                masker.anomalies.append("unterminated_block_comment")
+                break
+            masker.blank(index, end + 2, _COMMENT_FILL)
+            index = end + 2
+            continue
+        if char == '"':
+            index = _consume_quoted(masker, index, '"', allow_newline=False)
+            continue
+        if char == "'":
+            index = _consume_quoted(masker, index, "'", allow_newline=False)
+            continue
+        if char == "`":
+            end = text.find("`", index + 1)
+            if end == -1:
+                masker.blank(index, length, _STRING_FILL)
+                masker.anomalies.append("unterminated_string")
+                break
+            masker.record(index, end + 1, text[index + 1 : end])
+            index = end + 1
+            continue
+        index += 1
+    return masker.result()
+
+
+# Idiom matchers.
+
+_TS_MODIFIERS = r"(?:(?:public|private|protected|readonly|override|declare|abstract)\s+)*"
+_TS_STATIC_TOOL_NAME_RE = re.compile(
+    rf"(?<![\w$])static\s+{_TS_MODIFIERS}toolName\s*(?::[^=;\n]*)?=\s*"
+)
+_TS_STATIC_OPERATION_TYPE_RE = re.compile(
+    rf"(?<![\w$])static\s+{_TS_MODIFIERS}operationType\s*(?::[^=;\n]*)?=\s*"
+)
+# ``(?<![\w$.])`` and not ``(?<![\w$])``: the character before ``description``
+# in ``this.description = "…"`` is a dot, which the narrower lookbehind admits,
+# so an assignment inside a method read as the class's description field.
+_TS_DESCRIPTION_RE = re.compile(
+    rf"(?<![\w$.])(?:static\s+)?{_TS_MODIFIERS}description\s*(?::[^=;\n]*)?=\s*"
+)
+_TS_REGISTER_TOOL_RE = re.compile(r"\.\s*(?:registerTool|tool)\s*\(\s*")
+_GO_MUST_TOOL_RE = re.compile(r"(?<![\w])MustTool\s*\(\s*")
+_GO_NEW_TOOL_RE = re.compile(r"(?<![\w])NewTool\s*\(\s*")
+_GO_TOOL_STRUCT_RE = re.compile(r"(?<![\w])Tool\s*\{")
+_GO_STRUCT_NAME_FIELD_RE = re.compile(r"(?<![\w])Name\s*:\s*")
+_GO_KEYED_FIELD_RE = re.compile(r"(?<![\w])[A-Za-z_]\w*\s*:")
+_GO_STRUCT_DESCRIPTION_FIELD_RE = re.compile(r"(?<![\w])Description\s*:\s*")
+
+
+def _matching_close(masked: str, open_index: int, opener: str, closer: str) -> int | None:
+    depth = 0
+    for index in range(open_index, len(masked)):
+        char = masked[index]
+        if char == opener:
+            depth += 1
+        elif char == closer:
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    return None
+
+
+def _brace_pairs(masked: str) -> list[tuple[int, int]]:
+    stack: list[int] = []
+    pairs: list[tuple[int, int]] = []
+    for match in re.finditer(r"[{}]", masked):
+        if match.group() == "{":
+            stack.append(match.start())
+        elif stack:
+            pairs.append((stack.pop(), match.start() + 1))
+    return pairs
+
+
+def _enclosing_block(pairs: list[tuple[int, int]], index: int) -> tuple[int, int] | None:
+    """The innermost ``{…}`` containing ``index``, as ``(open, close_exclusive)``."""
+    best: tuple[int, int] | None = None
+    for start, end in pairs:
+        if start <= index < end and (best is None or start > best[0]):
+            best = (start, end)
+    return best
+
+
+def _resolve_name(value: str | None, found: bool) -> tuple[str | None, str | None]:
+    if not found or value is None:
+        return None, "name_not_literal"
+    if not TOOL_NAME_RE.match(value):
+        return None, "implausible_tool_name"
+    return value, None
+
+
+#: Characters that continue an expression rather than beginning a statement.
+#: Consulted only *after* a line break, and only for a character the caller's
+#: own terminators do not claim: Go ends a struct field with `,` on the next
+#: line, and that comma ends the value rather than continuing it.
+_EXPRESSION_CONTINUATION = frozenset("+-*/%&|^<>=!?.,([")
+
+
+def _literal_is_whole_value(
+    source: MaskedSource, end: int, terminators: str
+) -> bool:
+    """Whether the literal ending at ``end`` is the entire value, not part of one.
+
+    ``static toolName = "backup" + SUFFIX`` resolves to a literal this reader
+    can see, and reading it as the tool name would publish ``backup`` for a
+    tool the server registers under some other name — a fail-open of exactly
+    the shape #393 catalogues, where the proof rests on a spelling. The literal
+    counts only when the expression ends there: at one of ``terminators``, at
+    the end of input, or at a line break (JavaScript inserts the semicolon).
+    """
+
+    masked = source.masked
+    length = len(masked)
+    index = end
+    while index < length and masked[index] in " \t\r":
+        index += 1
+    if index >= length:
+        return True
+    if masked[index] in terminators:
+        return True
+    if masked[index] != "\n":
+        return False
+    # A line break ends the statement only when what follows cannot continue
+    # the expression. `static toolName = "safe"` followed by `+ "_delete"` on
+    # the next line is one value spelled across two lines, and accepting the
+    # first literal publishes `safe` for a tool the server registers as
+    # `safe_delete` — a name nobody serves, at `medium` confidence, which is
+    # worse than the omission refusing it produces. Comments are already
+    # spaces in the mask, so skipping whitespace skips them too.
+    while index < length and masked[index].isspace():
+        index += 1
+    if index >= length:
+        return True
+    following = masked[index]
+    return following in terminators or following not in _EXPRESSION_CONTINUATION
+
+
+def _call_sites(
+    source: MaskedSource, pattern: re.Pattern[str], idiom: str
+) -> list[RegistrationSite]:
+    """Sites for a ``Name(<literal>, …)`` idiom."""
+    sites: list[RegistrationSite] = []
+    for match in pattern.finditer(source.masked):
+        open_paren = source.masked.rfind("(", match.start(), match.end())
+        if open_paren == -1:
+            continue
+        close = _matching_close(source.masked, open_paren, "(", ")")
+        span = (match.start(), close if close is not None else match.end())
+        found, value, end = source.literal_at(match.end())
+        name, unresolved = _resolve_name(value, found)
+        if name is not None:
+            # A registration passes the name *and* what to do with it, so the
+            # first argument is followed by a comma. `)` means a one-argument
+            # call — `map.tool("issues")` is a lookup, and reading it as a
+            # registration is how an accessor becomes a phantom tool. Anything
+            # else (`+`) means the name is not this literal.
+            after = source.skip_space(end)
+            following = source.masked[after] if after < len(source.masked) else ""
+            if following == ")":
+                continue
+            if following != ",":
+                name, unresolved = None, "name_not_literal"
+        if name is None and (
+            close is None or not _has_second_argument(source.masked, open_paren, close)
+        ):
+            # An unresolved site needs the same second argument before it is
+            # reported: it is what keeps `map.tool(key)` out of the ledger.
+            continue
+        line, column = source.line_column(match.start())
+        sites.append(
+            RegistrationSite(
+                idiom=idiom,
+                name=name,
+                line=line,
+                column=column,
+                span=span,
+                unresolved_reason=unresolved,
+            )
+        )
+    return sites
+
+
+def _has_second_argument(masked: str, open_paren: int, close: int) -> bool:
+    depth = 0
+    for index in range(open_paren, close):
+        char = masked[index]
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        elif char == "," and depth == 1:
+            return True
+    return False
+
+
+def _ts_static_tool_name_sites(source: MaskedSource) -> list[RegistrationSite]:
+    sites: list[RegistrationSite] = []
+    pairs = _brace_pairs(source.masked)
+    for match in _TS_STATIC_TOOL_NAME_RE.finditer(source.masked):
+        found, value, end = source.literal_at(match.end())
+        name, unresolved = _resolve_name(value, found)
+        if name is not None and not _literal_is_whole_value(source, end, ";}"):
+            name, unresolved = None, "name_not_literal"
+        line, column = source.line_column(match.start())
+        block = _enclosing_block(pairs, match.start())
+        operation_type: str | None = None
+        description: str | None = None
+        if block is not None and name is not None:
+            operation_type = _first_literal_in(source, _TS_STATIC_OPERATION_TYPE_RE, block)
+            description = _first_literal_in(source, _TS_DESCRIPTION_RE, block)
+        # The construct, never the enclosing class body. `block` is the scope
+        # the sibling literals are looked up in; using it as the span made the
+        # containment rule read *any* registration written inside the class as
+        # "the same registration", so a class whose `toolName` is built at
+        # runtime lost its omission the moment it also called `.registerTool(`.
+        sites.append(
+            RegistrationSite(
+                idiom="ts_static_tool_name",
+                name=name,
+                line=line,
+                column=column,
+                span=(match.start(), max(end, match.end())),
+                description=description,
+                operation_type=operation_type,
+                unresolved_reason=unresolved,
+            )
+        )
+    return sites
+
+
+def _first_literal_in(
+    source: MaskedSource, pattern: re.Pattern[str], block: tuple[int, int]
+) -> str | None:
+    start, end = block
+    for match in pattern.finditer(source.masked, start, end):
+        found, value, literal_end = source.literal_at(match.end())
+        if found and value and _literal_is_whole_value(source, literal_end, ";}"):
+            return value
+    return None
+
+
+def _go_tool_struct_sites(source: MaskedSource) -> list[RegistrationSite]:
+    sites: list[RegistrationSite] = []
+    for match in _GO_TOOL_STRUCT_RE.finditer(source.masked):
+        open_brace = source.masked.index("{", match.start())
+        close = _matching_close(source.masked, open_brace, "{", "}")
+        if close is None:
+            continue
+        if _has_keyed_field(source.masked, open_brace, close):
+            sites.extend(_go_tool_struct_site(source, match.start(), open_brace, close))
+            continue
+        # No keyed field at this literal's own level, so it is a composite of
+        # elements — `[]mcp.Tool{{Name: "a"}, {Name: "b"}}`. Reading only the
+        # outer brace would find the first element's `Name:` two levels down,
+        # reject it as nested, and report nothing at all.
+        for child_open, child_close in _child_braces(source.masked, open_brace, close):
+            sites.extend(_go_tool_struct_site(source, child_open, child_open, child_close))
+    return sites
+
+
+def _go_tool_struct_site(
+    source: MaskedSource, start: int, open_brace: int, close: int
+) -> list[RegistrationSite]:
+    field = _GO_STRUCT_NAME_FIELD_RE.search(source.masked, open_brace + 1, close)
+    # Only the literal's own `Name:` field, never one belonging to something
+    # nested inside it: `mcp.Tool{Annotations: &mcp.ToolAnnotations{Name: …}}`
+    # names the annotation, not the tool.
+    while field is not None and _brace_depth(source.masked, open_brace, field.start()) != 1:
+        field = _GO_STRUCT_NAME_FIELD_RE.search(source.masked, field.end(), close)
+    if field is None:
+        return []
+    found, value, literal_end = source.literal_at(field.end())
+    name, unresolved = _resolve_name(value, found)
+    if name is not None and not _literal_is_whole_value(source, literal_end, ",}"):
+        name, unresolved = None, "name_not_literal"
+    line, column = source.line_column(start)
+    return [
+        RegistrationSite(
+            idiom="go_tool_struct",
+            name=name,
+            line=line,
+            column=column,
+            span=(start, close),
+            description=_go_struct_description(source, open_brace, close),
+            unresolved_reason=unresolved,
+        )
+    ]
+
+
+def _has_keyed_field(masked: str, open_brace: int, close: int) -> bool:
+    """Whether the literal names fields at its own level (a struct, not a list)."""
+    for match in _GO_KEYED_FIELD_RE.finditer(masked, open_brace + 1, close):
+        if _brace_depth(masked, open_brace, match.start()) == 1:
+            return True
+    return False
+
+
+def _child_braces(masked: str, open_brace: int, close: int) -> list[tuple[int, int]]:
+    children: list[tuple[int, int]] = []
+    index = open_brace + 1
+    while index < close - 1:
+        if masked[index] == "{":
+            child_close = _matching_close(masked, index, "{", "}")
+            if child_close is None or child_close > close:
+                break
+            children.append((index, child_close))
+            index = child_close
+            continue
+        index += 1
+    return children
+
+
+def _go_struct_description(source: MaskedSource, open_brace: int, close: int) -> str | None:
+    for match in _GO_STRUCT_DESCRIPTION_FIELD_RE.finditer(
+        source.masked, open_brace + 1, close
+    ):
+        if _brace_depth(source.masked, open_brace, match.start()) != 1:
+            continue
+        found, value, literal_end = source.literal_at(match.end())
+        if found and value and _literal_is_whole_value(source, literal_end, ",}"):
+            return value
+    return None
+
+
+def _brace_depth(masked: str, open_brace: int, index: int) -> int:
+    depth = 0
+    for position in range(open_brace, index):
+        char = masked[position]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+    return depth
+
+
+# --- Python: the FastMCP decorator (mirror of the CLI's #484 reader) --------
+#
+# Copied from `agents_shipgate.inputs.mcp_idioms`, function for function, for
+# the reason the masking lexer above was: the zero-install detector is the
+# documented first command run against a repository that has not adopted
+# Shipgate, and every vendor MCP server is one. A detector that answered "not
+# an agent project" for `redis/mcp-redis` while the CLI reported 53 tools
+# would be #485 happening a second time.
+#
+# The duplication is affordable only because it is not allowed to become a
+# *different* implementation: `tests/mcp_idiom_corpus.py` holds every case
+# either reader has been asked about — the whole Python probe list and the
+# cross-module trees included — and `tests/test_zero_install_detector.py`
+# drives both through all of it, comparing every field of every site.
+
+
+#: The cheap gate for the index pass, the same idea as :data:`PREFILTER_TOKEN`.
+#: A module that constructs a server has to name the class, and the class only
+#: comes from a module whose dotted path contains ``fastmcp``, so a file
+#: without this substring cannot contribute a construction and is never parsed.
+def _is_python_server_constructor(module: str, symbol: str) -> bool:
+    """Whether ``module.symbol`` names a class whose instance is an MCP server."""
+
+    return any(
+        symbol == known_symbol
+        and (module == known_module or module.startswith(f"{known_module}."))
+        for known_module, known_symbol in PYTHON_SERVER_CONSTRUCTORS
+    )
+
+
+def _names_a_python_server_class(text: str) -> bool:
+    """Whether ``text`` could construct a server at all."""
+
+    lowered = text.lower()
+    return any(token in lowered for token in PYTHON_SERVER_PREFILTER_TOKENS)
+
+
+def normalized_distribution(requirement: str) -> str | None:
+    """The PEP 503 name a requirement string declares, or ``None``.
+
+    Written here rather than reused from discovery's general package-token
+    scan because that scan drops exactly the spelling this gate needs:
+    ``mcp[cli]>=1.26.0,<2`` — the requirement ``redis/mcp-redis`` and
+    ``chroma-core/chroma-mcp`` both declare — carries an extras marker, and a
+    token rule admitting only ``[A-Za-z0-9_.-]+`` throws the whole line away.
+    """
+
+    text = requirement.strip()
+    if not text or text.startswith("#"):
+        return None
+    match = re.match(r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?", text)
+    if match is None:
+        return None
+    rest = text[match.end() :].lstrip()
+    # Anything may follow a distribution name — extras, a version specifier, a
+    # direct reference, an environment marker, a comment — except another word
+    # character, which would mean the match stopped inside a token this reader
+    # does not understand and the leading run is not the whole name.
+    if rest[:1] not in {"", "[", "(", "@", ";", "=", "<", ">", "!", "~", ",", "#"}:
+        return None
+    return re.sub(r"[-_.]+", "-", match.group(0)).lower()
+
+
+def declares_python_mcp_framework(requirements: Any) -> str | None:
+    """The first requirement in ``requirements`` that names an MCP framework."""
+
+    for requirement in requirements:
+        name = normalized_distribution(requirement)
+        if name is not None and name in PYTHON_FRAMEWORK_PACKAGES:
+            return name
+    return None
+
+
+@dataclass(frozen=True)
+class _ImportBinding:
+    """What one imported name refers to.
+
+    ``symbol`` is ``None`` for ``import a.b`` and ``import a.b as c``, where
+    the bound name is an alias for a *module* rather than for something inside
+    one.
+    """
+
+    module: str
+    symbol: str | None
+    level: int
+
+
+class _PythonModule:
+    """One parsed module, with every name binding recorded per scope.
+
+    The binding table follows ``google_adk``'s rule (#400 review): a name means
+    what the module appears to say only when the module binds it **exactly
+    once** in the scope in effect. Two bindings make any resolution a guess
+    about which one ran, and a guess is not a proof — so the site becomes a
+    recorded omission instead of a catalogued tool.
+
+    Comprehension targets are deliberately not recorded. In Python 3 they bind
+    in the comprehension's own scope and cannot shadow the enclosing one, and a
+    ``def`` cannot appear inside a comprehension, so there is no decorator for
+    them to be in scope for either way.
+    """
+
+    def __init__(self, tree: ast.Module) -> None:
+        self.tree = tree
+        self._scopes: dict[int, ast.AST] = {}
+        self._bindings: dict[tuple[int, str], list[ast.AST]] = {}
+        self._imports: dict[tuple[int, str], _ImportBinding] = {}
+        #: A ``from x import *`` can rebind any name in the module, so nothing
+        #: in it is singly bound any more — including the ``FastMCP`` symbol a
+        #: construction rests on. Recorded once and consulted by every
+        #: resolution rather than approximated per name (#400 review).
+        self.star_import = False
+        self._visit(tree, tree)
+
+    # -- Construction ---------------------------------------------------
+
+    def _bind(self, scope: ast.AST, name: str, statement: ast.AST) -> None:
+        self._bindings.setdefault((id(scope), name), []).append(statement)
+
+    def _bind_target(
+        self, node: ast.AST | None, scope: ast.AST, statement: ast.AST
+    ) -> None:
+        if isinstance(node, ast.Name):
+            self._bind(scope, node.id, statement)
+        elif isinstance(node, ast.Tuple | ast.List):
+            for element in node.elts:
+                self._bind_target(element, scope, statement)
+        elif isinstance(node, ast.Starred):
+            self._bind_target(node.value, scope, statement)
+
+    def _visit(self, node: ast.AST, scope: ast.AST) -> None:
+        self._scopes[id(node)] = scope
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+            self._visit_function(node, scope)
+            return
+        if isinstance(node, ast.ClassDef):
+            self._bind(scope, node.name, node)
+            for child in (
+                *node.decorator_list,
+                *node.bases,
+                # PEP 695 type parameters — the one child list of a scope
+                # node this walk would otherwise skip.
+                #
+                # Inert for any module Python will run, and knowably so: the
+                # only construct that could bind a name here is a walrus, and
+                # `compile` refuses one in a TypeVar bound ("named expression
+                # cannot be used within a TypeVar bound") even though
+                # `ast.parse` accepts it. So a perturbation sweep reports this
+                # line untested and is right to. It is here because the rule is
+                # "visit every child list of a scope node", and a reader who
+                # later adds a construct to `type_params` should not have to
+                # rediscover the gap.
+                *getattr(node, "type_params", ()),
+            ):
+                self._visit(child, scope)
+            for keyword in node.keywords:
+                self._visit(keyword.value, scope)
+            for statement in node.body:
+                self._visit(statement, node)
+            return
+        self._record_bindings(node, scope)
+        for child in ast.iter_child_nodes(node):
+            self._visit(child, scope)
+
+    def _visit_function(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda, scope: ast.AST
+    ) -> None:
+        # A decorator, a default and an annotation are all evaluated where the
+        # ``def`` is written, not inside it. Reading them in the function's own
+        # scope would let a parameter named ``mcp`` shadow the module-level
+        # server for the very decorator that names it.
+        arguments = node.args
+        if not isinstance(node, ast.Lambda):
+            self._bind(scope, node.name, node)
+            for decorator in node.decorator_list:
+                self._visit(decorator, scope)
+            for parameter in getattr(node, "type_params", ()):
+                self._visit(parameter, scope)
+            if node.returns is not None:
+                self._visit(node.returns, scope)
+        for default in (*arguments.defaults, *arguments.kw_defaults):
+            if default is not None:
+                self._visit(default, scope)
+        for argument in _python_arguments(arguments):
+            self._bind(node, argument.arg, argument)
+            if argument.annotation is not None:
+                self._visit(argument.annotation, scope)
+        body = node.body if isinstance(node.body, list) else [node.body]
+        for statement in body:
+            self._visit(statement, node)
+
+    def _record_bindings(self, node: ast.AST, scope: ast.AST) -> None:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                self._bind_target(target, scope, node)
+        elif isinstance(node, ast.AnnAssign | ast.AugAssign | ast.NamedExpr):
+            self._bind_target(node.target, scope, node)
+        elif isinstance(node, ast.For | ast.AsyncFor):
+            self._bind_target(node.target, scope, node)
+        elif isinstance(node, ast.withitem):
+            self._bind_target(node.optional_vars, scope, node)
+        elif isinstance(node, ast.ExceptHandler):
+            if node.name:
+                self._bind(scope, node.name, node)
+        elif isinstance(node, ast.Delete):
+            for target in node.targets:
+                self._bind_target(target, scope, node)
+        elif isinstance(node, ast.Global | ast.Nonlocal):
+            # Not a binding, but a declaration that the binding in effect lives
+            # in a scope this table did not build for this name. Recording it
+            # as one makes the name unprovable, which is the honest answer.
+            for name in node.names:
+                self._bind(scope, name, node)
+        elif isinstance(node, ast.MatchAs | ast.MatchStar):
+            if node.name:
+                self._bind(scope, node.name, node)
+        elif isinstance(node, ast.MatchMapping):
+            if node.rest:
+                self._bind(scope, node.rest, node)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                bound = alias.asname or alias.name.split(".", 1)[0]
+                module = alias.name if alias.asname else bound
+                self._bind(scope, bound, node)
+                self._imports[(id(scope), bound)] = _ImportBinding(
+                    module=module, symbol=None, level=0
+                )
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name == "*":
+                    self.star_import = True
+                    continue
+                bound = alias.asname or alias.name
+                self._bind(scope, bound, node)
+                self._imports[(id(scope), bound)] = _ImportBinding(
+                    module=node.module or "", symbol=alias.name, level=node.level
+                )
+
+    # -- Resolution -----------------------------------------------------
+
+    def _scope_chain(self, node: ast.AST) -> list[ast.AST]:
+        """The scopes a name at ``node`` is looked up in, innermost first.
+
+        A class body is searched only when it is the scope the name is written
+        in: Python does not close over class scope, so a function nested inside
+        a method resolves ``mcp`` to the module and never to a class attribute
+        of the same name.
+        """
+        chain: list[ast.AST] = []
+        scope = self._scopes.get(id(node))
+        while scope is not None:
+            if not isinstance(scope, ast.ClassDef) or not chain:
+                chain.append(scope)
+            if scope is self.tree:
+                break
+            scope = self._scopes.get(id(scope))
+        return chain
+
+    def binding_of(self, name: str, node: ast.AST) -> tuple[ast.AST, ast.AST] | None:
+        """The single binding of ``name`` in effect at ``node``, with its scope."""
+
+        if self.star_import:
+            return None
+        for scope in self._scope_chain(node):
+            bound = self._bindings.get((id(scope), name))
+            if bound is None:
+                continue
+            return (bound[0], scope) if len(bound) == 1 else None
+        return None
+
+    def binds_name(self, name: str, node: ast.AST) -> bool:
+        """Whether any scope in effect at ``node`` binds ``name`` at all.
+
+        Stricter than :meth:`binding_of`, which answers ``None`` both for a
+        name nothing binds and for one two statements bind. A builtin spelling
+        is the builtin only while the module binds nothing of that name.
+        """
+        if self.star_import:
+            return True
+        return any(
+            (id(scope), name) in self._bindings
+            for scope in self._scope_chain(node)
+        )
+
+    def import_of(self, name: str, node: ast.AST) -> _ImportBinding | None:
+        """``name``'s import binding at ``node``, when an import is what binds it."""
+
+        resolved = self.binding_of(name, node)
+        if resolved is None:
+            return None
+        binding, scope = resolved
+        if not isinstance(binding, ast.Import | ast.ImportFrom):
+            return None
+        return self._imports.get((id(scope), name))
+
+    def module_named(self, name: str, node: ast.AST) -> str | None:
+        """The dotted module ``name`` refers to, when it refers to one.
+
+        Both import forms can name a module: ``import mcp.server.fastmcp``
+        binds ``mcp``, and ``from mcp.server import fastmcp`` binds ``fastmcp``
+        to the same package one level further down.
+        """
+
+        binding = self.import_of(name, node)
+        if binding is None or binding.level:
+            return None
+        if binding.symbol is None:
+            return binding.module
+        return f"{binding.module}.{binding.symbol}" if binding.module else None
+
+    def is_fastmcp_construction(self, node: ast.AST | None) -> bool:
+        """Whether ``node`` is a call that constructs an MCP server."""
+
+        if not isinstance(node, ast.Call):
+            return False
+        func = node.func
+        if isinstance(func, ast.Name):
+            binding = self.import_of(func.id, node)
+            return (
+                binding is not None
+                and binding.level == 0
+                and binding.symbol is not None
+                and _is_python_server_constructor(binding.module, binding.symbol)
+            )
+        dotted = _python_dotted_name(func)
+        if dotted is None:
+            return False
+        head, _, attribute = dotted.rpartition(".")
+        if not head:
+            return False
+        root, _, rest = head.partition(".")
+        module = self.module_named(root, node)
+        if module is None:
+            return False
+        return _is_python_server_constructor(
+            f"{module}.{rest}" if rest else module, attribute
+        )
+
+    def server_from_statement(self, statement: ast.AST, name: str) -> bool:
+        """Whether ``statement`` binds ``name`` to a server construction."""
+
+        if isinstance(statement, ast.Assign):
+            targets = statement.targets
+        elif isinstance(statement, ast.AnnAssign):
+            targets = [statement.target]
+        else:
+            return False
+        # Only a plain ``name = FastMCP(...)``, or a chain of them. A tuple
+        # unpack binding the same name is binding it to an *element* of
+        # something this reader did not evaluate, so the target has to be the
+        # whole left-hand side.
+        if name not in {
+            target.id for target in targets if isinstance(target, ast.Name)
+        }:
+            return False
+        return self.is_fastmcp_construction(statement.value)
+
+    def module_scope_servers(self) -> frozenset[str]:
+        """Module-scope names this module binds to a server construction.
+
+        This is what another module can import. A construction inside a factory
+        function is a server too — ``neo4j-contrib/mcp-neo4j`` builds all four
+        of its servers that way — but it is not reachable by name from outside,
+        so it never enters the index.
+        """
+
+        return frozenset(
+            name
+            for (scope_id, name), bound in self._bindings.items()
+            if scope_id == id(self.tree)
+            and len(bound) == 1
+            and self.server_from_statement(bound[0], name)
+        )
+
+
+def _python_arguments(arguments: ast.arguments) -> list[ast.arg]:
+    """Every named parameter, in signature order, variadics included."""
+
+    named = [*arguments.posonlyargs, *arguments.args]
+    if arguments.vararg is not None:
+        named.append(arguments.vararg)
+    named.extend(arguments.kwonlyargs)
+    if arguments.kwarg is not None:
+        named.append(arguments.kwarg)
+    return named
+
+
+def _python_dotted_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        prefix = _python_dotted_name(node.value)
+        return f"{prefix}.{node.attr}" if prefix else None
+    return None
+
+
+def python_server_exports(text: str) -> frozenset[str]:
+    """Module-scope names ``text`` binds to an MCP server construction.
+
+    Answers ``frozenset()`` for a module that cannot be parsed. The caller that
+    *reads* the module reports the syntax error as an anomaly; reporting it
+    twice would put one file's problem into two vocabularies.
+    """
+
+    # A cost bound, never a decision: a module that constructs a server has to
+    # name the class, so a file this refuses is one the parse below would find
+    # nothing in. A perturbation sweep reports it untested, which is the
+    # correct result for a prefilter.
+    if not _names_a_python_server_class(text):
+        return frozenset()
+    tree = _parse_python(text)
+    if tree is None:
+        return frozenset()
+    return _PythonModule(tree).module_scope_servers()
+
+
+def _parse_python(text: str) -> ast.Module | None:
+    try:
+        return ast.parse(text)
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        # ``ValueError`` for source containing a NUL byte, ``RecursionError``
+        # for a deeply nested expression: both are the compiler declining to
+        # produce a tree, which is the same fact as a syntax error and has to
+        # be one recorded omission rather than an exception out of the walk.
+        return None
+
+
+@dataclass(frozen=True)
+class PythonServerIndex:
+    """Which modules in the scanned tree export an MCP server by name.
+
+    Built once per scan and consulted per file, because the population needs
+    it: ``redis/mcp-redis`` constructs its server in ``src/common/server.py``
+    and applies all 55 of its decorators in ``src/tools/*.py``.
+
+    Resolution matches *path segments* against the dotted module a file
+    imports from, and it is anchored at neither end. The scanned root is
+    wherever ``tool_sources[].path`` points, so a module reached as
+    ``src.common.server`` may sit at ``common/server.py`` when the root is
+    ``src/`` and at ``src/common/server.py`` when it is the repository — one
+    import, two path spellings, and the reader is not told which. A match
+    therefore counts when either side's segments end with the other's, and
+    only when **exactly one** module in the index matches: two candidates mean
+    this reader cannot tell which module was imported, and a guess about that
+    is a guess about whether the decorator registers a tool at all.
+    """
+
+    modules: dict[str, frozenset[str]] = field(default_factory=dict)
+
+    @classmethod
+    def build(cls, modules: Any) -> PythonServerIndex:
+        """Index ``(relative posix path, source text)`` pairs.
+
+        Every scanned module, exporting nothing where it constructs nothing:
+        holding only the servers would take a *conflicting* candidate out of
+        the universe before the uniqueness check runs, and an unrelated module
+        would then supply binding evidence the import never named.
+        """
+
+        return cls(
+            {path: python_server_exports(text) for path, text in modules}
+        )
+
+    def resolve(self, module_path: str | None, module: str, level: int) -> str | None:
+        """The indexed module an import in ``module_path`` refers to."""
+
+        if not self.modules:
+            return None
+        parts = tuple(part for part in module.split(".") if part)
+        if level:
+            if module_path is None:
+                return None
+            package = PurePosixPath(module_path).parent
+            for _ in range(level - 1):
+                if package == PurePosixPath("."):
+                    return None
+                package = package.parent
+            for candidate in _python_module_paths(package, parts):
+                if candidate in self.modules:
+                    return candidate
+            return None
+        if not parts:
+            return None
+        matches = [
+            path
+            for path in sorted(self.modules)
+            if _python_module_key_matches(_python_module_key(path), parts)
+        ]
+        return matches[0] if len(matches) == 1 else None
+
+
+def _python_module_key(path: str) -> tuple[str, ...]:
+    """The dotted-path segments a module file would be imported as."""
+
+    pure = PurePosixPath(path)
+    parts = pure.with_suffix("").parts
+    if parts and parts[-1] == "__init__":
+        parts = parts[:-1]
+    return parts
+
+
+def _python_module_key_matches(key: tuple[str, ...], parts: tuple[str, ...]) -> bool:
+    if not key or not parts:
+        return False
+    if len(key) <= len(parts):
+        return parts[-len(key) :] == key
+    return key[-len(parts) :] == parts
+
+
+def _python_module_paths(
+    package: PurePosixPath, parts: tuple[str, ...]
+) -> tuple[str, ...]:
+    if not parts:
+        # ``from . import x`` names no module path of its own: what it binds is
+        # an attribute of the package's ``__init__``, which is where a name it
+        # re-exports would be bound. That is Python's rule and not an
+        # approximation of it: after ``from . import server``, the name
+        # is the submodule *unless* ``__init__`` binds something else
+        # of that name, and a submodule has no ``.tool`` to register
+        # with — so the only case worth resolving is the re-export.
+        return ((package / "__init__.py").as_posix(),)
+    base = package.joinpath(*parts)
+    return (
+        (base / "__init__.py").as_posix(),
+        base.with_suffix(".py").as_posix(),
+    )
+
+
+def _python_sites(
+    text: str,
+    *,
+    module_path: str | None,
+    server_index: PythonServerIndex | None,
+) -> SourceScanResult:
+    """Every MCP server tool decorator in one module."""
+
+    tree = _parse_python(text)
+    if tree is None:
+        return SourceScanResult(anomalies=("unparseable_python",))
+    module = _PythonModule(tree)
+    index = server_index or PythonServerIndex()
+    offsets: _PythonOffsets | None = None
+    sites: list[RegistrationSite] = []
+    server_modules: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        for position, decorator in enumerate(node.decorator_list):
+            receiver = _python_tool_receiver(decorator, module)
+            if receiver is None:
+                continue
+            proven, proving_module = _python_server_receiver(
+                module, receiver, index, module_path
+            )
+            if proving_module is not None:
+                server_modules.add(proving_module)
+            # Everything *below* the registration in the source runs first, so
+            # the object `.tool` receives is that decorator's return value and
+            # not this `def`. See `_python_wrapped_before_registration`.
+            wrapped = bool(node.decorator_list[position + 1 :])
+            # Built on the first site, not per file: most modules that pass the
+            # `"tool"` prefilter register nothing — a variable of that name, a
+            # word in a docstring — and the line table would be built and
+            # thrown away for every one of them.
+            if offsets is None:
+                offsets = _PythonOffsets(text)
+            sites.append(
+                _python_site(
+                    node,
+                    decorator,
+                    offsets,
+                    module,
+                    index,
+                    module_path,
+                    proven=proven,
+                    wrapped=wrapped,
+                )
+            )
+    sites.sort(key=lambda site: (site.line, site.column))
+    return SourceScanResult(
+        sites=tuple(sites), server_modules=tuple(sorted(server_modules))
+    )
+
+
+def _python_tool_receiver(
+    decorator: ast.expr, module: _PythonModule
+) -> ast.expr | None:
+    """The object a ``.tool`` decorator registers on, or ``None``.
+
+    Three spellings, one meaning. FastMCP 2.x accepts a bare ``@mcp.tool``,
+    every surveyed server writes ``@mcp.tool()``, and a module may bind the
+    bound method to a name of its own first — ``register = mcp.tool`` and then
+    ``@register``. The third is followed through exactly **one** hop, the same
+    depth the zero-install detector's constant resolution uses: a chain of
+    aliases is unbounded, and each extra hop buys a shape nobody was measured
+    writing while widening what can be mistaken for a registration.
+    """
+
+    expression = decorator.func if isinstance(decorator, ast.Call) else decorator
+    if (
+        isinstance(expression, ast.Attribute)
+        and expression.attr == PYTHON_TOOL_DECORATOR_ATTR
+    ):
+        return expression.value
+    if not isinstance(expression, ast.Name):
+        return None
+    resolved = module.binding_of(expression.id, expression)
+    if resolved is None:
+        return None
+    binding, _scope = resolved
+    # Only ``alias = <something>.tool``. Every other decorator in the language
+    # binds to something else — ``@staticmethod`` to an import, ``@deco`` to a
+    # ``def`` — so this cannot turn an ordinary decorator into a registration.
+    if not isinstance(binding, ast.Assign) or not all(
+        isinstance(target, ast.Name) for target in binding.targets
+    ):
+        return None
+    value = binding.value
+    if (
+        isinstance(value, ast.Attribute)
+        and value.attr == PYTHON_TOOL_DECORATOR_ATTR
+    ):
+        return value.value
+    return None
+
+
+def _python_server_receiver(
+    module: _PythonModule,
+    receiver: ast.expr,
+    index: PythonServerIndex,
+    module_path: str | None,
+) -> tuple[bool, str | None]:
+    """Whether ``receiver`` is a proven MCP server, and what proved it.
+
+    A bare name is the only shape a proof is attempted for. ``@self.mcp.tool``
+    reaches through an attribute this reader would have to know the type of,
+    and ``awslabs/mcp`` writes it on a server handed in as a constructor
+    argument — so the receiver is a server there and this reader still cannot
+    show it, which is what the recorded omission says.
+    """
+
+    if not isinstance(receiver, ast.Name):
+        return False, None
+    resolved = module.binding_of(receiver.id, receiver)
+    if resolved is None:
+        return False, None
+    binding, _scope = resolved
+    if module.server_from_statement(binding, receiver.id):
+        return True, None
+    # A function-local ``from .server import mcp`` binds the same name from the
+    # same module as one at the top of the file, and resolving it is the same
+    # question.
+    if not isinstance(binding, ast.ImportFrom):
+        return False, None
+    imported = module.import_of(receiver.id, receiver)
+    if imported is None or imported.symbol is None:
+        return False, None
+    target = index.resolve(module_path, imported.module, imported.level)
+    if target is None or imported.symbol not in index.modules.get(target, frozenset()):
+        return False, None
+    return True, target
+
+
+def _python_wrapped_before_registration() -> None:
+    """Why a decorator below the registration withholds the name.
+
+    Decorators apply bottom-up: ``@mcp.tool()`` over ``@replace`` registers
+    ``replace(harmless)``, so the name is that object's ``__name__`` and the
+    schema is ``inspect.signature`` of it. A ``functools.wraps`` wrapper does
+    preserve both, and every such site measured in ``awslabs/mcp`` is that
+    shape — but that is a fact about the decorator's *body*, in another module
+    for most of them, and this reader does not read bodies across modules.
+
+    So the site keeps its provenance and loses its name, which is the direction
+    #431 settled for the Go octal escape: an action id nobody serves is worse
+    than a recorded omission.
+    """
+
+
+def _python_site(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    decorator: ast.expr,
+    offsets: _PythonOffsets,
+    module: _PythonModule,
+    index: PythonServerIndex,
+    module_path: str | None,
+    *,
+    proven: bool,
+    wrapped: bool,
+) -> RegistrationSite:
+    line, column = decorator.lineno, offsets.column(decorator)
+    # The span is the decorator expression, not the function it decorates.
+    # ``_contains_another_site`` drops an unresolved site that contains a
+    # resolved one, and a decorated function's body can hold a nested
+    # registration of its own — so a span covering the body would silently
+    # delete the outer omission. A decorator expression cannot contain a
+    # registration, which is what makes it the construct that registers.
+    span = (offsets.offset(decorator), offsets.end_offset(decorator))
+    if not proven:
+        return RegistrationSite(
+            idiom="py_fastmcp_decorator",
+            name=None,
+            line=line,
+            column=column,
+            span=span,
+            unresolved_reason="server_binding_not_proven",
+        )
+    name, unresolved = (
+        (None, "wrapped_before_registration")
+        if wrapped
+        else _python_tool_name(node, decorator)
+    )
+    parameters, context_injection_unresolved = (
+        (None, False) if wrapped else _python_signature(node, module, index, module_path)
+    )
+    return RegistrationSite(
+        idiom="py_fastmcp_decorator",
+        name=name,
+        line=line,
+        column=column,
+        span=span,
+        description=_python_tool_description(node, decorator),
+        unresolved_reason=unresolved,
+        # Withheld with the name: the schema comes from the same object, so a
+        # signature published beside an unreadable name would be a parameter
+        # list for a function the server may not have registered.
+        parameters=parameters,
+        context_injection_unresolved=context_injection_unresolved,
+        returns=None if wrapped else _python_annotation(node.returns),
+        returns_json_type=(
+            None
+            if wrapped or node.returns is None
+            else _python_json_type(node.returns, module, node.returns)
+        ),
+        proves_server=True,
+    )
+
+
+def _python_tool_name(
+    node: ast.FunctionDef | ast.AsyncFunctionDef, decorator: ast.expr
+) -> tuple[str | None, str | None]:
+    """The registered name, or why it could not be read.
+
+    FastMCP takes the name from ``name=``, then from a single positional
+    argument, and defaults to the decorated function's. The default is not a
+    guess — it is the framework's documented rule and the spelling 55 of 55
+    ``redis/mcp-redis`` registrations use — but a ``name=`` this reader cannot
+    resolve is never *replaced* by it: ``neo4j-contrib/mcp-neo4j`` registers
+    ``namespace_prefix + "delete_instance"``, and answering ``delete_instance``
+    there would publish a name that server does not serve.
+    """
+
+    if isinstance(decorator, ast.Call):
+        if any(keyword.arg is None for keyword in decorator.keywords):
+            # ``@mcp.tool(**options)``. A ``**`` unpacking can carry ``name``,
+            # decided at run time, so the framework's default no longer
+            # provably applies and the function's name would be a guess.
+            return None, "name_not_literal"
+        given = _python_keyword(decorator, "name")
+        if given is None and decorator.args:
+            given = decorator.args[0]
+        if given is not None:
+            return _resolve_name(_python_string(given), True)
+    return _resolve_name(node.name, True)
+
+
+def _python_tool_description(
+    node: ast.FunctionDef | ast.AsyncFunctionDef, decorator: ast.expr
+) -> str | None:
+    """The description FastMCP would register: ``description=`` or the docstring."""
+
+    if isinstance(decorator, ast.Call):
+        given = _python_keyword(decorator, "description")
+        if given is not None:
+            return _python_string(given)
+    try:
+        return ast.get_docstring(node, clean=True)
+    except (TypeError, ValueError):  # pragma: no cover - malformed docstring node
+        return None
+
+
+def _python_keyword(call: ast.Call, name: str) -> ast.expr | None:
+    for keyword in call.keywords:
+        if keyword.arg == name:
+            return keyword.value
+    return None
+
+
+def _python_string(node: ast.expr) -> str | None:
+    """The value of ``node`` when it is a whole string literal.
+
+    An f-string, a concatenation and a ``.format`` call all resolve to
+    something only at run time, and this returns ``None`` for each — the same
+    answer :func:`_literal_is_whole_value` gives the lexed languages when a
+    literal is only *part* of the value.
+    """
+
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
+
+
+def _python_signature(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    module: _PythonModule,
+    index: PythonServerIndex,
+    module_path: str | None,
+) -> tuple[tuple[SignatureParameter, ...], bool]:
+    arguments = node.args
+    all_arguments = [
+        *arguments.posonlyargs, *arguments.args,
+        *([arguments.vararg] if arguments.vararg else []),
+        *arguments.kwonlyargs,
+        *([arguments.kwarg] if arguments.kwarg else []),
+    ]
+    identities = {
+        argument.arg: _python_context_injection(
+            argument.annotation, module, index, module_path
+        ) for argument in all_arguments
+    }
+    returns_identity = _python_context_injection(node.returns, module, index, module_path)
+    # SDK get_type_hints resolves the entire signature before selecting a
+    # parameter. Standalone FastMCP has a different raw-annotation fallback;
+    # neither result may be inferred by discarding an unresolved annotation.
+    unresolved = "unresolved" in identities.values() or returns_identity != "caller_supplied"
+    # Annotated variadics can win the framework's first-match selection but
+    # are not schema properties. Keep that unsupported selection visible.
+    unresolved |= any(
+        argument is not None and identities[argument.arg] != "caller_supplied"
+        for argument in (arguments.vararg, arguments.kwarg)
+    )
+    selected = None if unresolved else next(
+        (name for name, identity in identities.items() if identity == "framework_injected"), None
+    )
+
+    def _parameter(
+        argument: ast.arg, default: ast.expr | None
+    ) -> SignatureParameter:
+        return SignatureParameter(
+            name=argument.arg,
+            annotation=_python_annotation(argument.annotation),
+            required=default is None,
+            injection=(
+                "framework_injected" if argument.arg == selected
+                else "unresolved" if unresolved and identities[argument.arg] != "caller_supplied"
+                else "caller_supplied"
+            ),
+            json_type=(
+                None
+                if argument.annotation is None
+                else _python_json_type(
+                    argument.annotation, module, argument.annotation
+                )
+            ),
+        )
+
+    positional = [*arguments.posonlyargs, *arguments.args]
+    defaults: list[ast.expr | None] = [None] * (
+        len(positional) - len(arguments.defaults)
+    )
+    defaults.extend(arguments.defaults)
+    parameters = [
+        _parameter(argument, default)
+        for argument, default in zip(positional, defaults, strict=True)
+    ]
+    parameters.extend(
+        _parameter(argument, default)
+        for argument, default in zip(
+            arguments.kwonlyargs, arguments.kw_defaults, strict=True
+        )
+    )
+    # ``*args`` and ``**kwargs`` are deliberately absent: they are not schema
+    # properties, and a tool that has them takes arguments this reader cannot
+    # enumerate rather than one parameter named ``kwargs``.
+    return tuple(parameters), unresolved
+
+
+def _python_annotation(node: ast.expr | None) -> str | None:
+    if node is None:
+        return None
+    try:
+        return ast.unparse(node)
+    except (AttributeError, ValueError, RecursionError):  # pragma: no cover
+        return None
+
+
+# -- Annotation identity ----------------------------------------------------
+#
+# The framework decides what to inject by *resolving* an annotation, so this
+# reader has to as well. Everything below stays inside the module it is
+# reading: an import is followed to the dotted package it names, a class to
+# the bases written beside it, a forward reference to the expression its quotes
+# hold. Nothing is imported and nothing is executed, and the answer is
+# ``"unresolved"`` wherever the module does not settle it (#539).
+
+#: Modules whose ``Optional``/``Union``/``Annotated``/``List``/… spellings mean
+#: what they look like. ``typing_extensions`` re-exports the same objects.
+_PYTHON_TYPING_MODULES: frozenset[str] = frozenset(
+    {"typing", "typing_extensions"}
+)
+
+#: Spellings this reader recognises as naming a type, mapped to the JSON Schema
+#: type a catalog publishes for them. The keys answer a question on their own —
+#: a name that canonically means ``str`` or ``list`` is not the framework's
+#: request context, whatever the parameter is called — and the values are what
+#: the schema projection reads.
+#:
+#: Builtin spellings are canonical only while the module binds nothing of that
+#: name; the ``typing`` aliases only when an import into :data:`
+#: _PYTHON_TYPING_MODULES` is what binds them. ``from domain import Account as
+#: str`` is the shape that rule exists for (#400 review).
+PYTHON_ANNOTATION_JSON_TYPES: dict[str, str] = {
+    "str": "string",
+    "int": "number",
+    "float": "number",
+    "bool": "boolean",
+    "list": "array",
+    "List": "array",
+    "set": "array",
+    "Set": "array",
+    "frozenset": "array",
+    "FrozenSet": "array",
+    "tuple": "array",
+    "Tuple": "array",
+    "dict": "object",
+    "Dict": "object",
+}
+
+#: Builtin names an annotation can be written with, whether or not a JSON type
+#: is published for them.
+#:
+#: A superset of the table above's builtin keys, because the two answer
+#: different questions. This one settles **identity**: none of these is the
+#: framework's request context, so a parameter annotated ``bytes`` is a caller
+#: input even though this reader publishes no type for it. Reading the JSON
+#: table for both reported ``Union[str, bytes, int, float, dict]`` in
+#: ``redis/mcp-redis`` as an *unresolved injection identity* — a question left
+#: open about a builtin.
+#:
+#: The ``typing`` aliases are deliberately absent: an unbound ``List`` is a
+#: ``NameError``, not a builtin, and only an import into
+#: :data:`_PYTHON_TYPING_MODULES` makes that spelling mean anything.
+_PYTHON_BUILTIN_TYPE_NAMES: frozenset[str] = frozenset(
+    {
+        "bool",
+        "bytearray",
+        "bytes",
+        "complex",
+        "dict",
+        "float",
+        "frozenset",
+        "int",
+        "list",
+        "memoryview",
+        "object",
+        "range",
+        "set",
+        "str",
+        "tuple",
+        "type",
+    }
+)
+
+#: ``typing`` spellings that wrap a type without being one. Reduced away before
+#: anything is asked about the annotation, because ``Annotated[int, Field(...)]``
+#: and ``int`` denote the same type and FastMCP's own documentation writes the
+#: first for every constrained parameter.
+_PYTHON_ANNOTATION_WRAPPERS: frozenset[str] = frozenset(
+    {"Annotated", "Optional", "Union"}
+)
+
+#: How deep an annotation is reduced before this reader gives up. A bound, not
+#: a decision: past it the answer is ``"unresolved"``/unrepresentable, which is
+#: what an annotation nobody can read should produce anyway.
+_MAX_ANNOTATION_DEPTH = 8
+
+
+def _is_python_context_symbol(module: str, symbol: str) -> bool:
+    """Whether ``module.symbol`` names the request context the server injects."""
+
+    return symbol == PYTHON_CONTEXT_SYMBOL and any(
+        module == known or module.startswith(f"{known}.")
+        for known in PYTHON_CONTEXT_MODULES
+    )
+
+
+def _parse_python_expression(text: str) -> ast.expr | None:
+    """A forward reference's own expression, or ``None``.
+
+    A string annotation is source the interpreter parses later, so parsing it
+    is reading the module rather than evaluating it. Names inside it resolve in
+    the scope the annotation was *written* in, which is why every resolver
+    below takes the original annotation node as its scope anchor rather than
+    the node this returns.
+    """
+
+    try:
+        parsed = ast.parse(text.strip(), mode="eval")
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return None
+    return parsed.body
+
+
+def _python_annotation_symbol(
+    node: ast.expr, module: _PythonModule, scope: ast.AST
+) -> str | None:
+    """The builtin or ``typing`` name ``node`` canonically refers to."""
+
+    if isinstance(node, ast.Attribute):
+        dotted = _python_dotted_name(node)
+        if dotted is None:
+            return None
+        head, _, attribute = dotted.rpartition(".")
+        root, _, rest = head.partition(".")
+        named = module.module_named(root, scope)
+        if named is None:
+            return None
+        full = f"{named}.{rest}" if rest else named
+        return attribute if full in _PYTHON_TYPING_MODULES else None
+    if not isinstance(node, ast.Name):
+        return None
+    if module.binds_name(node.id, scope):
+        # Bound, so the spelling is no longer the builtin. It can still be a
+        # ``typing`` alias, which is the one way ``List`` and ``Optional``
+        # ever arrive, and only that.
+        imported = module.import_of(node.id, scope)
+        if (
+            imported is None
+            or imported.level
+            or imported.symbol is None
+            or imported.module not in _PYTHON_TYPING_MODULES
+        ):
+            return None
+        return imported.symbol
+    return node.id if node.id in _PYTHON_BUILTIN_TYPE_NAMES else None
+
+
+def _python_annotation_members(
+    node: ast.expr | None,
+    module: _PythonModule,
+    scope: ast.AST,
+    *,
+    depth: int = 0,
+    keep_null: bool = False,
+) -> list[ast.expr] | None:
+    """The types an annotation names, with its wrappers reduced away.
+
+    ``None`` means the annotation could not be reduced at all — an unparseable
+    forward reference, or a nesting deeper than this reader follows. An empty
+    list means the annotation names only ``None``.
+    """
+
+    if node is None or depth > _MAX_ANNOTATION_DEPTH:
+        return None
+    if isinstance(node, ast.Constant):
+        if node.value is None:
+            return [node] if keep_null else []
+        if isinstance(node.value, str):
+            parsed = _parse_python_expression(node.value)
+            if parsed is None:
+                return None
+            return _python_annotation_members(
+                parsed, module, scope, depth=depth + 1, keep_null=keep_null
+            )
+        return [node]
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return _python_annotation_union(
+            [node.left, node.right], module, scope, depth=depth, keep_null=keep_null
+        )
+    if isinstance(node, ast.Subscript):
+        symbol = _python_annotation_symbol(node.value, module, scope)
+        if symbol in _PYTHON_ANNOTATION_WRAPPERS:
+            elements = list(node.slice.elts) if isinstance(node.slice, ast.Tuple) else [node.slice]
+            if not elements:
+                return None
+            if symbol == "Annotated":
+                # Everything after the first element is metadata, not a type.
+                return _python_annotation_members(
+                    elements[0], module, scope, depth=depth + 1, keep_null=keep_null
+                )
+            if symbol == "Optional" and keep_null:
+                elements.append(ast.Constant(value=None))
+            return _python_annotation_union(
+                elements, module, scope, depth=depth, keep_null=keep_null
+            )
+    return [node]
+
+
+def _python_annotation_union(
+    elements: list[ast.expr],
+    module: _PythonModule,
+    scope: ast.AST,
+    *,
+    depth: int,
+    keep_null: bool = False,
+) -> list[ast.expr] | None:
+    members: list[ast.expr] = []
+    for element in elements:
+        reduced = _python_annotation_members(
+            element, module, scope, depth=depth + 1, keep_null=keep_null
+        )
+        if reduced is None:
+            return None
+        members.extend(reduced)
+    return members
+
+
+def _python_class_identity(
+    node: ast.expr,
+    module: _PythonModule,
+    index: PythonServerIndex,
+    module_path: str | None,
+    scope: ast.AST,
+    seen: frozenset[int],
+) -> ContextInjection:
+    """Whether the class ``node`` names is the one the framework injects.
+
+    Mirrors :meth:`_PythonModule.is_fastmcp_construction`: the same import
+    table, the same prefix rule, the same refusal to answer where the module
+    binds a name twice. The one thing it adds is the base list, because the
+    SDK injects any **subclass** of its context — so a class written in this
+    module is only a caller input once the bases beside it say so.
+    """
+
+    if isinstance(node, ast.Attribute):
+        dotted = _python_dotted_name(node)
+        if dotted is None:
+            return "unresolved"
+        head, _, attribute = dotted.rpartition(".")
+        root, _, rest = head.partition(".")
+        named = module.module_named(root, scope)
+        if named is None:
+            return "unresolved"
+        full = f"{named}.{rest}" if rest else named
+        return _python_imported_class_identity(full, attribute)
+    if not isinstance(node, ast.Name):
+        return "unresolved"
+    resolved = module.binding_of(node.id, scope)
+    if resolved is None:
+        # Nothing binds it, or two things do. A builtin spelling is the
+        # builtin in the first case and is never the framework's context;
+        # anything else is a name this reader cannot follow.
+        return (
+            "caller_supplied"
+            if _python_annotation_symbol(node, module, scope) is not None
+            else "unresolved"
+        )
+    binding, _scope = resolved
+    if isinstance(binding, ast.Import | ast.ImportFrom):
+        imported = module.import_of(node.id, scope)
+        if imported is None or imported.symbol is None:
+            # ``import a.b`` binds a module, and a module is not a class.
+            return "unresolved"
+        if imported.level:
+            # Finding the module does not establish the class it exports: it
+            # may re-export the framework Context or subclass it. This index
+            # carries server names, not annotation provenance. Until that
+            # evidence is read, preserve the injection question (#541 review).
+            return "unresolved"
+        return _python_imported_class_identity(imported.module, imported.symbol)
+    if isinstance(binding, ast.ClassDef):
+        if id(binding) in seen or len(seen) >= _MAX_ANNOTATION_DEPTH:
+            # Mutual bases. ``class A(B)`` beside ``class B(A)`` raises at
+            # import time, but it parses, and a reader that followed it would
+            # not return — so the cycle is an answer this reader does not have.
+            return "unresolved"
+        if binding.decorator_list or binding.keywords:
+            # A decorator or metaclass can replace the class or alter ancestry.
+            return "unresolved"
+        seen = seen | {id(binding)}
+        identity: ContextInjection = "caller_supplied"
+        for base in binding.bases:
+            if isinstance(base, ast.Subscript):
+                return "unresolved"
+            resolved_base = _python_class_identity(base, module, index, module_path, base, seen)
+            if resolved_base == "unresolved":
+                return "unresolved"
+            if resolved_base == "framework_injected":
+                identity = "framework_injected"
+        return identity
+    # A ``def``, a parameter, an assignment: whatever the name refers to, this
+    # reader did not read a class definition for it.
+    return "unresolved"
+
+
+def _python_imported_class_identity(module: str, symbol: str) -> ContextInjection:
+    if _is_python_context_symbol(module, symbol):
+        return "framework_injected"
+    # A named supported library class is evidence; an arbitrary external
+    # package path is not. It can re-export Context or one of its subclasses.
+    if (module, symbol) in {("pydantic", "BaseModel"), ("pydantic.main", "BaseModel")}:
+        return "caller_supplied"
+    if module in _PYTHON_TYPING_MODULES and symbol in (
+        _PYTHON_BUILTIN_TYPE_NAMES | set(PYTHON_ANNOTATION_JSON_TYPES) | {"Any", "LiteralString", "Never", "NoReturn"}
+    ):
+        return "caller_supplied"
+    return "unresolved"
+
+
+def _python_json_type(
+    node: ast.expr | None,
+    module: _PythonModule,
+    scope: ast.AST,
+    *,
+    depth: int = 0,
+) -> str | None:
+    """The JSON Schema type this annotation denotes, or ``None`` for none.
+
+    Read from the annotation **tree**, so a spelling this reader does not
+    understand answers ``None`` instead of quietly becoming a scalar. That is
+    the whole point of computing it here rather than string-matching the
+    rendered text: :func:`~agents_shipgate.inputs.python_static.json_schema_type`
+    falls back to ``"string"`` for everything it does not recognise, which
+    published ``{"type": "string"}`` for ``int | None``, for a Pydantic model
+    and for ``typing.List[str]`` alike (#539).
+
+    Nullability is not omission: ``T | None`` accepts null whether or not the
+    parameter has a default. Our projection carries one type, so a nullable
+    union must remain unrepresentable rather than silently excluding null.
+    A union denotes one type only when every arm agrees.
+    """
+
+    if node is None or depth > _MAX_ANNOTATION_DEPTH:
+        return None
+    members = _python_annotation_members(node, module, scope, depth=depth, keep_null=True)
+    if members is None:
+        return None
+    if not members:
+        # The annotation names ``None`` and nothing else — a tool that returns
+        # nothing, which is a type and not an absence.
+        return "null"
+    denoted = {_python_member_json_type(member, module, scope, depth=depth) for member in members}
+    return denoted.pop() if len(denoted) == 1 else None
+
+
+def _python_member_json_type(
+    node: ast.expr, module: _PythonModule, scope: ast.AST, *, depth: int
+) -> str | None:
+    """One union arm's JSON type, with its wrappers already reduced away."""
+
+    if isinstance(node, ast.Constant) and node.value is None:
+        return "null"
+    if isinstance(node, ast.Subscript):
+        symbol = _python_annotation_symbol(node.value, module, scope)
+        container = PYTHON_ANNOTATION_JSON_TYPES.get(symbol) if symbol is not None else None
+        if container == "array":
+            # A container's JSON type does not depend on what it holds:
+            # ``list[X]`` is an array for every ``X``, and this projection
+            # publishes no element schema for *any* annotation — a bare
+            # ``list`` included. Requiring the element to be readable would
+            # report a type this reader did read as one it did not, which is
+            # the measured cost: ``Dict[str, Any]`` is the most common return
+            # spelling in ``redis/mcp-redis``.
+            return "array"
+        if container == "object":
+            # The one part of a mapping that *does* decide the published type
+            # is its key. ``{"type": "object"}`` says the members are named by
+            # strings, which ``dict[int, str]`` does not.
+            elements = list(node.slice.elts) if isinstance(node.slice, ast.Tuple) else [node.slice]
+            if len(elements) != 2:
+                return None
+            key = _python_json_type(elements[0], module, scope, depth=depth + 1)
+            return "object" if key == "string" else None
+        return None
+    symbol = _python_annotation_symbol(node, module, scope)
+    return PYTHON_ANNOTATION_JSON_TYPES.get(symbol) if symbol is not None else None
+
+
+def _python_context_injection(
+    annotation: ast.expr | None,
+    module: _PythonModule,
+    index: PythonServerIndex,
+    module_path: str | None,
+    *,
+    scope: ast.AST | None = None,
+    depth: int = 0,
+) -> ContextInjection:
+    """A bounded common injection profile, before whole-signature selection.
+
+    Preserve generic arguments and Annotated metadata: the framework resolves
+    them too. A scalar/context class, nullable union, or a container of proven
+    caller types is readable here; generic Context membership differs between
+    SDK and standalone FastMCP and remains an explicit local limitation.
+    """
+
+    if annotation is None:
+        # The SDK identifies the context by resolving a *type hint*; a
+        # parameter without one is never injected, whatever it is named.
+        return "caller_supplied"
+    if depth > _MAX_ANNOTATION_DEPTH:
+        return "unresolved"
+    scope = annotation if scope is None else scope
+
+    def resolve(child: ast.expr) -> ContextInjection:
+        return _python_context_injection(
+            child, module, index, module_path, scope=scope, depth=depth + 1
+        )
+
+    if isinstance(annotation, ast.Constant):
+        if annotation.value is None:
+            return "caller_supplied"
+        if isinstance(annotation.value, str):
+            parsed = _parse_python_expression(annotation.value)
+            return "unresolved" if parsed is None else resolve(parsed)
+        return "unresolved"
+    if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
+        identities = {resolve(annotation.left), resolve(annotation.right)}
+    elif isinstance(annotation, ast.Subscript):
+        symbol = _python_annotation_symbol(annotation.value, module, scope)
+        elements = list(annotation.slice.elts) if isinstance(annotation.slice, ast.Tuple) else [annotation.slice]
+        if symbol == "Annotated":
+            if len(elements) < 2 or not all(isinstance(item, ast.Constant) for item in elements[1:]):
+                return "unresolved"
+            return resolve(elements[0])
+        if symbol == "Literal":
+            return "caller_supplied" if all(isinstance(item, ast.Constant) for item in elements) else "unresolved"
+        if symbol in {"Union", "Optional"}:
+            if not elements or (symbol == "Optional" and len(elements) != 1):
+                return "unresolved"
+            identities = {resolve(item) for item in elements}
+        elif symbol in {"list", "List", "dict", "Dict", "tuple", "Tuple", "set", "Set", "frozenset", "FrozenSet"}:
+            # typing aliases enforce arity during get_type_hints; builtin
+            # GenericAlias does not. An invalid alias anywhere prevents the
+            # SDK from resolving even an otherwise proven Context parameter.
+            required_arity = {"List": 1, "Set": 1, "FrozenSet": 1, "Dict": 2}.get(symbol)
+            if required_arity is not None and len(elements) != required_arity:
+                return "unresolved"
+            identities = {
+                "caller_supplied" if isinstance(item, ast.Constant) and item.value is Ellipsis else resolve(item)
+                for item in elements
+            }
+            return "caller_supplied" if identities == {"caller_supplied"} else "unresolved"
+        else:
+            return "unresolved"
+    else:
+        return _python_class_identity(annotation, module, index, module_path, scope, frozenset())
+    if "unresolved" in identities:
+        return "unresolved"
+    return "framework_injected" if "framework_injected" in identities else "caller_supplied"
+
+
+class _PythonOffsets:
+    """Character offsets for ``ast`` positions.
+
+    ``col_offset`` is a **UTF-8 byte** offset into the line, while every other
+    offset this module publishes is a character offset into the text. A source
+    line containing a non-ASCII character makes the two differ, so the
+    conversion is done rather than assumed.
+    """
+
+    def __init__(self, text: str) -> None:
+        self._lines = text.splitlines(keepends=True)
+        self._starts: list[int] = []
+        offset = 0
+        for line in self._lines:
+            self._starts.append(offset)
+            offset += len(line)
+        self._length = offset
+
+    def _character_column(self, line: int, byte_column: int) -> int:
+        if not 1 <= line <= len(self._lines):
+            return 0
+        raw = self._lines[line - 1].encode("utf-8")[:byte_column]
+        return len(raw.decode("utf-8", errors="ignore"))
+
+    def offset(self, node: ast.AST) -> int:
+        line = getattr(node, "lineno", 1)
+        if not 1 <= line <= len(self._starts):
+            return self._length
+        return self._starts[line - 1] + self._character_column(
+            line, getattr(node, "col_offset", 0)
+        )
+
+    def end_offset(self, node: ast.AST) -> int:
+        line = getattr(node, "end_lineno", None)
+        if line is None or not 1 <= line <= len(self._starts):
+            return self._length
+        return self._starts[line - 1] + self._character_column(
+            line, getattr(node, "end_col_offset", 0)
+        )
+
+    def column(self, node: ast.AST) -> int:
+        """The 1-based character column, matching :meth:`MaskedSource.line_column`."""
+
+        return self._character_column(
+            getattr(node, "lineno", 1), getattr(node, "col_offset", 0)
+        ) + 1
+
+def scan_source(
+    text: str,
+    language: str,
+    *,
+    module_path: str | None = None,
+    server_index: PythonServerIndex | None = None,
+) -> SourceScanResult:
+    """Find every registration site in one file.
+
+    An unresolved site is dropped when a resolved one sits inside it. The
+    wrapper shape is real and common — ``NewTool(metadata, mcp.Tool{Name:
+    "issue_read"}, …)`` is 132 of them in ``github/github-mcp-server`` — and
+    reporting the wrapper's non-literal first argument as an unenumerated tool
+    would fill the ledger with omissions for tools the very same call names one
+    argument later.
+    """
+    if PREFILTER_TOKEN not in text.lower():
+        return SourceScanResult()
+    if language == "python":
+        return _python_sites(
+            text, module_path=module_path, server_index=server_index
+        )
+    source = mask_source(text, language)
+    sites: list[RegistrationSite] = []
+    if language == "typescript":
+        sites.extend(_ts_static_tool_name_sites(source))
+        sites.extend(_call_sites(source, _TS_REGISTER_TOOL_RE, "ts_sdk_register_tool"))
+    else:
+        sites.extend(_call_sites(source, _GO_MUST_TOOL_RE, "go_must_tool"))
+        sites.extend(_call_sites(source, _GO_NEW_TOOL_RE, "go_new_tool"))
+        sites.extend(_go_tool_struct_sites(source))
+
+    kept = [
+        site
+        for site in sites
+        if site.name is not None or not _contains_another_site(site, sites)
+    ]
+    kept.sort(key=lambda site: (site.line, site.column, site.idiom))
+    return SourceScanResult(sites=tuple(kept), anomalies=source.anomalies)
+
+
+def _contains_another_site(site: RegistrationSite, sites: list[RegistrationSite]) -> bool:
+    """Whether a nested site describes the same registration as ``site``.
+
+    Sound only because every ``span`` is the *construct* that registers. A span
+    standing for a lookup *scope* would make any registration written inside
+    that scope suppress the site, which is a different relationship entirely.
+    """
+    start, end = site.span
+    return any(
+        start < other.span[0] and other.span[1] <= end
+        for other in sites
+        if other is not site
+    )
+
+
+# --- MCP source discovery (mirror of cli/discovery/mcp_source.py) -----------
+#
+# Every function below is byte-for-byte the CLI's, with two deliberate
+# exceptions a reviewer diffing the two files should expect:
+#
+#   `_mcp_export_tool_names` — the CLI probes an export by calling the real
+#   `load_mcp_tools`, which is a pydantic-backed adapter. Here it is the same
+#   accept rule read with `json`, which is also what `_probe_mcp` above already
+#   mirrors for the same file.
+#
+#   `_read_mcp_source_text` — the CLI's read is `inputs.common.load_text_file`
+#   (a regular file, at most 10 MB, decoded strict). It is factored out here so
+#   the contract is visible in one place: discovery that decoded leniently was
+#   a shipped defect, and a port that shared the path predicate but not the
+#   read would reintroduce it.
+
+#: How many source files discovery reads before it stops. Truncation is
+#: reported, never silent.
+DEFAULT_MAX_SOURCE_FILES = 1500
+
+#: How many bytes of Python source the index pass keeps for the scan pass. A
+#: cost bound and never a decision: past it a file is read twice instead of
+#: once, so no answer moves and nothing is recorded. Mirrors the CLI's bound.
+MAX_CACHED_SOURCE_BYTES = 64 * 1024 * 1024
+
+#: How many tool names the evidence names before it summarises. The line is
+#: read by a human deciding whether to adopt, and 110 names is not evidence.
+_EVIDENCE_NAME_LIMIT = 5
+
+#: Dependency sections of a ``package.json`` that count. ``devDependencies`` is
+#: included on purpose: the question is "was this repository written against
+#: MCP", not "does it ship the SDK at runtime".
+#: Python project files read for the language gate. ``setup.py`` is absent on
+#: purpose: its dependencies are an argument to a function call, and grepping a
+#: Python module for ``mcp`` is the spelling-shaped proof this gate rejects.
+_PYTHON_PROJECT_FILES: frozenset[str] = frozenset({"pyproject.toml"})
+
+#: Dependency tables of a ``pyproject.toml`` that count: PEP 621's own list,
+#: PEP 735's dependency groups, and Poetry's table.
+_PYPROJECT_DEPENDENCY_PATHS: tuple[tuple[str, ...], ...] = (
+    ("project", "dependencies"),
+    ("project", "optional-dependencies"),
+    ("dependency-groups",),
+    ("tool", "poetry", "dependencies"),
+    ("tool", "poetry", "group"),
+)
+
+_PACKAGE_JSON_DEPENDENCY_KEYS = (
+    "dependencies",
+    "devDependencies",
+    "peerDependencies",
+    "optionalDependencies",
+)
+
+
+@dataclass
+class _FrameworkEvidence:
+    """Declared MCP dependencies, per language."""
+
+    languages: set[str] = field(default_factory=set)
+    reasons: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class McpSourceDiscovery:
+    """What discovery concluded about the workspace's own registration sites."""
+
+    path: str | None = None
+    languages: tuple[str, ...] = ()
+    tool_names: tuple[str, ...] = ()
+    unresolved_count: int = 0
+    evidence: tuple[str, ...] = ()
+    #: The declared-dependency reasons behind the language gate, on their own.
+    #: Scoring reads this rather than indexing into ``evidence``: the rendered
+    #: lines are ordered for a human and gain conditional entries at the end.
+    framework_evidence: tuple[str, ...] = ()
+    candidate_files: tuple[str, ...] = ()
+    excluded: tuple[dict[str, str], ...] = ()
+    truncated: bool = False
+
+    @property
+    def detected(self) -> bool:
+        return self.path is not None
+
+
+def _discover_mcp_server_source(
+    workspace: Path,
+    files: list[Path],
+    exported_source_paths: list[str],
+    max_source_files: int = DEFAULT_MAX_SOURCE_FILES,
+) -> McpSourceDiscovery:
+    """Decide whether this workspace registers MCP tools in its own source.
+
+    Two facts have to hold together, and the pairing is the whole design. A
+    **declared MCP dependency** turns a spelling into provenance — a repository
+    that declares none is not an MCP server because a class of its own happens
+    to spell a field ``toolName``. A **resolved registration** is the other
+    half: the dependency alone says the repository uses MCP, which every client
+    does too.
+
+    ``exported_source_paths`` are the workspace-relative paths of MCP exports
+    already accepted as suggestions. An export that names every registration
+    withholds this route: it is the server's own published contract, carries
+    the input schemas this route does not read, and is read at high confidence
+    against medium.
+    """
+    workspace = workspace.resolve()
+    framework = _mcp_framework_evidence(workspace, files)
+    if not framework.languages:
+        return McpSourceDiscovery()
+
+    # Paired with the workspace-relative path once, here: a file that is not
+    # under the workspace at all (a symlink out of the tree) has no relative
+    # form, and inventing one from its basename would put it in the wrong
+    # directory for both the skip rules and the route's common ancestor.
+    scannable = [
+        pair
+        for pair in ((path, _mcp_relative(path, workspace)) for path in files)
+        if pair[1] is not None
+        and _mcp_language_in_scope(pair[1], framework.languages)
+    ]
+    # Sorted before the cap, so which files are read is a property of the
+    # workspace and not of the walk order — and capped where the flag is set,
+    # rather than beside it.
+    scannable.sort(key=lambda pair: pair[1])
+    truncated = len(scannable) > max_source_files
+    read = scannable[:max_source_files]
+    server_index, python_texts = _mcp_python_server_index(read)
+    names: set[str] = set()
+    languages: set[str] = set()
+    unresolved_by_file: dict[str, int] = {}
+    candidate_files: list[str] = []
+    for path, relative in read:
+        language = language_for_path(path)
+        if language is None:  # pragma: no cover - filtered above
+            continue
+        # ``is None``, not ``or``: an empty module caches as ``""``, which is
+        # the right answer and a falsy one. The re-read returns the same text,
+        # so this costs a read and never an answer.
+        text = python_texts.pop(path, None)
+        if text is None:
+            text = _mcp_source_text(path)
+        if text is None:
+            continue
+        result = scan_source(
+            text, language, module_path=relative, server_index=server_index
+        )
+        resolved = [site.name for site in result.sites if site.name is not None]
+        opaque = sum(1 for site in result.sites if site.name is None)
+        if opaque:
+            unresolved_by_file[relative] = opaque
+        # A site that proves a server counts even when its name does not
+        # resolve. Nothing lexical does — those match a spelling. The Python
+        # idiom has already followed the decorator back to a `FastMCP(...)`
+        # construction, and requiring a name on top would withhold the route
+        # from `neo4j-contrib/mcp-neo4j`, whose 40 registrations are every one
+        # of them `name=namespace_prefix + "…"`.
+        if not resolved and not any(site.proves_server for site in result.sites):
+            continue
+        languages.add(language)
+        names.update(resolved)
+        candidate_files.append(relative)
+        # The module that constructed the server is part of the route even
+        # though it registers nothing: `redis/mcp-redis` builds its server in
+        # `src/common/server.py` and decorates in `src/tools/*.py`.
+        candidate_files.extend(result.server_modules)
+
+    if not candidate_files:
+        return McpSourceDiscovery(
+            unresolved_count=sum(unresolved_by_file.values()), truncated=truncated
+        )
+
+    root = _mcp_common_directory(candidate_files)
+    # Counted over the directory the route actually points at, so the number
+    # this publishes is the number the adapter will report once the route is
+    # configured.
+    unresolved = sum(
+        count
+        for relative, count in unresolved_by_file.items()
+        if root == "." or PurePosixPath(relative).is_relative_to(root)
+    )
+    evidence = _mcp_evidence_lines(
+        framework, languages, names, root, truncated, unresolved
+    )
+    covering_export, uncovered = _mcp_covering_export(
+        workspace, exported_source_paths, names
+    )
+    if covering_export is not None and unresolved:
+        # Containment is the test, and an export cannot be shown to contain a
+        # registration *nobody could name*. Withholding the route here sends
+        # the reader to the export and never to `scan`, so the unreadable
+        # registration reaches no exclusion ledger at all. One rule covers both
+        # readings: no readable name makes the comparison vacuous, and some
+        # readable makes an export naming exactly those look complete.
+        evidence = (
+            *evidence,
+            f"An MCP tool export ({covering_export}) names every registration "
+            f"this reader could read and none of the {unresolved} it could "
+            "not; both routes are suggested, so the unreadable ones still "
+            "reach the exclusion ledger",
+        )
+        covering_export = None
+    if covering_export is not None:
+        return McpSourceDiscovery(
+            unresolved_count=unresolved,
+            truncated=truncated,
+            excluded=(
+                {
+                    "type": MCP_SOURCE_TYPE,
+                    "path": root,
+                    "reason": (
+                        f"An MCP tool export ({covering_export}) already names "
+                        f"every one of these {len(names)} registrations, and an "
+                        "export is read at high confidence with its input "
+                        "schemas; reading them in source would restate it at "
+                        "medium."
+                    ),
+                },
+            ),
+        )
+    if uncovered:
+        # An export exists and does not account for the whole surface. It used
+        # to withhold this route anyway, which in a workspace holding two
+        # servers meant an export for one erased every source-only registration
+        # of the other. Both routes are suggested instead, and the overlap is
+        # named.
+        sample = ", ".join(sorted(uncovered)[:_EVIDENCE_NAME_LIMIT])
+        if len(uncovered) > _EVIDENCE_NAME_LIMIT:
+            sample += ", …"
+        evidence = (
+            *evidence,
+            f"An MCP tool export is also present and does not name "
+            f"{len(uncovered)} of these registrations ({sample}); both routes "
+            "are suggested, and a reviewed tool_identity binding is what joins "
+            "the two surfaces",
+        )
+
+    return McpSourceDiscovery(
+        path=root,
+        languages=tuple(sorted(languages)),
+        tool_names=tuple(sorted(names)),
+        unresolved_count=unresolved,
+        evidence=evidence,
+        framework_evidence=tuple(sorted(framework.reasons)),
+        # De-duplicated: one module can prove the binding for every file
+        # that imports it.
+        candidate_files=tuple(sorted(set(candidate_files))),
+        truncated=truncated,
+    )
+
+
+def _mcp_python_server_index(
+    scannable: list[tuple[Path, str]],
+) -> tuple[PythonServerIndex, dict[Path, str]]:
+    """Index every Python module in the walk that constructs an MCP server.
+
+    Built ahead of the scan: `redis/mcp-redis` constructs its server in one
+    module and decorates in eleven others, so resolving bindings as the walk
+    went would prove or refuse the same decorator depending on file order.
+
+    Returns the texts it read alongside the index, up to
+    ``MAX_CACHED_SOURCE_BYTES``, so the scan pass reads each Python file once.
+    Past the bound a file is read twice rather than held, which changes no
+    answer. Streamed into ``build`` through a generator, so the whole tree is
+    never alive at once.
+    """
+    texts: dict[Path, str] = {}
+    cached = 0
+
+    def _modules() -> Iterator[tuple[str, str]]:
+        nonlocal cached
+        for path, relative in scannable:
+            if language_for_path(path) != "python":
+                continue
+            text = _mcp_source_text(path)
+            if text is None:
+                continue
+            if cached + len(text) <= MAX_CACHED_SOURCE_BYTES:
+                texts[path] = text
+                cached += len(text)
+            yield relative, text
+
+    return PythonServerIndex.build(_modules()), texts
+
+
+def _mcp_source_text(path: Path) -> str | None:
+    """One source file's text, or ``None`` when this walk will not read it."""
+    try:
+        if path.stat().st_size > MAX_SOURCE_FILE_BYTES:
+            return None
+    except OSError:
+        return None
+    return _read_mcp_source_text(path)
+
+
+def _read_mcp_source_text(path: Path) -> str | None:
+    """The adapter's own read, not a lenient copy of it.
+
+    Decoding with ``errors="replace"`` let ``detect`` resolve a registration
+    out of a file the scan-time loader then refuses as ``unreadable_file``, so
+    the route promised more tools than it could enumerate. Sharing the path
+    predicate is not enough — the read has to be shared too.
+    """
+    try:
+        if not path.is_file():
+            return None
+        data = path.read_bytes()
+    except OSError:
+        return None
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def _mcp_framework_evidence(workspace: Path, files: list[Path]) -> _FrameworkEvidence:
+    evidence = _FrameworkEvidence()
+    for path in files:
+        name = path.name
+        if name in _PYTHON_PROJECT_FILES or _is_requirements_file(name):
+            _record_python_mcp_evidence(workspace, path, evidence)
+            continue
+        if name not in {"package.json", "go.mod"}:
+            continue
+        relative = _mcp_relative(path, workspace)
+        if relative is None:
+            continue
+        # The same skip set the source walk uses, not a narrower one of its
+        # own: two lists would let a directory be skipped for registrations
+        # while still granting the language gate that admits them.
+        parts = PurePosixPath(relative).parts
+        if any(part in SKIP_DIRECTORY_NAMES for part in parts):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if name == "go.mod":
+            lowered = text.lower()
+            for module in GO_FRAMEWORK_MODULES:
+                if module in lowered:
+                    evidence.languages.add("go")
+                    evidence.reasons.append(f"{relative} requires {module}")
+                    break
+            continue
+        package = _mcp_package_dependencies(text)
+        for dependency in sorted(package):
+            if any(
+                dependency.lower().startswith(token)
+                for token in TYPESCRIPT_FRAMEWORK_PACKAGES
+            ):
+                evidence.languages.add("typescript")
+                evidence.reasons.append(f"{relative} depends on {dependency}")
+                break
+    return evidence
+
+
+def _is_requirements_file(name: str) -> bool:
+    """Whether ``name`` is a pip requirements file."""
+    lowered = name.lower()
+    return lowered.startswith("requirements") and lowered.endswith(".txt")
+
+
+def _record_python_mcp_evidence(
+    workspace: Path, path: Path, evidence: _FrameworkEvidence
+) -> None:
+    """Admit Python when a project file declares ``mcp`` or ``fastmcp``."""
+    relative = _mcp_relative(path, workspace)
+    if relative is None:
+        return
+    if any(part in SKIP_DIRECTORY_NAMES for part in PurePosixPath(relative).parts):
+        return
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    requirements = (
+        _pyproject_requirements(text)
+        if path.name in _PYTHON_PROJECT_FILES
+        else _requirements_txt(text)
+    )
+    dependency = declares_python_mcp_framework(requirements)
+    if dependency is None:
+        return
+    evidence.languages.add("python")
+    evidence.reasons.append(f"{relative} depends on {dependency}")
+
+
+def _pyproject_requirements(text: str) -> list[str]:
+    """Every requirement string a ``pyproject.toml`` declares.
+
+    Parsed with ``tomllib`` rather than scanned line by line, because the
+    line scan this script uses for framework tokens drops
+    ``mcp[cli]>=1.26.0,<2`` — the requirement two of the five surveyed servers
+    declare — for carrying an extras marker.
+    """
+    try:
+        data = tomllib.loads(text)
+    except (tomllib.TOMLDecodeError, ValueError, RecursionError):
+        return []
+    requirements: list[str] = []
+    for path in _PYPROJECT_DEPENDENCY_PATHS:
+        node: Any = data
+        for key in path:
+            node = node.get(key) if isinstance(node, dict) else None
+        requirements.extend(_toml_requirements(node))
+    return requirements
+
+
+def _toml_requirements(node: Any, depth: int = 0) -> list[str]:
+    """Every string in a dependency table that could name a distribution.
+
+    Both halves of a table, rather than a choice between them: Poetry writes
+    the name as the *key* with a constraint as the value, and emitting only
+    the value made every Poetry table dead. A group name is not a
+    distribution this gate looks for, so admitting keys costs nothing.
+    """
+    if depth > 3:  # pragma: no cover - a dependency table is never this deep
+        return []
+    if isinstance(node, str):
+        return [node]
+    if isinstance(node, list):
+        return [item for item in node if isinstance(item, str)]
+    if isinstance(node, dict):
+        found: list[str] = []
+        for key, value in node.items():
+            found.append(str(key))
+            found.extend(_toml_requirements(value, depth + 1))
+        return found
+    return []
+
+
+def _requirements_txt(text: str) -> list[str]:
+    """Requirement lines from a pip requirements file."""
+    return [
+        line
+        for raw in text.splitlines()
+        if (line := raw.strip()) and not line.startswith(("-", "#"))
+    ]
+
+
+def _mcp_package_dependencies(text: str) -> set[str]:
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return set()
+    if not isinstance(data, dict):
+        return set()
+    names: set[str] = set()
+    for key in _PACKAGE_JSON_DEPENDENCY_KEYS:
+        section = data.get(key)
+        if isinstance(section, dict):
+            names.update(str(name) for name in section)
+    return names
+
+
+def _mcp_language_in_scope(relative: str, languages: set[str]) -> bool:
+    language = language_for_path(relative)
+    if language is None or language not in languages:
+        return False
+    return is_scannable_path(relative)
+
+
+def _mcp_relative(path: Path, workspace: Path) -> str | None:
+    """The CLI's own relative-path rule for this route, not this script's `_rel`.
+
+    ``_rel`` prefers the *logical* name and falls back to the path itself, which
+    is right for the inventory it serves. Here the answer decides the route's
+    common ancestor and which skip rules apply, and the CLI resolves — so this
+    resolves too. Two spellings of one path is how the two detectors would
+    disagree about which directory a manifest should point at.
+    """
+    try:
+        return path.resolve().relative_to(workspace).as_posix()
+    except (OSError, ValueError):
+        return None
+
+
+def _mcp_common_directory(relative_files: list[str]) -> str:
+    """The deepest directory containing every file that registered a tool.
+
+    Not a scope decision — #363 settled that a deepest-common-ancestor is the
+    wrong answer for *which project a manifest describes*. This is the narrower
+    question of which subtree the adapter walks, where widening only costs a
+    longer walk.
+    """
+    parts_list = [PurePosixPath(name).parent.parts for name in relative_files]
+    if not parts_list:
+        return "."
+    common = parts_list[0]
+    for parts in parts_list[1:]:
+        limit = min(len(common), len(parts))
+        index = 0
+        while index < limit and common[index] == parts[index]:
+            index += 1
+        common = common[:index]
+    return PurePosixPath(*common).as_posix() if common else "."
+
+
+def _mcp_covering_export(
+    workspace: Path, exported_source_paths: list[str], names: set[str]
+) -> tuple[str | None, set[str]]:
+    """The export that names *every* registration, and what no export names.
+
+    Location is not the test, and neither is mere existence: "any export
+    anywhere wins" let an export for one server erase another server's
+    source-only registrations, and let a partial export erase the remainder of
+    a single one. Only containment makes withholding lossless.
+    """
+    candidates = sorted(exported_source_paths)
+    if not candidates:
+        # No export at all — the common case for a source-only server. Without
+        # this the caller would report "an MCP tool export is also present and
+        # does not name them" about a file that does not exist.
+        return None, set()
+    covered: set[str] = set()
+    for candidate in candidates:
+        exported = _mcp_export_tool_names(workspace, candidate)
+        if exported is None:
+            continue
+        covered |= exported
+        if names <= covered:
+            return candidate, set()
+    return None, names - covered
+
+
+def _mcp_export_tool_names(workspace: Path, relative: str) -> set[str] | None:
+    """Tool names an accepted MCP export publishes. Mirrors ``load_mcp_tools``.
+
+    ``None`` when the export declines to name them — a wildcard export claims a
+    surface without enumerating it, so it can never be shown to contain
+    anything, and the source route is the more informative of the two.
+    """
+    export = workspace / relative
+    try:
+        # Bounded like the loader this mirrors: `load_mcp_tools` refuses a file
+        # over `MAX_INPUT_FILE_BYTES` before parsing it, so an export past the
+        # bound names nothing on either side — and this reader is reached with
+        # a path chosen by the workspace, in a script that is curled onto an
+        # unknown repository.
+        if export.stat().st_size > MAX_STRUCTURED_FILE_BYTES:
+            return None
+        data = json.loads(export.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    if isinstance(data, list):
+        raw_tools: Any = data
+    elif isinstance(data, dict):
+        raw_tools = data.get("tools")
+        if data.get("wildcard") is True or raw_tools == "*":
+            # Wildcard exposure, and the wildcard-plus-array contradiction the
+            # loader refuses outright, both reach the caller the same way:
+            # there are no names here to contain anything.
+            #
+            # No fixture can distinguish this branch from the fall-through
+            # below, and that is a fact about the *caller*, not a gap: every
+            # wildcard shape `_probe_mcp` accepts also has no usable `tools`
+            # array, and the one that does — wildcard plus a populated array —
+            # is refused at the probe and never reaches this function. The
+            # branch stays because it mirrors `load_mcp_tools`, and resting on
+            # the probe to make it redundant would couple this reader to a
+            # gate that is not its own.
+            return None
+    else:
+        return None
+    if not isinstance(raw_tools, list):
+        return None
+    return {
+        str(entry["name"])
+        for entry in raw_tools
+        if isinstance(entry, dict) and entry.get("name")
+    }
+
+
+def _mcp_evidence_lines(
+    framework: _FrameworkEvidence,
+    languages: set[str],
+    names: set[str],
+    root: str,
+    truncated: bool,
+    unresolved: int,
+) -> tuple[str, ...]:
+    sample = sorted(names)[:_EVIDENCE_NAME_LIMIT]
+    shown = ", ".join(sample)
+    if len(names) > len(sample):
+        shown += ", …"
+    lines = [
+        (
+            f"MCP tool registrations in {'/'.join(sorted(languages))} source "
+            f"under {root}/: {len(names)} tool name(s) — {shown}"
+        )
+        if names
+        else (
+            f"MCP tool registrations in {'/'.join(sorted(languages))} source "
+            f"under {root}/: {unresolved} registration(s), none of which this "
+            "reader can name"
+        ),
+    ]
+    lines.extend(sorted(framework.reasons)[:_EVIDENCE_NAME_LIMIT])
+    if unresolved and names:
+        # Named here because this is what a human reads when deciding whether
+        # to adopt, and "61 tools" without "and 3 more this reader cannot name"
+        # is the over-claim the whole input is built to avoid.
+        lines.append(
+            f"{unresolved} registration(s) name themselves at runtime and are "
+            "not enumerated"
+        )
+    if truncated:
+        lines.append(
+            "Discovery stopped at the source-file cap, so this count is a "
+            "lower bound."
+        )
+    return tuple(lines)
+
+
+def _score_mcp_server_source(
+    discovery: McpSourceDiscovery, scores: dict[str, dict[str, Any]]
+) -> None:
+    """Score the workspace's own MCP registration sites (mirror of signals.py).
+
+    The registration evidence reaches the detection threshold on its own,
+    because the fact behind it is already a conjunction: a declared MCP
+    dependency *and* a tool name resolved at a registration site. The
+    dependency then adds the same point a dependency adds for every other
+    framework.
+
+    The candidate file is the **route directory**, not the registration files
+    under it: an MCP server is one thing however many packages its tools are
+    spread across, and contributing each file made `mongodb-js/mongodb-mcp-server`
+    look like six separate projects.
+    """
+    if not discovery.detected or discovery.path is None:
+        return
+    _add(scores, MCP_SOURCE_TYPE, 2.0, "strong", discovery.evidence[0])
+    # The declared dependency is identified by *value* — the line is one of the
+    # discovery result's `framework_evidence` entries. Awarding it to
+    # `evidence[1]` read the point off a list position instead, in a list that
+    # is ordered for a human and gains conditional entries at the end.
+    reasons = set(discovery.framework_evidence)
+    awarded = False
+    for line in discovery.evidence[1:]:
+        dependency = not awarded and line in reasons
+        awarded = awarded or dependency
+        _add(
+            scores,
+            MCP_SOURCE_TYPE,
+            1.0 if dependency else 0.0,
+            "medium" if dependency else "supporting",
+            line,
+        )
+    # `_add`'s candidate argument would attribute the directory to whichever
+    # evidence line happened to be last; the route directory belongs to the
+    # detection, not to a line of prose about it.
+    if discovery.path not in scores[MCP_SOURCE_TYPE]["candidate_files"]:
+        scores[MCP_SOURCE_TYPE]["candidate_files"].append(discovery.path)
 
 
 def _name(node: ast.AST) -> str | None:
@@ -1405,6 +4883,62 @@ def _is_test_path(rel: str) -> bool:
             or stem.endswith("_test.py"))
 
 
+def _non_product_origin(rel: str) -> str | None:
+    """Why ``rel`` is not the product's own code, or ``None`` — mirror of
+    ``cli/discovery/signals.py:_non_product_origin``.
+
+    One predicate, two uses: the score penalty below and the
+    application-root block. A test fixture that builds an ``App`` is a
+    fixture, and a file under a scaffolding ``resources/templates/``
+    directory is what a generator copies. The returned string is the
+    rationale line the penalty publishes.
+    """
+    if _is_test_path(rel):
+        return "declared in test code, which names fixtures rather than the product"
+    # Case-folded: `Resources/Templates` is the same directory on a
+    # case-insensitive checkout, and an exact match let the symptom survive
+    # the spelling difference.
+    parts = tuple(part.lower() for part in Path(rel).parts[:-1])
+    if any(
+        parts[index:index + len(sequence)] == sequence
+        for sequence in NON_PRODUCT_DIR_SEQUENCES
+        for index in range(len(parts))
+    ):
+        return ("declared under a scaffolding template directory, which names "
+                "an example rather than the product")
+    return None
+
+
+def _can_declare_application_root(rel: str) -> bool:
+    """Whether a root declared in ``rel`` speaks for the product.
+
+    Neither a fixture nor a template is the application whose identity the
+    project ships, and reading either as one rejected every real agent in
+    the repository (#398).
+    """
+    return _non_product_origin(rel) is None
+
+
+def _unresolvable_root_rejection(scope: str, detail: str, *,
+                                 declared_elsewhere: bool) -> str:
+    """Why no name a project declares may be written as its identity.
+
+    ``declared_elsewhere`` covers a value whose best-ranked site sits in a
+    clean project while a blocked project also declares it: every other
+    published field points at the clean project, so the relationship that
+    justifies the rejection has to be stated.
+    """
+    where = "this workspace" if scope == "." else f"project `{scope}`"
+    opening = (f"this name is also declared in {where}, which"
+               if declared_elsewhere else where)
+    return (
+        f"{opening} declares an application root whose name is not statically "
+        f"resolvable ({detail}); every other name it declares is by "
+        "construction not that root, so none of them can be the reviewed "
+        "identity"
+    )
+
+
 def _constant_module_paths(importer: Path, module: str, level: int,
                            workspace: Path) -> list[Path]:
     """Every in-workspace file the import could refer to. All of them, not
@@ -1479,7 +5013,8 @@ def _resolve_agent_name(evidence: dict[str, Any], path: Path, facts: dict[str, A
 
 
 def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Path,
-                      project_names: list[dict[str, str]]) -> list[dict[str, Any]]:
+                      project_names: list[dict[str, str]],
+                      attribution: _ProjectAttribution) -> list[dict[str, Any]]:
     """Rank ``Agent(name=…)`` evidence best-first — mirror of
     ``cli/discovery/signals.py:_rank_agent_name_candidates``.
 
@@ -1488,6 +5023,12 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
     corroboration by the project name decide the order; a value too short or
     too generic to be an identity is ranked last and made unselectable so
     ``init`` writes CHANGE_ME rather than asserting something unreliable.
+
+    A project whose application root cannot be resolved has nothing
+    selectable, and that rule is scoped to the project: with repository
+    scope one unresolvable root in a scaffolding template rejected every
+    real agent in a monorepo (#398). A name several projects declare is
+    rejected when any of them is blocked — the fail-closed direction.
     """
     by_path: dict[Path, dict[str, Any]] = {}
     for path, facts in py_facts:
@@ -1499,10 +5040,37 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
     project_forms.add(_normalise_name(workspace.name))
     project_forms.discard("")
 
+    # Project → the first unreadable application root found in it. Only a
+    # root the product itself declares blocks a project.
+    blocked_projects: dict[str, str] = {}
+
+    def _block(path: Path, rel: str, detail: str) -> None:
+        if not _can_declare_application_root(rel):
+            return
+        blocked_projects.setdefault(attribution.scope_of(path), detail)
+
+    for path, facts in py_facts:
+        if facts["unresolved_root"]:
+            rel = _rel(path, workspace)
+            _block(path, rel, f"{rel}: {facts['unresolved_root']}")
+
     best: dict[str, dict[str, Any]] = {}
+    # Every project a value is declared in, not only its best-scoring site.
+    # `best_project` is the project of the site `best` kept — the one every
+    # other published field of the candidate points at.
+    declared_in: dict[str, list[str]] = {}
+    best_project: dict[str, str] = {}
+    product_declared: set[str] = set()
     order = 0
     for path, facts in py_facts:
+        if not facts["names"]:
+            # Most files declare no agent; attributing them to a project is
+            # a stat and a walk for an answer nothing below reads.
+            continue
         rel = _rel(path, workspace)
+        # Invariant across the evidence in one file, so it is asked once
+        # per file rather than once per name.
+        project = attribution.scope_of(path)
         for evidence in facts["names"]:
             resolved = _resolve_agent_name(evidence, path, facts, by_path, workspace)
             if resolved is None:
@@ -1526,13 +5094,15 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
                 rationale.append(
                     evidence["why"] or "declared as a child of another agent, not the root"
                 )
-            if _is_test_path(rel):
-                # Larger than every other signal combined: a fixture that
-                # happens to build an App root is still a fixture.
-                score -= ORIGIN_TEST_PENALTY
-                rationale.append(
-                    "declared in test code, which names fixtures rather than the product"
-                )
+            origin = _non_product_origin(rel)
+            if origin is None:
+                product_declared.add(value)
+            if origin is not None:
+                # Larger than every other signal combined: a fixture or a
+                # scaffolding template that happens to build an App root is
+                # still not the product.
+                score -= ORIGIN_NON_PRODUCT_PENALTY
+                rationale.append(origin)
             normalised = _normalise_name(value)
             if normalised and normalised in project_forms:
                 score += CORROBORATION_BONUS
@@ -1560,15 +5130,14 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
                 "_order": order,
             }
             order += 1
+            projects = declared_in.setdefault(value, [])
+            if project not in projects:
+                projects.append(project)
             previous = best.get(value)
             if previous is None or ranked["rank_score"] > previous["rank_score"]:
                 best[value] = ranked
+                best_project[value] = project
 
-    unresolved = [
-        f"{_rel(p, workspace)}: {f['unresolved_root']}"
-        for p, f in py_facts
-        if f["unresolved_root"]
-    ]
     # A root whose *name* is a symbol that fails cross-module resolution is
     # just as unresolved as one whose name is an f-string; it surfaces here
     # because resolution needs every file's constants.
@@ -1577,23 +5146,37 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
             if evidence["role"] != "root_agent" or evidence["literal"] is not None:
                 continue
             if _resolve_agent_name(evidence, path, facts, by_path, workspace) is None:
-                unresolved.append(
-                    f"{_rel(path, workspace)}: the application root's name comes "
-                    f"from `{evidence['symbol']}`, which does not resolve to a "
-                    "static value"
+                rel = _rel(path, workspace)
+                _block(
+                    path,
+                    rel,
+                    f"{rel}: the application root's name comes from "
+                    f"`{evidence['symbol']}`, which does not resolve to a "
+                    "static value",
                 )
-    if unresolved:
-        # A declared application root whose identity is not statically
-        # resolvable. Anything still standing is by construction not the
-        # root, so nothing may be selected.
-        blocked = (
-            "an application root is declared here but its name is not statically "
-            f"resolvable ({unresolved[0]}); any other name would declare a worker "
-            "as the reviewed identity"
-        )
-        for ranked in best.values():
+    for value, ranked in best.items():
+        if value not in product_declared:
             ranked["selectable"] = False
-            ranked["rationale"].append(f"rejected: {blocked}")
+            ranked["rationale"].append(
+                "rejected: declared only in non-product code, not a reviewed product identity"
+            )
+        # The candidate's own project first when it is blocked, so the
+        # sentence names the project every other field already points at.
+        blocking = sorted(
+            (p for p in declared_in[value] if p in blocked_projects),
+            key=lambda p: p != best_project[value],
+        )
+        if not blocking:
+            continue
+        ranked["selectable"] = False
+        ranked["rationale"].append(
+            "rejected: "
+            + _unresolvable_root_rejection(
+                blocking[0],
+                blocked_projects[blocking[0]],
+                declared_elsewhere=blocking[0] != best_project[value],
+            )
+        )
 
     ordered = sorted(
         best.values(),
@@ -1748,8 +5331,163 @@ def _conventional_dir_locations(
     return located
 
 
+MAX_HOST_REPOSITORY_ENTRIES = 100_000
+#: What a census failure names when the failure itself carries no path.
+UNSEEN_WORKSPACE_SUBJECT = "."
+# The config-only projection of core.boundary_registry; conformance tests
+# compare every root/nested predicate with the canonical registry. These are
+# applicability names, not a second host parser or permission model.
+HOST_CONFIG_PATHS = {
+    ".codex/config.toml": ["codex"],
+    ".codex/hooks.json": ["codex"],
+    ".codex/requirements.toml": ["codex"],
+    ".claude/settings.json": ["claude-code"],
+    ".claude/settings.local.json": ["claude-code"],
+    ".mcp.json": ["claude-code"],
+    ".cursor/cli.json": ["cursor"],
+    ".cursor/mcp.json": ["cursor"],
+    ".vscode/mcp.json": ["vscode"],
+}
+
+
+def _host_config_hosts(relative: str) -> list[str]:
+    folded = relative.replace("\\", "/").removeprefix("./").casefold()
+    exact = HOST_CONFIG_PATHS.get(folded)
+    if exact:
+        return exact
+    for path, hosts in HOST_CONFIG_PATHS.items():
+        if (path.startswith(".codex/") or path == ".mcp.json") and folded.endswith("/" + path):
+            return hosts
+    return []
+
+
+def _link_may_conceal_a_tree(link: Path) -> bool:
+    """Whether an unfollowed link could hide nested configuration.
+
+    Mirrors `cli.discovery.host_boundary._link_may_conceal_a_tree`. The link is
+    never enumerated; only the *type* of what it points at is read, and that
+    type is the whole question. A link resolving to a regular file has no
+    descendants to conceal. Anything that cannot be typed stays concealment.
+    """
+    try:
+        return stat.S_ISDIR(link.stat().st_mode)
+    except OSError:
+        return True
+
+
+def _listed_subjects(subjects: list[str], limit: int) -> str:
+    """The first ``limit`` subjects, saying so whenever there are more.
+
+    Mirrors `cli.discovery.host_boundary.listed_subjects`: a display cap that
+    reads as the whole set asserts a count nobody measured.
+    """
+    shown = ", ".join(subjects[:limit])
+    remaining = len(subjects) - limit
+    return f"{shown} (and {remaining} more)" if remaining > 0 else shown
+
+
+def _discover_host_boundary(workspace: Path) -> tuple[list[dict[str, Any]], list[str]]:
+    """Bounded filename census including ignored host settings; no config reads.
+
+    Like the canonical host census, links are not followed. Reconfirm the
+    enumerated directory identities/names before publishing any classification.
+    This metadata is applicability only, never an audit or a release receipt.
+
+    A census that cannot finish returns no candidate and names what stopped it,
+    which is what withholds a complete negative. It does not fail the whole
+    classification: `audit --host` records the same failure and carries on, and
+    an applicability hint must not be stricter than the audit it routes to.
+    """
+    skipped = {".git", ".hg", ".svn", "node_modules", "site-packages", ".venv", "venv"}
+    pending = [workspace]
+    snapshots: list[tuple[Path, tuple[int, ...], tuple[str, ...]]] = []
+    candidates: dict[str, dict[str, Any]] = {}
+    links: set[str] = set()
+    visited = 0
+    # The subject a failure names, tracked at the same two granularities the
+    # canonical census reports: the directory being enumerated, and the entry
+    # being inspected. Both stop at the first failure, so a workspace with
+    # several unreadable paths names whichever its own walk order reached.
+    unseen = UNSEEN_WORKSPACE_SUBJECT
+
+    def relative_to_workspace(path: Path) -> str:
+        return path.relative_to(workspace).as_posix() if path != workspace else UNSEEN_WORKSPACE_SUBJECT
+
+    def identity(path: Path) -> tuple[int, ...]:
+        info = path.lstat()
+        attributes = int(getattr(info, "st_file_attributes", 0))
+        is_junction = getattr(path, "is_junction", None)
+        if attributes & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x0400)) or (
+            is_junction is not None and is_junction()
+        ):
+            raise ValueError("host directory is a reparse point or junction")
+        if not stat.S_ISDIR(info.st_mode):
+            raise ValueError("host directory changed type")
+        return (info.st_dev, info.st_ino, info.st_mode, info.st_mtime_ns, info.st_ctime_ns)
+
+    try:
+        while pending:
+            directory = pending.pop()
+            unseen = relative_to_workspace(directory)
+            before = identity(directory)
+            names = []
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    visited += 1
+                    if visited > MAX_HOST_REPOSITORY_ENTRIES:
+                        raise ValueError("host repository entry bound exceeded")
+                    names.append(entry.name)
+            names.sort()
+            if identity(directory) != before:
+                raise ValueError("host directory changed during discovery")
+            snapshots.append((directory, before, tuple(names)))
+            for name in names:
+                path = directory / name
+                relative = path.relative_to(workspace).as_posix()
+                unseen = relative
+                mode = path.lstat().st_mode
+                if (stat.S_ISDIR(mode) or stat.S_ISLNK(mode)) and name in skipped:
+                    continue
+                if stat.S_ISLNK(mode):
+                    if _link_may_conceal_a_tree(path):
+                        links.add(relative)
+                    file_type = "symlink"
+                elif stat.S_ISDIR(mode):
+                    pending.append(path)
+                    file_type = "directory"
+                else:
+                    file_type = "file" if stat.S_ISREG(mode) else "other"
+                hosts = _host_config_hosts(relative)
+                if hosts:
+                    candidates[relative] = {"path": relative, "hosts": hosts, "file_type": file_type}
+        for relative, hosts in HOST_CONFIG_PATHS.items():
+            if any(relative.casefold().startswith(prefix.casefold() + "/") for prefix in links):
+                candidates[relative] = {"path": relative, "hosts": hosts, "file_type": "unresolved"}
+        # Parent-first validation refuses a replaced ancestor before listing
+        # any descendant beneath it. Listing is bounded on this pass too.
+        # A failure here is a coherence failure of the whole census rather than
+        # one unreadable path, and the canonical reader names the census root
+        # for it, so this pass reports the workspace and not a subdirectory.
+        unseen = UNSEEN_WORKSPACE_SUBJECT
+        for directory, before, names in sorted(snapshots, key=lambda row: len(row[0].parts)):
+            if identity(directory) != before:
+                raise ValueError("host directory changed after discovery")
+            current = []
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    if len(current) >= len(names):
+                        raise ValueError("host directory gained entries")
+                    current.append(entry.name)
+            if tuple(sorted(current)) != names or identity(directory) != before:
+                raise ValueError("host directory changed after discovery")
+    except (OSError, ValueError, NotImplementedError):
+        return [], [unseen]
+    return [candidates[key] for key in sorted(candidates)], sorted(links)
+
+
 def detect(workspace: Path) -> dict[str, Any]:
     workspace = workspace.resolve()
+    host_candidates, host_incomplete = _discover_host_boundary(workspace)
     files = _inventory(workspace)
     all_py = [p for p in files if p.suffix == ".py"]
     py_files = all_py[:MAX_PYTHON_FILES]
@@ -1790,6 +5528,13 @@ def detect(workspace: Path) -> dict[str, Any]:
             _add(scores, "openai_agents_sdk", 2.0, "strong",
                  f"{rel}: @function_tool decorator", rel)
 
+    # Mirror of `_PyFacts.framework`: whether any framework's scoring claimed
+    # this file. Snapshotted here, before package tokens, glob hits and the
+    # MCP source add candidates of their own, because a Python file's
+    # *framework* attribution is exactly what `_score_python_signals` records
+    # on the CLI side and nothing later touches it there.
+    framework_files = {rel for st in scores.values() for rel in st["candidate_files"]}
+
     for token in _package_tokens(workspace):
         for fw, hints in PACKAGE_HINTS.items():
             if token.lower() in {h.lower() for h in hints}:
@@ -1806,8 +5551,13 @@ def detect(workspace: Path) -> dict[str, Any]:
         if _looks_like_n8n_workflow(workspace / p):
             _add(scores, "n8n", 2.0, "strong", f"n8n workflow: {p}", p)
     for p in _glob(workspace, files, CONDUCTOR_WORKFLOW_PATTERNS):
+        workflow_path = workspace / p
+        # Same bound as the Conductor adapter's ``load_structured_file``:
+        # a workflow `scan` refuses to read must not score `conductor` here.
+        if _oversized(workflow_path):
+            continue
         try:
-            data = json.loads((workspace / p).read_text(encoding="utf-8"))
+            data = json.loads(workflow_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             continue
         markers = _conductor_agent_markers(data)
@@ -1825,36 +5575,9 @@ def detect(workspace: Path) -> dict[str, Any]:
     present_dirs = [
         conventional_locations[d] for d in CONVENTIONAL_DIRS if d in conventional_locations
     ]
-    for fw in FRAMEWORKS:
+    for fw in CONVENTIONAL_DIR_FRAMEWORKS:
         for d in present_dirs:
             _add(scores, fw, 0.5, "weak", f"conventional dir: {d}/")
-
-    detections: list[dict[str, Any]] = [
-        {
-            "type": fw,
-            "score": round(st["score"], 2),
-            "confidence": _confidence(st["score"]),
-            "evidence": st["evidence"],
-            "candidate_files": st["candidate_files"],
-        }
-        for fw, st in scores.items()
-        if st["score"] >= 2.0 and st["has_strong"]
-    ]
-    detections.sort(key=lambda d: (-d["score"], d["type"]))
-
-    project_names: list[dict[str, str]] = []
-    pyproject = workspace / "pyproject.toml"
-    if pyproject.is_file():
-        try:
-            text = pyproject.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            text = ""
-        m = PYPROJECT_NAME_RE.search(text)
-        if m:
-            project_names.append({"value": m.group(1).strip(), "source": "pyproject"})
-    project_names.append({"value": workspace.name, "source": "workspace_dir"})
-
-    name_candidates = _rank_agent_names(py_facts, workspace, project_names)
 
     # Glob candidates, then keep only the ones the input adapters accept —
     # a glob hit (e.g. an mcpServers-style host config matching *mcp*.json)
@@ -1888,6 +5611,44 @@ def detect(workspace: Path) -> dict[str, Any]:
         else:
             failures.append({"type": kind, "path": p, "reason": reason})
     excluded = [e for e in failures if e["path"] not in suggested_paths]
+
+    # The artifact probe runs before the detection loop because the source
+    # route below is scored from its result: an MCP export is the better route
+    # to the same server, so this one stands down wherever one exists (#431).
+    mcp_source = _discover_mcp_server_source(
+        workspace,
+        files,
+        [s["path"] for s in suggested if s["type"] == "mcp"],
+    )
+    _score_mcp_server_source(mcp_source, scores)
+    excluded.extend(mcp_source.excluded)
+    if mcp_source.path is not None:
+        suggested.append({"type": MCP_SOURCE_TYPE, "path": mcp_source.path})
+
+    detections: list[dict[str, Any]] = [
+        {
+            "type": fw,
+            "score": round(st["score"], 2),
+            "confidence": _confidence(st["score"]),
+            "evidence": st["evidence"],
+            "candidate_files": st["candidate_files"],
+        }
+        for fw, st in scores.items()
+        if st["score"] >= 2.0 and st["has_strong"]
+    ]
+    detections.sort(key=lambda d: (-d["score"], d["type"]))
+
+    project_names: list[dict[str, str]] = []
+    pyproject = workspace / "pyproject.toml"
+    if pyproject.is_file():
+        try:
+            text = pyproject.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            text = ""
+        m = PYPROJECT_NAME_RE.search(text)
+        if m:
+            project_names.append({"value": m.group(1).strip(), "source": "pyproject"})
+    project_names.append({"value": workspace.name, "source": "workspace_dir"})
 
     marketplace_paths = [
         path
@@ -1949,6 +5710,15 @@ def detect(workspace: Path) -> dict[str, Any]:
     # name that needs cross-module resolution is not available per-file, and
     # a project boundary is about *where* agents live, not what they are
     # called.
+    #
+    # *Framework-attributed* literals only, matching the CLI's
+    # `if literals and fact.framework`. A module that defines its own
+    # `Agent` class and constructs `Agent(name="crm")` is not an agent
+    # project; counting it drew a boundary the CLI does not draw, which put
+    # a phantom entry in `agent_project_candidates` and flipped `agent_scope`
+    # to "ambiguous" on a workspace the CLI calls "single". Those literals
+    # stay in `agent_name_candidates` as name suggestions either way — they
+    # just do not draw a boundary (#532 review).
     literals_by_path = {
         rel: literals
         for rel, literals in (
@@ -1962,7 +5732,7 @@ def detect(workspace: Path) -> dict[str, Any]:
             )
             for p, f in py_facts
         )
-        if literals
+        if literals and rel in framework_files
     }
     evidence_paths = list(
         dict.fromkeys(
@@ -1977,8 +5747,15 @@ def detect(workspace: Path) -> dict[str, Any]:
             + list(literals_by_path)
         )
     )
+    attribution = _ProjectAttribution(workspace, evidence_paths)
     agent_project_candidates = _agent_project_candidates(
-        workspace, evidence_paths, literals_by_path
+        workspace, evidence_paths, literals_by_path, attribution
+    )
+    # Ranking runs after the grouping because it reads the same attribution:
+    # an application root it cannot resolve disqualifies the names in *that
+    # project* and no others (#398).
+    name_candidates = _rank_agent_names(
+        py_facts, workspace, project_names, attribution
     )
     # The workspace is always a candidate scope, marker or not: agent evidence
     # under no marker is attributed to it as ".", so an unmarked root agent in
@@ -2040,6 +5817,20 @@ def detect(workspace: Path) -> dict[str, Any]:
         )
     elif is_agent or suggested or codex_plugin_candidates:
         next_action = f"agents-shipgate init --workspace {workspace}"
+    elif any(c["file_type"] == "directory" for c in host_candidates):
+        next_action = (
+            "Inspect host configuration paths that are directories: "
+            + _listed_subjects([c["path"] for c in host_candidates if c["file_type"] == "directory"], 5)
+            + "; supply the intended files, then rerun detect."
+        )
+    elif host_candidates:
+        next_action = shlex.join(["agents-shipgate", "audit", "--host", "--workspace", str(workspace), "--json"])
+    elif host_incomplete:
+        next_action = (
+            "Host discovery could not see through these paths, so an absence of "
+            "host configuration is not established: "
+            + _listed_subjects(host_incomplete, 5) + "."
+        )
     else:
         next_action = "Workspace does not appear to be an agent project. No action."
 
@@ -2059,6 +5850,8 @@ def detect(workspace: Path) -> dict[str, Any]:
         "suggested_sources": suggested,
         "excluded_sources": excluded,
         "codex_plugin_candidates": codex_plugin_candidates,
+        "host_boundary_candidates": host_candidates,
+        "host_discovery_incomplete_paths": host_incomplete,
         "next_action": next_action,
         "workspace_signals": {
             "python_file_count": len(py_facts),
@@ -2114,6 +5907,22 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\nNext: {result['next_action']}")
         return 0
     if not result["is_agent_project"]:
+        if (
+            not result["suggested_sources"] and not result["codex_plugin_candidates"]
+            and (result["host_boundary_candidates"] or result["host_discovery_incomplete_paths"])
+        ):
+            if result["host_boundary_candidates"]:
+                print("Host configuration discovery (filenames only; grants not verified):")
+                for c in result["host_boundary_candidates"]:
+                    print(f"- {c['path']} ({', '.join(c['hosts'])}; {c['file_type']})")
+            if result["host_discovery_incomplete_paths"]:
+                print(
+                    "Paths host discovery could not see through: "
+                    + _listed_subjects(result["host_discovery_incomplete_paths"], 10)
+                )
+            _print_excluded(result["excluded_sources"])
+            print(f"Next: {result['next_action']}")
+            return 0
         print("Workspace does not appear to be an agent project.")
         if result["suggested_sources"]:
             print("Suggested sources (artifact-only):")

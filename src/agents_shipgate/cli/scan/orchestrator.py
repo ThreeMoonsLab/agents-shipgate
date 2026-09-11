@@ -8,6 +8,7 @@ from agents_shipgate.ci.github_summary import write_github_step_summary
 from agents_shipgate.cli.discovery.placeholders import manifest_placeholder_fields
 from agents_shipgate.core.capability_lock import build_capability_lock
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError
+from agents_shipgate.core.operation_attribution import ReconstructedOperationBase
 from agents_shipgate.report.human_order import HumanArtifactContext
 from agents_shipgate.schemas.capabilities import CapabilityLockFileV1
 from agents_shipgate.schemas.report import ReadinessReport
@@ -48,6 +49,7 @@ def run_scan(
     capability_lock_callback: Callable[[CapabilityLockFileV1], None] | None = None,
     human_context_callback: Callable[[HumanArtifactContext], None] | None = None,
     manifest_text: str | None = None,
+    operation_base: ReconstructedOperationBase | None = None,
 ) -> tuple[ReadinessReport, int]:
     """Run a full scan pipeline. Returns ``(report, exit_code)``.
 
@@ -82,6 +84,7 @@ def run_scan(
             capability_lock_callback=capability_lock_callback,
             human_context_callback=human_context_callback,
             manifest_text=manifest_text,
+            operation_base=operation_base,
         )
     except AgentsShipgateError as exc:
         # Every recovery route that names a file to edit needs the manifest
@@ -143,6 +146,7 @@ def _run_scan(
     capability_lock_callback: Callable[[CapabilityLockFileV1], None] | None,
     human_context_callback: Callable[[HumanArtifactContext], None] | None,
     manifest_text: str | None,
+    operation_base: ReconstructedOperationBase | None,
 ) -> tuple[ReadinessReport, int]:
     """The pipeline itself. Split from :func:`run_scan` so the manifest the
     run read can be attached to any failure on the way out, in one place."""
@@ -228,6 +232,7 @@ def _run_scan(
             decision=decision,
             plan=plan,
             plugins_enabled=plugins_enabled,
+            operation_base=operation_base,
         )
     with _perf.phase("build_final_report"):
         report, public_report_payload = _build_final_report(

@@ -15,6 +15,7 @@ HTML directly to produce ``packet.pdf``.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from html import escape
 from pathlib import Path
 
@@ -52,7 +53,7 @@ from agents_shipgate.schemas.packet import (
     ToolSurfaceDiffSection,
     VerdictLabel,
 )
-from agents_shipgate.schemas.report import ReleaseDecisionItem
+from agents_shipgate.schemas.report import EvidenceGap, ReleaseDecisionItem
 
 _VERDICT_CLASS: dict[VerdictLabel, str] = {
     "PASSED": "verdict verdict-passed",
@@ -147,7 +148,7 @@ def render_packet_html(
     parts.append(_render_memory_isolation(packet.memory_isolation))
     parts.append(_render_human_in_the_loop(packet.human_in_the_loop))
     parts.append(_render_dynamic_scenarios(packet.dynamic_scenarios))
-    parts.append(_render_not_proven(packet.not_proven))
+    parts.append(_render_not_proven(packet.not_proven, packet.release_decision.evidence_coverage.evidence_gaps))
     parts.append("</body></html>\n")
     return "".join(parts)
 
@@ -464,8 +465,8 @@ def _render_tool_surface_diff(section: ToolSurfaceDiffSection) -> str:
         f"{summary.tools_changed} changed</li>"
     )
     parts.append(
-        f"<li>Evidence gaps: {summary.new_findings} new finding(s), "
-        f"{summary.resolved_findings} resolved, "
+        f"<li>Finding identities: {summary.new_findings} added, "
+        f"{summary.resolved_findings} absent, "
         f"{summary.accepted_debt} accepted debt</li>"
     )
     parts.append(
@@ -479,6 +480,12 @@ def _render_tool_surface_diff(section: ToolSurfaceDiffSection) -> str:
         for item in section.highlights:
             parts.append(f"<li>{escape(item)}</li>")
         parts.append("</ul>")
+    if section.notes:
+        parts.append("<h3>Comparison limits</h3><ul>")
+        parts.extend(f"<li>{escape(note)}</li>" for note in section.notes[:3])
+        parts.append("</ul>")
+        if len(section.notes) > 3:
+            parts.append(f"<p>{len(section.notes) - 3} more notes in packet.json; inspect both reports before attributing a finding to the change.</p>")
     return "".join(parts)
 
 
@@ -724,7 +731,7 @@ def _render_dynamic_scenarios(section: DynamicScenariosSection) -> str:
     return "".join(parts)
 
 
-def _render_not_proven(section: NotProvenSection) -> str:
+def _render_not_proven(section: NotProvenSection, evidence_gaps: Sequence[EvidenceGap] = ()) -> str:
     parts = ["<h2>§10 What this packet did NOT prove</h2>"]
     parts.append(f"<p>{escape(section.headline)}</p>")
     parts.append("<ul>")
@@ -736,7 +743,7 @@ def _render_not_proven(section: NotProvenSection) -> str:
         # Grouped by mechanism for the reader; packet.json keeps the raw list
         # so the count that gates stays intact (#362).
         parts.append("<li>Source warnings:<ul>")
-        for group in group_source_warnings(section.source_warnings):
+        for group in group_source_warnings(section.source_warnings, evidence_gaps=evidence_gaps):
             suffix = f" ({group.count} warnings)" if group.count > 1 else ""
             parts.append(f"<li>{escape(group.message)}{suffix}</li>")
         parts.append("</ul></li>")

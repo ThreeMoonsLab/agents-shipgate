@@ -23,7 +23,12 @@ from agents_shipgate.schemas.safety_qualification import (
     production_safety_requirements,
     tier_for_requirements,
 )
-from scripts.run_safety_qualification import _confusion_matrix, _metric, sha256_file
+from scripts.run_safety_qualification import (
+    _confusion_matrix,
+    _coverage_misses,
+    _metric,
+    sha256_file,
+)
 from scripts.verify_safety_qualification_release import (
     main,
     verify_release_qualification,
@@ -129,6 +134,7 @@ def _result(
             denominator=outcome_counts["insufficient_evidence"],
             requirement=f">= {requirements.minimum_insufficient_evidence_exact} cases",
             passed=True,
+            applicability="not_applicable",
         ),
         _metric(
             name="overall_exact_rate",
@@ -136,6 +142,7 @@ def _result(
             denominator=total,
             requirement="reported for audit; outcome-specific thresholds govern",
             passed=True,
+            applicability="diagnostic",
         ),
     ]
     matrices = [_confusion_matrix(cases, profile="all")]
@@ -177,6 +184,7 @@ def _result(
         intervals=metrics,
         cases=cases,
         failures=[],
+        coverage_misses=_coverage_misses(cases, {}),
     )
 
 
@@ -373,9 +381,7 @@ def test_a_pre_1_0_artifact_may_not_claim_a_legacy_envelope(tmp_path: Path) -> N
     wheel, qualification = _fixture(tmp_path, requirements=pre_release_safety_requirements())
     _mutate(
         qualification,
-        lambda payload: payload.__setitem__(
-            "schema_version", "shipgate.safety_qualification/v4"
-        ),
+        lambda payload: _as_v4(payload),
     )
 
     with pytest.raises(ConfigError, match="admits only qualification_tier"):
@@ -388,9 +394,7 @@ def test_a_pre_1_0_artifact_may_not_claim_a_legacy_envelope(tmp_path: Path) -> N
     )
     _mutate(
         qualification,
-        lambda payload: payload.__setitem__(
-            "schema_version", "shipgate.safety_qualification/v4"
-        ),
+        lambda payload: _as_v4(payload),
     )
     assert (
         verify_release_qualification(
@@ -398,6 +402,13 @@ def test_a_pre_1_0_artifact_may_not_claim_a_legacy_envelope(tmp_path: Path) -> N
         ).schema_version
         == "shipgate.safety_qualification/v5"
     )
+
+
+def _as_v4(payload):
+    payload["schema_version"] = "shipgate.safety_qualification/v4"
+    payload.pop("coverage_misses")
+    for metric in payload["intervals"]:
+        metric.pop("applicability")
 
 
 def test_a_production_artifact_still_publishes_a_0_x_tag(tmp_path: Path) -> None:
@@ -682,3 +693,77 @@ def test_a_preview_wheel_is_refused_by_the_artifact_that_qualified_the_release(
             qualification_path=qualification,
             tag=f"v{PREVIEW_VERSION}",
         )
+
+
+def test_current_operator_policy_table_matches_both_gate_implementations() -> None:
+    from scripts._release_support import QUALIFICATION_POLICIES
+
+    readme = (REPO_ROOT / 'benchmark/safety-qualification/README.md').read_text()
+    section = readme.split('### Current policy contract\n', 1)[1].split('\n### ', 1)[0]
+    rows = {
+        cells[0]: cells[1:]
+        for line in section.splitlines()
+        if line.startswith('| ')
+        for cells in [[cell.strip() for cell in line.strip('|').split('|')]]
+    }
+    for column, (tier, requirements) in enumerate((
+        ('pre_1_0', pre_release_safety_requirements()),
+        ('beta', production_safety_requirements()),
+    )):
+        counts = {
+            decision: sum(s.count for s in requirements.required_strata if s.expected_decision == decision)
+            for decision in ('passed', 'review_required', 'blocked')
+        }
+        total = sum(counts.values())
+        policy = QUALIFICATION_POLICIES[tier]
+        assert total == policy.case_count
+        assert requirements.minimum_qualified_origins == policy.minimum_qualified_origins
+        expected = {
+            'Cases': str(total),
+            'Strata': str(len(requirements.required_strata)),
+            'Expected passed / review_required / blocked': ' / '.join(map(str, counts.values())),
+            'Qualifying origins, minimum': str(requirements.minimum_qualified_origins),
+            'Safe passes, minimum': f'{requirements.minimum_safe_passes} / {counts["passed"]}',
+            'Review exact, minimum': f'{requirements.minimum_review_exact} / {counts["review_required"]}',
+            'Blocked exact, minimum': f'{requirements.minimum_blocked_exact} / {counts["blocked"]}',
+            'Unsafe auto-passes, maximum': f'{requirements.maximum_unsafe_auto_passes} / {total - counts["passed"]}',
+            "Cohen's kappa, minimum": f'{requirements.minimum_kappa:.2f}',
+            'Holdout per stratum, minimum fraction': f'{requirements.minimum_holdout_fraction_per_stratum:.2f}',
+            'Report schema': f'`{requirements.required_report_schema_version}`',
+        }
+        for name, value in expected.items():
+            assert rows[name][column] == value, (tier, name)
+
+
+def test_current_operator_envelopes_and_version_table_match_the_runner() -> None:
+    from agents_shipgate.schemas.safety_qualification import (
+        SAFETY_CORPUS_SCHEMA_VERSION,
+        SAFETY_QUALIFICATION_SCHEMA_VERSION,
+        SAFETY_RECEIPT_INDEX_SCHEMA_VERSION,
+    )
+    from scripts._release_support import QUALIFICATION_POLICIES
+    from scripts.run_safety_qualification import _parser
+
+    readme = (REPO_ROOT / 'benchmark/safety-qualification/README.md').read_text()
+    runbook = (REPO_ROOT / 'docs/release-runbook.md').read_text()
+    for version in (
+        SAFETY_CORPUS_SCHEMA_VERSION, SAFETY_RECEIPT_INDEX_SCHEMA_VERSION,
+        SAFETY_QUALIFICATION_SCHEMA_VERSION,
+    ):
+        assert f'`{version}`' in readme.split('Current envelopes:', 1)[1].split('\n### ', 1)[0]
+    pre = QUALIFICATION_POLICIES['pre_1_0'].case_count
+    beta = QUALIFICATION_POLICIES['beta'].case_count
+    assert f'| `0.x` (epoch 0, major 0) | `pre_1_0`, or the stronger `beta` | {pre}, or {beta} |' in runbook
+    assert f'| `1.0` and later | `beta` only | {beta} |' in runbook
+    assert f'| unparsable | `beta` only | {beta} |' in runbook
+    assert f'{beta}-case bar' in _parser().format_help()
+
+
+def test_distribution_origin_floor_is_not_the_external_rollout_gate() -> None:
+    text = (REPO_ROOT / 'docs/distribution.md').read_text()
+    beta = production_safety_requirements().minimum_qualified_origins
+    pre = pre_release_safety_requirements().minimum_qualified_origins
+    assert f'combined origin minimum — {beta} real-history,' in text
+    assert f'under the production policy and {pre}\nunder the pre-1.0 one' in text
+    assert 'four-week, three-design-partner rollout' in text
+    assert 'external beta stop condition' in text

@@ -66,6 +66,7 @@ def run(context: ScanContext):
                         "source_ref": toolset.source_ref,
                         "agent_name": toolset.agent_name,
                         "inventory_path": toolset.inventory_path,
+                        **_adk_binding_evidence(toolset),
                     },
                     confidence="high",
                     recommendation=(
@@ -194,11 +195,60 @@ def _has_explicit_inventory(context: ScanContext) -> bool:
 
 
 def _adk_dynamic_toolset_evidence(toolset: GoogleAdkToolset) -> dict[str, object]:
-    return {
+    """Evidence for one unenumerable ADK toolset, naming the binding it is about.
+
+    Before #538 this carried the toolset kind, the source line and one agent
+    name, so a reviewer reading "supply an inventory" could not tell which
+    binding owed one, and the endpoint and credential reference the reader had
+    already parsed were discarded here. The connection facts below are what
+    was read statically; they are added only when the reader established them,
+    so an absent key is never a claim that the argument is absent.
+    """
+
+    evidence: dict[str, object] = {
         "kind": toolset.kind,
         "source_ref": toolset.source_ref,
         "agent_name": toolset.agent_name,
     }
+    evidence.update(_adk_binding_evidence(toolset))
+    return evidence
+
+
+def _adk_binding_evidence(toolset: GoogleAdkToolset) -> dict[str, object]:
+    """The connection facts a reviewer needs to identify one MCP binding.
+
+    Only names and literals the reader established: an endpoint already
+    redacted of any credential material, the *names* of the environment
+    variables the credentials are read from, the literal tool filter, and the
+    limitation codes for whatever could not be established. Nothing here is a
+    risk claim — a host name and a variable name establish no privilege level.
+    """
+
+    evidence: dict[str, object] = {}
+    if toolset.binding_agents:
+        evidence["binding_agents"] = sorted(set(toolset.binding_agents))
+    if toolset.slot:
+        evidence["binding_slot"] = toolset.slot
+    connection = toolset.connection
+    if connection is None:
+        return evidence
+    evidence["endpoint_status"] = connection.endpoint_status
+    if connection.endpoint:
+        evidence["endpoint"] = connection.endpoint
+    if connection.endpoint_env_ref:
+        evidence["endpoint_env_ref"] = connection.endpoint_env_ref
+    evidence["credential_status"] = connection.credential_status
+    if connection.credential_refs:
+        evidence["credential_refs"] = sorted(connection.credential_refs)
+    evidence["transport_status"] = connection.transport_status
+    if connection.transport:
+        evidence["transport"] = connection.transport
+    evidence["tool_filter_status"] = connection.filter_status
+    if toolset.filter_values:
+        evidence["tool_filter"] = sorted(toolset.filter_values)
+    if connection.limitations:
+        evidence["limitations"] = sorted(connection.limitations)
+    return evidence
 
 
 def _has_long_running_contract(output_schema: dict[str, object]) -> bool:

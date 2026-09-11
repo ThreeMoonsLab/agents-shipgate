@@ -101,21 +101,37 @@ Consume the response to decide whether to proceed. Key fields:
     `sub_agent` (named inside another agent's `sub_agents=[…]` /
     `handoffs=[…]`). `workspace_dir` is the directory-name fallback and is
     never selectable.
-  - `path` — a name declared in product code outranks one declared in test
-    code, which names fixtures. This dominates: a test fixture that builds
-    an `App(root_agent=…)` still ranks below a plain agent the shipped code
-    declares.
+  - `path` — a name declared in product code outranks one that is not the
+    product's: test code, which names fixtures, and a scaffolding template
+    under a `resources/templates/` directory, which names an example. This
+    dominates: either one building an `App(root_agent=…)` still ranks below
+    a plain agent the shipped code declares.
   - corroboration — a value the project name independently agrees with
     ranks above one only a single site declares.
   - a quality floor — values under three significant characters, and
     generic scaffolding names (`agent`, `foo`, `test`, …), are ranked last
     and marked `selectable: false`.
 
-  One rule overrides all four: if the workspace declares an application root
+  One rule overrides all four: if a **project** declares an application root
   whose name cannot be resolved statically — a dynamic expression, a factory
-  call, a symbol bound more than once — then **nothing** is selectable, and
-  the `rationale[]` says why. Anything still ranked is by construction not
-  the root, so writing it would declare a worker as the reviewed identity.
+  call, a symbol bound more than once — then nothing that project declares
+  is selectable, and the `rationale[]` names the project and says why.
+  Anything still ranked there is by construction not the root, so writing it
+  would declare a worker as the reviewed identity. The scope is the project,
+  not the repository: on a monorepo, agents in the other entries of
+  `agent_project_candidates[]` stay selectable. A name two projects declare
+  is rejected when either one is blocked.
+
+  "Which project" means an entry of `agent_project_candidates[]`, not the
+  nearest directory carrying a project marker. A marker directory that holds
+  no agent evidence — a utilities package with its own `pyproject.toml` — is
+  not a manifest scope, and a name found there belongs to the scope that
+  encloses it.
+
+  The same product/not-product split above decides *which* roots block: a
+  root declared only by test code or by a scaffolding template is not the
+  application a project ships, so it does not disable selection for the
+  rest of the project (#398).
 
   `rationale[]` states which of those applied, so a ranking change is
   visible in the output rather than silently changing what the manifest
@@ -158,6 +174,19 @@ Consume the response to decide whether to proceed. Key fields:
 - `codex_plugin_candidates[]` — Codex plugin package or marketplace
   artifacts matched by convention. These also do NOT bump
   `is_agent_project` on their own.
+- `host_boundary_candidates[]` — `{path, hosts, file_type}` from the existing
+  bounded host census, including ignored settings. Filenames only; no config
+  contents, grants or runtime authority have been verified. Host-only input
+  routes to `audit --host` without a manifest.
+- `host_discovery_incomplete_paths[]` — paths the bounded census could not
+  see through: a link it does not follow (only when that link resolves to a
+  directory — one pointing at a file conceals nothing and is not listed), and
+  a directory it could not read or that exhausted the entry bound. Empty
+  candidates beside this field do not prove absence. Follow the inspection
+  route; a directory at a config filename is also an input defect requiring
+  inspection. A census that stops publishes no candidates at all, and never
+  refuses the rest of the classification — the framework, tool-source and
+  scope answers stand, and only the product-wide negative is withheld.
 - `next_actions[]` — the ranked route. On `agent_scope: "ambiguous"` rank 1 is
   the decision (`kind: "review"`, `command: null`) and every entry below it is
   one exact `init --workspace <candidate> --write --json`, with `executable`
@@ -180,6 +209,8 @@ Consume the response to decide whether to proceed. Key fields:
 - `is_agent_project` is `false`, AND
 - `suggested_sources` is empty, AND
 - `codex_plugin_candidates` is empty, AND
+- `host_boundary_candidates` is empty, AND
+- `host_discovery_incomplete_paths` is empty, AND
 - `python_parse_truncated` is `false` — each negative above is a claim about
   the whole workspace, and a run whose Python parse stopped at its cap read
   only part of one. This is the raw parse bit, not `agent_scope_truncated`,
@@ -195,6 +226,13 @@ key as `false`.
 Otherwise proceed. MCP/OpenAPI-only tool-surface repos and Codex plugin
 package repos surface as `is_agent_project: false` but should still be
 onboarded — their sources will land in `tool_sources` during `init`.
+Host-only repositories instead follow the emitted audit route. `init` and
+`bootstrap` hand off without creating setup files; even `init --ci` cannot
+create a manifest-based workflow for a repository needing only host review.
+The hand-off covers every detection-driven mode — `--ci`, `--claude-code`,
+`--agent-instructions`, `--local-review` — because each renders its manifest
+from that classification. `init --minimal` is the exception: it never
+classifies the workspace, so it still writes the manual template on request.
 
 ### Step 2 · `init --write --ci --json`
 
@@ -203,13 +241,17 @@ Auto-detection runs again inside `init` and writes:
 - `shipgate.yaml` with `tool_sources` populated per detected framework
   candidate file.
 - `.github/workflows/agents-shipgate.yml` (if `--ci` is set; refuses
-  to overwrite an existing workflow file or one that already calls
-  `ThreeMoonsLab/agents-shipgate@*` from a sibling workflow).
+  to overwrite an existing workflow file, or one where a sibling
+  workflow already uses the `ThreeMoonsLab/agents-shipgate` action at
+  any ref).
 
 Key response fields:
 
 - `manifest_status`: `"written"` | `"skipped_existing"` |
-  `"refused_unresolved_scope"` | `"not_attempted"`.
+  `"refused_unresolved_scope"` | `"not_attempted"` |
+  `"not_applicable_host_review"` — the last one is the host-only hand-off:
+  no manifest, workflow or instruction file was written, and
+  `control.next_action` names the read-only host audit instead.
 - `workflow.status` (when `--ci`): `"written"` | `"skipped_existing_target"`
   | `"skipped_cross_reference"`.
 - `placeholders[]` — entries the template intentionally leaves as
@@ -377,8 +419,24 @@ rules before changing code:
 - If tools are created by factories, wrappers, runtime imports, or
   dynamic ADK/MCP toolsets, provide an explicit MCP export, OpenAPI
   spec, or local tool inventory artifact.
-- Replace every `CHANGE_ME` value in `shipgate.yaml` before scanning;
-  use the prompt, main agent file, README, or owner-provided context.
+- Resolve the placeholders `init --json` reports before scanning, and
+  switch on **`control.next_action.actor`**, which routes the turn
+  rather than individual fields. `placeholders[]` is a location list
+  (`path`, `current`, `line`) and carries no owner. `actor: "human"`
+  selects a human review or stop with `permissions.edit: false`:
+  surface the required review and stop. Its `why` is fitted to a
+  prose budget and may end `and N more in placeholders[]`, so absence
+  from it never makes a field yours. `actor: "coding_agent"` authorizes
+  only the exact `control.next_action`: read its `kind`, `path` or
+  `command`, perform that step, and rerun the stated check. A blocking
+  setup repair can take precedence while human-owned declarations
+  remain unresolved; the actor is not proof that all remaining
+  placeholders are yours. Every
+  declaration — purpose, prohibited actions, effect, authority,
+  binding, approval, confirmation, idempotency, safeguards, accepted
+  debt — must be supplied by a human, because Shipgate never invents a
+  declaration nobody made. Do not derive one from a prompt, main agent
+  file or README.
 - Agents Shipgate requires Python 3.12+. If the project runtime is
   older, install the CLI outside the project env with `pipx` or `uv`.
 - Ensure `agents-shipgate-reports/` is listed in `.gitignore`.

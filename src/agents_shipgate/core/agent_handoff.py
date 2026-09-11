@@ -106,6 +106,7 @@ def build_agent_handoff(
         capability_review=_dict(verifier_payload.get("capability_review")),
         forbidden_file_edits=list(verifier_model.forbidden_file_edits),
         forbidden_actions=list(verifier_model.forbidden_actions),
+        conditional_file_edits=list(verifier_model.conditional_file_edits),
         reproducibility=_reproducibility(verify_run_payload),
         artifacts=_artifacts(verifier_payload),
     )

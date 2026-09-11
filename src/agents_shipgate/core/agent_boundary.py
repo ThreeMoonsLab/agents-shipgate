@@ -26,6 +26,7 @@ from agents_shipgate.core.boundary_registry import (
     boundary_hosts_for_path,
     is_agent_boundary_path,
 )
+from agents_shipgate.core.boundary_rules import GENERIC_BOUNDARY_RULES as _GENERIC_RULES
 from agents_shipgate.core.codex_boundary import (
     DEFAULT_RULES as CODEX_DEFAULT_RULES,
 )
@@ -62,6 +63,7 @@ from agents_shipgate.core.host_grants import (
     HostBoundarySnapshot,
     build_host_boundary_snapshot,
 )
+from agents_shipgate.core.host_input_failure import safe_failure_text
 from agents_shipgate.core.trust_roots import (
     is_configured_manifest,
     is_portable_repo_path,
@@ -108,6 +110,7 @@ class AgentBoundaryAssessment:
     completion_eligible: bool
     host_snapshot: HostBoundarySnapshot
     legacy_result: AgentResultV2
+    instruction_structure_unchanged: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -120,50 +123,6 @@ class _PolicySet:
     issues: tuple[str, ...]
 
 
-@dataclass(frozen=True)
-class _GenericBoundaryRule:
-    id: str
-    check_id: str
-    title: str
-    action: str
-    risk_level: str
-    recommendation: str
-
-
-_GENERIC_RULES = {
-    "PROTECTED-SURFACE-UNCLASSIFIED": _GenericBoundaryRule(
-        id="BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED",
-        check_id="SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED",
-        title="Protected coding-agent surface lacks a safe static classification",
-        action="require_review",
-        risk_level="medium",
-        recommendation="Have a human review the protected boundary change.",
-    ),
-    "EXPERIMENTAL-SURFACE-CHANGED": _GenericBoundaryRule(
-        id="BOUNDARY-EXPERIMENTAL-SURFACE-CHANGED",
-        check_id="SHIP-AGENT-BOUNDARY-EXPERIMENTAL-SURFACE-CHANGED",
-        title="Experimental coding-agent boundary surface changed",
-        action="require_review",
-        risk_level="high",
-        recommendation="Have a human review the experimental boundary surface.",
-    ),
-    "STATIC-REQUIREMENTS-CHANGED": _GenericBoundaryRule(
-        id="BOUNDARY-STATIC-REQUIREMENTS-CHANGED",
-        check_id="SHIP-AGENT-BOUNDARY-STATIC-REQUIREMENTS-CHANGED",
-        title="Static host requirements changed",
-        action="require_review",
-        risk_level="high",
-        recommendation="Have a human review the static host requirements change.",
-    ),
-    "INPUT-INCOMPLETE": _GenericBoundaryRule(
-        id="BOUNDARY-INPUT-INCOMPLETE",
-        check_id="SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE",
-        title="Boundary input is incomplete",
-        action="require_review",
-        risk_level="medium",
-        recommendation="Provide a complete, coherent boundary diff and rerun the check.",
-    ),
-}
 
 
 def evaluate_agent_boundary(
@@ -230,6 +189,7 @@ def evaluate_agent_boundary(
                     item.get("message")
                     or "A repository host-boundary source could not be inventoried."
                 ),
+                recovery=host_snapshot.input_failures.get(str(item.get("issue_id"))),
             )
             for item in host_snapshot.inventory.get("issues", [])
             if item.get("blocking")
@@ -242,6 +202,7 @@ def evaluate_agent_boundary(
     ]
     policies = _load_policy_set(workspace=workspace, explicit=policy_path)
     resolved_text_cache = {}
+    instruction_structure_unchanged: set[str] = set()
 
     legacy = evaluate_codex_boundary_result(
         workspace=workspace,
@@ -264,7 +225,15 @@ def evaluate_agent_boundary(
         verification_replayable=verification_replayable,
         discovery_replayable=input_mode != "git_range",
         manifest_label=_manifest_label(config_path, workspace),
+        instruction_structure_unchanged=instruction_structure_unchanged,
     )
+    instruction_structure_unchanged = {
+        path for path in instruction_structure_unchanged
+        if not input_issues
+        and trust_root_class_for(path) in {"agent_instructions", "tool_surface_decl"}
+        and not is_configured_manifest(config_path, path, workspace=workspace)
+        and not _is_invocation_path(policy_path, path, workspace=workspace)
+    }
     host_violations, host_diagnostics = evaluate_host_boundary(
         workspace=workspace,
         diff_text=diff_text,
@@ -281,6 +250,7 @@ def evaluate_agent_boundary(
     for diagnostic in diagnostics:
         if diagnostic.level in {"warning", "error"} and diagnostic.code in {
             "content_source",
+            "instruction_structure_unresolved",
             "policy_conflict",
             "policy_load_failed",
             "policy_missing",
@@ -302,19 +272,21 @@ def evaluate_agent_boundary(
         policy_path=policy_path,
         workspace=workspace,
         evaluated_paths={
+            *instruction_structure_unchanged,
+            *(
             item.path
             for item in diagnostics
             if (
                 (item.code == "content_source" and item.path == ".codex/config.toml")
                 or item.code == "proposal_safe_manifest_addition"
             )
+            ),
         },
     )
     combined = _with_experimental_adapter_changes(
         changed_files=changed_files,
         violations=combined,
     )
-    combined = _sanitize_violations(combined)
     if input_issues:
         rule = _GENERIC_RULES["INPUT-INCOMPLETE"]
         combined = _dedupe_violations(
@@ -326,13 +298,16 @@ def evaluate_agent_boundary(
                         check_id=rule.check_id,
                         action=rule.action,  # type: ignore[arg-type]
                         risk_level=rule.risk_level,  # type: ignore[arg-type]
-                        title=rule.title,
+                        title=issue.recovery.summary() if issue.recovery else rule.title,
                         path=issue.path,
                         evidence={
                             "kind": "boundary_input_unresolved",
                             "code": issue.code,
+                            **({"recovery": issue.recovery.evidence()} if issue.recovery else {}),
                         },
-                        recommendation=rule.recommendation,
+                        recommendation=(
+                            issue.recovery.recovery() if issue.recovery else rule.recommendation
+                        ),
                     )
                     for issue in input_issues
                 ],
@@ -407,7 +382,10 @@ def evaluate_agent_boundary(
             ]
         )
 
-    diagnostics = _sanitize_diagnostics(diagnostics)
+    # Recovery/fallback rows are appended after adapter evaluation. Sanitize
+    # every final row before deduplication, fingerprints and control projection.
+    combined = _dedupe_violations(_sanitize_violations(combined))
+    diagnostics = _dedupe_diagnostics(_sanitize_diagnostics(diagnostics))
 
     projected = _project_legacy(
         verify_command=verify_command,
@@ -487,6 +465,7 @@ def evaluate_agent_boundary(
         completion_eligible=completion_eligible,
         host_snapshot=host_snapshot,
         legacy_result=projected,
+        instruction_structure_unchanged=frozenset(instruction_structure_unchanged),
     )
 
 
@@ -1033,6 +1012,11 @@ def _boundary_summary(decision: str, violations: list[AgentResultViolatedRule]) 
                 f"{len(violations)} coding-agent boundary change(s) need PR-time "
                 "review; verify, then report them."
             )
+        recovery = next(
+            (item for item in violations if item.evidence.get("recovery")), None,
+        )
+        if recovery is not None:
+            return f"{recovery.title} Human review is required before continuation."
         return f"{len(violations)} coding-agent boundary change(s) require human review."
     return f"{len(violations)} coding-agent boundary change(s) block local continuation."
 
@@ -1222,6 +1206,14 @@ def _sanitize_violations(
         item.model_copy(
             update={
                 "title": _sanitize_boundary_string(item.title),
+                # Adapter paths still participate in trust-root/experimental
+                # classification. Only input-failure rows (always outside the
+                # actionable band by rule ID) may be bounded before routing.
+                "path": (
+                    safe_failure_text(item.path)
+                    if item.path is not None and item.id == "BOUNDARY-INPUT-INCOMPLETE"
+                    else item.path
+                ),
                 "evidence": _sanitize_boundary_value(
                     _redact_secret_values(item.evidence)
                 ),
@@ -1237,7 +1229,10 @@ def _sanitize_diagnostics(
 ) -> list[AgentResultDiagnostic]:
     return [
         item.model_copy(
-            update={"message": _sanitize_boundary_string(item.message)}
+            update={
+                "message": safe_failure_text(_sanitize_boundary_string(item.message)),
+                "path": safe_failure_text(item.path) if item.path is not None else None,
+            }
         )
         for item in diagnostics
     ]

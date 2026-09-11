@@ -46,6 +46,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 import zipfile
 from pathlib import Path
@@ -186,6 +187,11 @@ def verify_wheel_provenance(
     exception here is what keeps an unbound artifact off PyPI.
     """
 
+    if source_commit is not None:
+        # Validate *both* records before the byte-equality fast path: two
+        # identical wheels can be identically bound to the wrong commit.
+        _assert_source_record(built_path, source_commit)
+        _assert_source_record(qualified_path, source_commit)
     mode, differences = compare_wheels(built_path, qualified_path)
     if mode == "mismatch":
         shown = differences[:_MAX_REPORTED_DIFFERENCES]
@@ -216,6 +222,28 @@ def verify_wheel_provenance(
         "source_commit": source_commit,
         "byte_reproducible": mode == "identical_bytes",
     }
+
+
+def _assert_source_record(path: Path, source_commit: str) -> None:
+    if not re.fullmatch(r"[0-9a-f]{40}", source_commit):
+        raise ConfigError("Source commit must be a full lowercase 40-character SHA")
+    _, version, _, _ = parse_wheel_filename(path.name)
+    member = "agents_shipgate/_meta/release-source.json"
+    try:
+        with zipfile.ZipFile(path) as archive:
+            if archive.namelist().count(member) != 1:
+                raise ConfigError(f"Wheel must carry exactly one release-source record: {path}")
+            if archive.getinfo(member).file_size > 4096:
+                raise ConfigError(f"Wheel release-source record is too large: {path}")
+            record = json.loads(archive.read(member))
+    except (zipfile.BadZipFile, ValueError, UnicodeError) as exc:
+        raise ConfigError(f"Invalid wheel release-source record: {path}") from exc
+    if record != {
+        "schema_version": "shipgate.release_source/v1",
+        "source_commit": source_commit,
+        "package_version": str(version),
+    }:
+        raise ConfigError(f"Wheel release-source record does not match source commit/version: {path}")
 
 
 def _parser() -> argparse.ArgumentParser:

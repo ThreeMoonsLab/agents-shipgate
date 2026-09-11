@@ -2,6 +2,32 @@
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
+Runtime contract v33 extends `detect` with `host_boundary_candidates` and
+`host_discovery_incomplete_paths`. They are filename applicability and
+incomplete-traversal evidence, never permission assertions. The second field
+names every path the bounded census could not see through — a link it does not
+follow, a directory it could not read, the entry bound — and a census that
+stops publishes no candidates. It never refuses the classification: an
+unreadable path withholds the product-wide negative and leaves the framework,
+source and scope answers standing, the same way `audit --host` records the
+failure and continues. An absent field cannot satisfy the product-wide
+negative predicate. Host-only `init` returns
+`manifest_status: "not_applicable_host_review"` without setup writes;
+`bootstrap` returns `verdict: "host_review_required"` and the existing detect
+control route. Both may exit zero with work still required, and all setup
+permissions remain false.
+
+The hand-off applies to every detection-driven `init`, including `--ci`,
+`--claude-code`, `--agent-instructions` and `--local-review`, and not to
+`init --minimal`. The line is what the flag does with discovery, not how
+explicit it is: `--minimal` selects the legacy template without classifying
+the workspace at all, so there is no classification for a host-only route to
+act on. Every other mode renders from the detection this route belongs to, so
+a repository whose only surface is host configuration would get a manifest
+declaring nothing — the dead end #568 exists to remove. A host-only workspace
+that genuinely wants a manifest asks for the template by name. Existing manifests, builder sources, and Python-cap recovery retain
+their routes. Persisted release evidence and its schema versions are unchanged.
+
 This document is the contract. If the runtime ever diverges from what's documented here, that's a bug — please file an issue.
 
 Shipgate is pre-1.0. The CLI surface, exit codes, and `contract_version`
@@ -12,6 +38,72 @@ not yet frozen. A `1.0` line will not begin until the report schema reaches
 for reproducible CI.
 
 ---
+
+## Qualification coverage diagnostics (v6, #520)
+
+`EvidenceGap.recovery` is optional explanatory metadata (#561) on the existing
+open gap object. `kind` distinguishes `input_unavailable`, `reader_limitation`
+and `unresolved`; `reason` records the loader's typed evidence. Current SDK
+coverage and its limits are documented in [source recovery evidence](docs/qualification-coverage.md#source-recovery-evidence).
+An absent field remains absent when older rows are read. Report v0.43,
+packet v0.18, verifier v0.16 and qualification v6 retain their versions;
+decision-bearing action kinds, declaration authorship and control permissions
+are unchanged. This classification never supplies missing evidence or makes an
+actual IE count as a successful qualification outcome.
+
+`shipgate.safety_qualification` advances v5 → v6 to add `coverage_misses[]`
+and `intervals[].applicability` to the existing result. Both are required on
+v6; the reader checks their counts, cases and applicability against recorded
+outcomes and policy. All six legacy metric values and `passed` booleans retain
+their meaning. Expected-IE is explicitly `not_applicable` only when its
+denominator and policy floor are both zero; it is not a coverage success.
+Actual IE still loses the applicable exact-outcome score.
+
+V5 remains readable and retains its envelope on round-trip. Existing v1/v2/v4
+beta/test artifacts normalize to v5 as before; they cannot name `pre_1_0`.
+Old artifacts omit the new fields, which means unrecorded rather than zero.
+The typed reader rejects new fields mislabeled as an older closed grammar.
+V3 remains unsupported. Corpus/receipt-index v4, report v0.43, policy labels,
+thresholds and release permissions are unchanged. See
+[qualification coverage](docs/qualification-coverage.md) for denominators,
+unscored cases and the limits of named gap evidence.
+
+<a id="migration-note-unreleased-human-review-decision"></a>
+
+## Migration Note: 0.16.0 — external review decisions stay separate from the gate
+
+Runtime contract `30 → 31`; the minimum control contract stays at 21.
+The standalone `shipgate.human_review_decision/v1` and
+`shipgate.human_review_evaluation/v1` schemas describe an externally signed
+decision and its read-only applicability evaluation. They are core integration
+surfaces, not new CLI outputs. Existing durable schema bytes, artifact paths,
+the action union and release/control authority remain unchanged.
+
+The evaluator reconstructs the current request from validated evidence,
+requires external host key trust and trusted reviewer eligibility, and keeps
+accepted/rejected/disputed outcomes separate. It writes no file. A returned
+`applicable` result is neither persistence nor permission; the integration must
+retain it and the signed decision separately and re-evaluate before use.
+See [the decision contract](docs/human-review-decision.md) for the independent
+signature domain, trust boundary and static-artifact guarantee.
+
+<a id="migration-note-unreleased-human-review-request"></a>
+
+## Migration Note: 0.16.0 — a review question gets a checkable postcondition
+
+Runtime contract `29 → 30`; `minimum_control_contract_version` stays at 21.
+The new standalone `shipgate.human_review_request/v1` artifact binds one
+complete-evidence documentation-quality question to the existing verification
+identity and full review scope. It does not change `HumanControlAction.expects`,
+the shared action union, or any existing durable schema. The verifier's
+extensible artifact map and terminal receipt bind the new optional file.
+
+See [the request contract](docs/human-review-request.md) for the seven-surface
+compatibility matrix, actor eligibility, accepted/rejected/disputed meanings,
+and exact static-artifact boundary. A request grants no authority; until an
+external authenticated decision is evaluated, existing human-owned control
+remains in force. Existing signed push authorization remains push-only.
+
 
 <a id="migration-note-unreleased-declaration-review"></a>
 
@@ -2765,9 +2857,14 @@ config error, exit 2). They are ordinary `Finding`s routed through
 - `SHIP-VERIFY-CI-GATE-REMOVED` (critical, floor high) — a Shipgate CI
   workflow path is in the changed files and no longer exists on disk (the PR
   deleted the gate).
-- `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` (medium, floor medium) — an
-  agent-instruction trust root changed; Shipgate cannot statically prove the
-  instructions were not weakened, so it routes to human review.
+- `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` (medium, floor medium) —
+  **deprecated in the unreleased minor cycle (#516)**. New scans emit no
+  findings for this ID. It remains registered with the same metadata for
+  historical reports, configured overrides and suppressions, for at least one
+  minor-version cycle after the deprecation ships. It is not repurposed as a
+  structural check. Existing structured host readers, the skill-command mention heuristic and
+  generic trust-root protection remain active; #545 owns the remaining prose-only
+  routing boundary. No release decision enum or severity changes.
 - `SHIP-VERIFY-TRIGGER-CATALOG-DRIFT` (medium, floor medium) — the trigger
   catalog that decides when Shipgate runs changed; routed to human review to
   rule out gate evasion.

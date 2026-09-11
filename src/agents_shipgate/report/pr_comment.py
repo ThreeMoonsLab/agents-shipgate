@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from agents_shipgate.core.declaration_questions import progress_sentence
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
+from agents_shipgate.core.evidence_actions import display_literal
 from agents_shipgate.core.findings.subject_rollup import (
     roll_up_findings,
     top_findings_block,
@@ -21,7 +22,9 @@ from agents_shipgate.report.human_order import (
     should_render_surface_first,
     surface_lead,
 )
+from agents_shipgate.report.human_review import human_review_lines
 from agents_shipgate.schemas.capabilities import CapabilityLockDiffV1
+from agents_shipgate.schemas.human_review_request import HumanReviewRequestV1
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verifier import (
     VerifierArtifact,
@@ -72,18 +75,32 @@ def render_pr_comment(
     style: str = "capability-review",
     capability_lock_diff: CapabilityLockDiffV1 | None = None,
     human_context: HumanArtifactContext | None = None,
+    human_review_request: HumanReviewRequestV1 | None = None,
 ) -> str:
+    # The producer decides eligibility; this projection only accepts the same
+    # current request identity, never a request retained from an earlier run.
+    request = human_review_request
+    if request is not None and (
+        request.verification_request_id != verifier.request_id
+        or request.decision_id != verifier.decision_id
+        or request.input_set_id != verifier.input_set_id
+        or request.head_tree_sha != verifier.head_tree_sha
+        or verifier.decision != "review_required"
+    ):
+        request = None
     if style == "findings":
         return _render_findings_comment(
             verifier,
             report=report,
             human_context=human_context,
+            human_review_request=request,
         )
     return _render_capability_review_comment(
         verifier,
         report=report,
         capability_lock_diff=capability_lock_diff,
         human_context=human_context,
+        human_review_request=request,
     )
 
 
@@ -93,10 +110,12 @@ def _render_capability_review_comment(
     report: ReadinessReport | None,
     capability_lock_diff: CapabilityLockDiffV1 | None,
     human_context: HumanArtifactContext | None,
+    human_review_request: HumanReviewRequestV1 | None,
 ) -> str:
     prose_lines = [
         STICKY_MARKER,
         "## Agents Shipgate",
+        *(human_review_lines(human_review_request) if human_review_request else []),
         *_human_summary_lines(
             verifier,
             report=report,
@@ -188,6 +207,7 @@ def _human_summary_lines(
     assert review is not None
     lines.append(f"- Release gate: `{decision.decision}`")
     lines.append(f"- Reason: {_bounded_prose(decision.reason)}")
+    lines.extend(_coverage_recovery_lines(report))
     if not surface_first:
         lines.extend(capability_lines)
     if capability_lock_diff is not None:
@@ -236,6 +256,31 @@ def _human_summary_lines(
             lines.extend(_policy_change_lines(review))
     lines.extend(_trigger_and_base_summary(verifier))
     lines.extend(_artifact_summary_lines(verifier))
+    return lines
+
+
+def _coverage_recovery_lines(report: ReadinessReport | None) -> list[str]:
+    """Keep typed source remedies visible when the bulky fix task is omitted.
+
+    The existing comment budget can replace fix_task with an artifact pointer.
+    A reader should still see why the source needs input or a reader repair.
+    This is bounded explanatory prose; the preserved control block is authority.
+    """
+    if report is None or report.release_decision is None:
+        return []
+    gaps = [
+        gap for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "source_warning" and gap.recovery is not None
+    ]
+    lines = []
+    for gap in gaps[:3]:
+        location = (
+            f" Source: {_bounded_identity_code(display_literal(gap.source_ref))}."
+            if gap.source_ref else ""
+        )
+        lines.append(f"- Source recovery: {_bounded_prose(gap.next_action.expects)}{location}")
+    if len(gaps) > 3:
+        lines.append(f"- {len(gaps) - 3} more source recoveries; see report.json evidence gaps.")
     return lines
 
 
@@ -573,6 +618,7 @@ def _render_findings_comment(
     *,
     report: ReadinessReport | None,
     human_context: HumanArtifactContext | None,
+    human_review_request: HumanReviewRequestV1 | None,
 ) -> str:
     surface_first = bool(
         report is not None and should_render_surface_first(report, context=human_context)
@@ -594,6 +640,8 @@ def _render_findings_comment(
         else f"## Agents Shipgate result: {verifier.merge_verdict}"
     )
     lines = [STICKY_MARKER, title]
+    if human_review_request is not None:
+        lines.extend(human_review_lines(human_review_request))
     if surface_first and report is not None:
         lines.extend(
             [
@@ -610,6 +658,7 @@ def _render_findings_comment(
             include_release_gate=report is None or not surface_first,
         )
     )
+    lines.extend(_coverage_recovery_lines(report))
     if not surface_first:
         # Keep the exact grouped disclosure ahead of repository-controlled
         # prose. The final row-aware bound may omit later context, but it must
@@ -907,8 +956,9 @@ def _diff_lines(report: ReadinessReport) -> list[str]:
             f"-{summary.tools_removed}, {summary.tools_changed} changed"
         )
         lines.append(
-            f"Findings: {summary.new_findings} new, "
-            f"{summary.resolved_findings} resolved, {summary.accepted_debt} accepted debt"
+            f"Finding identities: {summary.new_findings} added, "
+            f"{summary.resolved_findings} absent, {summary.accepted_debt} accepted debt. "
+            "Identity differences do not attribute a finding to this change; inspect the evidence comparison notes in report.json."
         )
     elif tool_diff.notes:
         lines.append(f"Tool-surface diff: {_escape(tool_diff.notes[0])}")

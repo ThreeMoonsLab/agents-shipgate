@@ -10,7 +10,9 @@ from agents_shipgate.core.domain import (
     Tool,
 )
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.static_inputs import active_static_input_snapshot
 from agents_shipgate.inputs.common import (
+    MAX_INPUT_FILE_BYTES,
     PositionIndex,
     json_pointer_escape,
     list_input_directory,
@@ -562,7 +564,7 @@ def _load_skills(
     plugin_name: str,
     artifacts: CodexPluginArtifacts,
 ) -> None:
-    paths = _component_paths(data, root, "skills", default="skills")
+    paths = _component_paths(data, root, "skills", plugin_name, artifacts, default="skills")
     skill_files: list[Path] = []
     for path in paths:
         resolved = _resolve_component_path(
@@ -628,7 +630,7 @@ def _load_apps(
     plugin_name: str,
     artifacts: CodexPluginArtifacts,
 ) -> None:
-    for path in _component_paths(data, root, "apps", default=".app.json"):
+    for path in _component_paths(data, root, "apps", plugin_name, artifacts, default=".app.json"):
         resolved = _resolve_component_path(
             root=root,
             base_dir=base_dir,
@@ -676,7 +678,7 @@ def _load_mcp_servers(
     inventories: dict[tuple[str, str], CodexPluginMcpInventoryConfig],
 ) -> list[LoadedToolSource]:
     loaded_sources: list[LoadedToolSource] = []
-    for path in _component_paths(data, root, "mcpServers", default=".mcp.json"):
+    for path in _component_paths(data, root, "mcpServers", plugin_name, artifacts, default=".mcp.json"):
         resolved = _resolve_component_path(
             root=root,
             base_dir=base_dir,
@@ -786,7 +788,7 @@ def _load_hooks(
     plugin_name: str,
     artifacts: CodexPluginArtifacts,
 ) -> None:
-    for path in _component_paths(data, root, "hooks"):
+    for path in _component_paths(data, root, "hooks", plugin_name, artifacts):
         resolved = _resolve_component_path(
             root=root,
             base_dir=base_dir,
@@ -819,6 +821,8 @@ def _component_paths(
     data: dict[str, Any],
     root: Path,
     key: str,
+    plugin: str,
+    artifacts: CodexPluginArtifacts,
     *,
     default: str | None = None,
 ) -> list[str]:
@@ -828,8 +832,27 @@ def _component_paths(
         paths.append(value)
     elif isinstance(value, list):
         paths.extend(item for item in value if isinstance(item, str) and item.strip())
-    if not paths and default and (root / default).exists():
-        paths.append(default)
+    if not paths and default:
+        candidate = root / default
+        snapshot = active_static_input_snapshot()
+        if snapshot is not None and (root == snapshot.root or snapshot.contains(root)):
+            try:
+                if snapshot.excludes(candidate):
+                    raise ValueError("default component path overlaps excluded verification output")
+                if not snapshot.bind_dependency_absence(candidate):
+                    paths.append(default)
+            except (OSError, ValueError) as exc:
+                snapshot.mark_unconfirmable_dependency(candidate)
+                artifacts.component_path_issues.append(
+                    CodexPluginComponentPathIssue(
+                        plugin=plugin,
+                        component=key,
+                        path=default,
+                        reason=f"Default component lookup could not be captured: {exc}",
+                    )
+                )
+        elif candidate.exists():
+            paths.append(default)
     return paths
 
 
@@ -843,7 +866,7 @@ def _resolve_component_path(
     artifacts: CodexPluginArtifacts,
 ) -> Path | None:
     try:
-        resolved = _resolve_plugin_path(root, raw_path)
+        resolved = _resolve_plugin_path(root, raw_path, allow_directory=component == "skills")
     except InputParseError as exc:
         artifacts.component_path_issues.append(
             CodexPluginComponentPathIssue(
@@ -879,9 +902,39 @@ def _resolve_component_path(
     return resolved
 
 
-def _resolve_plugin_path(root: Path, raw_path: str) -> Path:
+def _resolve_plugin_path(root: Path, raw_path: str, *, allow_directory: bool) -> Path:
     raw = Path(raw_path)
     candidate = raw if raw.is_absolute() else root / raw_path
+    snapshot = active_static_input_snapshot()
+    if snapshot is not None and (root == snapshot.root or snapshot.contains(root)):
+        # Preserve the declared lookup. Resolving first would erase an in-root
+        # alias, leaving only its old target in the verification input set.
+        try:
+            if ".." in raw.parts:
+                raise ValueError("parent traversal is not a confirmable component lookup")
+            if candidate != root and root not in candidate.parents:
+                raise ValueError("component path is outside plugin root")
+            if snapshot.excludes(candidate):
+                raise ValueError("component path overlaps excluded verification output")
+            # _skill_files treats this basename as a direct file before any
+            # directory walk. Match that selection, including './' when the
+            # plugin root itself is named SKILL.md, before parser recovery.
+            snapshot.capture_selected_path(
+                candidate, max_bytes=MAX_INPUT_FILE_BYTES,
+                allow_directory=allow_directory and candidate.name != "SKILL.md",
+            )
+        except (OSError, ValueError) as exc:
+            # The caller turns InputParseError into a component diagnostic.
+            # Keep the failed lookup visible to currency validation as well:
+            # repairing an alias must never reconfirm an old empty capture.
+            if ".." in raw.parts or candidate == root or root not in candidate.parents:
+                snapshot.mark_unconfirmable_input_directory(root)
+            else:
+                snapshot.mark_unconfirmable_dependency(candidate)
+            raise InputParseError(
+                f"Codex plugin component path {raw_path!r} could not be captured: {exc}"
+            ) from exc
+        return candidate
     resolved = candidate.resolve()
     try:
         resolved.relative_to(root.resolve())

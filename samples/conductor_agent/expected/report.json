@@ -429,7 +429,7 @@
   ],
   "release_consequence": {
     "decision": "insufficient_evidence",
-    "summary": "Static evidence is incomplete; capability/intent analysis may miss release-relevant signal — gather deeper sources before shipping.",
+    "summary": "Static evidence is incomplete; capability/intent analysis may miss release-relevant signal \u2014 gather deeper sources before shipping.",
     "blocker_misalignment_count": 0,
     "review_misalignment_count": 2,
     "fail_policy": {

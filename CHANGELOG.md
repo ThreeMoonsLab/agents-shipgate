@@ -2,6 +2,774 @@
 
 ## Unreleased
 
+- Stop inventorying machine-written tool caches, so an ordinary concurrent
+  test run no longer collapses the host inventory. `check` run while pytest
+  was active returned `human_review_required` with *"Directory inventory
+  could not complete at tests/__pycache__"*; the refusal was correct — the
+  identity reader revalidates every directory it scanned, and a `.pyc`
+  landing between the two reads really is a directory that changed while it
+  was read — but a bytecode cache should never have been an identity-bound
+  input. `__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`,
+  `.tox` and `.nox` are excluded from the repository walk for the same
+  reason `.venv`, `node_modules` and `.git` already are: no host reads
+  configuration from one, so inventorying them buys no coverage. Nothing
+  else is softened — a recognized host directory that changes mid-read is
+  still refused with no grants, an unreadable one is still fail-closed, and
+  a quiescent rerun still performs a real read rather than serving a cached
+  denial or a cached completion (#598).
+
+- Refuse a required tool source whose declared path is unavailable, once,
+  for every reader. `scan` applies one availability precondition before any
+  adapter runs, reading the same resolver `doctor` renders as
+  `SHIP-DIAG-MISSING-SOURCE-FILE`, so the two agree by construction. The
+  contract `docs/diagnostics.md` already published — a required
+  `tool_sources[].path` that does not resolve is `InputParseError(3)` — was
+  true of the shared loaders and `mcp_server_source` and false of
+  `openai_agents_sdk`, which returned a source warning and let a required,
+  absent entrypoint finish as an advisory exit-0 scan; an integration using
+  execution status to tell bad input from a completed scan got a different
+  answer per reader. The error names each offending source id, its declared
+  path, and whether it was not found or escapes the manifest directory.
+  `optional: true` sources are unchanged, keeping their warning and
+  `coverage_recovery` evidence. `verify` applies the same precondition per
+  tree: a base commit declaring a path absent from that tree reports
+  `base_status: "scan_failed"` with the reason in `base_notes` and no
+  capability delta, and does not move the head gate. Missing input is named,
+  never repaired by an invented declaration (#585).
+
+- Read every counted hunk row, so header-shaped content stops being lost.
+  Hunk state and the header's declared row counts, not a line's spelling,
+  decide what the shared unified-diff parser treats as content: a removed
+  `---` renders as `----` and a removed `-- note` renders as `--- note`,
+  and matching those against the file-header prefixes dropped the row and,
+  in the second case, replaced the file's identity with the invalid-path
+  sentinel. A plain Markdown horizontal-rule removal now reaches a complete
+  structural comparison instead of an unnecessary `human_review_required`.
+  Truncated and over-declared hunks still end at the first line that cannot
+  be hunk data, keep their short row list, and are still refused by the
+  declared-count comparison; path, rename, no-newline and malformed-header
+  contracts are unchanged (#611).
+
+- Name what a change did to the bound each finding depends on.
+  `tool_surface_diff.finding_attributions[]` projects the shipped
+  `openapi_delete/v1` and `sdk_boolean_guard/v1` comparisons onto active
+  findings and separates a standing weakness, an improvement that leaves the
+  finding standing, and a newly widened capability — three cases the identity
+  bucket reports as one. Only evidence naming a finding's own fingerprint
+  classifies; same-capability evidence can withdraw a negative claim but never
+  establish one, a display name is never a join, two active findings sharing one
+  fingerprint are unresolvable, and findings that could not be joined to any
+  profile — including any carrying neither a fingerprint nor an id — are counted
+  in `tool_surface_diff.unattributed_findings` and printed beside the rows. A run with no base asks no diff
+  question and emits no rows. Dependency coverage remains
+  incomplete, exclusion eligibility remains false, and no finding, fingerprint,
+  severity, baseline, exit code or release decision changes. No `--scope`
+  option and no receipt question are added (#515).
+
+- Bind reader-selected input directory names and no-follow entry kinds in the
+  verification plan. Both current-control observations and worker replay now
+  reject changed membership, including ignored additions with unchanged file
+  hashes. Exact output exclusions work across archived and live trees without
+  hiding new source siblings. Cached listings retain bounds; refused captures
+  remain explicit. Plans without directory capture require a fresh run (#630).
+
+- Reconfirm recorded verification inputs before returning current control,
+  including ignored and Git-hidden changes. Preserve each live policy,
+  baseline and comparison origin through portable copying; generated and
+  outside-repository imports remain frozen artifacts. Prepare exports captured
+  auxiliary bytes, and all live reads retain bounded no-follow validation.
+  Legacy external-input plans need a fresh run when their origin is ambiguous.
+  Directory-source membership is captured separately below (#627).
+
+- Route host-only repositories from first discovery to the existing host audit
+  without a placeholder manifest. The CLI and zero-install script retain
+  ignored and malformed config candidates; incomplete traversal and config
+  directories remain explicit inspection routes. `init` and `bootstrap`
+  hand off without setup writes. Contract v33 adds filename-only applicability
+  fields; the release gate and permission model are unchanged (#568).
+  `host_discovery_incomplete_paths` names only what can actually conceal a
+  tree — a link resolving to a file is not listed — and an unreadable or
+  over-budget census names the path that stopped it there instead of refusing
+  the classification, matching what `audit --host` already does with the same
+  failure.
+
+- Compare supported instruction structure across verifier, local control,
+  preflight, host drift and generated Claude Code edit hooks. Complete prose
+  edits no longer imply permission changes; malformed/unknown structure and
+  configured trust roots retain review. Raw byte currency remains mandatory.
+  Contract v32 adds successor schemas and explicit conditional edit rules;
+  legacy host baselines require deliberate review, and automatic prose edits
+  never seed or consume per-path hook approvals (#545, #516).
+
+- Count actual `insufficient_evidence` qualification outcomes per profile with
+  denominators, case IDs, named evidence gaps and explicit unscored cases.
+  Mark the legacy expected-IE metric not applicable on the three-label corpus;
+  all existing scores and thresholds remain unchanged. Qualification v6 adds
+  these diagnostics while preserving old artifacts without inventing coverage
+  they never recorded (#520).
+
+- Label conservative action-effect projections separately from their static
+  evidence in CLI, report, PR and packet summaries. Inferred/default/unknown
+  effects remain visible as provisional risks, with current pass eligibility;
+  declared and structural evidence are distinct. No gate or evidence is
+  upgraded by the presentation (#357).
+
+- Retain base finding evidence for the existing fingerprint comparison and
+  expose changed predicate support, sources, subjects and release contribution.
+  Reports distinguish identity matches from change attribution and disclose
+  missing support or ambiguous matches. The gate and legacy JSON buckets are
+  unchanged; #515's default diff scope awaits dependency-coverage proof (#557).
+
+- Show the bounded human review question at the start of existing PR comments
+  and Check Run summaries, with source links, actor, outcomes, coverage limits
+  and exact omitted-question counts. PR publication permission/context refusals
+  retain the review in the workflow summary without changing the gate. This is
+  #337's presentation slice; authenticated decision recording remains open under
+  the independent signer pilot #555.
+
+- Evaluate externally signed decisions on the bounded human review request
+  without rewriting static evidence or granting authority. Full current scope,
+  external host key trust, reviewer eligibility and expiry are checked;
+  acceptance, rejection and dispute remain separate from the release gate.
+  The host-neutral API returns separate evaluation evidence; GitHub acquisition
+  and persistence remain #337 (runtime contract 31, control floor 21; #537).
+
+- Publish an unsigned, content-bound human review request for one complete-evidence
+  documentation-quality class. Reviewers get an exact question, scope and
+  postcondition; existing gates and permissions remain unchanged. The new
+  standalone schema keeps the shared control union and persisted grammars frozen
+  (runtime contract 30, minimum control contract 21; #536).
+
+- **Deprecated the path-only instruction-weakening check.** (#516)
+  `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` remains registered for compatibility
+  but emits no new findings. Structured permission, MCP and hook
+  readers and the skill-command mention heuristic remain active. Generic trust-root and local instruction routes are
+  unchanged; #545 tracks their remaining prose-only review boundary.
+
+- **Test- and template-only agent names require review.** (#533) Discovery
+  keeps these names visible with their source and rationale, but `init` no
+  longer asserts them as the product's reviewed identity. A name also declared
+  in product code remains eligible under the existing quality and scope rules.
+  Installed and standalone detectors apply the same declaration-site floor;
+  tool discovery remains available and unresolved names use the existing
+  `CHANGE_ME` placeholder. The later identity-specific recovery question is
+  tracked separately in #543; existing purpose/permission review remains.
+
+- **An init generator failure is a product defect, not a request to refill a template.**
+  (#328) Rendering and generated-manifest validation now use the same structured
+  `internal_error` route, with no edit or `--minimal` fallback. Setup writes no
+  manifest, CI workflow or instruction kit on this failure. Genuine malformed
+  user manifests still name the existing file for repair.
+
+- **The FastMCP signature projection now resolves the injected `Context`, and
+  says so when it cannot read a type.** (#539) #535 made Python MCP servers
+  discoverable and read their signatures. Two of the facts it published about
+  those signatures could be wrong, and both were reproduced through the
+  production loader: an application model named `Context` was **erased** — the
+  catalog published `update() -> str` for a tool whose one required input is a
+  model carrying `account_id` — and `from mcp.server.fastmcp import Context as
+  RequestContext` was **not recognised**, so the value the framework supplies
+  became a required `string` the caller is asked for. Both came from the same
+  cause: the request context was matched on the last token of the annotation's
+  spelling, while the SDK matches on the resolved class.
+
+  The reader now answers with the module's own import and class table — the
+  machinery that already follows `@mcp.tool` back to a `FastMCP(...)`
+  construction, with the same prefix rule, the same refusal on a doubly-bound
+  name, and one addition: the base list, because the SDK injects any *subclass*
+  of its context. Qualified spellings, `import ... as` aliases, forward
+  references and same-name application classes are all resolved; a name two
+  statements bind and relative imports without class provenance are not, and those
+  keep the parameter with `unresolved_context_identity` recorded against the
+  tool rather than picking a direction silently.
+
+  Separately, a parameter's type is now whatever its annotation **denotes**,
+  read from the annotation's tree. The shared string-matching emitter answers
+  `string` for everything it does not recognise, so `int | None`,
+  `Annotated[int, Field(ge=1)]`, `typing.List[str]` and a Pydantic model all
+  shipped as concrete string schemas on `enumerated` evidence. Containers and
+  the underlying type in an `Annotated` spelling are projected where known;
+  nullable unions remain partial because this one-type projection cannot
+  express both a value and null. Anything unrepresentable publishes **no** type — an empty property
+  schema, `untyped_parameter` or `unrepresentable_annotation` in the tool's
+  `surface_gaps`, and `partial` for that tool's surface. The return annotation
+  is read by the same rule, because `output_schema` came from the same
+  fallback. A container's kind does not depend on what it holds —
+  `Dict[str, Any]` is an object, and this projection publishes no element
+  schema for any annotation, a bare `list` included — but a mapping's *key*
+  does, so `dict[int, str]` is refused. The broader SDK whole-signature and
+  generic-context injection boundary is tracked separately in #542.
+
+  Nothing about the route changes: the tool keeps its name, its file and line,
+  the `medium` ceiling and the exclusion ledger it already had, and a partial
+  signature closes no effect, authority or binding declaration. Both readers
+  move together — `tools/shipgate-detect.py` carries the same resolution and
+  the shared corpus compares it field by field — and the detector's published
+  verdict, frameworks and evidence are unchanged, so `script_version` stays
+  `0.6.0`.
+
+- **A changed MCP endpoint or credential reference now reaches the reviewer.**
+  (#538) An ADK agent that mounts a remote MCP server declares its authority in
+  the constructor: *this agent will call whatever `https://…/mcp` advertises,
+  under `<ENV_VAR>`, restricted to `<filter>`*. The reader discarded all of it.
+  Two workspaces differing **only** in the endpoint literal and the
+  `os.environ[...]` key — same lines, same filter — produced byte-identical
+  reports: empty `capability_facts`, empty `tool_surface_facts`, and a finding
+  carrying the toolset kind, the source line and one agent name. Reproduced on
+  `20968551`; both verdicts were `insufficient_evidence` and neither named the
+  change.
+
+  This is lost evidence, not a demonstrated unsafe pass, and the fix is
+  scrupulous about the difference. `ADMIN_KEY` proves no privilege level, and
+  nothing in the new output claims it does: an endpoint or credential-reference
+  change is projected with the block's documented opaque-direction bucket and a
+  rationale that says, in the reviewer's own output, that the direction is *not*
+  established. The one axis where a direction **is** established is the tool
+  filter — values gained, values lost, a filter added where there was none, a
+  filter removed entirely — and only there is one claimed.
+
+  The binding is a claim of its own, separate from leaf coverage. Each one rides
+  base-to-head as four independent per-axis rows in `tool_surface_facts.policies`
+  — the carriage `core/toolkit_scope.py` already uses, so there is **no report
+  schema bump, no new check id and no new committed inventory or command** —
+  and `inventory_path` is deliberately not one of the four. Supplying the
+  reviewed inventory the scan asks for therefore *cannot* clear an endpoint,
+  credential-reference or filter delta; it answers a different question.
+
+  Identity is `<agent>:<slot>` and excludes the source line, so moving,
+  reflowing or commenting the call produces no delta at all, while two agents on
+  one endpoint — and one toolset shared by two agents — keep distinct
+  attribution. What could not be read says so per binding: a shadowed
+  constructor, a rebound `connection_params` variable, a dynamic URL, a callable
+  filter and an unreadable header each record a limitation code, and only the
+  claim the doubt actually reaches is dropped. Credentials written literally
+  into source — URL userinfo, a sensitive query value, a hardcoded header — are
+  redacted at the reader before they reach any artifact and are never hashed, so
+  a change confined to those bytes is *not* named; that limit is published
+  rather than implied. Nothing is imported, constructed, connected to or looked
+  up in the environment: every fixture carries a module-level
+  `raise RuntimeError("must never execute")`.
+
+  `release_decision.decision` remains the only gate, the release enum and every
+  qualification threshold are untouched, and the same workspace that was
+  `insufficient_evidence` before still is — with the change named. The design,
+  and the limits it ships with, are written up in
+  [`docs/engineering/remote-binding-evidence.md`](docs/engineering/remote-binding-evidence.md).
+
+  Review found five defects, and three of them were the same mistake: reasoning
+  about a framework's semantics from the shape of the data instead of from the
+  framework. **`tool_filter=[]` is not a filter of nothing, it is no filter** —
+  ADK's `_is_tool_selected` returns `True` for any falsy filter, so an empty
+  list exposes every advertised tool, and comparing it as the empty *set*
+  reported the widest state as the narrowest. **A stdio connection does not
+  carry `env` inline** — `StdioConnectionParams` nests a `StdioServerParameters`
+  under `server_params`, so reading only the outer call answered "this binding
+  has no credential" about one that plainly did. And **a URL query key is
+  classified after decoding, against a credential-*name* rule rather than a
+  fixed list**, because `api%5Fkey` is `api_key` to every server that reads it
+  and `access_token` was in no vocabulary the redaction pass held.
+
+  Two more were silent losses rather than wrong answers. A capability member's
+  id is hashed from its subject, and a subject without the configured source id
+  merged two same-named agents from different sources into one member —
+  deleting one source's endpoint change. And a hardcoded credential added
+  beside an existing environment reference was recorded only as a limitation,
+  which the carried summary and hash never saw, so a *credential being added*
+  produced no delta; the credential axis now lists every entry, with
+  `<literal credential withheld>` in place of a value it will not publish.
+
+- **Python MCP servers get the route the survey said they needed most.**
+  (#484) #431 shipped a built-in registry of tool-registration idioms covering
+  TypeScript and Go, and its own 30-server survey named what it left out:
+  Python's `@mcp.tool` decorator, the largest single shape by both repositories
+  and call sites. `redis/mcp-redis`, `chroma-core/chroma-mcp` and
+  `neo4j-contrib/mcp-neo4j` were all in the state MongoDB and Grafana were in
+  before #431 — `detect` returned `is_agent_project: false` for a first-party
+  server publishing dozens of tools. All three are now read, and so is the one
+  the survey measured as the largest of all: `awslabs/mcp` yields **262 tools**
+  with 179 registrations recorded as unenumerable.
+
+  It is a sixth idiom (`py_fastmcp_decorator`) and a different **extraction
+  mechanism**, which is why it waited for its own increment and its own probe
+  list. Three facts about the shape are why it could not be a sixth pattern:
+  the name is usually *not written down* — `@mcp.tool()` on `def dbsize()`
+  registers `dbsize`, which is all 53 of `redis/mcp-redis`'s registrations; the
+  input schema is the **annotated signature**, so this idiom publishes one
+  where the lexical idioms genuinely have nothing to publish; and whether the
+  decorator registers anything at all is a **binding fact**, since `@app.tool`
+  is a tool registration when `app` is a server and somebody else's decorator
+  otherwise. So it is read with the standard library's parser, it follows the
+  decorated name back to a server construction — across modules, because
+  `redis/mcp-redis` constructs its server in `src/common/server.py` and
+  decorates in `src/tools/*.py` — and it refuses out loud when it cannot.
+
+  Two findings changed the design after it was measured rather than before.
+  The official Python SDK's v2 **renamed `FastMCP` to `MCPServer`** and left
+  `mcp.server.fastmcp` as a module that only raises; 41 of `awslabs/mcp`'s
+  servers had already moved, and a reader that knew one name read 105 tools
+  where there are 334. And every one of `neo4j-contrib/mcp-neo4j`'s 40 tools is
+  registered as `name=namespace_prefix + "…"`, so the rule the lexical idioms
+  use — offer no route without a resolved name — would have reported that
+  repository as "not an agent project" *because* its names are dynamic. A
+  Python site carries its own provenance, having already been followed back to
+  a server construction, so the route is offered and the evidence says "40
+  registration(s), none of which this reader can name". A committed export
+  cannot displace such a route either: containment is the test, and an export
+  contains an empty set of names vacuously.
+
+  Nothing is claimed more loudly for having been read more closely. The
+  ceiling stays `medium`, and every way the registered identity can differ
+  from the one on the page is a recorded omission rather than a guess: a name
+  built at run time, a `**options` unpacking that can carry `name`, a
+  decorator *below* the registration whose return value is what the server
+  actually receives, and an object this reader cannot follow to a server at
+  all — `@self.mcp.tool` on an injected server, `app = create_server()` on a
+  factory's result. All four are measured in `awslabs/mcp`.
+  `IDIOM_REGISTRY_VERSION` is `2` and `TRIGGER-MCP-TOOL-REGISTRATION-SOURCE`
+  routes `@mcp.tool`.
+
+  A committed export displaces this route only when it accounts for
+  *everything* the route found, unreadable registrations included. An export
+  naming every tool the reader could read looks like containment and is not:
+  withholding the route then sends the reader to the export and never to
+  `scan`, so the registration nobody could name reaches no exclusion ledger —
+  a measured miss turning back into a silent one.
+
+  Every dependency table the gate names is reachable, which took a second
+  pass to be true: the walker read a Poetry table's *constraint* where the
+  distribution is the key, so `mcp = "^1.6.0"` produced `^1.6.0` and never
+  `mcp` — three of the five tables named in the constant were dead, and a
+  Poetry-managed server got no route at all. Both halves of a table are
+  admitted now, and all five are exercised.
+
+  The zero-install detector moved in the same commit, to `0.6.0`: #485 made
+  `tools/shipgate-detect.py` a second implementation of this reader, and
+  `tests/mcp_idiom_corpus.py` is what keeps it from becoming a different one —
+  every case either reader has been asked about lives there once, the whole
+  Python probe list and the cross-module trees included, and both are driven
+  through all of it and compared site by site, span by span. Both detectors
+  return identical verdicts, sources and evidence on all four live
+  repositories.
+
+- **Adoption evidence now has a counting mechanism, and its first published
+  number is a zero.** (#475) This project collects nothing — local-first and
+  static by default, no telemetry, no account — and the price of that stance is
+  that it cannot count its own users. Downloads measure CI caches and stars
+  measure sentiment, so neither is adoption. The new root-level
+  [`ADOPTERS.md`](ADOPTERS.md) is the opt-in registry that pays the price
+  honestly: one row per adopter, added by the adopter through an
+  [issue form](.github/ISSUE_TEMPLATE/adopter_entry.yml) or a pull request,
+  naming what they gate, whether it runs as local evaluation, advisory CI or
+  blocking CI, the date, and a link to the public act where they asked. Private
+  repositories are listed at organization granularity — the word `private` and
+  nothing else. An entry is removed on request, without a reason.
+
+  It ships with an eight-rule **claims policy** (no entry, no claim; every
+  number carries its as-of date; external and dogfooding are never summed; an
+  entry is a dated statement rather than a measurement; a tier is self-reported
+  and never upgraded; a badge is not an entry; the design-partner ledger stays
+  separate; removal is unconditional), an optional tier-neutral README badge
+  that links back to the registry, and the maintainer dogfooding entry the
+  acceptance asks for — which reads `advisory CI`, not `blocking CI`, because
+  `main` requires no status check and a red run there stops no merge.
+
+  The policy is enforced rather than promised. `tests/test_adopters_registry.py`
+  parses both tables and fails on a row missing a field, an undefined tier, a
+  non-ISO or future date, a `Repository` that is neither one resolvable public
+  link — on any host, so a GitLab or self-hosted adopter is not pushed into
+  writing `private` about a public repository — nor `private` itself, an entry
+  link that does not point into this repository, **two rows covering the same
+  adopter and repository**, this repository listed as an *external* adopter,
+  counts that disagree with the rows, an as-of date older than the newest
+  entry, a claims rule quietly dropped, a second badge variant, an issue form
+  that drifts from the registry's vocabulary or stops requiring consent — and
+  any adopter number stated anywhere in the repository's prose that these rows
+  cannot source. That last check reads the claim's **own sentence**: a
+  neighbouring sentence about dogfooding does not qualify it, and a claim that
+  calls itself external never borrows the maintainer count. A 50-case
+  perturbation sweep confirmed every one of those fails on the weakening it
+  exists to catch, and that the legitimate edits — a correctly added adopter, a
+  GitLab-hosted one, a second maintainer row, a grammatically singular count —
+  still pass.
+
+- **One unreadable application root no longer rejects every agent name in the
+  repository.** (#398) A declared root whose identity cannot be established
+  statically makes nothing selectable — the #324 rule, and a sound one, because
+  every name still standing is by construction *not* that root. It was being
+  applied with repository scope. On adk-samples that meant one file rejected
+  roughly 55 candidates across 25 projects, `financial_coordinator` and
+  `cyber_guardian_orchestrator` among them, and told the reader so by naming a
+  file in a project they were not adopting. The rejection is now scoped to the
+  project the root sits in — the same grouping `agent_project_candidates`
+  publishes, now computed once and read by both — and the sentence names that
+  project. A name several projects declare is still rejected when any of them
+  is blocked; that direction is the fail-closed one.
+
+  "Which project" is resolved against the projects that grouping actually
+  *established*, not against the nearest project marker. The two are not the
+  same, and reading the marker fails open: a utilities package carrying its own
+  `pyproject.toml` but no agent evidence is not a manifest scope, so a bare
+  `Agent(name="CrmHelper")` found there was exempt from the workspace's refusal
+  and plain `init --write` wrote a helper class's argument as the reviewed
+  identity of a repository whose real application root could not be read at
+  all. A name under no established project belongs to the scope enclosing it.
+
+  Scoping alone would not have unblocked the reproduction, because one of the
+  two observed culprits was `eval/test_eval_arize.py` *inside* the project
+  being adopted and the other was
+  `.agents/skills/**/resources/templates/app/agent.py`. Neither is the
+  application a project ships: a fixture that builds an `App` is a fixture, and
+  a scaffolding template is what a generator copies. The ranker already said so
+  for *selection* and said the opposite for *rejection* — one predicate now
+  answers both, so a scaffolding template is demoted exactly as a test fixture
+  is instead of standing in for the product. The template rule is the directory
+  pair `resources/templates/`, not a bare `templates/`, which real packages
+  use; an unreadable root anywhere else still stops selection, and a project
+  whose own product root is unreadable still refuses with `CHANGE_ME`.
+
+  One consequence is worth stating rather than discovering: where the *only*
+  agent evidence in a workspace is non-product code, an unreadable root there
+  used to force `CHANGE_ME`, and now the fixture or template name is written.
+  That guard was accidental — a readable root in the same file already had its
+  name written before this change — so what this does is make the two cases
+  agree, not open a new one. The general rule it points at, that a name only
+  non-product code declares should never be asserted as the reviewed identity,
+  is [#533](https://github.com/ThreeMoonsLab/agents-shipgate/issues/533); it
+  would close the readable case too and is a wider decision than this fix. The
+  same widening reaches `init --write --allow-unresolved-scope`, whose whole
+  contract is already "adopt the first agent name it parsed" on a workspace
+  with several unrelated projects.
+
+  `tools/shipgate-detect.py` carries the same change (`script_version`
+  `0.6.0`): `agent_name_candidates` is the field the zero-install path pins
+  byte for byte, so a script that scoped the rejection differently would name a
+  different agent than `init` does. Putting the grouping behind one object on
+  each side surfaced two parity breaks that predate this issue.
+
+  The script counted **every** `Agent(name=…)` literal as project evidence,
+  where the CLI counts only framework-attributed ones. A module defining its
+  own `Agent` class and constructing `Agent(name="crm")` is not an agent
+  project (#363 review), so the script drew a boundary the CLI does not: a
+  phantom entry in `agent_project_candidates` and, through it, `agent_scope:
+  "ambiguous"` on a workspace the CLI calls `"single"` — a *verdict*
+  disagreement on the surface whose whole contract is verdict parity. The
+  script now qualifies those literals the same way, snapshotting each Python
+  file's framework attribution right after the Python pass, which is exactly
+  what `_score_python_signals` records on the CLI side.
+
+  And where no marker was found above the evidence at all, the script named the
+  workspace's `requirements.txt` as the project marker while the CLI reported
+  `null`. A weak marker only draws a boundary in a directory that already holds
+  agent evidence, so one that unlocked nothing is not the boundary the project
+  rests on. Every sample carries a `pyproject.toml` and one readable root,
+  which is why the per-sample parity check reached neither; tests do now.
+
+- **The human entry path reaches one useful review, and is checked like every
+  other distribution surface.** (#498) The README was 933 lines with 28
+  second-level sections, and the quickstart opened with three commands before
+  the reader had seen a result. Both were also wrong in ways nobody was
+  checking, because `README.md` and `docs/quickstart.md` were recorded in
+  [`docs/distribution-surfaces.md`](docs/distribution-surfaces.md) as
+  "repository documentation" and therefore registered nowhere: the quickstart's
+  first command was `shipgate check --format agent-boundary-json`, which the
+  release the same page tells a reader to install rejects outright — `v0.15.0`
+  accepts only `codex-boundary-json` — and its placeholder step sent a coding
+  agent to the README for `agent.declared_purpose`, a declaration only a person
+  may make. The README's flagship "what your PR sees" block quoted a comment
+  with an `### Agents Shipgate result: block` heading and an
+  `Impact | Change | Subject | Why` table, called it verbatim, and no code path
+  rendered any of it; `block` is not a value any verdict field takes.
+
+  The README is now a landing page: one before/after capability change, one
+  demo, one install, the accuracy numbers that are still zero, and an
+  audience-routing table. [`docs/quickstart.md`](docs/quickstart.md) is one
+  review end to end on the committed `ai_generated_refund_pr` sample — what
+  changed, why the top result matters, what the run did not establish, that
+  **exit zero is not merge permission**, and who owns the next action — before
+  either adoption route, and it opens with a channel table saying which build
+  provides which commands. Displaced README material moved into the docs that
+  own it, with a mapping table from every retired anchor.
+
+  Three guards keep it there. `README.md` and `docs/quickstart.md` are a
+  registered `human_entry_path` surface and `AGENTS.md`, `docs/agent-recipes.md`,
+  `docs/agents/` and `docs/target-repo-agent-snippets.md` a registered
+  `agent_instructions` surface, so the placeholder-ownership and pin rules that
+  already covered the design-partner runbook now cover them too;
+  `test_the_human_entry_path_states_what_the_published_build_provides` reads the
+  `--format` values the published tag accepts out of the tag and fails if the
+  entry path teaches one it does not, the way #506 reads that tag's
+  `CONTRACT_VERSION`; and
+  `test_the_entry_path_quotes_lines_the_pr_comment_actually_renders` runs the
+  fixture and compares every quoted comment line against the artifact. The
+  vocabulary reader learned to see a Markdown reference table, which is the only
+  shape the entry path states a verdict set in. Four unresolvable
+  `uvx agents-shipgate@0.18.0` pins in `docs/incidents/` and `samples/README.md`
+  named a version the index does not carry; they now name the checkout, and say
+  what to pin once a release carries the fixture.
+
+- **The zero-install detector refuses an oversized candidate instead of
+  reading it.** `tools/shipgate-detect.py` is fetched over `curl | python3`
+  and run against repositories nobody has inspected, and it read every
+  glob-matched MCP/OpenAPI/Conductor candidate — and every n8n and Conductor
+  workflow it scored a framework off — with an unbounded `read_text()`. A
+  multi-hundred-megabyte `*mcp*.json` was pulled into memory whole. The input
+  adapters have always refused such a file before parsing it
+  (`MAX_INPUT_FILE_BYTES`, 10 MB), so this was also a parity break: the file
+  was *excluded* by `agents-shipgate detect --json` and *suggested* by the
+  script, and an agent following the script would write a `tool_sources` entry
+  the next `scan` rejects. Both sides now ask the same content-independent
+  question from `stat` alone, and the script spells the refusal exactly as the
+  CLI does, so `excluded_sources` agrees on the reason and not just the split.
+
+  CLI discovery had the mirror-image hole: `_looks_like_n8n_workflow` and the
+  Conductor framework probe read their glob hits whole to score a framework
+  whose adapter would then refuse the same file, and the MCP host-config sniff
+  in `_probe_failure_reason` re-read a file the adapter had *just* rejected for
+  being too large. All three are bounded now. The size gate is asked before the
+  script's YAML early return: a `.yaml` OpenAPI spec is still never excluded on
+  content the stdlib cannot parse, but size needs no parser.
+
+- **The design-partner pilot now measures a reviewer's decision and the next
+  eligible change — and its first published number is a zero with a reason.**
+  (#521) The runbook counted three partners through one PR each and exited on a
+  first-run feedback note, which cannot answer whether a reviewer made a better
+  decision or whether anyone ran it again.
+  [`docs/design-partner-verifier-pilot.md`](docs/design-partner-verifier-pilot.md)
+  now names two routes under test, six denominators that failures stay inside,
+  first value as four things a reviewer who did not write the change can name
+  plus a recorded decision, a four-week window for the second eligible change,
+  three separately-granted consents, and a **pre-registered**
+  continue/narrow/stop rule. Ten minutes to first value is stated as an
+  experiment target; a test fails if any page later restates it as a result.
+
+  Dry-running the runbook's own commands is what produced the first result,
+  across all three distribution channels. On a synthetic host-boundary change
+  (three permission rules widened to `Bash(*)` / `Read(**)` / `WebFetch(*)`,
+  one remote MCP server added) the released `0.15.0` returns `warn` / `none`
+  with **zero** violations and no coverage surface, while the unqualified
+  preview and the source tree both return `block` / `critical` with all four
+  named. So a build that shows the change *is* installable — the preview —
+  and it carries no qualification of any kind, which is a thing to say to a
+  partner rather than a footnote. The runbook had also demanded "runtime
+  contract 14" in the paragraph that installed it with `pipx install`, a
+  precondition no published build has ever satisfied; #497's channel table and
+  this change both retire it. And `init` then `verify` still dead-ends on
+  exactly the repositories the host-boundary route is for (#498), because they
+  have no tool surface to declare.
+
+  So [`docs/design-partner-pilot-results.md`](docs/design-partner-pilot-results.md)
+  publishes six external denominators at zero, a dated enrollment shortfall
+  naming an unmade channel decision rather than a recruiting gap, the
+  reproduced blockers routed to #506, #497, #520, #498 and #504 → #337 with no
+  new issue opened, and a dated standing decision of **narrow**: invite Route H
+  on the preview channel with its unqualified status stated in the invitation,
+  and withhold the released channel for per-change review. Every finding is
+  build-dated, and a guard fails the day the newest published tag moves so the
+  comparison is re-run instead of carried forward — a guard the page itself
+  records as insufficient, since nothing fails when a new preview is cut.
+- **Everything `init` writes into an adopter's repository now names a release
+  that exists.** (#506) `init --write --ci` generated
+  `uses: ThreeMoonsLab/agents-shipgate@v0.16.0`, and no such tag had ever been
+  cut — GitHub fails that job at action-resolution time, so a first-time
+  adopter's very first Shipgate run was a red check carrying an error about
+  *our* repository rather than theirs. The bundled onboarding prompt had the
+  same defect one layer up (`uvx agents-shipgate@0.16.0`, a version the index
+  does not carry). Every render since 2026-07-09 pinned a nonexistent ref — 56
+  days of them by the time #506 was filed.
+
+  Two conventions coexisted and only one was correct. The docs, `llms.txt`,
+  `.well-known` and the Action examples tracked the latest published tag; the
+  one artifact that gets *executed* by a stranger's CI tracked `__version__`,
+  which for the whole interval between releases is a version nothing can
+  fetch. `LATEST_PUBLISHED_VERSION` moves into
+  `src/agents_shipgate/published_release.py` as the single constant every
+  surface — documentation and emitted artifact alike — derives from.
+
+  Pinning the published release keeps the pin resolvable but does not make it
+  *sufficient*, and conflating those is what the previous fix got wrong: the
+  bundled prompts demand runtime contract 21, and `v0.15.0` emits contract 10.
+  So the prompts now state that gap where they state the pin, rendered from
+  `LATEST_PUBLISHED_CONTRACT_VERSION` — which is read back out of the tag
+  itself by the suite, not asserted about it. The honest output when the newest
+  published build predates the floor is to say so; it is never to pin a build
+  that cannot be fetched.
+
+  `tests/test_init_ci.py` asserted the defect, which is why it shipped. It now
+  requires a published tag, and `tests/test_adopter_pins_resolve.py` sweeps
+  every pin shape across everything `init` emits — driven off `SPECS`, the
+  registry `--agent-instructions` itself selects from, so a target added there
+  is swept the day it is registered rather than the day someone remembers.
+  The sweep fails on an empty tag list rather than passing over one, asserts
+  each pin shape was actually found, and carries two negative controls that
+  re-introduce the defect. Cutting `v0.16.0` is not what fixes this: the rule
+  is "names a tag that exists", so it holds on the first commit after the tag
+  too.
+
+- **Four lexer defects in the MCP registration reader, fixed in both
+  implementations.** (#485 review) Found reviewing the zero-install port; all
+  four were in the reader #431 shipped, so the port had copied them rather than
+  introduced them. Two invent a tool name, which is the one outcome a reader of
+  a *name* cannot afford, and two lose a whole file's surface:
+
+  - A `${…}` holds code, so a brace inside a string, comment, regex or nested
+    template is not a structural brace. ``const msg = `brace: ${"{"}`;`` left
+    the substitution open and consumed the rest of the file as one unterminated
+    template — every registration after that line gone, and a workspace
+    declaring an MCP dependency reported as "not an agent project" over a brace
+    in a string.
+  - A line break ends a JavaScript initializer only when what follows cannot
+    continue the expression. `static toolName = "safe"` with `+ "_delete"` on
+    the next line published `safe` at `medium` confidence for a tool the server
+    registers as `safe_delete`.
+  - The regex heuristic now resolves the keyword in front of a slash from the
+    *masked* source. Read from the raw text, a comment between `if` and its
+    condition hid the keyword, the slash was read as division, and the pattern
+    was scanned as code — reporting a tool invented out of a regex body, which
+    is precisely what masking exists to make impossible.
+  - A backslash before CRLF is one line continuation, not `\r` plus a line
+    break. The identical file resolved its registration on a Unix checkout and
+    lost it on a Git-for-Windows one.
+
+  Each is an expected-result case in `tests/mcp_idiom_corpus.py`, so both
+  readers are pinned to the corrected behaviour rather than to each other's
+  agreement, and the CRLF sweep now has a continuation case that actually
+  exercises it. The three vendor servers this input exists for are unaffected —
+  61, 114 and 114 tools before and after.
+
+- **The zero-install detector reads MCP registration sites, so it stops
+  telling vendor MCP server maintainers to stop.** (#485) `tools/shipgate-detect.py`
+  is the documented first command run against a repository that has *not*
+  adopted Shipgate — which is every repository #431 was about. #431 taught the
+  installed CLI to read a tool's name out of a TypeScript or Go registration
+  site; the script did not gain it, so the two disagreed on the one question
+  the script exists to answer: `mongodb-js/mongodb-mcp-server` (61 tools),
+  `github/github-mcp-server` (110) and `grafana/mcp-grafana` (114) were agent
+  projects to the CLI and "Stop, not an agent project" to the script. The
+  masking lexer, the five idioms, the path predicate, the dependency gate and
+  the export-precedence rule are now all in the script too, stdlib-only.
+
+  Porting a load-bearing matcher means a second implementation of it, which is
+  this repository's recurring bug class. What makes it affordable is that the
+  two are not allowed to become *different* implementations: every case either
+  reader has ever been asked about now lives once in `tests/mcp_idiom_corpus.py`
+  — every idiom's positive sample, the whole adversarial sweep, the path
+  predicate's cases and both escape grammars — and both readers are driven
+  through all of it, compared site by site including each site's byte span.
+  `samples/mcp_source_only_server` puts the route inside the existing
+  `samples/` parity sweep, nine constructed workspaces pin the branches around
+  it (covering export, partial export, wildcard export, no dependency, no
+  resolved registration, test-only registrations, two registration
+  directories), and `test_framework_vocabulary_names_every_cli_omission` now
+  passes with an empty `known_omissions`.
+
+  One defect surfaced while porting and is fixed in both: with no MCP export in
+  the workspace at all, `_covering_export` returned every resolved name as
+  "uncovered", and the caller renders a shortfall as *"An MCP tool export is
+  also present and does not name N of these registrations"*. A server whose
+  surface exists only as source is the population this input was built for, so
+  that claim about a file that does not exist was published into the adoption
+  evidence for every one of them.
+
+- **Ten distribution surfaces, one registry, and a test that they agree with
+  the engine.** (#497) One engine is published through `action.yml`, `plugins/`,
+  `skills/`, `adoption-kits/`, `harness/`, `examples/`, `prompts/`, `policies/`,
+  `tools/` and the MCP server, and nothing checked that they said the same
+  thing. `docs/distribution-surfaces.md` now lists every one of them, what it
+  claims, and which test proves the claim;
+  `tests/test_distribution_surface_parity.py` is that test, and
+  `CONTRIBUTING.md` points at both. A surface that answers nothing the engine
+  answers still gets a row saying so — `policies/` are inputs the engine
+  evaluates and the MCP server is transport — because that is what stops the
+  next reader re-deriving it. A new top-level directory now fails the suite
+  until somebody classifies it.
+
+  Four things the registry found, each a surface disagreeing with the engine
+  rather than with itself:
+
+  - **The bundled setup prompt told a coding agent to write a declaration only a
+    person may make.** `add-shipgate-to-repo.md` step 5 said to replace
+    `agent.declared_purpose[]` with "a one-line description of what the agent
+    should do", derived from the prompt or main module. `init` returns
+    `control.next_action.actor: "human"` and `permissions.edit: false` for
+    exactly that field. The prompt now separates the placeholder the agent owns
+    (`agent.name`) from the one it must surface to a person, and quotes the
+    engine's own wording. The Codex kit's recipe page and the design-partner
+    runbook carried the same instruction as a blanket "replace every
+    `CHANGE_ME`", and no longer do.
+  - **The Claude Code kit rendered a GitHub Action tag that does not exist.**
+    Its advisory CI recipe pinned `@v{{ shipgate_version }}` and
+    `shipgate_version: '{{ shipgate_version }}'`, so `init
+    --agent-instructions=claude-code-skill` wrote `@v0.16.0` and
+    `agents-shipgate==0.16.0` into an adopter's CI — a tag and a release that
+    are not published. GitHub resolves `uses:` before any step runs, so that
+    workflow fails on our repository's name, not the adopter's change. Both pins
+    now name the published release, as the Codex kit's identical recipe always
+    did. The drift was invisible because
+    `test_claude_code_skill_source_matches_renderer` skipped this one file; that
+    exemption is gone, which is the actual repair.
+  - **Two published surfaces demanded a runtime contract nobody could reach.**
+    The Claude Code plugin's marketplace description and `plugin.json` both said
+    "runtime contract 15" beside `pipx install agents-shipgate`, which yields
+    contract 10. The number was a second copy of a value the bundled skill
+    already states; it is now removed rather than re-synced.
+  - **The design-partner runbook taught a route its own build could not run.**
+    It named `v0.15.0`, demanded "runtime contract 14" — which that build has
+    never implemented — floored `pip` at `>=0.13`, and then gave a read order
+    starting at `control.state`, which `shipgate.agent_handoff/v1` does not
+    emit. It now names one channel per partner (released, unqualified preview,
+    source checkout) with the contract each implements, and says what the
+    released build does *not* produce instead of implying it does.
+
+  The registry is checked against the code in **both** directions — roots,
+  claims and the proving test named for each claim — and a claim must be proved
+  by a test that both exists and matches at least one file on that surface.
+  Review found both halves of that mattering immediately: the first draft's
+  `harness` row named a proving test that had been renamed out of existence, and
+  `design_partner_runbook` registered `executable_pin` while carrying only a
+  `>=` install floor no pin pattern looked at. Surfaces now also state the
+  engine's verdict vocabulary or none of it: a braced set literal must name the
+  whole set, and a `merge_verdict == '…'` comparison must name a value the
+  engine emits.
+
+  Review of the harness itself found three more, each reproduced before it was
+  fixed. The pin scanner never read the Action's own `shipgate_version:` input,
+  which `action.yml` turns into `pip install agents-shipgate==<value>` — so a
+  workflow could name a valid Action ref beside a package version that was never
+  released. The vocabulary guard projected each documented set onto the expected
+  values before comparing, so adding `needs_a_wizard` to the setup prompt's
+  otherwise-complete release-decision set still compared equal; sets are now
+  judged by all of their members, and a literal mixing the two vocabularies
+  fails instead of being skipped by both. And requiring tags in CI was landed in
+  `ci.yml` only, while `release-verify.yml` — which `release.yml` and
+  `release-rehearsal.yml` both call — still checked out the candidate shallow
+  and tagless before running the whole suite, so the release path would have
+  gone red on a green PR. That checkout is fixed and the contract is now
+  asserted for every job that runs the suite, whichever workflow adds one next.
+
+  #485 and #506 landed while this was in review, which is the first real test of
+  the exemption mechanism: all three registered gaps flipped to `XPASS`, their
+  strict markers failed, and the exemptions had to be removed to get back to
+  green. `KNOWN_GAPS` is empty because it worked, and the registry records what
+  each gap was rather than quietly dropping it. The same merge removed a
+  duplicate: #506's `agents_shipgate.published_release` and its pin-shape table
+  are now imported rather than restated, leaving this harness the half that file
+  does not reach — pins committed under a registered surface, found by path. That
+  immediately caught an `@main` in a committed CI example, which turns out to be
+  the one case #497's rule allows — an explicit version incompatibility rather
+  than an unresolvable pin — so it is enumerated as a declared exception whose
+  file has to say why, and an unexplained `@main` elsewhere still fails.
+
+  Known divergences are rows, not omissions. `#485`'s exact case — a minimized
+  TypeScript and Go MCP server whose tool surface exists only as registration
+  sites — is now a fixture under `tests/fixtures/distribution_parity/` and a
+  parity row that fails today and passes the day the port lands, with
+  `xfail(strict=True)` so the exemption itself fails once it is unnecessary.
+  `#506`'s two unpublished-pin gaps are recorded the same way, against a ledger
+  of exactly the files that diverge, so a newly drifting file fails loudly
+  instead of inheriting a surface-wide excuse. Resolvability is judged offline
+  against committed release metadata; the live tag check stays in
+  `release-tag-consistency`, for the reason that job already records.
+
 - **No corpus case is graded against `insufficient_evidence` any more, and four
   `blocked` cells hold one case instead of two.** (#520, #508) A verdict exists
   to route a change somewhere: `passed` merges, `review_required` hands a human

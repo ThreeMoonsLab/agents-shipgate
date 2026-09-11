@@ -14,6 +14,7 @@ reviewer-facing artifact.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from agents_shipgate.core.findings.subject_rollup import top_findings_block
@@ -46,7 +47,7 @@ from agents_shipgate.schemas.packet import (
     SectionStatus,
     ToolSurfaceDiffSection,
 )
-from agents_shipgate.schemas.report import ReleaseDecisionItem
+from agents_shipgate.schemas.report import EvidenceGap, ReleaseDecisionItem
 
 
 def _escape(value: object) -> str:
@@ -156,7 +157,7 @@ def render_packet_markdown(
     _append_memory_isolation(lines, packet.memory_isolation)
     _append_human_in_the_loop(lines, packet.human_in_the_loop)
     _append_dynamic_scenarios(lines, packet.dynamic_scenarios)
-    _append_not_proven(lines, packet.not_proven)
+    _append_not_proven(lines, packet.not_proven, packet.release_decision.evidence_coverage.evidence_gaps)
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -465,9 +466,9 @@ def _append_tool_surface_diff(lines: list[str], section: ToolSurfaceDiffSection)
         f"{summary.tools_changed} changed"
     )
     lines.append(
-        "- Evidence gaps: "
-        f"{summary.new_findings} new finding(s), "
-        f"{summary.resolved_findings} resolved, "
+        "- Finding identities: "
+        f"{summary.new_findings} added, "
+        f"{summary.resolved_findings} absent, "
         f"{summary.accepted_debt} accepted debt"
     )
     lines.append(
@@ -482,6 +483,11 @@ def _append_tool_surface_diff(lines: list[str], section: ToolSurfaceDiffSection)
         lines.append("")
         for item in section.highlights:
             lines.append(f"- {_escape(item)}")
+    if section.notes:
+        lines.extend(["", "### Comparison limits", ""])
+        lines.extend(f"- {_escape(note)}" for note in section.notes[:3])
+        if len(section.notes) > 3:
+            lines.append(f"{len(section.notes) - 3} more notes in packet.json; inspect both reports before attributing a finding to the change.")
     lines.append("")
 
 
@@ -714,7 +720,9 @@ def _append_dynamic_scenarios(lines: list[str], section: DynamicScenariosSection
         lines.append("")
 
 
-def _append_not_proven(lines: list[str], section: NotProvenSection) -> None:
+def _append_not_proven(
+    lines: list[str], section: NotProvenSection, evidence_gaps: Sequence[EvidenceGap] = (),
+) -> None:
     lines.append("## §10 What this packet did NOT prove")
     lines.append("")
     lines.append(_escape(section.headline))
@@ -728,7 +736,7 @@ def _append_not_proven(lines: list[str], section: NotProvenSection) -> None:
         # Grouped by mechanism for the reader; packet.json keeps the raw list
         # so the count that gates stays intact (#362).
         lines.append("- Source warnings:")
-        for group in group_source_warnings(section.source_warnings):
+        for group in group_source_warnings(section.source_warnings, evidence_gaps=evidence_gaps):
             suffix = f" ({group.count} warnings)" if group.count > 1 else ""
             lines.append(f"  - {_escape(group.message)}{suffix}")
     else:
