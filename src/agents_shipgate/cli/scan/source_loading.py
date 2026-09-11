@@ -20,8 +20,12 @@ from .validation import unresolved_required_sources
 
 logger = logging.getLogger(__name__)
 
+# "not found" is the repository's shared vocabulary for an *absent* input,
+# pinned across manifest, policy-pack and baseline messages by
+# `tests/test_absent_input_messages.py`. An absent input must never be
+# described in the words used for a malformed one.
 _UNRESOLVED_SOURCE_REASONS = {
-    "missing": "does not exist",
+    "missing": "was not found",
     "outside_manifest_dir": "resolves outside the manifest directory",
 }
 

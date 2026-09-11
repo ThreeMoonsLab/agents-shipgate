@@ -75,7 +75,7 @@ def test_a_required_missing_path_is_an_input_error_for_every_reader(
     assert "Required tool source unavailable" in result.output
     # The exact declared path, so the reader knows which line to fix.
     assert "'src'" in result.output
-    assert "'agent.py'" in result.output
+    assert "'agent.py' was not found" in result.output
 
 
 @pytest.mark.parametrize("source_type", PATH_SOURCE_TYPES)

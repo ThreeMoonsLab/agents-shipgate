@@ -13,7 +13,7 @@
   absent entrypoint finish as an advisory exit-0 scan; an integration using
   execution status to tell bad input from a completed scan got a different
   answer per reader. The error names each offending source id, its declared
-  path, and whether it is missing or escapes the manifest directory.
+  path, and whether it was not found or escapes the manifest directory.
   `optional: true` sources are unchanged, keeping their warning and
   `coverage_recovery` evidence. `verify` applies the same precondition per
   tree: a base commit declaring a path absent from that tree reports
