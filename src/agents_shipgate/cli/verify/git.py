@@ -414,7 +414,12 @@ def _normalized_sha_hint(value: str | None, *, label: str) -> str | None:
     return normalized
 
 
-def detect_default_base(workspace: Path, head: str = "HEAD") -> str | None:
+def detect_default_base(
+    workspace: Path,
+    head: str = "HEAD",
+    *,
+    allow_local_when_no_remote: bool = False,
+) -> str | None:
     """Best-effort default base ref for PR-style diff enrichment.
 
     Tries the remote default branch (``origin/HEAD``) first, then remote
@@ -425,12 +430,27 @@ def detect_default_base(workspace: Path, head: str = "HEAD") -> str | None:
     selected implicitly because they are often stale in CI and worktrees;
     pass ``--base main`` explicitly when that is intended. Never fetches;
     this only reads refs that already exist in the checkout.
+
+    ``allow_local_when_no_remote`` narrows that last rule to the case it
+    was written for. A local ``main`` is refused because a remote is the
+    authority it might be stale against; where the repository has **no
+    remote at all**, there is no such authority and the local branch is
+    the only base in existence. Refusing there would leave `check` with
+    nothing to compare on a repository that was simply never pushed
+    (#649). Off by default, so `verify` keeps its behaviour exactly.
     """
 
-    return detect_default_base_with_notes(workspace, head).base
+    return detect_default_base_with_notes(
+        workspace, head, allow_local_when_no_remote=allow_local_when_no_remote
+    ).base
 
 
-def detect_default_base_with_notes(workspace: Path, head: str = "HEAD") -> DefaultBaseDetection:
+def detect_default_base_with_notes(
+    workspace: Path,
+    head: str = "HEAD",
+    *,
+    allow_local_when_no_remote: bool = False,
+) -> DefaultBaseDetection:
     """Return the implicit base plus warnings for skipped local defaults."""
 
     head_sha = commit_sha(workspace, head)
@@ -451,12 +471,30 @@ def detect_default_base_with_notes(workspace: Path, head: str = "HEAD") -> Defau
             selected_base = candidate
             selected_base_sha = sha
             break
+    if (
+        selected_base is None
+        and allow_local_when_no_remote
+        and not _has_configured_remote(workspace)
+    ):
+        for candidate in LOCAL_BASE_CANDIDATES:
+            sha = commit_sha(workspace, candidate)
+            if sha is not None and sha != head_sha:
+                selected_base = candidate
+                selected_base_sha = sha
+                break
     notes = _skipped_local_base_notes(
         workspace,
         head_sha,
         selected_base_sha=selected_base_sha,
     )
     return DefaultBaseDetection(base=selected_base, notes=notes)
+
+
+def _has_configured_remote(workspace: Path) -> bool:
+    """Whether this checkout has any remote to be stale against."""
+
+    result = _run_git(workspace, ["remote"], check=False)
+    return result.returncode == 0 and bool(result.stdout.strip())
 
 
 def _skipped_local_base_notes(

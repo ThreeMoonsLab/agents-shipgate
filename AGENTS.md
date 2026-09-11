@@ -86,6 +86,17 @@ shipgate check --agent cursor --workspace . --format agent-boundary-json
 recognized changed Codex, Claude Code, Cursor, VS Code MCP, shared trust-root,
 and GitHub workflow surface is evaluated on every run.
 
+**What a flagless run compares.** The detected default branch's merge base
+against the working tree, so committed branch work and uncommitted edits are
+one comparison. `subject.base` names the ref that was used. `--base` and
+`--head` are independent: `--base <ref>` compares that ref's merge base with
+the working tree, `--head <ref>` compares the detected base against it, and
+both together are the committed `base...head` range. `--base HEAD` restricts
+the run to uncommitted changes. On the default branch, where there is no
+other base, the working-tree comparison is the whole answer. Where no base
+can be detected at all — no remote, no `main` or `master` — the run stops and
+names `--base` rather than reporting a pass it did not establish.
+
 Read the single stdout object as `shipgate.agent_boundary_result/v1`. Switch on
 `control.state`; inspect `input_coverage`, `host_coverage`, `affected_hosts`,
 `policies`, `violations`, and `issues`; then follow `control.next_action`,
