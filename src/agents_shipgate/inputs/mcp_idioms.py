@@ -411,7 +411,7 @@ IDIOMS: tuple[RegistrationIdiom, ...] = (
         reads=(
             'A `MustTool("…", …)` call whose first argument is a string '
             "literal. The description is a `WithDescription(\u2026)` option "
-            "carrying a string literal, or a two-argument translation helper "
+            "carrying a string literal, or a complete call to a declared TranslationHelperFunc parameter "
             "such as `t(\"KEY\", \"default\")`, in which case the default is "
             "read and the key never is."
         ),
@@ -424,7 +424,7 @@ IDIOMS: tuple[RegistrationIdiom, ...] = (
         reads=(
             'A `NewTool("…", …)` call whose first argument is a string '
             "literal. The description is a `WithDescription(\u2026)` option "
-            "carrying a string literal, or a two-argument translation helper "
+            "carrying a string literal, or a complete call to a declared TranslationHelperFunc parameter "
             "such as `t(\"KEY\", \"default\")`, in which case the default is "
             "read and the key never is."
         ),
@@ -436,7 +436,8 @@ IDIOMS: tuple[RegistrationIdiom, ...] = (
         language="go",
         reads=(
             'A `Tool{…}` composite literal carrying a `Name: "…"` field, the '
-            "official Go SDK's declaration shape."
+            "official Go SDK's declaration shape. Description is read from a literal "
+            "or a complete call to a declared TranslationHelperFunc parameter."
         ),
         diff_tokens=("mcp.Tool{",),
     ),
@@ -1622,96 +1623,130 @@ def _child_braces(masked: str, open_brace: int, close: int) -> list[tuple[int, i
 #: `description=None` and earned a `SHIP-DOC-MISSING-DESCRIPTION` finding. The
 #: struct extractor below never applied: there is no `Description:` field to
 #: find, the description is an argument to an option.
-_GO_WITH_DESCRIPTION_RE = re.compile(r"(?<![\w])With(?:Tool)?Description\s*\(\s*")
-
-#: A two-argument call whose arguments are both string literals, e.g.
-#: `t("TOOL_GET_JOB_DESCRIPTION", "Get details of a workflow job.")`. Every
-#: description in `github-mcp-server` is wrapped this way.
-_GO_HELPER_CALL_RE = re.compile(r"(?<![\w.])[A-Za-z_]\w*\s*\(\s*")
-
-#: What a translation *key* looks like: a lookup token, not prose. Requiring
-#: it is what keeps this from reading `wrap("a", "b")` as a description and
-#: publishing `b` as documentation its author never wrote.
-#:
-#: Two shapes are keys and nothing else is: screaming-snake
-#: (`TOOL_GET_JOB_DESCRIPTION`, what `github-mcp-server` uses) and dotted
-#: (`tools.get_job.description`, the other common i18n convention). A bare
-#: word like `a` is neither, and prose is excluded by both — a key has no
-#: spaces.
+_GO_WITH_DESCRIPTION_RE = re.compile(
+    r"(?:[A-Za-z_]\w*\.)?With(?:Tool)?Description\s*\(\s*"
+)
+_GO_HELPER_CALL_RE = re.compile(r"(?P<helper>[A-Za-z_]\w*)\s*\(\s*")
+_GO_FUNCTION_RE = re.compile(r"\bfunc\b\s*(?:[A-Za-z_]\w*\s*)?\(")
 _TRANSLATION_KEY_RE = re.compile(
     r"\A(?:[A-Z0-9][A-Z0-9_]*[A-Z0-9]|[\w-]+(?:\.[\w-]+)+)\Z"
 )
 
 
-def _go_translated_default(source: MaskedSource, index: int) -> str | None:
-    """The English default inside a translation helper, or ``None``.
+def _go_arguments(source: MaskedSource, opening: int, close: int) -> list[tuple[int, int]]:
+    """Whole argument ranges, excluding an optional Go trailing comma."""
+    result: list[tuple[int, int]] = []
+    start, depth = opening + 1, 0
+    for index in range(start, close - 1):
+        char = source.masked[index]
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        elif char == "," and depth == 0:
+            result.append((start, index))
+            start = index + 1
+    result.append((start, close - 1))
+    trimmed: list[tuple[int, int]] = []
+    for start, end in result:
+        start = source.skip_space(start)
+        while end > start and source.masked[end - 1].isspace():
+            end -= 1
+        if start < end:
+            trimmed.append((start, end))
+    return trimmed
 
-    Deliberately narrow. The call must pass *exactly two string literals*,
-    the first must look like a lookup key rather than prose, and only the
-    second is read. Both halves of that matter: `wrap(cfg, x)` is refused for
-    having a non-literal argument, and `wrap("a", "b")` is refused because
-    `a` is not a key — without that second test this would publish `b` as the
-    documentation of a tool whose author never wrote it.
 
-    Reading the *key* instead would be worse than reading nothing: it would
-    publish `TOOL_GET_JOB_DESCRIPTION` to a human as the tool's documentation.
+def _go_translation_parameter(source: MaskedSource, helper: str, index: int) -> bool:
+    """Recognize the declared fallback-helper contract, not arbitrary calls.
+
+    GitHub's tool constructors receive a TranslationHelperFunc parameter.
+    A function merely accepting two strings establishes no default-value
+    semantics. Unbound aliases, shadowed parameters and unsupported Go
+    signatures are deliberately left unread.
     """
+    cursor = index
+    while (position := source.masked.rfind("func", 0, cursor)) >= 0:
+        cursor = position
+        match = _GO_FUNCTION_RE.match(source.masked, position)
+        if match is None:
+            continue
+        opening = source.masked.rfind("(", match.start(), match.end())
+        close = _matching_close(source.masked, opening, "(", ")")
+        if close is None:
+            continue
+        body = source.masked.find("{", close, index)
+        body_end = _matching_close(source.masked, body, "{", "}") if body >= 0 else None
+        if body_end is None or not body < index < body_end:
+            continue
+        typed = re.search(
+            rf"(?<![\w.]){re.escape(helper)}\s+(?:[A-Za-z_]\w*\.)?TranslationHelperFunc\b",
+            source.masked[opening + 1:close - 1],
+        )
+        reassigned = re.search(
+            rf"(?<![\w.]){re.escape(helper)}\s*(?::=|=(?!=))",
+            source.masked[body + 1:index],
+        )
+        return typed is not None and reassigned is None
+    return False
 
-    start = source.skip_space(index)
+
+def _go_translated_default(source: MaskedSource, start: int, end: int) -> str | None:
+    """Read a complete call to a declared translation-helper parameter."""
     match = _GO_HELPER_CALL_RE.match(source.masked, start)
-    if match is None:
+    if match is None or not _go_translation_parameter(source, match["helper"], start):
         return None
-    open_paren = source.masked.rfind("(", match.start(), match.end())
-    close = _matching_close(source.masked, open_paren, "(", ")")
-    if close is None:
+    opening = source.masked.rfind("(", match.start(), match.end())
+    close = _matching_close(source.masked, opening, "(", ")")
+    if close != end:
         return None
-    key_found, key, key_end = source.literal_at(match.end())
-    if not key_found or not key or not _literal_is_whole_value(source, key_end, ","):
+    args = _go_arguments(source, opening, close)
+    if len(args) != 2:
         return None
-    if not _TRANSLATION_KEY_RE.match(key):
-        return None
-    after_key = source.skip_space(key_end)
-    if after_key >= len(source.masked) or source.masked[after_key] != ",":
-        return None
-    found, value, end = source.literal_at(after_key + 1)
-    if not found or not value or not _literal_is_whole_value(source, end, ")"):
-        return None
-    # Exactly two arguments: what follows the second literal closes the call.
-    # `_matching_close` returns the index *past* the `)`, so the literal ends
-    # where the call does only when `skip_space(end) + 1 == close`.
-    return value if source.skip_space(end) + 1 == close else None
+    values: list[str] = []
+    for arg_start, arg_end in args:
+        found, value, literal_end = source.literal_at(arg_start)
+        if not found or not value or literal_end != arg_end:
+            return None
+        values.append(value)
+    return values[1] if _TRANSLATION_KEY_RE.fullmatch(values[0]) else None
 
 
-def _go_option_description(
-    source: MaskedSource, open_paren: int, close: int
-) -> str | None:
-    """The description an option-function registration carries."""
-
-    for match in _GO_WITH_DESCRIPTION_RE.finditer(source.masked, open_paren, close):
-        found, value, end = source.literal_at(match.end())
-        if found and value and _literal_is_whole_value(source, end, ")"):
-            return value
-        if not found:
-            translated = _go_translated_default(source, match.end())
-            if translated:
-                return translated
-    return None
+def _go_option_description(source: MaskedSource, open_paren: int, close: int) -> str | None:
+    """Read direct options in SDK order; a later unknown value clears an earlier one."""
+    description: str | None = None
+    for start, end in _go_arguments(source, open_paren, close)[1:]:
+        match = _GO_WITH_DESCRIPTION_RE.match(source.masked, start)
+        if match is None:
+            continue
+        description = None
+        opening = source.masked.rfind("(", match.start(), match.end())
+        option_close = _matching_close(source.masked, opening, "(", ")")
+        if option_close != end:
+            continue
+        args = _go_arguments(source, opening, option_close)
+        if len(args) != 1:
+            continue
+        arg_start, arg_end = args[0]
+        description = _go_description_value(source, arg_start, arg_end)
+    return description
 
 
 _GO_STRUCT_DESCRIPTION_FIELD_RE = re.compile(r"(?<![\w])Description\s*:\s*")
 
 
-def _go_struct_description(
-    source: MaskedSource, open_brace: int, close: int
-) -> str | None:
-    for match in _GO_STRUCT_DESCRIPTION_FIELD_RE.finditer(
-        source.masked, open_brace + 1, close
-    ):
-        if _brace_depth(source.masked, open_brace, match.start()) != 1:
-            continue
-        found, value, literal_end = source.literal_at(match.end())
-        if found and value and _literal_is_whole_value(source, literal_end, ",}"):
-            return value
+def _go_description_value(source: MaskedSource, start: int, end: int) -> str | None:
+    found, value, literal_end = source.literal_at(start)
+    if found:
+        return (value or None) if literal_end == end else None
+    return _go_translated_default(source, start, end)
+
+
+def _go_struct_description(source: MaskedSource, open_brace: int, close: int) -> str | None:
+    for start, end in _go_arguments(source, open_brace, close):
+        match = _GO_STRUCT_DESCRIPTION_FIELD_RE.match(source.masked, start)
+        if match is not None:
+            return _go_description_value(source, source.skip_space(match.end()), end)
     return None
 
 

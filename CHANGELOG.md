@@ -2,42 +2,17 @@
 
 ## Unreleased
 
-- Read a Go tool's description when it is an option, and when it is
-  translated. `mark3labs/mcp-go` registers a tool as a call carrying option
-  functions — `mcp.NewTool("get_job", mcp.WithDescription(...))` — and the
-  only Go description extractor looked for a `Description:` field in a
-  struct literal, which that shape does not have. So every tool registered
-  this way read `description=None`, plain literals included. On top of
-  that, `github/github-mcp-server` wraps all 114 of its descriptions in a
-  translation helper, `t("TOOL_GET_JOB_DESCRIPTION", "Get details ...")`,
-  so even a field reader would have found a call rather than a string. The
-  result was 114 `SHIP-DOC-MISSING-DESCRIPTION` findings against a
-  repository that documents every tool it ships, which is the kind of noise
-  that costs a reader's trust in everything else on the page.
+- Read Go MCP tool descriptions from struct `Description` fields and
+  direct `WithDescription`/`WithToolDescription` options. Later description options replace earlier
+  ones, including empty or computed values. Nested calls and partial
+  expressions cannot supply the parent tool's description.
 
-  `WithDescription`/`WithToolDescription` is now read for both Go
-  call-site idioms, and a translation helper is unwrapped to its default.
-  The unwrapping is deliberately narrow: the call must pass exactly two
-  string literals and the first must look like a lookup key — screaming
-  snake or dotted — so `wrap("some prose here", "invented")` is refused
-  rather than published as documentation its author never wrote. The key
-  itself is never read as the description; printing
-  `TOOL_GET_JOB_DESCRIPTION` at a human would be worse than printing
-  nothing. A computed description, a qualified call such as
-  `fmt.Sprintf(...)`, a three-argument call, a variable key, and a literal
-  concatenated with something else all still read nothing.
-
-  `tools/shipgate-detect.py` reads these idioms a second time, and the
-  shared conformance corpus caught the divergence the moment the engine
-  reader learned something the detector had not: both now carry the same
-  extractor, and the corpus keeps them honest.
-
-  `tests/test_go_tool_descriptions.py` pins three reads and seven refusals;
-  5 of its 13 cases fail against pre-fix `main`, and the 8 that pass there
-  are the refusals, which were already correct. The idioms' published
-  `reads` strings say what they now extract. First increment of #658; the
-  annotation half — `ReadOnlyHint` in source, and protocol-default effects
-  as coverage rows rather than findings — is not in this change.
+  A complete two-string call to a declared `TranslationHelperFunc` parameter
+  can supply its literal default. An arbitrary function with key-shaped
+  arguments, an unbound helper, or a shadowed/reassigned parameter cannot.
+  Go trailing commas and comments are supported. The package reader and
+  zero-install detector share regression inputs for these boundaries.
+  First increment of #658; source annotation projection remains separate.
 
 - Make every emitted next action lead somewhere, and prove it. Following
   `control.next_action` on a repository with recognized host configuration

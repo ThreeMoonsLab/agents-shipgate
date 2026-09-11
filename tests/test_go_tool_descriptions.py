@@ -28,6 +28,7 @@ import pytest
 
 from agents_shipgate.inputs.mcp_server_source import load_mcp_server_source
 from agents_shipgate.schemas.manifest import ToolSourceConfig
+from tests.mcp_idiom_corpus import GO_DESCRIPTION_CASES
 
 GO_MOD = "module github.com/example/srv\nrequire github.com/mark3labs/mcp-go v0.1.0\n"
 
@@ -88,7 +89,7 @@ CASES: tuple[tuple[str, str, str | None], ...] = (
 def test_description_is_read_or_refused(
     tmp_path: Path, case: str, expression: str, expected: str | None
 ) -> None:
-    body = f'func F() mcp.Tool {{ return mcp.NewTool("{case}", mcp.WithDescription({expression})) }}\n'
+    body = f'func F(t TranslationHelperFunc) mcp.Tool {{ return mcp.NewTool("{case}", mcp.WithDescription({expression})) }}\n'
 
     assert _tools(tmp_path, body) == {case: expected}
 
@@ -125,7 +126,7 @@ def test_every_tool_in_a_translated_server_is_documented(tmp_path: Path) -> None
     """
 
     body = "".join(
-        f'func F{index}() mcp.Tool {{ return mcp.NewTool("tool_{index}", '
+        f'func F{index}(t TranslationHelperFunc) mcp.Tool {{ return mcp.NewTool("tool_{index}", '
         f'mcp.WithDescription(t("TOOL_{index}_DESCRIPTION", "Tool {index} does a thing."))) }}\n'
         for index in range(12)
     )
@@ -150,3 +151,8 @@ func Register(server *mcp.Server) {
 """
 
     assert _tools(tmp_path, body) == {"read_dashboard": "Read one dashboard."}
+
+
+@pytest.mark.parametrize("case,body,expected", GO_DESCRIPTION_CASES, ids=[case[0] for case in GO_DESCRIPTION_CASES])
+def test_description_argument_boundaries(tmp_path: Path, case: str, body: str, expected: dict) -> None:
+    assert _tools(tmp_path, body) == expected
