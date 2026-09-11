@@ -2019,3 +2019,34 @@ SOURCE_CASES: tuple[SourceCase, ...] = (
         for name, entry in sorted(REGRESSIONS.items())
     ),
 )
+
+
+# Go description semantics are shared with the zero-install reader, including
+# the refusals that must not turn an unrelated string into documentation.
+GO_DESCRIPTION_CASES = (
+    ("last_option_wins", 'func F() mcp.Tool { return mcp.NewTool("tool", mcp.WithDescription("old"), mcp.WithDescription("actual")) }', {"tool": "actual"}),
+    ("computed_override", 'func F() mcp.Tool { return mcp.NewTool("tool", mcp.WithDescription("old"), mcp.WithDescription(compute())) }', {"tool": None}),
+    ("empty_override", 'func F() mcp.Tool { return mcp.NewTool("tool", mcp.WithDescription("old"), mcp.WithDescription("")) }', {"tool": None}),
+    ("nested_unapplied_option", 'func F() mcp.Tool { return mcp.NewTool("tool", func(tool *mcp.Tool) { _ = mcp.WithDescription("not applied") }) }', {"tool": None}),
+    ("translated_suffix", 'func F(t TranslationHelperFunc) mcp.Tool { return mcp.NewTool("tool", mcp.WithDescription(t("TOOL_KEY", "partial") + suffix)) }', {"tool": None}),
+    ("arbitrary_key_shaped_helper", 'func F() mcp.Tool { return mcp.NewTool("tool", mcp.WithDescription(wrap("TOOL_KEY", "invented"))) }', {"tool": None}),
+    ("unbound_t", 'func F() mcp.Tool { return mcp.NewTool("tool", mcp.WithDescription(t("TOOL_KEY", "invented"))) }', {"tool": None}),
+    ("wrong_t_type", 'func F(t func(string, string) string) mcp.Tool { return mcp.NewTool("tool", mcp.WithDescription(t("TOOL_KEY", "invented"))) }', {"tool": None}),
+    ("declared_renamed_helper", 'func F(localize translations.TranslationHelperFunc) mcp.Tool { return mcp.NewTool("tool", mcp.WithDescription(localize("TOOL_KEY", "actual"))) }', {"tool": "actual"}),
+    ("reassigned_helper", 'func F(t TranslationHelperFunc) mcp.Tool { t = other; return mcp.NewTool("tool", mcp.WithDescription(t("TOOL_KEY", "invented"))) }', {"tool": None}),
+    ("shadowed_helper", 'func F(t TranslationHelperFunc) mcp.Tool { return func(t func(string, string) string) mcp.Tool { return mcp.NewTool("tool", mcp.WithDescription(t("TOOL_KEY", "invented"))) }(other) }', {"tool": None}),
+    ("trailing_commas", 'func F(t TranslationHelperFunc) mcp.Tool { return mcp.NewTool("tool", mcp.WithDescription(t("TOOL_KEY", "actual",),),) }', {"tool": "actual"}),
+    ("literal_comments", 'func F() mcp.Tool { return mcp.NewTool("tool", mcp.WithDescription("actual" /* note */ ,)) }', {"tool": "actual"}),
+    ("default_comments", 'func F(t TranslationHelperFunc) mcp.Tool { return mcp.NewTool("tool", mcp.WithDescription(t("TOOL_KEY" /* note */, "actual" /* default */ ,))) }', {"tool": "actual"}),
+    ("translated_struct", 'func F(t translations.TranslationHelperFunc) mcp.Tool { return mcp.Tool{Name: "tool", Description: t("TOOL_KEY", "actual")} }', {"tool": "actual"}),
+    ("computed_struct_suffix", 'func F(t TranslationHelperFunc) mcp.Tool { return mcp.Tool{Name: "tool", Description: t("TOOL_KEY", "partial") + suffix} }', {"tool": None}),
+    ("unrelated_struct_helper", 'func F() mcp.Tool { return mcp.Tool{Name: "tool", Description: wrap("TOOL_KEY", "invented")} }', {"tool": None}),
+    ("nested_struct_field", 'func F() mcp.Tool { return mcp.Tool{Name: "tool", InputSchema: Schema{Description: "property docs"}} }', {"tool": None}),
+    ("func_prefix_is_not_a_scope", 'func F(t TranslationHelperFunc) mcp.Tool { return funcwrap(mcp.NewTool("tool", mcp.WithDescription(t("TOOL_KEY", "actual")))) }', {"tool": "actual"}),
+    ("callback_type_parameter_is_not_local", 'var t = wrap\nfunc F(callback func(t TranslationHelperFunc) string) mcp.Tool { return mcp.NewTool("tool", mcp.WithDescription(t("TOOL_KEY", "invented"))) }', {"tool": None}),
+    ("function_type_has_no_body", 'var t = wrap\ntype Factory func(t TranslationHelperFunc) string\nvar tools = []mcp.Tool{mcp.NewTool("tool", mcp.WithDescription(t("TOOL_KEY", "invented")))}', {"tool": None}),
+)
+SOURCE_CASES += tuple(
+    SourceCase("go_description:" + name, "go", "package p\n" + body)
+    for name, body, _expected in GO_DESCRIPTION_CASES
+)
