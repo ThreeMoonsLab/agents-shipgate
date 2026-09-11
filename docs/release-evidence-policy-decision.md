@@ -528,6 +528,46 @@ build that does claim to meet one.
       [`release-runbook.md`](release-runbook.md) § Cadence, and the number is
       printed by `scripts/release_cadence.py` on every CI run.
 
+## Amendment 4 — the advisory line has its own cadence, and no authority
+
+Amendment 2 admitted the unqualified preview channel as an exception to a
+blocked tag. This amendment makes it a **line** with a stated promise and a
+measured interval, because treating it as an exception is what let it be
+forgotten.
+
+**The rule.** Two lines ship from one engine:
+
+- the **advisory line** publishes `diff`, `check`, `audit --host`, drift and
+  advisory PR comments through the preview pre-release, on a 14-day interval;
+- the **qualified gate line** publishes blocking verdicts, receipts and
+  attestations through a `v*` tag, on evidence only.
+
+**Why an advisory pre-release needs no qualification.** Every bar in this
+document exists to justify one thing: a verdict that may stop a merge. The
+advisory line makes no such claim. It publishes rows a reviewer reads and a
+verdict it explicitly does not gate on, so there is no authority for the
+qualification to underwrite. Requiring it would not make the advisory line
+safer; it would only keep the engine out of reach, which is the state
+Amendment 2 was written to end.
+
+**What is not weakened.** No gate-line bar moves. The preview stays outside
+the `v*` namespace, still carries a PEP 440 local segment a public index
+must refuse, still ships no qualification artifact, and still says in its own
+release body what it is not. A preview cannot satisfy
+`release_publication.build_manifest`, which requires `tag == v<version>`.
+
+**How each is measured.** `scripts/release_cadence.py` reports both, from one
+renderer, counting `v*` for the gate line and `preview-*` for the advisory
+line. The separation is load-bearing: counting previews in the release metric
+would let the channel that exists *because* the release cadence slipped
+report that cadence as kept.
+
+**Why neither fails a pull request.** Both lines warn and neither blocks, for
+the reason already recorded for the release cadence: whichever change happens
+to arrive after an interval lapses is not the one that can cut a release, and
+failing it punishes the wrong author. `--fail-when-overdue` exists for an
+operator or a scheduled job, and now covers both lines.
+
 ## Amendment 3 — `insufficient_evidence` leaves the ground-truth vocabulary, and four cells hold one case
 
 **Status: decided.**

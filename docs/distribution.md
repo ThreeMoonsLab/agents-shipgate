@@ -4,6 +4,17 @@ These items require release infrastructure, registry credentials, domains, or Gi
 
 ## Package Channels
 
+| Line | Carries | Install | Promises | Cadence |
+| --- | --- | --- | --- | --- |
+| **Advisory** | `diff`, `check`, `audit --host`, drift, advisory PR comments | the unqualified preview pre-release | plain-language capability rows; **no blocking authority** | 14 days |
+| **Qualified gate** | blocking verdicts, receipts, attestations | a `v*` release tag | every bar in [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) | on evidence only |
+
+The two cadences are measured separately by `scripts/release_cadence.py`,
+which counts `v*` tags for the gate line and `preview-*` for the advisory
+line. Counting previews in the release metric would let the channel that
+exists *because* the release cadence slipped report that cadence as kept.
+
+
 - `agents-shipgate` is published on PyPI.
 - Pinned GitHub Action release tags are published, including `v0.15.0`.
 - GitHub Releases attach the independently qualified wheel, SBOM,

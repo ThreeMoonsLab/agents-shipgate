@@ -24,6 +24,7 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -38,6 +39,16 @@ else:  # ``python scripts/release_cadence.py``
 # restating them.
 INTERVAL_DAYS = 30
 OVERDUE_DAYS = 45
+
+# The advisory line's own interval (#648). It is a separate measurement, not
+# a softer reading of the same one: the qualified line answers "when did we
+# last publish something that may block a merge", and the advisory line
+# answers "when could an outsider last install the engine this repository
+# documents". Those went out of step by two months, and one number could not
+# have shown it.
+ADVISORY_PREFIX = "preview-"
+ADVISORY_INTERVAL_DAYS = 14
+ADVISORY_OVERDUE_DAYS = 21
 
 _STATUS_NOTE = {
     "current": "within the {interval}-day interval",
@@ -57,6 +68,9 @@ class Cadence:
     interval_days: int
     overdue_days: int
     status: str
+    #: Which line this measures. Carried on the value so the one renderer
+    #: can serve both without either surface restating the other's name.
+    label: str = "Release cadence"
 
     @property
     def note(self) -> str:
@@ -77,9 +91,9 @@ class Cadence:
 
     def as_line(self) -> str:
         if self.status == "unknown":
-            return f"Release cadence: unknown -- {self.note}."
+            return f"{self.label}: unknown -- {self.note}."
         return (
-            f"Release cadence: {self.days_since_release} days since "
+            f"{self.label}: {self.days_since_release} days since "
             f"{self.latest_release_tag} ({self.tagged_at}) -- {self.note}."
         )
 
@@ -89,7 +103,7 @@ class Cadence:
         days = "unknown" if self.days_since_release is None else str(self.days_since_release)
         return "\n".join(
             [
-                "## Release cadence",
+                f"## {self.label}",
                 "",
                 "| | |",
                 "| --- | --- |",
@@ -101,6 +115,21 @@ class Cadence:
                 "",
             ]
         )
+
+
+def is_advisory_tag(ref: str) -> bool:
+    """True for an advisory preview ref.
+
+    The preview channel publishes outside the ``v*`` namespace so it can
+    never be read as a qualified release. That separation is what makes a
+    second cadence measurable at all: counting previews in the release
+    metric would let the channel that exists *because* the release cadence
+    slipped report that cadence as kept.
+    """
+
+    return ref.startswith(ADVISORY_PREFIX) and is_release_version(
+        ref[len(ADVISORY_PREFIX):].split("+", 1)[0]
+    )
 
 
 def is_release_tag(ref: str) -> bool:
@@ -118,8 +147,10 @@ def is_release_tag(ref: str) -> bool:
     return ref.startswith("v") and is_release_version(ref[1:])
 
 
-def read_release_tags(repo: Path) -> list[tuple[str, int]]:
-    """Every release tag in ``repo`` with its creation time, newest first."""
+def read_release_tags(
+    repo: Path, *, predicate: Callable[[str], bool] = is_release_tag
+) -> list[tuple[str, int]]:
+    """Every tag matching ``predicate``, with its creation time, newest first."""
 
     result = subprocess.run(  # noqa: S603 - fixed argv, no shell
         ["git", "for-each-ref", "--format=%(refname:strip=2)\t%(creatordate:unix)", "refs/tags"],
@@ -133,7 +164,7 @@ def read_release_tags(repo: Path) -> list[tuple[str, int]]:
     tags: list[tuple[str, int]] = []
     for line in result.stdout.splitlines():
         ref, _, when = line.partition("\t")
-        if not is_release_tag(ref):
+        if not predicate(ref):
             continue
         try:
             tags.append((ref, int(when)))
@@ -148,6 +179,7 @@ def assess(
     now: int,
     interval_days: int = INTERVAL_DAYS,
     overdue_days: int = OVERDUE_DAYS,
+    label: str = "Release cadence",
 ) -> Cadence:
     """Classify the newest release tag against the approved interval.
 
@@ -157,7 +189,7 @@ def assess(
     """
 
     if not tags:
-        return Cadence(None, None, None, interval_days, overdue_days, "unknown")
+        return Cadence(None, None, None, interval_days, overdue_days, "unknown", label)
     ref, when = max(tags, key=lambda item: item[1])
     # Truncated, not rounded: "56 days since" must never report 57 because the
     # tag was cut in the afternoon.
@@ -169,7 +201,7 @@ def assess(
     else:
         status = "current"
     tagged_at = datetime.fromtimestamp(when, tz=UTC).date().isoformat()
-    return Cadence(ref, tagged_at, days, interval_days, overdue_days, status)
+    return Cadence(ref, tagged_at, days, interval_days, overdue_days, status, label)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -191,24 +223,50 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    cadence = assess(read_release_tags(args.repo), now=int(datetime.now(tz=UTC).timestamp()))
+    now = int(datetime.now(tz=UTC).timestamp())
+    cadence = assess(read_release_tags(args.repo), now=now)
+    advisory = assess(
+        read_release_tags(args.repo, predicate=is_advisory_tag),
+        now=now,
+        interval_days=ADVISORY_INTERVAL_DAYS,
+        overdue_days=ADVISORY_OVERDUE_DAYS,
+        label="Advisory cadence",
+    )
 
+    lines = (cadence, advisory)
     if args.json:
-        sys.stdout.write(json.dumps(cadence.as_dict(), indent=2, sort_keys=True) + "\n")
+        sys.stdout.write(
+            json.dumps(
+                {"release": cadence.as_dict(), "advisory": advisory.as_dict()},
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        )
     else:
-        sys.stdout.write(cadence.as_line() + "\n")
+        for measured in lines:
+            sys.stdout.write(measured.as_line() + "\n")
 
     if args.github:
         summary = os.environ.get("GITHUB_STEP_SUMMARY")
         if summary:
             with open(summary, "a", encoding="utf-8") as handle:
-                handle.write(cadence.as_markdown())
-        if cadence.status != "current":
-            # A warning annotation, never a failure: see the module docstring.
-            sys.stdout.write(f"::warning title=Release cadence::{cadence.as_line()}\n")
+                for measured in lines:
+                    handle.write(measured.as_markdown())
+        for measured in lines:
+            if measured.status != "current":
+                # A warning annotation, never a failure: see the module
+                # docstring. The reasoning covers the advisory line too —
+                # whichever pull request happens to arrive after the interval
+                # lapses is not the one that can cut a release.
+                sys.stdout.write(
+                    f"::warning title={measured.label}::{measured.as_line()}\n"
+                )
 
-    if args.fail_when_overdue and cadence.status == "overdue":
-        sys.stderr.write(f"Release cadence defect: {cadence.as_line()}\n")
+    overdue = [measured for measured in lines if measured.status == "overdue"]
+    if args.fail_when_overdue and overdue:
+        for measured in overdue:
+            sys.stderr.write(f"{measured.label} defect: {measured.as_line()}\n")
         return 1
     return 0
 
