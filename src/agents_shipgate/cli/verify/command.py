@@ -473,6 +473,24 @@ def verify(
     raise typer.Exit(exit_code)
 
 
+def _unevaluated_verdict_word(verifier) -> str:
+    """The human word for a run that produced no release decision.
+
+    "failed" was the catch-all, so a preview that simply did not evaluate a
+    gate — no manifest, nothing to gate — printed "Agents Shipgate verify:
+    failed" directly above "Exit code: 0". Nothing had failed; the machine
+    fields said so already (`execution: "not_run"`,
+    `applicability: "not_evaluated"`), and only the human line disagreed
+    with them (#650).
+    """
+
+    if verifier.head_status == "skipped":
+        return "skipped"
+    if (getattr(verifier, "execution", None) or verifier.head_status) == "not_run":
+        return "not evaluated"
+    return "failed"
+
+
 def _emit_verify_stdout(
     verifier: VerifierArtifact,
     *,
@@ -495,7 +513,7 @@ def _emit_verify_stdout(
         verdict = (
             verifier.release_decision.decision
             if verifier.release_decision is not None
-            else ("skipped" if verifier.head_status == "skipped" else "failed")
+            else _unevaluated_verdict_word(verifier)
         )
         # Lead with the operational answer. The release verdict below is the
         # gate's word on the change; these lines are the reader's word on what

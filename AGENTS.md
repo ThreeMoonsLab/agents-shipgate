@@ -73,6 +73,21 @@ agents-shipgate scan -c shipgate.yaml
 
 Reports land at `agents-shipgate-reports/report.{md,json}`.
 
+**What did this change do to the agent's authority?** — one row per host
+grant, no manifest and no committed baseline required:
+
+```bash
+shipgate diff --workspace .
+```
+
+It compares the detected default branch's merge base with the working tree,
+materialising the base tree and reading it with the same host readers, then
+handing both inventories to the comparator `audit --host --drift` already
+uses. Rows carry before, after, direction, why it matters and the engine's
+severity; `⚠` marks the changes the engine called expansions of authority.
+`--json` emits the same rows. It publishes no verdict: static configuration
+is what the files permit, not what the agent did.
+
 **Local control for coding agents** — before reporting an agent-capability
 change complete, run the local control loop and parse stdout JSON:
 
