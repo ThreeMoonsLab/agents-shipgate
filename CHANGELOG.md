@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+- Compare against the detected base by default in `check`, so a branch's
+  committed work is visible without flags. `shipgate check` compared the
+  working tree with `HEAD`, so on a branch whose changes were already
+  committed it answered `allow` with an empty change set — truthfully
+  reporting "nothing is uncommitted" to someone asking "what does this
+  branch change". Reaching the real answer took `--base <ref> --head HEAD`,
+  a pair the help never suggested and which the CLI rejected unless both
+  were given. A flagless run now compares the detected default branch's
+  merge base against the working tree, one comparison spanning committed
+  and uncommitted work, and `subject.base` names the ref it used. `--base`
+  and `--head` are independent; `--base HEAD` keeps the previous
+  uncommitted-only comparison. On the default branch the working-tree
+  answer is complete and unchanged. Where no base can be detected — no
+  remote and no `main` or `master` — the run stops and names `--base`
+  rather than reporting a pass it did not establish. The implicit local
+  fallback is narrow on purpose: a local `main` is refused while a remote
+  exists, because the remote is the authority it might be stale against,
+  and used only where the repository has no remote at all. `verify`'s own
+  base detection is untouched, and the emitted `verify` command now accepts
+  either ref alone so it cannot disagree with the check that emitted it
+  (#649).
+
+- Stop inventorying machine-written tool caches, so an ordinary concurrent
+  test run no longer collapses the host inventory. `check` run while pytest
+  was active returned `human_review_required` with *"Directory inventory
+  could not complete at tests/__pycache__"*; the refusal was correct — the
+  identity reader revalidates every directory it scanned, and a `.pyc`
+  landing between the two reads really is a directory that changed while it
+  was read — but a bytecode cache should never have been an identity-bound
+  input. `__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`,
+  `.tox` and `.nox` are excluded from the repository walk for the same
+  reason `.venv`, `node_modules` and `.git` already are: no host reads
+  configuration from one, so inventorying them buys no coverage. Nothing
+  else is softened — a recognized host directory that changes mid-read is
+  still refused with no grants, an unreadable one is still fail-closed, and
+  a quiescent rerun still performs a real read rather than serving a cached
+  denial or a cached completion (#598).
+
 - Freeze the report contract at `1.0` and publish what that number promises.
   `report_schema_version` moves `0.43` → `1.0` and runtime contract `33` → `34`;
   `minimum_control_contract_version` stays `21`. The shape does not change:
@@ -44,44 +82,6 @@
   lists. `explain-finding` refuses a report whose findings carry no
   `agent_action` rather than explaining a null one, the way `findings` already
   refuses a missing `provenance_kind` (#569).
-
-- Compare against the detected base by default in `check`, so a branch's
-  committed work is visible without flags. `shipgate check` compared the
-  working tree with `HEAD`, so on a branch whose changes were already
-  committed it answered `allow` with an empty change set — truthfully
-  reporting "nothing is uncommitted" to someone asking "what does this
-  branch change". Reaching the real answer took `--base <ref> --head HEAD`,
-  a pair the help never suggested and which the CLI rejected unless both
-  were given. A flagless run now compares the detected default branch's
-  merge base against the working tree, one comparison spanning committed
-  and uncommitted work, and `subject.base` names the ref it used. `--base`
-  and `--head` are independent; `--base HEAD` keeps the previous
-  uncommitted-only comparison. On the default branch the working-tree
-  answer is complete and unchanged. Where no base can be detected — no
-  remote and no `main` or `master` — the run stops and names `--base`
-  rather than reporting a pass it did not establish. The implicit local
-  fallback is narrow on purpose: a local `main` is refused while a remote
-  exists, because the remote is the authority it might be stale against,
-  and used only where the repository has no remote at all. `verify`'s own
-  base detection is untouched, and the emitted `verify` command now accepts
-  either ref alone so it cannot disagree with the check that emitted it
-  (#649).
-
-- Stop inventorying machine-written tool caches, so an ordinary concurrent
-  test run no longer collapses the host inventory. `check` run while pytest
-  was active returned `human_review_required` with *"Directory inventory
-  could not complete at tests/__pycache__"*; the refusal was correct — the
-  identity reader revalidates every directory it scanned, and a `.pyc`
-  landing between the two reads really is a directory that changed while it
-  was read — but a bytecode cache should never have been an identity-bound
-  input. `__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`,
-  `.tox` and `.nox` are excluded from the repository walk for the same
-  reason `.venv`, `node_modules` and `.git` already are: no host reads
-  configuration from one, so inventorying them buys no coverage. Nothing
-  else is softened — a recognized host directory that changes mid-read is
-  still refused with no grants, an unreadable one is still fail-closed, and
-  a quiescent rerun still performs a real read rather than serving a cached
-  denial or a cached completion (#598).
 
 - Refuse a required tool source whose declared path is unavailable, once,
   for every reader. `scan` applies one availability precondition before any
