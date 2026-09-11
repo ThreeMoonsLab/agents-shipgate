@@ -268,6 +268,22 @@ interactive users.
 or escaped required sources regardless of `--json`, because once an
 agent moves past doctor, those are real scan failures.
 
+That refusal is **one precondition applied before any adapter runs**,
+reading the same resolver this diagnostic uses, so scan and doctor agree
+by construction rather than by each reader deciding for itself. Before
+#585 they did decide for themselves: the shared loaders and
+`mcp_server_source` raised, while `openai_agents_sdk` returned a source
+warning and let a required, absent entrypoint finish as an advisory
+exit-0 scan. The message names each offending source id, its declared
+path and whether it is missing or escapes the manifest directory.
+
+`optional: true` sources are outside this rule by design — they keep
+their source warning and `coverage_recovery` evidence, and the scan
+completes. `verify` applies the precondition to every tree it scans; a
+base commit whose manifest declares a path absent from that tree gives
+`base_status: "scan_failed"` with the reason in `base_notes`, no
+capability delta, and an unchanged head gate.
+
 ## Adoption rung
 
 Every `doctor --json` payload also carries `adoption`, a projection of where
