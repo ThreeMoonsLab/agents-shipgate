@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Callable
@@ -127,9 +128,19 @@ def is_advisory_tag(ref: str) -> bool:
     slipped report that cadence as kept.
     """
 
-    return ref.startswith(ADVISORY_PREFIX) and is_release_version(
-        ref[len(ADVISORY_PREFIX):].split("+", 1)[0]
-    )
+    if not ref.startswith(ADVISORY_PREFIX):
+        return False
+    version, separator, local = ref[len(ADVISORY_PREFIX):].partition("+")
+    if not separator or not is_release_version(version):
+        return False
+    match = re.fullmatch(r"preview\.(\d{8})\.g[0-9a-f]{7}", local)
+    if match is None:
+        return False
+    try:
+        datetime.strptime(match[1], "%Y%m%d")
+    except ValueError:
+        return False
+    return True
 
 
 def is_release_tag(ref: str) -> bool:
@@ -237,7 +248,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         sys.stdout.write(
             json.dumps(
-                {"release": cadence.as_dict(), "advisory": advisory.as_dict()},
+                {**cadence.as_dict(), "advisory": advisory.as_dict()},
                 indent=2,
                 sort_keys=True,
             )
