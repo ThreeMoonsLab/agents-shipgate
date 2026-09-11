@@ -148,7 +148,7 @@ def apply_patches(
     manifest_dir = report.get("manifest_dir")
     if not manifest_dir:
         message = (
-            "Report does not include manifest_dir (pre-v0.6 report?). "
+            "Report does not include manifest_dir. "
             "Cannot enforce the containment check; refusing to apply."
         )
         typer.echo(message, err=True)

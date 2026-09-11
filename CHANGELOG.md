@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Make every emitted next action lead somewhere, and prove it. Following
+  `control.next_action` on a repository with recognized host configuration
+  and no manifest went round three commands forever: `verify --preview`
+  named `init --write`, `init` refused because a host-only repository needs
+  no manifest and named `audit --host`, and `audit --host` named
+  `verify --preview` again. The host-audit footer is now conditional — the
+  baseline comparison where there is no manifest, `verify` where there is,
+  `--drift` once a baseline exists — and it says to record the baseline on
+  the base ref, never on the changed checkout, which would accept the change
+  instead of comparing it. That footer also emitted its command without
+  `--workspace`, so following it ran the next step against the caller's
+  current directory rather than the repository just audited; every emitted
+  command now carries the workspace it was produced for. A preview that
+  evaluated no gate reports `Agents Shipgate verify: not evaluated` instead
+  of `failed`, matching the `not_run` its machine fields already carried.
+  `tests/test_next_action_chains_terminate.py` walks every entry command on
+  two repository shapes and fails on a repeat, a lost workspace, or a step
+  this CLI cannot run (#650).
+
 - Compare against the detected base by default in `check`, so a branch's
   committed work is visible without flags. `shipgate check` compared the
   working tree with `HEAD`, so on a branch whose changes were already
@@ -23,6 +42,24 @@
   base detection is untouched, and the emitted `verify` command now accepts
   either ref alone so it cannot disagree with the check that emitted it
   (#649).
+
+- Add `shipgate diff`: what this change does to the agent's authority, in one
+  row per host grant, with no manifest and no committed baseline. The engine
+  already decided this — `audit --host --drift` names every typed grant
+  change — but it required a baseline recorded in advance and reachable from
+  the branch, so the answer was two checkouts and a committed file away. The
+  new command supplies the other side from Git: materialise the base tree,
+  read it with the same host readers, hand both inventories to the same
+  comparator. Rows carry before, after, direction, why it matters and the
+  engine's own severity, most severe first, with `⚠` on the changes the
+  engine called expansions of authority. A benign change prints one line.
+  `--json` emits the same rows. Every field is read from the drift payload,
+  so the command cannot disagree with the engine about a change it did not
+  decide: `risk` is the engine's severity and `expansion_signals` is the
+  engine's word on widening, and a change the engine has not called an
+  expansion is reported as `changed` rather than guessed to be a narrowing —
+  that needs the pattern lattice in #657. Host route only; tool-source
+  subjects are #655. No verdict is published (#651).
 
 - Stop inventorying machine-written tool caches, so an ordinary concurrent
   test run no longer collapses the host inventory. `check` run while pytest

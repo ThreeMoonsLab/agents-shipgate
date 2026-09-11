@@ -244,7 +244,7 @@ def test_containment_violation_emits_agent_mode_error_json(tmp_path: Path) -> No
 
 
 def test_missing_manifest_dir_refuses(tmp_path: Path) -> None:
-    """Old reports that pre-date v0.6 won't have manifest_dir; refuse."""
+    """A current-schema report without its mutation boundary must be refused."""
     payload = {
         "report_schema_version": REPORT_SCHEMA_VERSION,
         "findings": [
