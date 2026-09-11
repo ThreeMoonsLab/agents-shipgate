@@ -34,6 +34,7 @@ from agents_shipgate.core.host_grants import (
     render_host_audit_markdown,
     render_host_drift_markdown,
 )
+from agents_shipgate.invocation import render_command
 from agents_shipgate.schemas.diagnostics import NextAction
 
 _BaselineFileState = tuple[os.stat_result, str]
@@ -404,14 +405,14 @@ def audit(
         render_host_audit_markdown(
             inventory,
             next_step=_audit_next_step(
-                workspace=workspace, baseline_file=baseline_file
+                workspace=workspace, baseline_file=baseline_file, scope=scope
             ),
         ),
         nl=False,
     )
 
 
-def _audit_next_step(*, workspace: Path, baseline_file: Path) -> str:
+def _audit_next_step(*, workspace: Path, baseline_file: Path, scope: str) -> str:
     """The step that actually advances from a finished host audit.
 
     The footer always named `verify --preview`. On a repository with no
@@ -434,23 +435,26 @@ def _audit_next_step(*, workspace: Path, baseline_file: Path) -> str:
 
     recorded = _baseline_write_target(workspace=workspace, baseline_file=baseline_file)
     anchored = _cwd_anchored(workspace)
+    audit_args = [
+        "audit", "--host", "--workspace", anchored, "--scope", scope,
+        "--baseline-file", str(baseline_file),
+    ]
+    drift_command = render_command([*audit_args, "--drift"])
     if recorded.exists():
         return (
-            f"Next: `agents-shipgate audit --host --workspace {anchored} --drift` "
+            f"Next: `{drift_command}` "
             "to compare this inventory with the recorded baseline."
         )
     if (workspace / "shipgate.yaml").exists():
-        return (
-            f"Next: `agents-shipgate verify --preview --workspace {anchored} --json` "
-            "for release gating."
-        )
+        command = render_command(["verify", "--preview", "--workspace", anchored, "--json"])
+        return f"Next: `{command}` for release gating."
+    save_command = render_command([*audit_args, "--save-baseline"])
     return (
-        "Next: this inventory is the whole answer for a repository with no "
-        "`shipgate.yaml`. To see what a change alters, record a baseline on "
-        "the base ref — switch to it, run `agents-shipgate audit --host "
-        "--save-baseline`, then return here and rerun with `--drift`. Record "
-        "it on the base, never on the changed checkout, which would accept "
-        "the change instead of comparing it."
+        "Next: review this inventory. To see what a change alters, a human "
+        "must review and record a baseline on the base ref. After switching "
+        f"to that ref, use `{save_command}`; return to the changed checkout "
+        f"and run `{drift_command}`. Never record the changed checkout as "
+        "the baseline for its own review."
     )
 
 

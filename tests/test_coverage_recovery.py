@@ -250,19 +250,26 @@ def test_supported_syntax_does_not_manufacture_a_recovery(tmp_path, expression):
     assert all(gap.recovery is None for gap in report.release_decision.evidence_coverage.evidence_gaps)
 
 
-def test_required_sdk_source_keeps_existing_advisory_execution_result(tmp_path, monkeypatch):
+def test_required_sdk_source_uses_the_shared_input_error_contract(tmp_path, monkeypatch):
+    """Recovery metadata must not change the execution contract — the
+    invariant this test was written for — and #585 decided what that
+    contract is: a required source whose path is absent is an input error
+    before any adapter runs, not an advisory scan that finished.
+
+    Optional sources keep the warning-and-recovery route; every other case
+    in this module covers it.
+    """
+
     project = _project(tmp_path / "project", None)
     manifest = project / "shipgate.yaml"
     manifest.write_text(manifest.read_text().replace("optional: true", "optional: false"))
     monkeypatch.chdir(project)
     result = CliRunner().invoke(app, ["scan", "--config", str(manifest)])
-    # #585 records the existing required-SDK input-error contract mismatch.
-    # Recovery metadata must not change that execution contract as a side effect.
     _without_recovery(monkeypatch)
     original = CliRunner().invoke(app, ["scan", "--config", str(manifest)])
-    assert result.exit_code == original.exit_code == 0
-    assert "Decision: insufficient_evidence" in result.output
-    assert "Decision: insufficient_evidence" in original.output
+    assert result.exit_code == original.exit_code == 3
+    assert "Required tool source unavailable" in result.output
+    assert "Required tool source unavailable" in original.output
 
 
 def test_recovery_does_not_rewrite_space_bearing_source_locations(tmp_path, capsys):

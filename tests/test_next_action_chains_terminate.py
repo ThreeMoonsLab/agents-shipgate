@@ -274,3 +274,41 @@ def test_a_real_failure_is_still_called_a_failure() -> None:
     assert _unevaluated_verdict_word(_Verifier("failed", "failed")) == "failed"
     assert _unevaluated_verdict_word(_Verifier("skipped")) == "skipped"
     assert _unevaluated_verdict_word(_Verifier("not_run", "not_run")) == "not evaluated"
+
+
+@pytest.mark.parametrize("with_baseline", [False, True])
+def test_audit_advice_preserves_quoted_target_scope_and_entrypoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, with_baseline: bool
+) -> None:
+    from agents_shipgate.cli.host_audit import _audit_next_step
+
+    workspace = tmp_path / "a workspace"
+    workspace.mkdir()
+    baseline = Path("reviewed baseline.json")
+    if with_baseline:
+        (workspace / baseline).write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("AGENTS_SHIPGATE_CLI", "'/custom venv/bin/python' -m agents_shipgate")
+    advice = _audit_next_step(
+        workspace=workspace, baseline_file=baseline, scope="local-static"
+    )
+    commands = re.findall(r"`([^`]+)`", advice)
+    assert commands
+    for command in commands:
+        tokens = shlex.split(command)
+        assert tokens[:3] == ["/custom venv/bin/python", "-m", "agents_shipgate"]
+        assert tokens[tokens.index("--workspace") + 1] == str(workspace)
+        assert tokens[tokens.index("--scope") + 1] == "local-static"
+        assert tokens[tokens.index("--baseline-file") + 1] == str(baseline)
+    assert ("--save-baseline" in advice) is not with_baseline
+
+
+def test_manifest_audit_advice_quotes_the_workspace(tmp_path: Path) -> None:
+    from agents_shipgate.cli.host_audit import _audit_next_step
+
+    workspace = tmp_path / "manifest workspace"
+    workspace.mkdir()
+    (workspace / "shipgate.yaml").write_text("", encoding="utf-8")
+    advice = _audit_next_step(workspace=workspace, baseline_file=Path("baseline.json"), scope="repository")
+    tokens = shlex.split(re.findall(r"`([^`]+)`", advice)[0])
+    assert tokens[tokens.index("--workspace") + 1] == str(workspace)
+    assert "verify" in tokens
