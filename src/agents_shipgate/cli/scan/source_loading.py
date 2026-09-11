@@ -16,7 +16,61 @@ from agents_shipgate.schemas.manifest import (
     ToolSourceConfig,
 )
 
+from .validation import unresolved_required_sources
+
 logger = logging.getLogger(__name__)
+
+# "not found" is the repository's shared vocabulary for an *absent* input,
+# pinned across manifest, policy-pack and baseline messages by
+# `tests/test_absent_input_messages.py`. An absent input must never be
+# described in the words used for a malformed one.
+_UNRESOLVED_SOURCE_REASONS = {
+    "missing": "was not found",
+    "outside_manifest_dir": "resolves outside the manifest directory",
+}
+
+
+def raise_for_unresolved_required_sources(
+    manifest: AgentsShipgateManifest,
+    base_dir: Path,
+    *,
+    config_path: Path | None = None,
+) -> None:
+    """Refuse a scan whose required ``tool_sources[].path`` is unusable.
+
+    One precondition for every source type, applied before any adapter
+    runs. Readers used to decide for themselves and disagreed: the shared
+    loaders and `mcp_server_source` raised `InputParseError`, matching the
+    contract `docs/diagnostics.md` publishes, while `openai_agents_sdk`
+    returned a warning and let the scan finish advisory exit 0 on a
+    required entrypoint that was not there (#585). An integration reading
+    execution status to tell bad input from a completed scan got a
+    different answer per reader.
+
+    Optional sources keep their warning-and-recovery route untouched — the
+    resolver never reports them — and this refusal invents nothing: a
+    missing input is named, not replaced by a declaration.
+    """
+
+    unresolved = unresolved_required_sources(manifest, base_dir, config_path)
+    if not unresolved:
+        return
+    details = "; ".join(
+        "{id!r} at {path!r} {reason}".format(
+            id=entry["id"],
+            path=entry["declared_path"],
+            reason=_UNRESOLVED_SOURCE_REASONS.get(
+                str(entry["reason"]), str(entry["reason"])
+            ),
+        )
+        for entry in unresolved
+    )
+    plural = "s" if len(unresolved) > 1 else ""
+    raise InputParseError(
+        f"Required tool source{plural} unavailable: {details}. "
+        "Restore the declared file, correct tool_sources[].path, or remove "
+        "the source entry."
+    )
 
 
 def _load_sources(
@@ -80,6 +134,9 @@ def _load_sources(
         registry = REGISTRY
     if third_party_records is None:
         third_party_records = {}
+    # One availability precondition for every source type, before any
+    # adapter sees the manifest (#585).
+    raise_for_unresolved_required_sources(manifest, base_dir)
     per_source_loaded: list[LoadedToolSource] = []
     per_scan_loaded: list[LoadedToolSource] = []
     bag = ArtifactBag()

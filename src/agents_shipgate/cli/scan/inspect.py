@@ -29,7 +29,7 @@ from .source_loading import (
     _load_sources,
 )
 from .surface_redaction import _frameworks_surface
-from .validation import _resolve_source_paths
+from .validation import unresolved_required_sources
 
 # Out-of-band key carrying the manifest bytes this inspection read. Popped by
 # the caller before the payload is published; it is not part of the doctor JSON.
@@ -98,7 +98,7 @@ def inspect_sources(
     # plainly held a rung-2 answer.
     declared_manifest = manifest
     base_dir = config_path.resolve().parent
-    unresolved_sources = _resolve_source_paths(manifest, base_dir, config_path)
+    unresolved_sources = unresolved_required_sources(manifest, base_dir, config_path)
     if unresolved_sources:
         # Drop unresolved-required sources from the manifest before loading
         # so doctor returns a structured payload with `unresolved_sources`
