@@ -103,7 +103,7 @@ import subprocess
 import sys
 import threading
 import tomllib
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
@@ -1766,6 +1766,140 @@ _GO_NEW_TOOL_RE = re.compile(r"(?<![\w])NewTool\s*\(\s*")
 _GO_TOOL_STRUCT_RE = re.compile(r"(?<![\w])Tool\s*\{")
 _GO_STRUCT_NAME_FIELD_RE = re.compile(r"(?<![\w])Name\s*:\s*")
 _GO_KEYED_FIELD_RE = re.compile(r"(?<![\w])[A-Za-z_]\w*\s*:")
+#: The option-function shape: `NewTool("name", WithDescription("…"))`. This is
+#: how `mark3labs/mcp-go` declares a tool, which is the SDK behind
+#: `github/github-mcp-server` — so until #658 every one of its 114 tools read
+#: `description=None` and earned a `SHIP-DOC-MISSING-DESCRIPTION` finding. The
+#: struct extractor below never applied: there is no `Description:` field to
+#: find, the description is an argument to an option.
+_GO_WITH_DESCRIPTION_RE = re.compile(
+    r"(?:[A-Za-z_]\w*\.)?With(?:Tool)?Description\s*\(\s*"
+)
+_GO_HELPER_CALL_RE = re.compile(r"(?P<helper>[A-Za-z_]\w*)\s*\(\s*")
+_GO_FUNCTION_RE = re.compile(r"\bfunc\b\s*(?:[A-Za-z_]\w*\s*)?\(")
+_TRANSLATION_KEY_RE = re.compile(
+    r"\A(?:[A-Z0-9][A-Z0-9_]*[A-Z0-9]|[\w-]+(?:\.[\w-]+)+)\Z"
+)
+
+
+def _go_arguments(source: MaskedSource, opening: int, close: int) -> list[tuple[int, int]]:
+    """Whole argument ranges, excluding an optional Go trailing comma."""
+    result: list[tuple[int, int]] = []
+    start, depth = opening + 1, 0
+    for index in range(start, close - 1):
+        char = source.masked[index]
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        elif char == "," and depth == 0:
+            result.append((start, index))
+            start = index + 1
+    result.append((start, close - 1))
+    trimmed: list[tuple[int, int]] = []
+    for start, end in result:
+        start = source.skip_space(start)
+        while end > start and source.masked[end - 1].isspace():
+            end -= 1
+        if start < end:
+            trimmed.append((start, end))
+    return trimmed
+
+
+def _go_translation_parameter(source: MaskedSource, helper: str, index: int) -> bool:
+    """Recognize the declared fallback-helper contract, not arbitrary calls.
+
+    GitHub's tool constructors receive a TranslationHelperFunc parameter.
+    A function merely accepting two strings establishes no default-value
+    semantics. Unbound aliases, shadowed parameters and unsupported Go
+    signatures are deliberately left unread.
+    """
+    cursor = index
+    while (position := source.masked.rfind("func", 0, cursor)) >= 0:
+        cursor = position
+        match = _GO_FUNCTION_RE.match(source.masked, position)
+        if match is None:
+            continue
+        opening = source.masked.rfind("(", match.start(), match.end())
+        close = _matching_close(source.masked, opening, "(", ")")
+        if close is None:
+            continue
+        body = source.masked.find("{", close, index)
+        body_end = _matching_close(source.masked, body, "{", "}") if body >= 0 else None
+        if body_end is None or not body < index < body_end:
+            continue
+        tail = source.masked[close:body]
+        # A function type has no body. Do not borrow a later declaration's
+        # brace, or the enclosing signature's body after an inner func type.
+        if re.search(r"[^\w.()*\[\],\s]|\b(?:var|const|type|func|return|package|import)\b", tail):
+            continue
+        depth = 0
+        valid_tail = True
+        for char in tail:
+            if char in "([":
+                depth += 1
+            elif char in ")]":
+                depth -= 1
+                if depth < 0:
+                    valid_tail = False
+        if not valid_tail or depth:
+            continue
+        typed = any(
+            re.fullmatch(
+                rf"{re.escape(helper)}\s+(?:[A-Za-z_]\w*\.)?TranslationHelperFunc",
+                source.masked[start:end],
+            ) is not None
+            for start, end in _go_arguments(source, opening, close)
+        )
+        reassigned = re.search(
+            rf"(?<![\w.]){re.escape(helper)}\s*(?::=|=(?!=))",
+            source.masked[body + 1:index],
+        )
+        return typed and reassigned is None
+    return False
+
+
+def _go_translated_default(source: MaskedSource, start: int, end: int) -> str | None:
+    """Read a complete call to a declared translation-helper parameter."""
+    match = _GO_HELPER_CALL_RE.match(source.masked, start)
+    if match is None or not _go_translation_parameter(source, match["helper"], start):
+        return None
+    opening = source.masked.rfind("(", match.start(), match.end())
+    close = _matching_close(source.masked, opening, "(", ")")
+    if close != end:
+        return None
+    args = _go_arguments(source, opening, close)
+    if len(args) != 2:
+        return None
+    values: list[str] = []
+    for arg_start, arg_end in args:
+        found, value, literal_end = source.literal_at(arg_start)
+        if not found or not value or literal_end != arg_end:
+            return None
+        values.append(value)
+    return values[1] if _TRANSLATION_KEY_RE.fullmatch(values[0]) else None
+
+
+def _go_option_description(source: MaskedSource, open_paren: int, close: int) -> str | None:
+    """Read direct options in SDK order; a later unknown value clears an earlier one."""
+    description: str | None = None
+    for start, end in _go_arguments(source, open_paren, close)[1:]:
+        match = _GO_WITH_DESCRIPTION_RE.match(source.masked, start)
+        if match is None:
+            continue
+        description = None
+        opening = source.masked.rfind("(", match.start(), match.end())
+        option_close = _matching_close(source.masked, opening, "(", ")")
+        if option_close != end:
+            continue
+        args = _go_arguments(source, opening, option_close)
+        if len(args) != 1:
+            continue
+        arg_start, arg_end = args[0]
+        description = _go_description_value(source, arg_start, arg_end)
+    return description
+
+
 _GO_STRUCT_DESCRIPTION_FIELD_RE = re.compile(r"(?<![\w])Description\s*:\s*")
 
 
@@ -1857,7 +1991,11 @@ def _literal_is_whole_value(
 
 
 def _call_sites(
-    source: MaskedSource, pattern: re.Pattern[str], idiom: str
+    source: MaskedSource,
+    pattern: re.Pattern[str],
+    idiom: str,
+    *,
+    describe: Callable[[MaskedSource, int, int], str | None] | None = None,
 ) -> list[RegistrationSite]:
     """Sites for a ``Name(<literal>, …)`` idiom."""
     sites: list[RegistrationSite] = []
@@ -1895,6 +2033,11 @@ def _call_sites(
                 line=line,
                 column=column,
                 span=span,
+                description=(
+                    describe(source, open_paren, close)
+                    if describe is not None and close is not None
+                    else None
+                ),
                 unresolved_reason=unresolved,
             )
         )
@@ -2031,15 +2174,18 @@ def _child_braces(masked: str, open_brace: int, close: int) -> list[tuple[int, i
     return children
 
 
+def _go_description_value(source: MaskedSource, start: int, end: int) -> str | None:
+    found, value, literal_end = source.literal_at(start)
+    if found:
+        return (value or None) if literal_end == end else None
+    return _go_translated_default(source, start, end)
+
+
 def _go_struct_description(source: MaskedSource, open_brace: int, close: int) -> str | None:
-    for match in _GO_STRUCT_DESCRIPTION_FIELD_RE.finditer(
-        source.masked, open_brace + 1, close
-    ):
-        if _brace_depth(source.masked, open_brace, match.start()) != 1:
-            continue
-        found, value, literal_end = source.literal_at(match.end())
-        if found and value and _literal_is_whole_value(source, literal_end, ",}"):
-            return value
+    for start, end in _go_arguments(source, open_brace, close):
+        match = _GO_STRUCT_DESCRIPTION_FIELD_RE.match(source.masked, start)
+        if match is not None:
+            return _go_description_value(source, source.skip_space(match.end()), end)
     return None
 
 
@@ -3470,8 +3616,16 @@ def scan_source(
         sites.extend(_ts_static_tool_name_sites(source))
         sites.extend(_call_sites(source, _TS_REGISTER_TOOL_RE, "ts_sdk_register_tool"))
     else:
-        sites.extend(_call_sites(source, _GO_MUST_TOOL_RE, "go_must_tool"))
-        sites.extend(_call_sites(source, _GO_NEW_TOOL_RE, "go_new_tool"))
+        sites.extend(
+            _call_sites(
+                source, _GO_MUST_TOOL_RE, "go_must_tool", describe=_go_option_description
+            )
+        )
+        sites.extend(
+            _call_sites(
+                source, _GO_NEW_TOOL_RE, "go_new_tool", describe=_go_option_description
+            )
+        )
         sites.extend(_go_tool_struct_sites(source))
 
     kept = [
