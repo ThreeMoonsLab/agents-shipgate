@@ -14,6 +14,7 @@ import typer
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
 from agents_shipgate.cli.workspace_guard import require_workspace
+from agents_shipgate.core.agent_controls import _cwd_anchored
 from agents_shipgate.core.host_grants import (
     DEFAULT_BASELINE_FILE,
     HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
@@ -399,7 +400,58 @@ def audit(
         typer.echo(json.dumps(inventory, indent=2, sort_keys=True))
         return
     _write_json_out(out, inventory)
-    typer.echo(render_host_audit_markdown(inventory), nl=False)
+    typer.echo(
+        render_host_audit_markdown(
+            inventory,
+            next_step=_audit_next_step(
+                workspace=workspace, baseline_file=baseline_file
+            ),
+        ),
+        nl=False,
+    )
+
+
+def _audit_next_step(*, workspace: Path, baseline_file: Path) -> str:
+    """The step that actually advances from a finished host audit.
+
+    The footer always named `verify --preview`. On a repository with no
+    manifest that is a cycle: preview routes to `init`, `init` refuses
+    because a host-only repository needs no manifest and routes back here,
+    and here pointed at preview again. A reader following the tool's own
+    advice went round three commands forever (#650).
+
+    Every emitted command carries `--workspace`. The old footer did not,
+    so following it ran the next step against the caller's current
+    directory rather than the repository just audited — the invocation
+    policy's "silently retarget the authorized operation", emitted by the
+    tool itself.
+
+    `verify` is still the answer where a manifest exists. Where one does
+    not, the baseline comparison is — and it is named on the *base* ref
+    deliberately: recording a baseline from the changed checkout would
+    acknowledge the very change under review.
+    """
+
+    recorded = _baseline_write_target(workspace=workspace, baseline_file=baseline_file)
+    anchored = _cwd_anchored(workspace)
+    if recorded.exists():
+        return (
+            f"Next: `agents-shipgate audit --host --workspace {anchored} --drift` "
+            "to compare this inventory with the recorded baseline."
+        )
+    if (workspace / "shipgate.yaml").exists():
+        return (
+            f"Next: `agents-shipgate verify --preview --workspace {anchored} --json` "
+            "for release gating."
+        )
+    return (
+        "Next: this inventory is the whole answer for a repository with no "
+        "`shipgate.yaml`. To see what a change alters, record a baseline on "
+        "the base ref — switch to it, run `agents-shipgate audit --host "
+        "--save-baseline`, then return here and rerun with `--drift`. Record "
+        "it on the base, never on the changed checkout, which would accept "
+        "the change instead of comparing it."
+    )
 
 
 def _incomplete_inventory_review(inventory: dict[str, object]) -> str:
