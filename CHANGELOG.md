@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Refuse a required tool source whose declared path is unavailable, once,
+  for every reader. `scan` applies one availability precondition before any
+  adapter runs, reading the same resolver `doctor` renders as
+  `SHIP-DIAG-MISSING-SOURCE-FILE`, so the two agree by construction. The
+  contract `docs/diagnostics.md` already published — a required
+  `tool_sources[].path` that does not resolve is `InputParseError(3)` — was
+  true of the shared loaders and `mcp_server_source` and false of
+  `openai_agents_sdk`, which returned a source warning and let a required,
+  absent entrypoint finish as an advisory exit-0 scan; an integration using
+  execution status to tell bad input from a completed scan got a different
+  answer per reader. The error names each offending source id, its declared
+  path, and whether it was not found or escapes the manifest directory.
+  `optional: true` sources are unchanged, keeping their warning and
+  `coverage_recovery` evidence. `verify` applies the same precondition per
+  tree: a base commit declaring a path absent from that tree reports
+  `base_status: "scan_failed"` with the reason in `base_notes` and no
+  capability delta, and does not move the head gate. Missing input is named,
+  never repaired by an invented declaration (#585).
+
 - Read every counted hunk row, so header-shaped content stops being lost.
   Hunk state and the header's declared row counts, not a line's spelling,
   decide what the shared unified-diff parser treats as content: a removed
