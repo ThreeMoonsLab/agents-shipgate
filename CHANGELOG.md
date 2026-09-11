@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Read literal TypeScript MCP tool descriptions from both SDK registration
+  shapes. Only the options object's own direct description is used; later
+  overrides invalidate stale text, and a later explicit literal can restore
+  it. Nested parameter descriptions and unsupported member/key expressions
+  never supply the tool's documentation. Package and zero-install readers
+  share all read/refusal cases, including supported CommonJS inputs (#680).
+  TypeScript translation-helper semantics remain deferred in #691.
+
 - Detect shallow checkouts before `diff` scans either side. Print a scoped
   `git fetch --unshallow` recovery (or `fetch-depth: 0` for CI) instead of
   an object-integrity traceback; agent-mode errors carry the same runnable
