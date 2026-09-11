@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Stop inventorying machine-written tool caches, so an ordinary concurrent
+  test run no longer collapses the host inventory. `check` run while pytest
+  was active returned `human_review_required` with *"Directory inventory
+  could not complete at tests/__pycache__"*; the refusal was correct — the
+  identity reader revalidates every directory it scanned, and a `.pyc`
+  landing between the two reads really is a directory that changed while it
+  was read — but a bytecode cache should never have been an identity-bound
+  input. `__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`,
+  `.tox` and `.nox` are excluded from the repository walk for the same
+  reason `.venv`, `node_modules` and `.git` already are: no host reads
+  configuration from one, so inventorying them buys no coverage. Nothing
+  else is softened — a recognized host directory that changes mid-read is
+  still refused with no grants, an unreadable one is still fail-closed, and
+  a quiescent rerun still performs a real read rather than serving a cached
+  denial or a cached completion (#598).
+
 - Read every counted hunk row, so header-shaped content stops being lost.
   Hunk state and the header's declared row counts, not a line's spelling,
   decide what the shared unified-diff parser treats as content: a removed
