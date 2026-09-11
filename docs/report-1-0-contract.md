@@ -63,11 +63,12 @@ receipt collected against the frozen schema — see
    was given the chance to migrate.
 5. **A shipped check ID is deprecated, never hard-removed** — the existing
    [`STABILITY.md`](../STABILITY.md) rule, unchanged by the freeze.
-6. **Forward reads fail closed.** The additive rule is a promise about *your*
-   parser: one written against `1.0` keeps working on `1.5`. It is not a
-   licence for this engine to read a `1.5` artifact as input, because it would
-   be comparing today's evidence against evidence recorded under a contract it
-   does not have. A report from a newer minor is refused with an upgrade route.
+6. **Projection reads accept additive minors; comparison and mutation fail closed.**
+   `explain-finding`, `findings`, `scenario suggest`, and `evidence-packet`
+   accept newer `1.x` reports while projecting the fields they understand.
+   `scan --diff-from` and `apply-patches` refuse newer minors with an upgrade
+   route, because this build cannot compare or apply evidence recorded under
+   a contract it does not have.
 
 ---
 
@@ -210,11 +211,13 @@ schema whose version the report declares. Every superseded schema stays
 published, so an archived `0.10` report still validates against
 [`report-schema.v0.10.json`](report-schema.v0.10.json).
 
-**Feeding a report back to this engine** — refused unless it is `1.x` and not
-newer than the running build. Every external report boundary goes through
+**Feeding a report back to this engine** — requires `1.x`. Projection readers
+accept newer additive minors; comparison and mutation also require a version
+no newer than the running build. Every external report boundary goes through
 `agents_shipgate.schemas.report_compatibility`:
 
-- `agents-shipgate scan --diff-from <report.json>`
+- `agents-shipgate scan --diff-from <report.json>` (comparison)
+- `agents-shipgate apply-patches --from <report.json>` (mutation)
 - `agents-shipgate explain-finding`
 - `agents-shipgate findings`
 - `agents-shipgate scenario suggest`
@@ -227,7 +230,7 @@ The refusal is by name, with a route, and it carries a stable `reason_code`:
 | `report_schema_missing` | No `report_schema_version` | Not an Agents Shipgate report. |
 | `report_schema_malformed` | Not a `MAJOR.MINOR` version this engine emits | Regenerate. |
 | `report_schema_pre_freeze` | `0.x` — the pre-freeze line | Regenerate from the workspace it described; re-verify anything derived from it. |
-| `report_schema_newer_than_engine` | `1.n` where `n` exceeds this build | Upgrade the CLI, or regenerate with this build. |
+| `report_schema_newer_than_engine` | `1.n` where `n` exceeds this build, for comparison or mutation | Upgrade the CLI, or regenerate with this build. |
 | `report_schema_future_major` | `2.x` or later | Not convertible; upgrade the CLI. |
 
 **What the gate covers, and what it does not.** These are the boundaries where
