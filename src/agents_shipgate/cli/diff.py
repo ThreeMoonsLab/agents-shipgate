@@ -40,6 +40,7 @@ def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
     """The base ref and the merge-base commit this diff compares against."""
 
     from agents_shipgate.cli.verify.git import (
+        _history_is_truncated,
         commit_sha,
         detect_default_base,
         merge_base_sha,
@@ -47,6 +48,26 @@ def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
 
     if base is not None and (not base.strip() or base.startswith("-")):
         raise typer.BadParameter("Base ref must be non-empty and cannot start with a dash.", param_hint="--base")
+
+    if _history_is_truncated(workspace) is True:
+        from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
+        from agents_shipgate.invocation import join_argv
+        from agents_shipgate.schemas.diagnostics import NextAction
+
+        command = join_argv(["git", "-C", str(workspace), "fetch", "--unshallow"])
+        message = (
+            f"This checkout is shallow; run {command} "
+            "(or use fetch-depth: 0 in CI), then rerun diff."
+        )
+        # A shallow boundary is expected missing history, not a corrupt graph.
+        # Keep archive validation intact and recover before scanning either side.
+        emit_agent_mode_error_action(
+            "config_error",
+            message=message,
+            exit_code=2,
+            action=NextAction(kind="command", command=command, why=message),
+        )
+        raise typer.BadParameter(message, param_hint="--workspace")
 
     # Same resolver `check` uses (#649), including its narrow local
     # fallback: a local `main` is refused while a remote exists, because the

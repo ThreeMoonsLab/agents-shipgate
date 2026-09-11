@@ -14,6 +14,7 @@ is the defect this command must not become.
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -270,6 +271,48 @@ def test_a_removal_is_never_reported_as_an_expansion() -> None:
 
 
 # --- refusals --------------------------------------------------------------
+
+
+@pytest.mark.parametrize("depth", [1, 2])
+@pytest.mark.parametrize("json_output", [False, True])
+@pytest.mark.parametrize("agent_mode", ["0", "1"])
+def test_shallow_checkout_names_a_recovery_that_restores_the_diff(
+    repo: Path, tmp_path: Path, depth: int, json_output: bool, agent_mode: str
+) -> None:
+    for index in range(2):
+        (repo / "README.md").write_text(f"# revision {index}\n", encoding="utf-8")
+        _git(repo, "add", "README.md")
+        _git(repo, "commit", "-qm", f"history {index}")
+    clone = tmp_path / "shallow checkout"
+    _git(tmp_path, "clone", "--quiet", "--depth", str(depth), repo.as_uri(), str(clone))
+    (clone / ".claude" / "settings.json").write_text(WIDE_SETTINGS, encoding="utf-8")
+    args = ["diff", "--workspace", str(clone), "--base", "HEAD"]
+    if json_output:
+        args.append("--json")
+
+    result = runner.invoke(app, args, env={"AGENTS_SHIPGATE_AGENT_MODE": agent_mode})
+
+    assert result.exit_code == 2, result.output
+    assert "This checkout is shallow" in result.output
+    assert "fetch-depth: 0" in result.output
+    assert "Traceback" not in result.output
+    recovery = ["git", "-C", str(clone), "fetch", "--unshallow"]
+    errors = [json.loads(line) for line in result.stderr.splitlines() if line.startswith("{")]
+    if agent_mode == "1":
+        assert len(errors) == 1
+        assert errors[0]["error"] == "config_error"
+        action = errors[0]["next_actions"][0]
+        assert shlex.split(action["command"]) == recovery
+        recovery = shlex.split(action["command"])
+    else:
+        assert errors == []
+        assert "--unshallow" in result.output
+    # Follow the published action from outside the checkout. This must restore
+    # the actual comparison, without init, policy edits or a wrapper fetch.
+    subprocess.run(recovery, cwd=tmp_path, check=True, capture_output=True)
+    recovered = _diff(clone, "--base", "HEAD", "--json")
+    assert recovered.exit_code == 0, recovered.output
+    assert any(row["after"] == "Bash(*)" for row in json.loads(recovered.output)["rows"])
 
 
 def test_an_absent_base_ref_is_refused_by_name(repo: Path) -> None:
