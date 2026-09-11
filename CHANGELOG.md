@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Read every counted hunk row, so header-shaped content stops being lost.
+  Hunk state and the header's declared row counts, not a line's spelling,
+  decide what the shared unified-diff parser treats as content: a removed
+  `---` renders as `----` and a removed `-- note` renders as `--- note`,
+  and matching those against the file-header prefixes dropped the row and,
+  in the second case, replaced the file's identity with the invalid-path
+  sentinel. A plain Markdown horizontal-rule removal now reaches a complete
+  structural comparison instead of an unnecessary `human_review_required`.
+  Truncated and over-declared hunks still end at the first line that cannot
+  be hunk data, keep their short row list, and are still refused by the
+  declared-count comparison; path, rename, no-newline and malformed-header
+  contracts are unchanged (#611).
+
 - Name what a change did to the bound each finding depends on.
   `tool_surface_diff.finding_attributions[]` projects the shipped
   `openapi_delete/v1` and `sdk_boolean_guard/v1` comparisons onto active
