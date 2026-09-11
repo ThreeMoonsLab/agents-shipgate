@@ -176,6 +176,19 @@ no-op over one. Alternatives — `pip`, `uv`, and zero-install `uvx` — are in
 [`docs/quickstart.md`](docs/quickstart.md#install). Your agent project does
 **not** need Python 3.12; the CLI installs separately.
 
+**Two lines, two promises.** The advisory line exists so the engine is
+installable while a qualified tag is blocked; it publishes rows a reviewer
+reads, and no authority to block anything. The gate line publishes blocking
+verdicts and keeps every qualification bar. Neither waits on the other, and
+[`docs/release-cadence`](docs/distribution.md#package-channels) measures both
+separately — one number could not have shown that the documented workflow was
+two months out of reach.
+
+| Line | Carries | Install | Promises | Cadence |
+| --- | --- | --- | --- | --- |
+| **Advisory** | `diff`, `check`, `audit --host`, drift, advisory PR comments | the unqualified preview pre-release | plain-language capability rows; **no blocking authority** | 14 days |
+| **Qualified gate** | blocking verdicts, receipts, attestations | a `v*` release tag | every bar in [`release-evidence-policy-decision.md`](docs/release-evidence-policy-decision.md) | on evidence only |
+
 **Read [which build you get](docs/quickstart.md#which-build-you-get) before you
 start.** The newest published release is `v0.15.0`, which implements runtime
 contract `10`. Parts of the workflow this repository documents — the agent
