@@ -2043,6 +2043,8 @@ GO_DESCRIPTION_CASES = (
     ("unrelated_struct_helper", 'func F() mcp.Tool { return mcp.Tool{Name: "tool", Description: wrap("TOOL_KEY", "invented")} }', {"tool": None}),
     ("nested_struct_field", 'func F() mcp.Tool { return mcp.Tool{Name: "tool", InputSchema: Schema{Description: "property docs"}} }', {"tool": None}),
     ("func_prefix_is_not_a_scope", 'func F(t TranslationHelperFunc) mcp.Tool { return funcwrap(mcp.NewTool("tool", mcp.WithDescription(t("TOOL_KEY", "actual")))) }', {"tool": "actual"}),
+    ("callback_type_parameter_is_not_local", 'var t = wrap\nfunc F(callback func(t TranslationHelperFunc) string) mcp.Tool { return mcp.NewTool("tool", mcp.WithDescription(t("TOOL_KEY", "invented"))) }', {"tool": None}),
+    ("function_type_has_no_body", 'var t = wrap\ntype Factory func(t TranslationHelperFunc) string\nvar tools = []mcp.Tool{mcp.NewTool("tool", mcp.WithDescription(t("TOOL_KEY", "invented")))}', {"tool": None}),
 )
 SOURCE_CASES += tuple(
     SourceCase("go_description:" + name, "go", "package p\n" + body)

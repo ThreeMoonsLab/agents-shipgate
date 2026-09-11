@@ -1828,15 +1828,34 @@ def _go_translation_parameter(source: MaskedSource, helper: str, index: int) -> 
         body_end = _matching_close(source.masked, body, "{", "}") if body >= 0 else None
         if body_end is None or not body < index < body_end:
             continue
-        typed = re.search(
-            rf"(?<![\w.]){re.escape(helper)}\s+(?:[A-Za-z_]\w*\.)?TranslationHelperFunc\b",
-            source.masked[opening + 1:close - 1],
+        tail = source.masked[close:body]
+        # A function type has no body. Do not borrow a later declaration's
+        # brace, or the enclosing signature's body after an inner func type.
+        if re.search(r"[^\w.()*\[\],\s]|\b(?:var|const|type|func|return|package|import)\b", tail):
+            continue
+        depth = 0
+        valid_tail = True
+        for char in tail:
+            if char in "([":
+                depth += 1
+            elif char in ")]":
+                depth -= 1
+                if depth < 0:
+                    valid_tail = False
+        if not valid_tail or depth:
+            continue
+        typed = any(
+            re.fullmatch(
+                rf"{re.escape(helper)}\s+(?:[A-Za-z_]\w*\.)?TranslationHelperFunc",
+                source.masked[start:end],
+            ) is not None
+            for start, end in _go_arguments(source, opening, close)
         )
         reassigned = re.search(
             rf"(?<![\w.]){re.escape(helper)}\s*(?::=|=(?!=))",
             source.masked[body + 1:index],
         )
-        return typed is not None and reassigned is None
+        return typed and reassigned is None
     return False
 
 
