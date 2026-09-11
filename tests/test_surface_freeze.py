@@ -213,3 +213,16 @@ def test_helpers_within_existing_adapter_do_not_create_adapter_surface(repo: Pat
     _commit(repo)
     result = _run(repo)
     assert result.returncode == 0, result.stdout
+
+
+def test_shallow_checkout_needs_trees_not_merge_base(repo: Path, tmp_path: Path) -> None:
+    (repo / "src/agents_shipgate/inputs/mcp.py").write_text("# ordinary fix\n")
+    _commit(repo)
+    shallow = tmp_path / "shallow"
+    subprocess.run(["git", "clone", "--depth", "1", "--branch", "change", repo.as_uri(), str(shallow)], check=True, capture_output=True)
+    _git(shallow, "fetch", "origin", "main:refs/heads/main")
+    merge_base = subprocess.run(["git", "merge-base", "main", "HEAD"], cwd=shallow, capture_output=True)
+    assert merge_base.returncode != 0
+    result = _run(shallow)
+    assert result.returncode == 0, result.stderr
+    assert "1 reviewable" in result.stdout

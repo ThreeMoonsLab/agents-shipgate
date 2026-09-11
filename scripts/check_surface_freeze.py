@@ -117,7 +117,7 @@ def _added_lines(base: str) -> tuple[int, int]:
     """(reviewable, generated) added-line counts."""
 
     reviewable = generated = 0
-    for line in _git("diff", "--numstat", f"{base}...HEAD").splitlines():
+    for line in _git("diff", "--numstat", base, "HEAD").splitlines():
         parts = line.split("\t")
         if len(parts) != 3 or parts[0] == "-":
             continue
