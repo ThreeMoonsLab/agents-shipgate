@@ -6,9 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from agents_shipgate.schemas.instruction_structure import InstructionStructureEvidence
 
-HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.3"
-HOST_GRANTS_BASELINE_SCHEMA_VERSION = "0.3"
-HOST_GRANTS_DRIFT_SCHEMA_VERSION = "0.3"
+HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.4"
+HOST_GRANTS_BASELINE_SCHEMA_VERSION = "0.4"
+HOST_GRANTS_DRIFT_SCHEMA_VERSION = "0.4"
 
 HostName = Literal["codex", "claude-code", "cursor", "vscode", "github"]
 HostGrantScope = Literal["repository", "local_static"]
@@ -358,6 +358,76 @@ class HostGrantsBaselineArtifactV3(RootModel[HostGrantsBaselineV3]):
 
 class HostGrantsDriftArtifactV3(RootModel[HostGrantsDriftV3]):
     root: HostGrantsDriftV3
+
+
+# v0.4 records workflow recipients and compares effective writes. Older
+# snapshots cannot prove that an absent reusable call was inspected.
+class HostReusableWorkflowCallV4(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job: str
+    uses: str
+    secrets_inherit: bool
+
+
+class HostWorkflowPermissionsV4(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job: str
+    state: Literal["explicit", "repository_default", "unresolved"]
+    permissions: dict[str, Literal["read", "write"]]
+
+
+class HostWorkflowGrantV4(HostWorkflowGrantV2):
+    permission_contexts: list[HostWorkflowPermissionsV4]
+    effective_write_scopes: list[str]
+    reusable_calls: list[HostReusableWorkflowCallV4]
+
+
+HostGrantV4 = Annotated[
+    HostMcpServerGrantV2
+    | HostPermissionRuleGrantV2
+    | HostPermissionModeGrantV2
+    | HostHookGrantV2
+    | HostSandboxGrantV2
+    | HostAdditionalPathGrantV2
+    | HostPluginGrantV2
+    | HostProfileGrantV2
+    | HostRequirementGrantV2
+    | HostWorkflowGrantV4
+    | HostInstructionGrantV2,
+    Field(discriminator="kind"),
+]
+
+
+class HostGrantsInventoryV4(HostGrantsInventoryV3):
+    host_grants_inventory_schema_version: Literal["0.4"] = "0.4"
+    grants: list[HostGrantV4] = Field(default_factory=list)
+
+
+class HostGrantsNormalizedSnapshotV4(HostGrantsNormalizedSnapshotV3):
+    grants: list[HostGrantV4] = Field(default_factory=list)
+
+
+class HostGrantsBaselineV4(HostGrantsBaselineV3):
+    host_grants_schema_version: Literal["0.4"] = "0.4"
+    inventory: HostGrantsNormalizedSnapshotV4
+
+
+class HostGrantsDriftV4(HostGrantsDriftV3):
+    host_grants_schema_version: Literal["0.4"] = "0.4"
+
+
+class HostGrantsInventoryArtifactV4(RootModel[HostGrantsInventoryV4]):
+    root: HostGrantsInventoryV4
+
+
+class HostGrantsBaselineArtifactV4(RootModel[HostGrantsBaselineV4]):
+    root: HostGrantsBaselineV4
+
+
+class HostGrantsDriftArtifactV4(RootModel[HostGrantsDriftV4]):
+    root: HostGrantsDriftV4
 
 
 __all__ = [name for name in globals() if name.startswith("Host") or name.startswith("HOST_")]

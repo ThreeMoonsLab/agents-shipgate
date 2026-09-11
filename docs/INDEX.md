@@ -115,11 +115,11 @@ repository [`README.md`](../README.md) is the landing page that routes to both.
 - [`org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json) — JSON Schema for `agents-shipgate org bundle`; compact CI/ledger ingestion artifact over verifier/report/attestation/org/host-grant evidence, not a release verdict
 - [`registry-schema.v0.4.json`](registry-schema.v0.4.json) — JSON Schema for `agents-shipgate registry query --json`, `registry summary --json`, `registry verify --json`, and `registry report --bypass --json`
 - [`registry-schema.v0.3.json`](registry-schema.v0.3.json) — frozen v0.3 registry reference
-- [`host-grants-inventory-schema.v0.3.json`](host-grants-inventory-schema.v0.3.json) — current typed, redacted, scope-aware host inventory
+- [`host-grants-inventory-schema.v0.4.json`](host-grants-inventory-schema.v0.4.json) — current typed, redacted, scope-aware host inventory
 - [`host-grants-inventory-schema.v0.2.json`](host-grants-inventory-schema.v0.2.json) — frozen prior reference; no inferred structural comparison
-- [`host-grants-baseline-schema.v0.3.json`](host-grants-baseline-schema.v0.3.json) — current acknowledged host-grant baseline
+- [`host-grants-baseline-schema.v0.4.json`](host-grants-baseline-schema.v0.4.json) — current acknowledged host-grant baseline
 - [`host-grants-baseline-schema.v0.2.json`](host-grants-baseline-schema.v0.2.json) — frozen prior reference; no inferred structural comparison
-- [`host-grants-drift-schema.v0.3.json`](host-grants-drift-schema.v0.3.json) — current comparable/incomparable host-grant drift result
+- [`host-grants-drift-schema.v0.4.json`](host-grants-drift-schema.v0.4.json) — current comparable/incomparable host-grant drift result
 - [`host-grants-drift-schema.v0.2.json`](host-grants-drift-schema.v0.2.json) — frozen prior reference; no inferred structural comparison
 - [`host-grants-inventory-schema.v0.1.json`](host-grants-inventory-schema.v0.1.json) — frozen legacy host inventory reference
 - [`attestation-schema.v0.3.json`](attestation-schema.v0.3.json) — frozen v0.3 attestation reference

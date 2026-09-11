@@ -173,7 +173,7 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
     assert payload["schema_version"] == "10"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "33"
+    assert payload["contract_version"] == "34"
     assert payload["minimum_control_contract_version"] == "21"
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
@@ -194,9 +194,9 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     assert payload["attestation_schema_version"] == "0.5"
     assert payload["registry_schema_version"] == "0.4"
     assert payload["org_evidence_bundle_schema_version"] == ("shipgate.org_evidence_bundle/v2")
-    assert payload["host_grants_inventory_schema_version"] == "0.3"
-    assert payload["host_grants_baseline_schema_version"] == "0.3"
-    assert payload["host_grants_drift_schema_version"] == "0.3"
+    assert payload["host_grants_inventory_schema_version"] == "0.4"
+    assert payload["host_grants_baseline_schema_version"] == "0.4"
+    assert payload["host_grants_drift_schema_version"] == "0.4"
     assert payload["trigger_catalog_schema_version"] == "0.4"
     assert payload["agent_result_control_fields"] == [
         "decision",

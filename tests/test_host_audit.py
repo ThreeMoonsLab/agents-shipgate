@@ -30,10 +30,10 @@ from agents_shipgate.core.host_grants import (
     load_host_grants_baseline,
 )
 from agents_shipgate.schemas.host_grants import (
-    HostGrantsBaselineV3,
-    HostGrantsDriftV3,
-    HostGrantsInventoryArtifactV3,
-    HostGrantsInventoryV3,
+    HostGrantsBaselineV4,
+    HostGrantsDriftV4,
+    HostGrantsInventoryArtifactV4,
+    HostGrantsInventoryV4,
 )
 
 runner = CliRunner()
@@ -170,8 +170,8 @@ def _drift_json(tmp_path: Path, *extra: str) -> tuple[int, dict]:
 
 def test_inventory_v02_collects_typed_multi_host_grants(tmp_path: Path) -> None:
     inventory = host_audit_inventory(_seed_workspace(tmp_path))
-    assert inventory["host_grants_inventory_schema_version"] == "0.3"
-    HostGrantsInventoryV3.model_validate(inventory)
+    assert inventory["host_grants_inventory_schema_version"] == "0.4"
+    HostGrantsInventoryV4.model_validate(inventory)
     assert inventory["scope"] == "repository"
     assert inventory["static_analysis_only"] is True
     assert inventory["runtime_session_verified"] is False
@@ -743,8 +743,8 @@ def test_v02_baseline_is_typed_portable_redacted_and_idempotent(tmp_path: Path) 
     _seed_workspace(tmp_path)
     baseline_path = _save_baseline(tmp_path)
     payload = json.loads(baseline_path.read_text(encoding="utf-8"))
-    HostGrantsBaselineV3.model_validate(payload)
-    assert payload["host_grants_schema_version"] == "0.3"
+    HostGrantsBaselineV4.model_validate(payload)
+    assert payload["host_grants_schema_version"] == "0.4"
     assert payload["scope"] == "repository"
     assert "workspace" not in payload["inventory"]
     assert payload["inventory"]["artifacts"]
@@ -950,7 +950,7 @@ def test_clean_and_changed_v02_drift(tmp_path: Path) -> None:
     _save_baseline(tmp_path)
     code, clean = _drift_json(tmp_path)
     assert code == 0
-    HostGrantsDriftV3.model_validate(clean)
+    HostGrantsDriftV4.model_validate(clean)
     assert clean["comparison_status"] == "comparable"
     assert clean["has_drift"] is False
     assert clean["baseline_sha256"] == clean["current_sha256"]
@@ -1195,14 +1195,14 @@ def test_legacy_v01_baseline_is_incomparable_advisory_and_strict_20(tmp_path: Pa
         inventory=host_audit_inventory(tmp_path),
         baseline_file=".agents-shipgate/host-grants.json",
     )
-    HostGrantsDriftV3.model_validate(shared)
+    HostGrantsDriftV4.model_validate(shared)
     assert shared["comparison_status"] == "incomparable"
     assert shared["next_action"] is None
     assert "--save-baseline" not in json.dumps(shared)
 
     code, payload = _drift_json(tmp_path)
     assert code == 0
-    HostGrantsDriftV3.model_validate(payload)
+    HostGrantsDriftV4.model_validate(payload)
     assert payload["comparison_status"] == "incomparable"
     assert payload["has_drift"] is None
     assert "baseline_schema_v0.1" in payload["incomparable_reasons"][0]
@@ -1254,7 +1254,7 @@ def test_malformed_nested_v02_baseline_is_incomparable_not_a_crash(tmp_path: Pat
     )
     code, payload = _drift_json(tmp_path)
     assert code == 0
-    HostGrantsDriftV3.model_validate(payload)
+    HostGrantsDriftV4.model_validate(payload)
     assert payload["comparison_status"] == "incomparable"
     assert payload["has_drift"] is None
     assert payload["incomparable_reasons"] == ["malformed_v0.2_baseline"]
@@ -1611,13 +1611,13 @@ def test_baseline_overwrite_reuses_descriptor_bound_text_without_path_reread(
 def test_generated_models_reject_unknown_fields_and_invalid_literals(tmp_path: Path) -> None:
     payload = host_audit_inventory(tmp_path)
     with pytest.raises(ValidationError):
-        HostGrantsInventoryV3.model_validate({**payload, "legacy_parse_warnings": []})
+        HostGrantsInventoryV4.model_validate({**payload, "legacy_parse_warnings": []})
     with pytest.raises(ValidationError):
-        HostGrantsInventoryV3.model_validate({**payload, "scope": "runtime"})
+        HostGrantsInventoryV4.model_validate({**payload, "scope": "runtime"})
 
 
 def test_inventory_schema_uses_discriminated_typed_grants() -> None:
-    rendered = json.dumps(HostGrantsInventoryArtifactV3.model_json_schema())
+    rendered = json.dumps(HostGrantsInventoryArtifactV4.model_json_schema())
     assert '"discriminator"' in rendered
     assert '"propertyName": "kind"' in rendered
     assert '"oneOf"' in rendered

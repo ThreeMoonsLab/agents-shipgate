@@ -825,9 +825,9 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Verifier schema (current) | [`docs/verifier-schema.v0.17.json`](docs/verifier-schema.v0.17.json) | `0.17` |
 | Agent handoff schema (current) | [`docs/agent-handoff-schema.v9.json`](docs/agent-handoff-schema.v9.json) | `shipgate.agent_handoff/v9` |
 | Preflight schema (current) | [`docs/preflight-schema.v0.5.json`](docs/preflight-schema.v0.5.json) | `0.5` |
-| Host-grants inventory schema | [`docs/host-grants-inventory-schema.v0.3.json`](docs/host-grants-inventory-schema.v0.3.json) | `0.3` |
-| Host-grants baseline schema | [`docs/host-grants-baseline-schema.v0.3.json`](docs/host-grants-baseline-schema.v0.3.json) | `0.3` |
-| Host-grants drift schema | [`docs/host-grants-drift-schema.v0.3.json`](docs/host-grants-drift-schema.v0.3.json) | `0.3` |
+| Host-grants inventory schema | [`docs/host-grants-inventory-schema.v0.4.json`](docs/host-grants-inventory-schema.v0.4.json) | `0.4` |
+| Host-grants baseline schema | [`docs/host-grants-baseline-schema.v0.4.json`](docs/host-grants-baseline-schema.v0.4.json) | `0.4` |
+| Host-grants drift schema | [`docs/host-grants-drift-schema.v0.4.json`](docs/host-grants-drift-schema.v0.4.json) | `0.4` |
 | Capability standard | [`docs/capability-standard.md`](docs/capability-standard.md) | `0.5` |
 | Capability lock schema | [`docs/capability-lock-schema.v0.8.json`](docs/capability-lock-schema.v0.8.json) | `0.8` |
 | Capability lock diff schema | [`docs/capability-lock-diff-schema.v0.9.json`](docs/capability-lock-diff-schema.v0.9.json) | `0.9` |
