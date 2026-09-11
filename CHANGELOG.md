@@ -17,11 +17,12 @@
   the runtime by `tests/test_report_1_0_contract.py`.
 
   Pre-freeze `0.x` reports are no longer accepted as engine *input*.
-  `scan --diff-from`, `explain-finding`, `findings`, `scenario suggest` and
+  `scan --diff-from`, `apply-patches`, `explain-finding`, `findings`, `scenario suggest` and
   `evidence-packet` refuse one by name, with a stable `reason_code` and a
   regeneration route, instead of validating it against a model whose defaults
   would stand in for blocks it never recorded. A report from a newer `1.x`
-  minor is read by a projection reader and refused by an evidence comparison.
+  minor is read by a projection reader and refused by evidence comparison
+  or patch application.
   Nothing is converted and no artifact gains current authority through
   conversion or a restamped digest; every superseded schema stays published, so
   archived reports remain validatable. An incomparable `--diff-from` base still
@@ -43,6 +44,28 @@
   lists. `explain-finding` refuses a report whose findings carry no
   `agent_action` rather than explaining a null one, the way `findings` already
   refuses a missing `provenance_kind` (#569).
+
+- Compare against the detected base by default in `check`, so a branch's
+  committed work is visible without flags. `shipgate check` compared the
+  working tree with `HEAD`, so on a branch whose changes were already
+  committed it answered `allow` with an empty change set — truthfully
+  reporting "nothing is uncommitted" to someone asking "what does this
+  branch change". Reaching the real answer took `--base <ref> --head HEAD`,
+  a pair the help never suggested and which the CLI rejected unless both
+  were given. A flagless run now compares the detected default branch's
+  merge base against the working tree, one comparison spanning committed
+  and uncommitted work, and `subject.base` names the ref it used. `--base`
+  and `--head` are independent; `--base HEAD` keeps the previous
+  uncommitted-only comparison. On the default branch the working-tree
+  answer is complete and unchanged. Where no base can be detected — no
+  remote and no `main` or `master` — the run stops and names `--base`
+  rather than reporting a pass it did not establish. The implicit local
+  fallback is narrow on purpose: a local `main` is refused while a remote
+  exists, because the remote is the authority it might be stale against,
+  and used only where the repository has no remote at all. `verify`'s own
+  base detection is untouched, and the emitted `verify` command now accepts
+  either ref alone so it cannot disagree with the check that emitted it
+  (#649).
 
 - Stop inventorying machine-written tool caches, so an ordinary concurrent
   test run no longer collapses the host inventory. `check` run while pytest
