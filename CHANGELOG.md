@@ -3,8 +3,8 @@
 ## Unreleased
 
 - Read Go MCP tool descriptions from struct `Description` fields and
-  direct `WithDescription`/`WithToolDescription` options. Later description options replace earlier
-  ones, including empty or computed values. Nested calls and partial
+  direct `WithDescription`/`WithToolDescription` options. Later description
+  options replace earlier ones, including empty or computed values. Nested calls and partial
   expressions cannot supply the parent tool's description.
 
   A complete two-string call to a declared `TranslationHelperFunc` parameter
@@ -32,6 +32,26 @@
   `tests/test_next_action_chains_terminate.py` walks every entry command on
   two repository shapes and fails on a repeat, a lost workspace, or a step
   this CLI cannot run (#650).
+
+- Split the release into two lines and measure both. The advisory line
+  publishes `diff`, `check`, `audit --host`, drift and advisory PR comments
+  through the unqualified preview on a 14-day interval; the qualified gate
+  line publishes blocking verdicts, receipts and attestations through a `v*`
+  tag on evidence only. One engine, two promises, neither waiting on the
+  other — the state this ends is a documented workflow that was two months
+  out of an outsider's reach because the only channel that could carry it
+  was blocked behind bars that exist to justify blocking a merge, which the
+  advisory line never does. `scripts/release_cadence.py` now reports both
+  from one renderer, counting `v*` for the gate line and `preview-*` for the
+  advisory line; the separation is load-bearing, because counting previews
+  in the release metric would let the channel that exists *because* the
+  release cadence slipped report that cadence as kept. Neither line fails a
+  pull request, for the reason already recorded for the release cadence:
+  whichever change arrives after an interval lapses is not the one that can
+  cut a release. `--fail-when-overdue` now covers both, for an operator or a
+  scheduled job. Recorded as Amendment 4 in
+  `docs/release-evidence-policy-decision.md`; no gate-line bar moves (#648).
+
 
 - Compare against the detected base by default in `check`, so a branch's
   committed work is visible without flags. `shipgate check` compared the
