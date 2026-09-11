@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Make every emitted next action lead somewhere, and prove it. Following
+  `control.next_action` on a repository with recognized host configuration
+  and no manifest went round three commands forever: `verify --preview`
+  named `init --write`, `init` refused because a host-only repository needs
+  no manifest and named `audit --host`, and `audit --host` named
+  `verify --preview` again. The host-audit footer is now conditional — the
+  baseline comparison where there is no manifest, `verify` where there is,
+  `--drift` once a baseline exists — and it says to record the baseline on
+  the base ref, never on the changed checkout, which would accept the change
+  instead of comparing it. That footer also emitted its command without
+  `--workspace`, so following it ran the next step against the caller's
+  current directory rather than the repository just audited; every emitted
+  command now carries the workspace it was produced for. A preview that
+  evaluated no gate reports `Agents Shipgate verify: not evaluated` instead
+  of `failed`, matching the `not_run` its machine fields already carried.
+  `tests/test_next_action_chains_terminate.py` walks every entry command on
+  two repository shapes and fails on a repeat, a lost workspace, or a step
+  this CLI cannot run (#650).
+
 - Refuse new public surface while the adoption freeze is on. No new check
   ID, versioned schema family or input adapter lands until the Adoption M2
   exit is recorded; `scripts/check_surface_freeze.py` compares the generated
@@ -12,6 +31,7 @@
   goldens and generated files, and only reports it: a number nobody agreed
   to should not block a merge, and the author who trips it is rarely the one
   who can shorten the change (#654).
+
 
 - Compare against the detected base by default in `check`, so a branch's
   committed work is visible without flags. `shipgate check` compared the

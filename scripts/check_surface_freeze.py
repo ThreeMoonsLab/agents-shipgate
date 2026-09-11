@@ -83,7 +83,7 @@ def _schema_families(ref: str | None) -> set[str]:
         base = Path(name).name
         if "schema" not in base or not base.endswith(".json"):
             continue
-        families.add(re.sub(r"\.v\d+\.json$|\.json$", "", base))
+        families.add(re.sub(r"\.v\d+(?:\.\d+)*\.json$|\.json$", "", base))
     return families
 
 
@@ -96,11 +96,21 @@ def _adapters(ref: str | None) -> set[str]:
             str(path.relative_to(REPO_ROOT))
             for path in (REPO_ROOT / root).rglob("*.py")
         ]
-    return {
-        Path(name).stem
-        for name in listing
-        if name.endswith(".py") and not Path(name).name.startswith("_")
-    }
+    adapters: set[str] = set()
+    for name in listing:
+        if not name.endswith(".py"):
+            continue
+        relative = Path(name).relative_to(root)
+        first = relative.parts[0]
+        if first.startswith("_"):
+            continue
+        if len(relative.parts) == 1:
+            adapters.add(relative.stem)
+        elif relative.name == "__init__.py":
+            # A public package is one adapter surface, even if its loader
+            # implementation is private (as with inputs/n8n/_adapter.py).
+            adapters.add(first)
+    return adapters
 
 
 def _added_lines(base: str) -> tuple[int, int]:

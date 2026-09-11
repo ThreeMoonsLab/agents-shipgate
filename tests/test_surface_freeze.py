@@ -179,3 +179,37 @@ def test_generated_files_do_not_count_against_the_budget(repo: Path) -> None:
     assert result.returncode == 0
     assert "review budget" not in result.stdout
     assert "2001 generated" in result.stdout or "generated" in result.stdout
+
+
+@pytest.mark.parametrize(("before", "after"), [("0.43", "1.0"), ("1.0", "1.1"), ("1.0.0", "1.0.1")])
+def test_dotted_schema_versions_remain_one_family(repo: Path, before: str, after: str) -> None:
+    (repo / "docs" / f"report-schema.v{before}.json").write_text("{}")
+    _commit(repo)
+    _git(repo, "branch", "-f", "main", "HEAD")
+    (repo / "docs" / f"report-schema.v{after}.json").write_text("{}")
+    _commit(repo)
+    result = _run(repo)
+    assert result.returncode == 0, result.stdout
+
+
+def test_package_adapter_with_private_loader_is_refused(repo: Path) -> None:
+    package = repo / "src/agents_shipgate/inputs/new_framework"
+    package.mkdir()
+    (package / "__init__.py").write_text("from ._adapter import NewAdapter\n")
+    (package / "_adapter.py").write_text("class NewAdapter: pass\n")
+    _commit(repo)
+    result = _run(repo)
+    assert result.returncode == 1, result.stdout
+    assert "new input adapter: new_framework" in result.stdout
+
+
+def test_helpers_within_existing_adapter_do_not_create_adapter_surface(repo: Path) -> None:
+    package = repo / "src/agents_shipgate/inputs/existing"
+    package.mkdir()
+    (package / "__init__.py").write_text("")
+    _commit(repo)
+    _git(repo, "branch", "-f", "main", "HEAD")
+    (package / "helpers.py").write_text("# existing adapter implementation\n")
+    _commit(repo)
+    result = _run(repo)
+    assert result.returncode == 0, result.stdout
