@@ -1109,7 +1109,7 @@ def _init_advance(
 
 
 def register(app: typer.Typer) -> None:
-    @app.command(hidden=True)
+    @app.command()
     def init(
         ctx: typer.Context,
         workspace: Path = typer.Option(Path("."), "--workspace", help="Workspace to inspect."),
