@@ -2050,3 +2050,63 @@ SOURCE_CASES += tuple(
     SourceCase("go_description:" + name, "go", "package p\n" + body)
     for name, body, _expected in GO_DESCRIPTION_CASES
 )
+
+
+# TypeScript SDK descriptions: both readers receive every read and refusal.
+TS_DESCRIPTION_CASES: tuple[tuple[str, str, str | None], ...] = (
+    (
+        "options_object",
+        'server.registerTool("options_object", { description: "From the options object.", inputSchema: {} }, fn);',
+        "From the options object.",
+    ),
+    (
+        "quoted_key",
+        'server.registerTool("quoted_key", { "description": "From a quoted key.", inputSchema: {} }, fn);',
+        "From a quoted key.",
+    ),
+    (
+        "positional",
+        'server.tool("positional", "From the positional argument.", fn);',
+        "From the positional argument.",
+    ),
+    (
+        "own_beats_nested",
+        'server.registerTool("own_beats_nested", { description: "The tool\'s own.", inputSchema: { properties: { x: { description: "A parameter." } } } }, fn);',
+        "The tool's own.",
+    ),
+    # --- refusals ---------------------------------------------------------
+    # The trap. Only a parameter is described; the tool is not. Reading the
+    # schema's `description` would document this tool with its argument's
+    # text, which is worse than reporting it undocumented.
+    (
+        "nested_schema_only",
+        'server.registerTool("nested_schema_only", { inputSchema: { properties: { job_id: { description: "The job to get." } } } }, fn);',
+        None,
+    ),
+    # A valid registration that genuinely has no description.
+    ("no_description", 'server.tool("no_description", fn);', None),
+    ("computed", 'server.registerTool("computed", { description: buildDesc(), inputSchema: {} }, fn);', None),
+    ("template_literal", 'server.registerTool("template_literal", { description: `Hello ${name}`, inputSchema: {} }, fn);', None),
+    ("concatenation", 'server.registerTool("concatenation", { description: "Part " + suffix, inputSchema: {} }, fn);', None),
+    ("positional_concatenation", 'server.tool("positional_concatenation", "Part " + suffix, fn);', None),
+)
+
+TS_DESCRIPTION_CASES += (
+    ("last_literal", 'server.registerTool("last_literal", { description: "old", description: "actual" }, fn);', "actual"),
+    ("last_empty", 'server.registerTool("last_empty", { description: "old", description: "" }, fn);', None),
+    ("last_computed", 'server.registerTool("last_computed", { description: "old", description: buildDesc() }, fn);', None),
+    ("last_spread", 'server.registerTool("last_spread", { description: "old", ...overrides }, fn);', None),
+    ("spread_then_literal", 'server.registerTool("spread_then_literal", { ...defaults, description: "actual" }, fn);', "actual"),
+    ("computed_key_override", 'server.registerTool("computed_key_override", { description: "old", [key]: value }, fn);', None),
+    ("shorthand_override", 'server.registerTool("shorthand_override", { description: "old", description }, fn);', None),
+    ("getter_override", 'server.registerTool("getter_override", { description: "old", get description() { return dynamic; } }, fn);', None),
+    ("ternary_is_not_key", 'server.registerTool("ternary_is_not_key", { title: enabled ? description : "Not tool documentation", inputSchema: {} }, fn);', None),
+    ("quoted_ternary_is_not_key", 'server.registerTool("quoted_ternary_is_not_key", { title: enabled ? "description" : "Not tool documentation" }, fn);', None),
+    ("suffix_changes_options", 'server.registerTool("suffix_changes_options", { description: "old" } && options, fn);', None),
+    ("unbound_translation_helper", 'server.registerTool("unbound_translation_helper", { description: t("TOOL_KEY", "not established") }, fn);', None),
+    ("literal_with_comments", 'server.registerTool("literal_with_comments", { /* own */ description /* key */ : "actual" /* value */, inputSchema: {} }, fn);', "actual"),
+)
+SOURCE_CASES += tuple(
+    SourceCase("ts_description:" + name, "typescript", body)
+    for name, body, _expected in TS_DESCRIPTION_CASES
+)

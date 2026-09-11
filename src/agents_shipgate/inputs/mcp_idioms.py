@@ -1625,49 +1625,46 @@ def _child_braces(masked: str, open_brace: int, close: int) -> list[tuple[int, i
 #:
 #:   server.registerTool("get_job", { description: "…", inputSchema: {} }, fn)
 #:   server.tool("get_job", "…", fn)
-_TS_OBJECT_DESCRIPTION_KEY_RE = re.compile(r"(?<![\w$.])description\s*:\s*")
+_TS_OBJECT_PROPERTY_RE = re.compile(r"[A-Za-z_$][\w$]*")
 
 
 def _ts_object_description(
     source: MaskedSource, open_brace: int, close: int
 ) -> str | None:
-    """The options object's own ``description``, never a nested one.
+    """Read direct members in order, preserving JavaScript override semantics.
 
-    The depth test is the whole point. A registration's options object
-    carries `inputSchema`, and a JSON Schema describes *every parameter*:
-
-        { description: "Get a job", inputSchema: { properties: {
-              job_id: { description: "The job to get" } } } }
-
-    Without the depth-1 restriction the first `description:` found inside a
-    schema would be published as the tool's, so a tool whose own description
-    is missing would be documented with one of its arguments' — an invented
-    answer rather than an absent one.
+    A colon inside another member's expression is not a property boundary.
+    Spreads and computed keys may replace description; a later explicit
+    literal can establish it again. Never retain a stale earlier value.
     """
 
-    candidates: list[int] = []
-    for match in _TS_OBJECT_DESCRIPTION_KEY_RE.finditer(
-        source.masked, open_brace + 1, close
-    ):
-        candidates.append(match.end())
-    # `{ "description": "…" }` is the same key; the masker hides its body, so
-    # a quoted key is found by value rather than by pattern.
-    for start, (value, end) in source.literals.items():
-        if not (open_brace < start < close) or value != "description":
+    description = None
+    # The balanced argument splitter also separates object members: strings,
+    # comments and nested expressions cannot introduce a member separator.
+    for start, end in _go_arguments(source, open_brace, close):
+        found, key, key_end = source.literal_at(start)
+        if not found:
+            match = _TS_OBJECT_PROPERTY_RE.match(source.masked, start, end)
+            if match is None:
+                description = None  # spread or computed key
+                continue
+            key, key_end = match.group(), match.end()
+        after = source.skip_space(key_end)
+        if key in {"get", "set"} and after < end and source.masked[after] != ":":
+            # Accessors can override the same property without a colon.
+            accessor = _TS_OBJECT_PROPERTY_RE.match(source.masked, after, end)
+            if accessor is None or accessor.group() == "description":
+                description = None
             continue
-        after = source.skip_space(end)
-        if after < len(source.masked) and source.masked[after] == ":":
-            candidates.append(after + 1)
-    for position in sorted(candidates):
-        if _brace_depth(source.masked, open_brace, position) != 1:
+        if key != "description":
             continue
-        found, value, end = source.literal_at(position)
-        if found and value and _literal_is_whole_value(source, end, ",}"):
-            return value
-        # The key is present at the right level but its value is not a plain
-        # literal. Reading further would be reading some other key's value.
-        return None
-    return None
+        description = None
+        if after >= end or source.masked[after] != ":":
+            continue  # shorthand or method: its value is not a known string
+        found, value, literal_end = source.literal_at(after + 1)
+        if found and value and literal_end == end:
+            description = value
+    return description
 
 
 def _ts_call_description(
@@ -1693,7 +1690,11 @@ def _ts_call_description(
         return value if value and _literal_is_whole_value(source, end, ",)") else None
     if second < len(source.masked) and source.masked[second] == "{":
         object_close = _matching_close(source.masked, second, "{", "}")
-        if object_close is None or object_close > close:
+        if (
+            object_close is None
+            or object_close > close
+            or not _literal_is_whole_value(source, object_close, ",)")
+        ):
             return None
         return _ts_object_description(source, second, object_close)
     return None

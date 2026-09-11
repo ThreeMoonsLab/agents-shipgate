@@ -26,6 +26,7 @@ import pytest
 
 from agents_shipgate.inputs.mcp_server_source import load_mcp_server_source
 from agents_shipgate.schemas.manifest import ToolSourceConfig
+from tests.mcp_idiom_corpus import TS_DESCRIPTION_CASES as CASES
 
 PACKAGE_JSON = '{"name":"srv","dependencies":{"@modelcontextprotocol/sdk":"^1.0.0"}}'
 IMPORT = 'import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";\n'
@@ -46,43 +47,7 @@ def _tools(tmp_path: Path, body: str) -> dict[str, str | None]:
 
 
 #: (case, the registration line, what must be read).
-CASES: tuple[tuple[str, str, str | None], ...] = (
-    (
-        "options_object",
-        'server.registerTool("options_object", { description: "From the options object.", inputSchema: {} }, fn);',
-        "From the options object.",
-    ),
-    (
-        "quoted_key",
-        'server.registerTool("quoted_key", { "description": "From a quoted key.", inputSchema: {} }, fn);',
-        "From a quoted key.",
-    ),
-    (
-        "positional",
-        'server.tool("positional", "From the positional argument.", fn);',
-        "From the positional argument.",
-    ),
-    (
-        "own_beats_nested",
-        'server.registerTool("own_beats_nested", { description: "The tool\'s own.", inputSchema: { properties: { x: { description: "A parameter." } } } }, fn);',
-        "The tool's own.",
-    ),
-    # --- refusals ---------------------------------------------------------
-    # The trap. Only a parameter is described; the tool is not. Reading the
-    # schema's `description` would document this tool with its argument's
-    # text, which is worse than reporting it undocumented.
-    (
-        "nested_schema_only",
-        'server.registerTool("nested_schema_only", { inputSchema: { properties: { job_id: { description: "The job to get." } } } }, fn);',
-        None,
-    ),
-    # A valid registration that genuinely has no description.
-    ("no_description", 'server.tool("no_description", fn);', None),
-    ("computed", 'server.registerTool("computed", { description: buildDesc(), inputSchema: {} }, fn);', None),
-    ("template_literal", 'server.registerTool("template_literal", { description: `Hello ${name}`, inputSchema: {} }, fn);', None),
-    ("concatenation", 'server.registerTool("concatenation", { description: "Part " + suffix, inputSchema: {} }, fn);', None),
-    ("positional_concatenation", 'server.tool("positional_concatenation", "Part " + suffix, fn);', None),
-)
+
 
 
 @pytest.mark.parametrize(
