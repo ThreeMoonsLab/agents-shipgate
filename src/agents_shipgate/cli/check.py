@@ -13,6 +13,7 @@ from agents_shipgate.cli.agent_mode import (
     emit_agent_mode_error_action,
 )
 from agents_shipgate.cli.agent_result import (
+    UnresolvedComparisonError,
     agent_result_json,
     build_agent_boundary_result,
     build_codex_agent_result,
@@ -216,12 +217,15 @@ def check(
     base: str | None = typer.Option(
         None,
         "--base",
-        help="Base git ref for diff resolution when --diff is omitted.",
+        help=(
+            "Base git ref. Defaults to the detected default branch's merge "
+            "base with HEAD; use --base HEAD for uncommitted changes only."
+        ),
     ),
     head: str | None = typer.Option(
         None,
         "--head",
-        help="Head git ref for diff resolution when --diff is omitted.",
+        help="Head git ref. Defaults to the working tree.",
     ),
 ) -> None:
     """Run the agent-native local boundary check."""
@@ -256,13 +260,14 @@ def check(
             command=None,
             expects="A non-empty diff path, stdin, a complete ref range, or the worktree.",
         )
-    if (base is None) != (head is None) or (
-        base is not None and (not base or not head)
-    ):
+    if (base is not None and not base) or (head is not None and not head):
         raise _flag_error(
-            "--base and --head must be provided together and cannot be empty.",
+            "--base and --head cannot be empty.",
             command=None,
-            expects="Both non-empty refs, or neither for local worktree changes.",
+            expects=(
+                "A non-empty ref, both refs for a committed range, or neither "
+                "to compare this branch against its detected base."
+            ),
         )
     if any(
         value is not None
@@ -328,6 +333,10 @@ def check(
             changed_files_override = list(change_set.changed_paths)
             manifest_text_snapshot = change_set.manifest_text_snapshot
             manifest_snapshot_captured = True
+            # Publish what was actually compared, not what was typed. A
+            # verdict whose base is unnamed cannot be reviewed (#649).
+            base = change_set.resolved_base
+            head = change_set.resolved_head
     except InputParseError as exc:
         if isinstance(exc.__cause__, FileNotFoundError):
             result = _diff_input_error_result(
@@ -366,6 +375,15 @@ def check(
                 "Resolve the exact deterministic Git/diff or manifest-identity "
                 "failure reported by this check before rerunning it."
             ),
+        ) from exc
+    except UnresolvedComparisonError as exc:
+        # Ahead of the RuntimeError handler below on purpose: that one
+        # renders a diff-input result and exits 0, and "I could not work out
+        # what to compare" must never leave as a passing check (#649).
+        raise _flag_error(
+            str(exc),
+            command=None,
+            expects="A named base ref this working tree can be compared against.",
         ) from exc
     except (OSError, RuntimeError) as exc:
         result = _diff_input_error_result(
@@ -408,7 +426,9 @@ def check(
         "input_issues": input_issues,
         "base": base,
         "head": head,
-        "input_mode": "provided_diff" if diff else "git_range" if base else "worktree",
+        "input_mode": (
+            "provided_diff" if diff else "git_range" if (base and head) else "worktree"
+        ),
         # A standalone diff can describe either side of a change, but verify
         # accepts a checkout or a ref range. Do not authorize a worktree verify
         # for a subject the check cannot bind to repository state.

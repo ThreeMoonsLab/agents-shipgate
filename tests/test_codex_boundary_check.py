@@ -1152,7 +1152,12 @@ def test_codex_check_reads_diff_from_stdin(tmp_path: Path) -> None:
     assert json.loads(result.output)["decision"] == "allow"
 
 
-def test_codex_check_rejects_one_sided_git_refs(tmp_path: Path) -> None:
+def test_codex_check_accepts_a_one_sided_git_ref(tmp_path: Path) -> None:
+    """#649 removed the paired-flag rule: `--base` alone means "that base
+    against the working tree" and `--head` alone means "the detected base
+    against that head". A workspace that is not a repository still fails
+    closed, exactly as it does with no refs at all."""
+
     result = runner.invoke(
         app,
         [
@@ -1166,8 +1171,27 @@ def test_codex_check_rejects_one_sided_git_refs(tmp_path: Path) -> None:
         ],
     )
 
+    assert "--base and --head must be provided together" not in result.output
+    payload = json.loads(result.output)
+    assert payload["decision"] == "block"
+
+
+def test_codex_check_still_rejects_an_empty_git_ref(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--workspace",
+            str(tmp_path),
+            "--base",
+            "",
+            "--format",
+            "codex-boundary-json",
+        ],
+    )
+
     assert result.exit_code == 2
-    assert "--base and --head must be provided together" in result.output
+    assert "cannot be empty" in result.output
 
 
 def test_codex_check_malformed_toml_returns_schema_valid_json(tmp_path: Path) -> None:

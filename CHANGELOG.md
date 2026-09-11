@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- Compare against the detected base by default in `check`, so a branch's
+  committed work is visible without flags. `shipgate check` compared the
+  working tree with `HEAD`, so on a branch whose changes were already
+  committed it answered `allow` with an empty change set — truthfully
+  reporting "nothing is uncommitted" to someone asking "what does this
+  branch change". Reaching the real answer took `--base <ref> --head HEAD`,
+  a pair the help never suggested and which the CLI rejected unless both
+  were given. A flagless run now compares the detected default branch's
+  merge base against the working tree, one comparison spanning committed
+  and uncommitted work, and `subject.base` names the ref it used. `--base`
+  and `--head` are independent; `--base HEAD` keeps the previous
+  uncommitted-only comparison. On the default branch the working-tree
+  answer is complete and unchanged. Where no base can be detected — no
+  remote and no `main` or `master` — the run stops and names `--base`
+  rather than reporting a pass it did not establish. The implicit local
+  fallback is narrow on purpose: a local `main` is refused while a remote
+  exists, because the remote is the authority it might be stale against,
+  and used only where the repository has no remote at all. `verify`'s own
+  base detection is untouched, and the emitted `verify` command now accepts
+  either ref alone so it cannot disagree with the check that emitted it
+  (#649).
+
 - Stop inventorying machine-written tool caches, so an ordinary concurrent
   test run no longer collapses the host inventory. `check` run while pytest
   was active returned `human_review_required` with *"Directory inventory
