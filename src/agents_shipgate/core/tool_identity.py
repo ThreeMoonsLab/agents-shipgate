@@ -836,14 +836,7 @@ def _observations(
                     },
                 )
             seen[key] = (read_index, _source_file(tool))
-            observation_id = _stable_id(
-                "obs_v1",
-                {
-                    "source_type": tool.source_type,
-                    "source_id": source_id,
-                    "native_locator": locator,
-                },
-            )
+            observation_id = source_observation_id(tool, source_id)
             tool.native_locator = locator
             tool.observation_id = observation_id
             tool.observation_ids = [observation_id]
@@ -856,6 +849,16 @@ def _observations(
             tool.provider = source_id
             observations.append(tool)
     return observations
+
+
+def source_observation_id(tool: Tool, source_id: str) -> str:
+    """Identity shared by a source reader and the canonical catalog join."""
+
+    return _stable_id("obs_v1", {
+        "source_type": tool.source_type,
+        "source_id": source_id,
+        "native_locator": _native_locator(tool),
+    })
 
 
 def _source_file(tool: Tool) -> str | None:

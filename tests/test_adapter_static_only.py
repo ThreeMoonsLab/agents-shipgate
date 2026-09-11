@@ -166,7 +166,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/bootstrap.py",
         surface="attr_call:subprocess.run",
-        line=73,
+        line=74,
         snippet=(
             "subprocess.run(argv, cwd=str(cwd), env=env, "
             "capture_output=True, text=True, check=False)"
@@ -193,7 +193,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/discovery/artifacts.py",
         surface="attr_call:subprocess.run",
-        line=552,
+        line=591,
         snippet=(
             "subprocess.run(['git', '--no-replace-objects', '-C', "
             "str(workspace), 'rev-parse', '--show-toplevel'], check=False, "
@@ -209,7 +209,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/discovery/artifacts.py",
         surface="attr_call:subprocess.Popen",
-        line=634,
+        line=673,
         snippet=(
             "subprocess.Popen(['git', '--no-replace-objects', '-C', "
             "str(workspace), *args], env=env, stdout=subprocess.PIPE, "
@@ -444,7 +444,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/discovery/agent_instructions/adoption_kit.py",
         surface="attr_call:importlib.resources.files",
-        line=355,
+        line=359,
         snippet="files('agents_shipgate')",
         rationale=(
             "Resolves bundled adoption-kits/* content inside the "

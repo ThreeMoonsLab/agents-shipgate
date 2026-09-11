@@ -15,7 +15,7 @@ strategy needs at once:
    real repos is the headline extraction-coverage KPI; this measures it
    instead of assuming it.
 
-## What one row records (schema v0.1)
+## What one row records (schema v0.3)
 
 Per PR (`base = merge_commit^1`, `head = merge_commit` — the PR's net
 mainline change, correct for both squash and merge):
@@ -30,13 +30,41 @@ mainline change, correct for both squash and merge):
 | **Receipt (v0.2)** | `verify_verdict, verify_decision, verify_can_merge, verify_trust_root_touched, verify_policy_weakened, verify_cap_added/modified/removed` | Real `verify --base <base'> --head <head''>` with the cold-start manifest committed onto **both** sides; `head''` is re-parented onto `base'` (`commit-tree`) so the three-dot diff is exactly the PR's delta and the injected manifest cannot fire the trust-root signal. Diff-aware `SHIP-VERIFY-*` checks and new-findings gating apply — these columns are the per-PR verdict; the scan columns above remain the cold-start whole-surface state. |
 | Lifecycle | `status` (`evaluated \| trigger_skip \| init_skip \| scan_failed \| error`), `notes` | — |
 
+`verify_input_obligation` (v0.3) is either `null` or a typed
+`kind: unsupported_input` object. It retains the original base/head SHAs,
+selected head scope, a reason and exact Git-observed rename pairs, plus the
+required input action. JSONL carries the object directly; CSV carries JSON in
+that cell. Older rows remain readable with no invented obligation.
+
+For a miner-injected manifest, the original base scope must be a readable Git
+tree before any manifest is copied or committed. A Git-proven absent path
+reports `scoped_base_absent`; incoming Git rename pairs report
+`scoped_base_rename_candidates`. Partial or multiple renames remain observed
+file pairs, not a claim that the directories are the same agent. An unreadable
+comparison reports `scoped_comparison_unreadable`; a file where the directory would
+be reports `scoped_base_not_directory`. None supplies a verifier verdict or a
+capability count. An unrelated deleted directory cannot be chosen as the base
+without actual incoming rename evidence.
+
+Real PR-added manifests still use the existing terminal verifier path and
+keep their trust-root change visible. Its `base_status: missing_manifest`
+means there was no manifest at that base path, not that an empty agent surface
+was evaluated. Likewise `--diff-from` can provide a prior report but does not
+establish the normal successful base scan and subject binding. The independent
+base/head scoped-input contract is tracked in
+[#580](https://github.com/ThreeMoonsLab/agents-shipgate/issues/580).
+Typed obligations make missing answers actionable; they do not satisfy
+[#563](https://github.com/ThreeMoonsLab/agents-shipgate/issues/563)'s fixed-history
+catch bars or turn scan fallback into PR verification. All original history
+and labels below remain unchanged.
+
 `evaluated` means the head scan produced a release decision. When the
 repo-root cold start fails (monorepos), the evaluator retries once at the
 deepest common directory of the changed files (`notes: retry_at:<dir>`) —
 the stripe/ai PR #232 pattern, where the agent lives under `tools/python`.
 
-**Privacy rule:** rows carry public PR metadata, verdicts, check IDs, and
-counts only — never diff text, code excerpts, or report evidence. Same
+**Privacy rule:** rows carry public PR metadata, verdicts, check IDs, counts
+and repository-relative input paths — never diff text, code excerpts, or report evidence. Same
 convention as the adoption-harness CSVs.
 
 ## Run it
@@ -94,6 +122,7 @@ python -m benchmark.miner evaluate \
 | [`2026-W27-reeval.csv`](results/2026-W27-reeval.csv) | 2026-07-08 | the 19 labeled PRs (stripe/ai, openai/openai-agents-python, crewAIInc/crewAI-examples, google/adk-samples, aaif-goose/goose — formerly block/goose) | 19 (re-eval at fixed SHAs, not a fresh mine) | **v0.15.0 delta on the labeled corpus.** Same PRs / same base→head SHAs as W24–W26, re-run on the released engine. Clears the 4 scan crashes; both `must_block` move abstain→review but `blocked_recall` stays 0.0. Off the `*-mined` glob by design. Findings below. |
 | [`2026-W36-cutb.csv`](results/2026-W36-cutb.csv) | 2026-09-02 | n8n-io/n8n, n8n-io/self-hosted-ai-starter-kit, Zie619/n8n-workflows, enescingoz/awesome-n8n-templates, modelcontextprotocol/servers, microsoft/playwright-mcp, cloudflare/mcp-server-cloudflare, supabase-community/supabase-mcp, Azure/azure-mcp, hashicorp/terraform-mcp-server, elastic/mcp-server-elasticsearch, redis/mcp-redis, openai/openai-agents-python, google/adk-samples, google/adk-python, langchain-ai/langgraph, langchain-ai/langchain-mcp-adapters, langchain-ai/deepagents, crewAIInc/crewAI-examples, aaif-goose/goose, pydantic/pydantic-ai | 912 (latest 40 merged per repo, plus `--state closed` on openai-agents-python and adk-samples, `--state reverted` on the same plus goose and pydantic-ai, and `--pr` named candidates) | **The Cut B sourcing sweep for [#456](https://github.com/ThreeMoonsLab/agents-shipgate/issues/456), and the first post-#403 run.** Every n8n repository this project had never mined, eight unwalked MCP servers, and the rejected vein (closed-unmerged + reverted PRs, new in this run). Schema v0.2. **Labeled** in `2026-W36-cutb.labels.csv` — one session's Cut B cell-targeting labels from the PR diffs, *not adjudicated*; corpus labels come only from the Amendment 1 raters. Off the `*-mined` glob by design (see note). Findings below. |
 | [`2026-W36-closeout.csv`](results/2026-W36-closeout.csv) | 2026-09-02 | github/github-mcp-server, grafana/mcp-grafana, bytedance/deer-flow | 45 (three `--pr` named walk candidates, the latest 40 merged on deer-flow, and two `--pr` named deer-flow candidates) | **The Cut B close-out for [#456](https://github.com/ThreeMoonsLab/agents-shipgate/issues/456).** Resolves the pins for the three walked candidates the inventory carried unpinned (two MCP-server repositories), and mines the LangChain application repository that closes its last cell. Schema v0.2. **Labeled** in `2026-W36-closeout.labels.csv` — one row, the claimed candidate, cell-targeting and *not adjudicated* like every other sourcing label here. Off the `*-mined` glob by design: every row is either a named PR or a repository chosen for one cell, and its own trigger-skip rate is 14 of 40 (0.35) on the one repository swept by window — an agent application, not the unselected sample the noise bound measures. Findings below. |
+| [`2026-W37-reeval.csv`](results/2026-W37-reeval.csv) | 2026-09-08 | the same five repositories and 19 fixed W27 PRs | 19 | Candidate after the core implementation slices. **Release-exit regression: 0/19 verifier results**; original labels/SHAs and all no-answer attempts retained. See the W37 comparison below. |
 
 > **W26 repo note (data-integrity):** `gh pr list --repo stripe/agent-toolkit`
 > follows GitHub's transfer redirect — `stripe/agent-toolkit` was folded into the
@@ -252,6 +281,97 @@ The live engine is re-run against these fixtures in CI
 verdict fails there rather than silently in the data file. The mined runs below
 supply the complementary halves — the **negative control** (the 336
 trigger-skips) and the real-history **extraction-coverage** (`insufficient_evidence`) rate.
+
+## 2026-W37 re-eval — the fixed cold-start workflow no longer reaches verify
+
+**The release-exit bars fail.** On 2026-09-08, the same 19 W27 PRs and exact
+base/head SHAs were evaluated against candidate `60d44cae17d1ce75b47cff9f9b0a8dfe579a027f`
+(tree `52ac3118e6819212386a03b384a13a5cc797c4b9`, final #562 head). The
+candidate includes the completed #515/#516/#520 slices and the reader,
+identity, review and presentation work preceding them. This is source-tree
+measurement, not a released wheel, signed qualification or a new human study.
+The fixed population is **five repositories**; eight describes the wider
+mining history. Original W24–W26 label files are unchanged.
+
+The [CSV](results/2026-W37-reeval.csv), [JSONL](results/2026-W37-reeval.jsonl)
+and [comparison](results/2026-W37-reeval.comparison.json) preserve all attempts.
+The comparison binds the candidate commit/tree, measurement-driver bytes,
+baseline and label-file hashes. The driver digest records the version that
+actually ran; later driver changes must not restamp this historical record.
+It records command-level counts and routing
+without source excerpts, prompts or raw stderr.
+
+| Metric | W27 | W37 candidate | Interpretation |
+|---|---:|---:|---|
+| `must_block_caught` | 1.0 (2/2) | **0.0 (0/2)** | Both must-block cases are unscored. Required 1.0 is unmet. |
+| `needs_human_caught` | 1.0 (3/3) | **0.333 (1/3)** | The one caught case uses the legacy scan fallback. Required 1.0 is unmet. |
+| `blocked_recall` | 0.0 (0/2) | 0.0 (0/2) | No real-history hard block was established. |
+| `benign_escalation_rate` | 0.286 (4/14) | 0.071 (1/14) | Fewer answers explain the apparent improvement. |
+| `ie_rate_on_safe` | 0.714 (10/14) | 0.071 (1/14) | Twelve safe cases are now unscored; coverage did not improve. |
+
+Those are the **unchanged historical scorer's** metrics: it falls back from
+`verify_verdict` to `head_decision`. The operational view is stricter:
+
+| Outcome | W27 | W37 candidate |
+|---|---:|---:|
+| PR verifier results / attempted cases | 17/19 | **0/19** |
+| Allowed verifier outcome / attempted cases | 0/19 | 0/19 |
+| Review verifier outcome / attempted cases | 4/19 | 0/19 |
+| IE verifier outcome / attempted cases | 13/19 | 0/19, with **19/19 lacking a verifier result** |
+| Cold-start scan fallback / attempted cases | 2/19 | 3/19: two review, one IE |
+| No scan or verifier answer / attempted cases | 0/19 | 16/19 |
+
+The candidate has **no observed terminal allowed/complete outcome, hard-block
+outcome or named PR human-review outcome**. No verifier ran, so whether a
+reviewer could act on a named change and bounded question is unmeasured, not
+an inferred success. All recorded setup permissions deny completion/merge.
+A successful init or head scan does not change that. The 14 benign cases have
+zero allowed outcomes, one legacy review escalation, one scan IE, and twelve
+with no answer. Both must-block cases have no answer. None was auto-passed.
+
+**Where the workflow stops.** Every initial repository-root init returned
+`refused_unresolved_scope`: 17 routes ask a human to choose scope and two ADK
+routes ask for discovery beyond the parse cap. The unchanged miner tries its
+existing deepest-common-directory fallback; it does not follow those new setup
+routes or invent a reviewed scope. Fifteen cases end at init refusal. Goose#9637
+instead writes the unsupported-surface placeholder in `evals/harbor` and scan
+exits 2. There were no observed exit-4 product crashes or observation failures;
+input/refusal failures are reported as such rather than counted as safe gates.
+
+The three head scans do not rescue the PR comparison. CrewAI-examples#184
+still has `base_lock_failed;verify_baseline_failed`. That was one of W27's two
+baseline failures; the other, #169, now stops earlier at scope refusal.
+ADK#1975/#1977 select a new/renamed project directory that does not exist at
+base and return `verify_base_subdir_missing`. **No result proves whether
+#538's connection diff would help on these PRs**, because the verifier never
+gets the base input. W27's standing-surface explanation for benign escalation
+cannot be validated by this run either.
+
+[#563](https://github.com/ThreeMoonsLab/agents-shipgate/issues/563) owns the
+reviewed-scope/release regression; [#564](https://github.com/ThreeMoonsLab/agents-shipgate/issues/564)
+owns new/renamed base inputs. Both were discovered in this implementation pass
+and are deferred. Keep the original cold-start data; any reviewed-scope rerun
+must be a separately named view. Do not lower a catch bar or convert setup
+refusals into release catches. #312's measurement is delivered; these failed
+bars remain a release blocker. No retention or external adoption claim follows.
+
+Reproduce after fetching each unique W27 base/head SHA into local repositories
+named `<owner>__<repo>` under a canonical, non-symlink directory:
+
+```bash
+python -m benchmark.miner.reevaluate \
+  --baseline benchmark/miner/results/2026-W27-reeval.jsonl \
+  --repos /absolute/path/to/repos \
+  --out-prefix /absolute/path/to/output/2026-W37-reeval
+```
+
+The driver uses the existing evaluator with `force_run=True`, the historical
+root/deepest-common-directory behavior and unchanged scan fallback. It refuses
+tracked engine changes and does not fetch or execute repository code. Outputs
+remain miner schema v0.2. Source artifacts and clone directories are not
+committed. A separate fixture verifies that operational observation can read a
+real verifier result before the evaluator cleans its temporary files; it does
+not enter the 19-case denominator.
 
 ## 2026-W27 re-eval — the v0.15.0 delta on the labeled corpus
 

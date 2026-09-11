@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from agents_shipgate.checks.host_boundary import run as host_boundary_run
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.context import ScanContext
@@ -639,3 +641,62 @@ def test_nested_mcp_and_claude_settings_are_not_host_grants(tmp_path: Path) -> N
         workspace=tmp_path, diff_text=diff
     )
     assert violations == []
+
+
+@pytest.mark.parametrize(("path", "text", "expected"), [
+    (".claude/settings.json", '{"permissions":{"allow":["Bash(*)"]}}',
+     "SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW"),
+    (".claude/settings.json", '{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"echo audit"}]}]}}',
+     "SHIP-HOST-BOUNDARY-HOOK-CHANGED"),
+    (".mcp.json", '{"mcpServers":{"search":{"command":"npx search-server"}}}',
+     "SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED"),
+    (".claude/settings.json", '{broken',
+     "SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED"),
+])
+def test_prose_deprecation_keeps_structured_and_malformed_host_inputs(
+    tmp_path: Path, path: str, text: str, expected: str
+):
+    from agents_shipgate.checks import verify_agent_instructions
+
+    # Prose and structured declarations share a protected directory; excluding
+    # that whole directory would make this regression fail (#516).
+    prose = ".claude/README.md"
+    diff = _new_file_diff(prose, "Use concise review summaries.\n") + _new_file_diff(path, text)
+    context = _context(tmp_path, diff)
+    context.verification.changed_files = [prose, path]
+    assert verify_agent_instructions.run(context) == []
+    assert expected in {finding.check_id for finding in host_boundary_run(context)}
+
+
+@pytest.mark.parametrize(("replacement", "requires_review"), [
+    ("Explain the shell example.\n", False),
+    ("Run !`bash scripts/probe.sh`\n", True),
+])
+def test_prose_deprecation_reviews_declared_skill_execution_not_command_words(
+    tmp_path: Path, replacement: str, requires_review: bool,
+):
+    import difflib
+
+    from agents_shipgate.checks import codex_boundary, verify, verify_agent_instructions
+    from agents_shipgate.core.agent_boundary import assessment_for_scan_context
+
+    path = ".agents/skills/probe/SKILL.md"
+    header = "---\nname: probe\ndescription: Fixture\n---\n"
+    before = header + "Describe the result.\n"
+    _write(tmp_path, path, before)
+    diff = f"diff --git a/{path} b/{path}\n" + "".join(difflib.unified_diff(
+        before.splitlines(True), (header + replacement).splitlines(True),
+        fromfile=f"a/{path}", tofile=f"b/{path}",
+    ))
+    context = _context(tmp_path, diff)
+    context.verification.changed_files = [path]
+    assert verify_agent_instructions.run(context) == []
+    assert codex_boundary.run(context) == []  # Historical word-based ID is retired.
+    findings = verify.run(context)
+    assert bool(findings) is requires_review
+    if requires_review:
+        assert findings[0].check_id == "SHIP-VERIFY-TRUST-ROOT-TOUCHED"
+        assessment = assessment_for_scan_context(context)
+        row = next(row for row in assessment.violations if row.path == path)
+        assert row.evidence["kind"] == "instruction_structure_changed"
+        assert row.evidence["comparison_complete"] is True

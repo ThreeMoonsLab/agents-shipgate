@@ -36,6 +36,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # Tags, because `tests/test_adopter_pins_resolve.py` checks the pins
+          # `init` writes into an adopter's repository against this
+          # repository's release tags — the check whose absence let a workflow
+          # pinned to a tag that was never cut ship for 56 days (#506). The
+          # default shallow fetch brings none, and that test fails loudly
+          # rather than passing over an empty tag list.
+          fetch-tags: true
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97

@@ -66,6 +66,9 @@ _AUTHORIZATION_RECEIPT_ARTIFACTS = frozenset(
         "capability_lock_diff_markdown",
         "capability_lock_json",
         "human_authorization_json",
+        # Read-only static evidence. Its presence in the bound closure does
+        # not grant an operation; the separately signed push grant still does.
+        "human_review_request_json",
         "packet_json",
         "pr_comment",
         "report_json",

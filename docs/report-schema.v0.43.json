@@ -1872,6 +1872,170 @@
       "title": "BindingSurfaceDiff",
       "type": "object"
     },
+    "BooleanSourceBehavior": {
+      "additionalProperties": false,
+      "description": "A closed source-function model, never deployed behavior or policy evidence.",
+      "properties": {
+        "binding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BooleanSourceBinding"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "configuration_reads": {
+          "anyOf": [
+            {
+              "const": "none",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Configuration Reads"
+        },
+        "parameters": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Parameters",
+          "type": "array"
+        },
+        "reader_profile": {
+          "const": "sdk_boolean_function/v1",
+          "default": "sdk_boolean_function/v1",
+          "title": "Reader Profile",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "returns": {
+          "items": {
+            "enum": [
+              "true",
+              "false",
+              "none"
+            ],
+            "type": "string"
+          },
+          "title": "Returns",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "observed",
+            "unresolved",
+            "redacted"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason"
+      ],
+      "title": "BooleanSourceBehavior",
+      "type": "object"
+    },
+    "BooleanSourceBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_name": {
+          "title": "Agent Name",
+          "type": "string"
+        },
+        "agent_symbol": {
+          "title": "Agent Symbol",
+          "type": "string"
+        },
+        "tool_bound": {
+          "title": "Tool Bound",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "agent_symbol",
+        "agent_name",
+        "tool_bound"
+      ],
+      "title": "BooleanSourceBinding",
+      "type": "object"
+    },
+    "BooleanSourceComparison": {
+      "additionalProperties": false,
+      "properties": {
+        "binding": {
+          "default": "unresolved",
+          "enum": [
+            "unchanged",
+            "added",
+            "removed",
+            "changed",
+            "unresolved"
+          ],
+          "title": "Binding",
+          "type": "string"
+        },
+        "bound_true_domain": {
+          "default": "unresolved",
+          "enum": [
+            "unchanged",
+            "widened",
+            "narrowed",
+            "changed",
+            "unresolved"
+          ],
+          "title": "Bound True Domain",
+          "type": "string"
+        },
+        "finding_exclusion_eligible": {
+          "const": false,
+          "default": false,
+          "title": "Finding Exclusion Eligible",
+          "type": "boolean"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "returns": {
+          "default": "unresolved",
+          "enum": [
+            "unchanged",
+            "changed",
+            "unresolved"
+          ],
+          "title": "Returns",
+          "type": "string"
+        },
+        "true_domain": {
+          "default": "unresolved",
+          "enum": [
+            "unchanged",
+            "widened",
+            "narrowed",
+            "changed",
+            "unresolved"
+          ],
+          "title": "True Domain",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "BooleanSourceComparison",
+      "type": "object"
+    },
     "CapabilityChangeBlock": {
       "additionalProperties": false,
       "description": "The diff-derived capability delta, grouped by direction.\n\nReviewer-facing projection over ``action_surface_diff`` /\n``tool_surface_diff`` (roadmap \u00a77.1). Four member lists \u2014\n``added`` / ``removed`` / ``broadened`` / ``narrowed`` \u2014 plus\n``enabled`` (mirrors the surface-diff enabled flag: ``False`` when no\nbase is available, so the block is a stable empty shape rather than\nabsent). Never gates on its own.",
@@ -3239,6 +3403,30 @@
       "title": "ContributionRule",
       "type": "object"
     },
+    "CoverageRecovery": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "input_unavailable",
+            "reader_limitation",
+            "unresolved"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "reason"
+      ],
+      "title": "CoverageRecovery",
+      "type": "object"
+    },
     "DeclarationQuestionCoverage": {
       "additionalProperties": false,
       "description": "v0.37: how much of the per-action declaration work is done.\n\nA gap count names a symptom and has no finish line. This is the same facts\nas a task with an end: how many questions this repository was ever asked,\nhow many a reviewed declaration has answered, and how many remain.\n\nThe denominator counts only what both halves can be measured on \u2014 the\n``effect`` and ``authority`` a reviewed declaration answers. An action\nwhose effect the scan established by itself was never asked about and is\nnot counted; an inventory or an ``agent_bindings`` declaration is a human\nanswer too but has no counterfactual to score against, so it is excluded\nrather than guessed at. See\n``agents_shipgate.core.declaration_questions``.\n\nv0.38: the unit is one blank a reviewer fills, so actions answered by the\nsame manifest block are one question. An authority every action of a source\nshares is answered once in that source's ``tool_sources[].authority``\nblock; ``open_questions[].answer_path`` names the block, and\n``subject_kind`` says which id space ``subject_id`` is in.\n\n``total == answered + open`` always. ``open_by_dimension`` sums to\n``open``: a question belongs to exactly one dimension.",
@@ -3840,6 +4028,105 @@
       "title": "DeclaredIntention",
       "type": "object"
     },
+    "DeclaredOperation": {
+      "additionalProperties": false,
+      "properties": {
+        "declared_targets": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Declared Targets",
+          "type": "array"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/OperationInput"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "method": {
+          "title": "Method",
+          "type": "string"
+        },
+        "observation_id": {
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "path_template": {
+          "title": "Path Template",
+          "type": "string"
+        },
+        "reader_profile": {
+          "const": "openapi_delete/v1",
+          "default": "openapi_delete/v1",
+          "title": "Reader Profile",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "security_contract": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Security Contract"
+        },
+        "server": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Server"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_pointer": {
+          "title": "Source Pointer",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "observed",
+            "unresolved",
+            "ambiguous",
+            "redacted"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "observation_id",
+        "tool_name",
+        "method",
+        "path_template",
+        "source_pointer",
+        "status",
+        "reason"
+      ],
+      "title": "DeclaredOperation",
+      "type": "object"
+    },
     "EffectSemanticEvidence": {
       "additionalProperties": false,
       "properties": {
@@ -4085,6 +4372,17 @@
           ],
           "default": null,
           "title": "Policy Id"
+        },
+        "recovery": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CoverageRecovery"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "source_ref": {
           "anyOf": [
@@ -4708,6 +5006,179 @@
       "title": "Finding",
       "type": "object"
     },
+    "FindingAttribution": {
+      "additionalProperties": false,
+      "properties": {
+        "attribution": {
+          "enum": [
+            "widened_by_change",
+            "improved_not_resolved",
+            "standing_weakness",
+            "unresolved"
+          ],
+          "title": "Attribution",
+          "type": "string"
+        },
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "dependency_coverage": {
+          "const": "incomplete",
+          "default": "incomplete",
+          "title": "Dependency Coverage",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/FindingAttributionEvidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "finding_exclusion_eligible": {
+          "const": false,
+          "default": false,
+          "title": "Finding Exclusion Eligible",
+          "type": "boolean"
+        },
+        "fingerprint": {
+          "title": "Fingerprint",
+          "type": "string"
+        },
+        "identity": {
+          "enum": [
+            "new",
+            "matched",
+            "accepted_debt",
+            "unresolved"
+          ],
+          "title": "Identity",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "tool_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Id"
+        },
+        "tool_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Name"
+        }
+      },
+      "required": [
+        "fingerprint",
+        "check_id",
+        "identity",
+        "attribution",
+        "reason"
+      ],
+      "title": "FindingAttribution",
+      "type": "object"
+    },
+    "FindingAttributionEvidence": {
+      "additionalProperties": false,
+      "description": "One compared axis of one profile row, and where to read both sides.",
+      "properties": {
+        "axis": {
+          "enum": [
+            "approval_predicate",
+            "declared_target_domain",
+            "guard_predicate",
+            "bound_true_domain"
+          ],
+          "title": "Axis",
+          "type": "string"
+        },
+        "base_pointer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Pointer"
+        },
+        "direction": {
+          "title": "Direction",
+          "type": "string"
+        },
+        "effect": {
+          "enum": [
+            "widening",
+            "narrowing",
+            "unchanged",
+            "unresolved"
+          ],
+          "title": "Effect",
+          "type": "string"
+        },
+        "head_pointer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Head Pointer"
+        },
+        "link": {
+          "enum": [
+            "predicate",
+            "capability"
+          ],
+          "title": "Link",
+          "type": "string"
+        },
+        "observation_id": {
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "profile": {
+          "enum": [
+            "openapi_delete/v1",
+            "sdk_boolean_guard/v1"
+          ],
+          "title": "Profile",
+          "type": "string"
+        }
+      },
+      "required": [
+        "profile",
+        "observation_id",
+        "link",
+        "axis",
+        "direction",
+        "effect"
+      ],
+      "title": "FindingAttributionEvidence",
+      "type": "object"
+    },
     "FindingSupport": {
       "additionalProperties": false,
       "description": "Authoritative support for finding confidence and release contribution.\n\nRule metadata may request a severity or block, but it cannot upgrade the\nunderlying evidence. ``support_hash`` binds baselines and audit surfaces\nto the predicate evidence that actually made the finding eligible.",
@@ -4783,6 +5254,298 @@
         "support_hash"
       ],
       "title": "FindingSupport",
+      "type": "object"
+    },
+    "GuardDependencyComparison": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GuardDependencyEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "before": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GuardDependencyEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "direction": {
+          "enum": [
+            "predicate_unchanged",
+            "predicate_widened",
+            "predicate_narrowed",
+            "predicate_changed",
+            "unresolved"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "finding_exclusion_eligible": {
+          "const": false,
+          "default": false,
+          "title": "Finding Exclusion Eligible",
+          "type": "boolean"
+        },
+        "observation_id": {
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "source_behavior": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BooleanSourceComparison"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tool_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Id"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "observation_id",
+        "tool_name",
+        "direction",
+        "reason"
+      ],
+      "title": "GuardDependencyComparison",
+      "type": "object"
+    },
+    "GuardDependencyEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "absent_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Absent Paths",
+          "type": "array"
+        },
+        "allowed_inputs": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Allowed Inputs",
+          "type": "array"
+        },
+        "call_line": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Call Line"
+        },
+        "dependency_coverage": {
+          "const": "incomplete",
+          "default": "incomplete",
+          "title": "Dependency Coverage",
+          "type": "string"
+        },
+        "finding_exclusion_eligible": {
+          "const": false,
+          "default": false,
+          "title": "Finding Exclusion Eligible",
+          "type": "boolean"
+        },
+        "guard_line": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Guard Line"
+        },
+        "guard_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Guard Path"
+        },
+        "guard_symbol": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Guard Symbol"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/GuardInputEvidence"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "observation_id": {
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "parameters": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Parameters",
+          "type": "array"
+        },
+        "reader_profile": {
+          "const": "sdk_boolean_guard/v1",
+          "default": "sdk_boolean_guard/v1",
+          "title": "Reader Profile",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "source_behavior": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BooleanSourceBehavior"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "observed",
+            "unresolved",
+            "ambiguous",
+            "redacted"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "tool_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Id"
+        },
+        "tool_line": {
+          "minimum": 1,
+          "title": "Tool Line",
+          "type": "integer"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "tool_path": {
+          "title": "Tool Path",
+          "type": "string"
+        },
+        "tool_symbol": {
+          "title": "Tool Symbol",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "observation_id",
+        "tool_name",
+        "tool_path",
+        "tool_symbol",
+        "tool_line",
+        "status",
+        "reason"
+      ],
+      "title": "GuardDependencyEvidence",
+      "type": "object"
+    },
+    "GuardInputEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "tool_module",
+            "guard_module",
+            "package_initializer"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "role"
+      ],
+      "title": "GuardInputEvidence",
       "type": "object"
     },
     "HeuristicsFilter": {
@@ -5149,6 +5912,305 @@
         "tool_name"
       ],
       "title": "Misalignment",
+      "type": "object"
+    },
+    "OperationAttribution": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_claim_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Binding Claim Ids",
+          "type": "array"
+        },
+        "capability_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capability Id"
+        },
+        "check_id": {
+          "const": "SHIP-POLICY-APPROVAL-MISSING",
+          "default": "SHIP-POLICY-APPROVAL-MISSING",
+          "title": "Check Id",
+          "type": "string"
+        },
+        "control_pack_identity": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Control Pack Identity"
+        },
+        "declared_binding_path": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Declared Binding Path",
+          "type": "array"
+        },
+        "dependency_coverage": {
+          "const": "incomplete",
+          "default": "incomplete",
+          "title": "Dependency Coverage",
+          "type": "string"
+        },
+        "deployed_reachability": {
+          "const": "unknown",
+          "default": "unknown",
+          "title": "Deployed Reachability",
+          "type": "string"
+        },
+        "finding_exclusion_eligible": {
+          "const": false,
+          "default": false,
+          "title": "Finding Exclusion Eligible",
+          "type": "boolean"
+        },
+        "finding_fingerprints": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Finding Fingerprints",
+          "type": "array"
+        },
+        "missing_approval": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Missing Approval"
+        },
+        "operation": {
+          "$ref": "#/$defs/DeclaredOperation"
+        },
+        "predicates": {
+          "items": {
+            "$ref": "#/$defs/OperationPredicate"
+          },
+          "title": "Predicates",
+          "type": "array"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "observed",
+            "unresolved",
+            "ambiguous",
+            "redacted"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "tool_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Id"
+        }
+      },
+      "required": [
+        "operation",
+        "status",
+        "reason"
+      ],
+      "title": "OperationAttribution",
+      "type": "object"
+    },
+    "OperationComparison": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OperationAttribution"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "approval_predicate": {
+          "default": "unresolved",
+          "enum": [
+            "standing_weakness",
+            "still_declared",
+            "resolved_by_declaration",
+            "newly_missing",
+            "unresolved"
+          ],
+          "title": "Approval Predicate",
+          "type": "string"
+        },
+        "base_tree": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Tree"
+        },
+        "before": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OperationAttribution"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "declared_target_domain": {
+          "default": "unresolved",
+          "enum": [
+            "unchanged",
+            "narrowed",
+            "widened",
+            "changed",
+            "unresolved"
+          ],
+          "title": "Declared Target Domain",
+          "type": "string"
+        },
+        "deployed_reachability": {
+          "const": "unknown",
+          "default": "unknown",
+          "title": "Deployed Reachability",
+          "type": "string"
+        },
+        "evidence_source": {
+          "default": "unavailable",
+          "enum": [
+            "reconstructed_git_base",
+            "unavailable"
+          ],
+          "title": "Evidence Source",
+          "type": "string"
+        },
+        "finding_exclusion_eligible": {
+          "const": false,
+          "default": false,
+          "title": "Finding Exclusion Eligible",
+          "type": "boolean"
+        },
+        "observation_id": {
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "observation_id",
+        "reason"
+      ],
+      "title": "OperationComparison",
+      "type": "object"
+    },
+    "OperationInput": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "openapi_document",
+            "manifest"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "role"
+      ],
+      "title": "OperationInput",
+      "type": "object"
+    },
+    "OperationPredicate": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "contributing_pointers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Contributing Pointers",
+          "type": "array"
+        },
+        "observed": {
+          "title": "Observed",
+          "type": "string"
+        },
+        "predicate": {
+          "enum": [
+            "effect",
+            "approval_obligation",
+            "missing_approval_policy"
+          ],
+          "title": "Predicate",
+          "type": "string"
+        },
+        "source_pointer": {
+          "title": "Source Pointer",
+          "type": "string"
+        }
+      },
+      "required": [
+        "predicate",
+        "observed",
+        "source_pointer"
+      ],
+      "title": "OperationPredicate",
       "type": "object"
     },
     "PolicyApprovalRouting": {
@@ -6880,8 +7942,22 @@
           "title": "Enabled",
           "type": "boolean"
         },
+        "finding_attributions": {
+          "items": {
+            "$ref": "#/$defs/FindingAttribution"
+          },
+          "title": "Finding Attributions",
+          "type": "array"
+        },
         "finding_deltas": {
           "$ref": "#/$defs/ToolSurfaceFindingDeltas"
+        },
+        "guard_comparisons": {
+          "items": {
+            "$ref": "#/$defs/GuardDependencyComparison"
+          },
+          "title": "Guard Comparisons",
+          "type": "array"
         },
         "high_risk_effects": {
           "items": {
@@ -6902,6 +7978,13 @@
             "type": "string"
           },
           "title": "Notes",
+          "type": "array"
+        },
+        "operation_comparisons": {
+          "items": {
+            "$ref": "#/$defs/OperationComparison"
+          },
+          "title": "Operation Comparisons",
           "type": "array"
         },
         "policy_drift": {
@@ -6927,6 +8010,12 @@
           },
           "title": "Tools",
           "type": "array"
+        },
+        "unattributed_findings": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Unattributed Findings",
+          "type": "integer"
         }
       },
       "required": [
@@ -7111,6 +8200,20 @@
             "$ref": "#/$defs/ToolSurfaceControlFact"
           },
           "title": "Controls",
+          "type": "array"
+        },
+        "guard_dependencies": {
+          "items": {
+            "$ref": "#/$defs/GuardDependencyEvidence"
+          },
+          "title": "Guard Dependencies",
+          "type": "array"
+        },
+        "operation_attributions": {
+          "items": {
+            "$ref": "#/$defs/OperationAttribution"
+          },
+          "title": "Operation Attributions",
           "type": "array"
         },
         "policies": {

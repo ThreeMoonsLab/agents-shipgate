@@ -20,6 +20,7 @@ from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.capability_policy import CapabilityPolicySubject
 from agents_shipgate.core.domain import (
     Agent,
+    AgentRemoteBinding,
     Tool,
     ToolkitScopeBound,
 )
@@ -27,6 +28,7 @@ from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference
 from agents_shipgate.inputs.common import PositionIndex
 from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment
 from agents_shipgate.schemas.capabilities import CapabilityFactV1
+from agents_shipgate.schemas.guard_dependencies import GuardDependencyEvidence
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest, CiConfig
 from agents_shipgate.schemas.report import CapabilityRuntimeEvidence, EvidenceGap
 from agents_shipgate.schemas.surfaces import ActionSurfaceFacts
@@ -90,6 +92,12 @@ class ScanContext:
     # ``diff_reference.facts.policies``. Empty when no recognized toolkit
     # constructor is present.
     toolkit_bounds: list[ToolkitScopeBound] = field(default_factory=list)
+    # Agent -> remote tool-surface bindings (the HEAD side). The base side is
+    # carried in ``diff_reference.facts.policies``; see
+    # ``core.remote_bindings`` for the one encode/decode contract. Empty when
+    # no source declares a recognized remote binding.
+    remote_bindings: list[AgentRemoteBinding] = field(default_factory=list)
+    guard_dependencies: list[GuardDependencyEvidence] = field(default_factory=list)
     # Computed once during verify and shared by all boundary Finding projections.
     agent_boundary: AgentBoundaryAssessment | None = None
     # The manifest's ``ci`` block as declared on disk, before ``--ci-mode`` /

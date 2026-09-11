@@ -16,6 +16,63 @@ agent read order, MCP tools, and feedback loop. For a single text reference,
 fetch [`../../llms.txt`](../../llms.txt); for the longer one-fetch reference,
 fetch [`../../llms-full.txt`](../../llms-full.txt).
 
+## Install into your coding agent
+
+**Claude Code** — two commands wire the full surface:
+
+```bash
+pipx install agents-shipgate
+agents-shipgate init --workspace . --write --claude-code
+```
+
+`init --claude-code` writes the `CLAUDE.md` managed block, the
+auto-discoverable `.claude/skills/agents-shipgate/` skill, and the Claude Code
+hooks: a cheap trigger check after `Edit|Write|MultiEdit` and the full verifier
+at `Stop`, so capability changes are re-checked before the agent reports work
+complete — even on long sessions where instruction files lose attention. CI
+stays authoritative; the hooks are the local feedback loop. Inside Claude Code,
+agent mode auto-enables, so a zero-flag `agents-shipgate verify` prints the
+compact agent result. Slash command, skill internals, and manual paths:
+[`use-with-claude-code.md`](use-with-claude-code.md).
+
+Prefer a plugin over a committed kit? This repository is also a Claude Code
+plugin marketplace — the skill-only symmetric counterpart of the Codex plugin
+below (workflows, not the scanner binary; install the CLI separately):
+
+```bash
+/plugin marketplace add ThreeMoonsLab/agents-shipgate
+/plugin install agents-shipgate@agents-shipgate
+```
+
+The plugin ships the auto-triggering `agents-shipgate` skill and the
+`/agents-shipgate:shipgate` command (plugin commands are namespaced). It does
+not ship hooks — install those explicitly with `agents-shipgate install-hooks
+--target claude-code --write`, which requires the CLI on `PATH`.
+
+**Codex** — install the skill-only plugin from this repository's marketplace,
+or write the repo-scoped kit directly:
+
+```bash
+codex plugin marketplace add ThreeMoonsLab/agents-shipgate   # plugin path
+agents-shipgate init --workspace . --write --agent-instructions=agents-md,codex-skill  # committed path
+```
+
+Then invoke `$agents-shipgate` in a fresh thread. The plugin supplies
+workflows, not the scanner binary — install the CLI (`pipx install
+agents-shipgate && pipx upgrade agents-shipgate`) where Codex runs commands.
+Do not assume a contract floor: run `agents-shipgate contract --json` and
+compare `minimum_control_contract_version` against the floor the bundled kit
+states, which the kit renders from the build that produced it. No published
+release reports the current floor yet — the kit says so in the same breath as
+its install line. Marketplace details, kit overrides, and the beta-migration
+steps: [`use-with-codex.md`](use-with-codex.md).
+
+**Cursor** — `init --agent-instructions=cursor` writes the auto-attach rule;
+see [`use-with-cursor.md`](use-with-cursor.md).
+
+The prompt to paste into any other coding agent is in
+[`../target-repo-agent-snippets.md`](../target-repo-agent-snippets.md#paste-into-a-coding-agent).
+
 ## Local Agent Control
 
 Run one local boundary check before reporting an agent-capability change
@@ -31,8 +88,14 @@ Parse stdout as `shipgate.agent_boundary_result/v2`; switch on
 and `control.human_review`, and treat `decision` as diagnostic context only.
 Do not infer control from prose.
 
-For committed PR verification, run `agents-shipgate verify`, then read
-`agents-shipgate-reports/agent-handoff.json` first and
+For committed PR verification, run `agents-shipgate verify`, then
+`agents-shipgate agent control --workspace .` and require it to succeed before
+you read anything: it validates `agents-shipgate-reports/current-control.json`
+against every artifact it binds and against the live repository, and exits `4`
+(`workspace_changed`) once HEAD or the working tree has moved since the
+decision. Reading that file directly does not check freshness and will hand you
+a stale state. Then read the pointer, validate the receipt it binds, read
+`agent-handoff.json` (`control.state`, then `gate.merge_verdict`), and use
 `report.json.release_decision.decision` as the release gate.
 
 The normative local protocol is [`protocol.md`](protocol.md). Per-agent compact

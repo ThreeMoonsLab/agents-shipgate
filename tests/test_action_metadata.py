@@ -347,3 +347,144 @@ def test_release_workflow_uses_release_security_steps():
     # receives.
     assert "scripts/release_sbom.py build" in joined
     assert "cyclonedx-py environment" not in joined
+
+
+# --- Checkout contract for jobs that run the whole test suite (#497) ---------
+
+#: pytest options that consume the token after them. Anything else starting
+#: with `-` is a flag, and `--ignore=tests/x` carries its value inline — so a
+#: path there is not a positional and does not scope the run.
+_PYTEST_VALUE_OPTIONS = frozenset(
+    {
+        "-n",
+        "-m",
+        "-k",
+        "-p",
+        "-c",
+        "-o",
+        "-W",
+        "--ignore",
+        "--deselect",
+        "--cov",
+        "--cov-report",
+        "--cov-fail-under",
+        "--maxfail",
+        "--rootdir",
+    }
+)
+
+
+def _pytest_positionals(line: str) -> list[str] | None:
+    """Positional arguments of the pytest invocation in ``line``.
+
+    ``None`` when the line does not invoke pytest. An empty list means pytest
+    was invoked with no path, which collects the whole suite.
+    """
+
+    import shlex
+
+    stripped = line.strip()
+    if stripped.startswith("#") or "pytest" not in stripped:
+        return None
+    try:
+        tokens = shlex.split(stripped)
+    except ValueError:
+        # Unparseable (a shell expression, say). Treat it as a whole-suite run:
+        # requiring the fuller checkout is the safe direction.
+        return []
+    if "pytest" not in tokens:
+        return None
+    positionals: list[str] = []
+    skip_next = False
+    for token in tokens[tokens.index("pytest") + 1 :]:
+        if skip_next:
+            skip_next = False
+            continue
+        if token.startswith("-"):
+            skip_next = token in _PYTEST_VALUE_OPTIONS
+            continue
+        positionals.append(token)
+    return positionals
+
+
+def _jobs_running_the_whole_suite() -> list[tuple[Path, str, dict]]:
+    found: list[tuple[Path, str, dict]] = []
+    for path in _workflow_paths():
+        workflow = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        for job_name, job in (workflow.get("jobs") or {}).items():
+            if not isinstance(job, dict):
+                continue
+            for step in job.get("steps") or []:
+                if not isinstance(step, dict) or "run" not in step:
+                    continue
+                for line in str(step["run"]).splitlines():
+                    positionals = _pytest_positionals(line)
+                    if positionals == []:
+                        found.append((path, job_name, job))
+                        break
+                else:
+                    continue
+                break
+    return found
+
+
+def test_jobs_running_the_whole_suite_check_out_release_tags():
+    """The suite reads release tags, so any job running it must fetch them.
+
+    ``tests/test_adopter_pins_resolve.py`` checks every pin ``init`` writes into
+    an adopter's repository against this repository's tag history, and reads the
+    published release's ``CONTRACT_VERSION`` out of the tag itself. The default
+    ``actions/checkout`` fetch brings no tags, and that file fails loudly rather
+    than passing over an empty tag list — correctly, since a check that skips is
+    not a check.
+
+    ``ci.yml``'s ``suite`` and ``release-verify.yml``'s ``tests`` both set
+    ``fetch-tags: true`` today. This asserts the property rather than trusting
+    two hand-edited files to stay in step: they were fixed one at a time once
+    already, and ``release-verify.yml`` is called by both ``release.yml`` and
+    ``release-rehearsal.yml``, so a job left behind there goes red on the
+    release path while every pull request stays green.
+
+    ``fetch-depth`` is deliberately not required. Depth-1 with tags brings each
+    tag's commit and tree, which is all the tag reads need; demanding a full
+    history would cost every shard a deeper clone for nothing.
+    """
+
+    jobs = _jobs_running_the_whole_suite()
+    assert jobs, (
+        "no job was detected as running the whole suite, so this contract is "
+        "checking nothing. Either the pytest invocations changed shape or "
+        "_pytest_positionals stopped recognising them."
+    )
+    for path, job_name, job in jobs:
+        checkouts = [
+            step
+            for step in job.get("steps") or []
+            if isinstance(step, dict)
+            and str(step.get("uses", "")).startswith("actions/checkout@")
+        ]
+        assert checkouts, f"{path.name}:{job_name} runs the suite without a checkout"
+        for step in checkouts:
+            options = step.get("with") or {}
+            assert options.get("fetch-tags") is True or options.get("fetch-depth") == 0, (
+                f"{path.name}:{job_name} runs the whole suite but checks out "
+                "without release tags. Add `fetch-tags: true`."
+            )
+
+
+def test_pytest_invocation_reader_separates_scoped_runs_from_the_suite():
+    """Negative control: `--ignore=tests/x` is not a positional path."""
+
+    assert _pytest_positionals("python -m pytest tests/test_cli.py -q") == [
+        "tests/test_cli.py"
+    ]
+    assert (
+        _pytest_positionals(
+            'python -m pytest -n auto -m "not perf" '
+            "--ignore=tests/test_adapter_static_only.py --cov=agents_shipgate"
+        )
+        == []
+    )
+    assert _pytest_positionals("python -m pytest -n auto tests") == ["tests"]
+    assert _pytest_positionals("python -m pip install -e .") is None
+    assert _pytest_positionals("# python -m pytest") is None

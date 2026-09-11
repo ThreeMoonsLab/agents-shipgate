@@ -11,7 +11,7 @@ from agents_shipgate.core.domain import (
     Tool,
 )
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.inputs.common import resolve_input_path, stable_tool_id
+from agents_shipgate.inputs.common import list_input_directory, resolve_input_path, stable_tool_id
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.python_static import (
     display_path,
@@ -117,7 +117,7 @@ def _load_framework_source(
     ref = ArtifactPathConfig(path=source.path, optional=source.optional)
     path = resolve_existing_path(ref, base_dir)
     if path.is_dir():
-        python_files = sorted(path.glob("*.py"))
+        python_files = [child for child in list_input_directory(path) if child.match("*.py")]
         if not python_files:
             raise InputParseError(f"{framework_label} source directory has no Python files: {path}")
         loaded: list[LoadedToolSource] = []
@@ -189,7 +189,7 @@ def load_python_path(
 ) -> list[LoadedToolSource]:
     if path.is_dir():
         loaded: list[LoadedToolSource] = []
-        for python_file in sorted(path.glob("*.py")):
+        for python_file in [child for child in list_input_directory(path) if child.match("*.py")]:
             loaded.extend(
                 load_python_path(
                     python_file,

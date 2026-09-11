@@ -63,5 +63,5 @@ the full new-framework playbook; the minimum to land in this table is:
 
 - [`agent-recipes.md`](agent-recipes.md) — what to do once your
   manifest is in place
-- [`quickstart.md`](quickstart.md) — 60-second introduction
+- [`quickstart.md`](quickstart.md) — one review end to end, and which build provides which commands
 - [`AGENTS.md`](../AGENTS.md) — full agent-facing instructions

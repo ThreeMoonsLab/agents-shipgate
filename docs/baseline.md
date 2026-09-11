@@ -143,6 +143,115 @@ load in older package versions.
 `release_decision.baseline_delta`; `--diff-from` drives `tool_surface_diff` and
 `action_surface_diff`.
 
+Finding delta buckets compare **identity**, not whether the PR caused a risk.
+`new_findings` means an identity was absent from the reference;
+`resolved_findings` means it is absent from the head; `unchanged_findings` means
+the identity matched. None proves introduction, remediation or unchanged
+authority. `accepted_debt` keeps its existing reviewed-baseline meaning.
+
+The current implementation retains full base report findings and compares
+their predicate support, source references, capability subjects and release
+contribution with matching head findings. `tool_surface_diff.notes` names
+changed evidence and base/head locations, unavailable support and ambiguous
+identities. The legacy buckets and gate are unchanged. A baseline or older
+reference without full finding evidence cannot establish that comparison;
+regenerate a base report to inspect it. Equal predicate support still does not
+establish complete shared-helper, binding or configuration dependency coverage.
+
+The Markdown summary calls these **finding identities** and discloses omitted
+comparison notes; all notes remain in `report.json`. Inspect both full reports
+before attributing a finding to the change. #515's default diff scope remains
+open on dependency-proof prerequisite #557; this comparison does not exclude
+standing findings from the release decision.
+
+For the OpenAI Agents SDK, the current reader also carries
+`tool_surface_facts.guard_dependencies` and compares them in
+`tool_surface_diff.guard_comparisons`. An unchanged tool declaration can now
+point to an imported Boolean guard whose allowed inputs changed. The report
+preserves the tool observation and canonical capability identity, the call
+and guard definition locations, the input file digests, and the base/head
+predicate tables. Bit `i` in each `allowed_inputs` integer represents the
+Boolean value of `parameters[i]`; the parameter list is sorted and bounded
+to eight names. A widened set permits more Boolean inputs, a narrowed set
+permits fewer, and equal sets describe equivalent predicates in that domain.
+
+This first reader profile (`sdk_boolean_guard/v1`) handles a direct sibling
+relative import through empty package initializers, followed by a first
+`if not guard(...): return False` (or `return None`) in a module-level tool.
+The imported function has one return expression composed of Boolean
+parameters, constants, `and`, `or`, and `not`. Calls in predicates, configuration
+indirection, module/package ambiguity, executable initializers, rebinding,
+unsupported signatures, missing inputs and reader limits remain unresolved.
+An older report with no record does not establish absence of a guard.
+
+These are **source-predicate comparisons**. They do not establish deployed
+Python import resolution, downstream effects, or complete capability
+dependency coverage. Every row reports `dependency_coverage: incomplete` and
+`finding_exclusion_eligible: false`; all findings and the current release
+decision remain unchanged. A user-supplied `--diff-from` report is comparison
+input, not authenticated proof of its claimed source evidence. Redacted or
+ambiguous records cannot yield a predicate direction. The Markdown report
+shows up to eight relevant comparisons; JSON retains the full list.
+
+An observed guard can also carry `source_behavior`, from the narrower
+`sdk_boolean_function/v1` profile. This inspects the **entire** selected tool
+function, including statements after a return and both arms of every branch,
+and a single source-level `Agent(name="…", tools=[tool])` (or `tools=[]`).
+Its module contains only the exact SDK imports, the one sibling guard import,
+the decorated function and that literal Agent assignment, in definition order.
+The guard module contains only the selected pure Boolean function. Every
+function parameter is Boolean; expressions are Boolean literals, parameters,
+`not`, `and`, `or`, and the already-resolved guard call. Statements are `if`
+and `return`; an implicit return is recorded as `none`. There are no opaque
+operation leaves. External calls, free/configuration variables, mutation,
+additional functions or Agent configuration, handoffs and unresolved imports
+leave the source model unresolved, even in apparently unreachable code.
+
+`source_behavior.returns[i]` is `true`, `false` or `none` for input mask `i`
+over **all** sorted tool parameters, not just the parameters used by the first
+guard. `configuration_reads: none` means the closed model admitted no such
+read; it is absent as a claim when the model is unresolved. The literal
+`binding` records the source Agent symbol/name and whether its tools list
+contains the selected function. This is source membership, not a claim that
+the Agent is a deployed entry point or that the installed SDK executes it.
+
+The comparison keeps four axes separate: all return values (`returns`), the
+set of inputs returning true (`true_domain`), literal tool membership
+(`binding`), and the true-return inputs reachable through that membership
+(`bound_true_domain`). A narrowed first guard can still have a widened whole
+function true domain; unchanged returns can accompany added membership.
+Changing `False` to `None` changes returns even when the true domain is equal.
+A changed Agent identity leaves the bound relation unresolved. Missing old
+models, ambiguous capability identities and redacted evidence never establish
+equality. The model and its inputs are carried in each side's existing guard
+record and verifier-bound artifacts; it introduces no separate authority.
+
+**A true return is not approval.** The model does not prove a caller-controlled
+Boolean came from an approver, establish an action's effect/authority or
+attribute an existing policy predicate to a change. The outer capability
+dependency coverage remains `incomplete` and finding exclusion remains false.
+Neither a narrowed true domain nor equal source models is a safe verdict.
+Joining complete source evidence to actual capability/policy dependencies and
+the fixed-history evaluation remains work in #557/#515/#563. This SDK profile
+does not cover #515's TypeScript MongoDB acceptance case.
+
+Verification binds the reader's captured dependency bytes and named absent
+import candidates in `verification-plan.json` under
+`inputs.options.dependency_inputs`. A current-control read checks
+them again, including ignored files and newly appearing packages that ordinary
+Git status would miss. Committed comparisons read each side's archived Git
+tree. This input binding does not turn a bounded predicate into a complete
+dependency closure; #557 and #515 retain that remaining obligation.
+
+An attempted guard read that fails before bytes can be captured (such as a
+symlink, oversized input or non-regular file) is explicitly unconfirmable.
+`agent control` then uses its existing `workspace_unverifiable` refusal;
+repair the unreadable path and re-run verification before using current
+authority. This does not replace the report's release decision. A missing
+candidate whose absence was captured, or an unsupported predicate whose bytes
+were read, remains confirmable. Durable typed refusal identities are deferred
+separately; an exception string is not sufficient evidence of stable inputs.
+
 Scope deltas distinguish tool-required scopes from manifest-declared scopes.
 If the same literal scope moves between those kinds, the diff reports one
 removed scope and one added scope so the JSON preserves the source of the

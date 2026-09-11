@@ -6,6 +6,7 @@ from agents_shipgate.core.surface_exclusions import build_surface_exclusions
 from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, BindingSurfaceDiff
 from agents_shipgate.schemas.codex_plugin import CodexPluginSurface
 from agents_shipgate.schemas.common import Severity
+from agents_shipgate.schemas.coverage_recovery import SourceRecoveryEvidence
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.report import (
     BaselineSummary,
@@ -72,6 +73,7 @@ def build_report(
     heuristics_filter: HeuristicsFilter | None = None,
     policy_evidence_gaps: list[EvidenceGap] | None = None,
     source_omissions: list[SourceSurfaceOmission] | None = None,
+    source_recovery_evidence: list[SourceRecoveryEvidence] | None = None,
 ) -> ReadinessReport:
     report = ReadinessReport(
         run_id=run_id,
@@ -128,6 +130,7 @@ def build_report(
         ci_mode=ci_mode,
         fail_on=fail_on,
         new_findings_only=new_findings_only,
+        source_recovery_evidence=source_recovery_evidence,
     )
     # v0.35: built from the decision, not beside it. Accounting asks whether
     # a gap row names the excluded subject, so the gaps have to exist first —

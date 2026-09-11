@@ -891,7 +891,8 @@ def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
     # render as visibly distinct lines while saying the same thing.
     seen_skeletons: set[str] = set()
     for group in sorted(
-        group_source_warnings(remaining), key=lambda row: row.unprintable
+        group_source_warnings(remaining, evidence_gaps=decision.evidence_coverage.evidence_gaps),
+        key=lambda row: row.unprintable,
     ):
         if group.skeleton in seen_skeletons:
             continue

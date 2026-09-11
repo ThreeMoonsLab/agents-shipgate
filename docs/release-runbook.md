@@ -7,6 +7,12 @@ partially succeeds.
 For the packaging surface and post-release fan-out checks, see
 [`distribution.md`](distribution.md).
 
+[MAINTAINERS.md](../MAINTAINERS.md) records the documented release/policy owners,
+the proposed support commitment and the outstanding responsibility confirmations.
+Before 1.x, complete the [operational ownership and access recovery](#operational-ownership-and-access-recovery)
+record below alongside qualification; workflow presence does not establish who
+can act when a required person or account is unavailable.
+
 ## The pipeline
 
 A release runs as five jobs with an explicit, content-addressed handoff.
@@ -109,9 +115,14 @@ applies** — nothing in the artifact does:
 
 | Version | Accepted qualification | Cases |
 |---|---|---|
-| `0.x` (epoch 0, major 0) | `pre_1_0`, or the stronger `beta` | 56, or 100 |
-| `1.0` and later | `beta` only | 100 |
-| unparsable | `beta` only | 100 |
+| `0.x` (epoch 0, major 0) | `pre_1_0`, or the stronger `beta` | 38, or 80 |
+| `1.0` and later | `beta` only | 80 |
+| unparsable | `beta` only | 80 |
+
+Both policies have 21 strata and no expected `insufficient_evidence` class.
+The [current policy table](../benchmark/safety-qualification/README.md#current-policy-contract)
+records exact outcomes, 16/32 qualifying-origin floors, holdout and human-label
+requirements. It is checked against the typed policy and the stdlib gate.
 
 The `pre_1_0` policy was approved for issue #341 and is recorded, with its
 thresholds and rationale, in
@@ -126,7 +137,7 @@ Both gates apply the rule independently — the exhaustive
 standard-library `scripts/verify_qualification_binding.py` in the sealing job.
 The sealing gate cannot import the project, so it *restates* each tier's
 strata, exact-match floors, per-stratum holdout, and origin and κ floors, and
-re-derives them from the raw cases; a case count alone would let 56 identical
+re-derives them from the raw cases; a case count alone would let 38 identical
 rows through. An artifact naming a tier the version does not admit is rejected
 by both, and is then measured against the *production* policy, so a bad tier
 can never shrink what is checked.
@@ -151,7 +162,10 @@ source.
 
 ```bash
 python -m pip install --require-hashes -r constraints/build-backend.txt
-python -m build --wheel --no-isolation
+candidate_sha="$(git rev-parse HEAD)"
+candidate_output="$(mktemp -d)"
+AGENTS_SHIPGATE_CANDIDATE_SOURCE_COMMIT="${candidate_sha}" \
+  python -m build --wheel --no-isolation --outdir "${candidate_output}"
 ```
 
 Install the backend closure, then build without isolation. Setting
@@ -159,6 +173,63 @@ Install the backend closure, then build without isolation. Setting
 constraints to an isolated build environment, so a constrained build still
 resolves whatever the index offers — verified by constraining hatchling to a
 version that does not exist and watching the build succeed.
+
+The candidate-only build hook requires a clean Git checkout, an exact full
+HEAD SHA and a final `X.Y.Z` package version. It compares tracked file bytes
+with HEAD blobs, enumerates Hatch's actual selected and force-included payload,
+and verifies that payload in the finished archive; ignored untracked inputs
+and `assume-unchanged` edits cannot acquire a source stamp. It refuses editable builds,
+previews, dirty/untracked source and non-Git copies. Keep the output outside
+the checkout until the build finishes. It writes a deterministic
+`agents_shipgate/_meta/release-source.json` into the wheel and revalidates the
+source after building; it never writes that record into the package tree.
+Ordinary and preview builds omit it. The release sealer uses the same opt-in
+build mode, and `--source-commit` requires the candidate and rebuild to carry
+the same valid record before comparing their bytes.
+
+That record makes `init --ci` in the frozen wheel use its immutable Action source
+SHA plus its `shipgate_version`. Once publication finishes, the unchanged
+generated workflow installs that published distribution instead of rebuilding
+unstamped source or selecting the previous release. The Action SHA resolves
+before the tag exists; the package version is intentionally a post-publication
+selector. Before publication replace that version input with the paired `shipgate_wheel` and
+`shipgate_wheel_sha256` Action inputs. They accept a local regular wheel inside
+`GITHUB_WORKSPACE`, check and privately capture the same bytes, and reinstall
+even an already-installed matching version. Install dependencies from the
+reviewed lock first; this candidate route uses `--no-deps`. It cannot be mixed
+with `shipgate_version`. Missing halves, bad hashes and conflicting wheel
+metadata fail before installation.
+
+An explicit `AGENTS_SHIPGATE_WORKFLOW_REF` still selects the operator's requested
+Action source and omits the candidate version selector. It cannot hide a malformed
+embedded source record. Ordinary and preview builds keep their published fallback.
+
+A malformed record refuses the one thing it decides — the pin `init --ci` writes —
+and nothing else. `doctor`, `check` and `verify` keep running on that install, so
+the diagnostic that names the broken wheel is still available.
+
+### Distribution smoke before and after publication
+
+Run **Release Engine Smoke (unqualified)** on the committed candidate branch
+before freezing qualification inputs. Its read-only jobs build the stamped
+wheel, install it outside the source import path, generate the advisory CI pin,
+and exercise both the installed CLI and the Action from the same immutable
+checkout on the existing unsafe-refund PR fixture. Do not run
+`release_engine_smoke.py prepare` in your own checkout: it commits fixture
+history onto the current HEAD, which is why it refuses to run at all without
+`--disposable-checkout`. The evidence artifact names the wheel hash,
+source/Action SHA, installed version/contract, generated workflow and both
+capability results and engine identities. The two halves must agree and show
+the blocked result. This is synthetic distribution evidence; it grants no
+qualification or release authority.
+
+After publication the release owner must download the actual wheel from the
+published channel, compare its hash with the qualified wheel, and repeat the
+disposable downstream fixture using the unchanged generated workflow, then the
+real published Action tag. Record that resolved tag SHA, wheel hash,
+installed version/contract, engine identity and local/CI result together. The pre-publication
+smoke is not evidence that an unpublished tag or downloadable release exists;
+rollout remains incomplete until this second observation is attached to #570.
 
 If a backend bump lands between qualification and release, the provenance gate
 fails. The fix is to re-run qualification against a wheel built with the current
@@ -433,6 +504,28 @@ The shape that holds:
 7. Confirm the GitHub Release is published (not draft) with all assets and the
    changelog section as its body, then run the fan-out checks in
    [`distribution.md`](distribution.md).
+8. **Only now, move the published-release constants.**
+   `LATEST_PUBLISHED_VERSION` and `LATEST_PUBLISHED_CONTRACT_VERSION` in
+   [`src/agents_shipgate/published_release.py`](../src/agents_shipgate/published_release.py),
+   then `.well-known`'s `release_status.latest_release` and every other surface
+   that names the newest release — `tests/test_public_surface_contract.py`
+   fails once per file until each does, so the suite enumerates them for you.
+
+   These two govern ordinary/source/preview adoption: the `uses:`
+   pin in the workflow it generates, the runner pins in the bundled adoption
+   prompts, the `shipgate_version` the bundled CI recipe installs. Moving them
+   *before* the tag exists is the failure they guard against (#506) — a
+   generated workflow that names a ref GitHub cannot resolve fails the
+   adopter's job before any step runs. A stamped candidate wheel generates its
+   own immutable source SHA independently; updating main later cannot and need
+   not repair that frozen wheel. Bundled prompt pins retain their explicit
+   published-contract-floor diagnostics until this post-publication update.
+
+   `LATEST_PUBLISHED_CONTRACT_VERSION` is the `CONTRACT_VERSION` the new tag
+   emits, not the tree's. When it lands below
+   `MINIMUM_CONTROL_CONTRACT_VERSION`, the adoption prompts say so in the same
+   breath as the pin rather than quietly promising a floor the pinned build
+   does not report.
 
 ## The unqualified preview channel
 
@@ -553,9 +646,16 @@ mistaken for the shipped ones.
 
 ### Verification failed
 
-Nothing outside the run changed: no tag deletion, no cleanup needed. Fix the
-cause on the branch, and either move the tag (only safe while nothing has been
-published for it) or cut a new version.
+Verification does not publish a release or upload a distribution. Inspect any
+earlier attempt before assuming that nothing was published. A transient failure
+with an unchanged candidate can be retried against the same tag and commit.
+
+If fixing the cause changes the source, fix it on the branch, cut a new version
+and use a new tag. Rebuild and refresh the qualification, signing and rehearsal
+evidence affected by the new candidate identity before tagging. Do not move or
+delete the failed tag, or weaken the tag ruleset to reuse it: the `v*` protection
+applies before publication as well as afterward. The failed run remains linked
+to the source it actually verified.
 
 ## Deployment prerequisites
 
@@ -571,6 +671,91 @@ the fact rather than prevention.
 | **Restricted release-write authority** (few actors, protected environment) | Concurrent mutation during finalisation | Remote verification and undrafting are two API calls. Another writer can replace an asset or add one in between, and the undraft publishes the changed server-side set |
 | Protected `.github/workflows/**` and `.github/release-trust-roots.json` (CODEOWNERS or ruleset) | Changes to the pipeline and its trust roots landing unreviewed | Workflow logic is candidate-controlled at the tag, so review is the control that makes it trustworthy |
 | `pypi` environment reviewers, independent of the release initiator | Unattended publication | Approval becomes a formality |
+
+### Effective configuration observed — 2026-09-09
+
+[#573](https://github.com/ThreeMoonsLab/agents-shipgate/issues/573) owns the
+effective platform controls. This dated, authenticated API observation is not
+an assertion that settings cannot change; read them back before release.
+
+| Surface | Observed setting | Remaining release obligation |
+| --- | --- | --- |
+| Repository immutable releases | Enabled under the repository owner's authorization; `GET /repos/ThreeMoonsLab/agents-shipgate/immutable-releases` returned `enabled: true`, `enforced_by_owner: false` after the enable request | Repository-level enablement is not organization-enforced policy, a retroactive lock on old releases or an exercised publication transaction. Verify draft/stage/finalize compatibility on the actual candidate. |
+| Release tags | Active repository ruleset [Protect release tags (22726019)](https://github.com/ThreeMoonsLab/agents-shipgate/rules/22726019): target `tag`, include `refs/tags/v*`, no exclusions, rules `update` and `deletion`, no bypass actors; authenticated read-back returned `current_user_can_bypass: "never"` | This establishes the configured pre-publication update/deletion boundary. It has no creation rule and does not establish restricted tag creators or release writers. Remote refusal testing, actual recovery ownership and final-candidate compatibility remain open. |
+| Main workflow/trust-root changes | The main ruleset requires a PR, but zero approving reviews, no code-owner review, no stale-review dismissal, no last-push approval and no required-status-check rule; its bypass-actor list is empty | These settings do not establish independent review of workflow or trust-root changes. Verify the effective policy, including any inherited rules, rather than inferring it from a PR existing. |
+| Publication environment | `pypi` has one required reviewer, `prevent_self_review: false` and `can_admins_bypass: true` | Confirm actually independent eligible reviewers and the named, reviewed recovery/bypass arrangement before changing this boundary or claiming it satisfied. |
+
+The repository immutable-release setting and release-tag ruleset were changed
+under the repository owner's authorization for this checkpoint.
+The [GitHub API](https://docs.github.com/en/rest/repos/repos#enable-immutable-releases)
+enable request completed, followed by the read-back above. GitHub documents
+that [immutability applies to future releases](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/establish-provenance-and-integrity/prevent-release-changes).
+Existing releases were not re-published, and no production tag/asset mutation
+or dummy publication was used as a test. The current pipeline's draft-first,
+validate-then-finalize order is consistent with that model; this source review
+does not replace an exercised candidate publication/recovery path.
+
+The tag ruleset was created and read back through the
+[repository ruleset API](https://docs.github.com/en/rest/repos/rules#create-a-repository-ruleset).
+The listing with `includes_parents=true` returned only `Protect main` (15704163)
+and `Protect release tags` (22726019), both active repository rulesets. The 13
+existing `v*` ref names, object types and object SHAs were identical before and
+after creation. No existing release tag was moved/deleted as a refusal probe.
+New version tags remain creatable under existing repository access; `preview-*`
+refs are outside this rule. Policy editors can still change the ruleset, so an
+empty bypass list is not proof that administration is immutable or independently
+reviewed. Re-read both the ruleset and its inherited-policy listing before
+release; a configured rule is not an exercised remote refusal or publication.
+
+#573 remains open for the missing protections and effective-policy/refusal
+evidence. #494 retains accepted operating/recovery duties and #509 retains the
+independent qualification signer. No reviewer, signer, writer, emergency actor
+or personal access claim is supplied by enabling these protections.
+
+### Main CI merge requirements — 2026-09-10 UTC
+
+The later #573 checkpoint adds required CI to the existing
+[Protect main ruleset (15704163)](https://github.com/ThreeMoonsLab/agents-shipgate/rules/15704163).
+The authenticated update and read-back retained its `refs/heads/main` scope,
+empty bypass list and all four existing rules, including every PR-review
+parameter. The only addition was `required_status_checks`:
+
+| Existing workflow | Required check contexts |
+| --- | --- |
+| CI | `test`, `suite (1)`, `suite (2)`, `suite (3)`, `coverage`, `windows-launcher`, `clean-checkout-launcher` |
+| Agents Shipgate | `verify` |
+| Agents Shipgate Self Dogfood | `verify-self` |
+
+All nine entries use `integration_id: 15368`, the `github-actions` App observed
+on the successful PR #624 check runs at
+`1c949f63724d9b5da53352f9cc028dcd4c5bafd8`. The three workflows run on PRs
+without path filters. `release-tag-consistency` is main-only and is not a PR
+requirement. Each shard is required separately, so a failed shard cannot hide
+behind a skipped dependent coverage job.
+
+`strict_required_status_checks_policy: true` requires testing against the
+current base; after main advances, refresh the PR branch and its checks.
+`do_not_enforce_on_create: false` adds no creation exception; the rule matches
+main, not contributor branches. The [effective branch-rule API](https://docs.github.com/en/rest/repos/rules#get-rules-for-a-branch)
+returned the same nine entries and flags for main under ruleset `15704163`.
+The inherited-policy listing still contained only Protect main and Protect
+release tags; tag protection and immutable-release enablement remained in place.
+
+This closes the missing required-check configuration recorded in the earlier
+checkpoint, **not independent workflow review**. App binding identifies the
+check producer, not a workflow path, event or trusted workflow contents.
+[GitHub accepts successful, skipped or neutral check conclusions](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches#require-status-checks-before-merging);
+a required name alone does not prove its test ran. Both Shipgate jobs retain
+their advisory human-review routing. Main still requires zero approving reviews,
+and publication reviewer independence remains unresolved. A policy editor can
+still change these settings. No failed merge, tag mutation or publication was
+attempted as a refusal test.
+
+Re-read the effective main rules and expected App/context names before release.
+A job rename needs a reviewed ruleset transition while the existing required
+contexts still report; otherwise the renamed job can leave PRs waiting forever.
+These settings do not supply a signer, recovery owner, qualified candidate or
+the remaining #573 release evidence.
 
 ### The limit worth stating plainly
 
@@ -606,8 +791,9 @@ vouches for it, in a single step with no diff to review. Source-to-wheel
 binding does not compensate: that attack reuses the legitimate wheel and forges
 only the safety claims about it.
 
-Both ship as `CHANGE_ME` until the promotion flow exists. The release **fails
-closed** while either is unset rather than defaulting to something permissive.
+The signer identity remains `CHANGE_ME`; the OIDC issuer is already
+`https://token.actions.githubusercontent.com`. The release **fails closed**
+while either value is unset rather than defaulting to something permissive.
 Changing either is a trust-root change and is reviewed as one.
 
 ### Artifact locations — repository variables
@@ -627,3 +813,59 @@ committed trust root or the source-to-wheel provenance gate.
 
 None of the four are currently set. Until they are, the release stops at
 **Require configured qualification artifact locations**.
+
+## Operational ownership and access recovery
+
+[#494](https://github.com/ThreeMoonsLab/agents-shipgate/issues/494) owns actual
+responsibility acceptance and a non-publishing tabletop. The inventory below
+names operative interfaces, not secret values or a claim that access works.
+Confirmed custodians and recovery evidence are still outstanding as recorded
+in [MAINTAINERS.md](../MAINTAINERS.md#responsibilities).
+
+| Interface | What the responsible person must confirm | Recovery boundary |
+| --- | --- | --- |
+| GitHub repository/organization access, `v*` tag rules and release-write actors | Actual administrator/release custodians, permitted writers, inherited rules and emergency-bypass responsibility | Recover through the provider's established account/organization process. No backup identity or bypass permission is granted by this document; #573 must verify effective controls after recovery. |
+| Protected GitHub `pypi` environment | Actual configuration custodian, eligible independent reviewers and absence coverage | An unavailable required reviewer holds publication. Self-review or an agent-created review cannot substitute for independent approval. |
+| PyPI Trusted Publisher mapping for `agents-shipgate` | The actual PyPI project custodian and mapping to this repository/workflow/environment | Verify provider-side ownership and restore/revoke the mapping through that custodian. This workflow uses OIDC; do not invent a long-lived PyPI upload token as a fallback. |
+| Ephemeral `GITHUB_TOKEN` / `${{ github.token }}` and the publication job's OIDC permission | Who can authorize workflow/settings changes and stop affected runs | Tokens are issued for jobs, not an undocumented shared recovery credential. Contain a compromised run/mapping with the authorized platform custodian, then re-establish reviewed access and evidence before rerunning. |
+| `.github/release-trust-roots.json`: `signer_identity`, `oidc_issuer` | The independent promotion owner, exact certificate identity and reviewed issuer; `signer_identity` is still unresolved | A missing/compromised signer holds publication. Recover the independent signing path and review any trust-root change; do not replace it with the release initiator or a mutable variable. No persistent Sigstore private-key custodian is assumed. |
+| `SAFETY_QUALIFICATION_WHEEL_URL`, `SAFETY_QUALIFICATION_WHEEL_FILENAME`, `SAFETY_QUALIFICATION_JSON_URL`, `SAFETY_QUALIFICATION_SIGSTORE_BUNDLE_URL` | Actual content-location custodian and the exact signed handoff from #509 | These are locations only. Relocation still needs signature, policy and exact-wheel validation. A new location does not authenticate replacement evidence. |
+| `security@threemoonslab.com` and account/contact recovery | Actual mailbox custodian, accepted acknowledgment capacity and available absence route | No alternate contact is confirmed. Keep reports private and hold any release decision that depends on unavailable security review. Record failed contact/access attempts honestly. |
+
+Record custodian acceptance and recovery references through the existing #494
+review. Keep private recovery links, codes, credential values and personal
+contact details outside GitHub issues and committed artifacts. The public record
+should establish which role can act and which evidence was checked; it need
+not expose account-recovery material. The existing [deployment prerequisites](#deployment-prerequisites)
+remain #573's effective-settings obligation, while #509 supplies the independently
+authenticated qualification identity and bytes.
+
+### Non-publishing tabletop
+
+The responsible people walk these cases with the existing runbook and read-only
+platform/evidence inspection. Do not mutate production tags, releases, uploads,
+trust roots or account permissions to prove that a stop works.
+
+| Case | Expected decision and evidence to inspect |
+| --- | --- |
+| Required reviewer or independent signer unavailable | Hold publication; identify the actually accepted alternate, if any, and prove its eligibility/independence. If none exists, record an unresolved dependency. |
+| Repository, PyPI or mailbox access lost | Identify the actual custodian and established provider recovery path. Record whether that person can initiate recovery without publishing codes or claiming an unexercised recovery succeeded. Recheck #573 controls before release resumes. |
+| Qualification signer or evidence integrity in doubt | Hold publication, contain the affected access through its real custodian, restore independently reviewed trust and obtain fresh trustworthy evidence for the affected inputs. Re-signing alone cannot rehabilitate untrusted measurements. |
+| PyPI upload completed; GitHub finalization did not | Use [the existing identical-publication recovery](#publication-succeeded-finalisation-failed). Inspect the exact index, candidate, signatures, asset set, notes and live tag before any finalization; unavailable validation holds publication. |
+| Candidate, workflow, policy or wheel changed | Invalidate the affected freeze, receipts, signatures and matching rehearsal. Repeat the owning steps against the new exact candidate; never restamp old evidence into current authority. |
+| Security contact unavailable | Record the unresolved intake/absence duty and private follow-up path under SECURITY.md. A missing reply cannot be recorded as acknowledgment or completed security review. |
+
+The legacy bare manual-undraft fallback in the recovery section is separately
+tracked in [#618](https://github.com/ThreeMoonsLab/agents-shipgate/issues/618).
+It is not validated 1.x recovery evidence. This tabletop requires the complete
+current validation and independent authority; when either is unavailable, stop.
+Repairing and exercising that fallback remains separate work.
+
+For each case, retain in #494 or a linked non-secret record the date, source and
+workflow revision, actual participants and accepted roles, scenario, inspected
+evidence, expected stop/resume condition, observed result and unresolved owner.
+Distinguish a document walkthrough from a successfully exercised recovery.
+No tabletop, access recovery, owner acceptance or effective protection is claimed
+by this procedure. Before closing #494, the owner must supply those results and
+accept the 1.x support/response commitment; #572 links that evidence alongside
+#509's signing and #573's platform controls.

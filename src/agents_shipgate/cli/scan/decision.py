@@ -144,6 +144,10 @@ def _run_checks_and_decide(
         diff_reference=diffs.diff_reference,
         # HEAD-side toolkit scope bounds for the capability-scope check.
         toolkit_bounds=tools_and_agent.toolkit_bounds,
+        # HEAD-side agent -> remote bindings, carried into the tool-surface
+        # facts so the base report can be compared against them (#538).
+        remote_bindings=tools_and_agent.remote_bindings,
+        guard_dependencies=tools_and_agent.guard_dependencies,
         # Pre-override ``ci`` block, so the Tier B weakening checks judge the
         # declared gate instead of this invocation's (#298).
         declared_ci=declared_ci,

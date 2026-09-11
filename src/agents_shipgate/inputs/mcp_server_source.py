@@ -14,12 +14,31 @@ is exactly such an artifact. Effect and authority still come from the
 declaration questionnaire (#410). The one thing the source is trusted to state
 is a name, which is checkable against the registration site that carries it.
 
+The Python idiom (#484) also reads the decorated function's **signature**,
+because for FastMCP that is where the input schema comes from — it is written
+in the same file, at the same site, and checking it costs no inference. That
+does not lift the ceiling: a signature is what the author wrote, not what the
+server publishes, and the ``medium`` bound is about the route, not about how
+much of it was read.
+
+Reading a signature is two questions, and #539 is what happens when either is
+answered by looking at the *spelling*. Which parameters the caller supplies is
+decided by the framework's own injection rule, which resolves the annotation to
+a class — so the reader resolves it too, against the module's bindings, and
+publishes the parameter with the question named wherever that does not settle
+it. What type a parameter has is whatever the annotation denotes — read from
+its tree, never from a string match that answers ``string`` for everything it
+does not recognise. Where neither can be established the parameter stays
+visible and the tool's ``surface_gaps`` say which of the two is open: this
+input's failure modes are a real input erased and an invented caller
+requirement, and both are worse than an admitted gap.
+
 Where a repository publishes a committed export, that export stays the better
-route: it is the server's own contract, it carries the input schemas this input
-deliberately does not read, and it is ``high`` confidence against this input's
-``medium``. ``detect`` therefore withholds this route wherever an export
-already covers the scope, and an adopter with both configured keeps the
-export's evidence untouched.
+route: it is the server's own contract published in the shape a client
+receives it, and it is ``high`` confidence against this input's ``medium``.
+``detect`` therefore withholds this route wherever an export already covers
+the scope, and an adopter with both configured keeps the export's evidence
+untouched.
 
 **Completeness is per file**, following #393: one unresolved registration holds
 every tool that file produced at ``partial``, and its siblings elsewhere in the
@@ -30,6 +49,7 @@ the exclusion ledger accounts for by subject.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from typing import ClassVar, Literal
 
@@ -39,6 +59,7 @@ from agents_shipgate.core.domain import (
     LoadedToolSource,
     SourceSurfaceOmission,
     Tool,
+    ToolParameter,
     ToolRiskHint,
 )
 from agents_shipgate.core.errors import InputParseError
@@ -55,6 +76,7 @@ from agents_shipgate.inputs.mcp_idioms import (
     IDIOM_REGISTRY_VERSION,
     MAX_SOURCE_FILE_BYTES,
     OMISSION_REASONS,
+    PythonServerIndex,
     RegistrationSite,
     is_scannable_path,
     language_for_path,
@@ -84,6 +106,21 @@ EXTRACTION_CONFIDENCE = "medium"
 #: contributed at ``partial``: past the cap, nothing is known about what was
 #: not read.
 MAX_SCANNED_FILES = 4000
+
+#: How many bytes of Python source the index pass keeps for the scan pass.
+#:
+#: A cost bound and never a decision: past it a file is simply read twice
+#: instead of once, so no answer moves and nothing is recorded. That is what
+#: makes it different from every other cap in this module — exceeding
+#: :data:`MAX_SCANNED_FILES` or :data:`MAX_SOURCE_FILE_BYTES` leaves a hole in
+#: the enumeration and has to be reported; exceeding this one leaves a hole in
+#: nothing.
+#:
+#: Sized against the measurement: all of ``awslabs/mcp``'s non-test Python is
+#: 12.8 MB, so the largest server in the survey is read once. The bound exists
+#: for the shape the file cap alone does not stop — 4,000 files of 8 MB each
+#: would be 32 GB held to save a second read.
+MAX_CACHED_SOURCE_BYTES = 64 * 1024 * 1024
 
 #: ``operationType``-style classifications an idiom can read, mapped to the
 #: risk-tag vocabulary. Deliberately partial, in one direction only.
@@ -125,7 +162,8 @@ def load_mcp_server_source(source: ToolSourceConfig, base_dir: Path) -> LoadedTo
     files, capped = _scannable_files(root)
     if not files:
         raise InputParseError(
-            f"MCP server source has no TypeScript or Go files to read: {root}. "
+            "MCP server source has no TypeScript, Go or Python files to read: "
+            f"{root}. "
             "Point tool_sources[].path at the directory holding the server's "
             "tool registrations, or at one such file."
         )
@@ -161,12 +199,15 @@ def load_mcp_server_source(source: ToolSourceConfig, base_dir: Path) -> LoadedTo
             ),
         )
 
+    server_index, python_texts = _python_server_index(files, root)
+
     for path in files:
         language = language_for_path(path)
         assert language is not None  # guaranteed by _scannable_files
         relative = _relative_source_path(path, source.path, base_dir)
         unread = _unread_reason(path)
-        if unread is None:
+        text = python_texts.pop(path, None)
+        if unread is None and text is None:
             try:
                 text = load_text_file(path)
             except InputParseError:
@@ -183,7 +224,12 @@ def load_mcp_server_source(source: ToolSourceConfig, base_dir: Path) -> LoadedTo
                 detail=OMISSION_REASONS[unread],
             )
             continue
-        result = scan_source(text, language)
+        result = scan_source(
+            text,
+            language,
+            module_path=_root_relative(path, root),
+            server_index=server_index,
+        )
 
         file_gaps: list[str] = []
         for anomaly in result.anomalies:
@@ -265,6 +311,75 @@ def _apply_source_gaps(tools: list[Tool], gaps: list[str]) -> None:
         tool.extraction["surface_gaps"] = merged
 
 
+def _python_server_index(
+    files: list[Path], root: Path
+) -> tuple[PythonServerIndex, dict[Path, str]]:
+    """Index every module in the walk that constructs an MCP server.
+
+    A pass over the Python files ahead of the one that scans them, and the
+    ordering is the whole point: ``redis/mcp-redis`` applies all 53 of its
+    decorators in ``src/tools/*.py`` and constructs the server they register on
+    in ``src/common/server.py``, so a reader that resolved bindings as it went
+    would prove or refuse the same decorator depending on walk order.
+
+    The texts come back with the index so the scan pass does not read them a
+    second time — on ``awslabs/mcp`` that is 2,500 files' worth of I/O — up to
+    :data:`MAX_CACHED_SOURCE_BYTES`, past which a file is read twice rather
+    than held. Only Python files are held either way: the TypeScript and Go
+    halves of a mixed repository are streamed as before, one read each.
+    """
+
+    texts: dict[Path, str] = {}
+    cached = 0
+
+    def _modules() -> Iterator[tuple[str, str]]:
+        # A generator, so ``build`` sees one module at a time and keeps only
+        # each one's exported names. Materialising the list would hold every
+        # file's text alive at once, which is the cost the bound above exists
+        # to refuse.
+        nonlocal cached
+        for path in files:
+            if (
+                language_for_path(path) != "python"
+                or _unread_reason(path) is not None
+            ):
+                continue
+            relative = _root_relative(path, root)
+            if relative is None:
+                continue
+            try:
+                text = load_text_file(path)
+            except InputParseError:
+                # Reported as an omission by the read loop, which is the pass
+                # that owns the file's surface. Recording it here too would put
+                # one file's problem into the ledger twice.
+                continue
+            if cached + len(text) <= MAX_CACHED_SOURCE_BYTES:
+                texts[path] = text
+                cached += len(text)
+            yield relative, text
+
+    return PythonServerIndex.build(_modules()), texts
+
+
+def _root_relative(path: Path, root: Path) -> str | None:
+    """``path`` relative to the walked root, as an import-resolvable key.
+
+    Deliberately *not* the manifest-relative path the omissions and tools
+    carry. Module resolution matches path segments against a dotted import, so
+    the segments have to be the ones inside the source tree; prefixing them
+    with the manifest's own directory layout would make ``from .server import
+    mcp`` resolve against a package that does not exist.
+    """
+
+    if root.is_file():
+        return path.name if path == root else None
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return None
+
+
 def _unread_reason(path: Path) -> str | None:
     """Why this file was not opened, or ``None`` when it was."""
 
@@ -285,15 +400,22 @@ def _tool_from_site(
     surface_gaps: list[str],
 ) -> Tool:
     assert site.name is not None
+    # A signature this reader could not fully resolve is this tool's own gap,
+    # not its file's: the file still enumerated every registration it holds.
+    # It joins the file's reasons in one list because ``surface`` is one claim
+    # per tool, and a tool whose interface is partly unread has not had its
+    # surface established whatever the rest of the file managed.
+    gaps = sorted(set(surface_gaps) | set(_signature_gaps(site)))
     extraction: dict[str, object] = {
         "method": EXTRACTION_METHOD,
         "confidence": EXTRACTION_CONFIDENCE,
         "idiom": site.idiom,
         "registry_version": IDIOM_REGISTRY_VERSION,
-        "surface": surface,
+        "surface": SURFACE_PARTIAL if gaps else surface,
     }
-    if surface_gaps:
-        extraction["surface_gaps"] = surface_gaps
+    if gaps:
+        extraction["surface_gaps"] = gaps
+    parameters = _signature_parameters(site)
     return Tool(
         id=stable_tool_id(site.name),
         name=site.name,
@@ -304,10 +426,156 @@ def _tool_from_site(
         source_path=source_path,
         source_start_line=site.line,
         source_start_column=site.column,
+        input_schema=_signature_input_schema(parameters, site),
+        output_schema=(
+            {"type": site.returns_json_type}
+            if site.returns_json_type is not None
+            else {}
+        ),
+        parameters=parameters,
+        function_signature=_signature_text(site, parameters),
         risk_hints=_operation_type_hints(site),
         extraction_confidence=EXTRACTION_CONFIDENCE,
         extraction=extraction,
     )
+
+
+#: ``Tool.extraction["surface_gaps"]`` reasons this input records about **one
+#: tool's own interface**, as opposed to which tools the file registers.
+#:
+#: The framework decides whether it injects a parameter by resolving the
+#: annotation to a class and checking identity against its own request context.
+#: Where the module does not settle that — a relative import pointing outside
+#: the walk, a name two statements bind, a base class this reader cannot
+#: place — the honest answer is neither "the caller supplies it" nor "the
+#: framework does". The parameter stays in the inventory, visible, and the
+#: tool says which question it could not answer (#539).
+SURFACE_GAP_UNRESOLVED_CONTEXT = "unresolved_context_identity"
+
+# The framework selects over the whole signature, including return/variadic
+# annotations that have no published parameter row.
+SURFACE_GAP_UNRESOLVED_CONTEXT_SIGNATURE = "unresolved_context_signature"
+
+#: A parameter carrying no annotation at all. The type it publishes would be
+#: the emitter's fallback rather than anything the source said.
+SURFACE_GAP_UNTYPED_PARAMETER = "untyped_parameter"
+
+#: An annotation is present and this reader cannot represent what it denotes —
+#: a Pydantic model, a ``Literal``, a container whose elements it cannot name.
+#: The same guess as an absent annotation with better manners, which is why
+#: it is a gap rather than a schema.
+#:
+#: Both spellings are the vocabulary ``google_adk`` established for the same
+#: two facts, and ``tests/test_mcp_server_source.py`` pins them equal: a
+#: reviewer reading ``Unresolved: unrepresentable_annotation`` must not have to
+#: know which adapter wrote it.
+SURFACE_GAP_UNREPRESENTABLE_ANNOTATION = "unrepresentable_annotation"
+
+
+def _signature_parameters(site: RegistrationSite) -> list[ToolParameter]:
+    """The registered tool's parameters, for an idiom that reads a signature.
+
+    One exclusion, and only where the reader **established** it: the server
+    strips its own request context from the schema it publishes, so a catalog
+    that kept it would publish a required argument no caller can supply.
+
+    Matching that on the annotation's spelling is what #539 reproduced in both
+    directions — an application model named ``Context`` disappeared from a tool
+    presented as taking no arguments, and an aliased framework context became a
+    required string. The name-based ``SKIPPED_TOOL_PARAMETERS`` the other
+    Python adapters share is wrong here for the same reason and one step
+    further out: it holds ``config``, ``context`` and ``runtime``, which are
+    ordinary user-supplied inputs to an MCP tool. ``self`` is not special
+    either — a decorated method registers the plain function, and the server
+    puts ``self`` in the schema, so this reader says what the server says.
+    """
+
+    if site.parameters is None:
+        return []
+    return [
+        ToolParameter(
+            name=parameter.name,
+            # The type the annotation *denotes*, never the emitter's fallback.
+            # ``None`` says the type was not read, which is the honest answer
+            # and a different one from ``string``.
+            type=parameter.json_type,
+            required=parameter.required,
+        )
+        for parameter in site.parameters
+        if parameter.injection != "framework_injected"
+    ]
+
+
+def _signature_gaps(site: RegistrationSite) -> list[str]:
+    """Reasons this tool's own signature was not fully read.
+
+    Separate from the file's reasons, which answer "which tools exist": a file
+    can enumerate every registration it holds and still carry one function
+    whose interface the source does not give up.
+    """
+
+    if site.parameters is None:
+        return []
+    gaps: set[str] = (
+        {SURFACE_GAP_UNRESOLVED_CONTEXT_SIGNATURE} if site.context_injection_unresolved else set()
+    )
+    for parameter in site.parameters:
+        if parameter.injection == "framework_injected":
+            # Not published, so nothing about its type is claimed either.
+            continue
+        if parameter.injection == "unresolved":
+            gaps.add(SURFACE_GAP_UNRESOLVED_CONTEXT)
+        if parameter.annotation is None:
+            gaps.add(SURFACE_GAP_UNTYPED_PARAMETER)
+        elif parameter.json_type is None:
+            gaps.add(SURFACE_GAP_UNREPRESENTABLE_ANNOTATION)
+    # ``output_schema`` is built from the return annotation by the same rule,
+    # so an unreadable one is the same gap. An *absent* return annotation is an
+    # honest omission — the schema stays ``{}`` — and is not one.
+    if site.returns is not None and site.returns_json_type is None:
+        gaps.add(SURFACE_GAP_UNREPRESENTABLE_ANNOTATION)
+    return sorted(gaps)
+
+
+def _signature_input_schema(
+    parameters: list[ToolParameter], site: RegistrationSite
+) -> dict[str, object]:
+    """The JSON Schema the signature implies, or ``{}`` when there is no signature.
+
+    An empty schema and a schema with no properties are different claims: the
+    first says this idiom reads no signature at all, the second says the tool
+    takes no arguments. A lexical idiom must publish the first — inventing
+    "this tool takes nothing" for a TypeScript registration would be a schema
+    assertion nobody made.
+    """
+
+    if site.parameters is None:
+        return {}
+    return {
+        "type": "object",
+        "properties": {
+            # An empty property schema is the JSON Schema for "any value", and
+            # it is what this reader knows about a type it could not read. The
+            # tool's ``surface_gaps`` say which question was left open; the
+            # schema does not answer it with a guess.
+            parameter.name: (
+                {"type": parameter.type} if parameter.type is not None else {}
+            )
+            for parameter in parameters
+        },
+        "required": [
+            parameter.name for parameter in parameters if parameter.required
+        ],
+    }
+
+
+def _signature_text(
+    site: RegistrationSite, parameters: list[ToolParameter]
+) -> str | None:
+    if site.parameters is None:
+        return None
+    rendered = f"{site.name}({', '.join(parameter.name for parameter in parameters)})"
+    return f"{rendered} -> {site.returns}" if site.returns else rendered
 
 
 def _operation_type_hints(site: RegistrationSite) -> list[ToolRiskHint]:
@@ -336,7 +604,8 @@ def _scannable_files(root: Path) -> tuple[list[Path], bool]:
     if root.is_file():
         if language_for_path(root) is None:
             raise InputParseError(
-                f"MCP server source is not a TypeScript or Go file: {root}"
+                "MCP server source is not a TypeScript, Go or Python file: "
+                f"{root}"
             )
         return [root], False
     candidates = [
@@ -378,8 +647,9 @@ class MCPServerSourceAdapter:
         adapter=SOURCE_TYPE,
         label="MCP server source",
         reads=(
-            "The TypeScript or Go source of an MCP server that does not commit "
-            "an export, through a built-in registry of registration idioms."
+            "The TypeScript, Go or Python source of an MCP server that does "
+            "not commit an export, through a built-in registry of "
+            "registration idioms."
         ),
         cells=(
             BoundaryCell(
@@ -394,6 +664,7 @@ class MCPServerSourceAdapter:
             BoundaryCell(
                 shape="literal_registration",
                 status="extracted",
+                variant="literal name at a registration site",
                 reads=(
                     'A tool name written as a string literal at a registration '
                     'site — `static toolName = "…"`, `.registerTool("…"`, '
@@ -403,6 +674,40 @@ class MCPServerSourceAdapter:
                 emits=(SOURCE_TYPE,),
                 ceiling=EXTRACTION_CONFIDENCE,
                 surface=SURFACE_ENUMERATED,
+            ),
+            BoundaryCell(
+                shape="literal_registration",
+                status="extracted",
+                variant="FastMCP decorator",
+                reads=(
+                    "A `@mcp.tool` decorator on a Python function, where `mcp` "
+                    "is followed back to a `FastMCP(...)` construction — in the "
+                    "same module or in one this walk also read. The name is the "
+                    "`name=` literal or, where the framework's own default "
+                    "applies, the function's; the description is the "
+                    "`description=` literal or the docstring; the input schema "
+                    "is the annotated signature, minus the request context the "
+                    "framework injects. A parameter whose annotation this "
+                    "reader cannot resolve to a type, or place as injected or "
+                    "caller-supplied, stays in the schema with that question "
+                    "named and holds the tool at `partial`."
+                ),
+                emits=(SOURCE_TYPE,),
+                ceiling=EXTRACTION_CONFIDENCE,
+                surface=SURFACE_ENUMERATED,
+            ),
+            BoundaryCell(
+                shape="dynamic_construction",
+                status="not_extracted",
+                variant="decorator on an object this reader cannot follow",
+                reads=(
+                    "A `.tool` decorator whose object does not resolve to a "
+                    "`FastMCP(...)` construction — `@self.mcp.tool` on a server "
+                    "handed in as an argument is the measured shape — registers "
+                    "something this reader can neither name nor confirm is a "
+                    "tool at all. It enters no catalog and is recorded as an "
+                    "unenumerated subject in the exclusion ledger."
+                ),
             ),
             BoundaryCell(
                 shape="factory",
@@ -417,6 +722,7 @@ class MCPServerSourceAdapter:
             BoundaryCell(
                 shape="dynamic_construction",
                 status="not_extracted",
+                variant="name built at runtime",
                 reads=(
                     "A registration whose name is a variable, a concatenation, "
                     "or a template substitution names no tool this reader can "

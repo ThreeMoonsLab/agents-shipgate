@@ -1,6 +1,6 @@
 {
   "status": "release_blockers_detected",
-  "critical_count": 2,
-  "high_count": 14,
+  "critical_count": 3,
+  "high_count": 10,
   "medium_count": 2
 }

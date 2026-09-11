@@ -25,14 +25,19 @@ currently a local-first OSS verifier and GitHub Action.
 
 ## Verifier Pilot
 
-The current pilot asks each design partner to bring one AI-generated agent PR
-or sanitized diff. Agents Shipgate runs the verifier loop, writes
-`verifier.json`, `pr-comment.md`, and `report.json`, then exports redacted
-feedback for product and benchmark follow-up.
+The current pilot asks each design partner for one real agent-capability
+change and one reviewer who did not write it. Which commands you run depends
+on the repository: a repo that declares what its coding agents may do needs no
+manifest, and a repo that publishes its own tool surface runs the full verifier
+loop. Either way the pilot is measuring two things — whether the reviewer can
+name the changed capability, its evidence, the coverage limit and the next
+action, and whether the team reaches for it again on the next eligible change.
 
 Use the [`Design Partner Verifier Pilot`](design-partner-verifier-pilot.md)
-runbook for the fixed commands, artifact read order, tracker fields, and
-follow-up questions.
+runbook for the routes, commands, artifact read order, tracker fields, consent
+rules, and follow-up questions. Results so far — including the denominators
+that are still zero — are published in
+[`Design Partner Pilot: Results`](design-partner-pilot-results.md).
 
 ## What You Get
 

@@ -327,6 +327,172 @@ def test_advancing_the_base_invalidates_a_decision_about_the_range(repo: Path) -
     assert "base this decision was made against moved" in str(raised.value)
 
 
+@pytest.mark.parametrize("observation", [1, 2])
+@pytest.mark.parametrize("mutation", ["content", "chmod", "symlink"])
+def test_live_read_rechecks_same_path_overlay_changes(
+    repo: Path, observation: int, mutation: str
+) -> None:
+    """A stable path list cannot establish that its content or mode is current."""
+
+    readme = repo / "README.md"
+    readme.write_text("before\n", encoding="utf-8")
+    (repo / "twin.md").write_text("reviewed\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "document fixture")
+    readme.write_text("reviewed\n", encoding="utf-8")
+    completed, _, _ = _verify(repo, archive_head=False)
+    assert completed.control.state == "complete"
+    reports = repo / "agents-shipgate-reports"
+    original = (reports / "verifier.json").read_bytes()
+    unchanged = read_current_control(reports, live=lambda: _live(repo))
+    assert unchanged.pointer.control.permissions.merge is True
+    observations = []
+
+    def observe():
+        live = _live(repo)
+        observations.append(live)
+        if len(observations) == observation:
+            if mutation == "content":
+                readme.write_text("changed after verification\n", encoding="utf-8")
+            elif mutation == "chmod":
+                readme.chmod(0o755)
+            else:
+                readme.unlink()
+                readme.symlink_to("twin.md")
+        return live
+
+    with pytest.raises(CurrentControlUnavailable) as raised:
+        read_current_control(reports, live=observe, capture=("verifier",), attempts=1)
+    assert raised.value.reason == "workspace_changed"
+    assert raised.value.artifacts == {"verifier": original}
+    assert len(observations) == observation
+    assert _live(repo).changed_paths == observations[0].changed_paths
+    assert _live(repo).head_commit_sha == observations[0].head_commit_sha
+
+
+@pytest.mark.parametrize("observation", [1, 2])
+@pytest.mark.parametrize("movement", ["base", "merge_base"])
+def test_live_read_rechecks_the_resolved_base(
+    repo: Path, observation: int, movement: str
+) -> None:
+    """Moving only the comparison base invalidates the first interleaved read."""
+
+    _git(repo, "checkout", "-b", "feature")
+    (repo / "README.md").write_text("feature\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "feature work")
+    completed, _, _ = _verify(repo, base="main")
+    assert completed.control.state == "complete"
+    reports = repo / "agents-shipgate-reports"
+    original = (reports / "verifier.json").read_bytes()
+    assert read_current_control(reports, live=lambda: _live(repo)).pointer.control.permissions.merge
+    observations = []
+
+    def observe():
+        live = _live(repo)
+        observations.append(live)
+        if len(observations) == observation:
+            if movement == "base":
+                _git(repo, "branch", "-f", "main", "HEAD")
+            else:
+                # A shallower local history can hide ancestry without moving
+                # either endpoint or changing the HEAD tree.
+                (repo / ".git" / "shallow").write_text(
+                    commit_sha(repo, "HEAD") + "\n", encoding="utf-8"
+                )
+        return live
+
+    with pytest.raises(CurrentControlUnavailable) as raised:
+        read_current_control(reports, live=observe, capture=("verifier",), attempts=1)
+    assert raised.value.reason == "workspace_changed"
+    assert "base this decision was made against moved" in str(raised.value)
+    assert raised.value.artifacts == {"verifier": original}
+    assert len(observations) == observation
+    assert _live(repo).changed_paths == observations[0].changed_paths
+    assert _live(repo).head_commit_sha == observations[0].head_commit_sha
+
+
+def test_currency_parses_only_the_plan_and_receipt_bytes_validated_this_pass(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tools = repo / "tools.json"
+    tools.write_text(tools.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    completed, _, _ = _verify(repo, archive_head=False)
+    assert completed.control.state == "complete"
+    reports = repo / "agents-shipgate-reports"
+    original = (reports / "verifier.json").read_bytes()
+    real_read = current_control_module.read_regular_file_beneath
+    reads: dict[str, int] = {}
+
+    def read_once(root, path, **kwargs):
+        if path in {"verification-plan.json", "verification-receipt.json"}:
+            reads[path] = reads.get(path, 0) + 1
+            assert reads[path] == 1, "currency reopened already-validated evidence"
+        return real_read(root, path, **kwargs)
+
+    monkeypatch.setattr(current_control_module, "read_regular_file_beneath", read_once)
+    result = read_current_control(reports, live=lambda: _live(repo), capture=("verifier",))
+    assert result.pointer.control.permissions.merge is True
+    assert result.artifacts == {"verifier": original}
+    assert reads == {"verification-plan.json": 1, "verification-receipt.json": 1}
+
+
+def test_final_overlay_observation_refuses_a_mode_change_while_hashing(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agents_shipgate.core import verification_identity
+
+    tools = repo / "tools.json"
+    tools.write_text(tools.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    completed, _, _ = _verify(repo, archive_head=False)
+    assert completed.control.state == "complete"
+    reports = repo / "agents-shipgate-reports"
+    original = (reports / "verifier.json").read_bytes()
+    real_hash = verification_identity.sha256_file
+    hashes = []
+
+    def hash_then_change_mode(path):
+        digest = real_hash(path)
+        if path == tools:
+            hashes.append(digest)
+            if len(hashes) == 2:
+                tools.chmod(0o755)
+        return digest
+
+    monkeypatch.setattr(verification_identity, "sha256_file", hash_then_change_mode)
+    with pytest.raises(CurrentControlUnavailable) as raised:
+        read_current_control(reports, live=lambda: _live(repo), capture=("verifier",), attempts=1)
+    assert raised.value.reason == "workspace_unverifiable"
+    assert raised.value.artifacts == {"verifier": original}
+    assert len(hashes) == 2
+
+
+@pytest.mark.parametrize("attempts", [1, 3])
+def test_final_live_observation_cannot_return_a_superseded_pointer(
+    repo: Path, attempts: int
+) -> None:
+    _verify(repo)
+    reports = repo / "agents-shipgate-reports"
+    observations = []
+
+    def observe():
+        live = _live(repo)
+        observations.append(live)
+        if len(observations) % 2 == 0:
+            begin_current_control(reports, operation="verify", reason="A new run started.")
+        return live
+
+    if attempts == 1:
+        with pytest.raises(CurrentControlUnavailable) as raised:
+            read_current_control(reports, live=observe, attempts=attempts)
+        assert raised.value.reason == "generation_changed"
+    else:
+        result = read_current_control(reports, live=observe, attempts=attempts)
+        assert result.pointer.lifecycle_state == "in_progress"
+        assert result.pointer.control.permissions.merge is False
+    assert len(observations) <= attempts * 2
+
+
 def test_completion_is_refused_when_the_workspace_cannot_be_checked(repo: Path) -> None:
     """`live=None` means "not compared", which is never a pass for completion."""
 

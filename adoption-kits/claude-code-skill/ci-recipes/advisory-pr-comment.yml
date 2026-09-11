@@ -1,6 +1,13 @@
 # Advisory PR comment.
 # Recommended starting point — runs the scanner on every PR, posts a summary
 # comment, uploads the report as an artifact, and never fails the job.
+#
+# Both version pins below name the latest *published* release, not the build
+# that rendered this file. This recipe runs in someone else's CI: GitHub
+# resolves `uses:` before any step executes, and `shipgate_version` installs
+# from PyPI, so a pin to an unreleased build fails the adopter's first run with
+# an error about our repository. Bump them when a tag exists — see
+# docs/distribution-surfaces.md § Release channels.
 name: Agents Shipgate (advisory)
 
 on:
@@ -18,9 +25,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: ThreeMoonsLab/agents-shipgate@v{{ shipgate_version }}
+      - uses: ThreeMoonsLab/agents-shipgate@v0.15.0
         with:
           ci_mode: advisory
           diff_base: target
           pr_comment: 'true'
-          shipgate_version: '{{ shipgate_version }}'
+          shipgate_version: '0.15.0'

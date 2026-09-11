@@ -58,6 +58,15 @@ from agents_shipgate.schemas.human_authorization import (
     HUMAN_AUTHORIZATION_TRUST_POLICY_ACCOUNT_PATH,
     HUMAN_AUTHORIZATION_TRUST_POLICY_SCHEMA_VERSION,
 )
+from agents_shipgate.schemas.human_review_decision import (
+    HUMAN_REVIEW_DECISION_SCHEMA_PATH,
+    HUMAN_REVIEW_DECISION_SCHEMA_VERSION,
+    HUMAN_REVIEW_EVALUATION_SCHEMA_VERSION,
+)
+from agents_shipgate.schemas.human_review_request import (
+    HUMAN_REVIEW_REQUEST_SCHEMA_PATH,
+    HUMAN_REVIEW_REQUEST_SCHEMA_VERSION,
+)
 from agents_shipgate.schemas.org_evidence_bundle import ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION
 from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.preflight import PREFLIGHT_SCHEMA_VERSION
@@ -152,7 +161,17 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 #
 # The operational control shapes remain byte-identical to v28, so
 # ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21 for the sixth time.
-CONTRACT_VERSION: Literal["29"] = "29"
+# v30 publishes a separately bound human review question (#536). No shared
+# control type or historical grammar changes; the control floor stays at 21.
+# v31 advertises the separate, host-neutral decision evaluator. It does not
+# add a CLI command, widen operational control or create a trust context.
+# v32 adds conditional instruction-edit routing (verifier 0.17/handoff v9),
+# preflight 0.5 and host inventories/baselines/drift 0.3. Old readers retain
+# their conservative boundary; structural comparison never grants authority.
+# v33 routes recognized host-only configuration from discovery to audit,
+# without inventing a manifest. The new detect fields are filename evidence
+# and incomplete traversal, not grants. Operational control is unchanged.
+CONTRACT_VERSION: Literal["33"] = "33"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"
@@ -248,6 +267,9 @@ EXTERNAL_INTEGRATION_SURFACES: tuple[str, ...] = (
     "verification_artifact_manifest",
     "verification_receipt",
     "human_authorization",
+    "human_review_request",
+    "human_review_decision",
+    "human_review_evaluation",
     "host_grants_inventory",
     "host_grants_baseline",
     "host_grants_drift",
@@ -433,6 +455,7 @@ ARTIFACTS: dict[str, str] = {
         "agents-shipgate-reports/human-authorization-request.json"
     ),
     "human_authorization": "agents-shipgate-reports/human-authorization.json",
+    "human_review_request": "agents-shipgate-reports/human-review-request.json",
     "report": "agents-shipgate-reports/report.json",
     "pr_comment": "agents-shipgate-reports/pr-comment.md",
     "packet": "agents-shipgate-reports/packet.json",
@@ -543,6 +566,12 @@ class ContractPayload(BaseModel):
     human_authorization_trust_policy_schema_version: str
     human_authorization_trust_policy_default_path: str
     human_authorization_schema_path: str
+    human_review_request_schema_version: str
+    human_review_request_schema_path: str
+    human_review_request_artifact: str
+    human_review_decision_schema_version: str
+    human_review_evaluation_schema_version: str
+    human_review_decision_schema_path: str
     agent_handoff_schema_version: str
     agent_handoff_schema_path: str
     agent_handoff_artifact: str
@@ -634,6 +663,12 @@ def build_contract_payload() -> ContractPayload:
             HUMAN_AUTHORIZATION_TRUST_POLICY_ACCOUNT_PATH
         ),
         human_authorization_schema_path=HUMAN_AUTHORIZATION_SCHEMA_PATH,
+        human_review_request_schema_version=HUMAN_REVIEW_REQUEST_SCHEMA_VERSION,
+        human_review_request_schema_path=HUMAN_REVIEW_REQUEST_SCHEMA_PATH,
+        human_review_request_artifact=ARTIFACTS["human_review_request"],
+        human_review_decision_schema_version=HUMAN_REVIEW_DECISION_SCHEMA_VERSION,
+        human_review_evaluation_schema_version=HUMAN_REVIEW_EVALUATION_SCHEMA_VERSION,
+        human_review_decision_schema_path=HUMAN_REVIEW_DECISION_SCHEMA_PATH,
         agent_handoff_schema_version=AGENT_HANDOFF_SCHEMA_VERSION,
         agent_handoff_schema_path=AGENT_HANDOFF_SCHEMA_PATH,
         agent_handoff_artifact=ARTIFACTS["agent_handoff"],

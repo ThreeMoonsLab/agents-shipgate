@@ -21,6 +21,19 @@ full CI and reviewer substrate. Coding agents should use them for committed PR
 verification and reviewer evidence, but their local control loop is
 `shipgate check` plus `shipgate.agent_boundary_result/v2`.
 
+## Review questions
+
+A committed verifier run may bind a standalone
+[`human-review-request.json`](../human-review-request.md). Read it for the
+exact question, full scope and postcondition of the supported human route.
+It is unsigned and grants no merge or completion authority. The current
+`control.next_action` remains the continuation; do not populate
+`HumanControlAction.expects` or treat prose acceptance as verified evidence.
+The [host-neutral decision evaluator](../human-review-decision.md) checks an
+externally signed decision against current evidence and trusted eligibility.
+Its separate `applicable` result grants no authority and changes no control
+artifact. Coding agents cannot supply their own reviewer identity or key trust.
+
 ## Command
 
 Default local check:

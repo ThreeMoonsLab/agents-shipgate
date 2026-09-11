@@ -1,0 +1,67 @@
+name: Adopter entry
+description: Ask to be listed in the public, opt-in adopters registry (ADOPTERS.md).
+title: "[Adopter]: "
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Being counted is something you do, never something done to you.
+        Agents Shipgate collects nothing, so
+        [`ADOPTERS.md`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/ADOPTERS.md)
+        is the only source for any adoption number this project publishes.
+
+        This issue is the public, attributable record that you asked — it
+        becomes the `Entry` link on your row. Everything you type here is
+        public. A private repository is listed at organization granularity:
+        write `private` below and the row will say who and which tier, and
+        nothing about where. Entries are removed on request, without a reason.
+  - type: input
+    id: adopter
+    attributes:
+      label: Adopter
+      description: The organization, project, or person to list.
+    validations:
+      required: true
+  - type: input
+    id: repository
+    attributes:
+      label: Repository
+      description: >-
+        A link to your public repository, on whichever host it lives — GitHub,
+        GitLab, Codeberg, self-hosted — or the single word `private`. One row
+        covers one repository; ask for a second row if you gate more than one.
+      placeholder: "https://gitlab.com/acme/agent"
+    validations:
+      required: true
+  - type: input
+    id: gated
+    attributes:
+      label: What it gates
+      description: One clause — which capability surface Agents Shipgate reviews for you.
+      placeholder: "MCP tool exports on every pull request"
+    validations:
+      required: true
+  - type: dropdown
+    id: use
+    attributes:
+      label: Use
+      description: >-
+        As defined in ADOPTERS.md. Advisory CI publishes a result that does not
+        decide the merge; blocking CI fails on a verdict AND is a required
+        check. Nobody will raise this on inference, so state what is true today.
+      options:
+        - local evaluation
+        - advisory CI
+        - blocking CI
+    validations:
+      required: true
+  - type: checkboxes
+    id: consent
+    attributes:
+      label: Consent
+      options:
+        - label: I can speak for the adopter named above, and I am asking to be listed.
+          required: true
+        - label: I understand this entry is public, is a dated statement rather than a commitment, and can be removed on request at any time.
+          required: true

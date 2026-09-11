@@ -34,7 +34,8 @@ to install a published PyPI version.
 - Pin the build backend in `constraints/release-build.txt` so release wheels are
   byte-reproducible.
 - Use Dependabot for Python and GitHub Actions updates.
-- Add a lockfile for release and dev dependency builds once packaging workflow is finalized.
+- Use the existing hash-locked development, build, sealing and publication
+  closures listed in the [release runbook](release-runbook.md#the-environment-is-locked-and-it-is-cis).
 
 PyPI Trusted Publishing is configured for this repository's tag-triggered
 release workflow and protected `pypi` environment.
@@ -90,9 +91,11 @@ This is a configured trust root, not proof of organizational independence.
 The promotion job trusts the signed qualification summary and does not replay
 its underlying verifier receipts. The four-week, three-design-partner rollout
 is likewise an external beta stop condition; the machine gate enforces only
-the qualification artifact's combined origin minimum — 40 real-history,
-rejected/reverted, or design-partner cases under the production policy and 23
+the qualification artifact's combined origin minimum — 32 real-history,
+rejected/reverted, or design-partner cases under the production policy and 16
 under the pre-1.0 one, the same 40% share of each corpus.
+The [current policy table](../benchmark/safety-qualification/README.md#current-policy-contract)
+keeps these machine floors separate from external rollout and pilot evidence.
 
 ## Marketplace And Site
 

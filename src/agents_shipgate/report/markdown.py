@@ -26,6 +26,7 @@ from agents_shipgate.core.findings.subject_rollup import (
     rollup_headline,
     top_findings_block,
 )
+from agents_shipgate.core.lenses.finding_attribution import unattributed_sentence
 from agents_shipgate.core.privacy import sanitize_report
 from agents_shipgate.core.source_warnings import group_source_warnings
 from agents_shipgate.core.surface_exclusions import agent_label_index
@@ -44,6 +45,7 @@ from agents_shipgate.schemas.report import (
     Misalignment,
     ReadinessReport,
 )
+from agents_shipgate.schemas.surfaces import ToolSurfaceDiff
 
 DISCLAIMER = (
     "Agents Shipgate is an advisory tool: the deterministic merge gate for "
@@ -668,7 +670,10 @@ def _append_source_warnings(lines: list[str], report: ReadinessReport) -> None:
     # Grouped by mechanism: six warnings that differ only in the symbol they
     # name are one thing to fix, and listing them six times buries it. The
     # JSON keeps every warning — the count gates (#362).
-    groups = group_source_warnings(report.source_warnings)
+    groups = group_source_warnings(
+        report.source_warnings,
+        evidence_gaps=report.release_decision.evidence_coverage.evidence_gaps if report.release_decision else (),
+    )
     lines.extend(["## Source Warnings", ""])
     for group in groups:
         suffix = f" ({group.count} warnings)" if group.count > 1 else ""
@@ -799,9 +804,137 @@ def _append_tool_surface(lines: list[str], report: ReadinessReport) -> None:
     )
 
 
+_ATTRIBUTION_LABELS = {
+    "widened_by_change": "widened by this change",
+    "improved_not_resolved": "improved by this change, not resolved",
+    "standing_weakness": "standing weakness, no modeled bound changed",
+    "unresolved": "unresolved",
+}
+
+
+def _attribution_pointers(evidence) -> str:
+    """Where to read the compared bound, naming each side only when they differ.
+
+    Escaped plain text rather than a code span: these pointers carry `#`, `{`
+    and `}`, and a backslash escape inside backticks reaches the reader as a
+    backslash.
+    """
+    base, head = evidence.base_pointer, evidence.head_pointer
+    if base and head:
+        if base == head:
+            return f"; {_safe_markdown_text(base)}."
+        return f"; base {_safe_markdown_text(base)}, head {_safe_markdown_text(head)}."
+    if base or head:
+        side = "base" if base else "head"
+        return f"; {side} only, {_safe_markdown_text(base or head)}."
+    return "."
+
+
+def _append_finding_attributions(lines: list[str], diff: ToolSurfaceDiff) -> None:
+    """Render the per-finding attribution rows the JSON block also carries.
+
+    One renderer for both profiles: the value-join lives in
+    ``core.lenses.finding_attribution`` and this only spells it, so Markdown
+    can never disagree with ``report.json`` about which bound moved.
+    """
+    if not diff.finding_attributions and not diff.unattributed_findings:
+        return
+    # Only the rows that reached a direction are spelled here. An `unresolved`
+    # row repeats one sentence per finding on a shared capability, which buries
+    # the decided rows it is printed next to; `report.json` keeps all of them.
+    decided = [row for row in diff.finding_attributions if row.attribution != "unresolved"]
+    undecided = len(diff.finding_attributions) - len(decided)
+    # The lead must not promise per-finding statements the section then does
+    # not make. A repository whose only profile publishes no fingerprint can
+    # never reach a direction, so that is the normal shape there, not an edge.
+    lead = (
+        "What this change did to the bound each finding depends on."
+        if decided
+        else "No finding could be attributed to this change in either direction."
+    )
+    lines.extend(
+        [
+            "### Finding attribution",
+            "",
+            f"{lead} Dependency coverage is incomplete and no finding is excluded.",
+        ]
+    )
+    if decided:
+        lines.append("")
+    for row in decided[:8]:
+        # A tool a reader can open, or the check ID alone. A fingerprint is
+        # identity vocabulary for `report.json`, never a subject line.
+        subject = (
+            f"{_safe_markdown_text(row.tool_name)} ({_safe_markdown_text(row.check_id)})"
+            if row.tool_name
+            else _safe_markdown_text(row.check_id)
+        )
+        lines.append(
+            f"- {subject}: {_ATTRIBUTION_LABELS[row.attribution]}. "
+            f"{_safe_markdown_text(row.reason)}"
+        )
+        for evidence in row.evidence:
+            lines.append(
+                f"  - {evidence.axis.replace('_', ' ')}: "
+                f"{evidence.direction.replace('_', ' ')} ({evidence.effect}, "
+                f"{evidence.link}-linked){_attribution_pointers(evidence)}"
+            )
+    # A trailing line that is not separated from the bullets above becomes a
+    # lazy continuation of the last one, so the counts would render inside a
+    # row instead of under the section.
+    trailing: list[str] = []
+    if len(decided) > 8:
+        trailing.append(f"{len(decided) - 8} more attributed findings in report.json.")
+    if undecided:
+        trailing.append(
+            f"{undecided} finding(s) have evidence on their capability but could not "
+            "be attributed in either direction; the reason is in report.json."
+        )
+    if diff.unattributed_findings:
+        # Printed here rather than left to the diff notes, which this report
+        # truncates to three: absence of evidence has to be visible next to the
+        # rows that have it.
+        trailing.append(unattributed_sentence(diff.unattributed_findings))
+    if trailing:
+        lines.extend(["", *trailing])
+    lines.append("")
+
+
 def _append_tool_surface_diff(lines: list[str], report: ReadinessReport) -> None:
     diff = report.tool_surface_diff
     lines.extend(["## Tool Surface Diff", ""])
+    visible_guards = [row for row in diff.guard_comparisons if
+                      (row.before is not None and row.before.status == "observed") or
+                      (row.after is not None and row.after.status == "observed")]
+    if visible_guards:
+        lines.extend(["### Imported guard evidence", "",
+            "Boolean source predicates only; dependency coverage is incomplete and no finding is excluded.", ""])
+        for comparison in visible_guards[:8]:
+            before, after = comparison.before, comparison.after
+            def location(row):
+                return f"{row.guard_path}:{row.guard_line}" if row and row.guard_path else "unavailable"
+            lines.append(f"- {_safe_markdown_text(comparison.tool_name)}: {comparison.direction.replace('_', ' ')}; base `{_safe_markdown_text(location(before))}`, head `{_safe_markdown_text(location(after))}`.")
+            if comparison.source_behavior is not None:
+                source = comparison.source_behavior
+                lines.append(
+                    f"  Full Boolean source: returns {source.returns}; true-return inputs "
+                    f"{source.true_domain}; literal Agent membership {source.binding}; "
+                    f"bound true-return inputs {source.bound_true_domain}. "
+                    "True is a return value, not approval or action authority."
+                )
+        if len(visible_guards) > 8:
+            lines.append(f"{len(visible_guards) - 8} more guard comparisons in report.json.")
+        lines.append("")
+    if diff.operation_comparisons:
+        lines.extend(["### Declared operation attribution", "", "OpenAPI declaration comparison only; runtime enforcement and deployed reachability remain unknown. No finding is excluded.", ""])
+        for row in diff.operation_comparisons[:8]:
+            subject = row.after or row.before
+            name = subject.operation.tool_name if subject else row.observation_id
+            lines.append(f"- {_safe_markdown_text(name)}: declared targets {row.declared_target_domain}; approval predicate {row.approval_predicate.replace('_', ' ')}. {_safe_markdown_text(row.reason)}.")
+        if len(diff.operation_comparisons) > 8:
+            lines.append(f"{len(diff.operation_comparisons) - 8} more operation comparisons in report.json.")
+        lines.append("")
+    _append_finding_attributions(lines, diff)
     if not diff.enabled:
         note = diff.notes[0] if diff.notes else "No comparison source was available."
         lines.extend(
@@ -816,9 +949,9 @@ def _append_tool_surface_diff(lines: list[str], report: ReadinessReport) -> None
             or diff.summary.accepted_debt
         ):
             lines.append(
-                "- Finding deltas: "
-                f"{diff.summary.new_findings} new, "
-                f"{diff.summary.resolved_findings} resolved, "
+                "- Finding identities: "
+                f"{diff.summary.new_findings} added, "
+                f"{diff.summary.resolved_findings} absent, "
                 f"{diff.summary.accepted_debt} accepted debt"
             )
         lines.append("")
@@ -845,10 +978,10 @@ def _append_tool_surface_diff(lines: list[str], report: ReadinessReport) -> None
                 f"{summary.policy_drift_items} policy drift item(s)"
             ),
             (
-                "- Findings: "
-                f"{summary.new_findings} new, "
-                f"{summary.resolved_findings} resolved, "
-                f"{summary.unchanged_findings} unchanged, "
+                "- Finding identities: "
+                f"{summary.new_findings} added, "
+                f"{summary.resolved_findings} absent, "
+                f"{summary.unchanged_findings} matched, "
                 f"{summary.accepted_debt} accepted debt"
             ),
             "",
@@ -889,6 +1022,8 @@ def _append_tool_surface_diff(lines: list[str], report: ReadinessReport) -> None
     )
     if diff.notes:
         _append_diff_values(lines, "Notes", diff.notes[:3])
+        if len(diff.notes) > 3:
+            lines.append(f"{len(diff.notes) - 3} more comparison notes in report.json; inspect both reports before attributing a finding to the change.")
 
 
 def _append_action_surface_diff(lines: list[str], report: ReadinessReport) -> None:

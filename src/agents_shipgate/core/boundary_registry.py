@@ -105,6 +105,22 @@ def boundary_adapters_for_path(path: str) -> tuple[BoundaryAdapterSpec, ...]:
     return tuple(adapter for adapter in BOUNDARY_ADAPTERS if adapter.matches(path))
 
 
+def host_config_adapters_for_path(path: str) -> tuple[BoundaryAdapterSpec, ...]:
+    """Host configuration candidates, not generic governance or instructions.
+
+    Discovery answers applicability from filenames only. Matching an adapter
+    does not establish that a file parses or that its grants are understood.
+    """
+    normalized = path.replace("\\", "/").removeprefix("./").casefold()
+    if not normalized.endswith((".json", ".toml")):
+        return ()
+    return tuple(
+        adapter for adapter in boundary_adapters_for_path(normalized)
+        if adapter.id != "shared"
+        and not normalized.startswith((".claude/commands/", ".cursor/rules/"))
+    )
+
+
 def boundary_hosts_for_path(path: str) -> tuple[str, ...]:
     return tuple(
         sorted({host for adapter in boundary_adapters_for_path(path) for host in adapter.hosts})

@@ -30,14 +30,35 @@ Three PR-shaped demos map public incident shapes to fresh verifier output:
 ./shipgate fixture run prompt_change_rides_release
 ```
 
-Those commands run from this checkout. The installed suite is available from
-v0.18.0 as `uvx agents-shipgate@0.18.0 fixture run <name>`.
+Those commands run from this checkout, and two of the three need it: the
+newest published release, `v0.15.0`, bundles `agent_weakens_gate` and not the
+other two. Once a release carries all three, pin that release —
+`uvx agents-shipgate@<version> fixture run <name>` — rather than naming a
+version the index does not have.
 
 The second command is an explicit expected-fail for the unshipped
 `.github/agents/**` governance surface. It prints both the desired and observed
 verdict and links the owning RFC; it is never silently skipped. See the
 [`docs/incidents/` suite](../docs/incidents/README.md) for the public sources,
 one-page write-ups, and incident-response article template.
+
+## What the support-refund fixture demonstrates
+
+`support_refund_agent` is the static-report fixture, and it fails on purpose.
+The committed golden at
+[`support_refund_agent/expected/report.md`](support_refund_agent/expected/report.md)
+is the authoritative output — it is regenerated with the engine, so it never
+drifts from what a run prints. The release risks it is built to surface:
+
+- `stripe.create_refund` lacks a declared approval policy, so a financial action could ship without an explicit human review gate.
+- `stripe.create_refund.amount` lacks a maximum bound, weakening blast-radius control.
+- `stripe.create_refund` lacks idempotency evidence while retry behavior is known, risking duplicate refunds.
+- `wildcard_mcp_tools.*` exposes a wildcard tool surface, making review incomplete.
+- `gmail.send_customer_email` overlaps a prohibited external-communication action without a matching confirmation policy.
+
+Human-facing output groups by *subject* — the tool you would open — with
+severity as an attribute of each row. `report.json` keeps the flat per-finding
+record that automation consumes.
 
 ## Sample reports
 
@@ -119,6 +140,8 @@ the pointer for the reader, not merely for the test.
 | [`multi_agent_workspace`](multi_agent_workspace/) | Multiple manifests in one workspace. |
 | [`baseline_workflow`](baseline_workflow/) | Baseline adoption before strict CI. |
 | [`large_multi_framework_agent`](large_multi_framework_agent/) | Production-shape retail-ops agent with ~65 unique tools across 6 declared sources, including a reviewed SDK inventory. Exercises the pipeline at scale and pins the CI latency budget. No committed goldens — see the per-sample README. |
+| [`mcp_only_server`](mcp_only_server/) | An MCP server that commits its surface as a `tools/list` export. |
+| [`mcp_source_only_server`](mcp_source_only_server/) | The same server with no export: its tools exist only as TypeScript registration sites, which is the normal state of a vendor MCP server. Detected identically by the CLI and the zero-install script (#485). |
 | [`_anti_patterns`](_anti_patterns/) | Intentionally unsafe or invalid examples for tests and docs. |
 
 ## Direct scans

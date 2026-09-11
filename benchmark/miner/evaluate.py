@@ -36,6 +36,8 @@ from benchmark.miner.rows import (
     STATUS_SCAN_FAILED,
     STATUS_TRIGGER_SKIP,
     MinedRow,
+    ScopedInputObligation,
+    ScopedInputReason,
 )
 
 _GIT_TIMEOUT = 120
@@ -281,6 +283,16 @@ def _verify_pr(
     state.
     """
 
+    # Read original committed inputs before any apparatus writes. A real
+    # PR-added manifest keeps the existing missing-manifest verifier route;
+    # only our injected manifest needs a supported base surface to copy into.
+    if manifest_injected and subdir:
+        obligation = _scoped_base_obligation(row, repo_path, subdir)
+        if obligation is not None:
+            row.verify_input_obligation = obligation
+            row.notes = _append_note(row.notes, "verify_unsupported_scoped_base")
+            return
+    row.verify_input_obligation = None
     manifest_rel = f"{subdir}/shipgate.yaml" if subdir else "shipgate.yaml"
     head_commit = _commit_manifest(head_wt, manifest_rel)
     if head_commit is None:
@@ -308,6 +320,11 @@ def _verify_pr(
         # Synthetic apparatus: force the identical manifest onto base so it
         # cancels out of the base...head diff — it is not a PR change.
         if not base_manifest.parent.is_dir():
+            # Git proved the scope exists. A missing materialization is a
+            # read/worktree failure, never evidence of an empty base.
+            row.verify_input_obligation = _scope_obligation(
+                row, subdir, "scoped_comparison_unreadable",
+            )
             row.notes = _append_note(row.notes, "verify_base_subdir_missing")
             return
         shutil.copyfile(head_manifest, base_manifest)
@@ -583,6 +600,12 @@ def _capability_delta(
     *,
     subdir: str = "",
 ) -> None:
+    if subdir:
+        obligation = _scoped_base_obligation(row, repo_path, subdir)
+        if obligation is not None:
+            row.verify_input_obligation = obligation
+            row.notes = _append_note(row.notes, "capability_unsupported_scoped_base")
+            return
     head_lock = tmp_path / "head.lock.json"
     if not _capability_export(head_manifest, head_lock):
         row.notes = _append_note(row.notes, "head_lock_failed")
@@ -591,6 +614,9 @@ def _capability_delta(
         _worktree_add(repo_path, base_wt, row.base_sha)
     base_root = (base_wt / subdir) if subdir else base_wt
     if not base_root.is_dir():
+        row.verify_input_obligation = _scope_obligation(
+            row, subdir, "scoped_comparison_unreadable",
+        )
         row.notes = _append_note(row.notes, "base_subdir_missing")
         return
     base_manifest = base_root / "shipgate.yaml"
@@ -627,6 +653,76 @@ def _capability_delta(
         1
         for item in changed
         if isinstance(item, dict) and str(item.get("direction") or "") == "broadened"
+    )
+
+
+def _scope_obligation(
+    row: MinedRow,
+    subdir: str,
+    reason: ScopedInputReason,
+    renames: list[dict[str, str]] | None = None,
+) -> ScopedInputObligation:
+    return {
+        "kind": "unsupported_input",
+        "reason": reason,
+        "base_sha": row.base_sha,
+        "head_sha": row.head_sha,
+        "head_scope": subdir,
+        "observed_renames": renames or [],
+        "next_action": (
+            "restore_readable_comparison_trees" if reason == "scoped_comparison_unreadable"
+            else "provide_supported_scoped_base_comparison"
+        ),
+    }
+
+
+def _scoped_base_obligation(
+    row: MinedRow, repo_path: Path, subdir: str,
+) -> ScopedInputObligation | None:
+    """Describe an unsupported scope using only the original commit trees.
+
+    Git rename records are file-pair observations, not a reviewed assertion
+    that two directories are the same agent. Keep every incoming pair so a
+    partial or ambiguous rename cannot silently select the first old scope.
+    """
+    scope = _git(repo_path, [
+        "--literal-pathspecs", "ls-tree", "-z", row.base_sha, "--", subdir,
+    ])
+    if scope.returncode != 0:
+        return _scope_obligation(row, subdir, "scoped_comparison_unreadable")
+    records = [record for record in scope.stdout.split("\0") if record]
+    if records:
+        if len(records) != 1:
+            return _scope_obligation(row, subdir, "scoped_comparison_unreadable")
+        metadata, separator, path = records[0].partition("\t")
+        if not separator or path != subdir:
+            return _scope_obligation(row, subdir, "scoped_comparison_unreadable")
+        if len(metadata.split()) == 3 and metadata.split()[1] == "tree":
+            return None
+        return _scope_obligation(row, subdir, "scoped_base_not_directory")
+
+    delta = _git(repo_path, [
+        "diff", "--name-status", "-z", "-M", row.base_sha, row.head_sha, "--",
+    ])
+    if delta.returncode != 0 or (delta.stdout and not delta.stdout.endswith("\0")):
+        return _scope_obligation(row, subdir, "scoped_comparison_unreadable")
+    fields = delta.stdout.split("\0")[:-1]
+    renames: list[dict[str, str]] = []
+    index = 0
+    while index < len(fields):
+        status = fields[index]
+        width = 3 if status.startswith(("R", "C")) else 2
+        if not status or index + width > len(fields):
+            return _scope_obligation(row, subdir, "scoped_comparison_unreadable")
+        if status.startswith("R"):
+            old, new = fields[index + 1:index + 3]
+            if new.startswith(subdir + "/"):
+                renames.append({"base_path": old, "head_path": new, "git_status": status})
+        index += width
+    return _scope_obligation(
+        row, subdir,
+        "scoped_base_rename_candidates" if renames else "scoped_base_absent",
+        sorted(renames, key=lambda item: (item["head_path"], item["base_path"])),
     )
 
 

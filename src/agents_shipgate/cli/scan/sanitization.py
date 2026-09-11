@@ -15,7 +15,7 @@ from agents_shipgate.core.baseline import (
     baseline_resolved_fingerprints,
     verify_baseline,
 )
-from agents_shipgate.core.domain import Agent, SourceSurfaceOmission
+from agents_shipgate.core.domain import Agent, LoadedToolSource, SourceSurfaceOmission
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.findings.identity import assign_finding_ids
 from agents_shipgate.core.findings.remediation import annotate_remediation
@@ -30,13 +30,21 @@ from agents_shipgate.core.lenses.declaration_surface import (
     build_public_action_declaration_facts,
 )
 from agents_shipgate.core.lenses.effective_policy import accepted_debt_fingerprints
+from agents_shipgate.core.lenses.finding_attribution import attribute_findings
 from agents_shipgate.core.lenses.tool_surface import (
     build_tool_surface_facts,
     compute_tool_surface_diff,
     disabled_tool_surface_diff,
     enrich_tool_surface_diff_with_source,
 )
+from agents_shipgate.core.operation_attribution import (
+    ReconstructedOperationBase,
+    build_operation_attributions,
+    compare_operations,
+    invalidate_redacted_operations,
+)
 from agents_shipgate.core.privacy import (
+    RedactionStats,
     build_privacy_audit,
     redact_data,
     sanitize_findings,
@@ -44,7 +52,9 @@ from agents_shipgate.core.privacy import (
     sanitize_tools,
 )
 from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, BindingSurfaceDiff
+from agents_shipgate.schemas.coverage_recovery import CoverageRecovery, SourceRecoveryEvidence
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.operation_attribution import OperationAttribution
 from agents_shipgate.schemas.report import (
     BaselineSummary,
     CapabilityRuntimeEvidence,
@@ -86,6 +96,7 @@ def _sanitize_for_output(
     decision: _ChecksDecision,
     plan: _OutputPlan,
     plugins_enabled: bool | None,
+    operation_base: ReconstructedOperationBase | None = None,
 ) -> _SanitizedSurfaces:
     """Phase 7: privacy redaction of every value that flows into a
     report or packet — STABILITY contract: runs BEFORE any file is
@@ -397,7 +408,17 @@ def _sanitize_for_output(
         diffs=diffs,
         privacy_stats=privacy_stats,
         toolkit_bounds=decision.context.toolkit_bounds,
+        remote_bindings=decision.context.remote_bindings,
+        guard_dependencies=decision.context.guard_dependencies,
+        operation_attributions=build_operation_attributions(
+            context=decision.context,
+            sources=inputs.loaded_sources,
+            findings=public_findings,
+            config_path=config_path,
+        ),
+        operation_base=operation_base,
     )
+    source_recovery_evidence = _sanitize_source_recovery_evidence(inputs.loaded_sources, privacy_stats)
     privacy_audit = build_privacy_audit(
         privacy_stats,
         output_surfaces=plan.output_surfaces,
@@ -474,7 +495,46 @@ def _sanitize_for_output(
             for loaded in inputs.loaded_sources
             for omission in loaded.omissions
         ],
+        source_recovery_evidence=source_recovery_evidence,
     )
+
+
+def _sanitize_source_recovery_evidence(
+    loaded_sources: list[LoadedToolSource], privacy_stats: RedactionStats,
+) -> list[SourceRecoveryEvidence]:
+    """Join within the original source, then detect public identity collisions.
+
+    Even a warning without a typed repair owns its origin. Redacting it to the
+    same text as a classified warning must not borrow that warning's owner.
+    """
+    public_origins: dict[str, set[tuple[int, str]]] = {}
+    for index, loaded in enumerate(loaded_sources):
+        for warning in loaded.warnings:
+            public = redact_data(warning)
+            public_origins.setdefault(public, set()).add((index, warning))
+    facts = []
+    for loaded in loaded_sources:
+        for fact in loaded.recovery_evidence:
+            if (
+                fact.warning not in loaded.warnings
+                or fact.source_id != loaded.source_id
+                or fact.source_type != loaded.source_type
+            ):
+                # A record that does not name its own source/warning proves
+                # no association. It cannot classify somebody else's gap.
+                continue
+            public = sanitize_model(
+                fact, SourceRecoveryEvidence, stats=privacy_stats,
+                path="source_recovery_evidence[]",
+            )
+            if len(public_origins.get(public.warning, ())) != 1:
+                public = public.model_copy(update={
+                    "recovery": CoverageRecovery(
+                        kind="unresolved", reason="ambiguous_warning_identity"
+                    ),
+                })
+            facts.append(public)
+    return facts
 
 
 def _indeterminate_override_positions(
@@ -562,6 +622,10 @@ def _public_tool_surfaces(
     diffs: _DiffReferences,
     privacy_stats,
     toolkit_bounds=(),
+    remote_bindings=(),
+    guard_dependencies=(),
+    operation_attributions=(),
+    operation_base=None,
 ):
     public_tool_surface_facts = sanitize_model(
         build_tool_surface_facts(
@@ -571,11 +635,39 @@ def _public_tool_surfaces(
             public_api_artifacts,
             public_anthropic_artifacts,
             toolkit_bounds,
+            remote_bindings,
+            guard_dependencies,
         ),
         ToolSurfaceFacts,
         stats=privacy_stats,
         path="tool_surface_facts",
     )
+    for original, public in zip(guard_dependencies, public_tool_surface_facts.guard_dependencies, strict=True):
+        if public != original:
+            public.status = "redacted"
+            public.reason = "guard_evidence_redacted"
+            public.allowed_inputs = []
+            if public.source_behavior is not None:
+                public.source_behavior.status = "redacted"
+                public.source_behavior.reason = "source_behavior_evidence_redacted"
+                public.source_behavior.returns = []
+                public.source_behavior.binding = None
+                public.source_behavior.configuration_reads = None
+    public_operations = [
+        sanitize_model(row, OperationAttribution, stats=privacy_stats,
+                       path="tool_surface_facts.operation_attributions[]")
+        for row in operation_attributions
+    ]
+    invalidate_redacted_operations(operation_attributions, public_operations)
+    public_tool_surface_facts.operation_attributions = public_operations
+    if operation_base is not None:
+        public_base_operations = [
+            sanitize_model(row, OperationAttribution, stats=privacy_stats,
+                           path="tool_surface_diff.operation_comparisons.base[]")
+            for row in operation_base.rows
+        ]
+        invalidate_redacted_operations(operation_base.rows, public_base_operations)
+        operation_base = ReconstructedOperationBase(tree=operation_base.tree, rows=tuple(public_base_operations))
     if diffs.diff_reference_error:
         public_tool_surface_diff = disabled_tool_surface_diff(
             redact_data(
@@ -591,6 +683,15 @@ def _public_tool_surfaces(
             public_findings,
             reference=public_diff_reference,
         )
+    public_tool_surface_diff.operation_comparisons = compare_operations(public_operations, operation_base)
+    # One canonical per-finding statement over both comparison lists, built
+    # here because ``operation_comparisons`` is only complete after the line
+    # above. Both inputs are already sanitized, so the projection carries no
+    # value the redaction pass has not seen.
+    attribution = attribute_findings(public_tool_surface_diff, public_findings)
+    public_tool_surface_diff.finding_attributions = attribution.rows
+    public_tool_surface_diff.unattributed_findings = attribution.unattributed
+    public_tool_surface_diff.notes.extend(attribution.notes)
     # v0.19 reviewer-grade provenance: enrich tool-surface diff
     # controls (and any other reason-bearing rows) with the public
     # tool path:line citation so the rendered report.json and packet

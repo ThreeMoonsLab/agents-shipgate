@@ -2,6 +2,12 @@
 
 A single entry point for human readers and AI agents walking the `docs/` tree.
 
+**Start here.** A human evaluating one change wants
+[`quickstart.md`](quickstart.md) — one review end to end on a committed sample,
+including which build provides which commands. A coding agent wants
+[`../AGENTS.md`](../AGENTS.md) and [`agents/README.md`](agents/README.md). The
+repository [`README.md`](../README.md) is the landing page that routes to both.
+
 ## Concepts
 
 - [`overview.md`](overview.md) — one-page summary for developers, reviewers, and AI agents
@@ -17,8 +23,10 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`glossary.md`](glossary.md) — category vocabulary
 - [`ai-search-summary.md`](ai-search-summary.md) — human-readable summary for AI search and coding agents
 - [`design-partners.md`](design-partners.md) — early design partner criteria and contact path
-- [`design-partner-verifier-pilot.md`](design-partner-verifier-pilot.md) — runbook for design partners bringing one AI-generated agent PR through the verifier loop
+- [`design-partner-verifier-pilot.md`](design-partner-verifier-pilot.md) — runbook for the design-partner cohort: the two routes under test, the denominators, what counts as reviewer-understood first value, and the pre-registered continue/narrow/stop rule
+- [`design-partner-pilot-results.md`](design-partner-pilot-results.md) — the public aggregate ledger for that experiment: denominators, dated enrollment shortfall, reproduced blockers, and the standing decision
 - [`architecture.md`](architecture.md) — codebase layout for new contributors
+- [`decisions.md`](decisions.md) — current accepted-decision index, superseded v0.1 defaults and explicit implementation obligations before the v1.0 freeze
 - [`engineering/ai-coding-workflow-verifier.md`](engineering/ai-coding-workflow-verifier.md) — canonical engineering guide and roadmap for making Agents Shipgate the deterministic verifier inside AI coding workflows
 - [`engineering/insufficient-evidence-cold-start.md`](engineering/insufficient-evidence-cold-start.md) — proposed design for getting first-adoption repos out of a standing `insufficient_evidence` verdict on every turn
 - [`engineering/host-authenticated-approval-receipts.md`](engineering/host-authenticated-approval-receipts.md) — proposed design for in-session approval receipts a host attests, and the record of why the unsigned version was rejected
@@ -35,6 +43,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`baseline.md`](baseline.md) — baseline workflow
 - [`framework-adapter-checklist.md`](framework-adapter-checklist.md) — checklist for adding static framework adapters
 - [`mcp-registration-idioms.md`](mcp-registration-idioms.md) — the 30-server survey behind the built-in MCP registration-idiom registry: which shapes ship, what the reader excludes, and why an export still wins
+- [`distribution-surfaces.md`](distribution-surfaces.md) — every surface this engine is published through, what each one claims, and the test that proves it; the registry a new surface has to be added to
 - [`determinism-boundary.md`](determinism-boundary.md) — generated coverage matrix: what each input can establish per declaration shape, the extraction-confidence ceiling it reaches, and what that ceiling means for a verdict
 
 ## Reference
@@ -60,7 +69,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.27.json`](report-schema.v0.27.json) — frozen v0.27 reference schema; pre-v0.28 reports validate against this
 - [`report-schema.v0.26.json`](report-schema.v0.26.json) — frozen v0.26 reference schema; pre-v0.27 reports validate against this
 - [`report-schema.v0.25.json`](report-schema.v0.25.json) — frozen v0.25 reference schema; pre-v0.26 reports validate against this
-- [`verifier-schema.v0.16.json`](verifier-schema.v0.16.json) — current JSON Schema for `verifier.json`, including declaration review in the embedded release decision
+- [`verifier-schema.v0.17.json`](verifier-schema.v0.17.json) — current JSON Schema for `verifier.json`, including declaration review in the embedded release decision
+- [`verifier-schema.v0.16.json`](verifier-schema.v0.16.json) — frozen prior reference; no inferred structural comparison
 - [`verifier-schema.v0.15.json`](verifier-schema.v0.15.json) — frozen verifier reference
 - [`verifier-schema.v0.12.json`](verifier-schema.v0.12.json) — frozen v0.12 reference; pre-v0.13 verifier artifacts validate against this
 - [`verifier-schema.v0.11.json`](verifier-schema.v0.11.json) — frozen v0.11 reference; pre-v0.12 verifier artifacts validate against this
@@ -76,7 +86,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`verify-run-schema.v1.json`](verify-run-schema.v1.json) — frozen verify-run v1 reference
 - [`human-authorization-schema.v1.json`](human-authorization-schema.v1.json) — current schema family for unsigned requests, externally signed grants, evaluations, and external trust policies
 - [`human-authorization-signature-v1.json`](human-authorization-signature-v1.json) — canonical Ed25519 signature interoperability vector
-- [`agent-handoff-schema.v8.json`](agent-handoff-schema.v8.json) — current compact verifier handoff schema with authorization provenance
+- [`agent-handoff-schema.v9.json`](agent-handoff-schema.v9.json) — current compact verifier handoff schema with authorization provenance
+- [`agent-handoff-schema.v8.json`](agent-handoff-schema.v8.json) — frozen prior reference; no inferred structural comparison
 - [`agent-handoff-schema.v5.json`](agent-handoff-schema.v5.json) — frozen handoff v5 reference
 - [`verification-plan-schema.v1.json`](verification-plan-schema.v1.json) — content-addressed verification subject, inputs, engine requirement, and task plan
 - [`verification-unit-result-schema.v1.json`](verification-unit-result-schema.v1.json) — decision-free worker result contract
@@ -92,7 +103,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`codex-boundary-result-schema.v2.json`](codex-boundary-result-schema.v2.json) — frozen deprecated compatibility projection for `--format codex-boundary-json`
 - [`codex-boundary-result-schema.v1.json`](codex-boundary-result-schema.v1.json) — frozen boundary v1 reference
 - [`agent-result-schema.v1.json`](agent-result-schema.v1.json) — legacy JSON Schema retained for existing local-agent protocol and MCP surfaces; not emitted by `agents-shipgate verify`
-- [`preflight-schema.v0.4.json`](preflight-schema.v0.4.json) — current proactive preflight control schema
+- [`preflight-schema.v0.5.json`](preflight-schema.v0.5.json) — current proactive preflight control schema
+- [`preflight-schema.v0.4.json`](preflight-schema.v0.4.json) — frozen prior reference; no inferred structural comparison
 - [`policy-pack-schema.v0.4.json`](policy-pack-schema.v0.4.json) — JSON Schema for local policy-pack YAML files (current; selectors are evaluated against typed predicate evidence)
 - [`policy-pack-schema.v0.3.json`](policy-pack-schema.v0.3.json) — frozen v0.3 policy-pack reference
 - [`policy-pack-schema.v0.2.json`](policy-pack-schema.v0.2.json) — frozen v0.2 policy-pack reference
@@ -103,9 +115,12 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json) — JSON Schema for `agents-shipgate org bundle`; compact CI/ledger ingestion artifact over verifier/report/attestation/org/host-grant evidence, not a release verdict
 - [`registry-schema.v0.4.json`](registry-schema.v0.4.json) — JSON Schema for `agents-shipgate registry query --json`, `registry summary --json`, `registry verify --json`, and `registry report --bypass --json`
 - [`registry-schema.v0.3.json`](registry-schema.v0.3.json) — frozen v0.3 registry reference
-- [`host-grants-inventory-schema.v0.2.json`](host-grants-inventory-schema.v0.2.json) — current typed, redacted, scope-aware host inventory
-- [`host-grants-baseline-schema.v0.2.json`](host-grants-baseline-schema.v0.2.json) — current acknowledged host-grant baseline
-- [`host-grants-drift-schema.v0.2.json`](host-grants-drift-schema.v0.2.json) — current comparable/incomparable host-grant drift result
+- [`host-grants-inventory-schema.v0.3.json`](host-grants-inventory-schema.v0.3.json) — current typed, redacted, scope-aware host inventory
+- [`host-grants-inventory-schema.v0.2.json`](host-grants-inventory-schema.v0.2.json) — frozen prior reference; no inferred structural comparison
+- [`host-grants-baseline-schema.v0.3.json`](host-grants-baseline-schema.v0.3.json) — current acknowledged host-grant baseline
+- [`host-grants-baseline-schema.v0.2.json`](host-grants-baseline-schema.v0.2.json) — frozen prior reference; no inferred structural comparison
+- [`host-grants-drift-schema.v0.3.json`](host-grants-drift-schema.v0.3.json) — current comparable/incomparable host-grant drift result
+- [`host-grants-drift-schema.v0.2.json`](host-grants-drift-schema.v0.2.json) — frozen prior reference; no inferred structural comparison
 - [`host-grants-inventory-schema.v0.1.json`](host-grants-inventory-schema.v0.1.json) — frozen legacy host inventory reference
 - [`attestation-schema.v0.3.json`](attestation-schema.v0.3.json) — frozen v0.3 attestation reference
 - [`attestation-schema.v0.2.json`](attestation-schema.v0.2.json) — frozen v0.2 attestation reference
@@ -185,7 +200,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 
 ## Workflows
 
-- [`quickstart.md`](quickstart.md) — verify-first AI-generated PR workflow
+- [`quickstart.md`](quickstart.md) — **the human entry path**: one review end to end on a committed sample — which build you get, what the change added, why the top result matters, what was not established, and who owns the next action; then the two adoption routes, advisory CI, and the second PR
 - [`faq.md`](faq.md) — common questions, AI-search-friendly
 - [`integrations.md`](integrations.md) — CI/CD integration recipes (GitHub Actions, GitLab CI, CircleCI, Jenkins snippet)
 - [`troubleshooting.md`](troubleshooting.md) — error messages → fixes
@@ -219,3 +234,5 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`../llms.txt`](../llms.txt) — AI-readable project summary
 - [`ai-search-summary.md`](ai-search-summary.md) — prose companion to `llms.txt`
 - [`../.well-known/agents-shipgate.json`](../.well-known/agents-shipgate.json) — discovery metadata
+
+- [Instruction structure and review routing](engineering/instruction-structure-boundary.md) — supported profiles, edit-hook behavior and legacy evidence migration.

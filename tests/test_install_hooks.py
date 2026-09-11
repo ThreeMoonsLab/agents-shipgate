@@ -949,14 +949,14 @@ def test_pretooluse_stops_re_asking_for_an_already_allowed_file(tmp_path: Path) 
 
     _stop_hook_workspace(tmp_path)
 
-    assert "permissionDecision" in _pretooluse_out(tmp_path, "CLAUDE.md")
-    _posttooluse(tmp_path, "CLAUDE.md")
-    assert _pretooluse_out(tmp_path, "CLAUDE.md") == ""
+    assert "permissionDecision" in _pretooluse_out(tmp_path, "shipgate.yaml")
+    _posttooluse(tmp_path, "shipgate.yaml")
+    assert _pretooluse_out(tmp_path, "shipgate.yaml") == ""
 
     # A different session never inherits the decision.
-    assert "permissionDecision" in _pretooluse_out(tmp_path, "CLAUDE.md", session_id="S2")
+    assert "permissionDecision" in _pretooluse_out(tmp_path, "shipgate.yaml", session_id="S2")
     # Nor does an unrelated protected file.
-    assert "permissionDecision" in _pretooluse_out(tmp_path, "shipgate.yaml")
+    assert "permissionDecision" in _pretooluse_out(tmp_path, "policies/review.yaml")
 
 
 def test_auto_answering_permission_modes_are_not_recorded_as_approval(
@@ -965,12 +965,12 @@ def test_auto_answering_permission_modes_are_not_recorded_as_approval(
     """An edit nobody was asked about is not an approval."""
 
     _stop_hook_workspace(tmp_path)
-    _posttooluse(tmp_path, "CLAUDE.md", permission_mode="bypassPermissions")
-    assert "permissionDecision" in _pretooluse_out(tmp_path, "CLAUDE.md")
+    _posttooluse(tmp_path, "shipgate.yaml", permission_mode="bypassPermissions")
+    assert "permissionDecision" in _pretooluse_out(tmp_path, "shipgate.yaml")
 
     # An absent mode is unknown, not permission to remember.
-    _posttooluse(tmp_path, "CLAUDE.md", permission_mode="")
-    assert "permissionDecision" in _pretooluse_out(tmp_path, "CLAUDE.md")
+    _posttooluse(tmp_path, "shipgate.yaml", permission_mode="")
+    assert "permissionDecision" in _pretooluse_out(tmp_path, "shipgate.yaml")
 
 
 def test_accept_edits_mode_still_records_an_answered_prompt(tmp_path: Path) -> None:
@@ -978,21 +978,21 @@ def test_accept_edits_mode_still_records_an_answered_prompt(tmp_path: Path) -> N
     reaches the human — so a landed protected edit is an answered prompt."""
 
     _stop_hook_workspace(tmp_path)
-    _posttooluse(tmp_path, "CLAUDE.md", permission_mode="acceptEdits")
-    assert _pretooluse_out(tmp_path, "CLAUDE.md") == ""
+    _posttooluse(tmp_path, "shipgate.yaml", permission_mode="acceptEdits")
+    assert _pretooluse_out(tmp_path, "shipgate.yaml") == ""
 
 
 def test_approval_memory_never_overrides_a_configured_deny(tmp_path: Path) -> None:
     """`deny` is an operator's hard block, not a prompt to be remembered."""
 
     _stop_hook_workspace(tmp_path)
-    _posttooluse(tmp_path, "CLAUDE.md")
-    assert _pretooluse_out(tmp_path, "CLAUDE.md") == ""
+    _posttooluse(tmp_path, "shipgate.yaml")
+    assert _pretooluse_out(tmp_path, "shipgate.yaml") == ""
 
     env_backup = os.environ.get("AGENTS_SHIPGATE_PRETOOLUSE_DECISION")
     os.environ["AGENTS_SHIPGATE_PRETOOLUSE_DECISION"] = "deny"
     try:
-        out = _pretooluse_out(tmp_path, "CLAUDE.md")
+        out = _pretooluse_out(tmp_path, "shipgate.yaml")
         assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "deny"
     finally:
         if env_backup is None:
@@ -1008,14 +1008,14 @@ def test_disabled_boundary_does_not_seed_approval_memory(tmp_path: Path) -> None
     env_backup = os.environ.get("AGENTS_SHIPGATE_PRETOOLUSE_DECISION")
     os.environ["AGENTS_SHIPGATE_PRETOOLUSE_DECISION"] = "allow"
     try:
-        _posttooluse(tmp_path, "CLAUDE.md")
+        _posttooluse(tmp_path, "shipgate.yaml")
     finally:
         if env_backup is None:
             os.environ.pop("AGENTS_SHIPGATE_PRETOOLUSE_DECISION", None)
         else:
             os.environ["AGENTS_SHIPGATE_PRETOOLUSE_DECISION"] = env_backup
 
-    assert "permissionDecision" in _pretooluse_out(tmp_path, "CLAUDE.md")
+    assert "permissionDecision" in _pretooluse_out(tmp_path, "shipgate.yaml")
 
 
 def test_outside_workspace_path_cannot_authorize_a_repository_path(
@@ -1035,20 +1035,23 @@ def test_outside_workspace_path_cannot_authorize_a_repository_path(
 
 def test_approval_memory_preserves_other_sessions(tmp_path: Path) -> None:
     _stop_hook_workspace(tmp_path)
-    _posttooluse(tmp_path, "CLAUDE.md", session_id="A")
+    policy = tmp_path / "policies/review.yaml"
+    policy.parent.mkdir(exist_ok=True)
+    policy.write_text("version: 1\n")
+    _posttooluse(tmp_path, "policies/review.yaml", session_id="A")
     _posttooluse(tmp_path, "shipgate.yaml", session_id="B")
 
-    assert _pretooluse_out(tmp_path, "CLAUDE.md", session_id="A") == ""
+    assert _pretooluse_out(tmp_path, "policies/review.yaml", session_id="A") == ""
     assert _pretooluse_out(tmp_path, "shipgate.yaml", session_id="B") == ""
 
 
 def test_approval_memory_can_be_disabled(tmp_path: Path) -> None:
     _stop_hook_workspace(tmp_path)
-    _posttooluse(tmp_path, "CLAUDE.md")
+    _posttooluse(tmp_path, "shipgate.yaml")
     env_backup = os.environ.get("AGENTS_SHIPGATE_APPROVAL_MEMORY")
     os.environ["AGENTS_SHIPGATE_APPROVAL_MEMORY"] = "off"
     try:
-        assert "permissionDecision" in _pretooluse_out(tmp_path, "CLAUDE.md")
+        assert "permissionDecision" in _pretooluse_out(tmp_path, "shipgate.yaml")
     finally:
         if env_backup is None:
             os.environ.pop("AGENTS_SHIPGATE_APPROVAL_MEMORY", None)

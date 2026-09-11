@@ -188,9 +188,45 @@ def build_verification_plan(
     diff_logical_path: str = "verification-input.diff",
     external_input_root: Path | None = None,
     captured_input_paths: list[Path] | None = None,
+    auxiliary_origins: dict[Path, dict[str, str | None]] | None = None,
+    auxiliary_source_paths: dict[Path, Path] | None = None,
+    config_from_worktree: bool = False,
+    _engine_requirement: VerificationEngineRequirement | None = None,
 ) -> VerificationPlan:
     effective_plugins_enabled = _plugins_enabled(plugins_enabled)
     normalized_options = dict(options)
+    # This is reader provenance, never a caller-supplied assertion. Named
+    # negative lookups matter as much as the bytes that resolved an import.
+    normalized_options.pop("dependency_inputs", None)
+    normalized_options.pop("input_origins", None)
+    normalized_options.pop("input_directories", None)
+    snapshot = active_static_input_snapshot()
+    if snapshot is not None and snapshot.root == input_root and captured_input_paths is not None:
+        normalized_options["input_directories"] = snapshot.input_directory_identity(
+            source="git_blob" if archived_head else "worktree",
+        )
+    if snapshot is not None and (snapshot.dependency_paths() or snapshot.absent_dependency_paths() or snapshot.present_dependency_paths() or snapshot.unconfirmable_dependency_paths()):
+        normalized_options["dependency_inputs"] = {
+            "files": sorted(
+                [{"path": path.relative_to(input_root).as_posix(),
+                  "sha256": sha256_bytes(snapshot.read_bytes(path)),
+                  "size_bytes": len(snapshot.read_bytes(path))}
+                 for path in snapshot.dependency_paths()],
+                key=lambda row: row["path"],
+            ),
+            "absent_paths": sorted(
+                path.relative_to(input_root).as_posix()
+                for path in snapshot.absent_dependency_paths()
+            ),
+            "present_paths": sorted(
+                path.relative_to(input_root).as_posix()
+                for path in snapshot.present_dependency_paths()
+            ),
+            "unconfirmable_paths": sorted(
+                path.relative_to(input_root).as_posix()
+                for path in snapshot.unconfirmable_dependency_paths()
+            ),
+        }
     normalized_options["plugins_enabled"] = effective_plugins_enabled
     overlay_paths = sorted(
         set(changed_files if worktree_overlay_paths is None else worktree_overlay_paths)
@@ -230,7 +266,7 @@ def build_verification_plan(
     config_blob = build_blob(
         path=config_path,
         logical_path=config_logical_path,
-        source="git_blob" if archived_head else "worktree",
+        source="git_blob" if archived_head and not config_from_worktree else "worktree",
     )
     diff_bytes = diff_text.encode("utf-8")
     diff_blob = VerificationBlob(
@@ -246,6 +282,7 @@ def build_verification_plan(
         _lexical_path(path)
         for path in [
             config_path,
+            *(auxiliary_source_paths or {}).values(),
             *policy_pack_paths,
             *([baseline_path] if baseline_path is not None else []),
             *([diff_from_path] if diff_from_path is not None else []),
@@ -272,18 +309,56 @@ def build_verification_plan(
         source="git_blob" if archived_head else "worktree",
     )
     bundle_root = external_input_root or input_root
-    policy_blobs = _blobs(
-        policy_pack_paths,
-        root=bundle_root,
-        source="external_input",
-    )
+    def auxiliary_blob(path: Path | None) -> VerificationBlob | None:
+        if path is not None and auxiliary_source_paths is not None and path in auxiliary_source_paths:
+            # A portable export is not a new observation. Hash the captured
+            # original bytes the adapters read, even when the snapshot is
+            # finished and the newly written copy lives under its root.
+            if snapshot is None or not snapshot.has(auxiliary_source_paths[path]):
+                raise ValueError("portable input must name an already captured source")
+            return build_blob(
+                path=auxiliary_source_paths[path],
+                logical_path=path.relative_to(bundle_root).as_posix(),
+                source="external_input",
+            )
+        return _optional_blob(path, root=bundle_root)
+
+    if auxiliary_source_paths is not None:
+        policy_blobs = sorted(
+            [blob for path in set(policy_pack_paths) if (blob := auxiliary_blob(path)) is not None],
+            key=lambda blob: blob.path,
+        )
+    else:
+        policy_blobs = _blobs(policy_pack_paths, root=bundle_root, source="external_input")
     changed_blobs = _existing_changed_blobs(
         changed_files,
         root=input_root if archived_head else git_root,
         source="git_blob" if archived_head else "worktree",
     )
-    baseline_blob = _optional_blob(baseline_path, root=bundle_root)
-    diff_from_blob = _optional_blob(diff_from_path, root=bundle_root)
+    baseline_blob = auxiliary_blob(baseline_path)
+    diff_from_blob = auxiliary_blob(diff_from_path)
+    from agents_shipgate.core.verification_input_currency import auxiliary_input_origin
+
+    # Preserve the source before portable copies collapse distinct origins.
+    # No caller-supplied option can assert this provenance; producers supply
+    # the mapping beside the actual paths they copied from captured inputs.
+    original_paths = {path.relative_to(bundle_root).as_posix(): path for path in policy_pack_paths}
+    for path, blob in ((baseline_path, baseline_blob), (diff_from_path, diff_from_blob)):
+        if path is not None and blob is not None:
+            original_paths[blob.path] = path
+    external_rows = []
+    for blob in [*policy_blobs, *([baseline_blob] if baseline_blob else []),
+                 *([diff_from_blob] if diff_from_blob else [])]:
+        path = original_paths[blob.path]
+        origin = (
+            auxiliary_origins[path]
+            if auxiliary_origins is not None and path in auxiliary_origins
+            else auxiliary_input_origin(path, input_root=input_root, git_root=git_root)
+        )
+        external_rows.append({"input_path": blob.path, **origin})
+    normalized_options["input_origins"] = {
+        "version": 1, "external": sorted(external_rows, key=lambda row: row["input_path"])
+    }
     inputs_payload = {
         "evaluation_date": evaluation_date,
         "config": config_blob,
@@ -311,7 +386,11 @@ def build_verification_plan(
         ),
         **inputs_payload,
     )
-    engine = build_engine_requirement(plugins_enabled=effective_plugins_enabled)
+    # The verifier may already have captured this invocation's engine for its
+    # base-cache lookup. Serialized options never select an engine identity.
+    engine = _engine_requirement or build_engine_requirement(
+        plugins_enabled=effective_plugins_enabled
+    )
     task_payload = {
         "kind": "evaluate",
         "shard": 0,
@@ -668,7 +747,18 @@ def load_validated_receipt_artifacts(
     max_artifact_size: int = 64 * 1024 * 1024,
     max_total_size: int = 256 * 1024 * 1024,
 ) -> tuple[VerificationReceipt, dict[str, bytes]]:
-    """Load receipt-bound artifact bytes from one validated snapshot."""
+    """Load the entire receipt closure as bytes from one validated snapshot.
+
+    Unlike ``read_current_control``, this includes optional artifacts absent
+    from the pointer map. ``allowed_artifact_names`` rejects unexpected names;
+    it does not select a subset to validate. Consume the returned bytes rather
+    than reopening source files after this snapshot has been validated.
+
+    Closure integrity alone establishes neither workspace currency nor action
+    authority. When joining this result to a current-control read, compare the
+    returned receipt with that read's captured ``verification_receipt`` and
+    retain the current-control freshness and consequential-action rechecks.
+    """
 
     with validated_receipt_snapshot(
         receipt_path=receipt_path,
@@ -855,40 +945,73 @@ def validate_plan_inputs(
 ) -> None:
     """Fail closed unless every portable plan blob matches the supplied root."""
 
-    blobs = [
-        plan.inputs.config,
-        *plan.inputs.tool_sources,
-        *plan.inputs.policy_packs,
-        *plan.inputs.changed_files,
-    ]
-    if plan.inputs.baseline is not None:
-        blobs.append(plan.inputs.baseline)
-    if plan.inputs.diff_from is not None:
-        blobs.append(plan.inputs.diff_from)
-    resolved_root = root.resolve()
-    resolved_bundle_root = (bundle_root or resolved_root).resolve()
-    for blob in blobs:
-        candidate_root = (
-            resolved_bundle_root
-            if blob.source in {"external_input", "generated"}
-            else resolved_root
+    from agents_shipgate.core.verification_input_currency import validate_bound_plan_inputs
+
+    validate_bound_plan_inputs(
+        plan, root=root, artifacts_root=bundle_root or root,
+        live_origins=False, diff_path=diff_path or root / plan.inputs.diff.path,
+    )
+
+
+def validate_dependency_inputs(plan: VerificationPlan, *, root: Path, snapshot=None) -> None:
+    """Reconfirm reader-selected bytes and named absence, including ignored files."""
+
+    from agents_shipgate.core.static_inputs import StaticInputSnapshot
+
+    declaration = plan.inputs.options.get("dependency_inputs")
+    if declaration is None:
+        return
+    if not isinstance(declaration, dict) or set(declaration) != {"files", "absent_paths", "present_paths", "unconfirmable_paths"}:
+        raise ValueError("invalid dependency input identity")
+    files, absent, present = declaration["files"], declaration["absent_paths"], declaration["present_paths"]
+    unconfirmable = declaration["unconfirmable_paths"]
+    if not all(isinstance(value, list) for value in (files, absent, present, unconfirmable)):
+        raise ValueError("invalid dependency input identity")
+    paths = []
+    for row in files:
+        if not isinstance(row, dict) or set(row) != {"path", "sha256", "size_bytes"}:
+            raise ValueError("invalid dependency file identity")
+        digest = row["sha256"]
+        if (not isinstance(digest, str) or len(digest) != 71
+                or not digest.startswith("sha256:")
+                or any(char not in "0123456789abcdef" for char in digest[7:])
+                or type(row["size_bytes"]) is not int or row["size_bytes"] < 0):
+            raise ValueError("invalid dependency file identity")
+        paths.append(row["path"])
+    for values in (paths, absent, present, unconfirmable):
+        if any(
+            not isinstance(path, str) or not path or Path(path).is_absolute()
+            or ".." in Path(path).parts or Path(path).as_posix() != path
+            or "\\" in path or ":" in path
+            for path in values
+        ):
+            raise ValueError("dependency input escapes supplied root")
+        if values != sorted(set(values)):
+            raise ValueError("dependency input paths must be sorted and unique")
+    if (set(paths) | set(present)) & set(absent):
+        raise ValueError("dependency input is both present and absent")
+    if unconfirmable:
+        raise ValueError(
+            "An input dependency could not be captured. Inspect "
+            "dependency_inputs.unconfirmable_paths and the component/guard diagnostics, "
+            "repair unreadable paths "
+            "and re-run verification before using current authority."
         )
-        candidate = (candidate_root / blob.path).resolve()
-        if candidate != candidate_root and candidate_root not in candidate.parents:
-            raise ValueError(f"plan input escapes supplied root: {blob.path}")
-        if not candidate.is_file():
-            raise ValueError(f"plan input is missing: {blob.path}")
-        if sha256_file(candidate) != blob.sha256:
-            raise ValueError(f"plan input hash does not match: {blob.path}")
-        if candidate.stat().st_size != blob.size_bytes:
-            raise ValueError(f"plan input size does not match: {blob.path}")
-    resolved_diff = (diff_path or (resolved_root / plan.inputs.diff.path)).resolve()
-    if not resolved_diff.is_file():
-        raise ValueError(f"plan diff input is missing: {plan.inputs.diff.path}")
-    if sha256_file(resolved_diff) != plan.inputs.diff.sha256:
-        raise ValueError("plan diff input hash does not match")
-    if resolved_diff.stat().st_size != plan.inputs.diff.size_bytes:
-        raise ValueError("plan diff input size does not match")
+    owns_snapshot = snapshot is None
+    if snapshot is None:
+        snapshot = StaticInputSnapshot(root.resolve())
+    for row in files:
+        data = snapshot.read_bytes(root.resolve() / row["path"])
+        if len(data) != row["size_bytes"] or sha256_bytes(data) != row["sha256"]:
+            raise ValueError("dependency input changed since verification")
+    for path in absent:
+        if not snapshot.bind_dependency_absence(root.resolve() / path):
+            raise ValueError("dependency lookup candidate appeared since verification")
+    for path in present:
+        if snapshot.bind_dependency_absence(root.resolve() / path):
+            raise ValueError("dependency lookup candidate disappeared since verification")
+    if owns_snapshot:
+        snapshot.finish()
 
 
 def _manifest_declared_input_paths(*, config_path: Path, input_root: Path) -> list[Path]:
@@ -1054,9 +1177,38 @@ def _absent_overlay_entry() -> dict[str, Any]:
 
 
 def _overlay_entry(lexical: Path, candidate: Path, snapshot: Any) -> dict[str, Any]:
+    """Keep entry metadata and its digest in one unchanged live observation."""
+
+    before = _overlay_entry_stat(lexical)
+    entry = _overlay_entry_data(lexical, candidate, snapshot, before)
+    after = _overlay_entry_stat(lexical)
+    if _overlay_stat_identity(before) != _overlay_stat_identity(after):
+        raise ValueError(f"worktree entry changed while its identity was read: {lexical}")
+    return entry
+
+
+def _overlay_entry_stat(path: Path) -> os.stat_result | None:
     try:
-        info = os.lstat(lexical)
+        return os.lstat(path)
     except OSError:
+        return None
+
+
+def _overlay_stat_identity(info: os.stat_result | None) -> tuple[int, ...] | None:
+    if info is None:
+        return None
+    # These fields detect drift during the read; they are not persisted in the
+    # normalized overlay, whose identity still excludes timestamps and umask.
+    return (
+        info.st_dev, info.st_ino, info.st_mode, info.st_size,
+        info.st_mtime_ns, info.st_ctime_ns,
+    )
+
+
+def _overlay_entry_data(
+    lexical: Path, candidate: Path, snapshot: Any, info: os.stat_result | None
+) -> dict[str, Any]:
+    if info is None:
         return _absent_overlay_entry()
     if stat.S_ISLNK(info.st_mode):
         # Hash the link target, never what it points at. Following it here is

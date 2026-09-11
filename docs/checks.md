@@ -104,7 +104,7 @@ baseline summary and do not fail CI.
 | `SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-WRITE` | critical | Codex auto-approves a write or destructive MCP/app tool. |
 | `SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-UNKNOWN` | high | Codex auto-approves an MCP server whose tool surface is not statically enumerable. |
 | `SHIP-CODEX-BOUNDARY-APP-AUTO-APPROVE` | high | Codex app connector tool approval changed to approve. |
-| `SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED` | medium | AGENTS.md removed a Shipgate requirement. |
+| `SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED` | medium | Deprecated; historical ID, no current findings. |
 | `SHIP-CODEX-BOUNDARY-CI-GATE-REMOVED` | critical | Shipgate GitHub Action no longer invokes the gate. |
 | `SHIP-CODEX-BOUNDARY-POLICY-WEAKENED` | critical | Codex boundary policy was weakened. |
 | `SHIP-CODEX-BOUNDARY-HOOK-COMMAND-CHANGED` | high | A Codex executable hook changed. |
@@ -163,7 +163,7 @@ baseline summary and do not fail CI.
 | `SHIP-VERIFY-POLICY-BASE-ABSENT` | medium | A policy or manifest trust root changed and no base policy could be compared — no base report, a first adoption, or a control pack this build cannot resolve; routed to human review without a weakening claim. |
 | `SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED` | high | The PR broadens what the gate forgives — a new suppression, a widened waiver scope, or a larger accepted-debt baseline — versus the base. |
 | `SHIP-VERIFY-CI-GATE-REMOVED` | critical | The PR deletes the Shipgate CI workflow from an opted-in repo, which would stop the release gate from running. |
-| `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` | medium | The PR edits agent-instruction trust roots and weakening cannot be statically disproven; routed to human review. |
+| `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` | medium | Deprecated; retained for compatibility, with no findings emitted by current scans. |
 | `SHIP-VERIFY-TRIGGER-CATALOG-DRIFT` | medium | The PR changes the trigger catalog that decides when Shipgate runs; routed to human review to rule out gate evasion. |
 | `SHIP-VERIFY-CAPABILITY-SCOPE-BROADENED` | critical | The PR removes or broadens a dynamically-loaded toolkit's least-privilege configuration bound (e.g. a `stripe_agent_toolkit` allowlist), silently expanding the toolkit surface; blocks rather than degrading to insufficient_evidence. |
 | `SHIP-CAP-CONFIG-BINDING-REMOVED` | high | The PR removes the config binding from a dynamic toolkit factory present on both sides of the diff, so the toolkit may fall back to its everything-enabled defaults; routed to human review instead of silent insufficient_evidence parity. |
@@ -588,9 +588,10 @@ approval changes before local automation.
 
 ### SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED
 
-`AGENTS.md` or `AGENTS.override.md` removed Shipgate command or requirement
-text without adding a replacement. A human should confirm the agent
-instructions were not weakened.
+Deprecated across the unreleased minor cycle. The ID remains available for
+historical reports and configuration; current runs do not judge removed or
+softened prose. Complete parsed structure and unresolved-input review replace
+the word heuristic. Structured host readers remain active (#545, #516).
 
 ### SHIP-CODEX-BOUNDARY-CI-GATE-REMOVED
 
@@ -609,8 +610,10 @@ before relying on them.
 
 ### SHIP-CODEX-BOUNDARY-SKILL-COMMAND-CHANGED
 
-A changed `.agents/skills/**/SKILL.md` adds command-like text. Review
-command-bearing skill changes before local automation.
+Deprecated across the unreleased minor cycle. The ID remains readable but
+current runs emit no command claim from prose words. Supported skill frontmatter
+and preprocessing declarations remain in structural comparison; unknown or
+malformed structure remains a coverage limitation (#545, #516).
 
 ### SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED
 
@@ -1054,13 +1057,18 @@ weakening signal in the family.
 
 ### SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED
 
-Tier B: agent-instruction files (`AGENTS.md`, `CLAUDE.md`, `.claude/`,
-`.cursor/rules/`, `.agents/skills/`, `.codex/`, `SKILL.md`) tell coding
-agents how to behave around the gate. Shipgate is static and makes no NLP
-judgement, so it cannot prove semantic weakening from text — per Principle
-3 ("prompts are not controls"), any verify-mode change to these trust
-roots is routed to human review at `medium`. Deterministic on changed-file
-membership; the human confirms no gate-protecting instruction was removed.
+Deprecated in the unreleased minor cycle (#516). The registered ID, severity
+metadata and historical report compatibility remain for at least one minor
+version cycle. Current scans emit no findings for this ID: a path change does
+not establish that natural-language instructions weakened a control.
+
+Existing structured permission, MCP, CI and hook readers remain active,
+including changes beside prose in the same directory. The local word-based
+instruction and skill emitters are also retired while their IDs remain readable.
+The shared comparison in #545 clears only complete unchanged supported instruction
+structure; unknown or malformed inputs retain explicit coverage/review routes.
+`SHIP-VERIFY-TRUST-ROOT-TOUCHED` remains active for structural trust roots.
+Neither deprecation nor preflight substitutes for a current verifier result.
 
 ### SHIP-VERIFY-TRIGGER-CATALOG-DRIFT
 

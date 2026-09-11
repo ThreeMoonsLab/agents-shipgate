@@ -1,0 +1,1326 @@
+{
+  "baseline": {
+    "labeled_rows": 19,
+    "matrix": {
+      "must_block": {
+        "allow": 0,
+        "block": 0,
+        "insufficient_evidence": 0,
+        "review": 2,
+        "unknown": 0,
+        "unscored": 0
+      },
+      "needs_human": {
+        "allow": 0,
+        "block": 0,
+        "insufficient_evidence": 3,
+        "review": 0,
+        "unknown": 0,
+        "unscored": 0
+      },
+      "safe_to_merge": {
+        "allow": 0,
+        "block": 0,
+        "insufficient_evidence": 10,
+        "review": 4,
+        "unknown": 0,
+        "unscored": 0
+      }
+    },
+    "metrics": {
+      "benign_escalation_rate": 0.286,
+      "blocked_recall": 0.0,
+      "ie_rate_on_safe": 0.714,
+      "must_block_caught": 1.0,
+      "needs_human_caught": 1.0
+    },
+    "totals_by_label": {
+      "must_block": 2,
+      "needs_human": 3,
+      "safe_to_merge": 14
+    },
+    "unmatched_labels": []
+  },
+  "baseline_sha256": "8bbddcf0365e4d4f3f497cf6a8441b503a6c9341562ee3016f5fbd30ef4578bf",
+  "candidate": {
+    "labeled_rows": 19,
+    "matrix": {
+      "must_block": {
+        "allow": 0,
+        "block": 0,
+        "insufficient_evidence": 0,
+        "review": 0,
+        "unknown": 0,
+        "unscored": 2
+      },
+      "needs_human": {
+        "allow": 0,
+        "block": 0,
+        "insufficient_evidence": 0,
+        "review": 1,
+        "unknown": 0,
+        "unscored": 2
+      },
+      "safe_to_merge": {
+        "allow": 0,
+        "block": 0,
+        "insufficient_evidence": 1,
+        "review": 1,
+        "unknown": 0,
+        "unscored": 12
+      }
+    },
+    "metrics": {
+      "benign_escalation_rate": 0.071,
+      "blocked_recall": 0.0,
+      "ie_rate_on_safe": 0.071,
+      "must_block_caught": 0.0,
+      "needs_human_caught": 0.333
+    },
+    "totals_by_label": {
+      "must_block": 2,
+      "needs_human": 3,
+      "safe_to_merge": 14
+    },
+    "unmatched_labels": []
+  },
+  "force_run": true,
+  "label_file_sha256": {
+    "2026-W24-mined.labels.csv": "cb638ba84046ad02a94332c68b6abf80ff5fb7210ab1bead935de2588d9672f7",
+    "2026-W25-mined.labels.csv": "7f96db81401e430310975e367a1cfd5c02a442070c05636d544000299d8be4b9",
+    "2026-W26-mined.labels.csv": "d27782d490e0a45817bcb12957383a6084dadefa9ab74f4212439f5e3cc9c169"
+  },
+  "measurement_driver_sha256": "5cc5d3f43d72008fbf8d1b2d5dc2708918f756fee5c4bbbc169e8b556403f464",
+  "observations": [
+    {
+      "events": [
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "check",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 2,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "refused_unresolved_scope",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "written",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": null,
+          "error": null,
+          "execution": null,
+          "exit_code": 2,
+          "head_status": null,
+          "json_answer": false,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": null,
+          "next_actor": null,
+          "operation": "scan",
+          "permissions": null,
+          "source_linked_change_count": 0
+        }
+      ],
+      "pr_url": "https://github.com/aaif-goose/goose/pull/9637"
+    },
+    {
+      "events": [
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "check",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 2,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "refused_unresolved_scope",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        }
+      ],
+      "pr_url": "https://github.com/aaif-goose/goose/pull/9684"
+    },
+    {
+      "events": [
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "check",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 2,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "refused_unresolved_scope",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        }
+      ],
+      "pr_url": "https://github.com/aaif-goose/goose/pull/9717"
+    },
+    {
+      "events": [
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "check",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 2,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "refused_unresolved_scope",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        }
+      ],
+      "pr_url": "https://github.com/aaif-goose/goose/pull/9798"
+    },
+    {
+      "events": [
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "check",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 2,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "refused_unresolved_scope",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        }
+      ],
+      "pr_url": "https://github.com/crewAIInc/crewAI-examples/pull/169"
+    },
+    {
+      "events": [
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "check",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 2,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "refused_unresolved_scope",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "written",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": null,
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": false,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": null,
+          "next_actor": null,
+          "operation": "scan",
+          "permissions": null,
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": null,
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": false,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": null,
+          "next_actor": null,
+          "operation": "capability",
+          "permissions": null,
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": null,
+          "error": null,
+          "execution": null,
+          "exit_code": 3,
+          "head_status": null,
+          "json_answer": false,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": null,
+          "next_actor": null,
+          "operation": "capability",
+          "permissions": null,
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": null,
+          "error": null,
+          "execution": null,
+          "exit_code": 3,
+          "head_status": null,
+          "json_answer": false,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": null,
+          "next_actor": null,
+          "operation": "baseline",
+          "permissions": null,
+          "source_linked_change_count": 0
+        }
+      ],
+      "pr_url": "https://github.com/crewAIInc/crewAI-examples/pull/184"
+    },
+    {
+      "events": [
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "check",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "agent_action_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 2,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "refused_unresolved_scope",
+          "named_change_count": 0,
+          "next_action_kind": "discover",
+          "next_actor": "coding_agent",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "written",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": null,
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": false,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": null,
+          "next_actor": null,
+          "operation": "scan",
+          "permissions": null,
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": null,
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": false,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": null,
+          "next_actor": null,
+          "operation": "capability",
+          "permissions": null,
+          "source_linked_change_count": 0
+        }
+      ],
+      "pr_url": "https://github.com/google/adk-samples/pull/1975"
+    },
+    {
+      "events": [
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "check",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "agent_action_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 2,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "refused_unresolved_scope",
+          "named_change_count": 0,
+          "next_action_kind": "discover",
+          "next_actor": "coding_agent",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "written",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": null,
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": false,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": null,
+          "next_actor": null,
+          "operation": "scan",
+          "permissions": null,
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": null,
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": false,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": null,
+          "next_actor": null,
+          "operation": "capability",
+          "permissions": null,
+          "source_linked_change_count": 0
+        }
+      ],
+      "pr_url": "https://github.com/google/adk-samples/pull/1977"
+    },
+    {
+      "events": [
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "check",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 2,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "refused_unresolved_scope",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        }
+      ],
+      "pr_url": "https://github.com/openai/openai-agents-python/pull/3392"
+    },
+    {
+      "events": [
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "check",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 2,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "refused_unresolved_scope",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        }
+      ],
+      "pr_url": "https://github.com/openai/openai-agents-python/pull/3451"
+    },
+    {
+      "events": [
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "check",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 2,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "refused_unresolved_scope",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        }
+      ],
+      "pr_url": "https://github.com/openai/openai-agents-python/pull/3461"
+    },
+    {
+      "events": [
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "check",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 2,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "refused_unresolved_scope",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        }
+      ],
+      "pr_url": "https://github.com/openai/openai-agents-python/pull/3518"
+    },
+    {
+      "events": [
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "check",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 2,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "refused_unresolved_scope",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 2,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "refused_unresolved_scope",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        }
+      ],
+      "pr_url": "https://github.com/stripe/ai/pull/232"
+    },
+    {
+      "events": [
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "check",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 2,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "refused_unresolved_scope",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        }
+      ],
+      "pr_url": "https://github.com/stripe/ai/pull/312"
+    },
+    {
+      "events": [
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "check",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 2,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "refused_unresolved_scope",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        }
+      ],
+      "pr_url": "https://github.com/stripe/ai/pull/332"
+    },
+    {
+      "events": [
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "check",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 2,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "refused_unresolved_scope",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        }
+      ],
+      "pr_url": "https://github.com/stripe/ai/pull/336"
+    },
+    {
+      "events": [
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "check",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 2,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "refused_unresolved_scope",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        }
+      ],
+      "pr_url": "https://github.com/stripe/ai/pull/338"
+    },
+    {
+      "events": [
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "check",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 2,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "refused_unresolved_scope",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        }
+      ],
+      "pr_url": "https://github.com/stripe/ai/pull/353"
+    },
+    {
+      "events": [
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 0,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": null,
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "check",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        },
+        {
+          "base_status": null,
+          "control_state": "human_review_required",
+          "error": null,
+          "execution": null,
+          "exit_code": 2,
+          "head_status": null,
+          "json_answer": true,
+          "manifest_status": "refused_unresolved_scope",
+          "named_change_count": 0,
+          "next_action_kind": "review",
+          "next_actor": "human",
+          "operation": "init",
+          "permissions": {
+            "commit": false,
+            "edit": false,
+            "merge": false,
+            "push": false,
+            "report_complete": false,
+            "update_pr": false
+          },
+          "source_linked_change_count": 0
+        }
+      ],
+      "pr_url": "https://github.com/stripe/ai/pull/400"
+    }
+  ],
+  "source_commit": "60d44cae17d1ce75b47cff9f9b0a8dfe579a027f",
+  "source_tree": "52ac3118e6819212386a03b384a13a5cc797c4b9"
+}

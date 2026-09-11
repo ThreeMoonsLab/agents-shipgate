@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import tomllib
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,6 +51,12 @@ from agents_shipgate.core.boundary_registry import (
     BOUNDARY_ADAPTERS,
     boundary_adapters_for_path,
     is_agent_boundary_path,
+)
+from agents_shipgate.core.boundary_rules import GENERIC_BOUNDARY_RULES
+from agents_shipgate.core.instruction_structure import (
+    instruction_profile,
+    instruction_review_evidence,
+    unchanged_instruction_structure,
 )
 from agents_shipgate.core.manifest_proposals import (
     assess_coverage_increasing_tool_source_proposal,
@@ -117,9 +124,9 @@ _AGENT_SAFE_REPAIR_RULE_IDS: frozenset[str] = frozenset()
 #
 # ``BOUNDARY-INPUT-INCOMPLETE`` means the evaluator could not see the whole
 # change, so continuing would authorize unevaluated input.
-# ``CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED`` is the self-protection rule:
-# removing the verifier requirement from agent instructions is exactly the
-# gate-weakening move a graded mapping must never soften.
+# ``CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED`` is retained for historical
+# artifacts only. Retiring its word-based emitter does not reinterpret an old
+# artifact's stop as current permission.
 BAND_EXCLUDED_RULE_IDS: frozenset[str] = frozenset(
     {
         "BOUNDARY-INPUT-INCOMPLETE",
@@ -152,13 +159,6 @@ BAND_EXCLUDED_TRUST_ROOT_CLASSES: frozenset[str] = frozenset(
 )
 _GATE_INSTRUCTION_BASENAMES = frozenset({"agents.md", "claude.md"})
 
-_SHIPGATE_TERMS = (
-    "agents-shipgate",
-    "agents_shipgate",
-    "shipgate check",
-    "shipgate verify",
-    "shipgate scan",
-)
 _RISKY_ACTION_TOKENS = {
     "apply",
     "approve",
@@ -238,27 +238,6 @@ _SAFE_READ_PREFIXES = {
     "search",
     "show",
 }
-_WEAKENING_TERMS = (
-    "advisory",
-    "at your discretion",
-    "bypass",
-    "can be skipped",
-    "disable",
-    "disabled",
-    "do not run",
-    "don't run",
-    "ignore",
-    "no need",
-    "not required",
-    "optional",
-    "skip",
-    "unnecessary",
-)
-_REQUIREMENT_MARKER_RE = re.compile(
-    r"\b(?:always|must|required|requires?|shall)\b|"
-    r"\bbefore\b.{0,80}\b(?:complet\w*|finish\w*|report\w*)\b",
-    re.IGNORECASE,
-)
 _SHIPGATE_INVOCATION_RE = re.compile(
     r"^\s*(?:-\s*)?(?:run:\s*)?"
     r"(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S+|env)\s+)*"
@@ -275,12 +254,6 @@ _SHIPGATE_ACTION_RE = re.compile(
     re.IGNORECASE,
 )
 _LOCAL_ACTION_RE = re.compile(r"^\s*(?:-\s*)?uses:\s+\./?\s*(?:#.*)?$")
-_COMMAND_SKILL_RE = re.compile(
-    r"(exec_command|write_stdin|apply_patch|shell|subprocess|python\s|node\s|"
-    r"bash\s|sh\s|scripts?/|command:|cmd:|run:)",
-    re.IGNORECASE,
-)
-
 _PERMISSION_PROFILE_KEYS = {
     "description",
     "extends",
@@ -458,6 +431,7 @@ def evaluate_codex_boundary_result(
     verification_replayable: bool = False,
     discovery_replayable: bool = True,
     manifest_label: str = "shipgate.yaml",
+    instruction_structure_unchanged: set[str] | None = None,
 ) -> AgentResultV2:
     """Return the local Codex boundary-result projection for a unified diff.
 
@@ -513,12 +487,19 @@ def evaluate_codex_boundary_result(
     violations: list[AgentResultViolatedRule] = []
     evaluated_files: list[dict[str, Any]] = []
     resolved_text_cache = resolved_text_cache if resolved_text_cache is not None else {}
+    unchanged_instructions = (
+        instruction_structure_unchanged if instruction_structure_unchanged is not None else set()
+    )
+    path_records = Counter(
+        path for item in diff_files for path in {item.old_path, item.new_path} if path
+    )
 
     def resolve(diff_file: DiffFile) -> ResolvedFileText:
         path = diff_file.path
         if path not in resolved_text_cache:
             resolved_text_cache[path] = _resolve_changed_file_text(
-                workspace, diff_file, diagnostics, static_read_cache
+                workspace, diff_file, diagnostics, static_read_cache,
+                preserve_rename_source=instruction_profile(path) is not None,
             )
         return resolved_text_cache[path]
 
@@ -562,6 +543,18 @@ def evaluate_codex_boundary_result(
         if not path:
             continue
         normalized = path.replace("\\", "/")
+        instruction_unchanged = False
+        if instruction_profile(normalized) is not None and all(
+            path_records[candidate] == 1
+            for candidate in {diff_file.old_path, diff_file.new_path} if candidate
+        ):
+            resolved = resolve(diff_file)
+            instruction_unchanged = unchanged_instruction_structure(diff_file, resolved)
+            evaluated_files.append(_evaluated_file_record(path, resolved))
+            if instruction_unchanged:
+                unchanged_instructions.update(
+                    candidate for candidate in (diff_file.old_path, diff_file.new_path) if candidate
+                )
         # A block-level safe signal may clear the path-wide unclassified guard
         # only when this is the sole record targeting the protected manifest.
         if diff_file is proposal_candidate:
@@ -596,8 +589,6 @@ def evaluate_codex_boundary_result(
         if _is_codex_requirements_path(normalized):
             resolved = resolve(diff_file)
             evaluated_files.append(_evaluated_file_record(path, resolved))
-        if _is_agent_instructions_path(normalized):
-            _evaluate_agent_instructions(diff_file, add)
         if _is_shipgate_workflow_path(normalized):
             resolved = resolve(diff_file)
             evaluated_files.append(_evaluated_file_record(path, resolved))
@@ -606,8 +597,25 @@ def evaluate_codex_boundary_result(
             resolved = resolve(diff_file)
             evaluated_files.append(_evaluated_file_record(path, resolved))
             _evaluate_codex_boundary_policy(diff_file, resolved, add)
-        if _is_codex_skill_path(normalized):
-            _evaluate_skill(diff_file, add)
+        if instruction_profile(normalized) is not None and not instruction_unchanged:
+            resolved = resolve(diff_file)
+            evidence, complete = instruction_review_evidence(diff_file, resolved)
+            if any(path_records[candidate] != 1 for candidate in {diff_file.old_path, diff_file.new_path} if candidate):
+                complete = False
+                evidence.update(kind="instruction_structure_unresolved", comparison_complete=False)
+            rule = GENERIC_BOUNDARY_RULES[
+                "PROTECTED-SURFACE-UNCLASSIFIED" if complete else "INPUT-INCOMPLETE"
+            ]
+            violations.append(AgentResultViolatedRule(
+                id=rule.id, check_id=rule.check_id, action=rule.action,
+                risk_level=rule.risk_level, title=rule.title, path=path,
+                evidence=evidence, recommendation=rule.recommendation,
+            ))
+            if not complete:
+                diagnostics.append(AgentResultDiagnostic(
+                    level="warning", code="instruction_structure_unresolved", path=path,
+                    message="The supported instruction structure could not be completely compared; review the input and rerun verification.",
+                ))
 
     violations = _dedupe_violations(violations)
     decision = _decision_for(violations, release_decision=release_decision)
@@ -1679,39 +1687,6 @@ def _evaluate_hooks(old_hooks: Any, hooks: Any, path: str, add) -> None:
                 )
 
 
-def _evaluate_agent_instructions(diff_file: DiffFile, add) -> None:
-    removed_shipgate = any(_contains_shipgate_term(line) for line in diff_file.removed_lines)
-    added_shipgate = any(_contains_shipgate_term(line) for line in diff_file.added_lines)
-    removed_requirement = any(
-        _contains_shipgate_requirement(line) for line in diff_file.removed_lines
-    )
-    added_requirement = any(_contains_shipgate_requirement(line) for line in diff_file.added_lines)
-    softened_shipgate = any(
-        _contains_shipgate_term(line) and _contains_weakening_term(line)
-        for line in diff_file.added_lines
-    )
-    if diff_file.is_deleted or (
-        removed_shipgate
-        and (
-            not added_shipgate
-            or softened_shipgate
-            or (removed_requirement and not added_requirement)
-        )
-    ):
-        add(
-            "CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED",
-            path=diff_file.path,
-            evidence={
-                "kind": "shipgate_instruction_removed",
-                "deleted": diff_file.is_deleted,
-                "removed_shipgate_lines": removed_shipgate,
-                "softened_shipgate_lines": softened_shipgate,
-                "removed_requirement_lines": removed_requirement,
-                "replacement_requirement_lines": added_requirement,
-            },
-        )
-
-
 def _evaluate_shipgate_workflow(
     diff_file: DiffFile,
     resolved: ResolvedFileText,
@@ -1887,15 +1862,6 @@ def _policy_rules_from_yaml_text(text: str) -> dict[str, dict[str, str]]:
         if rules:
             return rules
     return {}
-
-
-def _evaluate_skill(diff_file: DiffFile, add) -> None:
-    if any(_COMMAND_SKILL_RE.search(line) for line in diff_file.added_lines):
-        add(
-            "CODEX-SKILL-COMMAND-CHANGED",
-            path=diff_file.path,
-            evidence={"kind": "command_bearing_skill_change"},
-        )
 
 
 def _changed_to(
@@ -2551,20 +2517,6 @@ def _token_variants(token: str) -> set[str]:
         variants.add(token[:-3])
         variants.add(f"{token[:-3]}e")
     return variants
-
-
-def _contains_shipgate_term(value: str) -> bool:
-    lowered = value.lower()
-    return any(term in lowered for term in _SHIPGATE_TERMS)
-
-
-def _contains_shipgate_requirement(value: str) -> bool:
-    return _contains_shipgate_term(value) and bool(_REQUIREMENT_MARKER_RE.search(value))
-
-
-def _contains_weakening_term(value: str) -> bool:
-    lowered = value.lower()
-    return any(term in lowered for term in _WEAKENING_TERMS)
 
 
 def _has_shipgate_gate_invocation(value: str, *, workspace: Path | None = None) -> bool:

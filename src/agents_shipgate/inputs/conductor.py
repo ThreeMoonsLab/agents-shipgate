@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -12,8 +11,11 @@ from urllib.parse import urlsplit, urlunsplit
 from agents_shipgate.core.artifact_models import ConductorArtifacts
 from agents_shipgate.core.domain import AuthInfo, LoadedToolSource, Tool
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.static_inputs import active_static_input_snapshot
 from agents_shipgate.inputs.common import (
+    MAX_INPUT_FILE_BYTES,
     json_pointer_escape,
+    list_input_directory,
     load_structured_file,
     resolve_input_path,
     stable_tool_id,
@@ -239,11 +241,12 @@ def _conductor_files(path: Path, base_dir: Path) -> list[Path]:
     root = path.resolve()
     discovered: list[tuple[str, Path]] = []
     seen: set[Path] = set()
-    for current, dirnames, filenames in os.walk(path, followlinks=False):
-        current_path = Path(current)
-        traversable_dirs: list[str] = []
-        for name in sorted(dirnames):
-            child_dir = current_path / name
+    pending = [path]
+    while pending:
+        current_path = pending.pop()
+        children = list_input_directory(current_path)
+        directories = {child for child in children if child.is_dir()}
+        for child_dir in sorted(directories):
             if child_dir.is_symlink():
                 resolved_dir = child_dir.resolve()
                 try:
@@ -255,12 +258,22 @@ def _conductor_files(path: Path, base_dir: Path) -> list[Path]:
                         f"{child_dir}"
                     ) from exc
                 continue
-            traversable_dirs.append(name)
-        dirnames[:] = traversable_dirs
-        for filename in sorted(filenames):
-            child = current_path / filename
+            pending.append(child_dir)
+        for child in children:
+            if child in directories:
+                continue
             if child.suffix.lower() != ".json":
                 continue
+            # Capture the selected lexical file before resolution/dedup can
+            # erase an alias, including a second name for an already-seen
+            # target. Parsing below reuses these bytes. The shared session
+            # avoids rescanning every lexical parent separately for each file.
+            snapshot = active_static_input_snapshot()
+            if snapshot is not None and snapshot.contains(child):
+                try:
+                    snapshot.read_bytes(child, max_bytes=MAX_INPUT_FILE_BYTES)
+                except (OSError, ValueError) as exc:
+                    raise InputParseError(f"Unable to read input file {child}: {exc}") from exc
             resolved = child.resolve()
             try:
                 resolved.relative_to(base)
@@ -273,7 +286,7 @@ def _conductor_files(path: Path, base_dir: Path) -> list[Path]:
                 continue
             seen.add(resolved)
             relative = resolved.relative_to(base).as_posix()
-            discovered.append((relative, resolved))
+            discovered.append((relative, child))
     return [item[1] for item in sorted(discovered, key=lambda item: item[0])]
 
 

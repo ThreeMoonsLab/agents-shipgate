@@ -9,8 +9,11 @@ See `packet.md` for the reviewer-shaped Release Evidence Packet.
 ## Capability Surface
 
 Surface: 9 tools from 3 sources.
-Effects: 1 read, 7 write, 1 financial write.
-Write/destructive actions: issue\_goodwill\_refund \(financial write\), assemble\_case\_timeline \(write\), list\_case\_attachments \(write\), ops.append\_case\_note \(write\), ops.export\_case\_bundle \(write\), ops.queue\_backfill \(write\), record\_case\_outcome \(write\), update\_case\_index \(write\).
+Conservative effect projections: 1 read, 7 write, 1 financial write.
+Effect evidence: 1 reviewed declaration, 1 provisional: inference, 2 provisional: protocol default, 2 structural evidence, 3 provisional: unknown effect.
+Provisional signals still require attention; they do not satisfy effect evidence. Static evidence does not prove runtime behavior.
+Write/destructive actions: issue\_goodwill\_refund \(financial write\) \[provisional: inference; not pass-eligible\], assemble\_case\_timeline \(write\) \[provisional: unknown effect; not pass-eligible\], list\_case\_attachments \(write\) \[provisional: unknown effect; not pass-eligible\], ops.append\_case\_note \(write\) \[structural evidence\], ops.export\_case\_bundle \(write\) \[provisional: protocol default; not pass-eligible\], ops.queue\_backfill \(write\) \[provisional: protocol default; not pass-eligible\], record\_case\_outcome \(write\) \[reviewed declaration\], update\_case\_index \(write\) \[provisional: unknown effect; not pass-eligible\].
+Effect evidence alone does not clear identity, binding or authority gaps. Follow the named evidence requests; a patch or inventory suggestion alone does not prove behavior or finish a human review.
 
 ## Top Findings
 

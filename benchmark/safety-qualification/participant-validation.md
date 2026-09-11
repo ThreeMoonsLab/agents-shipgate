@@ -66,7 +66,7 @@ Hi <name>,
 I maintain agents-shipgate, an open-source, deterministic gate that reviews
 what an AI agent is able to do after a code change. We are qualifying a
 release against a benchmark of real capability-change PRs, and <repo>#<PR> —
-which you <reviewed|wrote> — is one of the 56 cases, at pinned commits
+which you <reviewed|wrote> — is one of the frozen corpus cases, at pinned commits
 <base>..<head>.
 
 You were there and we were not, so your judgment outranks our labels. One

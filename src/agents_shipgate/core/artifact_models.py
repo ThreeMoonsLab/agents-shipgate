@@ -4,6 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agents_shipgate.core.domain import RemoteBindingStatus
 from agents_shipgate.schemas.codex_plugin import (
     CodexPluginAppSummary,
     CodexPluginComponentPathIssue,
@@ -183,6 +184,31 @@ class CodexBoundaryArtifacts(BaseModel):
         }
 
 
+class GoogleAdkToolsetConnection(BaseModel):
+    """What a static read established about one MCP toolset's connection.
+
+    Every axis carries a :data:`~agents_shipgate.core.domain.RemoteBindingStatus`
+    beside its value, so "the reader did not look", "the argument is not there"
+    and "the argument is there and is not readable" stay three different
+    answers. Nothing here executes, imports, connects, or reads the process
+    environment: a credential is published as the *name* of the environment
+    variable it is read from and never as a value (#538).
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    transport: str | None = None
+    transport_status: RemoteBindingStatus = "not_read"
+    constructor: str | None = None
+    endpoint: str | None = None
+    endpoint_status: RemoteBindingStatus = "not_read"
+    endpoint_env_ref: str | None = None
+    credential_refs: list[str] = Field(default_factory=list)
+    credential_status: RemoteBindingStatus = "not_read"
+    filter_status: RemoteBindingStatus = "not_read"
+    limitations: list[str] = Field(default_factory=list)
+
+
 class GoogleAdkToolset(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -196,6 +222,16 @@ class GoogleAdkToolset(BaseModel):
     inventory_path: str | None = None
     resolved: bool = False
     dynamic: bool = False
+    # Every agent that binds this construction. ``agent_name`` above is the
+    # first one observed and stays what it always was; a toolset assigned to a
+    # variable and shared between agents is extracted once, so without this the
+    # second agent's attribution was simply absent (#538).
+    binding_agents: list[str] = Field(default_factory=list)
+    # Stable discriminator between several toolsets of one agent: the
+    # module-level variable this toolset was assigned to, else ``"#<n>"``.
+    # Never a line number, so line movement produces no delta.
+    slot: str | None = None
+    connection: GoogleAdkToolsetConnection | None = None
 
 
 class GoogleAdkArtifacts(BaseModel):

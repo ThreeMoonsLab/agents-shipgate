@@ -12,7 +12,12 @@ from agents_shipgate.core.domain import (
     ToolkitScopeBound,
 )
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.inputs.common import resolve_input_path, stable_tool_id
+from agents_shipgate.inputs.common import (
+    list_input_directory,
+    load_text_file,
+    resolve_input_path,
+    stable_tool_id,
+)
 from agents_shipgate.inputs.config_trace import trace_config_binding
 from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
@@ -24,6 +29,12 @@ from agents_shipgate.inputs.python_static import (
     function_signature,
     parse_python_file,
 )
+from agents_shipgate.inputs.sdk_guard_dependencies import (
+    guard_module_metadata,
+    read_guard_dependency,
+)
+from agents_shipgate.schemas.coverage_recovery import CoverageRecovery, SourceRecoveryEvidence
+from agents_shipgate.schemas.guard_dependencies import GuardDependencyEvidence
 from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
     ToolSourceConfig,
@@ -46,29 +57,38 @@ def load_openai_sdk_static_tools(
         )
     path = resolve_input_path(base_dir, entrypoint)
     if not path.exists():
+        warning = f"OpenAI Agents SDK entrypoint not found: {path}"
+        ref = display_path(path, base_dir)
         return LoadedToolSource(
             source_id=source.id,
             source_type="openai_agents_sdk",
-            warnings=[f"OpenAI Agents SDK entrypoint not found: {path}"],
+            warnings=[warning],
+            recovery_evidence=[SourceRecoveryEvidence(
+                warning=warning, source_id=source.id, source_type="openai_agents_sdk",
+                source_ref=ref, path=ref,
+                recovery=CoverageRecovery(kind="input_unavailable", reason="sdk_entrypoint_not_found"),
+            )],
         )
     if path.is_dir():
-        python_files = sorted(path.glob("*.py"))
+        python_files = [child for child in list_input_directory(path) if child.match("*.py")]
         if not python_files:
             raise InputParseError(f"OpenAI Agents SDK source directory has no Python files: {path}")
         tools: list[Tool] = []
         toolkit_bounds: list[ToolkitScopeBound] = []
+        guard_dependencies: list[GuardDependencyEvidence] = []
         for python_file in python_files:
-            file_tools, file_bounds = _load_python_file(python_file, source, base_dir)
+            file_tools, file_bounds, file_guards = _load_python_file(python_file, source, base_dir)
             tools.extend(file_tools)
             toolkit_bounds.extend(file_bounds)
+            guard_dependencies.extend(file_guards)
     elif path.suffix.lower() == ".py":
-        tools, toolkit_bounds = _load_python_file(path, source, base_dir)
+        tools, toolkit_bounds, guard_dependencies = _load_python_file(path, source, base_dir)
         python_files = [path]
     else:
         raise InputParseError(
             f"OpenAI Agents SDK source must be a Python file or directory: {path}"
         )
-    binding_warnings, binding_observations = _extract_agent_bindings(
+    binding_warnings, binding_observations, recovery_evidence = _extract_agent_bindings(
         tools, python_files, source, base_dir
     )
     return LoadedToolSource(
@@ -78,6 +98,8 @@ def load_openai_sdk_static_tools(
         toolkit_bounds=toolkit_bounds,
         binding_observations=binding_observations,
         warnings=[*_toolkit_binding_warnings(toolkit_bounds), *binding_warnings],
+        recovery_evidence=recovery_evidence,
+        guard_dependencies=guard_dependencies,
     )
 
 
@@ -110,9 +132,12 @@ def _load_python_file(
     path: Path,
     source: ToolSourceConfig,
     base_dir: Path,
-) -> tuple[list[Tool], list[ToolkitScopeBound]]:
+) -> tuple[list[Tool], list[ToolkitScopeBound], list[GuardDependencyEvidence]]:
     try:
-        tree = parse_python_file(path, label="OpenAI Agents SDK")
+        source_text = load_text_file(path)
+        tree = ast.parse(source_text, filename=str(path))
+    except SyntaxError as exc:
+        raise InputParseError(f"Unable to parse OpenAI Agents SDK entrypoint {path}: {exc.msg}") from exc
     except InputParseError as exc:
         message = str(exc).replace(
             "OpenAI Agents SDK Python entrypoint",
@@ -121,12 +146,17 @@ def _load_python_file(
         raise InputParseError(message) from exc
     ref = display_path(path, base_dir)
     decorator_names = _function_tool_decorator_names(tree)
-    tools = [
-        _function_to_tool(node, source, ref, decorator_names)
-        for node in ast.walk(tree)
-        if _is_function_tool(node, decorator_names)
+    definitions = [node for node in ast.walk(tree) if _is_function_tool(node, decorator_names)]
+    tools = [_function_to_tool(node, source, ref, decorator_names) for node in definitions]
+    source_sha256, source_within_limits = guard_module_metadata(tree, source_text)
+    guards = [
+        read_guard_dependency(
+            tree=tree, source_sha256=source_sha256, source_within_limits=source_within_limits,
+            path=path, root=base_dir, tool=tool, definition=node,
+        )
+        for tool, node in zip(tools, definitions, strict=True)
     ]
-    return tools, _detect_toolkit_bounds(tree, ref)
+    return tools, _detect_toolkit_bounds(tree, ref), guards
 
 
 def _extract_agent_bindings(
@@ -134,7 +164,7 @@ def _extract_agent_bindings(
     paths: list[Path],
     source: ToolSourceConfig,
     base_dir: Path,
-) -> tuple[list[str], list[AgentBindingObservation]]:
+) -> tuple[list[str], list[AgentBindingObservation], list[SourceRecoveryEvidence]]:
     """Extract exact, local-only ``Agent(..., tools=[...])`` wiring.
 
     This intentionally resolves only literal lists, names bound to literal
@@ -144,6 +174,7 @@ def _extract_agent_bindings(
 
     warnings: list[str] = []
     observations: list[AgentBindingObservation] = []
+    recovery_evidence: list[SourceRecoveryEvidence] = []
     tool_by_name = {tool.name: tool for tool in tools}
     tool_by_name.update(
         {
@@ -185,6 +216,18 @@ def _extract_agent_bindings(
                 )
                 warnings.append(reason)
                 issues.append(reason)
+                literal_concat = _literal_tool_list_concatenation(tools_expr)
+                recovery_evidence.append(SourceRecoveryEvidence(
+                    warning=reason, source_id=source.id, source_type="openai_agents_sdk",
+                    source_ref=pointer, path=source_ref,
+                    recovery=CoverageRecovery(
+                        kind="reader_limitation" if literal_concat else "unresolved",
+                        reason=(
+                            "sdk_literal_tool_list_concatenation_unsupported" if literal_concat
+                            else "sdk_tools_expression_unresolved"
+                        ),
+                    ),
+                ))
                 tools_complete = False
                 names = []
             else:
@@ -224,7 +267,23 @@ def _extract_agent_bindings(
                     issues=issues,
                 )
             )
-    return list(dict.fromkeys(warnings)), observations
+    return list(dict.fromkeys(warnings)), observations, recovery_evidence
+
+
+def _literal_tool_list_concatenation(value: ast.AST | None) -> bool:
+    """One proven reader limitation, never a claim about deployed wiring.
+
+    Python defines addition of two literal lists, but this reader's name-list
+    resolver has no BinOp branch. Calls, unpacking and other expressions do
+    not prove a product-owned repair and deliberately remain unresolved.
+    """
+    return (
+        isinstance(value, ast.BinOp)
+        and isinstance(value.op, ast.Add)
+        and isinstance(value.left, ast.List)
+        and isinstance(value.right, ast.List)
+        and all(isinstance(item, ast.Name) for item in [*value.left.elts, *value.right.elts])
+    )
 
 
 def _assignment_target(node: ast.Assign | ast.AnnAssign) -> str | None:

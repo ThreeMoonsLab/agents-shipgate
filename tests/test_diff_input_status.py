@@ -683,8 +683,9 @@ def test_a_current_artifact_cannot_omit_its_input_health(tmp_path: Path) -> None
     # which is not "complete", so it still withholds trust in a negative result.
     legacy = dict(without)
     legacy["verifier_schema_version"] = "0.6"
+    legacy.pop("conditional_file_edits", None)
     normalized = VerifierArtifact.model_validate(legacy)
-    assert normalized.verifier_schema_version == "0.16"
+    assert normalized.verifier_schema_version == "0.17"
     assert normalized.diff_status == VerifierDiffStatus.unknown()
     assert normalized.diff_status.completeness == "unknown"
     assert normalized.diff_status.reason is None
