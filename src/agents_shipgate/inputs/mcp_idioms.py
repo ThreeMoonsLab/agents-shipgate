@@ -1617,6 +1617,88 @@ def _child_braces(masked: str, open_brace: int, close: int) -> list[tuple[int, i
     return children
 
 
+#: The TypeScript SDK writes a tool's description in one of two places, and
+#: until #680 neither was read — `ts_sdk_register_tool` resolved the name and
+#: nothing else, so every tool on the *reference* MCP SDK was reported
+#: undocumented. `_TS_DESCRIPTION_RE` above looks like it covers this and does
+#: not: it serves the class-property idiom (`this.description = "…"`).
+#:
+#:   server.registerTool("get_job", { description: "…", inputSchema: {} }, fn)
+#:   server.tool("get_job", "…", fn)
+_TS_OBJECT_DESCRIPTION_KEY_RE = re.compile(r"(?<![\w$.])description\s*:\s*")
+
+
+def _ts_object_description(
+    source: MaskedSource, open_brace: int, close: int
+) -> str | None:
+    """The options object's own ``description``, never a nested one.
+
+    The depth test is the whole point. A registration's options object
+    carries `inputSchema`, and a JSON Schema describes *every parameter*:
+
+        { description: "Get a job", inputSchema: { properties: {
+              job_id: { description: "The job to get" } } } }
+
+    Without the depth-1 restriction the first `description:` found inside a
+    schema would be published as the tool's, so a tool whose own description
+    is missing would be documented with one of its arguments' — an invented
+    answer rather than an absent one.
+    """
+
+    candidates: list[int] = []
+    for match in _TS_OBJECT_DESCRIPTION_KEY_RE.finditer(
+        source.masked, open_brace + 1, close
+    ):
+        candidates.append(match.end())
+    # `{ "description": "…" }` is the same key; the masker hides its body, so
+    # a quoted key is found by value rather than by pattern.
+    for start, (value, end) in source.literals.items():
+        if not (open_brace < start < close) or value != "description":
+            continue
+        after = source.skip_space(end)
+        if after < len(source.masked) and source.masked[after] == ":":
+            candidates.append(after + 1)
+    for position in sorted(candidates):
+        if _brace_depth(source.masked, open_brace, position) != 1:
+            continue
+        found, value, end = source.literal_at(position)
+        if found and value and _literal_is_whole_value(source, end, ",}"):
+            return value
+        # The key is present at the right level but its value is not a plain
+        # literal. Reading further would be reading some other key's value.
+        return None
+    return None
+
+
+def _ts_call_description(
+    source: MaskedSource, open_paren: int, close: int
+) -> str | None:
+    """The description a `registerTool`/`tool` registration carries.
+
+    Both documented shapes put it in the *second* argument: a bare string in
+    the positional form, a `description` property in the options form.
+    Nothing else is read — `tool("name", handler)` is a registration with no
+    description, and must stay one.
+    """
+
+    found, _name, name_end = source.literal_at(open_paren + 1)
+    if not found:
+        return None
+    after = source.skip_space(name_end)
+    if after >= len(source.masked) or source.masked[after] != ",":
+        return None
+    second = source.skip_space(after + 1)
+    found, value, end = source.literal_at(second)
+    if found:
+        return value if value and _literal_is_whole_value(source, end, ",)") else None
+    if second < len(source.masked) and source.masked[second] == "{":
+        object_close = _matching_close(source.masked, second, "{", "}")
+        if object_close is None or object_close > close:
+            return None
+        return _ts_object_description(source, second, object_close)
+    return None
+
+
 #: The option-function shape: `NewTool("name", WithDescription("…"))`. This is
 #: how `mark3labs/mcp-go` declares a tool, which is the SDK behind
 #: `github/github-mcp-server` — so until #658 every one of its 114 tools read
@@ -3243,7 +3325,14 @@ def scan_source(
     sites: list[RegistrationSite] = []
     if language == "typescript":
         sites.extend(_ts_static_tool_name_sites(source))
-        sites.extend(_call_sites(source, _TS_REGISTER_TOOL_RE, "ts_sdk_register_tool"))
+        sites.extend(
+            _call_sites(
+                source,
+                _TS_REGISTER_TOOL_RE,
+                "ts_sdk_register_tool",
+                describe=_ts_call_description,
+            )
+        )
     else:
         sites.extend(
             _call_sites(

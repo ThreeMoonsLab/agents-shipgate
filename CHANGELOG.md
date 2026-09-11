@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+- Read a TypeScript tool's description, in both SDK shapes. The
+  `ts_sdk_register_tool` idiom resolved a registration's *name* and nothing
+  else, so every tool declared on the reference MCP SDK was reported
+  undocumented and earned a `SHIP-DOC-MISSING-DESCRIPTION` finding — one per
+  tool, on the most common server shape there is. `_TS_DESCRIPTION_RE` looks
+  like it covered this and does not: it serves the class-property idiom,
+  `this.description = "…"`, not a registration call. Both documented shapes
+  are now read — the options object of
+  `registerTool("get_job", { description: "…" }, fn)`, quoted key included,
+  and the positional second argument of `tool("get_job", "…", fn)`.
+
+  The description is taken from the options object's **own** `description`
+  and never a nested one. That restriction is the substance of the change
+  rather than a detail: a registration's options object carries
+  `inputSchema`, and a JSON Schema describes every parameter, so a reader
+  that took the first `description:` it found would publish an argument's
+  documentation as the tool's. A tool that describes only its parameters
+  now reads nothing, which is the true answer; reporting it undocumented is
+  right, and documenting it with `The text to search for.` would not be.
+  A computed value, a template literal, and a literal concatenated with
+  something else all still read nothing, in both shapes.
+
+  `tests/test_ts_tool_descriptions.py` pins four reads and six refusals,
+  and names the parameter-description case separately because it is the one
+  shape here that could return a confident wrong answer rather than no
+  answer. 6 of its 13 cases fail before the fix; the 7 that pass are the
+  refusals, which the old reader satisfied by reading nothing at all.
+  `tools/shipgate-detect.py` carries the same extractor, held to it by the
+  shared conformance corpus (#680).
+
+- Read a Go tool's description when it is an option, and when it is
+  translated. `mark3labs/mcp-go` registers a tool as a call carrying option
+  functions — `mcp.NewTool("get_job", mcp.WithDescription(...))` — and the
+  only Go description extractor looked for a `Description:` field in a
+  struct literal, which that shape does not have. So every tool registered
+  this way read `description=None`, plain literals included. On top of
+  that, `github/github-mcp-server` wraps all 114 of its descriptions in a
+  translation helper, `t("TOOL_GET_JOB_DESCRIPTION", "Get details ...")`,
+  so even a field reader would have found a call rather than a string. The
+  result was 114 `SHIP-DOC-MISSING-DESCRIPTION` findings against a
+  repository that documents every tool it ships, which is the kind of noise
+  that costs a reader's trust in everything else on the page.
+
 - Read Go MCP tool descriptions from struct `Description` fields and
   direct `WithDescription`/`WithToolDescription` options. Later description
   options replace earlier ones, including empty or computed values. Nested calls and partial

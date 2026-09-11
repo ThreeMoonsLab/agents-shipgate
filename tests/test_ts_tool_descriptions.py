@@ -1,0 +1,147 @@
+"""#680: a TypeScript tool's description, in both SDK shapes.
+
+`ts_sdk_register_tool` resolved the tool's *name* and nothing else, so
+every tool declared on the reference MCP SDK was reported undocumented and
+earned a `SHIP-DOC-MISSING-DESCRIPTION` finding. `_TS_DESCRIPTION_RE` looks
+like it covered this and does not — it serves the class-property idiom,
+`this.description = "…"`, not a registration call.
+
+The SDK writes the description in the second argument, two ways:
+
+    server.registerTool("get_job", { description: "…", inputSchema: {} }, fn)
+    server.tool("get_job", "…", fn)
+
+The refusals below matter as much as the reads, and one of them is the
+reason this is not a two-line change: a registration's options object
+carries `inputSchema`, and a JSON Schema describes every *parameter*. A
+reader that takes the first `description:` it finds publishes an argument's
+documentation as the tool's — an invented answer in place of an absent one.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from agents_shipgate.inputs.mcp_server_source import load_mcp_server_source
+from agents_shipgate.schemas.manifest import ToolSourceConfig
+
+PACKAGE_JSON = '{"name":"srv","dependencies":{"@modelcontextprotocol/sdk":"^1.0.0"}}'
+IMPORT = 'import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";\n'
+
+
+def _tools(tmp_path: Path, body: str) -> dict[str, str | None]:
+    (tmp_path / "package.json").write_text(PACKAGE_JSON, encoding="utf-8")
+    source = tmp_path / "src"
+    source.mkdir(exist_ok=True)
+    (source / "tools.ts").write_text(
+        IMPORT + "export function reg(server: McpServer) {\n" + body + "}\n",
+        encoding="utf-8",
+    )
+    loaded = load_mcp_server_source(
+        ToolSourceConfig(id="srv", type="mcp_server_source", path="."), tmp_path
+    )
+    return {tool.name: getattr(tool, "description", None) for tool in loaded.tools}
+
+
+#: (case, the registration line, what must be read).
+CASES: tuple[tuple[str, str, str | None], ...] = (
+    (
+        "options_object",
+        'server.registerTool("options_object", { description: "From the options object.", inputSchema: {} }, fn);',
+        "From the options object.",
+    ),
+    (
+        "quoted_key",
+        'server.registerTool("quoted_key", { "description": "From a quoted key.", inputSchema: {} }, fn);',
+        "From a quoted key.",
+    ),
+    (
+        "positional",
+        'server.tool("positional", "From the positional argument.", fn);',
+        "From the positional argument.",
+    ),
+    (
+        "own_beats_nested",
+        'server.registerTool("own_beats_nested", { description: "The tool\'s own.", inputSchema: { properties: { x: { description: "A parameter." } } } }, fn);',
+        "The tool's own.",
+    ),
+    # --- refusals ---------------------------------------------------------
+    # The trap. Only a parameter is described; the tool is not. Reading the
+    # schema's `description` would document this tool with its argument's
+    # text, which is worse than reporting it undocumented.
+    (
+        "nested_schema_only",
+        'server.registerTool("nested_schema_only", { inputSchema: { properties: { job_id: { description: "The job to get." } } } }, fn);',
+        None,
+    ),
+    # A valid registration that genuinely has no description.
+    ("no_description", 'server.tool("no_description", fn);', None),
+    ("computed", 'server.registerTool("computed", { description: buildDesc(), inputSchema: {} }, fn);', None),
+    ("template_literal", 'server.registerTool("template_literal", { description: `Hello ${name}`, inputSchema: {} }, fn);', None),
+    ("concatenation", 'server.registerTool("concatenation", { description: "Part " + suffix, inputSchema: {} }, fn);', None),
+    ("positional_concatenation", 'server.tool("positional_concatenation", "Part " + suffix, fn);', None),
+)
+
+
+@pytest.mark.parametrize(
+    ("case", "line", "expected"), CASES, ids=[case[0] for case in CASES]
+)
+def test_description_is_read_or_refused(
+    tmp_path: Path, case: str, line: str, expected: str | None
+) -> None:
+    assert _tools(tmp_path, f"  {line}\n") == {case: expected}
+
+
+def test_a_parameter_description_is_never_published_as_the_tools(
+    tmp_path: Path,
+) -> None:
+    """Named separately because it is the one wrong-answer risk here.
+
+    Every other refusal reports nothing where nothing is known. This one
+    would report *something*, and a reader has no way to tell that the
+    sentence they are reading describes an argument.
+    """
+
+    body = """
+  server.registerTool("search", {
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "The text to search for." },
+        limit: { type: "number", description: "How many results." }
+      }
+    }
+  }, fn);
+"""
+
+    assert _tools(tmp_path, body) == {"search": None}
+
+
+def test_every_tool_in_an_ordinary_server_is_documented(tmp_path: Path) -> None:
+    """The headline, stated as a property: `SHIP-DOC-MISSING-DESCRIPTION`
+    fires per undocumented tool, so this is the false-finding count."""
+
+    body = "".join(
+        f'  server.registerTool("tool_{index}", {{ description: "Tool {index} does a thing.", '
+        f'inputSchema: {{ properties: {{ arg: {{ description: "An argument." }} }} }} }}, fn);\n'
+        for index in range(12)
+    )
+
+    described = _tools(tmp_path, body)
+
+    assert len(described) == 12
+    assert [name for name, text in described.items() if not text] == []
+    assert set(described.values()) == {
+        f"Tool {index} does a thing." for index in range(12)
+    }
+
+
+def test_both_shapes_in_one_file(tmp_path: Path) -> None:
+    body = (
+        '  server.registerTool("a", { description: "Alpha.", inputSchema: {} }, fn);\n'
+        '  server.tool("b", "Bravo.", fn);\n'
+    )
+
+    assert _tools(tmp_path, body) == {"a": "Alpha.", "b": "Bravo."}
